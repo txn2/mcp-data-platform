@@ -3543,7 +3543,9 @@ Write endpoints decode JSON bodies strictly: an unknown or mis-named field is re
 
 ## Interactive API Documentation
 
-Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is auto-generated from source code annotations and available at `/api/v1/admin/docs/doc.json`. Regenerate with `make swagger`.
+Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is auto-generated from source code annotations and available at `/api/v1/admin/docs/doc.json`. Regenerate with `make swagger`. The same document is also rendered with ReDoc from the portal's admin navigation, which reads better as reference material; Swagger UI keeps "Try it out".
+
+The spec is not admin-only: it documents the API gateway data plane under the `Gateway` tag (`POST /api/v1/gateway/{connection}/invoke` and `/invoke-raw`), the portal and resource routes, the DataHub catalog surface and the table registrations, grouped into User API and Admin API headings by `x-tagGroups`. Two gates keep it honest, both closing silent failures: `TestAdminCatalogRouteParity` reads every route registration pattern in the source tree and refuses one it cannot resolve statically rather than skipping it, and `TestSwaggerTagsAreDescribedAndGrouped` fails when an operation carries a tag that `scripts/swagger-tag-groups.py` does not describe and group, since such a tag renders outside both headings.
 
 ## System Endpoints
 
@@ -4062,14 +4064,14 @@ Salesforce needs `refresh_token` in `oauth_scope` to issue a refresh token; with
 POST /api/v1/gateway/{connection}/invoke
 ```
 
-Auth uses the same headers as every other REST surface on the platform (`Authorization: Bearer ...` or `X-API-Key: ...`). The request goes through an in-memory MCP session against the assembled server, so the authenticator, persona authorization, route-policy, and audit middleware all apply identically to MCP and REST callers — no auth or audit logic is forked. Persona allowlists for `api_invoke_endpoint` govern access; tool-error envelopes from the toolkit map to HTTP status codes (`401` for auth failure, `403` for not authorized, `404` for unknown connection, `400` for validation).
+Auth uses the same headers as every other REST surface on the platform (`Authorization: Bearer ...` or `X-API-Key: ...`). The request goes through an in-memory MCP session against the assembled server, so the authenticator, persona authorization, route-policy, and audit middleware all apply identically to MCP and REST callers — no auth or audit logic is forked. Persona allowlists for `api_invoke_endpoint` govern access; tool-error envelopes from the toolkit map to HTTP status codes (`401` for auth failure, `403` for not authorized, `404` for unknown connection, `400` for validation). `paginate` is bound on this route and walks the pages inside the one call exactly as it does for an MCP caller; it is refused on `/invoke-raw`, where a byte stream has nothing to merge. `operation_id`, `path_params`, `spec` and `decode` are MCP-tool-only and are not bound over REST. Both routes are in the served reference under the `Gateway` tag.
 
 The REST surface is exempt from the agent-oriented session-handle requirement (`session.require`): stateless automation callers (NiFi, cronjobs, `curl`) cannot mint or thread a `platform_info` `session_id`, so they are not refused with `SESSION_REQUIRED`. The exemption is scoped to the session handshake only; authentication, persona authorization, route policy, and audit still apply.
 
 Request body mirrors `InvokeInput` (the connection is taken from the URL):
 
 ```json
-{ "method": "GET", "path": "/v1/things", "query_params": {"limit": 50}, "headers": {"X-Trace": "abc"}, "body": null, "timeout_seconds": 30 }
+{ "method": "GET", "path": "/v1/things", "query_params": {"limit": 50}, "headers": {"X-Trace": "abc"}, "body": null, "timeout_seconds": 30, "paginate": {"items": "data", "cursor_param": "cursor"} }
 ```
 
 Response is `InvokeOutput` JSON: `status` is the upstream HTTP status, `body` is the parsed upstream response, `duration_ms` is the per-call timing. Platform HTTP `200` means the upstream call ran (outcome in `body.status`), not that the upstream succeeded — keeping platform-side and upstream-side failures distinguishable for NiFi's response-code routing. The route is only mounted when at least one `kind: api` toolkit instance is loaded.

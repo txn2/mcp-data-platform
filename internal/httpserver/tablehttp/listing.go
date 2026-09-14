@@ -74,6 +74,23 @@ type scratchTableList struct {
 }
 
 // listAll handles GET /api/v1/tables.
+//
+// @Summary      List every registered table this caller can see
+// @Description  Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.
+// @Description  A `connection` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A `kind` outside `resource` and `asset` is dropped rather than passed through.
+// @Tags         Tables
+// @Produce      json
+// @Param        connection  query  string  false  "Only registrations on this connection"
+// @Param        kind        query  string  false  "Only registrations over this source kind"  Enums(resource, asset)
+// @Param        q           query  string  false  "Case-insensitive substring of the fully qualified catalog.schema.table name"
+// @Param        page        query  int     false  "Page number, 1-based (default: 1)"
+// @Param        per_page    query  int     false  "Rows per page (default: 50, max: 200)"
+// @Success      200  {object}  scratchTableList
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /tables [get]
 func (h *Handler) listAll(w http.ResponseWriter, r *http.Request) {
 	caller, ok := h.caller(w, r)
 	if !ok {
@@ -106,6 +123,20 @@ func (h *Handler) listAll(w http.ResponseWriter, r *http.Request) {
 }
 
 // getOne handles GET /api/v1/tables/{regID}.
+//
+// @Summary      Get one registered table
+// @Description  Returns a single registration with its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.
+// @Description  A registration on a connection this caller's persona is not granted is answered as not found rather than as a denial: they cannot query the table and cannot act on it, and saying it exists would disclose a table name in a schema they have no reach into. An administrator is unrestricted.
+// @Tags         Tables
+// @Produce      json
+// @Param        regID  path  string  true  "Table registration ID"
+// @Success      200  {object}  scratchTableView
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /tables/{regID} [get]
 func (h *Handler) getOne(w http.ResponseWriter, r *http.Request) {
 	caller, ok := h.caller(w, r)
 	if !ok {

@@ -50,6 +50,14 @@ const CatalogsPanel = lazy(() =>
 const ApisPage = lazy(() =>
   import("@/pages/apis/ApisPage").then((m) => ({ default: m.ApisPage })),
 );
+// The platform's own REST surface (#1742). Its own chunk carries ReDoc, which
+// is the heaviest dependency in the bundle, so nothing downloads it until an
+// administrator opens this page.
+const ApiReferencePage = lazy(() =>
+  import("@/pages/api-reference/ApiReferencePage").then((m) => ({
+    default: m.ApiReferencePage,
+  })),
+);
 const ConnectionsPanel = lazy(() =>
   import("@/pages/settings/ConnectionsPanel").then((m) => ({ default: m.ConnectionsPanel })),
 );
@@ -123,6 +131,7 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
     />
   )],
   ["/admin/api-catalogs", () => <CatalogsPanel />],
+  ["/admin/api-reference", () => <ApiReferencePage />],
   ["/admin/apis", () => <ApisPage scope="admin" />],
   ["/admin/connections", () => <ConnectionsPanel />],
   ["/admin/personas", () => <PersonasPanel />],

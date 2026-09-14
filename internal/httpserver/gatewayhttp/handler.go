@@ -83,6 +83,10 @@ type Deps struct {
 //	401 - no credential, or the credential was rejected
 //	403 - persona or route policy denied the call
 //	404 - the named connection is not registered
+//	413 - the upstream body exceeds the inline size limit
+//	415 - the upstream body is not inlineable at its media type
+//	429 - the inline read budget is exhausted; Retry-After is set
+//	500 - the platform could not complete its own side of the call
 //	502 - the gateway could not reach the upstream (DNS, TCP, TLS, reset)
 //	504 - the upstream call exceeded its deadline before responding
 //
@@ -92,6 +96,14 @@ type Deps struct {
 // 200 with the upstream code embedded in InvokeOutput.Status, so HTTP
 // clients can distinguish "the gateway is broken" from "the upstream
 // is unhappy" using their built-in status-code routing.
+//
+// The invoke-raw route inverts that last rule, and a client switching
+// between the two has to know it: a raw passthrough streams the
+// upstream's own status onto the wire (see streamRaw), so there
+// the HTTP status line IS the upstream's. The platform-level codes
+// above still apply to a raw call that fails before any byte is
+// streamed; once the first byte is out the response is committed and
+// no later failure can change it.
 func NewHandler(deps Deps) (http.Handler, error) {
 	if deps.MCPServer == nil {
 		return nil, errors.New("gatewayhttp: MCPServer is required")
@@ -119,12 +131,18 @@ type handler struct {
 // supplied via the URL path and overrides any value placed in the
 // body.
 type invokeRequest struct {
-	Method         string            `json:"method"`
-	Path           string            `json:"path"`
-	QueryParams    map[string]any    `json:"query_params,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	Body           any               `json:"body,omitempty"`
-	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	Method      string            `json:"method"`
+	Path        string            `json:"path"`
+	QueryParams map[string]any    `json:"query_params,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        any               `json:"body,omitempty"`
+	// Paginate, when set, makes the call a page walk (issue #1535):
+	// the gateway follows the response's pagination signal itself and
+	// returns the merged array, exactly as it does for an MCP caller.
+	// A REST caller reaching a paginated upstream would otherwise have
+	// to reimplement the follow loop that the gateway already owns.
+	Paginate       *apigatewaykit.PaginateInput `json:"paginate,omitempty"`
+	TimeoutSeconds int                          `json:"timeout_seconds,omitempty"`
 }
 
 // errorEnvelope matches the JSON body the apigateway toolkit emits
@@ -135,6 +153,36 @@ type errorEnvelope struct {
 	Error string `json:"error"`
 }
 
+// invoke forwards a REST caller's request to a configured upstream
+// connection and returns the enveloped result.
+//
+// @Summary      Call an upstream connection through the API gateway
+// @Description  Forwards a request to the named upstream connection and returns the enveloped result. This is the REST equivalent of the api_invoke_endpoint MCP tool, for non-MCP clients (NiFi, Airflow, curl).
+// @Description
+// @Description  The HTTP status of THIS response reports the platform's own outcome only. When the platform performed the call, the response is 200 and the upstream's own status code is in `status` inside the body — a 404 from the upstream arrives as HTTP 200 with `"status": 404`. That split lets a client route on "the gateway is broken" (502, 504) separately from "the upstream is unhappy".
+// @Description
+// @Description  A `connection` key in the body is ignored; the connection is taken from the URL. `operation_id`, `path_params`, `spec` and `decode` are MCP-tool parameters and are not bound on this route.
+// @Description
+// @Description  Browse connections and copy a ready-made call at /portal/apis.
+// @Tags         Gateway
+// @Accept       json
+// @Produce      json
+// @Param        connection  path  string         true  "Name of the configured upstream connection"
+// @Param        body        body  invokeRequest  true  "Request to forward upstream"
+// @Success      200  {object}  apigateway.InvokeOutput  "The platform performed the call; the upstream's status is in the body"
+// @Failure      400  {object}  errorEnvelope  "Request failed validation, or paginate was set on a raw route"
+// @Failure      401  {object}  errorEnvelope  "No credential, or the credential was rejected"
+// @Failure      403  {object}  errorEnvelope  "Persona or route policy denied the call"
+// @Failure      404  {object}  errorEnvelope  "The named connection is not registered"
+// @Failure      413  {object}  errorEnvelope  "Upstream body exceeds the inline size limit"
+// @Failure      415  {object}  errorEnvelope  "Upstream body is not inlineable at its media type"
+// @Failure      429  {object}  errorEnvelope  "Inline read budget exhausted; Retry-After is set"
+// @Failure      500  {object}  errorEnvelope  "The platform could not complete its own side of the call"
+// @Failure      502  {object}  errorEnvelope  "The gateway could not reach the upstream"
+// @Failure      504  {object}  errorEnvelope  "The upstream call exceeded its deadline"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /gateway/{connection}/invoke [post]
 func (h *handler) invoke(w http.ResponseWriter, r *http.Request) {
 	connection := r.PathValue("connection")
 	req, err := decodeInvokeRequest(r)
@@ -176,6 +224,34 @@ func (h *handler) invoke(w http.ResponseWriter, r *http.Request) {
 // handler io.Copy's the upstream body to this ResponseWriter instead of
 // buffering it into the JSON envelope. The upstream credential is still
 // held and injected by the gateway; the caller never sees it.
+// invokeRaw forwards a REST caller's request to a configured upstream
+// connection and streams the upstream body back unbuffered.
+//
+// @Summary      Call an upstream connection and stream the body back unbuffered
+// @Description  Same call as /invoke, but the upstream body is streamed straight to the client instead of being buffered into a JSON envelope (issue #535). Use it for large or binary bodies.
+// @Description
+// @Description  Unlike /invoke, this route puts the UPSTREAM's status code on the HTTP status line, because the response is committed the moment the first byte is streamed. The platform-level codes below apply only to a call that fails before any byte is sent.
+// @Description
+// @Description  Forwarded upstream headers: Content-Length, Content-Encoding, Content-Range, Cache-Control, ETag, Last-Modified. Content-Type and Content-Disposition are derived by the platform's content contract rather than passed through, and a response with no upstream Cache-Control is served `private`.
+// @Description
+// @Description  `paginate` is refused on this route: a walk merges JSON pages and there is nothing to merge in a byte stream.
+// @Tags         Gateway
+// @Accept       json
+// @Produce      octet-stream
+// @Param        connection  path  string         true  "Name of the configured upstream connection"
+// @Param        body        body  invokeRequest  true  "Request to forward upstream"
+// @Success      200  {file}  binary  "The upstream body, streamed; the status line is the upstream's own"
+// @Failure      400  {object}  errorEnvelope  "Request failed validation, or paginate was set"
+// @Failure      401  {object}  errorEnvelope  "No credential, or the credential was rejected"
+// @Failure      403  {object}  errorEnvelope  "Persona or route policy denied the call"
+// @Failure      404  {object}  errorEnvelope  "The named connection is not registered"
+// @Failure      413  {object}  errorEnvelope  "Upstream body exceeds the raw passthrough cap"
+// @Failure      500  {object}  errorEnvelope  "The platform could not complete its own side of the call"
+// @Failure      502  {object}  errorEnvelope  "The gateway could not reach the upstream"
+// @Failure      504  {object}  errorEnvelope  "The upstream call exceeded its deadline"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /gateway/{connection}/invoke-raw [post]
 func (h *handler) invokeRaw(w http.ResponseWriter, r *http.Request) {
 	connection := r.PathValue("connection")
 	req, err := decodeInvokeRequest(r)
@@ -317,6 +393,9 @@ func buildInvokeArgs(connection string, req *invokeRequest) map[string]any {
 	}
 	if req.TimeoutSeconds > 0 {
 		args["timeout_seconds"] = req.TimeoutSeconds
+	}
+	if req.Paginate != nil {
+		args["paginate"] = req.Paginate
 	}
 	return args
 }

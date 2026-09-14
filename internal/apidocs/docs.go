@@ -6859,6 +6859,355 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/prompts/{id}/attachments": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the reference material attached to a prompt, in authored order. Attachments whose resource was deleted are returned flagged as broken; attachments outside the caller's scope are flagged unreadable and carry no metadata.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "List prompt attachments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/attachhttp.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rewrites the authored order of a prompt's attachments. The order is what an agent receives them in. An id that is not already attached is refused; omitting a currently attached id detaches it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Reorder prompt attachments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Attachments in the desired order",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/attachhttp.reorderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/attachhttp.listResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Links a managed resource to a prompt as reference material. The resource must be readable by the caller and at least as widely visible as the prompt; a narrower resource is refused with 409 and a message naming it. Returns the prompt's new attachment list.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Attach a resource to a prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Resource to attach",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/attachhttp.attachRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/attachhttp.listResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/prompts/{id}/attachments/{resourceID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes one attachment link. The resource itself is untouched.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Detach a resource from a prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "resourceID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/admin/prompts/{id}/collection": {
             "put": {
                 "security": [
@@ -7236,6 +7585,71 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/resources/{id}/prompts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the prompts that attach a resource, so the cost of editing or deleting it is visible first. Scoped to the caller: another user's personal prompt is never disclosed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List prompts attaching a resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -8795,6 +9209,212 @@ const docTemplate = `{
                 }
             }
         },
+        "/gateway/{connection}/invoke": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Forwards a request to the named upstream connection and returns the enveloped result. This is the REST equivalent of the api_invoke_endpoint MCP tool, for non-MCP clients (NiFi, Airflow, curl).\n\nThe HTTP status of THIS response reports the platform's own outcome only. When the platform performed the call, the response is 200 and the upstream's own status code is in ` + "`" + `status` + "`" + ` inside the body — a 404 from the upstream arrives as HTTP 200 with ` + "`" + `\"status\": 404` + "`" + `. That split lets a client route on \"the gateway is broken\" (502, 504) separately from \"the upstream is unhappy\".\n\nA ` + "`" + `connection` + "`" + ` key in the body is ignored; the connection is taken from the URL. ` + "`" + `operation_id` + "`" + `, ` + "`" + `path_params` + "`" + `, ` + "`" + `spec` + "`" + ` and ` + "`" + `decode` + "`" + ` are MCP-tool parameters and are not bound on this route.\n\nBrowse connections and copy a ready-made call at /portal/apis.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Gateway"
+                ],
+                "summary": "Call an upstream connection through the API gateway",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Name of the configured upstream connection",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request to forward upstream",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.invokeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The platform performed the call; the upstream's status is in the body",
+                        "schema": {
+                            "$ref": "#/definitions/apigateway.InvokeOutput"
+                        }
+                    },
+                    "400": {
+                        "description": "Request failed validation, or paginate was set on a raw route",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "401": {
+                        "description": "No credential, or the credential was rejected",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona or route policy denied the call",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "The named connection is not registered",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "413": {
+                        "description": "Upstream body exceeds the inline size limit",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "415": {
+                        "description": "Upstream body is not inlineable at its media type",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "429": {
+                        "description": "Inline read budget exhausted; Retry-After is set",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "The platform could not complete its own side of the call",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "502": {
+                        "description": "The gateway could not reach the upstream",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "504": {
+                        "description": "The upstream call exceeded its deadline",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/gateway/{connection}/invoke-raw": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same call as /invoke, but the upstream body is streamed straight to the client instead of being buffered into a JSON envelope (issue #535). Use it for large or binary bodies.\n\nUnlike /invoke, this route puts the UPSTREAM's status code on the HTTP status line, because the response is committed the moment the first byte is streamed. The platform-level codes below apply only to a call that fails before any byte is sent.\n\nForwarded upstream headers: Content-Length, Content-Encoding, Content-Range, Cache-Control, ETag, Last-Modified. Content-Type and Content-Disposition are derived by the platform's content contract rather than passed through, and a response with no upstream Cache-Control is served ` + "`" + `private` + "`" + `.\n\n` + "`" + `paginate` + "`" + ` is refused on this route: a walk merges JSON pages and there is nothing to merge in a byte stream.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Gateway"
+                ],
+                "summary": "Call an upstream connection and stream the body back unbuffered",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Name of the configured upstream connection",
+                        "name": "connection",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request to forward upstream",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.invokeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The upstream body, streamed; the status line is the upstream's own",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Request failed validation, or paginate was set",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "401": {
+                        "description": "No credential, or the credential was rejected",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona or route policy denied the call",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "The named connection is not registered",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "413": {
+                        "description": "Upstream body exceeds the raw passthrough cap",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "The platform could not complete its own side of the call",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "502": {
+                        "description": "The gateway could not reach the upstream",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    },
+                    "504": {
+                        "description": "The upstream call exceeded its deadline",
+                        "schema": {
+                            "$ref": "#/definitions/gatewayhttp.errorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/activity/breakdown": {
             "get": {
                 "security": [
@@ -10228,6 +10848,224 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/tables": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the registrations built over one portal asset under a ` + "`" + `table_registrations` + "`" + ` key, each with its fully qualified query name, a sample SELECT, and whether the table has fallen behind the file. Restricted to the asset's owner and to administrators -- an editor share does not carry it -- and a soft-deleted asset is answered as not found.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List the tables registered over a portal asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Portal asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/tablehttp.registrationView"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an external table over the asset's directory on the named connection, so the CSV stored there can be queried. Restricted to the asset's owner and to administrators -- an editor share does not carry it -- because registering publishes the file's contents into a schema everyone granted the connection can read.\nA file that cannot be read as a table the way it is stored is refused with the problem type ` + "`" + `urn:mcp-data-platform:problem:csv-needs-repair` + "`" + `; resubmitting with ` + "`" + `repair: true` + "`" + ` saves a corrected version of the file first and registers over that.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Register a portal asset as a query-engine table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Portal asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connection to register on, and the optional table name, repair and follow choices",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/tablehttp.registerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/tablehttp.registrationView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/tables/{regID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Drops the external table and forgets the registration. The asset itself is untouched: dropping a Hive external table removes the metastore entry and leaves the stored objects. Only the person who registered the table or an administrator may remove it, and the record goes even when the DROP fails, so a table nobody can remove through the platform is never left behind.",
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Drop a table registered over a portal asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Portal asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Table registration ID",
+                        "name": "regID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -11978,6 +12816,2367 @@ const docTemplate = `{
                         "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/connections": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the DataHub connections this deployment serves, each with whether it is write-enabled. A caller whose persona grants no DataHub tool receives an empty list rather than a 403, so the UI hides the Catalog and Context Docs tabs instead of showing an error.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "List DataHub connections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/datahubapi.Connection"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/browse": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a page of the connection's catalog with no filters applied, for the unfiltered listing the Catalog tab opens on. It runs the same search as the search route with a match-everything query, so paging is the only input.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Browse the DataHub catalog",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results; defaults to 25 and is capped at 200",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Result offset; defaults to 0",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.TableSearchResult"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/domains": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Defines a domain in the governance vocabulary and returns the URN DataHub assigned it. The domain is not immediately listable: the lookup read is served from DataHub's asynchronously populated index, so the returned URN is authoritative in the meantime.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Create a domain",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Domain name and optional description",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.vocabularyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retires a domain by URN. The URN is a query parameter rather than a path segment because a domain URN is itself colon-delimited.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Delete a domain",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Domain URN (urn:li:domain:\u003cid\u003e)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one dataset's table context together with its per-column context, addressed by DataHub URN. The column read is supplementary: when it fails the failure is logged and ` + "`" + `columns` + "`" + ` is omitted rather than failing the whole request.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Read a catalog entity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Dataset URN to read",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.catalogEntityResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "urn is missing, or it is not a URN this connection can resolve to a table",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection, or the URN is not in this catalog",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity/description": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the description on the entity named by ` + "`" + `urn` + "`" + `. This is also the route that edits a glossary term's or node's definition, which DataHub stores through the same update.\nRequires the datahub_update grant and a write-enabled connection. Only ` + "`" + `urn` + "`" + ` and ` + "`" + `description` + "`" + ` are read from the body.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Set a catalog entity's description",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Entity URN and the new description",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.catalogChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, or urn is missing",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_update grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity/documents": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the context documents attached to one catalog entity. It is the one document read the corpus-wide browse and search routes cannot express, since neither is scoped to what a given dataset, glossary term, or glossary node carries.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "List a catalog entity's context documents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "URN of the entity whose attached documents are returned",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.DocumentResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "urn is missing",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection, or a urn the catalog does not know",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity/domain": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Moves the entity named by ` + "`" + `urn` + "`" + ` into ` + "`" + `domain` + "`" + `, or removes it from whatever domain it is in when ` + "`" + `clear_domain` + "`" + ` is true.\nA set with an empty or malformed ` + "`" + `domain` + "`" + ` is rejected rather than silently unsetting it, so clearing is always explicit; ` + "`" + `domain` + "`" + ` must be a urn:li:domain:\u003cid\u003e URN. Requires the datahub_update grant and a write-enabled connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Set or clear a catalog entity's domain",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Entity URN plus the domain URN to set, or clear_domain",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.catalogChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, urn is missing, or domain is missing or not a domain URN on a set",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_update grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity/glossary-terms": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies ` + "`" + `add` + "`" + ` and ` + "`" + `remove` + "`" + ` to the entity named by ` + "`" + `urn` + "`" + ` as one batched change, for the same reason the tag edit is batched: per-item writes clobber each other.\nEvery value in either list must be a urn:li:glossaryTerm:\u003cid\u003e URN. Requires the datahub_update grant and a write-enabled connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Add and remove a catalog entity's glossary terms",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Entity URN plus the glossary term URNs to add and remove",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.catalogChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, urn is missing, or a value is not a glossary term URN",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_update grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity/owners": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies ` + "`" + `add_owners` + "`" + ` and ` + "`" + `remove` + "`" + ` to the entity named by ` + "`" + `urn` + "`" + ` as one batched ownership change. Each added owner carries its URN and an optional ownership type; ` + "`" + `remove` + "`" + ` is a list of owner URNs.\nAdditions come from ` + "`" + `add_owners` + "`" + `, not the ` + "`" + `add` + "`" + ` field this payload shares with the tag and glossary-term edits; owners sent in ` + "`" + `add` + "`" + ` are refused with 400 rather than accepted and dropped. Every owner URN must be urn:li:corpuser:\u003cid\u003e or urn:li:corpGroup:\u003cid\u003e. Requires the datahub_update grant and a write-enabled connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Add and remove a catalog entity's owners",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Entity URN plus the owners to add and the owner URNs to remove",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.catalogChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, urn is missing, owners were sent in add instead of add_owners, or an owner value is not a corpuser or corpGroup URN",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_update grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/entity/tags": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies ` + "`" + `add` + "`" + ` and ` + "`" + `remove` + "`" + ` to the entity named by ` + "`" + `urn` + "`" + ` as one batched change, because per-item writes read-modify-write DataHub's eventually consistent aspects and clobber each other.\nEvery value in either list must be a urn:li:tag:\u003cid\u003e URN; a malformed value is rejected here rather than forwarded to DataHub. Requires the datahub_update grant and a write-enabled connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Add and remove a catalog entity's tags",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Entity URN plus the tag URNs to add and remove",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.catalogChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, urn is missing, or a value is not a tag URN",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_update grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/children": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one page of the nodes and terms directly under a glossary node. Children come from DataHub's asynchronously populated graph index, so an entity created moments earlier may not appear yet.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Browse the children of a glossary node",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Parent node URN (urn:li:glossaryNode:\u003cid\u003e)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Row offset (default 0)",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows per page (default 25, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/semantic.GlossaryChildren"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/entity": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retires a glossary term or node by URN. A node is removed without its children, so the portal shows a node's children and a term's usage before offering the delete.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Delete a glossary term or node",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Glossary term or node URN (urn:li:glossaryTerm:\u003cid\u003e or urn:li:glossaryNode:\u003cid\u003e)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/nodes": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Defines a glossary node, the folder that terms and other nodes sit in, and returns the URN DataHub assigned it. An empty parent_node creates the node at the root of the glossary.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Create a glossary node",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Node name, definition, and optional parent node URN",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.glossaryEntityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/parents": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the glossary nodes above a term or node, direct parent first, so a breadcrumb can be rendered for an entity reached without walking the tree.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Get the ancestors of a glossary entity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Glossary term or node URN (urn:li:glossaryTerm:\u003cid\u003e or urn:li:glossaryNode:\u003cid\u003e)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.GlossaryNode"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/roots": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the glossary nodes and the glossary terms that have no parent. Nodes and terms are paged independently upstream, so each carries its own total.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Browse the roots of the business glossary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Row offset into each list (default 0)",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows per list (default 25, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.glossaryRootsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/term": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single glossary term: its name and its definition. There is no node counterpart, because upstream has no by-URN node read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Get one glossary term by URN",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Glossary term URN (urn:li:glossaryTerm:\u003cid\u003e)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/glossary/terms": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Defines a glossary term, the named piece of business vocabulary datasets and columns are tagged with, and returns the URN DataHub assigned it. An empty parent_node creates the term at the root of the glossary.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Create a glossary term",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Term name, definition, and optional parent node URN",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.glossaryEntityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/lookup/domains": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every domain defined on the connection. DataHub has no name-scoped domain search, so this route takes neither a query nor a limit and a picker filters the full list itself.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "List domains",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.EntityRef"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/lookup/glossary-terms": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Name-searches the connection's DataHub glossary terms so a caller can resolve a typed name to a urn:li:glossaryTerm URN. Authorized as a read, not as a glossary edit.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Look up glossary terms by name",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name text to match",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results; defaults to 25 and is capped at 200",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.EntityRef"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/lookup/tags": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Name-searches the connection's DataHub tags so a caller can resolve a typed name to a urn:li:tag URN. Authorized as a read, not as a tag edit.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Look up tags by name",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Name text to match",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results; defaults to 25 and is capped at 200",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.EntityRef"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/search": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Runs a filtered catalog search against one DataHub connection and returns the matching datasets. Every filter is optional and they combine.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Search the DataHub catalog",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Free-text query",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Restrict to one data platform",
+                        "name": "platform",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Restrict to one domain",
+                        "name": "domain",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Restrict to datasets carrying this owner",
+                        "name": "owner",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Restrict to datasets carrying these tags; repeat the key or pass one comma-separated value",
+                        "name": "tags",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Restrict to datasets carrying this glossary term on the table or on a column",
+                        "name": "glossary_term",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Restrict to datasets carrying this glossary term on a column",
+                        "name": "column_glossary_term",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results; defaults to 25 and is capped at 200",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Result offset; defaults to 0",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.TableSearchResult"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/catalog/tags": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Defines a tag in the governance vocabulary and returns the URN DataHub assigned it. The tag is not immediately listable: the lookup read is served from DataHub's asynchronously populated index, so the returned URN is authoritative in the meantime.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Create a tag",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Tag name and optional description",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.vocabularyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retires a tag by URN. The URN is a query parameter rather than a path segment because a tag URN is itself colon-delimited.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Delete a tag",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tag URN (urn:li:tag:\u003cid\u003e)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/documents": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a context document attached to the entity named by ` + "`" + `entity_urn` + "`" + ` and returns the stored document.\nThe entity must be a dataset, glossaryTerm, glossaryNode, or container, which is the set upstream can attach a document to; any other type is refused here rather than forwarded. Requires the datahub_create grant and a write-enabled connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Create a context document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Document to create, including the entity it attaches to",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.documentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/semantic.DocumentResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, title or entity_urn is missing, or entity_urn names an entity type a document cannot attach to",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_create grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/documents/browse": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a page of the connection's context documents together with the corpus total, for the unfiltered Context Docs listing. The response carries ` + "`" + `documents` + "`" + ` and ` + "`" + `total` + "`" + `.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Browse context documents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results; defaults to 25 and is capped at 200",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Result offset; defaults to 0",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "documents plus the corpus total",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/documents/search": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Free-text searches the connection's context documents across the whole corpus. Unlike the catalog search, q is required: an empty q is a 400 rather than a match-everything browse, which the browse route serves instead.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Search context documents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search text",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum results; defaults to 25 and is capped at 200",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/semantic.DocumentResult"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "q is missing or blank",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/datahub/{conn}/documents/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one context document. The id may be given bare or in the full urn:li:document:\u003cid\u003e form the read routes return.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Read a context document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Context document id, bare or URN-prefixed",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/semantic.DocumentResult"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona grants no DataHub access",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection, or no such context document",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces a context document's title, content, and category in place and returns the stored document. The id may be given bare or in the full urn:li:document:\u003cid\u003e form.\n` + "`" + `entity_urn` + "`" + ` in the body is ignored: the document stays attached to the entity it was created against. Requires the datahub_update grant and a write-enabled connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Update a context document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Context document id, bare or URN-prefixed",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New title, content, and category",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.documentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/semantic.DocumentResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Body is not valid JSON, or title is missing",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_update grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes a context document. The id may be given bare or in the full urn:li:document:\u003cid\u003e form. Requires the datahub_delete grant and a write-enabled connection.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "DataHub"
+                ],
+                "summary": "Delete a context document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "DataHub connection name",
+                        "name": "conn",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Context document id, bare or URN-prefixed",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "No authenticated user",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Persona lacks the datahub_delete grant, or the connection is read-only",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Unknown DataHub connection",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "The DataHub call failed",
+                        "schema": {
+                            "$ref": "#/definitions/datahubapi.problemDetail"
                         }
                     }
                 }
@@ -14299,6 +17498,15 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -18543,6 +21751,224 @@ const docTemplate = `{
                 }
             }
         },
+        "/resources/{id}/tables": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the registrations built over one managed resource under a ` + "`" + `table_registrations` + "`" + ` key, each with its fully qualified query name, a sample SELECT, and whether the table has fallen behind the file. Requires authority to change the resource -- the uploader, a platform administrator, or an administrator of the scope the resource lives in; a resource outside that authority is answered as not found.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List the tables registered over a managed resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Managed resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/tablehttp.registrationView"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates an external table over the resource's directory on the named connection, so the CSV stored there can be queried. Requires authority to change the resource -- the uploader, a platform administrator, or an administrator of the scope the resource lives in -- because registering publishes the file's contents into a schema everyone granted the connection can read.\nA file that cannot be read as a table the way it is stored is refused with the problem type ` + "`" + `urn:mcp-data-platform:problem:csv-needs-repair` + "`" + `; resubmitting with ` + "`" + `repair: true` + "`" + ` saves a corrected version of the file first and registers over that.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Register a managed resource as a query-engine table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Managed resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Connection to register on, and the optional table name, repair and follow choices",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/tablehttp.registerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/tablehttp.registrationView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/tables/{regID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Drops the external table and forgets the registration. The resource itself is untouched: dropping a Hive external table removes the metastore entry and leaves the stored objects. Only the person who registered the table or an administrator may remove it, and the record goes even when the DROP fails, so a table nobody can remove through the platform is never left behind.",
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Drop a table registered over a managed resource",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Managed resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Table registration ID",
+                        "name": "regID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/resources/{id}/thumbnail": {
             "get": {
                 "security": [
@@ -18928,6 +22354,177 @@ const docTemplate = `{
                         "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/table-connections": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns, under a ` + "`" + `connections` + "`" + ` key, the connections this caller may register a new table onto: granted to their persona, carrying a scratch catalog and schema, and accepting writes. It is the register form's only source, so every connection offered here is one the register routes accept.\nIt is deliberately narrower than the set a listing shows: a connection turned read-only after a registration still appears in ` + "`" + `GET /tables` + "`" + ` and no longer appears here. A deployment that cannot enumerate its connections answers an empty list rather than an error.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List the connections a table can be registered on",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/tablehttp.ConnectionChoice"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/tables": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.\nA ` + "`" + `connection` + "`" + ` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A ` + "`" + `kind` + "`" + ` outside ` + "`" + `resource` + "`" + ` and ` + "`" + `asset` + "`" + ` is dropped rather than passed through.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List every registered table this caller can see",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Only registrations on this connection",
+                        "name": "connection",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "resource",
+                            "asset"
+                        ],
+                        "type": "string",
+                        "description": "Only registrations over this source kind",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive substring of the fully qualified catalog.schema.table name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Rows per page (default: 50, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/tablehttp.scratchTableList"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/tables/{regID}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single registration with its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.\nA registration on a connection this caller's persona is not granted is answered as not found rather than as a denial: they cannot query the table and cannot act on it, and saying it exists would disclose a table name in a schema they have no reach into. An administrator is unrestricted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Get one registered table",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Table registration ID",
+                        "name": "regID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/tablehttp.scratchTableView"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -20917,6 +24514,163 @@ const docTemplate = `{
                 "schema": {}
             }
         },
+        "apigateway.InvokeInput": {
+            "type": "object",
+            "properties": {
+                "body": {},
+                "connection": {
+                    "type": "string"
+                },
+                "decode": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "method": {
+                    "type": "string"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "paginate": {
+                    "description": "Paginate, when set, makes the call a page walk (issue #1535): the\ngateway follows the response's pagination signal itself and returns\nthe merged array. Absent, the signal is reported and not followed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/apigateway.PaginateInput"
+                        }
+                    ]
+                },
+                "path": {
+                    "type": "string"
+                },
+                "path_params": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "query_params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "spec": {
+                    "type": "string"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "apigateway.InvokeOutput": {
+            "type": "object",
+            "properties": {
+                "body": {},
+                "body_bytes": {
+                    "description": "BodyBytes is the size of the body as read from the upstream,\nbefore decoding. Reported on every response; zero when no body was\nreturned. It is not what the call cost the model's context: that\nis the rendered result, which max_inline_bytes bounds and which a\ncut body may make smaller than this (issue #1606).",
+                    "type": "integer"
+                },
+                "body_truncated": {
+                    "type": "boolean"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "export_arguments": {
+                    "description": "ExportArguments is set when Body was cut by the inline budget\n(issue #1587): the api_export arguments that stream this same\ncall into a portal asset. The caller adds a name.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/apigateway.InvokeInput"
+                        }
+                    ]
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "hint": {
+                    "description": "Hint surfaces operator-actionable advice to the model when the\nresponse itself can't carry it — most importantly the \"use\napi_export instead\" suggestion when the body exceeded\nmax_inline_bytes. Distinct from Error: Hint is informational,\nthe call still succeeded.",
+                    "type": "string"
+                },
+                "items_merged": {
+                    "type": "integer"
+                },
+                "pages_fetched": {
+                    "type": "integer"
+                },
+                "pagination": {
+                    "description": "Pagination is populated when the upstream response carries a\nrecognizable cursor (RFC 5988 Link rel=\"next\", @odata.nextLink,\nnext_cursor, etc). The model uses this to decide whether to\nissue a follow-up call. The gateway does NOT auto-follow so\neach loop iteration stays observable in audit + conversation.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/apigateway.PaginationInfo"
+                        }
+                    ]
+                },
+                "resolved_path": {
+                    "description": "ResolvedPath is the concrete request path an operation_id call\nresolved to, after the catalog's base-path prefix and any\npath_params substitution. Populated only for operation_id\naddressing: in the method+path form the caller wrote the path\nitself and echoing it back says nothing.\n\nIt is here because the resolved path is the one input to the\nupstream request the caller never sees, so a misconfigured\ncatalog prefix surfaces only as a generic upstream 400 whose\ncause is invisible from the response (issue #1298). api_export\nalready reports it in its result message; this is the same\nsignal for the buffered path.",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "stopped_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "apigateway.PaginateInput": {
+            "type": "object",
+            "properties": {
+                "cursor_param": {
+                    "description": "CursorParam is the query parameter a body cursor (next_cursor,\nnextPageToken, ...) is sent back as. A cursor signal on a page that\nnames no CursorParam and no PageParam fails the walk.",
+                    "type": "string"
+                },
+                "items": {
+                    "description": "Items is the key of the array merged across pages (\"data\", \"items\",\n\"results\", \"value\"), a dotted path to a nested one (\"result.items\"),\nor \"$\" when the page body is the array. Required: guessing the key\nis how a merged result silently becomes a list of envelopes.",
+                    "type": "string"
+                },
+                "max_pages": {
+                    "description": "MaxPages bounds the walk. 0 means defaultMaxPages; the ceiling is\nmaxMaxPages. Reaching it is reported as stopped_by \"max_pages\", with\nthe signal for the next page in ` + "`" + `pagination` + "`" + `.",
+                    "type": "integer"
+                },
+                "page_param": {
+                    "description": "PageParam is the query parameter advanced when a page carries no\nnext signal (?page=N, ?offset=N). Its starting value must be present\nin query_params; the first page is requested exactly as given.",
+                    "type": "string"
+                },
+                "page_step": {
+                    "description": "PageStep is what PageParam is advanced by per page. 1 (the default)\nsuits ?page=N; the page size suits ?offset=N.",
+                    "type": "integer"
+                }
+            }
+        },
+        "apigateway.PaginationInfo": {
+            "type": "object",
+            "properties": {
+                "has_more": {
+                    "type": "boolean"
+                },
+                "next_cursor": {
+                    "type": "string"
+                },
+                "next_url": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
         "apigateway.ParameterDetail": {
             "type": "object",
             "properties": {
@@ -22649,6 +26403,162 @@ const docTemplate = `{
                 }
             }
         },
+        "datahubapi.Connection": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "writable": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "datahubapi.OwnerChange": {
+            "type": "object",
+            "properties": {
+                "owner_urn": {
+                    "type": "string"
+                },
+                "ownership_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "datahubapi.catalogChangeRequest": {
+            "type": "object",
+            "properties": {
+                "add": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "add_owners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/datahubapi.OwnerChange"
+                    }
+                },
+                "clear_domain": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "domain": {
+                    "type": "string"
+                },
+                "remove": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "datahubapi.catalogEntityResponse": {
+            "type": "object",
+            "properties": {
+                "columns": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.ColumnContext"
+                    }
+                },
+                "context": {
+                    "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.TableContext"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "datahubapi.documentRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "entity_urn": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "datahubapi.glossaryEntityRequest": {
+            "type": "object",
+            "properties": {
+                "definition": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parent_node": {
+                    "type": "string"
+                }
+            }
+        },
+        "datahubapi.glossaryRootsResponse": {
+            "type": "object",
+            "properties": {
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/semantic.GlossaryNode"
+                    }
+                },
+                "nodes_total": {
+                    "type": "integer"
+                },
+                "terms": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm"
+                    }
+                },
+                "terms_total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "datahubapi.problemDetail": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "datahubapi.vocabularyRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "enrichment.Action": {
             "type": "object",
             "properties": {
@@ -22974,6 +26884,47 @@ const docTemplate = `{
                 }
             }
         },
+        "gatewayhttp.errorEnvelope": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "gatewayhttp.invokeRequest": {
+            "type": "object",
+            "properties": {
+                "body": {},
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "method": {
+                    "type": "string"
+                },
+                "paginate": {
+                    "description": "Paginate, when set, makes the call a page walk (issue #1535):\nthe gateway follows the response's pagination signal itself and\nreturns the merged array, exactly as it does for an MCP caller.\nA REST caller reaching a paginated upstream would otherwise have\nto reimplement the follow loop that the gateway already owns.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/apigateway.PaginateInput"
+                        }
+                    ]
+                },
+                "path": {
+                    "type": "string"
+                },
+                "query_params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse": {
             "type": "object",
             "properties": {
@@ -23210,6 +27161,202 @@ const docTemplate = `{
                             "$ref": "#/definitions/resource.Usage"
                         }
                     ]
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_semantic.ColumnContext": {
+            "type": "object",
+            "properties": {
+                "business_name": {
+                    "description": "Business metadata",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "glossary_terms": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm"
+                    }
+                },
+                "inherited_from": {
+                    "description": "InheritedFrom is set when metadata was inherited from upstream lineage.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/semantic.InheritedMetadata"
+                        }
+                    ]
+                },
+                "is_pii": {
+                    "description": "Sensitivity",
+                    "type": "boolean"
+                },
+                "is_sensitive": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "description": "Basic info",
+                    "type": "string"
+                },
+                "tags": {
+                    "description": "Classification",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_semantic.Domain": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm": {
+            "type": "object",
+            "properties": {
+                "custom_properties": {
+                    "description": "CustomProperties are the term's free-form key/value properties.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owners": {
+                    "description": "Owners are the term's stewards.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.Owner"
+                    }
+                },
+                "parent_node": {
+                    "description": "ParentNode is the URN of the glossary node the term is filed under, empty\nfor a term at the glossary root.",
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_semantic.Owner": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/semantic.OwnerType"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_pkg_semantic.TableContext": {
+            "type": "object",
+            "properties": {
+                "active_incidents": {
+                    "description": "Incidents (DataHub 1.4.x)",
+                    "type": "integer"
+                },
+                "custom_properties": {
+                    "description": "Metadata",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "data_contract": {
+                    "description": "Data contracts (DataHub 1.4.x)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/semantic.DataContractStatus"
+                        }
+                    ]
+                },
+                "deprecation": {
+                    "description": "Status",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/semantic.Deprecation"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "domain": {
+                    "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.Domain"
+                },
+                "glossary_terms": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm"
+                    }
+                },
+                "incidents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/semantic.Incident"
+                    }
+                },
+                "last_modified": {
+                    "type": "string"
+                },
+                "owners": {
+                    "description": "Ownership",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.Owner"
+                    }
+                },
+                "quality_score": {
+                    "description": "Quality",
+                    "type": "number"
+                },
+                "structured_properties": {
+                    "description": "Structured properties (DataHub 1.4.x)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/semantic.StructuredProperty"
+                    }
+                },
+                "tag_refs": {
+                    "description": "TagRefs carries the same tags as Tags but as URN + display-name pairs, so a\ngovernance editor can remove or dedupe a tag by its URN (Tags holds only the\ndisplay name, which is not the identifier a write needs). Populated on the\nentity-detail read; enrichment reads Tags, not this field (#785).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/semantic.EntityRef"
+                    }
+                },
+                "tags": {
+                    "description": "Classification",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "urn": {
+                    "description": "Basic info",
+                    "type": "string"
                 }
             }
         },
@@ -26289,7 +30436,8 @@ const docTemplate = `{
                     "description": "BySurface30d breaks the 30-day count down by Surface* value.",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 },
                 "last_read_at": {
@@ -28227,6 +32375,249 @@ const docTemplate = `{
                 }
             }
         },
+        "semantic.AssertionResult": {
+            "type": "object",
+            "properties": {
+                "assertion_urn": {
+                    "description": "URN identifying the assertion",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "FRESHNESS, SCHEMA, DATA_QUALITY",
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.DataContractStatus": {
+            "type": "object",
+            "properties": {
+                "assertion_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/semantic.AssertionResult"
+                    }
+                },
+                "status": {
+                    "description": "PASSING or FAILING",
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.Deprecation": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string"
+                },
+                "decommission_date": {
+                    "type": "string"
+                },
+                "deprecated": {
+                    "type": "boolean"
+                },
+                "note": {
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.DocumentResult": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "description": "Body is the full, untruncated document content. It is populated only by a\nsingle-document read (GetDocument), where the whole point is to return the\ncomplete content a search snippet elides; the relevance-search paths\n(SearchDocuments, GetRelatedDocuments) leave it empty and populate the\nbounded Snippet instead, so a multi-result search does not carry N full\nbodies.",
+                    "type": "string"
+                },
+                "related_asset_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "show_in_global_context": {
+                    "description": "ShowInGlobalContext reports whether the document is meant to appear in global\nsearch. The upstream search returns documents regardless of this flag, so a\nsearch consumer must filter on it to honor a steward's choice to hide a document.",
+                    "type": "boolean"
+                },
+                "snippet": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is the publication state (PUBLISHED/UNPUBLISHED). The upstream search\napplies no status filter, so a consumer carries this to exclude drafts.",
+                    "type": "string"
+                },
+                "sub_type": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.EntityRef": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.GlossaryChildren": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/semantic.GlossaryNode"
+                    }
+                },
+                "start": {
+                    "type": "integer"
+                },
+                "terms": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "semantic.GlossaryNode": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes_count": {
+                    "type": "integer"
+                },
+                "parent_node": {
+                    "description": "ParentNode is the URN of the containing node, empty at the root.",
+                    "type": "string"
+                },
+                "terms_count": {
+                    "type": "integer"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.Incident": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.InheritedMetadata": {
+            "type": "object",
+            "properties": {
+                "hops": {
+                    "description": "Hops is the distance from the target dataset (1 = direct upstream).",
+                    "type": "integer"
+                },
+                "match_method": {
+                    "description": "MatchMethod indicates how the column was matched.\nValues: \"column_lineage\", \"name_exact\", \"name_transformed\", \"alias\"",
+                    "type": "string"
+                },
+                "source_column": {
+                    "description": "SourceColumn is the column name in the upstream dataset.",
+                    "type": "string"
+                },
+                "source_urn": {
+                    "description": "SourceURN is the DataHub URN of the upstream dataset.",
+                    "type": "string"
+                }
+            }
+        },
+        "semantic.OwnerType": {
+            "type": "string",
+            "enum": [
+                "user",
+                "group"
+            ],
+            "x-enum-varnames": [
+                "OwnerTypeUser",
+                "OwnerTypeGroup"
+            ]
+        },
+        "semantic.StructuredProperty": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "qualified_name": {
+                    "type": "string"
+                },
+                "values": {
+                    "type": "array",
+                    "items": {}
+                }
+            }
+        },
+        "semantic.TableSearchResult": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "domain": {
+                    "type": "string"
+                },
+                "matched_field": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
         "sessionview.AssetRef": {
             "type": "object",
             "properties": {
@@ -28602,6 +32993,231 @@ const docTemplate = `{
                 }
             }
         },
+        "tablehttp.ConnectionChoice": {
+            "type": "object",
+            "properties": {
+                "catalog": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablehttp.registerRequest": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "follow": {
+                    "description": "Follow, when false, pins the table to the version of the file it is\nregistered over (#1536). Absent or true, the table is moved onto each\nnew revision or version of the file as it is written.",
+                    "type": "boolean"
+                },
+                "repair": {
+                    "description": "Repair asks for a corrected version of the file to be saved and\nregistered when it cannot be read as a table the way it is stored. It is\nthe second submission of the form: the first is refused with what is\nwrong, and the refusal is what offers this (#1441).",
+                    "type": "boolean"
+                },
+                "table_name": {
+                    "description": "TableName is optional; empty derives one from the filename.",
+                    "type": "string"
+                }
+            }
+        },
+        "tablehttp.registrationView": {
+            "type": "object",
+            "properties": {
+                "catalog": {
+                    "type": "string"
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tableregister.Column"
+                    }
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "follow": {
+                    "description": "Follow means the registration is moved to the source's new head\ndirectory when a revision or version is written (#1536). It is what a\nregistration gets unless the caller pins it: a person or an agent that\nreplaces a file expects the table over it to read the new contents.\nPinned -- follow off -- is the choice for a report that must keep\nreturning the rows it was registered over until somebody decides\notherwise.",
+                    "type": "boolean"
+                },
+                "follow_error": {
+                    "description": "FollowError is why the last follow did not move the registration, and is\nempty while it is where the file is. It is kept on the record because a\nfollow never fails the write that triggered it, so the listing has to be\nable to say what is behind and why without the log of that write.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "query_table": {
+                    "type": "string"
+                },
+                "registered_at": {
+                    "type": "string"
+                },
+                "registered_by": {
+                    "type": "string"
+                },
+                "repair": {
+                    "description": "Repair means the registration corrects its file: a version of the source\ncarrying a defect a reader cannot see past, of a kind the platform can\ncorrect, is saved corrected as the file's next version and the table is\nmoved onto that version (#1577). Off -- the default, and what a\nregistration made without asking gets -- such a version leaves the\nregistration where it was with the reason recorded on it, because nobody\nasked for the file to be rewritten.\n\nIt is on the record because the follow has nothing else to act on: the\nchoice was made once, at a registration, and the versions it applies to\narrive afterwards. It does nothing for a registration that is not\nfollowing, which never meets a new version at all.",
+                    "type": "boolean"
+                },
+                "repaired": {
+                    "description": "Repaired says what a correction of the file changed before it could be\nregistered, and is absent when none was needed. It is only ever set on\nthe registration that made the correction: it describes what happened\njust now, not a property of the record.",
+                    "type": "string"
+                },
+                "sample_sql": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "stale": {
+                    "type": "boolean"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablehttp.scratchSource": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "missing": {
+                    "description": "Missing says the source record is no longer there. Deleting a file\nunregisters its tables, so this is the residue of a cleanup that did not\ncomplete -- a table over a directory whose object is gone, which a\nreader has to be told about rather than shown as an ordinary row.",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "tablehttp.scratchTableList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tablehttp.scratchTableView"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "tablehttp.scratchTableView": {
+            "type": "object",
+            "properties": {
+                "can_unregister": {
+                    "description": "CanUnregister is whether this caller is offered the action, by the rule\nthe per-kind DELETE route applies: authority over the source, and having\nregistered the table or being an administrator.",
+                    "type": "boolean"
+                },
+                "catalog": {
+                    "type": "string"
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/tableregister.Column"
+                    }
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "follow": {
+                    "description": "Follow means the registration is moved to the source's new head\ndirectory when a revision or version is written (#1536). It is what a\nregistration gets unless the caller pins it: a person or an agent that\nreplaces a file expects the table over it to read the new contents.\nPinned -- follow off -- is the choice for a report that must keep\nreturning the rows it was registered over until somebody decides\notherwise.",
+                    "type": "boolean"
+                },
+                "follow_error": {
+                    "description": "FollowError is why the last follow did not move the registration, and is\nempty while it is where the file is. It is kept on the record because a\nfollow never fails the write that triggered it, so the listing has to be\nable to say what is behind and why without the log of that write.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "query_table": {
+                    "type": "string"
+                },
+                "registered_at": {
+                    "type": "string"
+                },
+                "registered_by": {
+                    "type": "string"
+                },
+                "repair": {
+                    "description": "Repair means the registration corrects its file: a version of the source\ncarrying a defect a reader cannot see past, of a kind the platform can\ncorrect, is saved corrected as the file's next version and the table is\nmoved onto that version (#1577). Off -- the default, and what a\nregistration made without asking gets -- such a version leaves the\nregistration where it was with the reason recorded on it, because nobody\nasked for the file to be rewritten.\n\nIt is on the record because the follow has nothing else to act on: the\nchoice was made once, at a registration, and the versions it applies to\narrive afterwards. It does nothing for a registration that is not\nfollowing, which never meets a new version at all.",
+                    "type": "boolean"
+                },
+                "repaired": {
+                    "description": "Repaired says what a correction of the file changed before it could be\nregistered, and is absent when none was needed. It is only ever set on\nthe registration that made the correction: it describes what happened\njust now, not a property of the record.",
+                    "type": "string"
+                },
+                "sample_sql": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/tablehttp.scratchSource"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "stale": {
+                    "type": "boolean"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
+        "tableregister.Column": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "threads.Thread": {
             "type": "object",
             "properties": {
@@ -28786,7 +33402,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Calls", "Config", "Connections", "Personas", "Scripts", "Sessions", "System", "Tools"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "DataHub", "description": "The DataHub catalog surface behind the portal: search and browse entities, read and edit their descriptions, tags, owners, glossary terms and domain, and manage the glossary hierarchy and the governance vocabularies."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "APIs", "Assets", "Collections", "DataHub", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Config", "Connections", "Notifications", "Personas", "Scripts", "Sessions", "Settings", "System", "Tools", "Users"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

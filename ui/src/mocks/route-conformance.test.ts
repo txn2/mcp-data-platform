@@ -85,6 +85,10 @@ const ALLOWLIST = new Set<string>([
   "DELETE /portal/datahub/{}/documents/{}",
   // pkg/admin/handler.go: public (unauthenticated) branding endpoint on publicMux.
   "GET /admin/public/branding",
+  // pkg/admin/handler.go registerRoutes: the served OpenAPI document, mounted
+  // with the Swagger UI over it under docsPrefix on the same public mux. The
+  // document describes the annotated routes and so cannot describe itself.
+  "GET /admin/docs/doc.json",
   // pkg/observability/proxy/handler.go: authenticated PromQL proxy mux.
   "GET /observability/query",
   "GET /observability/query_range",

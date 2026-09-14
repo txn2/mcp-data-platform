@@ -1487,6 +1487,157 @@ definitions:
         type: boolean
       schema: {}
     type: object
+  apigateway.InvokeInput:
+    properties:
+      body: {}
+      connection:
+        type: string
+      decode:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      method:
+        type: string
+      operation_id:
+        type: string
+      paginate:
+        allOf:
+        - $ref: '#/definitions/apigateway.PaginateInput'
+        description: |-
+          Paginate, when set, makes the call a page walk (issue #1535): the
+          gateway follows the response's pagination signal itself and returns
+          the merged array. Absent, the signal is reported and not followed.
+      path:
+        type: string
+      path_params:
+        additionalProperties:
+          type: string
+        type: object
+      query_params:
+        additionalProperties: {}
+        type: object
+      spec:
+        type: string
+      timeout_seconds:
+        type: integer
+    type: object
+  apigateway.InvokeOutput:
+    properties:
+      body: {}
+      body_bytes:
+        description: |-
+          BodyBytes is the size of the body as read from the upstream,
+          before decoding. Reported on every response; zero when no body was
+          returned. It is not what the call cost the model's context: that
+          is the rendered result, which max_inline_bytes bounds and which a
+          cut body may make smaller than this (issue #1606).
+        type: integer
+      body_truncated:
+        type: boolean
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      export_arguments:
+        allOf:
+        - $ref: '#/definitions/apigateway.InvokeInput'
+        description: |-
+          ExportArguments is set when Body was cut by the inline budget
+          (issue #1587): the api_export arguments that stream this same
+          call into a portal asset. The caller adds a name.
+      headers:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        type: object
+      hint:
+        description: |-
+          Hint surfaces operator-actionable advice to the model when the
+          response itself can't carry it — most importantly the "use
+          api_export instead" suggestion when the body exceeded
+          max_inline_bytes. Distinct from Error: Hint is informational,
+          the call still succeeded.
+        type: string
+      items_merged:
+        type: integer
+      pages_fetched:
+        type: integer
+      pagination:
+        allOf:
+        - $ref: '#/definitions/apigateway.PaginationInfo'
+        description: |-
+          Pagination is populated when the upstream response carries a
+          recognizable cursor (RFC 5988 Link rel="next", @odata.nextLink,
+          next_cursor, etc). The model uses this to decide whether to
+          issue a follow-up call. The gateway does NOT auto-follow so
+          each loop iteration stays observable in audit + conversation.
+      resolved_path:
+        description: |-
+          ResolvedPath is the concrete request path an operation_id call
+          resolved to, after the catalog's base-path prefix and any
+          path_params substitution. Populated only for operation_id
+          addressing: in the method+path form the caller wrote the path
+          itself and echoing it back says nothing.
+
+          It is here because the resolved path is the one input to the
+          upstream request the caller never sees, so a misconfigured
+          catalog prefix surfaces only as a generic upstream 400 whose
+          cause is invisible from the response (issue #1298). api_export
+          already reports it in its result message; this is the same
+          signal for the buffered path.
+        type: string
+      status:
+        type: integer
+      stopped_by:
+        type: string
+    type: object
+  apigateway.PaginateInput:
+    properties:
+      cursor_param:
+        description: |-
+          CursorParam is the query parameter a body cursor (next_cursor,
+          nextPageToken, ...) is sent back as. A cursor signal on a page that
+          names no CursorParam and no PageParam fails the walk.
+        type: string
+      items:
+        description: |-
+          Items is the key of the array merged across pages ("data", "items",
+          "results", "value"), a dotted path to a nested one ("result.items"),
+          or "$" when the page body is the array. Required: guessing the key
+          is how a merged result silently becomes a list of envelopes.
+        type: string
+      max_pages:
+        description: |-
+          MaxPages bounds the walk. 0 means defaultMaxPages; the ceiling is
+          maxMaxPages. Reaching it is reported as stopped_by "max_pages", with
+          the signal for the next page in `pagination`.
+        type: integer
+      page_param:
+        description: |-
+          PageParam is the query parameter advanced when a page carries no
+          next signal (?page=N, ?offset=N). Its starting value must be present
+          in query_params; the first page is requested exactly as given.
+        type: string
+      page_step:
+        description: |-
+          PageStep is what PageParam is advanced by per page. 1 (the default)
+          suits ?page=N; the page size suits ?offset=N.
+        type: integer
+    type: object
+  apigateway.PaginationInfo:
+    properties:
+      has_more:
+        type: boolean
+      next_cursor:
+        type: string
+      next_url:
+        type: string
+      source:
+        type: string
+    type: object
   apigateway.ParameterDetail:
     properties:
       description:
@@ -2935,6 +3086,107 @@ definitions:
       state:
         type: string
     type: object
+  datahubapi.Connection:
+    properties:
+      name:
+        type: string
+      writable:
+        type: boolean
+    type: object
+  datahubapi.OwnerChange:
+    properties:
+      owner_urn:
+        type: string
+      ownership_type:
+        type: string
+    type: object
+  datahubapi.catalogChangeRequest:
+    properties:
+      add:
+        items:
+          type: string
+        type: array
+      add_owners:
+        items:
+          $ref: '#/definitions/datahubapi.OwnerChange'
+        type: array
+      clear_domain:
+        type: boolean
+      description:
+        type: string
+      domain:
+        type: string
+      remove:
+        items:
+          type: string
+        type: array
+      urn:
+        type: string
+    type: object
+  datahubapi.catalogEntityResponse:
+    properties:
+      columns:
+        additionalProperties:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.ColumnContext'
+        type: object
+      context:
+        $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.TableContext'
+      urn:
+        type: string
+    type: object
+  datahubapi.documentRequest:
+    properties:
+      category:
+        type: string
+      content:
+        type: string
+      entity_urn:
+        type: string
+      title:
+        type: string
+    type: object
+  datahubapi.glossaryEntityRequest:
+    properties:
+      definition:
+        type: string
+      name:
+        type: string
+      parent_node:
+        type: string
+    type: object
+  datahubapi.glossaryRootsResponse:
+    properties:
+      nodes:
+        items:
+          $ref: '#/definitions/semantic.GlossaryNode'
+        type: array
+      nodes_total:
+        type: integer
+      terms:
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm'
+        type: array
+      terms_total:
+        type: integer
+    type: object
+  datahubapi.problemDetail:
+    properties:
+      detail:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  datahubapi.vocabularyRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
   enrichment.Action:
     properties:
       operation:
@@ -3148,6 +3400,37 @@ definitions:
       name:
         type: string
     type: object
+  gatewayhttp.errorEnvelope:
+    properties:
+      error:
+        type: string
+    type: object
+  gatewayhttp.invokeRequest:
+    properties:
+      body: {}
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      method:
+        type: string
+      paginate:
+        allOf:
+        - $ref: '#/definitions/apigateway.PaginateInput'
+        description: |-
+          Paginate, when set, makes the call a page walk (issue #1535):
+          the gateway follows the response's pagination signal itself and
+          returns the merged array, exactly as it does for an MCP caller.
+          A REST caller reaching a paginated upstream would otherwise have
+          to reimplement the follow loop that the gateway already owns.
+      path:
+        type: string
+      query_params:
+        additionalProperties: {}
+        type: object
+      timeout_seconds:
+        type: integer
+    type: object
   github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse:
     properties:
       data:
@@ -3330,6 +3613,143 @@ definitions:
           Usage is the audit-derived read activity of this resource. It is not a
           stored column: the detail read fills it from the audit rollup, and it is
           absent everywhere the rollup was not consulted.
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_semantic.ColumnContext:
+    properties:
+      business_name:
+        description: Business metadata
+        type: string
+      description:
+        type: string
+      glossary_terms:
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm'
+        type: array
+      inherited_from:
+        allOf:
+        - $ref: '#/definitions/semantic.InheritedMetadata'
+        description: InheritedFrom is set when metadata was inherited from upstream
+          lineage.
+      is_pii:
+        description: Sensitivity
+        type: boolean
+      is_sensitive:
+        type: boolean
+      name:
+        description: Basic info
+        type: string
+      tags:
+        description: Classification
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_semantic.Domain:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      urn:
+        type: string
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm:
+    properties:
+      custom_properties:
+        additionalProperties:
+          type: string
+        description: CustomProperties are the term's free-form key/value properties.
+        type: object
+      description:
+        type: string
+      name:
+        type: string
+      owners:
+        description: Owners are the term's stewards.
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.Owner'
+        type: array
+      parent_node:
+        description: |-
+          ParentNode is the URN of the glossary node the term is filed under, empty
+          for a term at the glossary root.
+        type: string
+      urn:
+        type: string
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_semantic.Owner:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/semantic.OwnerType'
+      urn:
+        type: string
+    type: object
+  github_com_txn2_mcp-data-platform_pkg_semantic.TableContext:
+    properties:
+      active_incidents:
+        description: Incidents (DataHub 1.4.x)
+        type: integer
+      custom_properties:
+        additionalProperties:
+          type: string
+        description: Metadata
+        type: object
+      data_contract:
+        allOf:
+        - $ref: '#/definitions/semantic.DataContractStatus'
+        description: Data contracts (DataHub 1.4.x)
+      deprecation:
+        allOf:
+        - $ref: '#/definitions/semantic.Deprecation'
+        description: Status
+      description:
+        type: string
+      domain:
+        $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.Domain'
+      glossary_terms:
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm'
+        type: array
+      incidents:
+        items:
+          $ref: '#/definitions/semantic.Incident'
+        type: array
+      last_modified:
+        type: string
+      owners:
+        description: Ownership
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.Owner'
+        type: array
+      quality_score:
+        description: Quality
+        type: number
+      structured_properties:
+        description: Structured properties (DataHub 1.4.x)
+        items:
+          $ref: '#/definitions/semantic.StructuredProperty'
+        type: array
+      tag_refs:
+        description: |-
+          TagRefs carries the same tags as Tags but as URN + display-name pairs, so a
+          governance editor can remove or dedupe a tag by its URN (Tags holds only the
+          display name, which is not the identifier a write needs). Populated on the
+          entity-detail read; enrichment reads Tags, not this field (#785).
+        items:
+          $ref: '#/definitions/semantic.EntityRef'
+        type: array
+      tags:
+        description: Classification
+        items:
+          type: string
+        type: array
+      urn:
+        description: Basic info
+        type: string
     type: object
   graphql.SchemaInfo:
     properties:
@@ -5733,6 +6153,7 @@ definitions:
     properties:
       by_surface_30d:
         additionalProperties:
+          format: int64
           type: integer
         description: BySurface30d breaks the 30-day count down by Surface* value.
         type: object
@@ -7396,6 +7817,182 @@ definitions:
         description: Tool is the tool name the script passed.
         type: string
     type: object
+  semantic.AssertionResult:
+    properties:
+      assertion_urn:
+        description: URN identifying the assertion
+        type: string
+      type:
+        description: FRESHNESS, SCHEMA, DATA_QUALITY
+        type: string
+    type: object
+  semantic.DataContractStatus:
+    properties:
+      assertion_results:
+        items:
+          $ref: '#/definitions/semantic.AssertionResult'
+        type: array
+      status:
+        description: PASSING or FAILING
+        type: string
+    type: object
+  semantic.Deprecation:
+    properties:
+      actor:
+        type: string
+      decommission_date:
+        type: string
+      deprecated:
+        type: boolean
+      note:
+        type: string
+    type: object
+  semantic.DocumentResult:
+    properties:
+      body:
+        description: |-
+          Body is the full, untruncated document content. It is populated only by a
+          single-document read (GetDocument), where the whole point is to return the
+          complete content a search snippet elides; the relevance-search paths
+          (SearchDocuments, GetRelatedDocuments) leave it empty and populate the
+          bounded Snippet instead, so a multi-result search does not carry N full
+          bodies.
+        type: string
+      related_asset_urns:
+        items:
+          type: string
+        type: array
+      show_in_global_context:
+        description: |-
+          ShowInGlobalContext reports whether the document is meant to appear in global
+          search. The upstream search returns documents regardless of this flag, so a
+          search consumer must filter on it to honor a steward's choice to hide a document.
+        type: boolean
+      snippet:
+        type: string
+      status:
+        description: |-
+          Status is the publication state (PUBLISHED/UNPUBLISHED). The upstream search
+          applies no status filter, so a consumer carries this to exclude drafts.
+        type: string
+      sub_type:
+        type: string
+      title:
+        type: string
+      urn:
+        type: string
+    type: object
+  semantic.EntityRef:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      urn:
+        type: string
+    type: object
+  semantic.GlossaryChildren:
+    properties:
+      count:
+        type: integer
+      nodes:
+        items:
+          $ref: '#/definitions/semantic.GlossaryNode'
+        type: array
+      start:
+        type: integer
+      terms:
+        items:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm'
+        type: array
+      total:
+        type: integer
+    type: object
+  semantic.GlossaryNode:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      nodes_count:
+        type: integer
+      parent_node:
+        description: ParentNode is the URN of the containing node, empty at the root.
+        type: string
+      terms_count:
+        type: integer
+      urn:
+        type: string
+    type: object
+  semantic.Incident:
+    properties:
+      created:
+        type: integer
+      description:
+        type: string
+      state:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+      urn:
+        type: string
+    type: object
+  semantic.InheritedMetadata:
+    properties:
+      hops:
+        description: Hops is the distance from the target dataset (1 = direct upstream).
+        type: integer
+      match_method:
+        description: |-
+          MatchMethod indicates how the column was matched.
+          Values: "column_lineage", "name_exact", "name_transformed", "alias"
+        type: string
+      source_column:
+        description: SourceColumn is the column name in the upstream dataset.
+        type: string
+      source_urn:
+        description: SourceURN is the DataHub URN of the upstream dataset.
+        type: string
+    type: object
+  semantic.OwnerType:
+    enum:
+    - user
+    - group
+    type: string
+    x-enum-varnames:
+    - OwnerTypeUser
+    - OwnerTypeGroup
+  semantic.StructuredProperty:
+    properties:
+      display_name:
+        type: string
+      qualified_name:
+        type: string
+      values:
+        items: {}
+        type: array
+    type: object
+  semantic.TableSearchResult:
+    properties:
+      description:
+        type: string
+      domain:
+        type: string
+      matched_field:
+        type: string
+      name:
+        type: string
+      platform:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      urn:
+        type: string
+    type: object
   sessionview.AssetRef:
     properties:
       content_type:
@@ -7687,6 +8284,226 @@ definitions:
     properties:
       to:
         example: admin@example.com
+        type: string
+    type: object
+  tablehttp.ConnectionChoice:
+    properties:
+      catalog:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      schema:
+        type: string
+    type: object
+  tablehttp.registerRequest:
+    properties:
+      connection:
+        type: string
+      follow:
+        description: |-
+          Follow, when false, pins the table to the version of the file it is
+          registered over (#1536). Absent or true, the table is moved onto each
+          new revision or version of the file as it is written.
+        type: boolean
+      repair:
+        description: |-
+          Repair asks for a corrected version of the file to be saved and
+          registered when it cannot be read as a table the way it is stored. It is
+          the second submission of the form: the first is refused with what is
+          wrong, and the refusal is what offers this (#1441).
+        type: boolean
+      table_name:
+        description: TableName is optional; empty derives one from the filename.
+        type: string
+    type: object
+  tablehttp.registrationView:
+    properties:
+      catalog:
+        type: string
+      columns:
+        items:
+          $ref: '#/definitions/tableregister.Column'
+        type: array
+      connection:
+        type: string
+      follow:
+        description: |-
+          Follow means the registration is moved to the source's new head
+          directory when a revision or version is written (#1536). It is what a
+          registration gets unless the caller pins it: a person or an agent that
+          replaces a file expects the table over it to read the new contents.
+          Pinned -- follow off -- is the choice for a report that must keep
+          returning the rows it was registered over until somebody decides
+          otherwise.
+        type: boolean
+      follow_error:
+        description: |-
+          FollowError is why the last follow did not move the registration, and is
+          empty while it is where the file is. It is kept on the record because a
+          follow never fails the write that triggered it, so the listing has to be
+          able to say what is behind and why without the log of that write.
+        type: string
+      id:
+        type: string
+      location:
+        type: string
+      query_table:
+        type: string
+      registered_at:
+        type: string
+      registered_by:
+        type: string
+      repair:
+        description: |-
+          Repair means the registration corrects its file: a version of the source
+          carrying a defect a reader cannot see past, of a kind the platform can
+          correct, is saved corrected as the file's next version and the table is
+          moved onto that version (#1577). Off -- the default, and what a
+          registration made without asking gets -- such a version leaves the
+          registration where it was with the reason recorded on it, because nobody
+          asked for the file to be rewritten.
+
+          It is on the record because the follow has nothing else to act on: the
+          choice was made once, at a registration, and the versions it applies to
+          arrive afterwards. It does nothing for a registration that is not
+          following, which never meets a new version at all.
+        type: boolean
+      repaired:
+        description: |-
+          Repaired says what a correction of the file changed before it could be
+          registered, and is absent when none was needed. It is only ever set on
+          the registration that made the correction: it describes what happened
+          just now, not a property of the record.
+        type: string
+      sample_sql:
+        type: string
+      schema:
+        type: string
+      source_id:
+        type: string
+      source_kind:
+        type: string
+      stale:
+        type: boolean
+      table:
+        type: string
+    type: object
+  tablehttp.scratchSource:
+    properties:
+      id:
+        type: string
+      kind:
+        type: string
+      missing:
+        description: |-
+          Missing says the source record is no longer there. Deleting a file
+          unregisters its tables, so this is the residue of a cleanup that did not
+          complete -- a table over a directory whose object is gone, which a
+          reader has to be told about rather than shown as an ordinary row.
+        type: boolean
+      name:
+        type: string
+    type: object
+  tablehttp.scratchTableList:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/tablehttp.scratchTableView'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  tablehttp.scratchTableView:
+    properties:
+      can_unregister:
+        description: |-
+          CanUnregister is whether this caller is offered the action, by the rule
+          the per-kind DELETE route applies: authority over the source, and having
+          registered the table or being an administrator.
+        type: boolean
+      catalog:
+        type: string
+      columns:
+        items:
+          $ref: '#/definitions/tableregister.Column'
+        type: array
+      connection:
+        type: string
+      follow:
+        description: |-
+          Follow means the registration is moved to the source's new head
+          directory when a revision or version is written (#1536). It is what a
+          registration gets unless the caller pins it: a person or an agent that
+          replaces a file expects the table over it to read the new contents.
+          Pinned -- follow off -- is the choice for a report that must keep
+          returning the rows it was registered over until somebody decides
+          otherwise.
+        type: boolean
+      follow_error:
+        description: |-
+          FollowError is why the last follow did not move the registration, and is
+          empty while it is where the file is. It is kept on the record because a
+          follow never fails the write that triggered it, so the listing has to be
+          able to say what is behind and why without the log of that write.
+        type: string
+      id:
+        type: string
+      location:
+        type: string
+      query_table:
+        type: string
+      registered_at:
+        type: string
+      registered_by:
+        type: string
+      repair:
+        description: |-
+          Repair means the registration corrects its file: a version of the source
+          carrying a defect a reader cannot see past, of a kind the platform can
+          correct, is saved corrected as the file's next version and the table is
+          moved onto that version (#1577). Off -- the default, and what a
+          registration made without asking gets -- such a version leaves the
+          registration where it was with the reason recorded on it, because nobody
+          asked for the file to be rewritten.
+
+          It is on the record because the follow has nothing else to act on: the
+          choice was made once, at a registration, and the versions it applies to
+          arrive afterwards. It does nothing for a registration that is not
+          following, which never meets a new version at all.
+        type: boolean
+      repaired:
+        description: |-
+          Repaired says what a correction of the file changed before it could be
+          registered, and is absent when none was needed. It is only ever set on
+          the registration that made the correction: it describes what happened
+          just now, not a property of the record.
+        type: string
+      sample_sql:
+        type: string
+      schema:
+        type: string
+      source:
+        $ref: '#/definitions/tablehttp.scratchSource'
+      source_id:
+        type: string
+      source_kind:
+        type: string
+      stale:
+        type: boolean
+      table:
+        type: string
+    type: object
+  tableregister.Column:
+    properties:
+      name:
+        type: string
+      type:
         type: string
     type: object
   threads.Thread:
@@ -12218,6 +13035,237 @@ paths:
       summary: Approve prompt promotion
       tags:
       - Prompts
+  /admin/prompts/{id}/attachments:
+    get:
+      description: Returns the reference material attached to a prompt, in authored
+        order. Attachments whose resource was deleted are returned flagged as broken;
+        attachments outside the caller's scope are flagged unreadable and carry no
+        metadata.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/attachhttp.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt attachments
+      tags:
+      - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Links a managed resource to a prompt as reference material. The
+        resource must be readable by the caller and at least as widely visible as
+        the prompt; a narrower resource is refused with 409 and a message naming it.
+        Returns the prompt's new attachment list.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Resource to attach
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/attachhttp.attachRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/attachhttp.listResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Attach a resource to a prompt
+      tags:
+      - Prompts
+    put:
+      consumes:
+      - application/json
+      description: Rewrites the authored order of a prompt's attachments. The order
+        is what an agent receives them in. An id that is not already attached is refused;
+        omitting a currently attached id detaches it.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Attachments in the desired order
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/attachhttp.reorderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/attachhttp.listResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Reorder prompt attachments
+      tags:
+      - Prompts
+  /admin/prompts/{id}/attachments/{resourceID}:
+    delete:
+      description: Removes one attachment link. The resource itself is untouched.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Resource ID
+        in: path
+        name: resourceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Detach a resource from a prompt
+      tags:
+      - Prompts
   /admin/prompts/{id}/collection:
     put:
       consumes:
@@ -12498,6 +13546,49 @@ paths:
       summary: Prompt usage stats
       tags:
       - Prompts
+  /admin/resources/{id}/prompts:
+    get:
+      description: 'Returns the prompts that attach a resource, so the cost of editing
+        or deleting it is visible first. Scoped to the caller: another user''s personal
+        prompt is never disclosed.'
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompts attaching a resource
+      tags:
+      - Resources
   /admin/scripts:
     get:
       description: Returns every managed script with its lifecycle status and current
@@ -13481,6 +14572,154 @@ paths:
       summary: Get one operation
       tags:
       - APIs
+  /gateway/{connection}/invoke:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Forwards a request to the named upstream connection and returns the enveloped result. This is the REST equivalent of the api_invoke_endpoint MCP tool, for non-MCP clients (NiFi, Airflow, curl).
+
+        The HTTP status of THIS response reports the platform's own outcome only. When the platform performed the call, the response is 200 and the upstream's own status code is in `status` inside the body — a 404 from the upstream arrives as HTTP 200 with `"status": 404`. That split lets a client route on "the gateway is broken" (502, 504) separately from "the upstream is unhappy".
+
+        A `connection` key in the body is ignored; the connection is taken from the URL. `operation_id`, `path_params`, `spec` and `decode` are MCP-tool parameters and are not bound on this route.
+
+        Browse connections and copy a ready-made call at /portal/apis.
+      parameters:
+      - description: Name of the configured upstream connection
+        in: path
+        name: connection
+        required: true
+        type: string
+      - description: Request to forward upstream
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/gatewayhttp.invokeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: The platform performed the call; the upstream's status is in
+            the body
+          schema:
+            $ref: '#/definitions/apigateway.InvokeOutput'
+        "400":
+          description: Request failed validation, or paginate was set on a raw route
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "401":
+          description: No credential, or the credential was rejected
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "403":
+          description: Persona or route policy denied the call
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "404":
+          description: The named connection is not registered
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "413":
+          description: Upstream body exceeds the inline size limit
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "415":
+          description: Upstream body is not inlineable at its media type
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "429":
+          description: Inline read budget exhausted; Retry-After is set
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "500":
+          description: The platform could not complete its own side of the call
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "502":
+          description: The gateway could not reach the upstream
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "504":
+          description: The upstream call exceeded its deadline
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Call an upstream connection through the API gateway
+      tags:
+      - Gateway
+  /gateway/{connection}/invoke-raw:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Same call as /invoke, but the upstream body is streamed straight to the client instead of being buffered into a JSON envelope (issue #535). Use it for large or binary bodies.
+
+        Unlike /invoke, this route puts the UPSTREAM's status code on the HTTP status line, because the response is committed the moment the first byte is streamed. The platform-level codes below apply only to a call that fails before any byte is sent.
+
+        Forwarded upstream headers: Content-Length, Content-Encoding, Content-Range, Cache-Control, ETag, Last-Modified. Content-Type and Content-Disposition are derived by the platform's content contract rather than passed through, and a response with no upstream Cache-Control is served `private`.
+
+        `paginate` is refused on this route: a walk merges JSON pages and there is nothing to merge in a byte stream.
+      parameters:
+      - description: Name of the configured upstream connection
+        in: path
+        name: connection
+        required: true
+        type: string
+      - description: Request to forward upstream
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/gatewayhttp.invokeRequest'
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: The upstream body, streamed; the status line is the upstream's
+            own
+          schema:
+            type: file
+        "400":
+          description: Request failed validation, or paginate was set
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "401":
+          description: No credential, or the credential was rejected
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "403":
+          description: Persona or route policy denied the call
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "404":
+          description: The named connection is not registered
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "413":
+          description: Upstream body exceeds the raw passthrough cap
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "500":
+          description: The platform could not complete its own side of the call
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "502":
+          description: The gateway could not reach the upstream
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+        "504":
+          description: The upstream call exceeded its deadline
+          schema:
+            $ref: '#/definitions/gatewayhttp.errorEnvelope'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Call an upstream connection and stream the body back unbuffered
+      tags:
+      - Gateway
   /portal/activity/breakdown:
     get:
       description: Returns activity breakdown grouped by a dimension (tool_name, user_id,
@@ -14364,6 +15603,155 @@ paths:
       summary: Asset sign-off summary
       tags:
       - Feedback
+  /portal/assets/{id}/tables:
+    get:
+      description: Returns the registrations built over one portal asset under a `table_registrations`
+        key, each with its fully qualified query name, a sample SELECT, and whether
+        the table has fallen behind the file. Restricted to the asset's owner and
+        to administrators -- an editor share does not carry it -- and a soft-deleted
+        asset is answered as not found.
+      parameters:
+      - description: Portal asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/tablehttp.registrationView'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the tables registered over a portal asset
+      tags:
+      - Tables
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates an external table over the asset's directory on the named connection, so the CSV stored there can be queried. Restricted to the asset's owner and to administrators -- an editor share does not carry it -- because registering publishes the file's contents into a schema everyone granted the connection can read.
+        A file that cannot be read as a table the way it is stored is refused with the problem type `urn:mcp-data-platform:problem:csv-needs-repair`; resubmitting with `repair: true` saves a corrected version of the file first and registers over that.
+      parameters:
+      - description: Portal asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection to register on, and the optional table name, repair
+          and follow choices
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/tablehttp.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/tablehttp.registrationView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Register a portal asset as a query-engine table
+      tags:
+      - Tables
+  /portal/assets/{id}/tables/{regID}:
+    delete:
+      description: 'Drops the external table and forgets the registration. The asset
+        itself is untouched: dropping a Hive external table removes the metastore
+        entry and leaves the stored objects. Only the person who registered the table
+        or an administrator may remove it, and the record goes even when the DROP
+        fails, so a table nobody can remove through the platform is never left behind.'
+      parameters:
+      - description: Portal asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Table registration ID
+        in: path
+        name: regID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Drop a table registered over a portal asset
+      tags:
+      - Tables
   /portal/assets/{id}/thumbnail:
     delete:
       description: |-
@@ -15549,6 +16937,1583 @@ paths:
       summary: Search my collections
       tags:
       - Collections
+  /portal/datahub/{conn}/catalog/browse:
+    get:
+      description: Returns a page of the connection's catalog with no filters applied,
+        for the unfiltered listing the Catalog tab opens on. It runs the same search
+        as the search route with a match-everything query, so paging is the only input.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Maximum results; defaults to 25 and is capped at 200
+        in: query
+        name: limit
+        type: integer
+      - description: Result offset; defaults to 0
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.TableSearchResult'
+              type: array
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Browse the DataHub catalog
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/domains:
+    delete:
+      description: Retires a domain by URN. The URN is a query parameter rather than
+        a path segment because a domain URN is itself colon-delimited.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Domain URN (urn:li:domain:<id>)
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a domain
+      tags:
+      - DataHub
+    post:
+      consumes:
+      - application/json
+      description: 'Defines a domain in the governance vocabulary and returns the
+        URN DataHub assigned it. The domain is not immediately listable: the lookup
+        read is served from DataHub''s asynchronously populated index, so the returned
+        URN is authoritative in the meantime.'
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Domain name and optional description
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.vocabularyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a domain
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity:
+    get:
+      description: 'Returns one dataset''s table context together with its per-column
+        context, addressed by DataHub URN. The column read is supplementary: when
+        it fails the failure is logged and `columns` is omitted rather than failing
+        the whole request.'
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Dataset URN to read
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/datahubapi.catalogEntityResponse'
+        "400":
+          description: urn is missing, or it is not a URN this connection can resolve
+            to a table
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection, or the URN is not in this catalog
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read a catalog entity
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity/description:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Replaces the description on the entity named by `urn`. This is also the route that edits a glossary term's or node's definition, which DataHub stores through the same update.
+        Requires the datahub_update grant and a write-enabled connection. Only `urn` and `description` are read from the body.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Entity URN and the new description
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.catalogChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Body is not valid JSON, or urn is missing
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_update grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a catalog entity's description
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity/documents:
+    get:
+      description: Returns the context documents attached to one catalog entity. It
+        is the one document read the corpus-wide browse and search routes cannot express,
+        since neither is scoped to what a given dataset, glossary term, or glossary
+        node carries.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: URN of the entity whose attached documents are returned
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.DocumentResult'
+              type: array
+            type: object
+        "400":
+          description: urn is missing
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection, or a urn the catalog does not know
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a catalog entity's context documents
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity/domain:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Moves the entity named by `urn` into `domain`, or removes it from whatever domain it is in when `clear_domain` is true.
+        A set with an empty or malformed `domain` is rejected rather than silently unsetting it, so clearing is always explicit; `domain` must be a urn:li:domain:<id> URN. Requires the datahub_update grant and a write-enabled connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Entity URN plus the domain URN to set, or clear_domain
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.catalogChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Body is not valid JSON, urn is missing, or domain is missing
+            or not a domain URN on a set
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_update grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set or clear a catalog entity's domain
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity/glossary-terms:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Applies `add` and `remove` to the entity named by `urn` as one batched change, for the same reason the tag edit is batched: per-item writes clobber each other.
+        Every value in either list must be a urn:li:glossaryTerm:<id> URN. Requires the datahub_update grant and a write-enabled connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Entity URN plus the glossary term URNs to add and remove
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.catalogChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Body is not valid JSON, urn is missing, or a value is not a
+            glossary term URN
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_update grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add and remove a catalog entity's glossary terms
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity/owners:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Applies `add_owners` and `remove` to the entity named by `urn` as one batched ownership change. Each added owner carries its URN and an optional ownership type; `remove` is a list of owner URNs.
+        Additions come from `add_owners`, not the `add` field this payload shares with the tag and glossary-term edits; owners sent in `add` are refused with 400 rather than accepted and dropped. Every owner URN must be urn:li:corpuser:<id> or urn:li:corpGroup:<id>. Requires the datahub_update grant and a write-enabled connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Entity URN plus the owners to add and the owner URNs to remove
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.catalogChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Body is not valid JSON, urn is missing, owners were sent in
+            add instead of add_owners, or an owner value is not a corpuser or corpGroup
+            URN
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_update grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add and remove a catalog entity's owners
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/entity/tags:
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Applies `add` and `remove` to the entity named by `urn` as one batched change, because per-item writes read-modify-write DataHub's eventually consistent aspects and clobber each other.
+        Every value in either list must be a urn:li:tag:<id> URN; a malformed value is rejected here rather than forwarded to DataHub. Requires the datahub_update grant and a write-enabled connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Entity URN plus the tag URNs to add and remove
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.catalogChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Body is not valid JSON, urn is missing, or a value is not a
+            tag URN
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_update grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add and remove a catalog entity's tags
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/children:
+    get:
+      description: Returns one page of the nodes and terms directly under a glossary
+        node. Children come from DataHub's asynchronously populated graph index, so
+        an entity created moments earlier may not appear yet.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Parent node URN (urn:li:glossaryNode:<id>)
+        in: query
+        name: urn
+        required: true
+        type: string
+      - description: Row offset (default 0)
+        in: query
+        name: offset
+        type: integer
+      - description: Rows per page (default 25, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/semantic.GlossaryChildren'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Browse the children of a glossary node
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/entity:
+    delete:
+      description: Retires a glossary term or node by URN. A node is removed without
+        its children, so the portal shows a node's children and a term's usage before
+        offering the delete.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Glossary term or node URN (urn:li:glossaryTerm:<id> or urn:li:glossaryNode:<id>)
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a glossary term or node
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/nodes:
+    post:
+      consumes:
+      - application/json
+      description: Defines a glossary node, the folder that terms and other nodes
+        sit in, and returns the URN DataHub assigned it. An empty parent_node creates
+        the node at the root of the glossary.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Node name, definition, and optional parent node URN
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.glossaryEntityRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a glossary node
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/parents:
+    get:
+      description: Returns the glossary nodes above a term or node, direct parent
+        first, so a breadcrumb can be rendered for an entity reached without walking
+        the tree.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Glossary term or node URN (urn:li:glossaryTerm:<id> or urn:li:glossaryNode:<id>)
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.GlossaryNode'
+              type: array
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get the ancestors of a glossary entity
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/roots:
+    get:
+      description: Returns the glossary nodes and the glossary terms that have no
+        parent. Nodes and terms are paged independently upstream, so each carries
+        its own total.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Row offset into each list (default 0)
+        in: query
+        name: offset
+        type: integer
+      - description: Rows per list (default 25, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/datahubapi.glossaryRootsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Browse the roots of the business glossary
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/term:
+    get:
+      description: 'Returns a single glossary term: its name and its definition. There
+        is no node counterpart, because upstream has no by-URN node read.'
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Glossary term URN (urn:li:glossaryTerm:<id>)
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_semantic.GlossaryTerm'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one glossary term by URN
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/glossary/terms:
+    post:
+      consumes:
+      - application/json
+      description: Defines a glossary term, the named piece of business vocabulary
+        datasets and columns are tagged with, and returns the URN DataHub assigned
+        it. An empty parent_node creates the term at the root of the glossary.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Term name, definition, and optional parent node URN
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.glossaryEntityRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a glossary term
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/lookup/domains:
+    get:
+      description: Returns every domain defined on the connection. DataHub has no
+        name-scoped domain search, so this route takes neither a query nor a limit
+        and a picker filters the full list itself.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.EntityRef'
+              type: array
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List domains
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/lookup/glossary-terms:
+    get:
+      description: Name-searches the connection's DataHub glossary terms so a caller
+        can resolve a typed name to a urn:li:glossaryTerm URN. Authorized as a read,
+        not as a glossary edit.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Name text to match
+        in: query
+        name: q
+        type: string
+      - description: Maximum results; defaults to 25 and is capped at 200
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.EntityRef'
+              type: array
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Look up glossary terms by name
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/lookup/tags:
+    get:
+      description: Name-searches the connection's DataHub tags so a caller can resolve
+        a typed name to a urn:li:tag URN. Authorized as a read, not as a tag edit.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Name text to match
+        in: query
+        name: q
+        type: string
+      - description: Maximum results; defaults to 25 and is capped at 200
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.EntityRef'
+              type: array
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Look up tags by name
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/search:
+    get:
+      description: Runs a filtered catalog search against one DataHub connection and
+        returns the matching datasets. Every filter is optional and they combine.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Free-text query
+        in: query
+        name: q
+        type: string
+      - description: Restrict to one data platform
+        in: query
+        name: platform
+        type: string
+      - description: Restrict to one domain
+        in: query
+        name: domain
+        type: string
+      - description: Restrict to datasets carrying this owner
+        in: query
+        name: owner
+        type: string
+      - collectionFormat: multi
+        description: Restrict to datasets carrying these tags; repeat the key or pass
+          one comma-separated value
+        in: query
+        items:
+          type: string
+        name: tags
+        type: array
+      - description: Restrict to datasets carrying this glossary term on the table
+          or on a column
+        in: query
+        name: glossary_term
+        type: string
+      - description: Restrict to datasets carrying this glossary term on a column
+        in: query
+        name: column_glossary_term
+        type: string
+      - description: Maximum results; defaults to 25 and is capped at 200
+        in: query
+        name: limit
+        type: integer
+      - description: Result offset; defaults to 0
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.TableSearchResult'
+              type: array
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search the DataHub catalog
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/catalog/tags:
+    delete:
+      description: Retires a tag by URN. The URN is a query parameter rather than
+        a path segment because a tag URN is itself colon-delimited.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Tag URN (urn:li:tag:<id>)
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a tag
+      tags:
+      - DataHub
+    post:
+      consumes:
+      - application/json
+      description: 'Defines a tag in the governance vocabulary and returns the URN
+        DataHub assigned it. The tag is not immediately listable: the lookup read
+        is served from DataHub''s asynchronously populated index, so the returned
+        URN is authoritative in the meantime.'
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Tag name and optional description
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.vocabularyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a tag
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/documents:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates a context document attached to the entity named by `entity_urn` and returns the stored document.
+        The entity must be a dataset, glossaryTerm, glossaryNode, or container, which is the set upstream can attach a document to; any other type is refused here rather than forwarded. Requires the datahub_create grant and a write-enabled connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Document to create, including the entity it attaches to
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.documentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/semantic.DocumentResult'
+        "400":
+          description: Body is not valid JSON, title or entity_urn is missing, or
+            entity_urn names an entity type a document cannot attach to
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_create grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a context document
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/documents/{id}:
+    delete:
+      description: Removes a context document. The id may be given bare or in the
+        full urn:li:document:<id> form. Requires the datahub_delete grant and a write-enabled
+        connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Context document id, bare or URN-prefixed
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_delete grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a context document
+      tags:
+      - DataHub
+    get:
+      description: Returns one context document. The id may be given bare or in the
+        full urn:li:document:<id> form the read routes return.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Context document id, bare or URN-prefixed
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/semantic.DocumentResult'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection, or no such context document
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Read a context document
+      tags:
+      - DataHub
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Replaces a context document's title, content, and category in place and returns the stored document. The id may be given bare or in the full urn:li:document:<id> form.
+        `entity_urn` in the body is ignored: the document stays attached to the entity it was created against. Requires the datahub_update grant and a write-enabled connection.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Context document id, bare or URN-prefixed
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New title, content, and category
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/datahubapi.documentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/semantic.DocumentResult'
+        "400":
+          description: Body is not valid JSON, or title is missing
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona lacks the datahub_update grant, or the connection is
+            read-only
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update a context document
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/documents/browse:
+    get:
+      description: Returns a page of the connection's context documents together with
+        the corpus total, for the unfiltered Context Docs listing. The response carries
+        `documents` and `total`.
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Maximum results; defaults to 25 and is capped at 200
+        in: query
+        name: limit
+        type: integer
+      - description: Result offset; defaults to 0
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: documents plus the corpus total
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Browse context documents
+      tags:
+      - DataHub
+  /portal/datahub/{conn}/documents/search:
+    get:
+      description: 'Free-text searches the connection''s context documents across
+        the whole corpus. Unlike the catalog search, q is required: an empty q is
+        a 400 rather than a match-everything browse, which the browse route serves
+        instead.'
+      parameters:
+      - description: DataHub connection name
+        in: path
+        name: conn
+        required: true
+        type: string
+      - description: Search text
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Maximum results; defaults to 25 and is capped at 200
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/semantic.DocumentResult'
+              type: array
+            type: object
+        "400":
+          description: q is missing or blank
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "403":
+          description: Persona grants no DataHub access
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "404":
+          description: Unknown DataHub connection
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+        "503":
+          description: The DataHub call failed
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search context documents
+      tags:
+      - DataHub
+  /portal/datahub/connections:
+    get:
+      description: Returns the DataHub connections this deployment serves, each with
+        whether it is write-enabled. A caller whose persona grants no DataHub tool
+        receives an empty list rather than a 403, so the UI hides the Catalog and
+        Context Docs tabs instead of showing an error.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/datahubapi.Connection'
+              type: array
+            type: object
+        "401":
+          description: No authenticated user
+          schema:
+            $ref: '#/definitions/datahubapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List DataHub connections
+      tags:
+      - DataHub
   /portal/feedback/activity:
     get:
       description: Lists feedback threads across every asset, collection, and prompt
@@ -17040,6 +20005,12 @@ paths:
             type: object
         "403":
           description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
           schema:
             additionalProperties:
               type: string
@@ -19736,6 +22707,156 @@ paths:
       summary: Replace resource content
       tags:
       - Resources
+  /resources/{id}/tables:
+    get:
+      description: Returns the registrations built over one managed resource under
+        a `table_registrations` key, each with its fully qualified query name, a sample
+        SELECT, and whether the table has fallen behind the file. Requires authority
+        to change the resource -- the uploader, a platform administrator, or an administrator
+        of the scope the resource lives in; a resource outside that authority is answered
+        as not found.
+      parameters:
+      - description: Managed resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/tablehttp.registrationView'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the tables registered over a managed resource
+      tags:
+      - Tables
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates an external table over the resource's directory on the named connection, so the CSV stored there can be queried. Requires authority to change the resource -- the uploader, a platform administrator, or an administrator of the scope the resource lives in -- because registering publishes the file's contents into a schema everyone granted the connection can read.
+        A file that cannot be read as a table the way it is stored is refused with the problem type `urn:mcp-data-platform:problem:csv-needs-repair`; resubmitting with `repair: true` saves a corrected version of the file first and registers over that.
+      parameters:
+      - description: Managed resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Connection to register on, and the optional table name, repair
+          and follow choices
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/tablehttp.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/tablehttp.registrationView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Register a managed resource as a query-engine table
+      tags:
+      - Tables
+  /resources/{id}/tables/{regID}:
+    delete:
+      description: 'Drops the external table and forgets the registration. The resource
+        itself is untouched: dropping a Hive external table removes the metastore
+        entry and leaves the stored objects. Only the person who registered the table
+        or an administrator may remove it, and the record goes even when the DROP
+        fails, so a table nobody can remove through the platform is never left behind.'
+      parameters:
+      - description: Managed resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Table registration ID
+        in: path
+        name: regID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Drop a table registered over a managed resource
+      tags:
+      - Tables
   /resources/{id}/thumbnail:
     delete:
       description: Forget a resource's captures, both variants, which leaves it pending
@@ -20115,6 +23236,119 @@ paths:
       summary: List resources needing a thumbnail
       tags:
       - Resources
+  /table-connections:
+    get:
+      description: |-
+        Returns, under a `connections` key, the connections this caller may register a new table onto: granted to their persona, carrying a scratch catalog and schema, and accepting writes. It is the register form's only source, so every connection offered here is one the register routes accept.
+        It is deliberately narrower than the set a listing shows: a connection turned read-only after a registration still appears in `GET /tables` and no longer appears here. A deployment that cannot enumerate its connections answers an empty list rather than an error.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/tablehttp.ConnectionChoice'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the connections a table can be registered on
+      tags:
+      - Tables
+  /tables:
+    get:
+      description: |-
+        Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.
+        A `connection` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A `kind` outside `resource` and `asset` is dropped rather than passed through.
+      parameters:
+      - description: Only registrations on this connection
+        in: query
+        name: connection
+        type: string
+      - description: Only registrations over this source kind
+        enum:
+        - resource
+        - asset
+        in: query
+        name: kind
+        type: string
+      - description: Case-insensitive substring of the fully qualified catalog.schema.table
+          name
+        in: query
+        name: q
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Rows per page (default: 50, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tablehttp.scratchTableList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List every registered table this caller can see
+      tags:
+      - Tables
+  /tables/{regID}:
+    get:
+      description: |-
+        Returns a single registration with its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.
+        A registration on a connection this caller's persona is not granted is answered as not found rather than as a denial: they cannot query the table and cannot act on it, and saying it exists would disclose a table name in a schema they have no reach into. An administrator is unrestricted.
+      parameters:
+      - description: Table registration ID
+        in: path
+        name: regID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/tablehttp.scratchTableView'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one registered table
+      tags:
+      - Tables
 securityDefinitions:
   ApiKeyAuth:
     in: header
@@ -20165,28 +23399,61 @@ tags:
     description: "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."
   - name: "Tools"
     description: "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."
+  - name: "DataHub"
+    description: "The DataHub catalog surface behind the portal: search and browse entities, read and edit their descriptions, tags, owners, glossary terms and domain, and manage the glossary hierarchy and the governance vocabularies."
+  - name: "Tables"
+    description: "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."
+  - name: "Gateway"
+    description: "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."
+  - name: "APIs"
+    description: "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."
+  - name: "API Catalogs"
+    description: "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."
+  - name: "Portal"
+    description: "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."
+  - name: "Portal Assets"
+    description: "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."
+  - name: "Feedback"
+    description: "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."
+  - name: "Notifications"
+    description: "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."
+  - name: "Settings"
+    description: "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."
+  - name: "Users"
+    description: "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."
 
 x-tagGroups:
   - name: "User API"
     tags:
       - "User"
       - "Activity"
+      - "APIs"
       - "Assets"
       - "Collections"
+      - "DataHub"
+      - "Feedback"
+      - "Gateway"
       - "Knowledge"
       - "Memory"
+      - "Portal"
+      - "Portal Assets"
       - "Prompts"
       - "Resources"
       - "Shares"
+      - "Tables"
   - name: "Admin API"
     tags:
+      - "API Catalogs"
       - "Audit"
       - "Auth Keys"
       - "Calls"
       - "Config"
       - "Connections"
+      - "Notifications"
       - "Personas"
       - "Scripts"
       - "Sessions"
+      - "Settings"
       - "System"
       - "Tools"
+      - "Users"

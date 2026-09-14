@@ -566,6 +566,7 @@ pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/agentinstructions
+pkg/admin -> internal/apidocs
 pkg/admin -> internal/buildinfo
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan

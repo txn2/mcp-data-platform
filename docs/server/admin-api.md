@@ -29,6 +29,33 @@ The OpenAPI specification is auto-generated from source code annotations using [
 make swagger
 ```
 
+### What the reference covers
+
+The spec is not admin-only. Alongside the `/api/v1/admin/*` control plane it
+documents the caller-facing surfaces a non-MCP client actually calls: the
+[API gateway](api-gateway.md#rest-gateway-for-non-mcp-clients) data plane under
+the `Gateway` tag (`POST /api/v1/gateway/{connection}/invoke` and
+`/invoke-raw`, with their request body, the platform-versus-upstream status
+split and the retry rules), the portal and resource routes, the DataHub catalog
+surface, and the table registrations. Operations are grouped into a **User API**
+and an **Admin API** heading by `x-tagGroups`.
+
+Two gates hold this together, because both failure modes were silent. A route
+registered on a mux but carrying no annotations is caught by
+`TestAdminCatalogRouteParity`, which reads every registration pattern in the
+source tree and refuses one it cannot resolve statically rather than skipping
+it. A tag used by an operation but missing from `scripts/swagger-tag-groups.py`
+is caught by `TestSwaggerTagsAreDescribedAndGrouped`, since such a tag renders
+as an untitled bucket outside both headings.
+
+### Reading it as reference material
+
+The same document is also rendered with ReDoc, whose three-column layout suits
+reading over trying calls out. Swagger UI keeps the "Try it out" button for an
+operator holding an API key. Both are reachable from the portal's admin
+navigation, and the caller-facing [operation browser](../portal/apis.md) links
+to the `Gateway` tag beside the call it hands you.
+
 ## Configuration
 
 ```yaml

@@ -85,37 +85,34 @@ func NewHandler(deps Deps) *Handler {
 // gated on DataHub access on the persona; writes are gated per-persona
 // (datahub_create/update/delete) and require a write-enabled connection.
 func (h *Handler) Register(mux *http.ServeMux) {
-	const base = "/api/v1/portal/datahub"
+	mux.HandleFunc("GET /api/v1/portal/datahub/connections", h.listConnections)
 
-	mux.HandleFunc("GET "+base+"/connections", h.listConnections)
-
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/search", h.searchCatalog)
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/browse", h.browseCatalog)
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/entity", h.getCatalogEntity)
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/tags", h.lookupTags)
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/glossary-terms", h.lookupGlossaryTerms)
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/domains", h.lookupDomains)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/search", h.searchCatalog)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/browse", h.browseCatalog)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/entity", h.getCatalogEntity)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/lookup/tags", h.lookupTags)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/lookup/glossary-terms", h.lookupGlossaryTerms)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/lookup/domains", h.lookupDomains)
 	// Glossary hierarchy and editing (#1155, #1158). See glossary.go.
-	h.glossaryRoutes(mux, base)
+	h.glossaryRoutes(mux)
 	// Governance vocabularies (#1156, #1157): define and retire a tag or a domain.
 	// Only the writes are routes; every read each surface needs is an existing
 	// route (the picker lookups above, the catalog search's tag/domain filters,
 	// the entity description and domain writes below). See vocabulary.go.
-	h.vocabularyRoutes(mux, base, "tags", tagVocabulary)
-	h.vocabularyRoutes(mux, base, "domains", domainVocabulary)
-	mux.HandleFunc("GET "+base+"/{conn}/catalog/entity/documents", h.getEntityDocuments)
-	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/description", h.updateCatalogDescription)
-	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/tags", h.updateCatalogTags)
-	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/owners", h.updateCatalogOwners)
-	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/glossary-terms", h.updateCatalogGlossaryTerms)
-	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/domain", h.updateCatalogDomain)
+	h.vocabularyRoutes(mux)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/catalog/entity/documents", h.getEntityDocuments)
+	mux.HandleFunc("PUT /api/v1/portal/datahub/{conn}/catalog/entity/description", h.updateCatalogDescription)
+	mux.HandleFunc("PUT /api/v1/portal/datahub/{conn}/catalog/entity/tags", h.updateCatalogTags)
+	mux.HandleFunc("PUT /api/v1/portal/datahub/{conn}/catalog/entity/owners", h.updateCatalogOwners)
+	mux.HandleFunc("PUT /api/v1/portal/datahub/{conn}/catalog/entity/glossary-terms", h.updateCatalogGlossaryTerms)
+	mux.HandleFunc("PUT /api/v1/portal/datahub/{conn}/catalog/entity/domain", h.updateCatalogDomain)
 
-	mux.HandleFunc("GET "+base+"/{conn}/documents/search", h.searchDocuments)
-	mux.HandleFunc("GET "+base+"/{conn}/documents/browse", h.browseDocuments)
-	mux.HandleFunc("GET "+base+"/{conn}/documents/{id}", h.getDocument)
-	mux.HandleFunc("POST "+base+"/{conn}/documents", h.createDocument)
-	mux.HandleFunc("PUT "+base+"/{conn}/documents/{id}", h.updateDocument)
-	mux.HandleFunc("DELETE "+base+"/{conn}/documents/{id}", h.deleteDocument)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/documents/search", h.searchDocuments)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/documents/browse", h.browseDocuments)
+	mux.HandleFunc("GET /api/v1/portal/datahub/{conn}/documents/{id}", h.getDocument)
+	mux.HandleFunc("POST /api/v1/portal/datahub/{conn}/documents", h.createDocument)
+	mux.HandleFunc("PUT /api/v1/portal/datahub/{conn}/documents/{id}", h.updateDocument)
+	mux.HandleFunc("DELETE /api/v1/portal/datahub/{conn}/documents/{id}", h.deleteDocument)
 }
 
 // --- authorization ---
@@ -244,6 +241,17 @@ func (h *Handler) audit(r *http.Request, a *writeAuth, tool string, params map[s
 
 // --- read handlers ---
 
+// listConnections handles GET /api/v1/portal/datahub/connections.
+//
+// @Summary      List DataHub connections
+// @Description  Returns the DataHub connections this deployment serves, each with whether it is write-enabled. A caller whose persona grants no DataHub tool receives an empty list rather than a 403, so the UI hides the Catalog and Context Docs tabs instead of showing an error.
+// @Tags         DataHub
+// @Produce      json
+// @Success      200  {object}  map[string][]Connection
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/connections [get]
 func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request) {
 	user := portal.GetUser(r.Context())
 	if user == nil {
@@ -261,6 +269,30 @@ func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"connections": conns})
 }
 
+// searchCatalog handles GET /api/v1/portal/datahub/{conn}/catalog/search.
+//
+// @Summary      Search the DataHub catalog
+// @Description  Runs a filtered catalog search against one DataHub connection and returns the matching datasets. Every filter is optional and they combine.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn                  path   string    true   "DataHub connection name"
+// @Param        q                     query  string    false  "Free-text query"
+// @Param        platform              query  string    false  "Restrict to one data platform"
+// @Param        domain                query  string    false  "Restrict to one domain"
+// @Param        owner                 query  string    false  "Restrict to datasets carrying this owner"
+// @Param        tags                  query  []string  false  "Restrict to datasets carrying these tags; repeat the key or pass one comma-separated value"  collectionFormat(multi)
+// @Param        glossary_term         query  string    false  "Restrict to datasets carrying this glossary term on the table or on a column"
+// @Param        column_glossary_term  query  string    false  "Restrict to datasets carrying this glossary term on a column"
+// @Param        limit                 query  int       false  "Maximum results; defaults to 25 and is capped at 200"
+// @Param        offset                query  int       false  "Result offset; defaults to 0"
+// @Success      200  {object}  map[string][]semantic.TableSearchResult
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/search [get]
 func (h *Handler) searchCatalog(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -285,6 +317,23 @@ func (h *Handler) searchCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
+// browseCatalog handles GET /api/v1/portal/datahub/{conn}/catalog/browse.
+//
+// @Summary      Browse the DataHub catalog
+// @Description  Returns a page of the connection's catalog with no filters applied, for the unfiltered listing the Catalog tab opens on. It runs the same search as the search route with a match-everything query, so paging is the only input.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn    path   string  true   "DataHub connection name"
+// @Param        limit   query  int     false  "Maximum results; defaults to 25 and is capped at 200"
+// @Param        offset  query  int     false  "Result offset; defaults to 0"
+// @Success      200  {object}  map[string][]semantic.TableSearchResult
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/browse [get]
 func (h *Handler) browseCatalog(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -310,6 +359,23 @@ type catalogEntityResponse struct {
 	Columns map[string]*semantic.ColumnContext `json:"columns,omitempty"`
 }
 
+// getCatalogEntity handles GET /api/v1/portal/datahub/{conn}/catalog/entity.
+//
+// @Summary      Read a catalog entity
+// @Description  Returns one dataset's table context together with its per-column context, addressed by DataHub URN. The column read is supplementary: when it fails the failure is logged and `columns` is omitted rather than failing the whole request.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "Dataset URN to read"
+// @Success      200  {object}  catalogEntityResponse
+// @Failure      400  {object}  problemDetail  "urn is missing, or it is not a URN this connection can resolve to a table"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection, or the URN is not in this catalog"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity [get]
 func (h *Handler) getCatalogEntity(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -346,6 +412,22 @@ func (h *Handler) getCatalogEntity(w http.ResponseWriter, r *http.Request) {
 // (#1158). It is the one document read the browse and search routes cannot
 // express: both are corpus-wide, and neither is scoped to what a given dataset,
 // glossary term, or glossary node carries.
+//
+// @Summary      List a catalog entity's context documents
+// @Description  Returns the context documents attached to one catalog entity. It is the one document read the corpus-wide browse and search routes cannot express, since neither is scoped to what a given dataset, glossary term, or glossary node carries.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path   string  true  "DataHub connection name"
+// @Param        urn   query  string  true  "URN of the entity whose attached documents are returned"
+// @Success      200  {object}  map[string][]semantic.DocumentResult
+// @Failure      400  {object}  problemDetail  "urn is missing"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection, or a urn the catalog does not know"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity/documents [get]
 func (h *Handler) getEntityDocuments(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -358,7 +440,11 @@ func (h *Handler) getEntityDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	docs, err := reader.GetRelatedDocuments(r.Context(), urn)
 	if err != nil {
-		writeUpstreamError(w, "entity documents read failed: "+err.Error())
+		// Through the same mapping as the entity read beside it: a URN the
+		// catalog does not know is a 404 on both, rather than this route
+		// alone reporting the backend as unavailable for an entity that
+		// simply is not there.
+		writeCatalogReadError(w, "entity documents read failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"documents": orEmpty(docs)})
@@ -368,6 +454,22 @@ func (h *Handler) getEntityDocuments(w http.ResponseWriter, r *http.Request) {
 
 // lookupTags name-searches DataHub tags for the tag picker so a user selects a
 // tag by name and the UI resolves it to a urn:li:tag URN. Gated as a read.
+//
+// @Summary      Look up tags by name
+// @Description  Name-searches the connection's DataHub tags so a caller can resolve a typed name to a urn:li:tag URN. Authorized as a read, not as a tag edit.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn   path   string  true   "DataHub connection name"
+// @Param        q      query  string  false  "Name text to match"
+// @Param        limit  query  int     false  "Maximum results; defaults to 25 and is capped at 200"
+// @Success      200  {object}  map[string][]semantic.EntityRef
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/lookup/tags [get]
 func (h *Handler) lookupTags(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -382,6 +484,22 @@ func (h *Handler) lookupTags(w http.ResponseWriter, r *http.Request) {
 }
 
 // lookupGlossaryTerms name-searches DataHub glossary terms for the glossary picker.
+//
+// @Summary      Look up glossary terms by name
+// @Description  Name-searches the connection's DataHub glossary terms so a caller can resolve a typed name to a urn:li:glossaryTerm URN. Authorized as a read, not as a glossary edit.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn   path   string  true   "DataHub connection name"
+// @Param        q      query  string  false  "Name text to match"
+// @Param        limit  query  int     false  "Maximum results; defaults to 25 and is capped at 200"
+// @Success      200  {object}  map[string][]semantic.EntityRef
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/lookup/glossary-terms [get]
 func (h *Handler) lookupGlossaryTerms(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -398,6 +516,20 @@ func (h *Handler) lookupGlossaryTerms(w http.ResponseWriter, r *http.Request) {
 // lookupDomains lists DataHub domains for the domain picker. DataHub has no
 // name-scoped domain search, so the full list is returned and the picker filters
 // client-side.
+//
+// @Summary      List domains
+// @Description  Returns every domain defined on the connection. DataHub has no name-scoped domain search, so this route takes neither a query nor a limit and a picker filters the full list itself.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path  string  true  "DataHub connection name"
+// @Success      200  {object}  map[string][]semantic.EntityRef
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/lookup/domains [get]
 func (h *Handler) lookupDomains(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -429,6 +561,24 @@ func requireURNParam(w http.ResponseWriter, r *http.Request, allowedTypes []stri
 	return urn, true
 }
 
+// searchDocuments handles GET /api/v1/portal/datahub/{conn}/documents/search.
+//
+// @Summary      Search context documents
+// @Description  Free-text searches the connection's context documents across the whole corpus. Unlike the catalog search, q is required: an empty q is a 400 rather than a match-everything browse, which the browse route serves instead.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn   path   string  true   "DataHub connection name"
+// @Param        q      query  string  true   "Search text"
+// @Param        limit  query  int     false  "Maximum results; defaults to 25 and is capped at 200"
+// @Success      200  {object}  map[string][]semantic.DocumentResult
+// @Failure      400  {object}  problemDetail  "q is missing or blank"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/documents/search [get]
 func (h *Handler) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -447,6 +597,23 @@ func (h *Handler) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"documents": docs})
 }
 
+// browseDocuments handles GET /api/v1/portal/datahub/{conn}/documents/browse.
+//
+// @Summary      Browse context documents
+// @Description  Returns a page of the connection's context documents together with the corpus total, for the unfiltered Context Docs listing. The response carries `documents` and `total`.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn    path   string  true   "DataHub connection name"
+// @Param        limit   query  int     false  "Maximum results; defaults to 25 and is capped at 200"
+// @Param        offset  query  int     false  "Result offset; defaults to 0"
+// @Success      200  {object}  map[string]any  "documents plus the corpus total"
+// @Failure      401  {object}  problemDetail   "No authenticated user"
+// @Failure      403  {object}  problemDetail   "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail   "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail   "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/documents/browse [get]
 func (h *Handler) browseDocuments(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -461,6 +628,22 @@ func (h *Handler) browseDocuments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"documents": docs, "total": total})
 }
 
+// getDocument handles GET /api/v1/portal/datahub/{conn}/documents/{id}.
+//
+// @Summary      Read a context document
+// @Description  Returns one context document. The id may be given bare or in the full urn:li:document:<id> form the read routes return.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path  string  true  "DataHub connection name"
+// @Param        id    path  string  true  "Context document id, bare or URN-prefixed"
+// @Success      200  {object}  semantic.DocumentResult
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona grants no DataHub access"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection, or no such context document"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/documents/{id} [get]
 func (h *Handler) getDocument(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -578,12 +761,50 @@ func (h *Handler) applyCatalogChange(w http.ResponseWriter, r *http.Request, fie
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// updateCatalogDescription handles PUT /api/v1/portal/datahub/{conn}/catalog/entity/description.
+//
+// @Summary      Set a catalog entity's description
+// @Description  Replaces the description on the entity named by `urn`. This is also the route that edits a glossary term's or node's definition, which DataHub stores through the same update.
+// @Description  Requires the datahub_update grant and a write-enabled connection. Only `urn` and `description` are read from the body.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string                true  "DataHub connection name"
+// @Param        body  body  catalogChangeRequest  true  "Entity URN and the new description"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, or urn is missing"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_update grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity/description [put]
 func (h *Handler) updateCatalogDescription(w http.ResponseWriter, r *http.Request) {
 	h.applyCatalogChange(w, r, "description", nil, func(writer Writer, req catalogChangeRequest) error {
 		return writer.UpdateDescription(r.Context(), req.URN, req.Description)
 	})
 }
 
+// updateCatalogTags handles PUT /api/v1/portal/datahub/{conn}/catalog/entity/tags.
+//
+// @Summary      Add and remove a catalog entity's tags
+// @Description  Applies `add` and `remove` to the entity named by `urn` as one batched change, because per-item writes read-modify-write DataHub's eventually consistent aspects and clobber each other.
+// @Description  Every value in either list must be a urn:li:tag:<id> URN; a malformed value is rejected here rather than forwarded to DataHub. Requires the datahub_update grant and a write-enabled connection.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string                true  "DataHub connection name"
+// @Param        body  body  catalogChangeRequest  true  "Entity URN plus the tag URNs to add and remove"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, urn is missing, or a value is not a tag URN"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_update grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity/tags [put]
 func (h *Handler) updateCatalogTags(w http.ResponseWriter, r *http.Request) {
 	// A malformed value (e.g. "test") is a client error: reject it with a 400 here
 	// rather than forwarding it to DataHub, which would surface as a misleading 503.
@@ -595,6 +816,25 @@ func (h *Handler) updateCatalogTags(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// updateCatalogGlossaryTerms handles PUT /api/v1/portal/datahub/{conn}/catalog/entity/glossary-terms.
+//
+// @Summary      Add and remove a catalog entity's glossary terms
+// @Description  Applies `add` and `remove` to the entity named by `urn` as one batched change, for the same reason the tag edit is batched: per-item writes clobber each other.
+// @Description  Every value in either list must be a urn:li:glossaryTerm:<id> URN. Requires the datahub_update grant and a write-enabled connection.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string                true  "DataHub connection name"
+// @Param        body  body  catalogChangeRequest  true  "Entity URN plus the glossary term URNs to add and remove"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, urn is missing, or a value is not a glossary term URN"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_update grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity/glossary-terms [put]
 func (h *Handler) updateCatalogGlossaryTerms(w http.ResponseWriter, r *http.Request) {
 	validate := func(req catalogChangeRequest) string {
 		return validateURNValues("glossary term", glossaryURNTypes, req.Add, req.Remove)
@@ -604,12 +844,50 @@ func (h *Handler) updateCatalogGlossaryTerms(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// updateCatalogOwners handles PUT /api/v1/portal/datahub/{conn}/catalog/entity/owners.
+//
+// @Summary      Add and remove a catalog entity's owners
+// @Description  Applies `add_owners` and `remove` to the entity named by `urn` as one batched ownership change. Each added owner carries its URN and an optional ownership type; `remove` is a list of owner URNs.
+// @Description  Additions come from `add_owners`, not the `add` field this payload shares with the tag and glossary-term edits; owners sent in `add` are refused with 400 rather than accepted and dropped. Every owner URN must be urn:li:corpuser:<id> or urn:li:corpGroup:<id>. Requires the datahub_update grant and a write-enabled connection.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string                true  "DataHub connection name"
+// @Param        body  body  catalogChangeRequest  true  "Entity URN plus the owners to add and the owner URNs to remove"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, urn is missing, owners were sent in add instead of add_owners, or an owner value is not a corpuser or corpGroup URN"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_update grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity/owners [put]
 func (h *Handler) updateCatalogOwners(w http.ResponseWriter, r *http.Request) {
 	h.applyCatalogChange(w, r, "owners", validateOwnerChange, func(writer Writer, req catalogChangeRequest) error {
 		return writer.ApplyOwnerChanges(r.Context(), req.URN, req.AddOwners, req.Remove)
 	})
 }
 
+// updateCatalogDomain handles PUT /api/v1/portal/datahub/{conn}/catalog/entity/domain.
+//
+// @Summary      Set or clear a catalog entity's domain
+// @Description  Moves the entity named by `urn` into `domain`, or removes it from whatever domain it is in when `clear_domain` is true.
+// @Description  A set with an empty or malformed `domain` is rejected rather than silently unsetting it, so clearing is always explicit; `domain` must be a urn:li:domain:<id> URN. Requires the datahub_update grant and a write-enabled connection.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string                true  "DataHub connection name"
+// @Param        body  body  catalogChangeRequest  true  "Entity URN plus the domain URN to set, or clear_domain"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, urn is missing, or domain is missing or not a domain URN on a set"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_update grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/catalog/entity/domain [put]
 func (h *Handler) updateCatalogDomain(w http.ResponseWriter, r *http.Request) {
 	// A set request (clear_domain=false) with an empty or malformed domain is
 	// rejected with a 400 rather than silently unsetting the domain or forwarding a
@@ -641,6 +919,25 @@ type documentRequest struct {
 	Category  string `json:"category,omitempty"`
 }
 
+// createDocument handles POST /api/v1/portal/datahub/{conn}/documents.
+//
+// @Summary      Create a context document
+// @Description  Creates a context document attached to the entity named by `entity_urn` and returns the stored document.
+// @Description  The entity must be a dataset, glossaryTerm, glossaryNode, or container, which is the set upstream can attach a document to; any other type is refused here rather than forwarded. Requires the datahub_create grant and a write-enabled connection.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string           true  "DataHub connection name"
+// @Param        body  body  documentRequest  true  "Document to create, including the entity it attaches to"
+// @Success      201  {object}  semantic.DocumentResult
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, title or entity_urn is missing, or entity_urn names an entity type a document cannot attach to"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_create grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/documents [post]
 func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.authorizeWrite(w, r, datahubCreateTool)
 	if !ok {
@@ -678,6 +975,26 @@ func (h *Handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, doc)
 }
 
+// updateDocument handles PUT /api/v1/portal/datahub/{conn}/documents/{id}.
+//
+// @Summary      Update a context document
+// @Description  Replaces a context document's title, content, and category in place and returns the stored document. The id may be given bare or in the full urn:li:document:<id> form.
+// @Description  `entity_urn` in the body is ignored: the document stays attached to the entity it was created against. Requires the datahub_update grant and a write-enabled connection.
+// @Tags         DataHub
+// @Accept       json
+// @Produce      json
+// @Param        conn  path  string           true  "DataHub connection name"
+// @Param        id    path  string           true  "Context document id, bare or URN-prefixed"
+// @Param        body  body  documentRequest  true  "New title, content, and category"
+// @Success      200  {object}  semantic.DocumentResult
+// @Failure      400  {object}  problemDetail  "Body is not valid JSON, or title is missing"
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_update grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/documents/{id} [put]
 func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.authorizeWrite(w, r, datahubUpdateTool)
 	if !ok {
@@ -706,6 +1023,22 @@ func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
+// deleteDocument handles DELETE /api/v1/portal/datahub/{conn}/documents/{id}.
+//
+// @Summary      Delete a context document
+// @Description  Removes a context document. The id may be given bare or in the full urn:li:document:<id> form. Requires the datahub_delete grant and a write-enabled connection.
+// @Tags         DataHub
+// @Produce      json
+// @Param        conn  path  string  true  "DataHub connection name"
+// @Param        id    path  string  true  "Context document id, bare or URN-prefixed"
+// @Success      200  {object}  map[string]string
+// @Failure      401  {object}  problemDetail  "No authenticated user"
+// @Failure      403  {object}  problemDetail  "Persona lacks the datahub_delete grant, or the connection is read-only"
+// @Failure      404  {object}  problemDetail  "Unknown DataHub connection"
+// @Failure      503  {object}  problemDetail  "The DataHub call failed"
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/datahub/{conn}/documents/{id} [delete]
 func (h *Handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.authorizeWrite(w, r, datahubDeleteTool)
 	if !ok {
@@ -767,6 +1100,14 @@ func validateURNValues(label string, allowedTypes []string, lists ...[]string) s
 // validateOwnerChange validates the owner-specific payload: each added owner's URN
 // and each removed owner URN must be a well-formed corpuser or corpGroup URN.
 func validateOwnerChange(req catalogChangeRequest) string {
+	// An owner carries an ownership type as well as a URN, so it is added
+	// through add_owners; the plain add this payload shares with the tag and
+	// glossary-term edits has no meaning here and the writer never reads it.
+	// Refusing says so: sending owners in add previously returned 200 with
+	// nothing applied, which is indistinguishable from success.
+	if len(req.Add) > 0 {
+		return "invalid owner change: owners are added through add_owners, which carries each owner's ownership type; the add field is not read on this route"
+	}
 	for _, o := range req.AddOwners {
 		if !isURNOfType(strings.TrimSpace(o.OwnerURN), ownerURNTypes) {
 			return fmt.Sprintf("invalid owner: %q must be a %s", o.OwnerURN, urnHint(ownerURNTypes))

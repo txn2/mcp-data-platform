@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/admin/apiroutesapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/connoauthapi"
+	"github.com/txn2/mcp-data-platform/internal/apidocs"
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -460,9 +462,36 @@ func (h *Handler) registerSystemRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
 	h.mux.HandleFunc("GET /api/v1/admin/embedding/status", h.getEmbeddingStatus)
 	h.publicMux.HandleFunc("GET /api/v1/admin/public/branding", h.getPublicBranding)
+	// The spec is served from the embedded document rather than through
+	// swag.ReadDoc, which renders docs.go's template at run time.
+	//
+	// That template is the generated JSON with the document's own braces left
+	// as text/template actions, so any `{{...}}` appearing inside the spec's
+	// CONTENT is parsed as one. The prompt-content example at
+	// pkg/portal/prompt_handler.go:84 is literally "Analyze the following
+	// data: {{data}}" -- a prompt placeholder, correct as example text -- and
+	// text/template reads it as a call to an undefined function `data`. The
+	// template then fails to parse, ReadDoc falls back to returning it
+	// unrendered, and the route answered with `{{ marshal .Schemes }}` where
+	// `schemes` belongs: not valid JSON, so the reference never loaded.
+	//
+	// internal/apidocs/swagger.json is the same document with nothing left to
+	// render, already carrying the tag groups, and already what the
+	// platform-admin self-connection's catalog reads. Serving it directly
+	// gives both readers one source and removes the failure mode rather than
+	// escaping one example out of its way.
+	h.publicMux.HandleFunc(docsPrefix+"doc.json", serveSwaggerSpec)
 	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
 		httpswagger.URL(docsPrefix+"doc.json"),
 	))
+}
+
+// serveSwaggerSpec writes the embedded OpenAPI document. It is served
+// unauthenticated for the same reason the UI around it is: the spec describes
+// the surface, and every route in it still authenticates on its own.
+func serveSwaggerSpec(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = io.WriteString(w, apidocs.SwaggerJSON())
 }
 
 // registerConfigRoutes registers config read/write endpoints.

@@ -140,6 +140,7 @@ type listResponse struct {
 // @Failure      500  {object}  map[string]string
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
+// @Router       /admin/prompts/{id}/attachments [get]
 // @Router       /portal/prompts/{id}/attachments [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request, who *Identity) {
 	pr, ok := h.loadPrompt(w, r)
@@ -232,6 +233,7 @@ type attachRequest struct {
 // @Failure      500  {object}  map[string]string
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
+// @Router       /admin/prompts/{id}/attachments [post]
 // @Router       /portal/prompts/{id}/attachments [post]
 func (h *Handler) attach(w http.ResponseWriter, r *http.Request, who *Identity) {
 	pr, ok := h.loadEditablePrompt(w, r, who)
@@ -319,6 +321,7 @@ func checkAttachAllowed(w http.ResponseWriter, pr *prompt.Prompt, who *Identity,
 // @Failure      500  {object}  map[string]string
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
+// @Router       /admin/prompts/{id}/attachments/{resourceID} [delete]
 // @Router       /portal/prompts/{id}/attachments/{resourceID} [delete]
 func (h *Handler) detach(w http.ResponseWriter, r *http.Request, who *Identity) {
 	pr, ok := h.loadEditablePrompt(w, r, who)
@@ -355,10 +358,12 @@ type reorderRequest struct {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
 // @Failure      409  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
+// @Router       /admin/prompts/{id}/attachments [put]
 // @Router       /portal/prompts/{id}/attachments [put]
 func (h *Handler) reorder(w http.ResponseWriter, r *http.Request, who *Identity) {
 	pr, ok := h.loadEditablePrompt(w, r, who)
@@ -411,6 +416,7 @@ type promptRef struct {
 // @Failure      500  {object}  map[string]string
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
+// @Router       /admin/resources/{id}/prompts [get]
 // @Router       /portal/resources/{id}/prompts [get]
 func (h *Handler) byResource(w http.ResponseWriter, r *http.Request, who *Identity) {
 	res, err := h.deps.Resources.Get(r.Context(), r.PathValue("id"))

@@ -42,6 +42,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/description",
   "/admin/agent-instructions",
   "/admin/api-catalogs",
+  "/admin/api-reference",
   "/admin/apis",
   "/admin/connections",
   "/admin/personas",

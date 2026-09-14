@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { GATEWAY_TAG, swaggerUiTagUrl } from "@/lib/apiDocs";
 import type { APIOperationDetail, APIParameterDetail } from "@/api/apis/types";
 import { asSchema, typeLabel } from "./SchemaView";
 
@@ -185,6 +186,20 @@ export function CallSnippet({ connection, baseURL, detail, origin }: CallSnippet
       <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-[11px] leading-relaxed">
         {snippet}
       </pre>
+      {/* What the snippet does not say: what the route authenticates with, what
+          it answers on a refusal, and what else the platform serves. The
+          gateway routes are in the served document under their own tag, so the
+          link opens on them rather than at the top of a long page (#1742). */}
+      <p className="text-[11px] text-muted-foreground">
+        <a
+          href={swaggerUiTagUrl(GATEWAY_TAG)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-sm text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          Platform REST reference (auth, gateway routes, status codes)
+        </a>
+      </p>
     </section>
   );
 }
