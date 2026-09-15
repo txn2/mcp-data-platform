@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Inject x-tagGroups into generated swagger spec for Redoc/Scalar tag grouping."""
+"""Post-process the generated swagger spec for the two readers that render it.
+
+Injects the landing-page introduction, the security-scheme descriptions, the
+tag descriptions and x-tagGroups. All four are prose about the API rather than
+facts swag can read off a handler, and the introduction in particular is far
+too long to live in a Go comment, so it is authored in
+internal/apidocs/introduction.md and read from there (#1750).
+"""
 
 import json
 import re
@@ -188,19 +195,118 @@ TAG_GROUPS = [
 ]
 
 
+SECURITY_DESCRIPTIONS = {
+    "ApiKeyAuth": (
+        "A platform API key, sent as `X-API-Key: <key>`.\n\n"
+        "An administrator issues one in the portal under Admin > Keys "
+        "(`/portal/admin/keys`), choosing the roles it carries. The value is "
+        "returned once, at creation, and by no route afterwards. Keys declared "
+        "in the deployment's configuration file are read-only.\n\n"
+        "Hold an API key when the caller is a script, a scheduled job, or an "
+        "integration with no person behind it."
+    ),
+    "BearerAuth": (
+        "A JWT, sent as `Authorization: Bearer <jwt>`.\n\n"
+        "Either an access token from the OIDC provider this deployment signs "
+        "in against, or one the platform's own OAuth 2.1 authorization server "
+        "issued to an MCP client.\n\n"
+        "Hold a bearer token when the call acts as a person, so the roles, the "
+        "persona and the audit trail are that person's."
+    ),
+}
+
+
+def read_intro(apidocs: Path) -> str:
+    """Return the landing-page markdown, or the empty string when absent.
+
+    ReDoc splits info.description on its top-level headings and gives each one
+    a navigation entry, so this file is a section of the reference rather than
+    a paragraph in front of it.
+    """
+    intro = apidocs / "introduction.md"
+    if not intro.exists():
+        print(f"  {intro}: absent, leaving info.description as generated")
+        return ""
+    return intro.read_text().strip()
+
+
+def yaml_block(text: str, indent: str) -> str:
+    """Render text as a YAML literal block scalar at the given indent.
+
+    `|-` keeps every newline and drops the trailing one, which is what makes a
+    markdown document survive the round trip: a folded scalar would join the
+    lines and destroy its headings and fenced code.
+    """
+    lines = [f"{indent}  {ln}".rstrip() for ln in text.split("\n")]
+    return f"{indent}description: |-\n" + "\n".join(lines) + "\n"
+
+
+
 def build_tags_array() -> list[dict]:
     return [{"name": name, "description": desc} for name, desc in TAG_DESCRIPTIONS.items()]
 
 
-def patch_json(path: Path) -> None:
+def patch_json(path: Path, intro: str) -> None:
     spec = json.loads(path.read_text())
+    if intro:
+        spec["info"]["description"] = intro
+    for name, desc in SECURITY_DESCRIPTIONS.items():
+        if name in spec.get("securityDefinitions", {}):
+            spec["securityDefinitions"][name]["description"] = desc
     spec["tags"] = build_tags_array()
     spec["x-tagGroups"] = TAG_GROUPS
     path.write_text(json.dumps(spec, indent=4) + "\n")
 
 
-def patch_yaml(path: Path) -> None:
+def replace_yaml_info_description(text: str, intro: str) -> str:
+    """Swap the info block's one-line description for the introduction.
+
+    swag emits it as a wrapped plain scalar, so the replacement consumes the
+    `description:` line and every continuation line indented under it.
+    """
+    lines = text.split("\n")
+    out, i, in_info = [], 0, False
+    while i < len(lines):
+        line = lines[i]
+        if line == "info:":
+            in_info = True
+        elif in_info and line and not line.startswith(" "):
+            in_info = False
+        if in_info and line.startswith("  description:"):
+            i += 1
+            while i < len(lines) and lines[i].startswith("    "):
+                i += 1
+            out.append(yaml_block(intro, "  ").rstrip("\n"))
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
+def add_yaml_security_descriptions(text: str) -> str:
+    """Give each securityDefinitions entry its description.
+
+    The search starts at `securityDefinitions:` rather than at the top of the
+    file, because a definition under `definitions:` shares the indent a scheme
+    is written at and would be patched instead.
+    """
+    block = text.find("\nsecurityDefinitions:\n")
+    if block == -1:
+        print("  swagger.yaml: no securityDefinitions block, skipping")
+        return text
+    head, tail = text[:block], text[block:]
+    for name, desc in SECURITY_DESCRIPTIONS.items():
+        anchor = f"\n  {name}:\n"
+        if anchor in tail:
+            tail = tail.replace(anchor, anchor + yaml_block(desc, "    "), 1)
+    return head + tail
+
+
+def patch_yaml(path: Path, intro: str) -> None:
     text = path.read_text()
+    if intro:
+        text = replace_yaml_info_description(text, intro)
+    text = add_yaml_security_descriptions(text)
     # Build tags block
     tags_block = "\ntags:\n"
     for name, desc in TAG_DESCRIPTIONS.items():
@@ -216,22 +322,44 @@ def patch_yaml(path: Path) -> None:
     path.write_text(text.rstrip() + "\n" + tags_block + groups_block)
 
 
-def patch_docs_go(path: Path) -> None:
+def patch_docs_go(path: Path, intro: str) -> None:
     content = path.read_text()
     if '"securityDefinitions"' not in content:
         print("  docs.go: securityDefinitions not found, skipping")
         return
+    # The scheme descriptions are NOT injected here, and that is a property of
+    # the file rather than an omission: docTemplate is a Go backtick raw string,
+    # and both descriptions carry markdown code spans, which end it. docs.go is
+    # also not what any reader is served -- serveSwaggerSpec writes
+    # internal/apidocs/swagger.json, for the escaping reason recorded there --
+    # so the document that renders carries them and this template does not.
     tags_json = json.dumps(build_tags_array())
     tag_groups_json = json.dumps(TAG_GROUPS)
     insertion = f',"tags":{tags_json},"x-tagGroups":{tag_groups_json}'
     # The Go template is a backtick raw string: const docTemplate = `{...}`
-    # Find the closing `}` + backtick that ends the template (on its own line).
-    marker = "}`"
+    # Find the closing `}` + backtick that ends the template. The newline is
+    # part of the marker because the template ends the line: SwaggerInfo's
+    # Description below it is a single-line Go string literal, and any markdown
+    # code span closing on a brace -- `{connection}` is one -- puts the shorter
+    # two-character marker inside it (#1750).
+    marker = "}`\n"
     idx = content.rfind(marker)
     if idx == -1:
         print("  docs.go: could not find template end, skipping")
         return
     content = content[:idx] + insertion + content[idx:]
+
+    # Only now the Description, which sits AFTER the template: rewriting it
+    # first is what put a `}` + backtick in front of the real template end.
+    # It is a Go interpreted string literal, so json.dumps produces a form Go
+    # reads identically; the template renders it through {{escape .Description}}.
+    if intro:
+        content = re.sub(
+            r'(\n\tDescription:\s+)"(?:[^"\\]|\\.)*"',
+            lambda m: m.group(1) + json.dumps(intro, ensure_ascii=False),
+            content,
+            count=1,
+        )
     path.write_text(content)
 
 
@@ -241,20 +369,21 @@ def main() -> None:
         sys.exit(1)
 
     apidocs = Path(sys.argv[1])
+    intro = read_intro(apidocs)
 
     json_path = apidocs / "swagger.json"
     if json_path.exists():
-        patch_json(json_path)
+        patch_json(json_path, intro)
         print(f"  Patched {json_path}")
 
     yaml_path = apidocs / "swagger.yaml"
     if yaml_path.exists():
-        patch_yaml(yaml_path)
+        patch_yaml(yaml_path, intro)
         print(f"  Patched {yaml_path}")
 
     docs_path = apidocs / "docs.go"
     if docs_path.exists():
-        patch_docs_go(docs_path)
+        patch_docs_go(docs_path, intro)
         print(f"  Patched {docs_path}")
 
 

@@ -52,6 +52,13 @@
     --radius: 0.5rem;
     --sidebar-width: 16rem;
     --sidebar-width-collapsed: 4rem;
+    /* The fixed header's height. A token rather than a Tailwind class on the
+       Header alone, because the page area below it is the portal's scroll
+       container and anything sizing itself to that container has to know how
+       tall it is. The API Reference page is the case that needed it: ReDoc
+       sizes its sticky menu to the viewport, which overflows the scrollport by
+       exactly this much (#1749). */
+    --app-header-height: 3.5rem;
   }
 
   .dark {

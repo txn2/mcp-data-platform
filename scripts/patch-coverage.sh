@@ -59,6 +59,12 @@ git diff --unified=0 "$MERGE_BASE" | awk '
         # ship in no release, so they are outside this gate.
         if (f !~ /\.go$/ || f ~ /_test\.go$/) f = ""
         if (f ~ /^cmd\/dev-[a-z0-9-]+-mock\//) f = ""
+        # testdata/ is invisible to the Go toolchain: `go test ./...` never
+        # builds it, so no line under it can appear in a coverage profile.
+        # codecov.yml ignores it for that reason; counting it here would fail
+        # a diff CI accepts. TestCoverageExclusionsAgree holds the two lists
+        # together (#1748).
+        if (f ~ /(^|\/)testdata\//) f = ""
         # internal/httpserver/dbmounts.go holds the two composition-root mount
         # functions whose bodies only run against a live Postgres (portal/
         # resource store assembly). Real-DB tests are confined to the

@@ -1,19 +1,103 @@
 /*
- * One correction to ReDoc's own styling, for the dark theme.
+ * The corrections ReDoc's theme cannot carry.
  *
- * ReDoc paints the selected sample tab in the right-hand panel with
- * `rightPanel.textColor` (white) behind `colors.text.primary` as the label.
- * Those two are the same end of the ramp on the dark theme, so the selected
- * tab reads as an empty white pill: white ink on white. Neither can be moved
- * in the theme without breaking what else reads them -- the label color is
- * every heading and paragraph in the document, and the panel's text color is
- * the copy on its own dark ground.
+ * ReDoc accepts a theme object, and redocTheme.ts fills it with the portal's
+ * palette. What it will not accept is a rule for a component it styles with a
+ * literal: `UnderlinedHeader` is written `color: rgba(38, 50, 56, 0.7)` in
+ * redoc@2.5.4's own stylesheet, not read from a theme key, and the media-type
+ * label beside it is `color: black`. ReDoc's supported escape hatch for that,
+ * `theme.extensionsHook`, is unreachable through `RedocStandalone`:
+ * `resolveTheme` ends with `JSON.parse(JSON.stringify(theme))`, which drops
+ * every function on the theme. A stylesheet over the mounted document is the
+ * only route (#1749).
  *
- * The response tabs are left alone: they carry their own status colors
- * (green, amber, red), which are legible on the white pill in both themes.
+ * Nothing here picks a color by hand. Each rule names a portal token, and the
+ * contrast sweep in e2e/interactive/api-reference.spec.ts is what says whether
+ * the result is legible: it walks every element of the rendered document on
+ * both themes and fails on any text below WCAG AA for its size.
  */
-.dark .redoc-host .react-tabs__tab--selected:not(.tab-success):not(.tab-redirect):not(.tab-info):not(.tab-error) {
-  /* --foreground of the light palette: dark ink, for the one element that
-     keeps a light ground on the dark theme. */
-  color: #020817;
+
+/*
+ * The section labels: "AUTHORIZATIONS:", "PATH PARAMETERS", "QUERY PARAMETERS",
+ * "REQUEST BODY SCHEMA", "RESPONSE HEADERS". Every one is ReDoc's
+ * `UnderlinedHeader`, the only h5 it emits, and on the dark theme all of them
+ * computed to rgba(38, 50, 56, 0.7) against a page of rgb(19, 26, 37): 1.21:1,
+ * the label that says what the block below it is reading as a smudge.
+ */
+.redoc-host h5 {
+  color: hsl(var(--muted-foreground));
+  border-bottom-color: hsl(var(--border));
+}
+
+/*
+ * The media type beside those labels ("application/json", "image/png") is
+ * ReDoc's `MimeLabel`, written `color: black` with no theme key behind it.
+ */
+.redoc-host h5 span,
+.redoc-host h5 + span,
+.redoc-host h5 + div > span {
+  color: hsl(var(--muted-foreground));
+}
+
+/*
+ * The media-type dropdown, when an operation has more than one: a `white`
+ * ground with `#263238` ink and an `rgba(38, 50, 56, 0.5)` border, all three
+ * literals. Addressed through the <select> ReDoc puts inside it, which carries
+ * a stable class, because the wrapper's own class is a styled-components hash.
+ */
+.redoc-host div:has(> select.dropdown-select) {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+.redoc-host select.dropdown-select option {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+/*
+ * The search box's placeholder is `#666`, which is ReDoc's grey on ReDoc's own
+ * light sidebar. The sidebar is the portal's card color in both themes.
+ */
+.redoc-host input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+/*
+ * The response sample tabs, in the right-hand panel that stays dark on both
+ * themes.
+ *
+ * ReDoc paints the selected tab with `rightPanel.textColor` -- white -- and
+ * writes its label in `colors.text.primary`, which on the dark theme is also
+ * white: an empty white pill where the word "Payload" should be. The status
+ * tabs carry their own response color instead, and those are the light end of
+ * the ramp on the dark theme (4ade80, f87171), so they were unreadable on the
+ * same white pill: 1.74:1 for a 200.
+ *
+ * Both are one problem -- a light pill on a dark document -- so the pill itself
+ * moves rather than each label. The status colors then land on a ground they
+ * were chosen for, and are left to ReDoc's own more specific rules.
+ */
+.dark .redoc-host .react-tabs__tab--selected {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+/*
+ * The navigation menu's height.
+ *
+ * ReDoc makes the menu `position: sticky` and sets its height inline to the
+ * viewport: `style={{ top, height: "calc(100vh - " + top + ")" }}`. That is
+ * right when the page scrolls in the window, and wrong here. AppShell puts the
+ * page in `<main className="flex-1 overflow-auto">` below a fixed header, so
+ * the sticky element's scrollport is that element, which is the viewport less
+ * the header. Measured at 1440x900: the scrollport is 844px and the menu was
+ * 900px, leaving its bottom 56px -- exactly the header's height -- permanently
+ * below the fold, with the entries that landed in it unreachable by any means.
+ *
+ * An inline style is only reachable with !important. The height is the same
+ * arithmetic ReDoc does, against the box that actually scrolls.
+ */
+.redoc-host .menu-content {
+  height: calc(100dvh - var(--app-header-height)) !important;
 }

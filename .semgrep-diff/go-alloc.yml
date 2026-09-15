@@ -1,0 +1,51 @@
+# Rules enforced against CHANGED lines only, not the whole tree.
+#
+# `make verify` runs `.semgrep/` over everything, because a finding there is a
+# defect wherever it sits. The rule below is different in kind: it refuses a
+# SHAPE that CodeQL's `go/allocation-size-overflow` rejects at PR time, and
+# CodeQL reaches that verdict with range analysis Semgrep does not have. The
+# shape is therefore matched far more widely here than CodeQL flags it -- 55
+# sites in this tree carry it and none is a defect -- so the rule is scoped the
+# way CI scopes CodeQL: against the diff. `make semgrep-diff` is the gate, and
+# it mirrors `golangci-lint --new-from-patch` beside it for the same reason.
+rules:
+  # #1748. PR #1747 passed `make verify` here and was rejected by CodeQL in CI
+  # with go/allocation-size-overflow (high) on
+  # `make(map[string]any, len(fields)+1)` at pkg/toolkits/apigateway/memguard.go:149.
+  # Semgrep owns allocation safety in this repository -- .semgrep/go-security.yml
+  # carries unbounded-make-slice-capacity and unbounded-make-map-size -- and
+  # both constrain their size metavariable to `^[a-zA-Z_]\w*\.[a-zA-Z_]\w*$`, a
+  # struct field reference. Arithmetic on a length is a different shape and
+  # matched neither, which is why the machine that wrote the line could not
+  # refuse it. This is that third shape.
+  - id: allocation-size-length-arithmetic
+    patterns:
+      # The deep-expression operator, so `len(a)+len(b)`, `n+len(x)` and
+      # `len(x)*2` are all one rule rather than an enumeration of operators
+      # and operand orders that a fourth shape would slip past.
+      - pattern-either:
+          - pattern: make($TYPE, <... len($X) ...>)
+          - pattern: make($TYPE, $LEN, <... len($X) ...>)
+      # A length used AS the size is the correct, non-overflowing form and is
+      # what the fix looks like; only arithmetic around it is refused.
+      - pattern-not: make($TYPE, len($X))
+      - pattern-not: make($TYPE, $LEN, len($X))
+    message: >-
+      Arithmetic on a length is used as an allocation size. CodeQL refuses this
+      as go/allocation-size-overflow: the addition overflows for a sufficiently
+      large operand, and `make` panics on the negative result or silently
+      allocates a tiny one. A capacity or map size hint is advisory, so drop the
+      arithmetic and size from the length alone; where the arithmetic is a real
+      slice length, bound the operand before computing it.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-190: Integer Overflow or Wraparound"
+      confidence: HIGH
+      impact: MEDIUM
+      references:
+        - https://codeql.github.com/codeql-query-help/go/go-allocation-size-overflow/
+      technology:
+        - go

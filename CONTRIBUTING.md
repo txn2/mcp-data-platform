@@ -564,6 +564,14 @@ test is the gate.
 
 - Never commit secrets or credentials
 - Run `gosec ./...` before submitting PRs
+- Two Semgrep configurations run, and they are scoped differently. `.semgrep/`
+  runs over the whole tree (`make semgrep`), because a finding there is a defect
+  wherever it sits. `.semgrep-diff/` runs against the lines your branch changed
+  (`make semgrep-diff`), because its rules refuse a syntactic shape that a
+  diff-scoped CI check rejects with reasoning Semgrep does not have -- the
+  allocation-size rule matches 55 places in this tree and CodeQL flags none of
+  them. Add a rule to the first when the shape is always wrong, and to the
+  second when it is wrong only where CI says so.
 - Report security vulnerabilities via [SECURITY.md](SECURITY.md)
 - Follow secure coding practices
 
