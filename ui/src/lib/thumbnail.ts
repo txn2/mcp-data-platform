@@ -1,4 +1,3 @@
-import html2canvas from "html2canvas";
 import { authedFetch } from "@/api/authed";
 import {
   transformJsx,
@@ -8,7 +7,8 @@ import {
   viewerOrigin,
   REF_PATH_PREFIX,
 } from "@/components/renderers/JsxRenderer";
-import { THUMB_WIDTH, THUMB_HEIGHT, thumbnailBase } from "@/lib/thumbnailSupport";
+import { THUMB_WIDTH, THUMB_HEIGHT, thumbnailPath } from "@/lib/thumbnailSupport";
+import { rasterize, canvasToPng, type RasterOutcome } from "@/lib/thumbnailRaster";
 import type { ThumbnailTarget } from "@/lib/thumbnailSupport";
 
 // Re-exported so the capturer has one import for everything it needs. Callers
@@ -21,6 +21,8 @@ export {
   isThumbnailSupported,
   isThemeable,
   captureFamily,
+  thumbnailPath,
+  contentPath,
 } from "@/lib/thumbnailSupport";
 export type { ThumbnailTarget } from "@/lib/thumbnailSupport";
 
@@ -221,11 +223,11 @@ function insertRefWatch(html: string): string {
  * The iframe must have same-origin access (blob: URL satisfies this when
  * the sandbox includes allow-same-origin).
  */
-export async function captureIframe(iframe: HTMLIFrameElement): Promise<Blob> {
+export async function captureIframe(iframe: HTMLIFrameElement): Promise<CaptureResult> {
   const doc = iframe.contentDocument;
   if (!doc?.body) throw new Error("Cannot access iframe content");
 
-  const canvas = await html2canvas(doc.body, {
+  const outcome = await rasterize(doc.body, {
     width: RENDER_WIDTH,
     height: RENDER_HEIGHT,
     windowWidth: RENDER_WIDTH,
@@ -235,41 +237,17 @@ export async function captureIframe(iframe: HTMLIFrameElement): Promise<Blob> {
     useCORS: true,
   });
 
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error("canvas.toBlob returned null"));
-    }, "image/png");
-  });
+  return { blob: await canvasToPng(outcome.canvas), outcome };
 }
 
+/** A drawn tile, and what the rasterizer had to leave out to draw it. */
+export interface CaptureResult {
+  blob: Blob;
+  outcome: RasterOutcome;
+}
 
 /** Thumbnail color-scheme variant. Light is the default/shared variant. */
 export type ThumbnailVariant = "light" | "dark";
-
-/**
- * Upload a PNG thumbnail blob for an asset. The optional variant selects the
- * color scheme; "dark" is only captured for themeable content types (see
- * isThemeable). Defaults to the light/shared variant.
- */
-/**
- * The route a target's capture is uploaded to and served from, in full.
- *
- * An absolute path rather than a fragment for one client to prefix: an asset
- * lives under /api/v1/portal and a resource under /api/v1/resources, so a
- * fragment handed to the wrong client is a 404 -- which is exactly what every
- * resource capture did until this was written out (#1554). The test that was
- * supposed to catch it asserted the fragment the mock received instead of the
- * URL that would be requested, and so agreed with the bug.
- */
-export function thumbnailPath(target: ThumbnailTarget): string {
-  return `${thumbnailBase(target)}/${target.id}/thumbnail`;
-}
-
-/** The route a target's own bytes are read from. */
-export function contentPath(target: ThumbnailTarget): string {
-  return `${thumbnailBase(target)}/${target.id}/content`;
-}
 
 /**
  * Downscale an image to tile size, as a PNG.
@@ -334,6 +312,11 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   }
 }
 
+/**
+ * Upload a PNG thumbnail blob for a target. The optional variant selects the
+ * color scheme; "dark" is only captured for themeable content types (see
+ * isThemeable). Defaults to the light/shared variant.
+ */
 export async function uploadThumbnail(
   target: ThumbnailTarget,
   blob: Blob,

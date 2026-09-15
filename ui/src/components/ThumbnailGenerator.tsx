@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback, useMemo, useId } from "react";
 import Papa from "papaparse";
 import DOMPurify from "dompurify";
-import html2canvas from "html2canvas";
 import mermaid from "mermaid";
 import {
   THUMB_WIDTH,
@@ -17,7 +16,10 @@ import {
   captureFamily,
   type ThumbnailTarget,
 } from "@/lib/thumbnail";
+import { rasterize, canvasToPng, type RasterOutcome } from "@/lib/thumbnailRaster";
+import { failCapture, type CaptureFailure } from "@/lib/captureFailure";
 import { CT, normalizeContentType } from "@/lib/contentType";
+import { resolveRenderer } from "@/components/renderers/registry";
 import { LIGHT_SCHEME, DARK_SCHEME, type Scheme } from "@/components/thumbnail/schemes";
 import { buildJsonLines, buildNdjsonRecords } from "@/components/thumbnail/JsonThumbnailBody";
 import { DomBody, type DomKind } from "@/components/thumbnail/DomThumbnailBody";
@@ -40,7 +42,13 @@ interface Props {
    */
   version?: number;
   onCaptured?: () => void;
-  onFailed?: () => void;
+  /**
+   * Called with why no image was produced. The reason travels rather than being
+   * swallowed because a capture happens in the reader's browser and leaves no
+   * server record: this callback and the console line beside it are the only
+   * places it exists (#1752).
+   */
+  onFailed?: (failure: CaptureFailure) => void;
 }
 
 /**
@@ -116,23 +124,39 @@ export function ThumbnailGenerator({
   //
   // The server offers only types this dispatches, so reaching here means the
   // two lists have drifted apart; the queue spends an attempt and keeps going.
-  return <UnsupportedType contentType={contentType} onFailed={onFailed} />;
+  return <UnsupportedType target={target} contentType={contentType} onFailed={onFailed} />;
 }
 
 /** Reports, once, that nothing here can render this type. */
 function UnsupportedType({
+  target,
   contentType,
   onFailed,
 }: {
+  target: ThumbnailTarget;
   contentType: string;
-  onFailed?: () => void;
+  onFailed?: (failure: CaptureFailure) => void;
 }) {
   useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.warn(`thumbnail: nothing renders ${contentType}; skipping this capture`);
-    onFailed?.();
-  }, [contentType, onFailed]);
+    failCapture(target, onFailed, "unsupported", `nothing renders ${contentType}`);
+  }, [target, contentType, onFailed]);
   return null;
+}
+
+/**
+ * Say, once, that a document had to be drawn without its backgrounds.
+ *
+ * A degraded capture is a stored tile that is not quite the document, which is
+ * the right trade against no tile at all (#1751) and still worth a line: it
+ * names the exception that forced it, which is how the next document of this
+ * shape gets diagnosed.
+ */
+function noteDegraded(target: ThumbnailTarget, outcome: RasterOutcome): void {
+  if (!outcome.degraded) return;
+  console.warn(
+    `thumbnail: ${target.kind} ${target.id} was drawn without its background images; ` +
+      `the first attempt threw: ${String(outcome.firstError)}`,
+  );
 }
 
 /**
@@ -186,7 +210,7 @@ function IframeCapture({
   contentType: string;
   version?: number;
   onCaptured?: () => void;
-  onFailed?: () => void;
+  onFailed?: (failure: CaptureFailure) => void;
 }) {
   const capturedRef = useRef(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -213,16 +237,25 @@ function IframeCapture({
     if (capturedRef.current || !iframeRef.current) return;
     capturedRef.current = true;
     if (refFailures > 0) {
-      onFailed?.();
+      failCapture(target, onFailed, "references",
+        `${refFailures} reference load(s) failed, so the tile would be a picture of the error`);
       return;
     }
+    let captured;
     try {
-      const blob = await captureIframe(iframeRef.current);
-      await uploadThumbnail(target, blob, "light", version);
-      onCaptured?.();
-    } catch {
-      onFailed?.();
+      captured = await captureIframe(iframeRef.current);
+    } catch (err) {
+      failCapture(target, onFailed, "render", err);
+      return;
     }
+    noteDegraded(target, captured.outcome);
+    try {
+      await uploadThumbnail(target, captured.blob, "light", version);
+    } catch (err) {
+      failCapture(target, onFailed, "upload", err);
+      return;
+    }
+    onCaptured?.();
   }, [target, version, onCaptured, onFailed]);
 
   useEffect(() => {
@@ -248,11 +281,12 @@ function IframeCapture({
     const timer = setTimeout(() => {
       if (!capturedRef.current) {
         capturedRef.current = true;
-        onFailed?.();
+        failCapture(target, onFailed, "timeout",
+          `the document was not ready within ${CAPTURE_TIMEOUT_MS} ms`);
       }
     }, CAPTURE_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [onFailed]);
+  }, [target, onFailed]);
 
   useEffect(() => {
     return () => URL.revokeObjectURL(blobUrl);
@@ -330,18 +364,26 @@ async function renderMermaidIn(
   }
 }
 
-/** Captures a container to a PNG blob on the given background color. */
-async function captureContainer(container: HTMLElement, bg: string): Promise<Blob> {
-  const canvas = await html2canvas(container, {
+/**
+ * Captures a container to a PNG blob on the given background color.
+ *
+ * Through the rasterizer rather than html2canvas directly, for the reason the
+ * iframe path is: one box html2canvas cannot draw aborts the whole capture, and
+ * a markdown document holding a bar chart is as capable of carrying one as an
+ * HTML document is (#1751).
+ */
+async function captureContainer(
+  container: HTMLElement,
+  bg: string,
+): Promise<{ blob: Blob; outcome: RasterOutcome }> {
+  const outcome = await rasterize(container, {
     width: THUMB_WIDTH,
     height: THUMB_HEIGHT,
     scale: 1,
     logging: false,
     backgroundColor: bg,
   });
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))), "image/png");
-  });
+  return { blob: await canvasToPng(outcome.canvas), outcome };
 }
 
 /**
@@ -362,7 +404,7 @@ function DomCapture({
   contentType: string;
   version?: number;
   onCaptured?: () => void;
-  onFailed?: () => void;
+  onFailed?: (failure: CaptureFailure) => void;
 }) {
   const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const capturedRef = useRef(false);
@@ -392,11 +434,16 @@ function DomCapture({
       header: true,
       skipEmptyLines: true,
       dynamicTyping: true,
+      // The delimiter the VIEWER lays this file out with, so the tile is of the
+      // same table the reader opens: a TSV drawn by guesswork is one column of
+      // tab-joined text (#1754). Empty is papaparse's own detection, which is
+      // what a CSV has always been parsed by.
+      delimiter: resolveRenderer({ contentType }).delimiter ?? "",
     });
     const cols = result.meta.fields ?? [];
     const rows = result.data.slice(0, 10);
     return { cols, rows };
-  }, [content, kind]);
+  }, [content, contentType, kind]);
 
   const sanitizedSvg = useMemo(
     () => (kind === "svg" ? DOMPurify.sanitize(content, { USE_PROFILES: { svg: true, svgFilters: true } }) : ""),
@@ -418,6 +465,10 @@ function DomCapture({
     // uploaded. Report success if ANY variant landed, so the queue invalidates
     // and shows what we have; a still-missing variant is re-queued on next load.
     let anySucceeded = false;
+    // Kept so a capture where every variant failed reports WHY rather than the
+    // bare fact, which is what left #1751 undiagnosed through every attempt the
+    // queue and the viewer made (#1752).
+    let lastError: unknown;
     for (let i = 0; i < schemes.length; i++) {
       const container = containerRefs.current[i];
       const scheme = schemes[i];
@@ -427,17 +478,19 @@ function DomCapture({
         await renderMermaidIn(container, scheme.mermaidTheme, `thumb-mermaid-${scheme.variant}`);
         // Let layout settle after mermaid SVGs are inserted
         await new Promise((r) => requestAnimationFrame(r));
-        const blob = await captureContainer(container, scheme.tokens.bg);
-        await uploadThumbnail(target, blob, scheme.variant, version);
+        const captured = await captureContainer(container, scheme.tokens.bg);
+        noteDegraded(target, captured.outcome);
+        await uploadThumbnail(target, captured.blob, scheme.variant, version);
         anySucceeded = true;
-      } catch {
+      } catch (err) {
         // Skip this variant; other variants and a later retry can still fill it.
+        lastError = err;
       }
     }
     if (anySucceeded) {
       onCaptured?.();
     } else {
-      onFailed?.();
+      failCapture(target, onFailed, "render", lastError ?? "no scheme container was mounted");
     }
   }, [target, schemes, version, onCaptured, onFailed]);
 
@@ -450,11 +503,11 @@ function DomCapture({
     const timer = setTimeout(() => {
       if (!capturedRef.current) {
         capturedRef.current = true;
-        onFailed?.();
+        failCapture(target, onFailed, "timeout", `the document was not drawn within ${CAPTURE_TIMEOUT_MS} ms`);
       }
     }, CAPTURE_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [onFailed]);
+  }, [target, onFailed]);
 
   return (
     <>

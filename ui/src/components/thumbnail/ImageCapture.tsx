@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { contentPath, downscaleImage, uploadThumbnail, type ThumbnailTarget } from "@/lib/thumbnail";
+import { failCapture, type CaptureFailure } from "@/lib/captureFailure";
 
 /**
  * A raster image, downscaled onto a canvas.
@@ -23,7 +24,8 @@ export function ImageCapture({
   contentType: string;
   version?: number;
   onCaptured?: () => void;
-  onFailed?: () => void;
+  /** Why no tile was produced (#1752). */
+  onFailed?: (failure: CaptureFailure) => void;
 }) {
   const capturedRef = useRef(false);
 
@@ -35,14 +37,23 @@ export function ImageCapture({
     const src = contentPath(target);
 
     void (async () => {
+      let blob: Blob;
       try {
-        const blob = await downscaleImage(src, contentType);
-        if (cancelled) return;
-        await uploadThumbnail(target, blob, "light", version);
-        if (!cancelled) onCaptured?.();
-      } catch {
-        if (!cancelled) onFailed?.();
+        blob = await downscaleImage(src, contentType);
+      } catch (err) {
+        // The bytes could not be read or the browser could not decode them;
+        // either way the reason is the only record this capture leaves (#1752).
+        if (!cancelled) failCapture(target, onFailed, "content", err);
+        return;
       }
+      if (cancelled) return;
+      try {
+        await uploadThumbnail(target, blob, "light", version);
+      } catch (err) {
+        if (!cancelled) failCapture(target, onFailed, "upload", err);
+        return;
+      }
+      if (!cancelled) onCaptured?.();
     })();
 
     return () => {

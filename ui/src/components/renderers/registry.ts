@@ -150,6 +150,18 @@ const REGISTRY: Record<string, RendererEntry> = {
   [CT.pdf]: { kind: "pdf", editable: false, source: "url", inlineLimit: null },
 };
 
+/**
+ * Every content type the registry names outright.
+ *
+ * Exported so the question "does everything the viewer renders get a tile?" can
+ * be asked of this table rather than answered by a second one kept by hand,
+ * which is what let seven families the viewer lays out every day keep a
+ * content-type icon forever (#1754). The prefix families below are not in it:
+ * they are a rule, not a list, and the capturer narrows image/ to the types a
+ * browser can actually decode.
+ */
+export const REGISTERED_CONTENT_TYPES: string[] = Object.keys(REGISTRY);
+
 /** Media families resolved by their type prefix rather than an exact match. */
 const PREFIX_KINDS: Array<{ prefix: string; entry: RendererEntry }> = [
   { prefix: "image/", entry: { kind: "image", editable: false, source: "url", inlineLimit: null } },

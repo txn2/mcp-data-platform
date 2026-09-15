@@ -9,6 +9,8 @@
  * transformer, some 200 KB that only the capture itself needs (#1351).
  */
 
+import type { RendererKind } from "@/components/renderers/registry";
+
 /** Thumbnail image dimensions, in CSS pixels. */
 export const THUMB_WIDTH = 400;
 export const THUMB_HEIGHT = 300;
@@ -38,6 +40,77 @@ export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
  */
 export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "text" | "image";
 
+/**
+ * What the capturer draws each renderer kind as, or why it draws none.
+ *
+ * If a browser can render it in the viewer, it can have a tile: the two
+ * questions were answered by two unrelated tables and the second was a
+ * hand-kept subset of the first, so seven families the viewer lays out every
+ * day -- YAML, XML, SQL, Python, JavaScript, CSS, TSV -- kept a content-type
+ * icon forever (#1754). This is the bridge, over the renderer registry's own
+ * kinds rather than over a second list of content types: a kind added there is
+ * a missing key here and does not compile, and the test beside it holds the
+ * fragments below to what the registry resolves.
+ *
+ * The three kinds that are rendered and deliberately not drawn say why, here,
+ * rather than being absent and leaving the reason to be guessed.
+ */
+export type KindCapture = CaptureFamily | { drawn: false; because: string };
+
+export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
+  html: "iframe",
+  jsx: "iframe",
+  svg: "svg",
+  markdown: "markdown",
+  json: "json",
+  ndjson: "json",
+  table: "csv",
+  // Every code family is a plain text document the viewer lays out, which is
+  // exactly the shape the text family draws. The tile is not syntax-highlighted
+  // and does not need to be: at 400x300 what a reader recognizes is the shape
+  // of the file.
+  code: "text",
+  text: "text",
+  image: "image",
+  pdf: {
+    drawn: false,
+    because:
+      "rasterizing a page needs a PDF engine the capturer does not carry, and " +
+      "the pending query is a bounded window: offering work that fails every " +
+      "time starves the documents behind it",
+  },
+  audio: {
+    drawn: false,
+    because: "there is no page to draw, and a waveform would be a picture of a decoder, not of the file",
+  },
+  video: {
+    drawn: false,
+    because:
+      "a frame grab needs the media element to decode far enough to seek, which " +
+      "is a different capture from rendering a document",
+  },
+  binary: {
+    drawn: false,
+    because: "the viewer does not render it either -- it offers the download",
+  },
+};
+
+/**
+ * The families drawn on a forced background, which are captured twice, once per
+ * color scheme.
+ *
+ * A property of the family rather than of each content type: HTML, JSX, SVG and
+ * a raster image carry their own colors and store a single image for both
+ * modes, and everything the capturer draws onto its own page needs one capture
+ * per scheme.
+ */
+const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
+  "markdown",
+  "csv",
+  "json",
+  "text",
+]);
+
 /** One capturable family: how a content type is recognized, and what is done with it. */
 interface CapturableFamily {
   /**
@@ -47,12 +120,6 @@ interface CapturableFamily {
    */
   fragment: string;
   family: CaptureFamily;
-  /**
-   * Whether the family is drawn on a forced background and so captured twice,
-   * once per color scheme. A family carrying its own colors stores one image
-   * and serves it in both modes.
-   */
-  themeable: boolean;
 }
 
 /**
@@ -62,8 +129,20 @@ interface CapturableFamily {
  * This is the one browser-side definition. The rule used to be written out in
  * four places -- two Go stores, the browser gate here, and the capturer's own
  * dispatch -- and the four stopped agreeing (#1568). The one Go definition is
- * internal/thumbtypes, and a Go test reads the fragments and themeable flags out
- * of this table and fails when the two languages disagree.
+ * internal/thumbtypes, and a Go test reads this table and the themeable family
+ * set above and fails when the two languages disagree.
+ *
+ * It is written as fragments, rather than resolved through the renderer
+ * registry the way the capturer's dispatch is, because the other half of the
+ * rule is a SQL query: the server picks the next documents to offer with
+ * ILIKE over a content_type column, and cannot resolve a registry. What keeps
+ * it from drifting into a subset of what the viewer renders -- which is what it
+ * had become (#1754) -- is the test that derives the expectation from
+ * CAPTURE_BY_RENDERER_KIND and fails naming the type the two disagree on.
+ *
+ * A stored type is canonical: the platform settles a declaration against its
+ * alias table when the file is written (#1568), so "text/tsv" is stored as
+ * "text/tab-separated-values" and no fragment has to cover both spellings.
  *
  * Order is part of the definition, because the first fragment a type contains
  * wins.
@@ -83,21 +162,31 @@ interface CapturableFamily {
  * actually complete.
  */
 const CAPTURABLE_FAMILIES: CapturableFamily[] = [
-  { fragment: "html", family: "iframe", themeable: false },
-  { fragment: "jsx", family: "iframe", themeable: false },
-  { fragment: "svg", family: "svg", themeable: false },
-  { fragment: "markdown", family: "markdown", themeable: true },
-  { fragment: "csv", family: "csv", themeable: true },
-  { fragment: "json", family: "json", themeable: true },
-  { fragment: "text/plain", family: "text", themeable: true },
-  { fragment: "image/png", family: "image", themeable: false },
-  { fragment: "image/jpeg", family: "image", themeable: false },
-  { fragment: "image/gif", family: "image", themeable: false },
-  { fragment: "image/webp", family: "image", themeable: false },
-  { fragment: "image/avif", family: "image", themeable: false },
-  { fragment: "image/bmp", family: "image", themeable: false },
-  { fragment: "image/x-icon", family: "image", themeable: false },
-  { fragment: "image/vnd.microsoft.icon", family: "image", themeable: false },
+  { fragment: "html", family: "iframe" },
+  { fragment: "jsx", family: "iframe" },
+  { fragment: "svg", family: "svg" },
+  { fragment: "markdown", family: "markdown" },
+  { fragment: "csv", family: "csv" },
+  { fragment: "tab-separated", family: "csv" },
+  { fragment: "json", family: "json" },
+  // The code families, each a plain text document drawn as one. "svg" above
+  // takes image/svg+xml before "xml" is reached, and "jsx" takes text/jsx
+  // before "javascript" is.
+  { fragment: "yaml", family: "text" },
+  { fragment: "xml", family: "text" },
+  { fragment: "sql", family: "text" },
+  { fragment: "python", family: "text" },
+  { fragment: "javascript", family: "text" },
+  { fragment: "css", family: "text" },
+  { fragment: "text/plain", family: "text" },
+  { fragment: "image/png", family: "image" },
+  { fragment: "image/jpeg", family: "image" },
+  { fragment: "image/gif", family: "image" },
+  { fragment: "image/webp", family: "image" },
+  { fragment: "image/avif", family: "image" },
+  { fragment: "image/bmp", family: "image" },
+  { fragment: "image/x-icon", family: "image" },
+  { fragment: "image/vnd.microsoft.icon", family: "image" },
 ];
 
 /** The family a content type is drawn as, or null when nothing draws it. */
@@ -115,9 +204,15 @@ export function isThumbnailSupported(contentType: string): boolean {
  * background and therefore needs a separate dark-mode thumbnail. HTML, JSX, SVG
  * and a raster image carry their own colors, so they reuse the single
  * light/default thumbnail in both modes.
+ *
+ * Read off the family rather than off the content type: every family the
+ * capturer draws onto its own page is themeable and every family that carries
+ * its own document is not, so a content type added to the table above cannot
+ * get this wrong.
  */
 export function isThemeable(contentType: string): boolean {
-  return matchFamily(contentType)?.themeable ?? false;
+  const family = captureFamily(contentType);
+  return family !== null && THEMEABLE_FAMILIES.has(family);
 }
 
 /** The first family whose fragment the type contains. */
@@ -166,6 +261,31 @@ export const RESOURCE_THUMBNAIL_BASE = "/api/v1/resources";
 /** The collection route a target's tile is read through, absent an override. */
 export function thumbnailBase(target: ThumbnailTarget): string {
   return target.kind === "resource" ? RESOURCE_THUMBNAIL_BASE : ASSET_THUMBNAIL_BASE;
+}
+
+/**
+ * The route a target's capture is uploaded to and served from, in full.
+ *
+ * An absolute path rather than a fragment for one client to prefix: an asset
+ * lives under /api/v1/portal and a resource under /api/v1/resources, so a
+ * fragment handed to the wrong client is a 404 -- which is exactly what every
+ * resource capture did until this was written out (#1554). The test that was
+ * supposed to catch it asserted the fragment the mock received instead of the
+ * URL that would be requested, and so agreed with the bug.
+ */
+export function thumbnailPath(target: ThumbnailTarget): string {
+  return `${thumbnailBase(target)}/${target.id}/thumbnail`;
+}
+
+/**
+ * The route a target's own bytes are read from.
+ *
+ * Here rather than beside the capturer because the panel that asks for a
+ * capture reads the document too, and it must be able to name the route
+ * without pulling in html2canvas (#1753).
+ */
+export function contentPath(target: ThumbnailTarget): string {
+  return `${thumbnailBase(target)}/${target.id}/content`;
 }
 
 /**
@@ -394,6 +514,12 @@ export interface ThumbnailSubject {
   name: string;
   contentType: string;
   sizeBytes: number;
+  /**
+   * The version a capture of this subject is stamped with, for a kind that has
+   * one. A resource sends none: the server dates its captures to the file's own
+   * updated_at (#1554).
+   */
+  version?: number;
   captures: Captures;
   /** Whether a capture is wanted right now. */
   behind: boolean;
@@ -411,6 +537,7 @@ export function assetSubject(
     name: asset.name,
     contentType: asset.content_type,
     sizeBytes: asset.size_bytes,
+    version: asset.current_version,
     captures: assetCaptures(asset),
     behind: thumbnailBehind(asset),
     base,

@@ -27,6 +27,13 @@ package thumbtypes
 // bare word is a substring of "text/html", "text/csv" and "text/markdown", each
 // of which is drawn differently.
 //
+// The code families -- YAML, XML, SQL, Python, JavaScript, CSS -- and TSV are
+// here because the viewer renders every one of them and a browser that can
+// render it can draw a tile of it; they were absent, and each kept a
+// content-type icon forever (#1754). Order carries the two overlaps: "svg"
+// takes image/svg+xml before "xml" is reached, and "jsx" takes text/jsx before
+// "javascript" is.
+//
 // The raster families are named one by one rather than as "image/", which is
 // what a bare prefix would have cost: a capture DOWNSCALES a raster image by
 // decoding it in the browser, and TIFF, HEIC and PSD are images a browser
@@ -39,7 +46,8 @@ package thumbtypes
 // Everything else -- PDF, spreadsheets, archives, binaries -- has no renderer,
 // keeps its content-type icon, and is never offered for capture.
 var Capturable = []string{
-	"html", "jsx", "svg", "markdown", "csv", "json", "text/plain",
+	"html", "jsx", "svg", "markdown", "csv", "tab-separated", "json",
+	"yaml", "xml", "sql", "python", "javascript", "css", "text/plain",
 	"image/png", "image/jpeg", "image/gif", "image/webp",
 	"image/avif", "image/bmp", "image/x-icon", "image/vnd.microsoft.icon",
 }
@@ -48,7 +56,12 @@ var Capturable = []string{
 // twice, once per color scheme. HTML, JSX, SVG and a raster image carry their
 // own colors: they store a single image and serve it in both modes, so reading
 // their empty dark key as "pending" would offer them forever.
-var Themeable = []string{"markdown", "csv", "json", "text/plain"}
+//
+// In Capturable's order, which is what the parity test compares.
+var Themeable = []string{
+	"markdown", "csv", "tab-separated", "json",
+	"yaml", "xml", "sql", "python", "javascript", "css", "text/plain",
+}
 
 // ILikePatterns wraps content-type fragments as SQL ILIKE patterns, which is
 // how the substring test the browser applies is asked of a column.
