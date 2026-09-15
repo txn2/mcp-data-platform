@@ -338,16 +338,15 @@ func TestIssue1745_TwoConnectionsOnOneCatalogServeOneSchema(t *testing.T) {
 // inventory half a caller sees: a GraphQL endpoint's surface is reported the
 // way a REST one's is, without calling graphql_discover against it.
 func TestIssue1745_ListConnectionsReportsTheCatalogAndItsSurface(t *testing.T) {
-	// Registered and listed through ONE replica. list_connections
-	// enumerates what the answering replica holds rather than resolving a
-	// name, so it is not reached by the catch-up #1746 built and a
-	// round-robin proxy can answer from a replica the save has not reached;
-	// that window is #1757, and a fix there is what would let this pin go.
-	c, _ := connectReplicaPair(t)
+	// Registered on one replica and listed through the other, which is what
+	// #1757 made answerable: the enumeration reports the connections the
+	// store holds, so the catalog and its operation count are facts about
+	// the connection rather than about the replica that answered.
+	c, listing := connectReplicaPair(t)
 	catalogID := issue1745Catalog(t, c, "listed")
 	name := issue1745Register(t, c, "listed", catalogID)
 
-	out := c.call("list_connections", map[string]any{"purpose": issue1745Purpose})
+	out := listing.call("list_connections", map[string]any{"purpose": issue1745Purpose})
 	raw, err := json.Marshal(out)
 	if err != nil {
 		t.Fatalf("re-marshalling list_connections: %v", err)

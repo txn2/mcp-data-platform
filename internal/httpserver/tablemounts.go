@@ -342,7 +342,9 @@ func platformTableLocator(p *platform.Platform) tableregister.Locator {
 // and carrying a scratch catalog and schema. A picker that offered anything
 // else would offer a choice the registrar then refuses.
 func tableConnectionEnumerator(p *platform.Platform, adminRoles []string) tablehttp.ConnectionEnumerator {
-	lister := connreach.New(connreach.Deps{Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry()})
+	lister := connreach.New(connreach.Deps{
+		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(), Stored: platform.StoredConnections(p),
+	})
 	if lister == nil {
 		return nil
 	}

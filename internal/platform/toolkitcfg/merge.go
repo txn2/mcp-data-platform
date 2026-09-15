@@ -139,3 +139,52 @@ func (d DeclaredConnections) Has(kind, name string) bool {
 	_, ok := d[kind][name]
 	return ok
 }
+
+// StoredInstance is one saved connection as the warm start reads it.
+type StoredInstance struct {
+	Kind   string
+	Name   string
+	Config map[string]any
+}
+
+// dynamicKinds are the kinds whose connections are added through the admin API
+// rather than declared in the configuration file, and which therefore have to
+// exist as a live toolkit before there is anything to add to: the MCP gateway
+// (#338), the HTTP API gateway (#364) and the graphql kind (#1277).
+var dynamicKinds = []string{"mcp", "api", "graphql"}
+
+// storedKinds are the kinds a connection can be saved under. datahub is absent
+// deliberately: it is single-instance and declared in the file alone.
+var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api": true, "graphql": true}
+
+// MergeStored folds the saved connections into the toolkit configuration the
+// loader builds from, so a process starts serving them rather than taking each
+// one on when a call first names it.
+//
+// This is a warm start, not the inventory. What connections exist is what the
+// connection store holds — that is what an enumeration reports and what a call
+// naming a connection this process does not serve resolves against (#1757) —
+// and a process that merged nothing would still answer for all of them, one
+// store read later. What the merge buys is that the common case costs no read,
+// and that a kind declared in the file keeps the meaning the file gave it:
+// PinDeclaredDefaults runs before any stored connection joins an instance map,
+// so a saved connection whose name sorts earlier cannot take over an
+// unqualified lookup a declared instance answers today.
+//
+// A connection the file already declares under the same name is left alone by
+// MergeInstance: the file is what this process runs on.
+func MergeStored(toolkits map[string]any, instances []StoredInstance) {
+	PinDeclaredDefaults(toolkits)
+	for _, kind := range dynamicKinds {
+		AutoEnableKind(toolkits, kind)
+	}
+	for _, inst := range instances {
+		if !storedKinds[inst.Kind] {
+			continue
+		}
+		// The kind is enabled before the merge, which is what gives the merge
+		// effect: MergeInstance is a no-op on a kind that is absent or off.
+		AutoEnableKind(toolkits, inst.Kind)
+		MergeInstance(toolkits, inst.Kind, inst.Name, inst.Config)
+	}
+}

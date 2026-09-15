@@ -174,7 +174,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// (#1478). Read-only: it names operations and invokes none.
 	apiwire.Mount(mux, wrap, apiwire.Deps{
 		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
-		Resolver: deps.PersonaResolver, AdminRoles: adminRoles,
+		Resolver: deps.PersonaResolver, AdminRoles: adminRoles, Stored: platform.StoredConnections(p),
 	})
 	mountMentionAPI(mux, p, wrap, adminRoles)
 	// Table registration serves both the portal's assets and the managed
@@ -242,7 +242,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	// runner is built over the assembled MCP server, so a draft's platform
 	// calls cross the same middleware chain an agent's calls cross.
 	lister := connreach.New(connreach.Deps{
-		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(),
+		Toolkits: p.ToolkitRegistry(), Personas: p.PersonaRegistry(), Stored: platform.StoredConnections(p),
 	})
 	deps.Connections = scriptConnectionEnumerator(lister)
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).

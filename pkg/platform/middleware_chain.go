@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
@@ -291,6 +292,9 @@ func (p *Platform) addToolCallMiddleware() {
 			WorkflowTracker: p.workflowTracker,
 			SessionResolver: p.buildSessionResolver(),
 			PurposeResolver: toolargs.BuildPurposeResolver(p.config.Purpose, p.toolkitRegistry),
+			ConnectionCatchUp: callcatchup.New(p.toolkitRegistry, callcatchup.Reader(
+				p.connectionStore, ErrConnectionNotFound,
+				func(inst *ConnectionInstance) map[string]any { return inst.Config })),
 		}),
 	)
 }

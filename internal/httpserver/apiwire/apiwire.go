@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apishttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
+	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -38,6 +39,10 @@ type Deps struct {
 	// AdminRoles are the roles the admin persona is granted, which is what
 	// makes a caller's reach over this surface unrestricted.
 	AdminRoles []string
+	// Stored is the connection store, which is what says a connection exists.
+	// Nil lists what this process serves, which in a multi-replica deployment
+	// is a different answer per replica (#1757).
+	Stored connview.StoreLister
 }
 
 // Mount registers the browser's routes on mux behind the portal's own
@@ -50,7 +55,9 @@ type Deps struct {
 // api connections must answer "you reach none", which is the empty state the
 // page renders, rather than throwing its reader out of the portal.
 func Mount(mux *http.ServeMux, wrap func(http.Handler) http.Handler, deps Deps) {
-	lister := connreach.New(connreach.Deps{Toolkits: deps.Toolkits, Personas: deps.Personas})
+	lister := connreach.New(connreach.Deps{
+		Toolkits: deps.Toolkits, Personas: deps.Personas, Stored: deps.Stored,
+	})
 	if lister == nil {
 		return
 	}

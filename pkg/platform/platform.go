@@ -3061,97 +3061,55 @@ func (p *Platform) ConnectionSources() *ConnectionSourceMap {
 	return p.connectionSources
 }
 
-// mergeDBConnectionsIntoConfig loads DB connection instances and merges them
-// into p.config.Toolkits so the toolkit loader creates clients for them.
+// mergeDBConnectionsIntoConfig warms this process up with the connections the
+// store holds, folding them into p.config.Toolkits so the toolkit loader builds
+// them at startup rather than each being taken on when a call first names it.
 //
-// Implements the "features-on-by-default-when-requirements-are-met" rule:
+// It is a warm start, not the inventory. What connections exist is what the
+// store holds: the enumeration reports them from there, and a call naming a
+// connection this process does not serve resolves it against the same rows
+// (#1757). A deployment where this merged nothing answers for every connection
+// one store read later.
 //
-//  1. The mcp gateway toolkit auto-enables whenever a connection store is
-//     available — gateway connections are added dynamically through the
-//     admin UI, there's no YAML 'instances' block to gate on, and forcing
-//     operators to copy `toolkits.mcp.enabled: true` boilerplate before
-//     they can save their first connection makes the admin UI silently
-//     inert. The "Add Connection" form already exposes mcp as an option;
-//     saving must produce a working connection without further config.
-//
-//  2. Trino and S3 toolkit kinds auto-enable when an operator saves their
-//     first DB instance via the admin UI. Pre-fix, the saved row was
-//     orphaned: the kind block didn't exist, toolkitcfg.KindEnabled
-//     returned false, the merge was a no-op, and the toolkit loader
-//     never instantiated anything.
-//
-// Operator-set values are never overridden — if the YAML explicitly sets
-// `toolkits.mcp.enabled: false`, that wins.
+// It also enables the kinds whose connections are only ever added through the
+// admin API — the MCP gateway, the HTTP API gateway and graphql have no YAML
+// 'instances' block to gate on, so the kind is pre-enabled or the first save
+// lands in a toolkit that does not exist. An operator who sets a kind's
+// `enabled` explicitly, either way, is never overridden. See
+// toolkitcfg.MergeStored for what the merge does and does not touch.
 func (p *Platform) mergeDBConnectionsIntoConfig() {
 	// Record what the file declared before anything below can add to the same
 	// map. This runs ahead of every early return so the snapshot is taken on
 	// the deployments that merge nothing too.
 	p.config.SnapshotDeclaredConnections()
 
-	if p.connectionStore == nil {
+	// A store with no durable backing holds nothing to warm up from, and
+	// auto-enabling the dynamic kinds against it would offer an admin-UI save
+	// that does not survive a restart. The interface contract is asked rather
+	// than the concrete type, so a future transient implementation does not
+	// toggle the behavior by accident.
+	if p.connectionStore == nil || !p.connectionStore.Persistent() {
 		return
 	}
-	// Skip the auto-enable path when the store has no durable backing
-	// (stateless mode). Without persistence, gateway connections
-	// wouldn't survive a restart anyway, and the admin UI's "Add
-	// Connection" form would silently discard saves. In that mode the
-	// operator must opt in via YAML, the same way they would for
-	// trino / s3 / datahub.
-	//
-	// Uses the interface contract Persistent() rather than a type
-	// assertion against *NoopConnectionStore, so future transient or
-	// test-only implementations don't accidentally toggle auto-enable
-	// behavior on or off.
-	if !p.connectionStore.Persistent() {
-		return
-	}
-
 	if p.config.Toolkits == nil {
 		p.config.Toolkits = make(map[string]any)
 	}
 
-	// Pin what the file already resolves to before anything from the database
-	// joins the instance maps, so a stored connection cannot take over the
-	// lookup a declared instance answers today.
-	toolkitcfg.PinDeclaredDefaults(p.config.Toolkits)
-
-	// (1) The gateway toolkits need no instance config to be useful —
-	// auto-enable so the admin UI's "Add Connection" path produces a
-	// live toolkit on the next request. The MCP gateway (#338), the
-	// HTTP API gateway (#364) and the graphql kind (#1277) follow the
-	// same convention: connections are added dynamically through the
-	// admin UI rather than via YAML 'instances' blocks, so the kind has
-	// to be pre-enabled for saves to land in a live toolkit.
-	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindMCP)
-	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindAPI)
-	toolkitcfg.AutoEnableKind(p.config.Toolkits, kindGraphQL)
-
+	// A store that cannot answer warms nothing up, but the merge still runs:
+	// enabling the kinds whose connections arrive through the admin API is
+	// what gives a later save somewhere to land, and it does not depend on
+	// what was read. The connections themselves are taken on when a call
+	// first names one, and the enumeration reports them from the store
+	// either way (#1757).
 	instances, err := p.connectionStore.List(context.Background())
 	if err != nil {
 		slog.Warn("failed to load DB connections for toolkit merge", logKeyError, err)
-		return
 	}
-	if len(instances) == 0 {
-		return
-	}
-
-	// Only merge connections for kinds that support DB management.
-	// Datahub is single-instance and managed via YAML only.
-	manageableKinds := map[string]bool{
-		kindTrino:   true,
-		kindS3:      true,
-		kindMCP:     true,
-		kindAPI:     true,
-		kindGraphQL: true,
-	}
-
+	stored := make([]toolkitcfg.StoredInstance, 0, len(instances))
 	for _, inst := range instances {
-		if manageableKinds[inst.Kind] {
-			// (2) Auto-enable the kind so the merge actually has effect.
-			toolkitcfg.AutoEnableKind(p.config.Toolkits, inst.Kind)
-			toolkitcfg.MergeInstance(p.config.Toolkits, inst.Kind, inst.Name, inst.Config)
-		}
+		stored = append(stored, toolkitcfg.StoredInstance{Kind: inst.Kind, Name: inst.Name, Config: inst.Config})
 	}
+	toolkitcfg.MergeStored(p.config.Toolkits, stored)
 }
 
 // FileDefaults returns the original file-based config values for whitelisted keys.
