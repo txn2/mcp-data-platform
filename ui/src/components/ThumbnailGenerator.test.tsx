@@ -206,6 +206,7 @@ describe("an artifact that lost its references", () => {
 
   it("is not stored, so the asset stays pending", async () => {
     const onFailed = vi.fn();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { container } = render(
       <ThumbnailGenerator
         assetId="ast-11"
@@ -221,6 +222,11 @@ describe("an artifact that lost its references", () => {
 
     await waitFor(() => expect(onFailed).toHaveBeenCalled());
     expect(uploads()).toEqual([]);
+    // And the reason reaches both the caller and the console: a failure that
+    // discards its reason is an asset with no tile that nobody can diagnose,
+    // which is how #1751 survived every attempt made on it (#1752).
+    expect(onFailed.mock.calls[0]![0]).toMatchObject({ code: "references", transient: false });
+    expect(String(error.mock.calls[0]![0])).toContain("capture of asset ast-11 failed (references)");
   });
 
   it("is stored when every reference loaded", async () => {
@@ -274,7 +280,10 @@ describe("a content type nothing can render", () => {
   it("reports a failure rather than rendering nothing", async () => {
     const onCaptured = vi.fn();
     const onFailed = vi.fn();
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // The spy outlives the test that installed it, so this reads only what
+    // this render reported.
+    error.mockClear();
 
     render(
       <ThumbnailGenerator
@@ -290,5 +299,7 @@ describe("a content type nothing can render", () => {
     expect(onCaptured).not.toHaveBeenCalled();
     // And nothing was uploaded for it.
     expect(uploads()).toEqual([]);
+    expect(onFailed.mock.calls[0]![0]).toMatchObject({ code: "unsupported" });
+    expect(String(error.mock.calls[0]![0])).toContain("nothing renders application/pdf");
   });
 });

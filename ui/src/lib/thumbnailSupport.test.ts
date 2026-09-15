@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
+import { REGISTERED_CONTENT_TYPES, resolveRenderer } from "@/components/renderers/registry";
 import {
   assetThumbnailSrc,
   captureFamily,
+  CAPTURE_BY_RENDERER_KIND,
   collectionItemThumbnailSrc,
   isThemeable,
   isThumbnailSupported,
@@ -153,6 +155,84 @@ describe("captureFamily", () => {
     expect(captureFamily("text/html")).not.toBe("text");
     expect(captureFamily("text/csv")).not.toBe("text");
     expect(captureFamily("text/markdown")).not.toBe("text");
+  });
+
+  // The seven the viewer laid out and the capturer would not draw, each of
+  // which kept a content-type icon forever (#1754).
+  it("draws every code family the viewer renders", () => {
+    expect(captureFamily("application/yaml")).toBe("text");
+    expect(captureFamily("application/xml")).toBe("text");
+    expect(captureFamily("application/sql")).toBe("text");
+    expect(captureFamily("text/x-python")).toBe("text");
+    expect(captureFamily("text/javascript")).toBe("text");
+    expect(captureFamily("text/css")).toBe("text");
+    expect(captureFamily("text/tab-separated-values")).toBe("csv");
+  });
+
+  // Each is drawn on the platform's own background, so each stores a capture
+  // per color scheme rather than one image for both.
+  it("captures the code families in both color schemes", () => {
+    for (const ct of [
+      "application/yaml",
+      "application/xml",
+      "application/sql",
+      "text/x-python",
+      "text/javascript",
+      "text/css",
+      "text/tab-separated-values",
+    ]) {
+      expect(isThemeable(ct)).toBe(true);
+    }
+  });
+
+  // An XML type must not be read as SVG markup, and a JavaScript type must not
+  // be run as a JSX artifact: both overlaps are resolved by the table's order.
+  it("keeps the two overlapping fragments in the right order", () => {
+    expect(captureFamily("image/svg+xml")).toBe("svg");
+    expect(captureFamily("application/xhtml+xml")).toBe("iframe");
+    expect(captureFamily("text/jsx")).toBe("iframe");
+    expect(captureFamily("text/javascript")).toBe("text");
+  });
+});
+
+// If a browser can render it in the viewer, it can have a tile.
+//
+// The capturable set and the renderer registry were two unrelated tables, and
+// the second was a hand-kept subset of the first, which is how seven families
+// the viewer lays out every day were never offered a capture (#1754). This
+// derives the expectation from the registry: a content type it renders and the
+// fragment table does not draw fails here, naming the type.
+describe("what the viewer renders and what the capturer draws", () => {
+  it("agrees on every content type the renderer registry names", () => {
+    expect(REGISTERED_CONTENT_TYPES.length).toBeGreaterThan(0);
+    for (const contentType of REGISTERED_CONTENT_TYPES) {
+      const declared = CAPTURE_BY_RENDERER_KIND[resolveRenderer({ contentType }).kind];
+      const drawn = captureFamily(contentType);
+      if (typeof declared === "string") {
+        expect(`${contentType} -> ${drawn}`).toBe(`${contentType} -> ${declared}`);
+      } else {
+        // Rendered and deliberately not drawn, which the declaration must say
+        // why of rather than leaving it to be guessed.
+        expect(`${contentType} -> ${drawn}`).toBe(`${contentType} -> null`);
+        expect(declared.because.length).toBeGreaterThan(20);
+      }
+    }
+  });
+
+  // The media families resolve by prefix rather than by name, so they are not
+  // in the registry's key list; the capturer narrows image/ to the types a
+  // browser actually decodes, which is the one place it is stricter than the
+  // viewer and says so.
+  it("draws the raster images a browser decodes and no other media", () => {
+    expect(CAPTURE_BY_RENDERER_KIND.image).toBe("image");
+    expect(captureFamily("image/png")).toBe("image");
+    expect(captureFamily("image/tiff")).toBeNull();
+    for (const kind of ["audio", "video", "pdf", "binary"] as const) {
+      const declared = CAPTURE_BY_RENDERER_KIND[kind];
+      expect(typeof declared).toBe("object");
+    }
+    expect(captureFamily("audio/mpeg")).toBeNull();
+    expect(captureFamily("video/mp4")).toBeNull();
   });
 });
 

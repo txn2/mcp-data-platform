@@ -7,6 +7,8 @@ import { usePendingResourceThumbnails } from "@/api/resources/hooks";
 import type { Asset } from "@/api/portal/types";
 import type { Resource } from "@/api/resources/types";
 import { useIdleGate } from "@/lib/idle";
+import { onCaptureAttemptsReset } from "@/lib/thumbnailAttempts";
+import { failCapture } from "@/lib/captureFailure";
 
 // The capturer pulls in html2canvas, the markdown renderer and the diagram
 // engine — roughly 200 KB that no page has a use for until the queue finds an
@@ -152,7 +154,14 @@ function CaptureQueue<T>({ source }: { source: CaptureSource<T> }) {
   const [current, setCurrent] = useState<{ item: T; content: string; key: string } | null>(null);
   // Bumped when an asset is passed over, which is the one transition that
   // changes what comes next without changing any state of its own.
-  const [, forceRecheck] = useState(0);
+  //
+  // It is READ into the effect that picks up the next item, which it was not:
+  // the effect depends on `next`, and `next` is found in the same cached array
+  // on every render, so a bump that did not change the array changed no
+  // dependency and the effect did not re-run. A failed capture therefore waited
+  // for the five-minute poll to hand it new object identities, and the retry
+  // after a failed content fetch never happened at all (#1753).
+  const [recheck, forceRecheck] = useState(0);
   // Attempts per reason rather than a set of reasons seen, so a failure costs
   // one try instead of the whole tab (#1554).
   const attemptsRef = useRef(new Map<string, number>());
@@ -210,13 +219,15 @@ function CaptureQueue<T>({ source }: { source: CaptureSource<T> }) {
         if (cancelled) return;
         setCurrent({ item: next, content: text, key });
       })
-      .catch(() => {
-        if (!cancelled) forceRecheck((n) => n + 1);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        failCapture({ kind: source.kind, id: source.id(next) }, undefined, "content", err);
+        forceRecheck((n) => n + 1);
       });
     return () => {
       cancelled = true;
     };
-  }, [idle, next]);
+  }, [idle, next, recheck, source]);
 
   const handleCaptured = useCallback(() => {
     // A captured reason is spent, whatever its attempt count: the server stops
@@ -231,9 +242,27 @@ function CaptureQueue<T>({ source }: { source: CaptureSource<T> }) {
     dirtyRef.current = true;
   }, []);
 
+  // A capture that failed has already written its reason to the console
+  // (lib/captureFailure); what is left for the queue is to move on. Clearing
+  // `current` is enough to come back to it: the idle gate closed when this item
+  // was picked up and re-arms on the next one, which re-runs the effect below.
   const handleFailed = useCallback(() => {
     setCurrent(null);
   }, []);
+
+  // A reader who presses Recapture is telling this queue to try that target
+  // again, including one it has already given up on. Nothing on the row says
+  // so -- a press on a never-captured file moves no state at all -- so it
+  // arrives as an event (#1753).
+  useEffect(() => {
+    return onCaptureAttemptsReset((target) => {
+      if (target.kind !== source.kind) return;
+      for (const key of [...attemptsRef.current.keys()]) {
+        if (key.split("\u0000")[0] === target.id) attemptsRef.current.delete(key);
+      }
+      forceRecheck((n) => n + 1);
+    });
+  }, [source]);
 
   // Refresh what the portal is showing once the queue has drained and at least
   // one capture uploaded. This flips the freshly captured assets from the

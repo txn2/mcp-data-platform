@@ -30,6 +30,8 @@ export function ThumbnailGeneratorWithInvalidation({
     onDone?.();
   }, [qc, assetId, onDone]);
 
+  // The reason is already in the console (lib/captureFailure); what is left
+  // here is to let the caller move on.
   const handleFailed = useCallback(() => {
     onDone?.();
   }, [onDone]);

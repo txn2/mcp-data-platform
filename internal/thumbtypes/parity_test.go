@@ -24,11 +24,20 @@ import (
 // order, or on which of them are themeable.
 
 // familyRe matches one entry of the TypeScript table, which is written one
-// entry per line as an object literal with the three fields in a fixed order.
+// entry per line as an object literal with the two fields in a fixed order.
 // A rewrite that breaks that shape matches nothing, which is reported rather
 // than passing vacuously.
-var familyRe = regexp.MustCompile(
-	`\{\s*fragment:\s*"([^"]+)",\s*family:\s*"[^"]+",\s*themeable:\s*(true|false)\s*\}`)
+var familyRe = regexp.MustCompile(`\{\s*fragment:\s*"([^"]+)",\s*family:\s*"([^"]+)"\s*\}`)
+
+// themeableRe matches the set of families captured twice, which the browser
+// states once as a property of the family rather than once per content type.
+// The fragments this side calls themeable are DERIVED from it and the table
+// above, so neither language restates the other's answer (#1754).
+var themeableRe = regexp.MustCompile(
+	`THEMEABLE_FAMILIES:\s*ReadonlySet<CaptureFamily>\s*=\s*new Set<CaptureFamily>\(\[([^\]]*)\]`)
+
+// quotedRe pulls the quoted members out of the themeable set's body.
+var quotedRe = regexp.MustCompile(`"([^"]+)"`)
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -41,7 +50,7 @@ func repoRoot(t *testing.T) string {
 }
 
 // browserFamilies is the TypeScript table, read as the fragments it names and
-// the subset of them it marks themeable.
+// the subset of them whose family the browser captures twice.
 func browserFamilies(t *testing.T) (capturable, themeable []string) {
 	t.Helper()
 	rel := filepath.Join("ui", "src", "lib", "thumbnailSupport.ts")
@@ -49,9 +58,10 @@ func browserFamilies(t *testing.T) (capturable, themeable []string) {
 	if err != nil {
 		t.Fatalf("reading %s: %v", rel, err)
 	}
+	themeableFamilies := browserThemeableFamilies(t, rel, string(body))
 	for _, m := range familyRe.FindAllStringSubmatch(string(body), -1) {
 		capturable = append(capturable, m[1])
-		if m[2] == "true" {
+		if themeableFamilies[m[2]] {
 			themeable = append(themeable, m[1])
 		}
 	}
@@ -60,6 +70,24 @@ func browserFamilies(t *testing.T) (capturable, themeable []string) {
 			"test can no longer read it", rel)
 	}
 	return capturable, themeable
+}
+
+// browserThemeableFamilies reads the set of families the browser captures once
+// per color scheme.
+func browserThemeableFamilies(t *testing.T, rel, body string) map[string]bool {
+	t.Helper()
+	set := themeableRe.FindStringSubmatch(body)
+	if set == nil {
+		t.Fatalf("%s: the themeable family set cannot be read; its shape has changed", rel)
+	}
+	families := map[string]bool{}
+	for _, m := range quotedRe.FindAllStringSubmatch(set[1], -1) {
+		families[m[1]] = true
+	}
+	if len(families) == 0 {
+		t.Fatalf("%s: the themeable family set is empty; its shape has changed", rel)
+	}
+	return families
 }
 
 func TestGoAndBrowserAgreeOnWhatGetsAThumbnail(t *testing.T) {

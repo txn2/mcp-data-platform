@@ -59,6 +59,7 @@ vi.mock("./ThumbnailGenerator", () => ({
 }));
 
 import { ThumbnailQueue } from "./ThumbnailQueue";
+import { resetCaptureAttempts } from "@/lib/thumbnailAttempts";
 
 function asset(id: string, over: Partial<Asset> = {}): Asset {
   return {
@@ -182,6 +183,56 @@ describe("ThumbnailQueue", () => {
     await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(3));
     await qc.invalidateQueries({ queryKey: ["thumbnails-pending"] });
     await new Promise((r) => setTimeout(r, 20));
+    expect(fetchRaw).toHaveBeenCalledTimes(3);
+  });
+
+  // A content fetch that fails leaves `current` unset, so nothing the effect
+  // that picks up work depends on moves: the item it found is the same object
+  // in the same cached array, and the idle gate never closed because no capture
+  // ever started. The queue sat on it until the five-minute poll, with two of
+  // its three attempts unspent (#1753).
+  it("retries an item whose content could not be read, without waiting for the poll", async () => {
+    const qc = newClient();
+    pending([asset("a")]);
+    fetchRaw.mockRejectedValue(new Error("network"));
+
+    renderQueue(qc);
+
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(3), { timeout: 4000 });
+  });
+
+  // Recapture is the one control a reader has over a tile, and on a file the
+  // queue had given up on it did nothing: the press moves no row state, so the
+  // attempt key it is counted under does not change either (#1753).
+  it("offers a target again when a recapture asks it to", async () => {
+    captureMode.value = "failed";
+    const qc = newClient();
+    pending([asset("a")]);
+
+    renderQueue(qc);
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(3));
+
+    resetCaptureAttempts({ kind: "asset", id: "a" });
+
+    // Offered again, and the attempts it is offered under are a fresh three:
+    // asserting an exact count here would be asserting how fast the idle gate
+    // opens.
+    await waitFor(() => expect(fetchRaw.mock.calls.length).toBeGreaterThan(3), { timeout: 4000 });
+  });
+
+  // The reset is per kind and per id: a resource and an asset can share neither
+  // an id space nor a work list.
+  it("ignores a recapture of another kind", async () => {
+    captureMode.value = "failed";
+    const qc = newClient();
+    pending([asset("a")]);
+
+    renderQueue(qc);
+    await waitFor(() => expect(fetchRaw).toHaveBeenCalledTimes(3));
+
+    resetCaptureAttempts({ kind: "resource", id: "a" });
+
+    await new Promise((r) => setTimeout(r, 300));
     expect(fetchRaw).toHaveBeenCalledTimes(3);
   });
 

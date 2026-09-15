@@ -3,8 +3,40 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Asset } from "@/api/portal/types";
 import type { Resource } from "@/api/resources/types";
-import { assetSubject, resourceSubject } from "@/lib/thumbnailSupport";
+import { assetSubject, resourceSubject, type ThumbnailTarget } from "@/lib/thumbnailSupport";
+import { onCaptureAttemptsReset } from "@/lib/thumbnailAttempts";
 import { ThumbnailPanel } from "./ThumbnailPanel";
+
+// How the capture the panel runs turns out. The capturer itself is a browser
+// job -- it rasterizes a document with html2canvas -- so what is exercised here
+// is the panel's half: that a press starts one, and that its outcome reaches
+// the reader (#1752, #1753).
+const capture = vi.hoisted(() => ({ outcome: "captured" as "captured" | "failed" | "pending" }));
+
+vi.mock("@/components/ThumbnailGenerator", async () => {
+  const { useEffect } = await import("react");
+  return {
+    ThumbnailGenerator: ({
+      onCaptured,
+      onFailed,
+    }: {
+      onCaptured?: () => void;
+      onFailed?: (f: { code: string; detail: string; transient: boolean }) => void;
+    }) => {
+      useEffect(() => {
+        if (capture.outcome === "captured") onCaptured?.();
+        if (capture.outcome === "failed") {
+          onFailed?.({
+            code: "render",
+            detail: "InvalidStateError: the image argument is a canvas element with a width of 0",
+            transient: false,
+          });
+        }
+      }, [onCaptured, onFailed]);
+      return <div data-testid="capturer" />;
+    },
+  };
+});
 
 // A person looking at a tile that shows the artifact's error state had nothing
 // to press: the capture is taken in a browser, the refresh queue offers only
@@ -102,8 +134,21 @@ function renderPanelWithBase(base: string) {
   return renderPanel(ASSET, true, base);
 }
 
+/** Every request of one method, which is how a press is read now that it makes more than one. */
+function requests(method: string) {
+  return calls.filter((c) => c.method === method);
+}
+
+/** The reload-mode fetch that replaces this browser's cached copy of a tile. */
+function cacheReplacements() {
+  return calls.filter((c) => c.cache === "reload");
+}
+
 describe("ThumbnailPanel", () => {
-  beforeEach(() => stubApi());
+  beforeEach(() => {
+    capture.outcome = "captured";
+    stubApi();
+  });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -133,7 +178,7 @@ describe("ThumbnailPanel", () => {
   it("replaces this browser's cached copy once the new capture has landed", async () => {
     const { rerender } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
-    await waitFor(() => expect(calls).toHaveLength(1));
+    await waitFor(() => expect(requests("DELETE")).toHaveLength(1));
 
     // The cleared row arrives on the invalidation the clear issues. Until it
     // does, the panel is still holding the image the reader asked to be rid of,
@@ -142,15 +187,74 @@ describe("ThumbnailPanel", () => {
     // cache-busted URL of a row the server has already cleared (#1501).
     rerender(CLEARED);
     await new Promise((r) => setTimeout(r, 20));
-    expect(calls).toHaveLength(1);
+    expect(cacheReplacements()).toHaveLength(0);
 
     // The replacement lands: the row names a capture again, at the version the
     // reader is looking at.
     rerender(ASSET);
 
-    await waitFor(() => expect(calls).toHaveLength(2));
-    expect(calls[1]!.url).toContain("/api/v1/portal/assets/ast-q4/thumbnail");
-    expect(calls[1]!.cache).toBe("reload");
+    await waitFor(() => expect(cacheReplacements()).toHaveLength(1));
+    expect(cacheReplacements()[0]!.url).toContain("/api/v1/portal/assets/ast-q4/thumbnail");
+  });
+
+  // Recapture was built as "discard the stored image, and a capturer will take
+  // another". On a file that has never been captured there is nothing to
+  // discard, so the press moved no row state and nothing happened at all
+  // (#1753). The press runs the capture itself now.
+  it("starts a capture on a file that has never been captured", async () => {
+    capture.outcome = "pending";
+    renderPanel(CLEARED);
+    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+
+    await waitFor(() => expect(screen.getByTestId("capturer")).toBeInTheDocument());
+    expect(requests("GET").map((c) => c.url)).toContain("/api/v1/portal/assets/ast-q4/content");
+  });
+
+  // The background queue keeps its own count of what it has tried and drops a
+  // target after three, for the life of the tab. A press has to clear that too:
+  // nothing on the row moves, so there is nothing for the queue to notice.
+  it("tells the background queue to offer this target again", async () => {
+    const reset: ThumbnailTarget[] = [];
+    const stop = onCaptureAttemptsReset((t) => reset.push(t));
+    try {
+      renderPanel(CLEARED);
+      fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+      expect(reset).toEqual([{ kind: "asset", id: "ast-q4" }]);
+    } finally {
+      stop();
+    }
+  });
+
+  // Every path a capture could fail on discarded its reason, so an asset with
+  // no tile was indistinguishable from one whose tile was being taken, forever
+  // (#1752).
+  it("says a capture could not be made, and why", async () => {
+    capture.outcome = "failed";
+    renderPanel(CLEARED);
+    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+
+    await waitFor(() => expect(screen.getByText("Could not be made")).toBeInTheDocument());
+    expect(screen.getByTestId("thumbnail-explanation").textContent).toContain(
+      "this document could not be drawn",
+    );
+    // A document that threw throws every time: saying "in a moment" about it is
+    // a promise nothing will keep.
+    expect(screen.getByTestId("thumbnail-explanation").textContent).not.toContain("in a moment");
+    expect(screen.getByText(/InvalidStateError/)).toBeInTheDocument();
+    // And the way to try it anyway is still there.
+    expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
+  });
+
+  it("runs another capture when the reader tries again", async () => {
+    capture.outcome = "failed";
+    renderPanel(CLEARED);
+    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+    await waitFor(() => expect(screen.getByText("Could not be made")).toBeInTheDocument());
+
+    capture.outcome = "pending";
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(screen.getByTestId("capturer")).toBeInTheDocument());
+    expect(requests("DELETE")).toHaveLength(2);
   });
 
   // A tile the browser could not load is a verdict on one URL, and the refresh
@@ -240,6 +344,23 @@ describe("ThumbnailPanel", () => {
   it("is absent for a reader who may not change the resource", () => {
     const { container } = renderResourcePanel(RESOURCE, false);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  // A resource viewer mounts no capturer of its own, so before this the press
+  // was inert for every managed resource there has ever been (#1753).
+  it("starts a capture for a managed resource", async () => {
+    capture.outcome = "pending";
+    renderResourcePanel({
+      ...RESOURCE,
+      thumbnail_s3_key: undefined,
+      thumbnail_dark_s3_key: undefined,
+      thumbnail_captured_at: undefined,
+      thumbnail_dark_captured_at: undefined,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+
+    await waitFor(() => expect(screen.getByTestId("capturer")).toBeInTheDocument());
+    expect(requests("GET").map((c) => c.url)).toContain("/api/v1/resources/res-notes/content");
   });
 
   it("says a capture is being taken while a resource has none stored", () => {

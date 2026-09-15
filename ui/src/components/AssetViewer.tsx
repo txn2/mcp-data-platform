@@ -65,10 +65,14 @@ export function AssetViewer({
   const [changeSummary, setChangeSummary] = useState("");
   const [revertModalOpen, setRevertModalOpen] = useState(false);
 
-  // Bumped by each Recapture the reader presses. A press that finds the tile
-  // already cleared leaves every field the capture condition reads exactly
-  // where it was, so this is the only thing that distinguishes it (#1501).
-  const [recaptureNonce, setRecaptureNonce] = useState(0);
+  // Set while the thumbnail panel is running a capture the reader pressed for.
+  //
+  // A press clears the stored tile, which is exactly what puts the row back in
+  // the state this component captures on, so without this the same document
+  // would be drawn twice at once: once by the panel, once here (#1753). The
+  // panel is the one that knows how its press went, so it is the one that
+  // captures; this waits.
+  const [panelCapturing, setPanelCapturing] = useState(false);
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editedContent, setEditedContent] = useState<string>("");
@@ -97,7 +101,7 @@ export function AssetViewer({
     isThumbnailSupported(asset.content_type) &&
     asset.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
     thumbnailBehind(asset);
-  const captureThumbnail = useIdleGate(thumbnailWanted);
+  const captureThumbnail = useIdleGate(thumbnailWanted && !panelCapturing);
   const isSharedEditor = !isOwner && sharePermission === "editor";
 
   const canEditSource =
@@ -297,7 +301,7 @@ export function AssetViewer({
             onNavigate={onNavigate}
             versions={versions}
             versionsLoading={versionsLoading}
-            onRecaptureThumbnail={() => setRecaptureNonce((n) => n + 1)}
+            onThumbnailCapturing={setPanelCapturing}
           />
         }
       >
@@ -329,17 +333,17 @@ export function AssetViewer({
         />
       </ViewerLayout>
 
-      {/* Remounted per version so a save, or a rewrite arriving on a refetch,
+      {/* The automatic capture: an asset the reader opened whose row says a
+          tile is wanted gets one now rather than when the background queue next
+          polls. A press of Recapture is the panel's job, which is why there is
+          no nonce here any more (#1753).
+
+          Remounted per version so a save, or a rewrite arriving on a refetch,
           captures again rather than reusing the mounted capturer. The version
           stamped is the asset's current one: the asset and its content are
           refetched together, so a body older than the version it is dated to is
           possible only in the moment between the two responses, and the next
           write puts the asset back on the queue.
-
-          Remounted per press of Recapture for the same reason: a capture that
-          was discarded — the usual reason the tile is wrong — leaves the
-          capturer mounted on a version that has not moved, and without this the
-          reader would be pressing a control that reuses a finished result.
 
           The asset is in the key because this component is not remounted per
           asset: opening a second asset from a link reuses the viewer, and with
@@ -349,7 +353,7 @@ export function AssetViewer({
           taken (#1501). */}
       {captureThumbnail && typeof content === "string" && (
         <ThumbnailGeneratorWithInvalidation
-          key={`${asset.id}:${asset.current_version}:${recaptureNonce}`}
+          key={`${asset.id}:${asset.current_version}`}
           assetId={asset.id}
           content={content}
           contentType={asset.content_type}
