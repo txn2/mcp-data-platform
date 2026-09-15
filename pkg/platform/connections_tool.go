@@ -6,6 +6,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/platform/connstored"
 	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -61,7 +63,9 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		permit = func(_, name string) bool { return scope.AllowConnection(personaName, name) }
 	}
 
-	out := connview.Build(ctx, p.toolkitRegistry.All(), src, pages, permit)
+	out := connview.Build(ctx, p.toolkitRegistry.All(), connview.Deps{
+		Source: src, Pages: pages, Permit: permit, Stored: StoredConnections(p),
+	})
 	out.Notice = knowledge.ConnectionsWithheldNotice(out.Withheld, personaName)
 
 	data, err := json.MarshalIndent(out, "", "  ")
@@ -80,4 +84,22 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		},
 		StructuredContent: out,
 	}, nil, nil
+}
+
+// StoredConnections is the deployment's connection inventory: the rows that
+// say which connections exist, which every replica of a deployment shares.
+// Nil where connections are kept in the configuration file alone, in which
+// case what this process was handed is the whole inventory (#1757).
+//
+// It is a function rather than a method because *Platform is at its
+// god-object ceiling: this reads the platform's stores and adds no behavior
+// to the type.
+func StoredConnections(p *Platform) connview.StoreLister {
+	return connstored.New(p.connectionStore, p.APIGatewayCatalogStore,
+		func(inst ConnectionInstance) connstored.Row {
+			return connstored.Row{
+				Kind: inst.Kind, Name: inst.Name, Description: inst.Description,
+				CatalogID: cfgmap.String(inst.Config, "catalog_id"),
+			}
+		})
 }

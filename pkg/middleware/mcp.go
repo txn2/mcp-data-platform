@@ -115,6 +115,23 @@ type ToolCallConfig struct {
 	WorkflowTracker *SessionWorkflowTracker // optional workflow tracker
 	SessionResolver *SessionResolver        // optional explicit session-handle resolver (#792)
 	PurposeResolver *PurposeResolver        // optional purpose-argument resolver (#1317)
+	// ConnectionCatchUp puts the connection a call names into service when this
+	// process does not serve it (#1757). Optional; nil leaves a call answered
+	// from the connections this process holds.
+	ConnectionCatchUp connectionCatchUp
+}
+
+// connectionCatchUp takes on a connection saved through another replica, which
+// this process holds a row for and nothing else until the reload bus delivers
+// the announcement of that save. A call naming such a connection would
+// otherwise be refused as a call against a connection that does not exist.
+//
+// The interface is unexported while the field it types is exported, which is
+// deliberate: any value with this method can be assigned from outside the
+// package, and naming the interface in the public API would commit this
+// package to a contract that belongs to the composition root.
+type connectionCatchUp interface {
+	TakeOn(ctx context.Context, kind, name string)
 }
 
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
@@ -195,6 +212,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				workflowTracker: tracker,
 				sessionResolver: cfg.SessionResolver,
 				purposeResolver: cfg.PurposeResolver,
+				catchUp:         cfg.ConnectionCatchUp,
 			})
 		}
 	}
@@ -292,6 +310,7 @@ type authParams struct {
 	workflowTracker *SessionWorkflowTracker
 	sessionResolver *SessionResolver
 	purposeResolver *PurposeResolver
+	catchUp         connectionCatchUp
 }
 
 // authenticateAndAuthorize runs authentication and authorization, returning
@@ -421,6 +440,15 @@ func authenticateAndAuthorize(
 	// every upstream call with it, which is what separates an automated
 	// principal's traffic from an analyst's on a shared connection (#1615).
 	ctx = mcpcontext.WithPersona(ctx, params.pc.PersonaName)
+
+	// Put the named connection into service if this process does not serve it
+	// yet (#1757). It runs after authorization, so a caller who may not reach a
+	// connection cannot make this process read the store for it, and before the
+	// handler, which is what would otherwise refuse a connection that is saved.
+	// A connection this process already serves costs one map lookup.
+	if params.catchUp != nil {
+		params.catchUp.TakeOn(ctx, params.pc.ToolkitKind, params.pc.Connection)
+	}
 	return next(ctx, method, req)
 }
 

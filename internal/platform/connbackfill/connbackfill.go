@@ -29,7 +29,10 @@ func Run(ctx context.Context, db *sql.DB, toolkits []registry.Toolkit) {
 	}
 	// A nil permit enumerates every connection: the backfill is a system sweep
 	// that must seed a row for each one, not a caller whose persona narrows it.
-	for _, c := range connview.Build(ctx, toolkits, nil, nil, nil).Connections {
+	// A nil store is what makes the sweep terminate: what it enumerates is what
+	// this process serves, and what it writes is the rows — unioning those rows
+	// back into the enumeration would have it seed what it just seeded.
+	for _, c := range connview.Build(ctx, toolkits, connview.Deps{}).Connections {
 		if _, err := db.ExecContext(ctx,
 			`INSERT INTO connection_instances (kind, name, description, created_by)
 			 VALUES ($1, $2, $3, 'system') ON CONFLICT (kind, name) DO NOTHING`,

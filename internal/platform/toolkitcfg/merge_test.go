@@ -229,3 +229,123 @@ func TestDeclaredZeroValue(t *testing.T) {
 		t.Error("the zero value declares nothing")
 	}
 }
+
+// instancesOf returns a kind's merged instances, failing the test when the kind
+// is absent or carries none.
+func instancesOf(t *testing.T, toolkits map[string]any, kind string) map[string]any {
+	t.Helper()
+	kindMap, ok := toolkits[kind].(map[string]any)
+	if !ok {
+		t.Fatalf("kind %q is absent, so nothing could be merged into it", kind)
+	}
+	instances, ok := kindMap["instances"].(map[string]any)
+	if !ok {
+		t.Fatalf("kind %q carries no instances", kind)
+	}
+	return instances
+}
+
+// TestMergeStored_WarmsUpTheSavedConnections is the warm start: a saved
+// connection is in the configuration the loader builds from, so the process
+// serves it at startup rather than taking it on when a call first names it.
+func TestMergeStored_WarmsUpTheSavedConnections(t *testing.T) {
+	toolkits := map[string]any{}
+
+	MergeStored(toolkits, []StoredInstance{
+		{Kind: "trino", Name: "warehouse", Config: map[string]any{"dsn": "trino://example"}},
+		{Kind: "api", Name: "billing", Config: map[string]any{"base_url": "https://example.test"}},
+	})
+
+	if _, ok := instancesOf(t, toolkits, "trino")["warehouse"]; !ok {
+		t.Error("the saved trino connection was not merged")
+	}
+	if _, ok := instancesOf(t, toolkits, "api")["billing"]; !ok {
+		t.Error("the saved api connection was not merged")
+	}
+}
+
+// TestMergeStored_EnablesTheKindsWithNoInstancesToDeclare: the gateway kinds
+// carry no YAML instances block to gate on, so the kind is enabled whether or
+// not anything is saved yet — otherwise the first save through the admin API
+// lands in a toolkit that does not exist.
+func TestMergeStored_EnablesTheKindsWithNoInstancesToDeclare(t *testing.T) {
+	toolkits := map[string]any{}
+
+	MergeStored(toolkits, nil)
+
+	for _, kind := range []string{"mcp", "api", "graphql"} {
+		kindMap, ok := toolkits[kind].(map[string]any)
+		enabled, isBool := kindMap["enabled"].(bool)
+		if !ok || !isBool || !enabled {
+			t.Errorf("kind %q is not enabled with nothing saved: %v", kind, toolkits[kind])
+		}
+	}
+	if _, present := toolkits["trino"]; present {
+		t.Error("a kind nothing declares and nothing saved should stay absent")
+	}
+}
+
+// TestMergeStored_LeavesAnOperatorsChoiceAlone holds the precedence rule in
+// both directions: a kind the file disables stays disabled, and a connection
+// the file declares is not replaced by the stored row of the same name.
+func TestMergeStored_LeavesAnOperatorsChoiceAlone(t *testing.T) {
+	toolkits := map[string]any{
+		"api": map[string]any{"enabled": false},
+		"trino": map[string]any{"enabled": true, "instances": map[string]any{
+			"warehouse": map[string]any{"dsn": "trino://declared"},
+		}},
+	}
+
+	MergeStored(toolkits, []StoredInstance{
+		{Kind: "api", Name: "billing", Config: map[string]any{"base_url": "https://example.test"}},
+		{Kind: "trino", Name: "warehouse", Config: map[string]any{"dsn": "trino://stored"}},
+	})
+
+	api, _ := toolkits["api"].(map[string]any)
+	if enabled, _ := api["enabled"].(bool); enabled {
+		t.Error("an explicit disable was overridden")
+	}
+	if _, merged := api["instances"]; merged {
+		t.Error("a connection was merged into a disabled kind")
+	}
+	declared, _ := instancesOf(t, toolkits, "trino")["warehouse"].(map[string]any)
+	if declared["dsn"] != "trino://declared" {
+		t.Errorf("the file is what this process runs on, got %v", declared["dsn"])
+	}
+}
+
+// TestMergeStored_PinsWhatTheFileResolvesToFirst: a saved connection whose name
+// sorts earlier must not take over the unqualified lookup a declared instance
+// answers today, which would move a provider or blob storage on the next
+// restart.
+func TestMergeStored_PinsWhatTheFileResolvesToFirst(t *testing.T) {
+	toolkits := map[string]any{
+		"s3": map[string]any{"enabled": true, "instances": map[string]any{
+			"main": map[string]any{"bucket": "declared"},
+		}},
+	}
+
+	MergeStored(toolkits, []StoredInstance{
+		{Kind: "s3", Name: "aaa-added-later", Config: map[string]any{"bucket": "saved"}},
+	})
+
+	s3, _ := toolkits["s3"].(map[string]any)
+	if s3["default"] != "main" {
+		t.Errorf("the instance the file resolved to was not pinned, got %v", s3["default"])
+	}
+}
+
+// TestMergeStored_SkipsAKindThatIsNotSavedThroughTheAdminAPI: datahub is
+// single-instance and declared in the file alone, so a row of that kind is not
+// folded into the configuration.
+func TestMergeStored_SkipsAKindThatIsNotSavedThroughTheAdminAPI(t *testing.T) {
+	toolkits := map[string]any{}
+
+	MergeStored(toolkits, []StoredInstance{
+		{Kind: "datahub", Name: "primary", Config: map[string]any{"gms_url": "https://example.test"}},
+	})
+
+	if _, present := toolkits["datahub"]; present {
+		t.Error("a datahub row was folded into the configuration")
+	}
+}

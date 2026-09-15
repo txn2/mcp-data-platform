@@ -42,6 +42,10 @@ type Deps struct {
 	// Personas resolves a persona's connection rules. Nil denies every named
 	// connection, matching the fail-closed action path.
 	Personas *persona.Registry
+	// Stored is the connection store, which is what says a connection exists:
+	// a picker filled from this process alone offers a different set depending
+	// on which replica rendered it (#1757). Nil lists what this process serves.
+	Stored connview.StoreLister
 }
 
 // Lister enumerates connections for one caller at a time.
@@ -49,6 +53,7 @@ type Lister struct {
 	toolkits *registry.Registry
 	personas *persona.Registry
 	scope    *connscope.Scope
+	stored   connview.StoreLister
 }
 
 // New builds a Lister, or nil when there is no toolkit registry to read.
@@ -64,6 +69,7 @@ func New(deps Deps) *Lister {
 		toolkits: deps.Toolkits,
 		personas: deps.Personas,
 		scope:    connscope.New(connscope.Deps{Registry: deps.Personas}),
+		stored:   deps.Stored,
 	}
 }
 
@@ -80,7 +86,7 @@ func (l *Lister) ForPersona(ctx context.Context, personaName string, unrestricte
 	// The knowledge-page enrichment is deliberately not asked for: a picker needs
 	// a name and a sentence, and one reverse lookup per connection is a cost the
 	// list_connections tool pays for a different purpose.
-	out := connview.Build(ctx, l.toolkits.All(), nil, nil, permit)
+	out := connview.Build(ctx, l.toolkits.All(), connview.Deps{Permit: permit, Stored: l.stored})
 	conns := make([]Connection, 0, len(out.Connections))
 	for _, c := range out.Connections {
 		conns = append(conns, Connection{Name: value(c), Kind: c.Kind, Description: c.Description})

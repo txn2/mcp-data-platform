@@ -124,6 +124,7 @@ internal/httpserver/apishttp -> internal/httpjson
 internal/httpserver/apishttp -> pkg/toolkits/apigateway
 internal/httpserver/apiwire -> internal/httpserver/apishttp
 internal/httpserver/apiwire -> internal/platform/connreach
+internal/httpserver/apiwire -> pkg/connview
 internal/httpserver/apiwire -> pkg/middleware
 internal/httpserver/apiwire -> pkg/persona
 internal/httpserver/apiwire -> pkg/portal
@@ -197,6 +198,10 @@ internal/platform/auditwiring -> pkg/observability
 internal/platform/branding -> internal/logsan
 internal/platform/branding -> pkg/contenttype
 internal/platform/browserauth -> pkg/browsersession
+internal/platform/callcatchup -> internal/conncatchup
+internal/platform/callcatchup -> pkg/connreconcile
+internal/platform/callcatchup -> pkg/registry
+internal/platform/callcatchup -> pkg/toolkit
 internal/platform/callindex -> internal/platform/callrecord
 internal/platform/callindex -> pkg/indexjobs
 internal/platform/callrecord -> internal/gqlschema
@@ -232,6 +237,9 @@ internal/platform/connreach -> pkg/registry
 internal/platform/connscope -> pkg/persona
 internal/platform/connsource -> pkg/connid
 internal/platform/connsource -> pkg/registry
+internal/platform/connstored -> internal/logsan
+internal/platform/connstored -> pkg/connview
+internal/platform/connstored -> pkg/toolkits/apigateway/catalog
 internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
 internal/platform/datasetindex -> pkg/semantic
@@ -641,6 +649,7 @@ pkg/connoauth -> internal/useragent
 pkg/connoauth -> pkg/authevents
 pkg/connreconcile -> pkg/registry
 pkg/connreconcile -> pkg/toolkit
+pkg/connview -> internal/logsan
 pkg/connview -> pkg/connid
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
@@ -702,12 +711,14 @@ pkg/pkcestore -> pkg/connoauth
 pkg/platform -> apps
 pkg/platform -> internal/agentinstructions
 pkg/platform -> internal/apidocs
+pkg/platform -> internal/cfgmap
 pkg/platform -> internal/logsan
 pkg/platform -> internal/platform/apigwwiring
 pkg/platform -> internal/platform/apikeystore
 pkg/platform -> internal/platform/auditwiring
 pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
+pkg/platform -> internal/platform/callcatchup
 pkg/platform -> internal/platform/callrecord
 pkg/platform -> internal/platform/completionlayer
 pkg/platform -> internal/platform/configenv
@@ -716,6 +727,7 @@ pkg/platform -> internal/platform/connbackfill
 pkg/platform -> internal/platform/connrecords
 pkg/platform -> internal/platform/connscope
 pkg/platform -> internal/platform/connsource
+pkg/platform -> internal/platform/connstored
 pkg/platform -> internal/platform/datasetindex
 pkg/platform -> internal/platform/dedup
 pkg/platform -> internal/platform/exportadapters

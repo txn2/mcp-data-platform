@@ -113,6 +113,19 @@ A database-backed deployment of any shape can run several replicas of the platfo
 
 Every HTTP response carries an `X-Platform-Instance` header naming the process that served it: its hostname and listen port, such as `mcp-data-platform-7d9f-abcde:8080`. The hostname separates pods; the port separates two processes on one machine. When two replicas answer the same read differently, the header says which replica gave which answer.
 
+### Connections across replicas
+
+A connection exists because the connection store holds a row for it. That row is committed before the admin API's save returns, so every replica can see the connection from that moment; a replica also keeps a live object for each connection it serves — an HTTP client, a parsed spec set, a compiled GraphQL schema, a Trino pool — which is what answers a call, and which it builds for itself.
+
+The two are asked different questions, and both are answered from the rows:
+
+- **What connections exist** — `list_connections`, the portal's connection pickers and `GET /api/v1/apis` — is answered from the store, unioned with whatever this replica serves. A connection saved a moment ago on another replica is named immediately, with its description, its catalog and the number of operations that catalog exposes, because those are facts about the connection rather than about the replica that answered. Its `health` is absent until this replica has called it, health being the outcome of calls this process made.
+- **A call naming a connection** takes it on from the store when this replica does not serve it yet, then answers as the saving replica answers. The connection is built at that point, not before.
+
+A connection is therefore never listed on one replica and missing on another, and never refused as non-existent on one replica while working on another. A deleted connection disappears from the listing on every replica as soon as the row is gone.
+
+Two mechanisms make this cheaper rather than correct, and a deployment is correct without either: at startup a replica folds the stored connections into its toolkit configuration so the common case costs no read, and a save announces itself to the other replicas over the database's notification channel so they pick the change up without waiting to be asked.
+
 ### The local two-replica lane
 
 `make dev` runs this shape on one machine, because a defect that exists only between replicas cannot be seen with one process:

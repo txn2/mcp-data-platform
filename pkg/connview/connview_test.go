@@ -76,7 +76,7 @@ func TestBuild_KnowledgeBoundedByCap(t *testing.T) {
 		"trino/acme": pageRefs(7), // more than the cap
 	}}
 	src := fakeSource{names: map[string]string{"trino/acme": "trino_src"}}
-	out := Build(context.Background(), []registry.Toolkit{tk}, src, pages, nil)
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Source: src, Pages: pages})
 
 	require.Len(t, out.Connections, 1)
 	e := out.Connections[0]
@@ -98,7 +98,7 @@ func TestBuild_FallbackKindFilterAndSource(t *testing.T) {
 	// The source map is keyed by the connection name a call binds, not by the
 	// toolkit's instance name (#1396).
 	src := fakeSource{names: map[string]string{"s3/Data Lake": "s3_src", "s3/data_lake": "wrong"}}
-	out := Build(context.Background(), toolkits, src, nil, nil)
+	out := Build(context.Background(), toolkits, Deps{Source: src})
 
 	require.Len(t, out.Connections, 1, "non-data kinds are dropped in the fallback path")
 	assert.Equal(t, "s3", out.Connections[0].Kind)
@@ -113,19 +113,19 @@ func TestBuild_NoEnrichmentWhenLookupNilOrEmpty(t *testing.T) {
 	tk := &listerTK{mockTK: mockTK{kind: "trino"}, conns: []toolkit.ConnectionDetail{{Name: "acme"}}}
 
 	// Nil lookup: no enrichment fields.
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, nil, nil)
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{})
 	require.Len(t, out.Connections, 1)
 	assert.Zero(t, out.Connections[0].KnowledgePageCount)
 	assert.Empty(t, out.Connections[0].KnowledgePages)
 
 	// Lookup with no referencing pages for this connection.
-	out = Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{}, nil)
+	out = Build(context.Background(), []registry.Toolkit{tk}, Deps{Pages: fakePages{}})
 	assert.Zero(t, out.Connections[0].KnowledgePageCount)
 }
 
 func TestBuild_LookupErrorSkipped(t *testing.T) {
 	tk := &listerTK{mockTK: mockTK{kind: "trino"}, conns: []toolkit.ConnectionDetail{{Name: "acme"}}}
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{err: errors.New("boom")}, nil)
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Pages: fakePages{err: errors.New("boom")}})
 	require.Len(t, out.Connections, 1)
 	assert.Zero(t, out.Connections[0].KnowledgePageCount, "a lookup error leaves the connection unenriched, not failed")
 }
@@ -181,7 +181,7 @@ func TestBuild_KnowledgeEnrichmentFansOut(t *testing.T) {
 	rec := &concurrencyRecorder{byConn: byConn}
 	rec.barrier.Add(n)
 
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, rec, nil)
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Pages: rec})
 
 	require.Len(t, out.Connections, n)
 	for i, e := range out.Connections {
@@ -206,7 +206,7 @@ func TestBuild_PermitFiltersAndCounts(t *testing.T) {
 	fallback := &mockTK{kind: "s3", name: "lake"}
 
 	permit := Permit(func(_, name string) bool { return name == "warehouse-a" })
-	out := Build(context.Background(), []registry.Toolkit{tk, fallback}, nil, nil, permit)
+	out := Build(context.Background(), []registry.Toolkit{tk, fallback}, Deps{Permit: permit})
 
 	if len(out.Connections) != 1 || out.Connections[0].Name != "warehouse-a" {
 		t.Fatalf("expected only warehouse-a, got %+v", out.Connections)
@@ -225,7 +225,7 @@ func TestBuild_NilPermitEnumeratesEverything(t *testing.T) {
 		mockTK: mockTK{kind: "trino", name: "warehouse"},
 		conns:  []toolkit.ConnectionDetail{{Name: "warehouse-a"}, {Name: "warehouse-b"}},
 	}
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, nil, nil)
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{})
 	if out.Count != 2 || out.Withheld != 0 {
 		t.Errorf("nil permit should enumerate everything: count=%d withheld=%d", out.Count, out.Withheld)
 	}
@@ -240,7 +240,7 @@ func TestBuild_PermitUsesThePersonaFacingConnectionName(t *testing.T) {
 	unnamed := &mockTK{kind: "datahub", name: "primary"}
 
 	permit := Permit(func(_, name string) bool { return name == "prod-lake" || name == "primary" })
-	out := Build(context.Background(), []registry.Toolkit{granted, denied, unnamed}, nil, nil, permit)
+	out := Build(context.Background(), []registry.Toolkit{granted, denied, unnamed}, Deps{Permit: permit})
 
 	names := make([]string, 0, len(out.Connections))
 	for _, c := range out.Connections {
@@ -258,10 +258,161 @@ func TestBuild_PermitUsesThePersonaFacingConnectionName(t *testing.T) {
 func TestBuild_FallbackReportsTheBoundName(t *testing.T) {
 	out := Build(context.Background(), []registry.Toolkit{
 		&mockTK{kind: "datahub", name: "primary"},
-	}, nil, nil, nil)
+	}, Deps{})
 
 	require.Len(t, out.Connections, 1)
 	assert.Equal(t, "primary", out.Connections[0].Name, "the entry keeps the instance identity")
 	assert.Equal(t, "primary", out.Connections[0].Connection,
 		"a toolkit with no connection_name is still bound by its instance name")
+}
+
+// fakeStore is a StoreLister over a fixed set of rows.
+type fakeStore struct {
+	rows []Stored
+	err  error
+}
+
+func (f fakeStore) ListStoredConnections(_ context.Context) ([]Stored, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.rows, nil
+}
+
+// TestBuild_ReportsAConnectionThisProcessDoesNotServe is the defect #1757
+// names: a connection saved through another replica is a row here before it is
+// anything else, and an operator asking what exists is asking about the
+// deployment, not about the process that happened to answer.
+func TestBuild_ReportsAConnectionThisProcessDoesNotServe(t *testing.T) {
+	tk := &listerTK{mockTK: mockTK{kind: "api"}, conns: []toolkit.ConnectionDetail{{Name: "served"}}}
+	store := fakeStore{rows: []Stored{
+		{Kind: "api", Name: "served", Description: "the row for the one in service"},
+		{
+			Kind: "graphql", Name: "elsewhere", Description: "saved on another replica",
+			CatalogID: "cat-1", OperationCount: 2,
+		},
+	}}
+
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Stored: store})
+
+	require.Len(t, out.Connections, 2, "the served connection once, and the one only the store holds")
+	assert.Equal(t, "served", out.Connections[0].Name)
+	assert.Equal(t, "the row for the one in service", out.Connections[0].Description,
+		"the description is the operator's, which lives on the row rather than in the config a toolkit parses")
+
+	e := out.Connections[1]
+	assert.Equal(t, "graphql", e.Kind)
+	assert.Equal(t, "elsewhere", e.Name)
+	assert.Equal(t, "elsewhere", e.Connection, "the name a call binds")
+	assert.Equal(t, "mcp:connection:(graphql,elsewhere)", e.Reference,
+		"a connection only the store holds is still citable")
+	assert.Equal(t, "saved on another replica", e.Description)
+	assert.Equal(t, "cat-1", e.CatalogID)
+	assert.Equal(t, 2, e.OperationCount, "the surface is a fact about the catalog, not about this replica")
+	assert.Nil(t, e.Health, "health is the outcome of calls this replica made, and it has made none")
+	assert.Equal(t, 2, out.Count)
+}
+
+// TestBuild_StoredConnectionsRespectThePermit holds the persona boundary over
+// the half of the listing that does not come from a toolkit: a connection the
+// caller may not see must not become visible by arriving from the store.
+func TestBuild_StoredConnectionsRespectThePermit(t *testing.T) {
+	permit := func(_, name string) bool { return name == "granted" }
+	store := fakeStore{rows: []Stored{{Kind: "api", Name: "granted"}, {Kind: "api", Name: "denied"}}}
+
+	out := Build(context.Background(), nil, Deps{Permit: permit, Stored: store})
+
+	require.Len(t, out.Connections, 1)
+	assert.Equal(t, "granted", out.Connections[0].Name)
+	assert.Equal(t, 1, out.Withheld, "the withheld one is counted, so the notice can say so")
+}
+
+// TestBuild_StoreErrorDegradesToWhatThisProcessServes: a caller asking what
+// exists is better served by the connections this replica can name than by a
+// refusal that says nothing about the connection they were looking for.
+func TestBuild_StoreErrorDegradesToWhatThisProcessServes(t *testing.T) {
+	tk := &listerTK{mockTK: mockTK{kind: "api"}, conns: []toolkit.ConnectionDetail{{Name: "served"}}}
+
+	out := Build(context.Background(), []registry.Toolkit{tk},
+		Deps{Stored: fakeStore{err: errors.New("the database is unreachable")}})
+
+	require.Len(t, out.Connections, 1)
+	assert.Equal(t, "served", out.Connections[0].Name)
+}
+
+// TestBuild_NoStoreListsWhatThisProcessServes covers the deployment that keeps
+// its connections in its configuration file alone: what it was handed is the
+// whole inventory, and there is nothing to union.
+func TestBuild_NoStoreListsWhatThisProcessServes(t *testing.T) {
+	tk := &listerTK{mockTK: mockTK{kind: "api"}, conns: []toolkit.ConnectionDetail{{Name: "served"}}}
+
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{})
+
+	require.Len(t, out.Connections, 1)
+	assert.Equal(t, "served", out.Connections[0].Name)
+}
+
+// TestBuild_AServedConnectionKeepsWhatItDerived: the row answers for the
+// description alone. A connection's health and the size of its surface are what
+// this process found when it built it, and a row that carries neither must not
+// erase them.
+func TestBuild_AServedConnectionKeepsWhatItDerived(t *testing.T) {
+	health := &toolkit.ConnectionHealth{}
+	tk := &listerTK{mockTK: mockTK{kind: "api"}, conns: []toolkit.ConnectionDetail{
+		{Name: "served", Description: "from the config", CatalogID: "cat-1", OperationCount: 9, Health: health},
+	}}
+	store := fakeStore{rows: []Stored{{Kind: "api", Name: "served"}}}
+
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Stored: store})
+
+	require.Len(t, out.Connections, 1)
+	e := out.Connections[0]
+	assert.Equal(t, "from the config", e.Description, "a row with no description erases nothing")
+	assert.Equal(t, "cat-1", e.CatalogID)
+	assert.Equal(t, 9, e.OperationCount)
+	assert.NotNil(t, e.Health, "health is what this replica found, and the row does not carry it")
+}
+
+// TestBuild_AStoredConnectionCarriesItsDataHubSource: the source map is a
+// per-replica mapping, so a connection only the store holds resolves through it
+// exactly as a served one does — otherwise a caller would see a connection lose
+// its DataHub source depending on which replica answered.
+func TestBuild_AStoredConnectionCarriesItsDataHubSource(t *testing.T) {
+	src := fakeSource{names: map[string]string{"trino/elsewhere": "trino_src"}}
+	store := fakeStore{rows: []Stored{{Kind: "trino", Name: "elsewhere"}}}
+
+	out := Build(context.Background(), nil, Deps{Source: src, Stored: store})
+
+	require.Len(t, out.Connections, 1)
+	assert.Equal(t, "trino_src", out.Connections[0].DataHubSourceName)
+}
+
+// TestBuild_AWithheldConnectionIsCountedOnce is what the notice depends on: a
+// connection this process serves AND the store holds — which is every
+// database-managed connection — must count as one connection hidden from this
+// caller, not two. The notice built from the count tells the caller how much of
+// the deployment they are not seeing.
+func TestBuild_AWithheldConnectionIsCountedOnce(t *testing.T) {
+	tk := &listerTK{mockTK: mockTK{kind: "api"}, conns: []toolkit.ConnectionDetail{{Name: "denied"}}}
+	store := fakeStore{rows: []Stored{{Kind: "api", Name: "denied", Description: "the row for it"}}}
+	permit := func(_, _ string) bool { return false }
+
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Permit: permit, Stored: store})
+
+	assert.Empty(t, out.Connections)
+	assert.Equal(t, 1, out.Withheld, "one connection, hidden once")
+}
+
+// TestBuild_AWithheldFallbackConnectionIsCountedOnce is the same for the kinds
+// that list no connections of their own (trino, datahub, s3), whose entry is
+// keyed on the instance name the backfill seeds a row under.
+func TestBuild_AWithheldFallbackConnectionIsCountedOnce(t *testing.T) {
+	tk := &mockTK{kind: "s3", name: "data_lake", conn: "Data Lake"}
+	store := fakeStore{rows: []Stored{{Kind: "s3", Name: "data_lake"}}}
+	permit := func(_, _ string) bool { return false }
+
+	out := Build(context.Background(), []registry.Toolkit{tk}, Deps{Permit: permit, Stored: store})
+
+	assert.Empty(t, out.Connections)
+	assert.Equal(t, 1, out.Withheld)
 }
