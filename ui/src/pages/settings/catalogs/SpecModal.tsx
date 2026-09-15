@@ -52,6 +52,11 @@ const SPEC_FORMATS: { value: APISpecFormat; label: string; help: string }[] = [
     label: "WSDL (SOAP)",
     help: "A WSDL 1.1 document/literal service description, SOAP 1.1 or 1.2. Each operation becomes a discoverable operation and the gateway builds the SOAP envelope, so a caller sends the operation's fields rather than XML. RPC and encoded bindings are not imported.",
   },
+  {
+    value: "graphql",
+    label: "GraphQL (SDL)",
+    help: "A GraphQL schema in SDL. It is served to graphql connections that reference this catalog, not to the HTTP API gateway, so an endpoint that disables introspection gets its schema here and several connections against one endpoint share it. graphql_export writes SDL, as does a schema registry.",
+  },
 ];
 
 // maxUploadBytes mirrors catalogSpecMaxUploadBytes on the upload route, so an
@@ -336,7 +341,7 @@ export function SpecModal({
           <TabsContent value="url" className="pt-2">
             <LabeledInput
               label="Spec URL"
-              help="HTTPS URL to a publicly reachable document in the format selected above — an OpenAPI document, or a WSDL (often the service address with ?wsdl). The server fetches once at save and stores the content; click Refresh on the spec row to re-fetch and re-import."
+              help="HTTPS URL to a publicly reachable document in the format selected above — an OpenAPI document, a WSDL (often the service address with ?wsdl), or a GraphQL schema in SDL. The server fetches once at save and stores the content; click Refresh on the spec row to re-fetch and re-import."
               value={sourceURL}
               onChange={setSourceURL}
               placeholder="https://petstore3.swagger.io/api/v3/openapi.json"

@@ -38,9 +38,9 @@ type BrowseConnection struct {
 // the policy grants an anonymous one.
 func (t *Toolkit) BrowseConnection(ctx context.Context, name string) (*BrowseConnection, error) {
 	t.mu.RLock()
-	c, ok := t.connections[name]
 	policy := t.routePolicy
 	t.mu.RUnlock()
+	c, ok := t.serving(ctx, name)
 	if !ok {
 		return nil, ErrConnectionNotFound
 	}
@@ -80,9 +80,9 @@ func browseSpecSummaries(c *conn, visible []OperationSummary) []SpecSummary {
 // whole index and filters it in the page.
 func (t *Toolkit) BrowseOperations(ctx context.Context, connection string) ([]OperationSummary, error) {
 	t.mu.RLock()
-	c, ok := t.connections[connection]
 	policy := t.routePolicy
 	t.mu.RUnlock()
+	c, ok := t.serving(ctx, connection)
 	if !ok {
 		return nil, ErrConnectionNotFound
 	}
@@ -175,9 +175,9 @@ func sortOperations(ops []OperationSummary) {
 // matching its absence from BrowseOperations.
 func (t *Toolkit) BrowseOperation(ctx context.Context, connection, operationID, spec string) (*EndpointSchemaOutput, error) {
 	t.mu.RLock()
-	c, ok := t.connections[connection]
 	policy := t.routePolicy
 	t.mu.RUnlock()
+	c, ok := t.serving(ctx, connection)
 	if !ok {
 		return nil, ErrConnectionNotFound
 	}

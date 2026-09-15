@@ -293,7 +293,6 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in exportInput) (*mcp.CallToolResult, any, error) {
 	t.mu.RLock()
 	deps := t.exportDeps
-	c, connOK := t.connections[in.Connection]
 	policy := t.routePolicy
 	t.mu.RUnlock()
 	if deps == nil {
@@ -302,8 +301,9 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
+	c, connOK := t.serving(ctx, in.Connection)
 	if !connOK {
-		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}
 	if in.Name == "" {
 		return toolkit.ErrorResult("name is required (the asset's download filename, or the display name of the managed resource a 'resource' destination lands in)"), nil, nil

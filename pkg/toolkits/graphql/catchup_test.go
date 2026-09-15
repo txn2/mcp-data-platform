@@ -324,7 +324,7 @@ func TestATakeOnOfAConnectionAlreadyServedReadsNothing(t *testing.T) {
 
 	// A request that missed the connection and reaches the take-on after a
 	// save served it.
-	tk.takeOn(context.Background(), connections, "gql")
+	tk.catchUp.Resolve(context.Background(), catchUpServer{t: tk}, connections, "gql")
 
 	if connections.readCount() != 0 {
 		t.Errorf("the connection store was read %d times for a served connection", connections.readCount())
@@ -540,25 +540,6 @@ func TestARefusalThatFinishesAfterItsConnectionWasDeletedIsNotRecorded(t *testin
 	defer c.schemaMu.RUnlock()
 	if c.schemaErr != "" {
 		t.Errorf("a refusal was recorded on a deleted connection: %q", c.schemaErr)
-	}
-}
-
-func TestConnLocksForgetANameNobodyHolds(t *testing.T) {
-	var locks connLocks
-	unlockA := locks.lock("a")
-	unlockB := locks.lock("b")
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		locks.lock("a")()
-	}()
-	unlockA()
-	<-done
-	unlockB()
-	locks.mu.Lock()
-	defer locks.mu.Unlock()
-	if len(locks.names) != 0 {
-		t.Errorf("locks held for names nobody holds: %v", locks.names)
 	}
 }
 

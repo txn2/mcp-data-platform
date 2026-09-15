@@ -21,8 +21,8 @@ export interface APICatalogSummary {
 // APISpecFormat is what a spec entry's `content` is. It is declared once here
 // and used by every reader, so the form that writes it and the type that
 // carries it cannot disagree about which formats exist. Keep it in sync with
-// catalog.FormatOpenAPI / FormatWSDL.
-export type APISpecFormat = "openapi" | "wsdl";
+// catalog.FormatOpenAPI / FormatWSDL / FormatGraphQL.
+export type APISpecFormat = "openapi" | "wsdl" | "graphql";
 
 export interface APICatalogSpec {
   spec_name: string;
@@ -35,9 +35,11 @@ export interface APICatalogSpec {
   source_kind: "inline" | "upload" | "url" | "embedded";
   // What `content` is. "wsdl" specs store the WSDL the operator supplied and
   // serve an OpenAPI document the platform renders from it, so `content` here
-  // is always what was written rather than what the gateway parses. Orthogonal
-  // to source_kind: a WSDL can be pasted, uploaded, or refreshed from a URL.
-  // Keep this union in sync with catalog.FormatOpenAPI / FormatWSDL.
+  // is always what was written rather than what the gateway parses. "graphql"
+  // specs hold SDL, which the HTTP gateway never reads: a graphql connection
+  // referencing this catalog answers with it. Orthogonal to source_kind: every
+  // format can be pasted, uploaded, or refreshed from a URL. Keep this union in
+  // sync with catalog.FormatOpenAPI / FormatWSDL / FormatGraphQL.
   spec_format?: APISpecFormat;
   source_url?: string;
   etag?: string;

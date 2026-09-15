@@ -15,9 +15,15 @@ const METHOD_CLASS: Record<string, string> = {
   PUT: "bg-primary/15 text-primary",
   PATCH: "bg-primary/15 text-primary",
   DELETE: "bg-destructive/15 text-destructive",
+  // A graphql connection has no HTTP method to name an operation by: its
+  // kind is what a persona rule names and what the catalog reports, and it
+  // splits the same way, so it takes the same two colors (#1745).
+  QUERY: "bg-muted text-foreground/80",
+  MUTATION: "bg-primary/15 text-primary",
 };
 
-/** MethodBadge renders one HTTP method as a fixed-width chip. */
+/** MethodBadge renders one method as a fixed-width chip: an HTTP verb,
+ * or a GraphQL operation kind where that is what names an operation. */
 export function MethodBadge({ method, className }: { method: string; className?: string }) {
   const upper = method.toUpperCase();
   return (

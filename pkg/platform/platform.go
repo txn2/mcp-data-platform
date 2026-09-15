@@ -23,6 +23,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
+	"github.com/txn2/mcp-data-platform/internal/platform/apigwwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
@@ -30,6 +31,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
+	"github.com/txn2/mcp-data-platform/internal/platform/connrecords"
 	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
@@ -639,6 +641,7 @@ func (p *Platform) WireGatewayIntegrations() {
 	p.WireGatewayTokenStore()
 	p.WireGatewayBroadcaster()
 	p.WireAPIGatewayRoutePolicy()
+	p.WireAPIGatewayConnectionStore()
 	p.WireAPIGatewayTokenStore()
 	p.WireAPIGatewayEmbeddingProvider()
 	p.WireAPIGatewayCatalogStoreFromDB()
@@ -773,12 +776,17 @@ func (p *Platform) WireAPIGatewayCatalogStoreFromDB() {
 // one wired. Used by the admin layer to share the same store for
 // both reads (toolkit) and writes (admin CRUD).
 func (p *Platform) APIGatewayCatalogStore() apigatewaycatalog.Store {
-	for _, tk := range p.toolkitRegistry.All() {
-		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			return api.CatalogStore()
-		}
-	}
-	return nil
+	return apigwwiring.CurrentCatalogStore(p.toolkitRegistry)
+}
+
+// WireAPIGatewayConnectionStore attaches the store an api gateway
+// toolkit answers a request for a connection it does not serve from, so
+// a connection saved on another replica is served here from the moment
+// that save returns rather than when its announcement arrives (#1746).
+func (p *Platform) WireAPIGatewayConnectionStore() {
+	apigwwiring.ConnectionStore(p.toolkitRegistry, connrecords.Saved[*ConnectionInstance](
+		p.connectionStore, apigatewaykit.Kind, ErrConnectionNotFound, apigatewaykit.ErrConnectionNotFound,
+		func(inst *ConnectionInstance) map[string]any { return inst.Config }))
 }
 
 // WireAPIGatewayCatalogStore attaches the catalog.Store the toolkit
@@ -794,28 +802,7 @@ func (p *Platform) APIGatewayCatalogStore() apigatewaycatalog.Store {
 // platform-level wiring) would leave connections in the "catalog_id
 // set but zero ops" state until the next admin save.
 func (p *Platform) WireAPIGatewayCatalogStore(store apigatewaycatalog.Store) {
-	if store == nil {
-		return
-	}
-	for _, tk := range p.toolkitRegistry.All() {
-		api, ok := tk.(*apigatewaykit.Toolkit)
-		if !ok {
-			continue
-		}
-		api.SetCatalogStore(store)
-		// The same store answers "what examples were promoted on this
-		// endpoint" when it is database-backed, so reading an endpoint's
-		// schema shows the requests known to have worked (#1321).
-		if examples, ok := store.(apigatewaycatalog.ExampleStore); ok {
-			api.SetExampleStore(examples)
-		}
-		for _, detail := range api.ListConnections() {
-			if err := api.ReloadConnection(detail.Name); err != nil {
-				slog.Warn("apigateway: catalog wire reload failed",
-					"connection", detail.Name, "error", err)
-			}
-		}
-	}
+	apigwwiring.CatalogStore(p.toolkitRegistry, store)
 }
 
 // WireAPIGatewayRoutePolicy installs a per-(connection, method, path)
@@ -826,19 +813,12 @@ func (p *Platform) WireAPIGatewayCatalogStore(store apigatewaycatalog.Store) {
 // Mirrors WireGatewayTokenStore / WireGatewayBroadcaster in placement
 // and lifecycle. Safe to call before or after RegisterTools.
 func (p *Platform) WireAPIGatewayRoutePolicy() {
-	if p.authorizer == nil {
-		return
-	}
 	pa, ok := p.authorizer.(*persona.Authorizer)
 	if !ok {
 		return
 	}
-	policy := routepolicy.New(routepolicy.Deps{Authenticator: p.authenticator, Authorizer: pa})
-	for _, tk := range p.toolkitRegistry.All() {
-		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			api.SetRoutePolicy(policy)
-		}
-	}
+	apigwwiring.RoutePolicy(p.toolkitRegistry,
+		routepolicy.New(routepolicy.Deps{Authenticator: p.authenticator, Authorizer: pa}))
 }
 
 // WireGatewayBroadcaster attaches the platform's session broadcaster

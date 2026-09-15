@@ -2,6 +2,7 @@ import { useState } from "react";
 import { HelpDialog } from "@/components/HelpDialog";
 import { ApiGatewayAuthHelp, ApiGatewayTLSHelp } from "../ApiGatewayHelpContent";
 import { ApiGatewayAuthFields } from "./ApiGatewayAuthFields";
+import { APICatalogPicker, catalogsHref } from "./ApiCatalogPicker";
 import {
   ConfigField,
   ConfigGroup,
@@ -85,6 +86,27 @@ export function GraphQLConfigForm({
       </ConfigGroup>
 
       <ConfigGroup title="Schema and documents">
+        <APICatalogPicker
+          config={config}
+          onChange={onChange}
+          label="Schema catalog"
+          emptyLabel="— Read the schema from this endpoint —"
+          help={
+            <>
+              Take this connection&apos;s schema from a catalog instead of
+              reading the endpoint. The catalog holds one spec whose format is
+              GraphQL (SDL), refreshed from its source like any other spec, and
+              every connection pointing at it serves the same schema. Use it
+              when the endpoint disables introspection, or when several
+              connections speak to one API. Catalogs are managed under{" "}
+              <a className="underline" href={catalogsHref()}>
+                API Catalogs
+              </a>
+              .
+            </>
+          }
+        />
+
         <ConfigSelect
           label="Schema validation"
           value={String(config.schema_validation ?? "strict")}

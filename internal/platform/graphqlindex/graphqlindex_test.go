@@ -141,3 +141,28 @@ func TestSinkIsANoOpForAConnectionWithNoSchema(t *testing.T) {
 		t.Errorf("stamp = %v", err)
 	}
 }
+
+// A connection taking its schema from a catalog is embedded once as that
+// catalog's spec, by the api-catalog source, and reads its vectors back from
+// there. Enumerating it here would open a unit that resolves to no items on
+// every sweep (#1745).
+func TestAConnectionOnACatalogIsNotEnumeratedPerConnection(t *testing.T) {
+	cfg, err := graphqlkit.ParseConfig(map[string]any{
+		"endpoint_url": "https://unreached.invalid/graphql", "catalog_id": "erp",
+	})
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	cfg.ConnectionName = "cataloged"
+	tk := graphqlkit.NewMulti(graphqlkit.MultiConfig{
+		DefaultName: "cataloged",
+		Instances:   map[string]graphqlkit.Config{"cataloged": cfg},
+	})
+
+	source := NewSource(lister(tk, newToolkit(t, "own-endpoint", "flat")))
+
+	got := source.connections()
+	if len(got) != 1 || got[0] != "own-endpoint" {
+		t.Errorf("connections = %v; want only the one that reads its own endpoint", got)
+	}
+}

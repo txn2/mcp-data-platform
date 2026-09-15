@@ -296,12 +296,14 @@ func (h *Handler) getOperation(w http.ResponseWriter, r *http.Request, c *Caller
 func (h *Handler) browserFor(
 	w http.ResponseWriter, r *http.Request, c *Caller, name string,
 ) (OperationBrowser, bool) {
-	if name == "" || !h.reaches(r.Context(), c, name) {
-		httpjson.WriteError(w, http.StatusNotFound, "connection not found")
-		return nil, false
-	}
+	// Locating runs first because locating is what takes a connection
+	// another replica saved into service on this one, and the enumeration
+	// the reachability check reads is of the connections in service
+	// (#1746). Asking in the other order answered "connection not found"
+	// for a connection whose save had already returned. What the caller
+	// reaches is still decided entirely by the check below.
 	browser := h.deps.Locate(name)
-	if browser == nil {
+	if name == "" || browser == nil || !h.reaches(r.Context(), c, name) {
 		httpjson.WriteError(w, http.StatusNotFound, "connection not found")
 		return nil, false
 	}

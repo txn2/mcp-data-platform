@@ -124,4 +124,45 @@ export interface APIOperationDetail {
   saved_examples?: APISavedExample[];
   /** Set when the resolved schemas were truncated to fit a response cap. */
   note?: string;
+  /** What the operation returns, for a spec whose format states it. */
+  return_type?: string;
+  deprecated?: boolean;
+  /** A GraphQL operation's arguments, the input types they reference, the
+   * shape it returns, and a document that already calls it. One pane
+   * renders either format: `method` carries the operation kind and `path`
+   * the route a persona rule names it under, while what an OpenAPI
+   * operation puts in parameters, body and responses has no equivalent and
+   * these carry what does (#1745). Absent on an OpenAPI operation. */
+  graphql_arguments?: GraphQLArgument[];
+  graphql_input_types?: GraphQLInputType[];
+  graphql_return_shape?: GraphQLFieldNode[];
+  graphql_skeleton?: string;
+  graphql_variables?: string;
+}
+
+/** GraphQLArgument is one argument a GraphQL operation takes. */
+export interface GraphQLArgument {
+  name: string;
+  type: string;
+  description?: string;
+  required?: boolean;
+  default?: string;
+}
+
+/** GraphQLInputType is an input-object type an argument references,
+ * expanded one level so a caller filling in a filter needs no second
+ * lookup. */
+export interface GraphQLInputType {
+  name: string;
+  description?: string;
+  fields?: GraphQLArgument[];
+}
+
+/** GraphQLFieldNode is one node of the shape an operation returns. */
+export interface GraphQLFieldNode {
+  name: string;
+  type: string;
+  description?: string;
+  deprecated?: boolean;
+  fields?: GraphQLFieldNode[];
 }

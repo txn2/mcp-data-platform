@@ -115,6 +115,7 @@ const (
 // about a key's spelling.
 const (
 	cfgKeyEndpointURL      = "endpoint_url"
+	cfgKeyCatalogID        = "catalog_id"
 	cfgKeyDescription      = "description"
 	cfgKeySchemaValidation = "schema_validation"
 	cfgKeyMaxQueryDepth    = "max_query_depth"
@@ -187,6 +188,15 @@ type Config struct {
 	// token as the outbound Authorization header instead of applying
 	// this connection's shared credential.
 	IdentityPassthrough bool
+
+	// CatalogID names the API catalog this connection takes its schema
+	// from, instead of reading the endpoint (#1745). The catalog holds
+	// one spec entry whose format is graphql and whose content is SDL,
+	// refreshed from its source the way an OpenAPI document is, and
+	// shared by every connection referencing the same catalog. Empty
+	// means this connection reads its own endpoint, which is what every
+	// connection written before the field did.
+	CatalogID string
 
 	// SchemaValidation is SchemaValidationStrict (default) or
 	// SchemaValidationWarn.
@@ -289,6 +299,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c := configFromUpstream(up)
 	c.EndpointURL = endpoint
 	c.Description = cfgmap.String(cfg, cfgKeyDescription)
+	c.CatalogID = cfgmap.String(cfg, cfgKeyCatalogID)
 	c.SchemaValidation = cfgmap.StringDefault(cfg, cfgKeySchemaValidation, SchemaValidationStrict)
 	c.MaxQueryDepth = int(cfgmap.Int64(cfg, cfgKeyMaxQueryDepth, DefaultMaxQueryDepth))
 	c.NamespaceDepth = int(cfgmap.Int64(cfg, cfgKeyNamespaceDepth, gqlschema.DefaultNamespaceDepth))

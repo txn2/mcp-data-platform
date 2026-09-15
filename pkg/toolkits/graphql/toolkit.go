@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/sync/singleflight"
 
+	"github.com/txn2/mcp-data-platform/internal/conncatchup"
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/membudget"
@@ -51,6 +51,7 @@ var (
 
 const (
 	logKeyConnection = "connection"
+	logKeyCatalogID  = "catalog_id"
 	logKeyError      = "error"
 )
 
@@ -69,6 +70,7 @@ type Toolkit struct {
 	connOAuthStore connoauth.Store
 	authEvents     *authevents.Writer
 	schemaStore    SchemaStore
+	catalogStore   CatalogStore
 	connStore      ConnectionStore
 	vectorReader   VectorReader
 	embedder       embedding.Provider
@@ -78,10 +80,10 @@ type Toolkit struct {
 
 	// changes serializes, per connection name, everything that replaces a
 	// served connection or changes the schema it holds.
-	changes connLocks
-	// catchUp shares one connection-store read among the requests that
-	// arrive for a connection this instance does not yet serve.
-	catchUp singleflight.Group
+	changes conncatchup.Locks
+	// catchUp answers for a connection this instance does not serve by
+	// reading the connection store, under changes.
+	catchUp *conncatchup.Resolver
 }
 
 // conn is the materialized state of one registered connection: its
@@ -142,6 +144,7 @@ func NewMulti(cfg MultiConfig) *Toolkit {
 		defaultName: cfg.DefaultName,
 		connections: make(map[string]*conn, len(cfg.Instances)),
 	}
+	t.catchUp = conncatchup.New(&t.changes, Kind, ErrConnectionNotFound)
 	names := make([]string, 0, len(cfg.Instances))
 	for name := range cfg.Instances {
 		names = append(names, name)
@@ -378,7 +381,7 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	}
 	ctx := context.Background()
 	t.readOrLoadStored(ctx, c)
-	unlock := t.changes.lock(name)
+	unlock := t.changes.Lock(name)
 	defer unlock()
 	if t.HasConnection(name) {
 		// A request took the connection on from the store while the read
@@ -421,7 +424,7 @@ func (t *Toolkit) UpdateConnection(name string, config map[string]any) error {
 // carrying that connection's schema onto it, and reports false when no
 // connection is held. The endpoint is read afterwards, outside the lock.
 func (t *Toolkit) replaceCarrying(ctx context.Context, name string, c *conn) bool {
-	unlock := t.changes.lock(name)
+	unlock := t.changes.Lock(name)
 	defer unlock()
 	existing, _, ok := t.lookup(name)
 	if !ok {
@@ -454,7 +457,7 @@ func (t *Toolkit) carrySchema(ctx context.Context, from, to *conn) {
 // later connection of the same name to inherit. A configuration change
 // arrives through UpdateConnection instead.
 func (t *Toolkit) RemoveConnection(name string) error {
-	unlock := t.changes.lock(name)
+	unlock := t.changes.Lock(name)
 	defer unlock()
 	t.mu.Lock()
 	c, ok := t.connections[name]
@@ -509,6 +512,7 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 			Name:           name,
 			Description:    connectionDescription(c.cfg),
 			IsDefault:      name == def,
+			CatalogID:      c.cfg.CatalogID,
 			OperationCount: count,
 		})
 	}

@@ -13,6 +13,7 @@ internal/admin/auditapi -> internal/httpjson
 internal/admin/auditapi -> pkg/audit
 internal/admin/callapi -> internal/httpjson
 internal/admin/callapi -> internal/platform/callrecord
+internal/admin/catalogapi -> internal/gqlschema
 internal/admin/catalogapi -> internal/httpjson
 internal/admin/catalogapi -> internal/logsan
 internal/admin/catalogapi -> internal/soap
@@ -20,6 +21,7 @@ internal/admin/catalogapi -> pkg/registry
 internal/admin/catalogapi -> pkg/toolkits/apigateway
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalog
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalogindex
+internal/admin/catalogapi -> pkg/toolkits/graphql
 internal/admin/connoauthapi -> internal/httpjson
 internal/admin/connoauthapi -> internal/logsan
 internal/admin/connoauthapi -> pkg/authevents
@@ -46,6 +48,7 @@ internal/admin/settingsapi -> pkg/notification/smtp
 internal/agentinstructions -> pkg/configstore
 internal/apigwmetrics -> pkg/mcpcontext
 internal/apigwmetrics -> pkg/observability
+internal/conncatchup -> internal/logsan
 internal/docread -> pkg/contenttype
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
@@ -178,6 +181,10 @@ internal/notification/notifyworker -> internal/notification/notifyrender
 internal/notification/notifyworker -> internal/notification/notifysend
 internal/notification/notifyworker -> pkg/notification
 internal/notification/notifyworker -> pkg/notification/smtp
+internal/platform/apigwwiring -> internal/logsan
+internal/platform/apigwwiring -> pkg/registry
+internal/platform/apigwwiring -> pkg/toolkits/apigateway
+internal/platform/apigwwiring -> pkg/toolkits/apigateway/catalog
 internal/platform/apikeystore -> pkg/auth
 internal/platform/assetindex -> pkg/indexjobs
 internal/platform/assetindex -> pkg/portal
@@ -234,6 +241,8 @@ internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
 internal/platform/exportadapters -> pkg/toolkits/graphql
 internal/platform/exportadapters -> pkg/toolkits/trino
+internal/platform/graphqlcatalog -> pkg/toolkits/apigateway/catalog
+internal/platform/graphqlcatalog -> pkg/toolkits/graphql
 internal/platform/graphqlindex -> pkg/indexjobs
 internal/platform/graphqlindex -> pkg/toolkits/graphql
 internal/platform/graphqlstore -> pkg/toolkits/graphql
@@ -251,6 +260,7 @@ internal/platform/iam -> pkg/auth
 internal/platform/iam -> pkg/middleware
 internal/platform/iam -> pkg/persona
 internal/platform/indexqueue -> internal/docread
+internal/platform/indexqueue -> internal/gqlschema
 internal/platform/indexqueue -> internal/platform/assetindex
 internal/platform/indexqueue -> internal/platform/callindex
 internal/platform/indexqueue -> internal/platform/collectionindex
@@ -267,6 +277,7 @@ internal/platform/indexqueue -> pkg/registry
 internal/platform/indexqueue -> pkg/toolkits/apigateway
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
+internal/platform/indexqueue -> pkg/toolkits/graphql
 internal/platform/indexqueue -> pkg/toolkits/tools/toolsindex
 internal/platform/knowledgebuiltin -> internal/platform/scriptlayer
 internal/platform/knowledgebuiltin -> pkg/contenttype
@@ -692,6 +703,7 @@ pkg/platform -> apps
 pkg/platform -> internal/agentinstructions
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/logsan
+pkg/platform -> internal/platform/apigwwiring
 pkg/platform -> internal/platform/apikeystore
 pkg/platform -> internal/platform/auditwiring
 pkg/platform -> internal/platform/branding
@@ -701,11 +713,13 @@ pkg/platform -> internal/platform/completionlayer
 pkg/platform -> internal/platform/configenv
 pkg/platform -> internal/platform/connauth
 pkg/platform -> internal/platform/connbackfill
+pkg/platform -> internal/platform/connrecords
 pkg/platform -> internal/platform/connscope
 pkg/platform -> internal/platform/connsource
 pkg/platform -> internal/platform/datasetindex
 pkg/platform -> internal/platform/dedup
 pkg/platform -> internal/platform/exportadapters
+pkg/platform -> internal/platform/graphqlcatalog
 pkg/platform -> internal/platform/graphqlwiring
 pkg/platform -> internal/platform/iam
 pkg/platform -> internal/platform/indexqueue
@@ -875,6 +889,7 @@ pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/apigwmetrics
 pkg/toolkits/apigateway -> internal/cfgmap
+pkg/toolkits/apigateway -> internal/conncatchup
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
@@ -910,6 +925,7 @@ pkg/toolkits/gateway -> pkg/toolkits/gateway/enrichment
 pkg/toolkits/gateway/enrichment -> internal/logsan
 pkg/toolkits/graphql -> internal/apigwmetrics
 pkg/toolkits/graphql -> internal/cfgmap
+pkg/toolkits/graphql -> internal/conncatchup
 pkg/toolkits/graphql -> internal/gqlschema
 pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget

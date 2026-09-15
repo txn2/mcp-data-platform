@@ -126,9 +126,9 @@ func (t *Toolkit) handleDiscover(ctx context.Context, _ *mcp.CallToolRequest, in
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	t.mu.RLock()
-	c, ok := t.connections[in.Connection]
 	policy := t.routePolicy
 	t.mu.RUnlock()
+	c, ok := t.serving(ctx, in.Connection)
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}

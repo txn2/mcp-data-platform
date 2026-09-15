@@ -17,13 +17,28 @@ A catalog has:
 - **description**: optional operator notes.
 - A list of **component specs**, each with:
   - **spec_name**: slug surfaced to the model in `OperationSummary.spec` to disambiguate operations across components.
-  - **content**: raw YAML or JSON OpenAPI 3.x document.
+  - **content**: the document the operator supplied, in the format `spec_format` names.
+  - **spec_format**: `openapi` (the default), `wsdl` or `graphql` — what `content` is, which is a different question from how it arrived. A WSDL is converted to OpenAPI at save time and the conversion kept beside the operator's document. A GraphQL schema is SDL and is converted to nothing: it is served to `kind: graphql` connections referencing this catalog, not to the HTTP API gateway, which skips it.
   - **source_kind**: `inline`, `upload`, `url`, or `embedded`. `embedded` is reserved for the built-in `platform-admin` catalog, whose content comes from the OpenAPI document embedded in the binary (see [Self-Configuration](self-configuration.md)); operators cannot create `embedded` specs through the admin API.
   - **source_url / etag / last_fetched_at**: populated when `source_kind` is `url`.
   - **base_path**: optional operator override for the URL path segment prepended to every operation in the spec. Empty derives the prefix from the spec's `servers[0].url`. See [Base paths and shared specs](#base-paths-and-shared-specs) for how the prefix interacts with each connection's `base_url`.
   - **title / description**: optional operator overrides for the per-spec summary shown at `api_discover`'s specs level. Empty derives them from the spec's `info.title` / `info.description`. Validated on write: trimmed, no embedded CR/LF/NUL, capped at 200 / 2000 characters.
 
-Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_discover` reflects the new content without a process restart.
+Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_discover` reflects the new content without a process restart. A `kind: graphql` connection on the catalog re-reads the schema in the same fan-out.
+
+### A GraphQL schema as a catalogued spec
+
+A catalog holding a spec whose `spec_format` is `graphql` is the schema every `kind: graphql` connection referencing that catalog answers with, instead of introspecting its own endpoint (#1745). What that buys is what a catalog already gives an OpenAPI endpoint:
+
+- **A schema registered from a URL.** An SDL published at a stable address — a schema registry, a build artifact, a `schema.graphql` in a repository — is fetched and refreshed on its `etag` through the same path an OpenAPI document uses. An endpoint that disables introspection no longer has to be re-pasted by hand on every upstream change.
+- **One schema serving several connections.** A read-only and a read-write connection against one endpoint, or prod and sandbox, reference one catalog, so the schema is stored, hashed and embedded once rather than once each. Operation embeddings are keyed on `(catalog_id, spec_name, operation_id)` like every other catalogued operation's.
+- **A schema that is an inventoried object.** It is listed, versioned, browsed operation by operation and given embedding-job status beside every other spec, rather than being reachable only through the connection that owns it. The operations browser renders either format in one pane: the operation kind is the method and the dotted id the path, and where an OpenAPI operation shows parameters, a request body and per-status responses, a GraphQL one shows its arguments, the input types they reference, the shape it returns and a document that already calls it. `list_connections` reports a GraphQL connection's `catalog_id` and operation count the way it reports a REST one's.
+
+The content must be SDL. An introspection result is refused with a message naming where SDL comes from — `graphql_export` writes it, as does a schema registry.
+
+A catalog carries at most one GraphQL schema. A connection pointed at a catalog holding two is refused by name rather than served one chosen by map order.
+
+A connection referencing a catalog never introspects, and the Schema card offers no upload for it: an upload would be replaced by the catalog on the next read, and would differ from what every other connection on the catalog serves. The platform refuses one for the same reason, naming the catalog to edit instead. Clearing `catalog_id` returns the connection to reading its own endpoint.
 
 ## Base paths and shared specs
 
@@ -84,7 +99,7 @@ External `$ref` resolution stays disabled at the parser regardless of source (pa
 
 ## Wiring a connection to a catalog
 
-Open a `kind: api` connection in the Connections page. The OpenAPI Catalog dropdown lists every catalog known to the platform; pick one and save. The model immediately sees the catalog's operations the next time it calls `api_discover` against that connection.
+Open a `kind: api` connection in the Connections page. The OpenAPI Catalog dropdown lists every catalog known to the platform; pick one and save. A `kind: graphql` connection has the same dropdown under Schema and documents, named Schema catalog, and leaving it empty is what makes the connection read its own endpoint. The model immediately sees the catalog's operations the next time it calls `api_discover` against that connection.
 
 A connection with no catalog selected (or an empty `catalog_id`) still works — the model can call `api_invoke_endpoint` with an explicit method and path. It just won't have discovery or schema retrieval via `api_discover`.
 
@@ -104,6 +119,8 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 | `POST` | `/api/v1/admin/api-catalogs/{id}/clone` | Clone catalog and all specs to a new id/version |
 | `GET` | `/api/v1/admin/api-catalogs/{id}/specs` | List component specs (metadata only) |
 | `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Get one spec with content |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations` | List the operations a spec exposes, in either format |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}` | One operation's parameters, body and responses; for a GraphQL spec, its arguments, input types, return shape and a document that calls it |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert spec (inline or URL source) |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload of a spec file |
 | `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch a URL-sourced spec |
@@ -112,7 +129,7 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 
 ## Persisted operation embeddings
 
-Semantic and hybrid ranking on `api_discover` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Embeddings persist across pod restarts and are shared by every connection that mounts the same catalog.
+Semantic and hybrid ranking on `api_discover` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Embeddings persist across pod restarts and are shared by every connection that mounts the same catalog, including a `kind: graphql` connection reading a catalogued schema — its item ids are the dotted operation ids the namespace descent produces, which is what such a connection ranks by.
 
 ### Embedding job queue
 

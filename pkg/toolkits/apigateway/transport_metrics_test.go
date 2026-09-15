@@ -29,7 +29,7 @@ func TestToolkit_SetMetrics_WrapsExistingConnections(t *testing.T) {
 		ConnectTimeout: 1,
 		AuthMode:       AuthModeNone,
 	}
-	if addErr := tk.addParsedConnection("primary", cfg); addErr != nil {
+	if addErr := tk.installConnection("primary", cfg); addErr != nil {
 		t.Fatalf("addParsedConnection: %v", addErr)
 	}
 
