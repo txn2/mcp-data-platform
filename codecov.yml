@@ -15,12 +15,15 @@ coverage:
 ignore:
   - "**/*_test.go"
   - "**/testdata/**"
-  # cmd/dev-mcp-mock is a development fixture that dev/start.sh
-  # launches alongside the platform so operators can exercise the
-  # MCP gateway end-to-end. It is not exercised by go test, has no
-  # runtime customers, and writing unit tests for a deterministic
-  # mock would be cargo-cult coverage.
-  - "cmd/dev-mcp-mock/**"
+  # cmd/dev-*-mock are the stand-in upstreams dev/start.sh launches alongside
+  # the platform so operators can exercise a gateway end-to-end: dev-mcp-mock
+  # (MCP + OAuth) and dev-soap-mock (SOAP 1.1 and 1.2). None is exercised by go
+  # test, none has runtime customers, none ships in a release, and writing unit
+  # tests for a deterministic mock would be cargo-cult coverage. The pattern is
+  # a glob rather than one line per fixture so it stays in step with the local
+  # gate, which matches cmd/dev-*-mock in scripts/patch-coverage.sh; naming them
+  # one at a time is what let a new fixture pass locally and fail here.
+  - "cmd/dev-*-mock/**"
   # internal/httpserver/dbmounts.go holds the two composition-root mount
   # functions (portal + managed-resources REST) whose bodies only run once
   # the platform has constructed its Postgres-backed stores. The project

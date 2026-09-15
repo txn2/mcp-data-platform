@@ -146,7 +146,11 @@ func (e *nonInlineableBodyError) result(hasExport bool) *mcp.CallToolResult {
 // consumers that read {"error": ...} keep working while the extra
 // diagnostic fields ride alongside for callers that want them.
 func structuredErrorResult(code string, fields map[string]any) *mcp.CallToolResult {
-	payload := make(map[string]any, len(fields)+1)
+	// Sized from the fields alone rather than fields+1: a capacity hint is
+	// advisory, the one extra key costs at most a single growth on a map of
+	// four, and arithmetic on a length in an allocation is what
+	// go/allocation-size-overflow refuses.
+	payload := make(map[string]any, len(fields))
 	payload["error"] = code
 	maps.Copy(payload, fields)
 	b, err := json.Marshal(payload)

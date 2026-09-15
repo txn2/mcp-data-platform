@@ -149,7 +149,7 @@ func (s *soapOperation) contentType() string {
 // specification requires. An empty action and no action at all are different
 // to several stacks, and the operation's binding is what says which this is.
 func (s *soapOperation) headers(caller map[string]string) map[string]string {
-	out := make(map[string]string, len(caller)+2)
+	out := make(map[string]string, len(caller))
 	maps.Copy(out, caller)
 	if s.ext.Version != soap.Version12 && !hasHeader(out, headerSOAPAction) {
 		out[headerSOAPAction] = strconv.Quote(s.ext.Action)
