@@ -16,6 +16,13 @@ const (
 	// the admin route, which is the path for an endpoint with
 	// introspection disabled.
 	SchemaSourceUpload = "upload"
+	// SchemaSourceCatalog marks a schema taken from the API catalog the
+	// connection references, rather than read from its endpoint or
+	// handed over by an operator (#1745). The catalog is the schema's
+	// home; what is stored here is what the connection installed from
+	// it, so a replica that cannot reach the catalog still serves the
+	// version every replica agreed on.
+	SchemaSourceCatalog = "catalog"
 )
 
 // ErrSchemaNotFound reports a connection with no stored schema.

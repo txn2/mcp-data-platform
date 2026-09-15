@@ -197,3 +197,32 @@ func TestValidateSourceKind_Embedded(t *testing.T) {
 		t.Error("ValidateSourceKind(bogus) = nil; want error")
 	}
 }
+
+// A GraphQL schema is SDL, which no OpenAPI reader parses: it is served to a
+// graphql connection referencing this catalog, not to the HTTP gateway
+// (#1745). Every reader that walks a catalog's specs asks the entry which it
+// is, rather than discovering it as a parse failure.
+func TestAGraphQLSpecIsAKnownFormatThatDoesNotServeOpenAPI(t *testing.T) {
+	t.Parallel()
+	if err := ValidateSpecFormat(FormatGraphQL); err != nil {
+		t.Errorf("the graphql format was refused: %v", err)
+	}
+	if err := ValidateSpecFormat("protobuf"); err == nil {
+		t.Error("a format this platform does not read was accepted")
+	}
+
+	sdl := SpecEntry{SpecName: "schema", Content: "type Query { a: String }", SpecFormat: FormatGraphQL}
+	if sdl.ServesOpenAPI() {
+		t.Error("a GraphQL spec was reported as one the HTTP gateway serves")
+	}
+	// Nothing is rendered from it, so what it serves is what was written.
+	if sdl.Effective() != sdl.Content {
+		t.Errorf("Effective() = %q; want the SDL itself", sdl.Effective())
+	}
+
+	for _, format := range []string{"", FormatOpenAPI, FormatWSDL} {
+		if !(SpecEntry{SpecFormat: format}).ServesOpenAPI() {
+			t.Errorf("a %q spec was reported as one the HTTP gateway does not serve", format)
+		}
+	}
+}

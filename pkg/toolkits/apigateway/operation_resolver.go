@@ -27,11 +27,9 @@ import (
 // The per-connection router is built lazily on first call and reused;
 // it is discarded when ReloadConnection rebuilds the conn after a
 // catalog edit, so resolution always reflects the live spec set.
-func (t *Toolkit) ResolveOperationID(_ context.Context, connection, method, path string) string {
-	t.mu.RLock()
-	c := t.connections[connection]
-	t.mu.RUnlock()
-	if c == nil {
+func (t *Toolkit) ResolveOperationID(ctx context.Context, connection, method, path string) string {
+	c, ok := t.serving(ctx, connection)
+	if !ok {
 		return ""
 	}
 
@@ -211,15 +209,13 @@ func ensureLeadingSlash(p string) string {
 // the values a call passed but not the path template they went into
 // (issue #1423).
 func (t *Toolkit) ResolveOperationRequest(
-	_ context.Context, connection, operationID, spec string, pathParams map[string]string,
+	ctx context.Context, connection, operationID, spec string, pathParams map[string]string,
 ) (method, path string, ok bool) {
 	if operationID == "" {
 		return "", "", false
 	}
-	t.mu.RLock()
-	c := t.connections[connection]
-	t.mu.RUnlock()
-	if c == nil {
+	c, served := t.serving(ctx, connection)
+	if !served {
 		return "", "", false
 	}
 
@@ -255,10 +251,11 @@ func (t *Toolkit) MethodForOperation(connection, spec, operationID string) (meth
 	if operationID == "" {
 		return "", false
 	}
-	t.mu.RLock()
-	c := t.connections[connection]
-	t.mu.RUnlock()
-	if c == nil {
+	// The caller classifies a draft rather than serving a request, so it
+	// carries no context of its own; the store read this may make is a
+	// primary-key lookup the catch-up shares across callers.
+	c, served := t.serving(context.Background(), connection)
+	if !served {
 		return "", false
 	}
 	match, _ := resolveOperation(c.specs, operationID, spec)

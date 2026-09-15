@@ -7,6 +7,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 )
 
 // The operator's view of what a catalog exposes. A spec is readable
@@ -19,6 +20,10 @@ import (
 // the same OperationSummary api_discover returns, and the detail
 // route the same EndpointSchemaOutput api_discover returns at its operation level,
 // so a page and a tool call describe one operation identically.
+
+// errNotAGraphQLSchema is the refusal for a spec entry marked graphql
+// whose content does not load as a schema.
+const errNotAGraphQLSchema = "spec content does not parse as a GraphQL schema"
 
 // operationSummaryResponse is one row in the operations listing.
 type operationSummaryResponse struct {
@@ -44,7 +49,7 @@ type operationListResponse struct {
 // GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations.
 //
 // @Summary      List spec operations
-// @Description  Returns the operations a catalog spec parses to. The spec document is not returned.
+// @Description  Returns the operations a catalog spec parses to, in either format the spec may be in. A GraphQL spec's rows carry the operation kind as the method and the dotted operation id as the path. The spec document is not returned.
 // @Tags         API Catalogs
 // @Produce      json
 // @Param        id    path  string  true  "Catalog ID"
@@ -59,6 +64,10 @@ type operationListResponse struct {
 func (h *handler) listSpecOperations(w http.ResponseWriter, r *http.Request) {
 	spec, ok := h.loadSpec(w, r)
 	if !ok {
+		return
+	}
+	if !spec.ServesOpenAPI() {
+		h.listGraphQLOperations(w, *spec)
 		return
 	}
 	ops, basePath, err := apigatewaykit.SpecOperations(spec.Effective(), spec.SpecName, spec.BasePath)
@@ -88,11 +97,38 @@ func (h *handler) listSpecOperations(w http.ResponseWriter, r *http.Request) {
 	httpjson.WriteJSON(w, http.StatusOK, out)
 }
 
+// listGraphQLOperations is listSpecOperations for a spec entry holding a
+// GraphQL schema (#1745).
+//
+// It reports the same rows the OpenAPI listing reports, so one page
+// renders either format: the operation id is the kind-prefixed dotted id
+// the connection ranks and invokes by, the method is the GraphQL
+// operation kind, and the path is the route a persona's rules name it
+// under. There is no base path — a GraphQL endpoint is one address.
+func (*handler) listGraphQLOperations(w http.ResponseWriter, spec apicatalog.SpecEntry) {
+	ops, err := graphqlkit.SchemaOperations(spec.Effective())
+	if err != nil {
+		httpjson.WriteError(w, http.StatusUnprocessableEntity, errNotAGraphQLSchema)
+		return
+	}
+	out := operationListResponse{Operations: make([]operationSummaryResponse, 0, len(ops))}
+	for _, op := range ops {
+		out.Operations = append(out.Operations, operationSummaryResponse{
+			OperationID: op.OperationID,
+			Method:      op.Kind,
+			Path:        op.Path,
+			Summary:     op.Summary,
+			Spec:        spec.SpecName,
+		})
+	}
+	httpjson.WriteJSON(w, http.StatusOK, out)
+}
+
 // getSpecOperation handles
 // GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}.
 //
 // @Summary      Get spec operation
-// @Description  Returns one operation's parameters, request body and per-status responses. The spec document is not returned.
+// @Description  Returns one operation's parameters, request body and per-status responses. For a GraphQL spec it returns the arguments, the input types they reference, the return shape and a document that already calls the operation. The spec document is not returned.
 // @Tags         API Catalogs
 // @Produce      json
 // @Param        id           path  string  true  "Catalog ID"
@@ -108,6 +144,10 @@ func (h *handler) listSpecOperations(w http.ResponseWriter, r *http.Request) {
 func (h *handler) getSpecOperation(w http.ResponseWriter, r *http.Request) {
 	spec, ok := h.loadSpec(w, r)
 	if !ok {
+		return
+	}
+	if !spec.ServesOpenAPI() {
+		h.writeGraphQLOperation(w, *spec, r.PathValue(catalogPathOperation))
 		return
 	}
 	detail, err := apigatewaykit.SpecOperation(
@@ -136,4 +176,21 @@ func (h *handler) loadSpec(w http.ResponseWriter, r *http.Request) (*apicatalog.
 		return nil, false
 	}
 	return spec, true
+}
+
+// writeGraphQLOperation is getSpecOperation for a spec entry holding a
+// GraphQL schema: one operation's arguments, the input types they
+// reference, its return shape and a document that already calls it —
+// the same detail graphql_discover returns at its operation level
+// (#1745).
+func (*handler) writeGraphQLOperation(w http.ResponseWriter, spec apicatalog.SpecEntry, operationID string) {
+	detail, err := graphqlkit.SchemaOperation(spec.Effective(), operationID)
+	switch {
+	case errors.Is(err, graphqlkit.ErrOperationNotFound):
+		httpjson.WriteError(w, http.StatusNotFound, "operation not found")
+	case err != nil:
+		httpjson.WriteError(w, http.StatusUnprocessableEntity, errNotAGraphQLSchema)
+	default:
+		httpjson.WriteJSON(w, http.StatusOK, detail)
+	}
 }

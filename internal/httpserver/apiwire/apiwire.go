@@ -115,7 +115,13 @@ func browserLocator(toolkits *registry.Registry) func(string) apishttp.Operation
 	return func(connection string) apishttp.OperationBrowser {
 		for _, tk := range toolkits.GetByKind(apigatewaykit.Kind) {
 			api, ok := tk.(*apigatewaykit.Toolkit)
-			if ok && api.HasConnection(connection) {
+			// ServesConnection, not HasConnection: a connection saved on
+			// another replica is in the connection store before that save
+			// returns and reaches this one over the reload bus some time
+			// after, and this answers from the store in between (#1746).
+			// The locator carries no context of its own, and the read it
+			// may make is a primary-key lookup shared across callers.
+			if ok && api.ServesConnection(context.Background(), connection) {
 				return api
 			}
 		}

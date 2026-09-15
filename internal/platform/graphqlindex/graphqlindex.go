@@ -97,6 +97,14 @@ func (s *Source) connections() []string {
 	var out []string
 	for _, tk := range s.lister() {
 		for _, detail := range tk.ListConnections() {
+			// A connection taking its schema from a catalog is embedded
+			// as that catalog's spec, by the api-catalog source, and
+			// reads its vectors back from there. Enumerating it here
+			// would open a unit that resolves to no items on every
+			// sweep (#1745).
+			if detail.CatalogID != "" {
+				continue
+			}
 			out = append(out, detail.Name)
 		}
 	}

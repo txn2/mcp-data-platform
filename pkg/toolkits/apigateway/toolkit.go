@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
+	"github.com/txn2/mcp-data-platform/internal/conncatchup"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
@@ -78,6 +79,16 @@ type Toolkit struct {
 	routePolicy    RoutePolicy
 	connOAuthStore connoauth.Store
 	authEvents     *authevents.Writer
+
+	// connStore answers for a connection this instance does not serve,
+	// which is how a connection saved on another replica is served here
+	// before that save's announcement arrives (#1746).
+	connStore ConnectionStore
+	// changes serializes, per connection name, everything that replaces
+	// the connection served under it.
+	changes conncatchup.Locks
+	// catchUp reads connStore on a miss, under changes.
+	catchUp *conncatchup.Resolver
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -227,19 +238,16 @@ func (t *Toolkit) MarkCatalogWiringComplete() {
 // name. Other errors propagate from the rebuild path (config parse,
 // authenticator construction).
 func (t *Toolkit) ReloadConnection(name string) error {
-	t.mu.Lock()
-	existing, ok := t.connections[name]
+	// Under the name's lock, so a request that missed the connection
+	// cannot take it on from the store in the window where the rebuild
+	// has removed it (#1746).
+	unlock := t.changes.Lock(name)
+	defer unlock()
+	c, ok := t.lookup(name)
 	if !ok {
-		t.mu.Unlock()
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionNotFound)
 	}
-	cfg := existing.cfg
-	if existing.client != nil {
-		existing.client.CloseIdleConnections()
-	}
-	delete(t.connections, name)
-	t.mu.Unlock()
-	return t.addParsedConnection(name, cfg)
+	return t.installConnection(name, c.cfg)
 }
 
 // ReloadConnectionsByCatalog rebuilds every registered connection
@@ -465,10 +473,12 @@ func New(name string) *Toolkit {
 	if name == "" {
 		name = Kind
 	}
-	return &Toolkit{
+	t := &Toolkit{
 		name:        name,
 		connections: make(map[string]*conn),
 	}
+	t.catchUp = conncatchup.New(&t.changes, Kind, ErrConnectionNotFound)
+	return t
 }
 
 // NewMulti builds a Toolkit and pre-loads the given parsed
@@ -486,7 +496,7 @@ func NewMulti(cfg MultiConfig) *Toolkit {
 		if c.ConnectionName == "" {
 			c.ConnectionName = instanceName
 		}
-		if err := t.addParsedConnection(instanceName, c); err != nil {
+		if err := t.installConnection(instanceName, c); err != nil {
 			slog.Warn("apigateway: initial connection failed",
 				logKeyConnection, instanceName, logKeyError, err)
 		}
@@ -757,61 +767,77 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if cfg.ConnectionName == "" {
 		cfg.ConnectionName = name
 	}
-	return t.addParsedConnection(name, cfg)
+	if t.HasConnection(name) {
+		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
+	}
+	c, err := t.buildConn(name, cfg)
+	if err != nil {
+		return err
+	}
+	unlock := t.changes.Lock(name)
+	defer unlock()
+	// A request may have taken this connection on from the connection
+	// store while the catalog read above ran: the save that is being
+	// applied here wrote the store before it got this far (#1746). What
+	// arrives here is the newer configuration and replaces it, rather
+	// than the save being refused as a duplicate of itself.
+	t.serve(name, c)
+	return nil
 }
 
-// addParsedConnection assumes the Config is already validated. It
-// builds the Authenticator and HTTP client and inserts the
-// connection under lock. When cfg.CatalogID is set AND a catalog
-// store is wired, specs are loaded from the catalog and merged into
-// the operation index. Per-spec embedding vectors are also loaded
-// from the catalog store at the same time — no goroutine, no
-// warmer; vectors that were computed at spec-upsert time live in
-// api_catalog_operation_embeddings and a process restart picks
-// them back up unchanged. Catalog-loading failures are non-fatal:
-// the connection still registers (with zero ops) so portal
-// operators can see it and fix the catalog reference, rather than
-// the connection vanishing from the UI.
-func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
+// buildConn materializes a connection without putting it in service: its
+// Authenticator, its catalog-loaded specs and vectors, and its HTTP
+// client. The Config is assumed already validated.
+//
+// When cfg.CatalogID is set AND a catalog store is wired, specs are
+// loaded from the catalog and merged into the operation index. Per-spec
+// embedding vectors are loaded from the catalog store at the same time —
+// no goroutine, no warmer; vectors that were computed at spec-upsert time
+// live in api_catalog_operation_embeddings and a process restart picks
+// them back up unchanged. Catalog-loading failures are non-fatal: the
+// connection still registers (with zero ops) so portal operators can see
+// it and fix the catalog reference, rather than the connection vanishing
+// from the UI.
+//
+// Building is separate from serving so a replica taking a connection on
+// from the connection store builds it exactly as a save does (#1746), and
+// so the catalog read runs outside the registry lock and outside the
+// name's.
+func (t *Toolkit) buildConn(name string, cfg Config) (*conn, error) {
 	auth, err := NewAuthenticator(cfg)
 	if err != nil {
-		return fmt.Errorf("apigateway: %s: %w", name, err)
+		return nil, fmt.Errorf("apigateway: %s: %w", name, err)
 	}
 	specs, ops, vectors := t.buildConnSpecs(name, cfg.CatalogID, cfg.BaseURL)
 	client, err := t.newConnClient(name, cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	c := &conn{
+	return &conn{
 		cfg:          cfg,
 		auth:         auth,
 		client:       client,
 		specs:        specs,
 		operations:   ops,
 		embedVectors: vectors,
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if _, exists := t.connections[name]; exists {
-		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
-	}
-	// Read t.metrics under the lock — SetMetrics writes it under
-	// the same lock, so reading it outside (as we did previously)
-	// raced against runtime hot-add via AddConnection.
-	apigwmetrics.Instrument(client, name, t.metrics)
-	// Wire the unified token store into authorization_code
-	// authenticators inline so a connection added BEFORE
-	// SetConnOAuthStore still becomes functional once that wire step
-	// runs (which re-threads the store across all connections).
-	// Either ordering works.
+	}, nil
+}
+
+// wireConnLocked threads the dependencies wired after construction into
+// a connection about to be served. The caller holds t.mu, which is where
+// those dependencies are written: reading t.metrics outside it raced
+// against a runtime hot-add. The token store and auth-event writer are
+// threaded inline so a connection added BEFORE SetConnOAuthStore still
+// becomes functional once that wire step runs (it re-threads the store
+// across every connection); either ordering works.
+func (t *Toolkit) wireConnLocked(name string, c *conn) {
+	apigwmetrics.Instrument(c.client, name, t.metrics)
 	if t.connOAuthStore != nil {
-		upstreamauth.SetConnOAuthStore(auth, t.connOAuthStore)
+		upstreamauth.SetConnOAuthStore(c.auth, t.connOAuthStore)
 	}
 	if t.authEvents != nil {
-		upstreamauth.SetAuthEvents(auth, t.authEvents)
+		upstreamauth.SetAuthEvents(c.auth, t.authEvents)
 	}
-	t.connections[name] = c
-	return nil
 }
 
 // newConnClient builds the per-connection HTTP client: an in-process
@@ -901,6 +927,19 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 	specs = make(map[string]*specState, len(entries))
 	vectors = make(map[embedKey][]float32)
 	for _, e := range entries {
+		// A catalog may hold a spec for another kind: a GraphQL schema is
+		// SDL, read by a graphql connection referencing the same catalog
+		// and by nothing here (#1745). Recognizing it by format rather
+		// than discovering it as a parse failure keeps a mixed catalog
+		// serving its OpenAPI specs, and says which spec this connection
+		// is not serving — an api connection pointed at a graphql-only
+		// catalog otherwise registers with no operations and no reason.
+		if !e.ServesOpenAPI() {
+			slog.Warn("apigateway: skipping a spec this kind does not serve",
+				logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID),
+				"spec_name", logsan.SanitizeForLog(e.SpecName), "spec_format", e.Format())
+			continue
+		}
 		// Effective, not Content: a spec supplied as a WSDL stores the
 		// operator's document and the OpenAPI the importer rendered from
 		// it, and the gateway serves the latter.
@@ -962,17 +1001,29 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 // are closed so they don't linger up to idleConnectionTimeout after
 // the connection is gone.
 func (t *Toolkit) RemoveConnection(name string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	c, exists := t.connections[name]
-	if !exists {
+	// Under the name's lock, so a request that missed the connection
+	// cannot take it back on from the store between this removal and the
+	// store row's deletion (#1746).
+	unlock := t.changes.Lock(name)
+	defer unlock()
+	if !t.withdraw(name) {
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionNotFound)
 	}
-	if c.client != nil {
-		c.client.CloseIdleConnections()
-	}
-	delete(t.connections, name)
 	return nil
+}
+
+// withdraw takes a connection out of service and releases its idle
+// transports, reporting whether it was serving one. The caller holds the
+// name's lock.
+func (t *Toolkit) withdraw(name string) bool {
+	t.mu.Lock()
+	c, served := t.connections[name]
+	if served {
+		delete(t.connections, name)
+	}
+	t.mu.Unlock()
+	closeIdle(c)
+	return served
 }
 
 // HasConnection reports whether a connection with the given name is
@@ -1044,10 +1095,10 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	t.mu.RLock()
-	c, ok := t.connections[in.Connection]
 	policy := t.routePolicy
 	budget := t.memBudget
 	t.mu.RUnlock()
+	c, ok := t.serving(ctx, in.Connection)
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}

@@ -88,7 +88,7 @@ func (t *Toolkit) readOrLoadStored(ctx context.Context, c *conn) {
 	if err == nil {
 		return
 	}
-	slog.Warn("graphql: reading the endpoint's schema failed",
+	slog.Warn("graphql: reading the connection's schema failed",
 		logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
 	// A store with nothing for the connection leaves what it held; any
 	// other failure is logged where it happens.
@@ -111,14 +111,14 @@ func (t *Toolkit) loadOrRead(ctx context.Context, c *conn) {
 		return
 	}
 	held := c.heldVersion()
-	parsed, err := t.readEndpoint(ctx, c)
+	parsed, source, err := t.readSource(ctx, c)
 	if err != nil {
 		err = t.recordSchemaError(ctx, c, held, err)
-		slog.Warn("graphql: reading the endpoint's schema failed",
+		slog.Warn("graphql: reading the connection's schema failed",
 			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
-	t.install(ctx, c, schemaVersion{schema: parsed, source: SchemaSourceIntrospection, fetchedAt: readTime()})
+	t.install(ctx, c, schemaVersion{schema: parsed, source: source, fetchedAt: readTime()})
 }
 
 // LoadStoredSchema installs the schema the store holds for a connection,
@@ -131,7 +131,7 @@ func (t *Toolkit) loadOrRead(ctx context.Context, c *conn) {
 // by it. An instance with no store has nothing to load and is left as it
 // is.
 func (t *Toolkit) LoadStoredSchema(ctx context.Context, name string) error {
-	unlock := t.changes.lock(name)
+	unlock := t.changes.Lock(name)
 	defer unlock()
 	c, _, ok := t.lookup(name)
 	if !ok {
@@ -254,15 +254,32 @@ func (t *Toolkit) RefreshSchema(ctx context.Context, name string) error {
 // waiting behind it.
 func (t *Toolkit) refresh(ctx context.Context, c *conn) error {
 	held := c.heldVersion()
-	parsed, err := t.readEndpoint(ctx, c)
+	parsed, source, err := t.readSource(ctx, c)
 	if err != nil {
 		return t.recordSchemaError(ctx, c, held, err)
 	}
-	if !t.commit(c, func() { t.store(ctx, c, parsed, SchemaSourceIntrospection) }) {
+	if !t.commit(c, func() { t.store(ctx, c, parsed, source) }) {
 		slog.Info("graphql: a read finished after its connection was replaced or deleted, and was not installed",
 			logKeyConnection, logsan.SanitizeForLog(c.cfg.ConnectionName))
 	}
 	return nil
+}
+
+// readSource reads a connection's schema from where that connection's
+// schema comes from, and names which that was.
+//
+// A connection referencing a catalog takes the schema the catalog holds
+// and never introspects: a catalog is referenced precisely by endpoints
+// that will not answer an introspection query, and by deployments that
+// want one schema serving several connections (#1745). Every other
+// connection reads its own endpoint, as it always did.
+func (t *Toolkit) readSource(ctx context.Context, c *conn) (*gqlschema.Schema, string, error) {
+	if c.cfg.CatalogID != "" {
+		parsed, err := t.readCatalog(ctx, c)
+		return parsed, SchemaSourceCatalog, err
+	}
+	parsed, err := t.readEndpoint(ctx, c)
+	return parsed, SchemaSourceIntrospection, err
 }
 
 // readEndpoint reads a connection's schema from its endpoint by
@@ -286,11 +303,19 @@ func (t *Toolkit) readEndpoint(ctx context.Context, c *conn) (*gqlschema.Schema,
 // returned to them; it is not recorded on the connection, whose state is
 // whatever it held before the attempt.
 func (t *Toolkit) SetSchema(ctx context.Context, name string, payload []byte) error {
-	unlock := t.changes.lock(name)
+	unlock := t.changes.Lock(name)
 	defer unlock()
 	c, _, ok := t.lookup(name)
 	if !ok {
 		return notFound(name)
+	}
+	if c.cfg.CatalogID != "" {
+		// An upload here would be replaced by the catalog on the next
+		// read, and would differ from what every other connection on the
+		// catalog serves. The edit belongs where the schema lives.
+		return fmt.Errorf(
+			"graphql: %s takes its schema from catalog %s; edit the schema there, or clear the connection's catalog_id to hand it one directly",
+			name, c.cfg.CatalogID)
 	}
 	parsed, err := gqlschema.LoadAny(payload)
 	if err != nil {
@@ -382,7 +407,7 @@ type schemaVersion struct {
 // the new one and never a half-rebuilt index.
 func (t *Toolkit) install(ctx context.Context, c *conn, v schemaVersion) {
 	ops := gqlschema.Operations(v.schema, c.cfg.NamespaceDepth)
-	vectors := t.loadVectors(ctx, c.cfg.ConnectionName, v.schema.Hash())
+	vectors := t.vectorsFor(ctx, c, v.schema.Hash())
 	c.schemaMu.Lock()
 	c.schema = v.schema
 	c.operations = ops
@@ -396,6 +421,20 @@ func (t *Toolkit) install(ctx context.Context, c *conn, v schemaVersion) {
 // loadVectors reads the persisted embeddings for a schema version.
 // Absent vectors are not an error: an index that has not run yet leaves
 // ranking lexical, which is a working answer rather than a failure.
+// vectorsFor reads the operation embeddings of the schema a connection is
+// installing, from wherever that connection's vectors are written: the
+// catalog's, keyed on the catalog's spec so two connections sharing one
+// catalog read one embedding pass, or this connection's own, keyed on it
+// and the schema hash. The choice is made here rather than by each caller
+// so a schema installed from the store carries the same vectors as one
+// installed from the source it came from.
+func (t *Toolkit) vectorsFor(ctx context.Context, c *conn, hash string) map[string][]float32 {
+	if c.cfg.CatalogID != "" {
+		return t.catalogVectors(ctx, c)
+	}
+	return t.loadVectors(ctx, c.cfg.ConnectionName, hash)
+}
+
 func (t *Toolkit) loadVectors(ctx context.Context, connection, hash string) map[string][]float32 {
 	t.mu.RLock()
 	reader := t.vectorReader
@@ -590,6 +629,13 @@ func snippet(s string) string {
 func (t *Toolkit) IndexItems(name string) (schemaHash string, items map[string]string, ok bool) {
 	c, _, found := t.lookup(name)
 	if !found {
+		return "", nil, false
+	}
+	// A catalog-backed connection's operations are embedded once, as the
+	// catalog's spec, and read back from there; embedding them again per
+	// connection would write a second copy of every vector that nothing
+	// reads (#1745).
+	if c.cfg.CatalogID != "" {
 		return "", nil, false
 	}
 	c.schemaMu.RLock()

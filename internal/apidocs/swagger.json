@@ -740,7 +740,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the operations a catalog spec parses to. The spec document is not returned.",
+                "description": "Returns the operations a catalog spec parses to, in either format the spec may be in. A GraphQL spec's rows carry the operation kind as the method and the dotted operation id as the path. The spec document is not returned.",
                 "produces": [
                     "application/json"
                 ],
@@ -802,7 +802,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns one operation's parameters, request body and per-status responses. The spec document is not returned.",
+                "description": "Returns one operation's parameters, request body and per-status responses. For a GraphQL spec it returns the arguments, the input types they reference, the return shape and a document that already calls the operation. The spec document is not returned.",
                 "produces": [
                     "application/json"
                 ],

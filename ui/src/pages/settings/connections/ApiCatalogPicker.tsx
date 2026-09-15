@@ -1,3 +1,4 @@
+import type React from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { useAPICatalogs } from "@/api/admin/hooks";
@@ -6,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ConfigSelect } from "./fields";
 
 // The catalogs admin page, reached from both surfaces below.
-function catalogsHref(): string {
+export function catalogsHref(): string {
   return `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/admin/api-catalogs`;
 }
 
@@ -19,16 +20,26 @@ function catalogsHref(): string {
 export function APICatalogPicker({
   config,
   onChange,
+  label = "OpenAPI Catalog",
+  emptyLabel = "— No spec (model can still invoke explicit method+path) —",
+  help,
 }: {
   config: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
+  // A graphql connection points at a catalog through the same field and
+  // the same model, and reads a GraphQL schema out of it rather than
+  // OpenAPI specs (#1745), so what the field is called and what picking
+  // nothing means are the caller's.
+  label?: string;
+  emptyLabel?: string;
+  help?: React.ReactNode;
 }) {
   const { data: catalogs, isLoading } = useAPICatalogs();
   const value = String(config.catalog_id ?? "");
   const options = [
     {
       value: "",
-      label: "— No spec (model can still invoke explicit method+path) —",
+      label: emptyLabel,
     },
     ...(catalogs ?? []).map((c) => ({
       value: c.id,
@@ -46,7 +57,7 @@ export function APICatalogPicker({
   }
   return (
     <ConfigSelect
-      label="OpenAPI Catalog"
+      label={label}
       value={value}
       onChange={(v) =>
         onChange({ ...config, catalog_id: v === "" ? undefined : v })
@@ -54,11 +65,16 @@ export function APICatalogPicker({
       options={options}
       help={
         <>
-          Catalogs are managed under{" "}
-          <a className="underline" href={catalogsHref()}>
-            API Catalogs
-          </a>
-          . One catalog can back many connections. {isLoading && "Loading…"}
+          {help ?? (
+            <>
+              Catalogs are managed under{" "}
+              <a className="underline" href={catalogsHref()}>
+                API Catalogs
+              </a>
+              . One catalog can back many connections.
+            </>
+          )}{" "}
+          {isLoading && "Loading…"}
         </>
       }
     />

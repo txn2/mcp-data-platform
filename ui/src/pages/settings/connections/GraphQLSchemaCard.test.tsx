@@ -22,7 +22,7 @@ const mockSchema = vi.mocked(useGraphQLSchema);
 
 type SchemaQuery = ReturnType<typeof useGraphQLSchema>;
 
-function renderCard(info: GraphQLSchemaInfo) {
+function renderCard(info: GraphQLSchemaInfo, catalogID?: string) {
   mockSchema.mockReturnValue({
     data: info,
     isLoading: false,
@@ -31,7 +31,11 @@ function renderCard(info: GraphQLSchemaInfo) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <GraphQLSchemaCard connectionName={info.connection} isReadOnly={false} />
+      <GraphQLSchemaCard
+        connectionName={info.connection}
+        isReadOnly={false}
+        catalogID={catalogID}
+      />
     </QueryClientProvider>,
   );
 }
@@ -156,5 +160,55 @@ describe("GraphQLSchemaCard re-read outcome", () => {
     });
 
     expect(screen.getByText(/unexpected end of input/)).toBeInTheDocument();
+  });
+});
+
+// A connection that names a catalog takes its schema from there (#1745). The
+// card has to say so and send the operator to the one place the schema is
+// edited: an upload here would be replaced on the next read and would differ
+// from what every other connection on that catalog serves, which is why the
+// platform refuses one.
+describe("GraphQLSchemaCard on a catalog-backed connection", () => {
+  const catalogued: GraphQLSchemaInfo = {
+    connection: "acme-erp-graphql",
+    schema_hash: "a1b2c3d4e5f67890abcdef0123456789",
+    source: "catalog",
+    fetched_at: "2025-01-21T08:30:00Z",
+    operation_count: 42,
+  };
+
+  it("names the catalog as the source and re-reads from it", () => {
+    renderCard(catalogued, "acme-erp-2026-01");
+
+    expect(screen.getByText("from catalog")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /re-read from catalog/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /re-read from endpoint/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no upload, and says where the edit belongs", () => {
+    renderCard(catalogued, "acme-erp-2026-01");
+
+    expect(
+      screen.queryByRole("button", { name: /upload a schema/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/takes its schema from a catalog/i)).toBeInTheDocument();
+    expect(screen.getByText(/API Catalogs/)).toBeInTheDocument();
+  });
+
+  it("leaves a connection with no catalog reading its own endpoint", () => {
+    renderCard({ ...catalogued, source: "introspection" });
+
+    expect(screen.getByText("introspected")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /re-read from endpoint/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /upload a schema/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Re-read it after the endpoint changes/i)).toBeInTheDocument();
   });
 });

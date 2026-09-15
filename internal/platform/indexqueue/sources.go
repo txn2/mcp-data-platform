@@ -10,11 +10,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
+	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
 
@@ -54,6 +56,9 @@ func (s *catalogSource) LoadItems(ctx context.Context, sourceID string) ([]index
 	if err != nil {
 		return nil, fmt.Errorf("catalogSource: get spec: %w", err)
 	}
+	if !spec.ServesOpenAPI() {
+		return graphQLSpecItems(*spec)
+	}
 	ops, err := apigatewaykit.BuildOperationItems(spec.Effective(), specName)
 	if err != nil {
 		return nil, fmt.Errorf("catalogSource: build items: %w", err)
@@ -61,6 +66,27 @@ func (s *catalogSource) LoadItems(ctx context.Context, sourceID string) ([]index
 	items := make([]indexjobs.Item, len(ops))
 	for i, op := range ops {
 		items[i] = indexjobs.Item{ItemID: op.OperationID, Text: op.Text}
+	}
+	return items, nil
+}
+
+// graphQLSpecItems renders a GraphQL spec entry's operations as
+// embeddable items (#1745).
+//
+// The item ids are the kind-prefixed dotted operation ids the namespace
+// descent produces, which is what a graphql connection keys its vector
+// map on, so the rows this writes are the rows that connection reads. The
+// order is the descent's, which sorts by id, so two passes over one
+// schema produce the same items.
+func graphQLSpecItems(spec apigatewaycatalog.SpecEntry) ([]indexjobs.Item, error) {
+	schema, err := gqlschema.Load(spec.Effective())
+	if err != nil {
+		return nil, fmt.Errorf("catalogSource: the GraphQL schema does not load: %w", err)
+	}
+	ops := gqlschema.Operations(schema, gqlschema.DefaultNamespaceDepth)
+	items := make([]indexjobs.Item, len(ops))
+	for i, op := range ops {
+		items[i] = indexjobs.Item{ItemID: op.ID, Text: gqlschema.IndexText(schema, op)}
 	}
 	return items, nil
 }
@@ -77,8 +103,14 @@ func (s *catalogSource) OnSucceeded(sourceID string) {
 		return
 	}
 	for _, tk := range s.registry.All() {
-		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			api.ReloadConnectionsByCatalog(catalogID)
+		switch kit := tk.(type) {
+		case *apigatewaykit.Toolkit:
+			kit.ReloadConnectionsByCatalog(catalogID)
+		case *graphqlkit.Toolkit:
+			// A graphql connection on the catalog reads its vectors from
+			// the catalog's rows too, so the pass that wrote them has to
+			// reach it the same way (#1745).
+			kit.ReloadConnectionsByCatalog(context.Background(), catalogID)
 		}
 	}
 }

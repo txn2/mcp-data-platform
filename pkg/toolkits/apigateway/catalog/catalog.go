@@ -86,10 +86,16 @@ const (
 	// admin handler renders it to OpenAPI at save time and stores the
 	// result in OpenAPIContent, which is what Effective returns.
 	FormatWSDL = "wsdl"
+	// FormatGraphQL is a GraphQL schema, in SDL. Unlike a WSDL it is not
+	// rendered into OpenAPI, because it is not served to the HTTP gateway
+	// at all: it is the schema a graphql connection referencing this
+	// catalog answers with (#1745). Content is the effective document, and
+	// every OpenAPI reader skips the entry rather than parsing it.
+	FormatGraphQL = "graphql"
 )
 
 // ErrInvalidSpecFormat is returned for a spec_format outside the known set.
-var ErrInvalidSpecFormat = errors.New("catalog: invalid spec_format (want openapi|wsdl)")
+var ErrInvalidSpecFormat = errors.New("catalog: invalid spec_format (want openapi|wsdl|graphql)")
 
 // Catalog is the header row in api_catalogs. The (Name, Version)
 // pair is unique across the table; (ID) is the immutable handle
@@ -188,6 +194,15 @@ func (s SpecEntry) Format() string {
 	return s.SpecFormat
 }
 
+// ServesOpenAPI reports whether Effective is a document the HTTP gateway
+// reads. A catalog may hold a spec for another kind — a GraphQL schema is
+// SDL, which no OpenAPI reader parses — so the readers that walk a
+// catalog's specs ask this rather than discovering it as a parse failure
+// and reporting a broken spec (#1745).
+func (s SpecEntry) ServesOpenAPI() bool {
+	return s.Format() != FormatGraphQL
+}
+
 // Update carries the partial-edit shape used by Store.UpdateCatalog.
 // Nil pointer = leave unchanged. The ID is immutable and intentionally
 // absent.
@@ -235,7 +250,7 @@ func ValidateSpecName(s string) error {
 // field is not required to start sending it.
 func ValidateSpecFormat(s string) error {
 	switch s {
-	case "", FormatOpenAPI, FormatWSDL:
+	case "", FormatOpenAPI, FormatWSDL, FormatGraphQL:
 		return nil
 	default:
 		return ErrInvalidSpecFormat

@@ -4,7 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/connrecords"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
+	"github.com/txn2/mcp-data-platform/internal/platform/graphqlcatalog"
 	"github.com/txn2/mcp-data-platform/internal/platform/graphqlwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -47,7 +49,9 @@ func (p *Platform) WireGraphQL(ctx context.Context) {
 		AuthEvents:  p.connAuth.AuthEventWriter(),
 		MemBudget:   p.apiMemBudget,
 		Metrics:     p.Metrics(),
-		Connections: graphqlwiring.SavedConnections[*ConnectionInstance](p.connectionStore, ErrConnectionNotFound,
+		Catalog:     graphqlcatalog.Store(p.APIGatewayCatalogStore()),
+		Connections: connrecords.Saved[*ConnectionInstance](p.connectionStore, graphqlkit.Kind,
+			ErrConnectionNotFound, graphqlkit.ErrConnectionNotFound,
 			func(inst *ConnectionInstance) map[string]any { return inst.Config }),
 	})
 }

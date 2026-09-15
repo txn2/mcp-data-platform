@@ -205,6 +205,11 @@ export function ConnectionViewer({
         <GraphQLSchemaCard
           connectionName={connection.name}
           isReadOnly={isReadOnly || fileOwned}
+          catalogID={
+            typeof connection.config?.catalog_id === "string"
+              ? connection.config.catalog_id
+              : undefined
+          }
         />
       )}
 

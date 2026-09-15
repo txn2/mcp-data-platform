@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/soap"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
@@ -40,6 +41,14 @@ func renderEffective(entry *apicatalog.SpecEntry) error {
 		}
 		entry.OpenAPIContent = rendered
 		return nil
+	case apicatalog.FormatGraphQL:
+		// An SDL is rendered into nothing: it is served to a graphql
+		// connection as the schema it answers with, not to the HTTP
+		// gateway (#1745). Clearing OpenAPIContent is what stops a
+		// spec changed from wsdl to graphql from serving the render the
+		// change replaced.
+		entry.OpenAPIContent = ""
+		return nil
 	default:
 		return fmt.Errorf("spec_format %q is not one this platform reads: %w", entry.SpecFormat, apicatalog.ErrInvalidSpecFormat)
 	}
@@ -56,9 +65,40 @@ func prepareSpec(entry *apicatalog.SpecEntry) error {
 	if err := renderEffective(entry); err != nil {
 		return err
 	}
+	if !entry.ServesOpenAPI() {
+		return prepareGraphQLSpec(entry)
+	}
 	if err := apicatalog.ValidateContent(entry.Effective()); err != nil {
 		return fmt.Errorf("the effective OpenAPI document is not valid: %w", err)
 	}
 	entry.OperationCount = apicatalog.CountOperations(entry.Effective())
+	return nil
+}
+
+// prepareGraphQLSpec validates a GraphQL spec entry's SDL and stamps the
+// operations it exposes.
+//
+// The count is what the embedding reconciler compares against the rows in
+// api_catalog_operation_embeddings, so it is the same walk the embedding
+// pass and the operations browser make: the namespace descent at the
+// default depth. All three agree, so the reconciler never sees a gap it
+// cannot close.
+//
+// A connection that sets a deeper namespace_depth indexes operations the
+// catalog did not count and therefore did not embed. Those operations are
+// listed and invoked as any other, and rank lexically until the catalog is
+// walked that deep; they are not a gap the reconciler chases, because the
+// count and the row it compares it against were both taken here.
+//
+// An introspection result is refused rather than accepted, because what a
+// catalog stores is the document an operator can read back and diff, and
+// graphql_export writes SDL.
+func prepareGraphQLSpec(entry *apicatalog.SpecEntry) error {
+	schema, err := gqlschema.Load(entry.Content)
+	if err != nil {
+		return fmt.Errorf("the content is not a GraphQL schema in SDL; "+
+			"graphql_export and a schema registry both write SDL: %w", err)
+	}
+	entry.OperationCount = len(gqlschema.Operations(schema, gqlschema.DefaultNamespaceDepth))
 	return nil
 }

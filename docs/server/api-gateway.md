@@ -305,6 +305,14 @@ curl -X PUT \
   https://platform.example.com/api/v1/admin/connection-instances/api/vendor
 ```
 
+### A saved connection is served by every replica at once
+
+The connection store is what a replica answers from, not the announcement that follows a save (#1746). A connection saved through the admin API is applied on the replica that served the request and reaches every other replica over the reload bus; until that message is delivered, a replica that answered only from what the bus had given it told the caller the connection did not exist. Nothing distinguished that from a genuine misconfiguration, so the natural response was to go and check whether the connection had really saved.
+
+On a connection name a replica does not hold, it now reads the connection store before answering "not found", and serves what the store holds. A connection the store does not hold is answered exactly as before. The read is the exception rather than the path: a connection the replica already holds is answered from memory, and the requests that arrive for one name while a read is in flight share that read. A connection deleted on another replica while this one was reading it is taken back out rather than served until a restart.
+
+Nothing about a connection is derived per replica, so there is nothing to reconcile beyond the read: a connection's specs and operation embeddings are keyed on its catalog, not on the connection, and every replica reads the same catalog rows. This is the same resolution the `graphql` kind has had since #1714, in one shared implementation rather than two.
+
 ### Auth modes
 
 | `auth_mode` | What it sends |

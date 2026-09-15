@@ -26,6 +26,13 @@ function formatWhen(value?: string): string {
   return Number.isNaN(at.getTime()) ? value : at.toLocaleString();
 }
 
+// sourceLabel names where the schema the connection holds came from.
+function sourceLabel(source?: string): string {
+  if (source === "upload") return "uploaded";
+  if (source === "catalog") return "from catalog";
+  return "introspected";
+}
+
 // HeldSchema is the schema the connection serves discovery from: how many
 // operations it exposes, where it came from, when it was read, and which
 // version it is.
@@ -36,9 +43,7 @@ function HeldSchema({ info }: { info: GraphQLSchemaInfo }) {
       <span>
         <span className="font-medium">{info.operation_count}</span> operations
       </span>
-      <Badge variant="outline">
-        {info.source === "upload" ? "uploaded" : "introspected"}
-      </Badge>
+      <Badge variant="outline">{sourceLabel(info.source)}</Badge>
       <span className="text-muted-foreground">read {formatWhen(info.fetched_at)}</span>
       {info.schema_hash && (
         <span
@@ -172,11 +177,13 @@ function SchemaUpload({
 function SchemaActions({
   pending,
   uploadOpen,
+  catalogID,
   onRefresh,
   onToggleUpload,
 }: {
   pending: boolean;
   uploadOpen: boolean;
+  catalogID?: string;
   onRefresh: () => void;
   onToggleUpload: () => void;
 }) {
@@ -184,13 +191,30 @@ function SchemaActions({
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onRefresh}>
         <RefreshCw />
-        {pending ? "Reading..." : "Re-read from endpoint"}
+        {pending ? "Reading..." : catalogID ? "Re-read from catalog" : "Re-read from endpoint"}
       </Button>
-      <Button type="button" size="sm" variant="ghost" onClick={onToggleUpload}>
-        <Upload />
-        {uploadOpen ? "Cancel upload" : "Upload a schema"}
-      </Button>
+      {!catalogID && (
+        <Button type="button" size="sm" variant="ghost" onClick={onToggleUpload}>
+          <Upload />
+          {uploadOpen ? "Cancel upload" : "Upload a schema"}
+        </Button>
+      )}
     </div>
+  );
+}
+
+// SchemaGuidance says what the schema decides and where it is made current,
+// which is a different place for a connection whose catalog owns it.
+function SchemaGuidance({ catalogID }: { catalogID?: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      The schema decides what graphql_discover lists and what graphql_query
+      will send. A connection in strict validation refuses a document its
+      stored schema does not admit.{" "}
+      {catalogID
+        ? "This connection takes its schema from a catalog: edit it there, under API Catalogs, and every connection on that catalog picks the change up."
+        : "Re-read it after the endpoint changes."}
+    </p>
   );
 }
 
@@ -202,9 +226,15 @@ function SchemaActions({
 export function GraphQLSchemaCard({
   connectionName,
   isReadOnly,
+  catalogID,
 }: {
   connectionName: string;
   isReadOnly: boolean;
+  // A connection that names a catalog takes its schema from there, so the
+  // paste box is not offered: an upload would be replaced by the catalog on
+  // the next read, and would differ from what every other connection on the
+  // catalog serves. The platform refuses one for the same reason (#1745).
+  catalogID?: string;
 }) {
   const { data, isLoading, error } = useGraphQLSchema(connectionName, true);
   const refresh = useRefreshGraphQLSchema(connectionName);
@@ -231,12 +261,7 @@ export function GraphQLSchemaCard({
         {data && (
           <>
             <SchemaState info={data} />
-            <p className="text-xs text-muted-foreground">
-              The schema decides what graphql_discover lists and what
-              graphql_query will send. Re-read it after the endpoint changes; a
-              connection in strict validation refuses a document its stored
-              schema does not admit.
-            </p>
+            <SchemaGuidance catalogID={catalogID} />
           </>
         )}
 
@@ -246,12 +271,13 @@ export function GraphQLSchemaCard({
           <SchemaActions
             pending={refresh.isPending}
             uploadOpen={uploadOpen}
+            catalogID={catalogID}
             onRefresh={() => refresh.mutate(undefined)}
             onToggleUpload={() => setUploadOpen((open) => !open)}
           />
         )}
 
-        {uploadOpen && !isReadOnly && (
+        {uploadOpen && !isReadOnly && !catalogID && (
           <SchemaUpload
             pending={refresh.isPending}
             onApply={(schema, done) =>
