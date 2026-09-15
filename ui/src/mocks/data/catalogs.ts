@@ -416,6 +416,7 @@ export const mockCatalogSpecs: Record<string, Record<string, APICatalogSpec>> = 
     billing: {
       spec_name: "billing",
       source_kind: "upload",
+      spec_format: "wsdl",
       etag: "\"stripe-billing-1d92fb3\"",
       base_path: "/v1",
       title: "Stripe Billing",

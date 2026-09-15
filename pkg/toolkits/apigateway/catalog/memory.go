@@ -156,6 +156,9 @@ func (s *MemoryStore) UpsertSpec(_ context.Context, catalogID string, spec SpecE
 	if err := ValidateSpecName(spec.SpecName); err != nil {
 		return err
 	}
+	if err := ValidateSpecFormat(spec.SpecFormat); err != nil {
+		return err
+	}
 	if err := ValidateSourceKind(spec.SourceKind); err != nil {
 		return err
 	}

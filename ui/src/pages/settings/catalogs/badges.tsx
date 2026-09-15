@@ -187,6 +187,22 @@ const SOURCE_BADGES: Record<
   embedded: { icon: Package, label: "embedded", variant: "outline" },
 };
 
+// FormatBadge marks a spec whose stored content is not an OpenAPI document.
+// OpenAPI renders nothing at all: it is the overwhelming majority and the
+// default, and a badge on every row would be noise that makes the one row that
+// differs harder to find rather than easier.
+export function FormatBadge({ format }: { format?: APICatalogSpec["spec_format"] }) {
+  if (!format || format === "openapi") return null;
+  return (
+    <Badge
+      variant="warning"
+      title="Stored as a WSDL and served as an OpenAPI document the platform renders from it. Refresh re-imports."
+    >
+      <FileText aria-hidden /> WSDL
+    </Badge>
+  );
+}
+
 export function SourceBadge({ kind, url }: { kind: APICatalogSpec["source_kind"]; url?: string }) {
   // Fall back to the raw kind for any value the backend adds later, so an
   // unknown source_kind degrades to a plain badge instead of crashing the page.

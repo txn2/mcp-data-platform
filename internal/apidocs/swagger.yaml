@@ -2734,6 +2734,10 @@ definitions:
       base_path:
         type: string
       content:
+        description: |-
+          Content is what the operator supplied, in the format spec_format
+          names. For a wsdl spec it is the WSDL, not the OpenAPI document the
+          gateway serves, so the editor round-trips what was written.
         type: string
       created_at:
         type: string
@@ -2785,6 +2789,9 @@ definitions:
         type: string
       source_url:
         type: string
+      spec_format:
+        description: 'SpecFormat is what Content is: "openapi" or "wsdl".'
+        type: string
       spec_name:
         type: string
       title:
@@ -2819,6 +2826,13 @@ definitions:
       source_kind:
         type: string
       source_url:
+        type: string
+      spec_format:
+        description: |-
+          SpecFormat is what Content is: "openapi" (the default, and what an
+          omitted value means) or "wsdl". It is orthogonal to SourceKind, so a
+          WSDL can be pasted, uploaded, or fetched and refreshed from its ?wsdl
+          URL exactly like an OpenAPI document.
         type: string
       title:
         type: string
@@ -9277,6 +9291,10 @@ paths:
         in: path
         name: spec
         required: true
+        type: string
+      - description: 'Spec format: openapi (default) or wsdl'
+        in: query
+        name: spec_format
         type: string
       - description: Operator base_path override
         in: query

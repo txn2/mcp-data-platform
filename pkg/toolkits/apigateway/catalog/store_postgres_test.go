@@ -319,7 +319,8 @@ func TestUpsertSpec_Insert(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", "", "", nil, 0).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", "", "", nil, 0,
+			FormatOpenAPI, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -338,7 +339,8 @@ func TestUpsertSpec_WithFetchedAt(t *testing.T) {
 	fetched := time.Now()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
 		WithArgs("petstore", "default", "openapi: 3.0", SourceURL,
-			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", "", "", fetched, 7).
+			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", "", "", fetched, 7,
+			FormatOpenAPI, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:       "default",
@@ -362,7 +364,8 @@ func TestUpsertSpec_WithBasePath(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", "", "", nil, 0).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", "", "", nil, 0,
+			FormatOpenAPI, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -384,7 +387,7 @@ func TestUpsertSpec_WithTitleAndDescription(t *testing.T) {
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
 		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "",
-			"Orders API", "Manage orders", nil, 0).
+			"Orders API", "Manage orders", nil, 0, FormatOpenAPI, "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:    "default",
@@ -501,9 +504,9 @@ func TestGetSpec_Success(t *testing.T) {
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "title", "description",
 			"last_fetched_at", "created_at", "updated_at",
-			"operation_count",
+			"operation_count", "spec_format", "openapi_content",
 		}).AddRow("default", "openapi: 3.0", "url",
-			"https://x", "etag-1", "", "", "", now, now, now, 0))
+			"https://x", "etag-1", "", "", "", now, now, now, 0, "openapi", ""))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -524,9 +527,9 @@ func TestGetSpec_NullFetchedAt(t *testing.T) {
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "title", "description",
 			"last_fetched_at", "created_at", "updated_at",
-			"operation_count",
+			"operation_count", "spec_format", "openapi_content",
 		}).AddRow("default", "openapi: 3.0", "inline",
-			"", "", "", "", "", nil, now, now, 0))
+			"", "", "", "", "", nil, now, now, 0, "openapi", ""))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -546,7 +549,7 @@ func TestGetSpec_NotFound(t *testing.T) {
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "title", "description",
 			"last_fetched_at", "created_at", "updated_at",
-			"operation_count",
+			"operation_count", "spec_format", "openapi_content",
 		}))
 	_, err := store.GetSpec(context.Background(), "petstore", "missing")
 	if !errors.Is(err, ErrNotFound) {
@@ -577,10 +580,10 @@ func TestListSpecs(t *testing.T) {
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "title", "description",
 			"last_fetched_at", "created_at", "updated_at",
-			"operation_count",
+			"operation_count", "spec_format", "openapi_content",
 		}).
-			AddRow("users", "openapi: 3.0", "inline", "", "", "", "", "", nil, now, now, 0).
-			AddRow("orders", "openapi: 3.0", "url", "https://x", "etag", "/v1", "", "", now, now, now, 5))
+			AddRow("users", "openapi: 3.0", "inline", "", "", "", "", "", nil, now, now, 0, "openapi", "").
+			AddRow("orders", "wsdl doc", "url", "https://x", "etag", "/v1", "", "", now, now, now, 5, "wsdl", "openapi: 3.0"))
 	specs, err := store.ListSpecs(context.Background(), "petstore")
 	if err != nil {
 		t.Fatalf("ListSpecs: %v", err)
@@ -1012,5 +1015,64 @@ func TestPostgres_ListEmbeddingGaps(t *testing.T) {
 	}
 	if len(gaps) != 2 || gaps[0].SpecName != "gap1" || gaps[1].SpecName != "gap2" {
 		t.Errorf("gaps = %+v", gaps)
+	}
+}
+
+// TestUpsertSpec_WSDLWritesBothTheSourceAndTheRender proves a non-OpenAPI spec
+// stores two documents: the WSDL the operator supplied, which is what a read
+// returns them, and the rendered OpenAPI every consumer downstream parses.
+func TestUpsertSpec_WSDLWritesBothTheSourceAndTheRender(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
+		WithArgs("erp", "orders", "<definitions/>", SourceInline, "", "", "", "", "", nil, 3,
+			FormatWSDL, `{"openapi":"3.0.3"}`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err := store.UpsertSpec(context.Background(), "erp", SpecEntry{
+		SpecName:       "orders",
+		Content:        "<definitions/>",
+		SourceKind:     SourceInline,
+		SpecFormat:     FormatWSDL,
+		OpenAPIContent: `{"openapi":"3.0.3"}`,
+		OperationCount: 3,
+	})
+	if err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+}
+
+func TestUpsertSpec_RejectsAnUnknownSpecFormat(t *testing.T) {
+	t.Parallel()
+	store, _, done := newMockStore(t)
+	defer done()
+	err := store.UpsertSpec(context.Background(), "erp", SpecEntry{
+		SpecName:   "orders",
+		Content:    "x",
+		SourceKind: SourceInline,
+		SpecFormat: "raml",
+	})
+	if !errors.Is(err, ErrInvalidSpecFormat) {
+		t.Fatalf("err=%v want ErrInvalidSpecFormat", err)
+	}
+}
+
+// Effective is what every consumer of a spec reads, and it has to resolve to
+// the document the gateway can parse whichever format the operator supplied.
+func TestSpecEntryEffectiveAndFormat(t *testing.T) {
+	t.Parallel()
+	openapi := SpecEntry{Content: "openapi: 3.0"}
+	if got := openapi.Effective(); got != "openapi: 3.0" {
+		t.Errorf("Effective() = %q, want the content itself", got)
+	}
+	if got := openapi.Format(); got != FormatOpenAPI {
+		t.Errorf("Format() = %q, want %q for a row written before the column existed", got, FormatOpenAPI)
+	}
+	wsdl := SpecEntry{Content: "<definitions/>", SpecFormat: FormatWSDL, OpenAPIContent: "openapi: 3.0.3"}
+	if got := wsdl.Effective(); got != "openapi: 3.0.3" {
+		t.Errorf("Effective() = %q, want the rendered document", got)
+	}
+	if got := wsdl.Format(); got != FormatWSDL {
+		t.Errorf("Format() = %q, want %q", got, FormatWSDL)
 	}
 }

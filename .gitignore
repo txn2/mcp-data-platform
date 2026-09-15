@@ -48,6 +48,7 @@ build/
 /mcp-data-platform
 /preview-content-viewer
 /dev-mcp-mock
+/dev-soap-mock
 NOTES_*
 
 # E2E test artifacts

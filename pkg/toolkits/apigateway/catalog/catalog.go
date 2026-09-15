@@ -72,6 +72,25 @@ const (
 	SourceEmbedded = "embedded"
 )
 
+// SpecFormat enumerates what an operator supplied a spec as.
+//
+// It is orthogonal to SourceKind: a WSDL can be pasted, uploaded, or fetched
+// and refreshed from its ?wsdl URL exactly like an OpenAPI document, so the
+// two answer different questions — how the bytes arrived, and what the bytes
+// are.
+const (
+	// FormatOpenAPI is an OpenAPI 3.x document, the default and what every
+	// spec written before #1736 is.
+	FormatOpenAPI = "openapi"
+	// FormatWSDL is a WSDL 1.1 document. The gateway never parses it: the
+	// admin handler renders it to OpenAPI at save time and stores the
+	// result in OpenAPIContent, which is what Effective returns.
+	FormatWSDL = "wsdl"
+)
+
+// ErrInvalidSpecFormat is returned for a spec_format outside the known set.
+var ErrInvalidSpecFormat = errors.New("catalog: invalid spec_format (want openapi|wsdl)")
+
 // Catalog is the header row in api_catalogs. The (Name, Version)
 // pair is unique across the table; (ID) is the immutable handle
 // connections reference. ID is operator-chosen at create and never
@@ -133,6 +152,40 @@ type SpecEntry struct {
 	// both the same way (no work to enqueue when the embedding
 	// row count is also 0).
 	OperationCount int
+	// SpecFormat is what the operator supplied Content as: FormatOpenAPI
+	// (the default, and what an empty value means) or FormatWSDL.
+	SpecFormat string
+	// OpenAPIContent is the OpenAPI document rendered from a Content that
+	// is not already one. It is empty for FormatOpenAPI, where Content is
+	// the effective document itself.
+	//
+	// Keeping both is what lets a read return the WSDL the operator wrote
+	// rather than a generated document they have never seen, while every
+	// reader downstream still gets a document it can parse.
+	OpenAPIContent string
+}
+
+// Effective is the OpenAPI document this spec entry serves.
+//
+// Every consumer of a spec — the toolkit's registration parse, the operations
+// browser, the embedding worker — wants the document the gateway serves, not
+// the bytes the operator typed. Those are the same thing for an OpenAPI spec
+// and different for every other format, and this is the one place that
+// difference is resolved.
+func (s SpecEntry) Effective() string {
+	if s.OpenAPIContent != "" {
+		return s.OpenAPIContent
+	}
+	return s.Content
+}
+
+// Format is the spec's format, resolving the empty value every row written
+// before #1736 carries.
+func (s SpecEntry) Format() string {
+	if s.SpecFormat == "" {
+		return FormatOpenAPI
+	}
+	return s.SpecFormat
 }
 
 // Update carries the partial-edit shape used by Store.UpdateCatalog.
@@ -175,6 +228,18 @@ func ValidateSpecName(s string) error {
 		return ErrInvalidSpecName
 	}
 	return nil
+}
+
+// ValidateSpecFormat reports whether s is a known spec format. The empty
+// string is accepted and means FormatOpenAPI, so a caller that predates the
+// field is not required to start sending it.
+func ValidateSpecFormat(s string) error {
+	switch s {
+	case "", FormatOpenAPI, FormatWSDL:
+		return nil
+	default:
+		return ErrInvalidSpecFormat
+	}
 }
 
 // ValidateSourceKind reports whether s is one of the known source

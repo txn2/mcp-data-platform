@@ -1,4 +1,5 @@
 cmd/dev-mcp-mock -> internal/logsan
+cmd/dev-soap-mock -> internal/logsan
 cmd/mcp-data-platform -> internal/buildinfo
 cmd/mcp-data-platform -> internal/httpserver
 cmd/mcp-data-platform -> internal/server
@@ -14,6 +15,7 @@ internal/admin/callapi -> internal/httpjson
 internal/admin/callapi -> internal/platform/callrecord
 internal/admin/catalogapi -> internal/httpjson
 internal/admin/catalogapi -> internal/logsan
+internal/admin/catalogapi -> internal/soap
 internal/admin/catalogapi -> pkg/registry
 internal/admin/catalogapi -> pkg/toolkits/apigateway
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalog
@@ -546,6 +548,7 @@ internal/scriptxml -> internal/xmltree
 internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
+internal/soap -> internal/xmltree
 internal/tableavail -> pkg/query
 internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
@@ -877,6 +880,7 @@ pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
 pkg/toolkits/apigateway -> internal/opranking
 pkg/toolkits/apigateway -> internal/pagewalk
+pkg/toolkits/apigateway -> internal/soap
 pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> internal/xmltree
 pkg/toolkits/apigateway -> pkg/authevents

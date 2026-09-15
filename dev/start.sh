@@ -253,7 +253,7 @@ REPLICA_PORTS=()
 if [ "$DEV_REPLICAS" = 2 ]; then
   REPLICA_PORTS=("$DEV_API_PORT_B" "$DEV_PROXY_PORT" 9465)
 fi
-for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" "$DEV_S3_TLS_PORT" 9090 9091 9180 9181 9281 9282 9283 9284 9285 9464 "$DEV_OLLAMA_PORT" "${REPLICA_PORTS[@]+"${REPLICA_PORTS[@]}"}"; do
   if [ "$port" = "$DEV_API_PORT" ] || [ "$port" = "$DEV_API_PORT_B" ]; then
     api_port_free "$port" && continue
   else
@@ -588,6 +588,31 @@ for i in $(seq 1 30); do
   sleep 1
 done
 ok "dev-mcp-mock ready on :9180 (OAuth) and :9181 (MCP)"
+
+echo ""
+
+# ─── Start dev-soap-mock (SOAP upstream) ────────────────────────────
+
+echo -e "${BOLD}Starting dev-soap-mock${NC}"
+SOAP_MOCK_LOG="/tmp/mcp-dev-soap-mock.log"
+# Built and started directly rather than through `go run`, for the same reason
+# dev-mcp-mock is: PIDS must hold the server itself or the shutdown trap leaves
+# the port held and the next `make dev` fails its own pre-flight.
+go build -o build/dev-soap-mock ./cmd/dev-soap-mock || fail "could not build cmd/dev-soap-mock"
+./build/dev-soap-mock > "$SOAP_MOCK_LOG" 2>&1 &
+PIDS+=($!)
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:9285/.health > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo -e "  ${RED}dev-soap-mock log (last 10 lines):${NC}"
+    tail -10 "$SOAP_MOCK_LOG" 2>/dev/null | sed 's/^/    /'
+    fail "dev-soap-mock did not become healthy within 30s"
+  fi
+  sleep 1
+done
+ok "dev-soap-mock ready on :9285 (SOAP 1.1 /Orders.svc, SOAP 1.2 /Orders12.svc)"
 
 echo ""
 

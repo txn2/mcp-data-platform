@@ -389,12 +389,20 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, c
 	if err := cfg.upstream().ValidateCustomHeaders(in.Headers); err != nil {
 		return nil, err
 	}
-	reqURL, err := buildURL(cfg.BaseURL, in.Path, in.Query)
+	// A SOAP operation is resolved against the path the caller addressed,
+	// which is the rendered document's per-operation key; the address the
+	// request is sent to is the one the extension carries. The wire path
+	// needs no check of its own: the key is that address followed by the
+	// operation name, so the address is a PREFIX of the path validatePath
+	// has already passed, and any shape it refuses would have been refused
+	// there. TestTheWirePathIsAPrefixOfTheAddressedPath holds that.
+	sop := resolveSOAPOperation(cat.specs, method, in.Path)
+	reqURL, err := buildURL(cfg.BaseURL, wirePath(sop, in.Path), in.Query)
 	if err != nil {
 		return nil, err
 	}
 	declaredContentTypes := resolveDeclaredContentTypes(cat.specs, cat.webdavRoutes, method, in.Path)
-	enc, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
+	enc, headers, err := encodeFor(sop, method, in, declaredContentTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +412,7 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, c
 		body:          enc.data,
 		contentType:   enc.contentType,
 		authoritative: enc.authoritative,
-		headers:       in.Headers,
+		headers:       headers,
 		staticHeaders: cfg.StaticHeaders,
 	})
 	if err != nil {
@@ -1238,9 +1246,13 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		jsonBody = dec.body
 	}
 	out := InvokeOutput{
-		Status:        resp.StatusCode,
-		Headers:       selectResponseHeaders(resp.Header),
-		Body:          dec.body,
+		Status:  resp.StatusCode,
+		Headers: selectResponseHeaders(resp.Header),
+		Body:    dec.body,
+		// A soap:Fault is the upstream's own account of the failure, and
+		// without it the call reports only "Internal Server Error" while
+		// the sentence that explains it sits in the body.
+		Error:         dec.fault,
 		BodyTruncated: truncated,
 		BodyBytes:     int64(len(body)),
 		Pagination:    detectPagination(resp.Header, jsonBody),
