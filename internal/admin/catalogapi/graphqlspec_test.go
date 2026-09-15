@@ -186,9 +186,16 @@ func TestOneGraphQLOperationCarriesADocumentThatCallsIt(t *testing.T) {
 	}
 	var out struct {
 		OperationID string `json:"operation_id"`
-		Skeleton    string `json:"skeleton"`
-		Variables   string `json:"variables"`
+		Method      string `json:"method"`
+		Path        string `json:"path"`
+		Skeleton    string `json:"graphql_skeleton"`
+		Variables   string `json:"graphql_variables"`
 		ReturnType  string `json:"return_type"`
+		Arguments   []struct {
+			Name     string `json:"name"`
+			Type     string `json:"type"`
+			Required bool   `json:"required"`
+		} `json:"graphql_arguments"`
 	}
 	if err := json.Unmarshal(res.Body.Bytes(), &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -196,11 +203,22 @@ func TestOneGraphQLOperationCarriesADocumentThatCallsIt(t *testing.T) {
 	if out.OperationID != "query:catalog.product" {
 		t.Errorf("the detail describes %q", out.OperationID)
 	}
+	// The pane renders either format, so the fields it reads for an
+	// OpenAPI operation carry the GraphQL equivalent.
+	if out.Method != "QUERY" || out.Path != "/catalog/product" {
+		t.Errorf("the pane would render method %q at path %q", out.Method, out.Path)
+	}
 	if !strings.Contains(out.Skeleton, "product") {
 		t.Errorf("the skeleton does not call the operation: %q", out.Skeleton)
 	}
 	if out.ReturnType != "Product" {
 		t.Errorf("return_type = %q", out.ReturnType)
+	}
+	if len(out.Arguments) != 1 || out.Arguments[0].Name != "id" || !out.Arguments[0].Required {
+		t.Errorf("the operation's arguments are missing from the detail: %+v", out.Arguments)
+	}
+	if out.Variables == "" {
+		t.Error("the detail carries no variables stub to edit")
 	}
 }
 

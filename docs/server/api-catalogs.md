@@ -32,7 +32,7 @@ A catalog holding a spec whose `spec_format` is `graphql` is the schema every `k
 
 - **A schema registered from a URL.** An SDL published at a stable address — a schema registry, a build artifact, a `schema.graphql` in a repository — is fetched and refreshed on its `etag` through the same path an OpenAPI document uses. An endpoint that disables introspection no longer has to be re-pasted by hand on every upstream change.
 - **One schema serving several connections.** A read-only and a read-write connection against one endpoint, or prod and sandbox, reference one catalog, so the schema is stored, hashed and embedded once rather than once each. Operation embeddings are keyed on `(catalog_id, spec_name, operation_id)` like every other catalogued operation's.
-- **A schema that is an inventoried object.** It is listed, versioned, browsed operation by operation and given embedding-job status beside every other spec, rather than being reachable only through the connection that owns it. `list_connections` reports a GraphQL connection's `catalog_id` and operation count the way it reports a REST one's.
+- **A schema that is an inventoried object.** It is listed, versioned, browsed operation by operation and given embedding-job status beside every other spec, rather than being reachable only through the connection that owns it. The operations browser renders either format in one pane: the operation kind is the method and the dotted id the path, and where an OpenAPI operation shows parameters, a request body and per-status responses, a GraphQL one shows its arguments, the input types they reference, the shape it returns and a document that already calls it. `list_connections` reports a GraphQL connection's `catalog_id` and operation count the way it reports a REST one's.
 
 The content must be SDL. An introspection result is refused with a message naming where SDL comes from — `graphql_export` writes it, as does a schema registry.
 
@@ -120,7 +120,7 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 | `GET` | `/api/v1/admin/api-catalogs/{id}/specs` | List component specs (metadata only) |
 | `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Get one spec with content |
 | `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations` | List the operations a spec exposes, in either format |
-| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}` | One operation's parameters, body and responses |
+| `GET` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}` | One operation's parameters, body and responses; for a GraphQL spec, its arguments, input types, return shape and a document that calls it |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Upsert spec (inline or URL source) |
 | `PUT` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/upload` | Multipart upload of a spec file |
 | `POST` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh` | Re-fetch a URL-sourced spec |

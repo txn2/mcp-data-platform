@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -178,6 +179,32 @@ func (h *handler) loadSpec(w http.ResponseWriter, r *http.Request) (*apicatalog.
 	return spec, true
 }
 
+// graphQLOperationResponse is one GraphQL operation as the operations
+// pane reads it.
+//
+// The pane renders either format, so the fields it reads for an OpenAPI
+// operation carry the GraphQL equivalent: `method` is the operation kind
+// the badge shows, `path` the route a persona rule names it under. What
+// an OpenAPI operation puts in parameters, request body and responses has
+// no equivalent here, and what does — the arguments, the input types they
+// reference, the shape the operation returns, and a document that already
+// calls it — travels beside them under its own names.
+type graphQLOperationResponse struct {
+	OperationID string `json:"operation_id"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Summary     string `json:"summary,omitempty"`
+	Spec        string `json:"spec,omitempty"`
+	ReturnType  string `json:"return_type,omitempty"`
+	Deprecated  bool   `json:"deprecated,omitempty"`
+
+	Arguments   []gqlschema.Argument  `json:"graphql_arguments,omitempty"`
+	InputTypes  []gqlschema.InputType `json:"graphql_input_types,omitempty"`
+	ReturnShape []gqlschema.FieldNode `json:"graphql_return_shape,omitempty"`
+	Skeleton    string                `json:"graphql_skeleton,omitempty"`
+	Variables   string                `json:"graphql_variables,omitempty"`
+}
+
 // writeGraphQLOperation is getSpecOperation for a spec entry holding a
 // GraphQL schema: one operation's arguments, the input types they
 // reference, its return shape and a document that already calls it —
@@ -191,6 +218,19 @@ func (*handler) writeGraphQLOperation(w http.ResponseWriter, spec apicatalog.Spe
 	case err != nil:
 		httpjson.WriteError(w, http.StatusUnprocessableEntity, errNotAGraphQLSchema)
 	default:
-		httpjson.WriteJSON(w, http.StatusOK, detail)
+		httpjson.WriteJSON(w, http.StatusOK, graphQLOperationResponse{
+			OperationID: detail.OperationID,
+			Method:      detail.Kind,
+			Path:        detail.Path,
+			Summary:     detail.Summary,
+			Spec:        spec.SpecName,
+			ReturnType:  detail.ReturnType,
+			Deprecated:  detail.Deprecated,
+			Arguments:   detail.ArgumentDetails,
+			InputTypes:  detail.InputTypes,
+			ReturnShape: detail.ReturnShape,
+			Skeleton:    detail.Skeleton,
+			Variables:   detail.Variables,
+		})
 	}
 }

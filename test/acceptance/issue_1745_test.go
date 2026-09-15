@@ -177,8 +177,21 @@ func TestIssue1745_ACatalogHoldsAGraphQLSchemaAndListsItsOperations(t *testing.T
 	if status != http.StatusOK {
 		t.Fatalf("describing one catalogued operation: HTTP %d %v", status, detail)
 	}
-	if skeleton, _ := detail["skeleton"].(string); !strings.Contains(skeleton, "echo") {
-		t.Errorf("the operation detail carries no document that calls it: %v", detail["skeleton"])
+	// The operations pane renders either format, so the fields it reads for
+	// an OpenAPI operation carry the GraphQL equivalent and what has no
+	// equivalent travels beside them.
+	if method, _ := detail["method"].(string); method != "QUERY" {
+		t.Errorf("the pane would render method %q for a query", method)
+	}
+	if path, _ := detail["path"].(string); path != "/acceptance/echo" {
+		t.Errorf("the pane would render path %q", path)
+	}
+	if skeleton, _ := detail["graphql_skeleton"].(string); !strings.Contains(skeleton, "echo") {
+		t.Errorf("the operation detail carries no document that calls it: %v", detail["graphql_skeleton"])
+	}
+	args, _ := detail["graphql_arguments"].([]any)
+	if len(args) != 1 {
+		t.Errorf("the operation's arguments are missing from the detail: %v", detail["graphql_arguments"])
 	}
 }
 
@@ -325,7 +338,12 @@ func TestIssue1745_TwoConnectionsOnOneCatalogServeOneSchema(t *testing.T) {
 // inventory half a caller sees: a GraphQL endpoint's surface is reported the
 // way a REST one's is, without calling graphql_discover against it.
 func TestIssue1745_ListConnectionsReportsTheCatalogAndItsSurface(t *testing.T) {
-	c := connect(t)
+	// Registered and listed through ONE replica. list_connections
+	// enumerates what the answering replica holds rather than resolving a
+	// name, so it is not reached by the catch-up #1746 built and a
+	// round-robin proxy can answer from a replica the save has not reached;
+	// that window is #1757, and a fix there is what would let this pin go.
+	c, _ := connectReplicaPair(t)
 	catalogID := issue1745Catalog(t, c, "listed")
 	name := issue1745Register(t, c, "listed", catalogID)
 

@@ -8,6 +8,7 @@ import type {
   APISavedExample,
 } from "@/api/apis/types";
 import { CallSnippet } from "./CallSnippet";
+import { GraphQLOperationSections } from "./GraphQLOperationSections";
 import { MethodBadge } from "@/components/patterns/MethodBadge";
 import { SchemaView } from "./SchemaView";
 
@@ -271,6 +272,7 @@ export function OperationDetail({
         <ParameterSections parameters={detail.parameters ?? []} />
         <RequestBodySection detail={detail} />
         <ResponseSection responses={detail.responses} />
+        <GraphQLOperationSections detail={detail} />
         <SavedExamplesSection examples={detail.saved_examples} />
         {connection && (
           <CallSnippet
