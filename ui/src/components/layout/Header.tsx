@@ -51,7 +51,7 @@ export function Header({ title, onMenuClick }: Props) {
   const version = branding?.version;
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-card px-4 sm:px-6">
+    <header className="flex h-[var(--app-header-height)] items-center justify-between border-b bg-card px-4 sm:px-6">
       <div className="flex items-center gap-3">
         {onMenuClick && (
           <Button

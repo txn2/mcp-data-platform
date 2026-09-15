@@ -47,7 +47,7 @@ GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
 	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
-	semgrep codeql sast osv embed-clean migrate-check \
+	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	frontend-e2e-public-viewer \
@@ -371,6 +371,23 @@ osv:
 semgrep:
 	@echo "Running Semgrep..."
 	semgrep scan --config p/golang --config .semgrep/ --error --quiet .
+
+## semgrep-diff: Run the diff-scoped Semgrep rules against changed lines
+##
+## .semgrep/ holds rules that are defects wherever they sit, so `semgrep` runs
+## them over the whole tree. .semgrep-diff/ holds rules that refuse a SHAPE a
+## diff-scoped CI check rejects with reasoning Semgrep cannot reproduce: the
+## allocation-size rule matches 55 sites here and CodeQL flags none of them,
+## because CodeQL knows which operands can be large and Semgrep does not.
+##
+## Scoping those to the diff is what CI already does with them -- Code Scanning
+## reports against a pull request's changes -- and what `make lint` does with
+## golangci-lint's --new-from-patch, off the same merge-base. Semgrep's own
+## --baseline-commit aborts on an unstaged change, and `make verify` is a
+## pre-commit gate run on exactly that, so the scoping lives in the script.
+semgrep-diff:
+	@echo "Running diff-scoped Semgrep..."
+	@python3 scripts/semgrep-diff.py .semgrep-diff/go-alloc.yml
 
 ## codeql: Run CodeQL analysis (requires codeql CLI)
 codeql:
@@ -746,6 +763,7 @@ verify-go:
 	@$(MAKE) --no-print-directory patch-coverage
 	@$(MAKE) --no-print-directory security
 	@$(MAKE) --no-print-directory semgrep
+	@$(MAKE) --no-print-directory semgrep-diff
 	@$(MAKE) --no-print-directory dead-code
 	@$(MAKE) --no-print-directory bench-test
 	@$(MAKE) --no-print-directory bench-report-check

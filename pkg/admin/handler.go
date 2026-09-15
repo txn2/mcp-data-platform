@@ -371,6 +371,13 @@ type statusResponse struct {
 // @host localhost:8080
 // @BasePath /api/v1
 //
+// The host above is the generator's default and is what the embedded document
+// carries; the copy served over HTTP names the origin it was served from
+// instead (serveSwaggerSpec). info.description and the two scheme descriptions
+// are injected by scripts/swagger-tag-groups.py from
+// internal/apidocs/introduction.md -- prose of that length does not belong in
+// a Go comment (#1750).
+//
 // @securityDefinitions.apikey ApiKeyAuth
 // @in header
 // @name X-API-Key
@@ -489,9 +496,25 @@ func (h *Handler) registerSystemRoutes() {
 // serveSwaggerSpec writes the embedded OpenAPI document. It is served
 // unauthenticated for the same reason the UI around it is: the spec describes
 // the surface, and every route in it still authenticates on its own.
-func serveSwaggerSpec(w http.ResponseWriter, _ *http.Request) {
+//
+// The copy that goes out names the origin it was served from rather than the
+// generator's `localhost:8080` (#1750). A reader always fetches this document
+// over the origin it describes, so that origin is the right answer in every
+// deployment, and this is the only place that knows it.
+//
+// That origin comes off the request, so a client's Host header reaches a
+// document other people read. Two things stand between them:
+// apidocs.SwaggerJSONForHost writes the value only when it matches a host with
+// an optional port -- a character class with no `<`, `>`, `"` or `&` in it, and
+// anything else serves the embedded document unchanged -- and the response is
+// declared JSON and marked nosniff, so a browser cannot decide to render it as
+// something else.
+func serveSwaggerSpec(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_, _ = io.WriteString(w, apidocs.SwaggerJSON())
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// #nosec G705 -- the only request value that reaches the body is the Host,
+	// and SwaggerJSONForHost admits nothing a markup parser reads. See above.
+	_, _ = io.WriteString(w, apidocs.SwaggerJSONForHost(r.Host))
 }
 
 // registerConfigRoutes registers config read/write endpoints.

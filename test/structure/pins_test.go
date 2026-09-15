@@ -8,8 +8,10 @@ package structure_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +155,190 @@ func TestGateFiguresAgree(t *testing.T) {
 		if got := firstSubmatch(t, c.text, c.pattern, c.what); got != c.want {
 			t.Errorf("%s is %s%%, Makefile says %s%%", c.what, got, c.want)
 		}
+	}
+}
+
+// ── Coverage exclusion parity ───────────────────────────────────────────────
+
+// The floors above are pinned across every file that states them. The
+// exclusion lists beside those floors were not, and #1747 is what that cost:
+// scripts/patch-coverage.sh was widened from `cmd/dev-mcp-mock/` to every
+// `cmd/dev-*-mock/` when a second dev fixture arrived, codecov.yml was left
+// naming the first one, and the same diff read 88.8% of changed lines covered
+// here and 64.20% in CI -- 271 of the 383 lines codecov counted as missing
+// being the fixture the local gate had been told to ignore (#1748).
+//
+// The two gates express the same policy in different languages: an awk regex
+// in the shell script, a glob in the YAML. Comparing the patterns as strings
+// would compare their spelling rather than their meaning, so what is compared
+// below is the SET each one resolves to over the repository's actual Go files.
+
+// excludedByPatchCoverage reports whether scripts/patch-coverage.sh drops path
+// from the changed-line set. The script's exclusions live in its awk program as
+// `if (f ~ /re/) f = ""` and `if (f == "literal") f = ""`, which is what these
+// two patterns read; a rewrite that states an exclusion some third way fails
+// the test rather than silently narrowing it, because the count below is
+// asserted.
+var (
+	patchCovRegexExclusion   = regexp.MustCompile(`if \(f ~ /((?:[^/\\]|\\.)+)/\)\s*f = ""`)
+	patchCovLiteralExclusion = regexp.MustCompile(`if \(f == "([^"]+)"\)\s*f = ""`)
+)
+
+// awkToGoRegexp converts an awk ERE as written in the script to a Go regexp.
+// The two agree on everything the script uses; the only rewrite needed is the
+// escaped slash an awk /.../ literal requires.
+func awkToGoRegexp(t *testing.T, ere string) *regexp.Regexp {
+	t.Helper()
+	re, err := regexp.Compile(strings.ReplaceAll(ere, `\/`, `/`))
+	if err != nil {
+		t.Fatalf("patch-coverage.sh exclusion %q is not a regexp Go can read: %v", ere, err)
+	}
+	return re
+}
+
+// globMatches reports whether a codecov ignore glob matches path. `**` matches
+// any number of path segments including none; every other segment is matched
+// by filepath.Match, so `*` stops at a separator the way codecov's does.
+func globMatches(t *testing.T, pattern, path string) bool {
+	t.Helper()
+	return segmentsMatch(t, strings.Split(pattern, "/"), strings.Split(path, "/"))
+}
+
+func segmentsMatch(t *testing.T, pat, seg []string) bool {
+	t.Helper()
+	switch {
+	case len(pat) == 0:
+		return len(seg) == 0
+	case pat[0] == "**":
+		// Zero segments consumed, or one and try again.
+		for i := 0; i <= len(seg); i++ {
+			if segmentsMatch(t, pat[1:], seg[i:]) {
+				return true
+			}
+		}
+		return false
+	case len(seg) == 0:
+		return false
+	}
+	ok, err := filepath.Match(pat[0], seg[0])
+	if err != nil {
+		t.Fatalf("codecov.yml ignore pattern segment %q is not a glob: %v", pat[0], err)
+	}
+	return ok && segmentsMatch(t, pat[1:], seg[1:])
+}
+
+// codecovIgnores reads the `ignore:` list out of codecov.yml. The file is read
+// as lines rather than through a YAML library because the repository pins no
+// YAML dependency for tests and the block is a flat list of quoted strings.
+func codecovIgnores(t *testing.T, yaml string) []string {
+	t.Helper()
+	var out []string
+	inBlock := false
+	item := regexp.MustCompile(`^\s+-\s+"([^"]+)"\s*$`)
+	for line := range strings.SplitSeq(yaml, "\n") {
+		switch {
+		case strings.HasPrefix(line, "ignore:"):
+			inBlock = true
+		case !inBlock:
+			continue
+		case strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#"):
+			continue
+		case item.MatchString(line):
+			out = append(out, item.FindStringSubmatch(line)[1])
+		default:
+			// A line at column 0 ends the block.
+			if !strings.HasPrefix(line, " ") {
+				inBlock = false
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("codecov.yml has no ignore: list; the gate below would compare nothing")
+	}
+	return out
+}
+
+// repoGoFiles is every tracked Go file that is not a test, which is the
+// universe both gates draw their exclusions from: a _test.go file is dropped by
+// name in each, before any exclusion runs.
+func repoGoFiles(t *testing.T) []string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", "ls-files", "*.go")
+	cmd.Dir = moduleRoot(t)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("listing tracked Go files: %v", err)
+	}
+	var files []string
+	for f := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		if f != "" && !strings.HasSuffix(f, "_test.go") {
+			files = append(files, f)
+		}
+	}
+	if len(files) == 0 {
+		t.Fatal("no tracked non-test Go files found")
+	}
+	return files
+}
+
+// TestCoverageExclusionsAgree asserts that the local patch-coverage gate and
+// codecov exclude the same files. Every path one of them drops, the other
+// drops: a file inside the gate here and outside it in CI (or the reverse) is
+// the drift that made two readings of one diff disagree by 24 points.
+func TestCoverageExclusionsAgree(t *testing.T) {
+	script := readRepoFile(t, "scripts", "patch-coverage.sh")
+	codecov := readRepoFile(t, "codecov.yml")
+
+	var localRegexps []*regexp.Regexp
+	for _, m := range patchCovRegexExclusion.FindAllStringSubmatch(script, -1) {
+		// The script's first exclusion is the "not a Go file, or a test"
+		// filter, which is the universe rather than a policy choice: codecov
+		// states the same thing as **/*_test.go and both are applied to
+		// repoGoFiles before this test runs.
+		if m[1] == `_test\.go$` {
+			continue
+		}
+		localRegexps = append(localRegexps, awkToGoRegexp(t, m[1]))
+	}
+	local := func(path string) bool {
+		for _, re := range localRegexps {
+			if re.MatchString(path) {
+				return true
+			}
+		}
+		for _, m := range patchCovLiteralExclusion.FindAllStringSubmatch(script, -1) {
+			if m[1] == path {
+				return true
+			}
+		}
+		return false
+	}
+
+	ignores := codecovIgnores(t, codecov)
+	remote := func(path string) bool {
+		for _, g := range ignores {
+			if globMatches(t, g, path) {
+				return true
+			}
+		}
+		return false
+	}
+
+	var localOnly, remoteOnly []string
+	for _, f := range repoGoFiles(t) {
+		switch l, r := local(f), remote(f); {
+		case l && !r:
+			localOnly = append(localOnly, f)
+		case r && !l:
+			remoteOnly = append(remoteOnly, f)
+		}
+	}
+	for _, f := range localOnly {
+		t.Errorf("scripts/patch-coverage.sh excludes %s and codecov.yml does not: "+
+			"the local gate reads a higher patch percentage than CI on any diff touching it", f)
+	}
+	for _, f := range remoteOnly {
+		t.Errorf("codecov.yml excludes %s and scripts/patch-coverage.sh does not: "+
+			"the local gate counts lines CI ignores and fails a diff CI would accept", f)
 	}
 }

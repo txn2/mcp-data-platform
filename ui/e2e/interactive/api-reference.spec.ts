@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { contrastFailures, report } from "./helpers/contrast";
 
 // The platform's own REST surface, read in the portal (#1742).
 //
@@ -36,37 +37,21 @@ async function railOrder(page: Page): Promise<string[]> {
     );
 }
 
-/** luminance is the perceived lightness (0-1) of a CSS color. */
-function luminance(css: string): number {
-  const [r, g, b] = css.match(/\d+(\.\d+)?/g)!.map(Number) as [number, number, number];
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-}
-
-/** textLuminance is the lightness of an element's text color, which is how
- * these tests ask "is this readable on that ground" without pinning a hex the
- * palette is free to adjust. */
-async function textLuminance(page: Page, selector: string): Promise<number> {
-  const color = await page
-    .locator(selector)
-    .first()
-    .evaluate((el) => getComputedStyle(el).color);
-  return luminance(color);
-}
-
-/** inkGap is how far an element's text sits from its own background. */
-async function inkGap(page: Page, selector: string): Promise<number> {
-  const pair = await page
-    .locator(selector)
-    .first()
-    .evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { color: s.color, background: s.backgroundColor };
-    });
-  return Math.abs(luminance(pair.color) - luminance(pair.background));
+/** setTheme selects a theme the way the portal's own toggle does, and reloads:
+ * ReDoc resolves its theme once, when the document mounts. */
+async function setTheme(page: Page, theme: "light" | "dark"): Promise<void> {
+  await page.evaluate(
+    (t) => localStorage.setItem("mcp-portal-theme", t),
+    theme,
+  );
+  await page.reload();
+  await expect(page.locator(TAG_HEADING)).toBeVisible({ timeout: 30_000 });
 }
 
 test.describe("The API reference an administrator reaches from the portal", () => {
-  test("is a row of the admin rail, and opens on the reference", async ({ page }) => {
+  test("is a row of the admin rail, and opens on the reference", async ({
+    page,
+  }) => {
     await authenticate(page);
     await page.goto("/portal/admin");
 
@@ -77,12 +62,16 @@ test.describe("The API reference an administrator reaches from the portal", () =
     expect(admin, "the rail has an Admin section").toBeGreaterThan(user);
     // Under the Admin caption, not the User one: the reference is reached from
     // the administrator's section of the rail.
-    expect(item, "API Reference sits in the Admin section").toBeGreaterThan(admin);
+    expect(item, "API Reference sits in the Admin section").toBeGreaterThan(
+      admin,
+    );
 
     await page.getByRole("button", { name: "API Reference" }).click();
 
     await expect(page).toHaveURL(new RegExp(`${REFERENCE_PATH}$`));
-    await expect(page.getByRole("heading", { name: "API Reference", level: 1 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "API Reference", level: 1 }),
+    ).toBeVisible();
   });
 
   test("renders the served document, not an empty frame", async ({ page }) => {
@@ -121,38 +110,107 @@ test.describe("The API reference an administrator reaches from the portal", () =
     await expect(link).toHaveAttribute("target", "_blank");
   });
 
-  test("is legible on both themes", async ({ page }) => {
+  test("meets AA contrast on every element of the document, both themes", async ({
+    page,
+  }) => {
     await authenticate(page);
     await page.goto(REFERENCE_PATH);
     await expect(page.locator(TAG_HEADING)).toBeVisible({ timeout: 30_000 });
 
-    // ReDoc carries its own light theme. Handed it unchanged, a reader on the
-    // dark theme gets near-black body copy on a near-black page.
-    const light = await textLuminance(page, TAG_HEADING);
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme);
+      // Every disclosure open, so the sweep reaches what a reader expands
+      // rather than only what the page paints first: each response block, the
+      // security requirement, the nested schemas and the sample tabs.
+      await page.evaluate(() => {
+        document
+          .querySelectorAll<HTMLElement>(
+            '.redoc-host [role="button"], .redoc-host button',
+          )
+          .forEach((el) => el.click());
+      });
+      await page.waitForTimeout(500);
 
-    await page.evaluate(() => localStorage.setItem("mcp-portal-theme", "dark"));
-    await page.reload();
+      const failures = await contrastFailures(page);
+      expect(
+        failures,
+        `${theme} theme: ${failures.length} element(s) below AA\n${report(failures)}`,
+      ).toEqual([]);
+    }
+  });
+
+  test("reaches its last navigation entry at every window height", async ({
+    page,
+  }) => {
+    await authenticate(page);
+    await page.goto(REFERENCE_PATH);
     await expect(page.locator(TAG_HEADING)).toBeVisible({ timeout: 30_000 });
-    const dark = await textLuminance(page, TAG_HEADING);
 
-    expect(light, "dark copy on the light page").toBeLessThan(0.4);
-    expect(dark, "light copy on the dark page").toBeGreaterThan(0.6);
+    // Short enough that ReDoc's menu overflows whatever it is given.
+    await page.setViewportSize({ width: 1440, height: 400 });
+    await page.waitForTimeout(300);
 
-    // The sample tabs in the right-hand panel keep a white ground on both
-    // themes, and ReDoc labels them with the same color it writes body copy
-    // in: on the dark theme that is white on white, an empty pill where the
-    // word "Payload" should be.
+    const geometry = await page.evaluate(() => {
+      const menu = document.querySelector<HTMLElement>(
+        ".redoc-host .menu-content",
+      );
+      const scrollport = document.querySelector<HTMLElement>("main");
+      if (!menu || !scrollport) return null;
+      // ReDoc's menu is a fixed-height box holding a search field and, below
+      // it, the box that actually scrolls. Found by its overflow rather than by
+      // a class, which is a styled-components hash.
+      const scroller = Array.from(
+        menu.querySelectorAll<HTMLElement>("div"),
+      ).find((el) => getComputedStyle(el).overflowY === "auto");
+      if (!scroller) return null;
+      // To the end of the list, which is what a reader looking for the last
+      // entry does.
+      scroller.scrollTop = scroller.scrollHeight;
+      const items = menu.querySelectorAll("li");
+      const last = items[items.length - 1];
+      return {
+        entries: items.length,
+        menuHeight: menu.getBoundingClientRect().height,
+        listHeight: scroller.scrollHeight,
+        scrollportHeight: scrollport.clientHeight,
+        scrollportBottom: scrollport.getBoundingClientRect().bottom,
+        lastEntryBottom: last ? last.getBoundingClientRect().bottom : 0,
+      };
+    });
     expect(
-      await inkGap(page, ".react-tabs__tab--selected"),
-      "the selected sample tab is readable on its own ground",
-    ).toBeGreaterThan(0.4);
+      geometry,
+      "the menu, its scrolling list and the page's scroll container are all present",
+    ).not.toBeNull();
+    const g = geometry!;
+    expect(g.entries, "the menu has entries to reach").toBeGreaterThan(0);
+    expect(
+      g.listHeight,
+      "the window is short enough that the entries do not all fit, which is the case under test",
+    ).toBeGreaterThan(g.scrollportHeight);
+
+    // ReDoc sets the sticky menu's height inline to `calc(top + 100vh)`, but
+    // the portal's scroll container is AppShell's <main>, which is the viewport
+    // less the fixed header. The difference is the header's height, and the
+    // entries that landed in it could not be scrolled to by any means (#1749).
+    expect(
+      Math.round(g.menuHeight),
+      "the menu is no taller than the container it scrolls inside",
+    ).toBeLessThanOrEqual(Math.round(g.scrollportHeight));
+
+    // Scrolled to its end, the last entry is on screen.
+    expect(
+      Math.round(g.lastEntryBottom),
+      "the last navigation entry is reachable",
+    ).toBeLessThanOrEqual(Math.round(g.scrollportBottom));
   });
 });
 
 test.describe("The pointer from the operation browser", () => {
   test("opens the reference on the gateway routes", async ({ page }) => {
     await authenticate(page);
-    await page.goto("/portal/apis?connection=acme-billing&spec=core&op=createCustomer");
+    await page.goto(
+      "/portal/apis?connection=acme-billing&spec=core&op=createCustomer",
+    );
 
     const link = page.getByRole("link", {
       name: "Platform REST reference (auth, gateway routes, status codes)",
@@ -160,6 +218,9 @@ test.describe("The pointer from the operation browser", () => {
     // The fragment is the one the served Swagger UI mints for a tag, so the
     // reader lands on the gateway routes rather than at the top of a document
     // that describes a few hundred paths.
-    await expect(link).toHaveAttribute("href", "/api/v1/admin/docs/index.html#/Gateway");
+    await expect(link).toHaveAttribute(
+      "href",
+      "/api/v1/admin/docs/index.html#/Gateway",
+    );
   });
 });

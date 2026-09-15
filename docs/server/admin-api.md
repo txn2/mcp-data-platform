@@ -48,6 +48,30 @@ it. A tag used by an operation but missing from `scripts/swagger-tag-groups.py`
 is caught by `TestSwaggerTagsAreDescribedAndGrouped`, since such a tag renders
 as an untitled bucket outside both headings.
 
+### The landing section
+
+`info.description` is the reference's introduction, and ReDoc splits it on its
+top-level headings into navigation entries of their own: Getting started (the
+base URL and one complete request with its response), Authentication, Calling a
+connection through the gateway, Conventions (paging, the RFC 9457 error body,
+the platform-versus-upstream status split, and the `X-Platform-Instance`
+response header), and where the MCP surface is for a reader who wanted that one.
+
+It is authored in `internal/apidocs/introduction.md` and injected by
+`scripts/swagger-tag-groups.py` alongside the tag descriptions, because prose of
+that length does not belong in a Go comment. The same script gives each
+`securityDefinitions` entry its description, so an operation's Authorizations
+block says what each credential is and where one is obtained rather than naming
+two schemes.
+
+### The base URL the document names
+
+`@host` in the annotations is `localhost:8080`, and the embedded document keeps
+it: that is the loopback address the platform-admin self-connection reaches the
+platform on. The copy served over HTTP names the origin it was served from
+instead, since a reader always fetches the document over the origin it
+describes. A `Host` that is not a host is ignored rather than reflected.
+
 ### Reading it as reference material
 
 The same document is also rendered with ReDoc, whose three-column layout suits
@@ -55,6 +79,17 @@ reading over trying calls out. Swagger UI keeps the "Try it out" button for an
 operator holding an API key. Both are reachable from the portal's admin
 navigation, and the caller-facing [operation browser](../portal/apis.md) links
 to the `Gateway` tag beside the call it hands you.
+
+ReDoc is themed from the portal's own palette
+(`ui/src/pages/api-reference/redocTheme.ts`), with one stylesheet
+(`redoc.css`) for the components ReDoc styles with a literal rather than a
+theme key. What holds it is a contrast sweep in
+`ui/e2e/interactive/api-reference.spec.ts`: it walks every element of the
+rendered document on both themes, resolves the background each one's text
+actually sits on, and fails on any pair below WCAG AA for its size. A renderer
+the portal embeds but does not style is checked over its whole surface or not at
+all, so which routes the mock fixture carries is decided by which constructs the
+served document contains.
 
 ## Configuration
 
