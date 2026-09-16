@@ -32,9 +32,11 @@ they are all here and any of them can be revoked. Revoke a key and it stops
 authenticating at once, on every replica. Administrators can see the keys you
 hold on Admin > API Keys and revoke them too; they never see a key's value.
 
-This page is the only place keys are managed. A request that authenticated with
-an API key cannot issue, list or revoke keys, so a key you hold cannot quietly
-make itself another one.
+A request that authenticated with an API key cannot issue, list or revoke keys
+here: this page acts on the strength of your being signed in, so a key you hold
+cannot quietly make itself another one through it. Administrators manage keys on
+Admin > API Keys, which is a different surface with its own rules -- a
+credential carrying an admin role reaches it, an API key included.
 
 **Recent notifications** sits directly below and shows what the platform has
 actually sent you: the subject, category, and delivery status of each

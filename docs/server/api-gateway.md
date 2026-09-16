@@ -223,7 +223,7 @@ A response is returned as JSON when it declares JSON, and as a string otherwise.
 | `json` | parsed JSON, whatever the response declares |
 | `text` | the raw string, parsing nothing |
 
-An XML tree is nested objects of `{tag, ns, attrs, text, children}`: `tag` and the attribute names are local names, so the upstream's namespace prefix does not matter and `ns` carries the namespace URI for a caller that needs it; `text` is the element's own character data, trimmed; `children` are the child elements in document order. A response the decoder cannot parse is returned as text with the reason in `hint`, so an HTML error page from a SOAP endpoint is readable rather than lost.
+An XML tree is nested objects of `{tag, ns, attrs, text, children}`: `tag` and the attribute names are local names, so the upstream's namespace prefix does not matter and `ns` carries the namespace URI for a caller that needs it; `text` is the element's own character data, trimmed; `children` are the child elements in document order. A response a caller's `decode` cannot parse is returned as text with the reason in `hint`, so an HTML error page from a SOAP endpoint is readable rather than lost. The reason is carried on a `decode` the caller passed, `json` and `xml` alike; `auto` falls back to text silently, because a response that declares JSON and is not JSON has come back as a string since the gateway shipped and nothing asked it to parse.
 
 `auto` never decodes XML on the response `Content-Type` alone. A connection with no catalog — and every WebDAV route, whose `PROPFIND` multistatus is XML by definition — returns the same string it always has until an operator declares the media type in the catalog or a caller passes `decode`.
 

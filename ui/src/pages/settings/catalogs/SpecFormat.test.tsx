@@ -120,4 +120,59 @@ describe("FormatBadge", () => {
     render(<FormatBadge format="wsdl" />);
     expect(screen.getByText("WSDL")).toBeInTheDocument();
   });
+
+  // #1765: every format other than OpenAPI wore the WSDL badge and the WSDL
+  // tooltip, so a catalog holding an SDL read as holding a SOAP service.
+  it("badges a GraphQL spec as GraphQL, not as WSDL", () => {
+    render(<FormatBadge format="graphql" />);
+    expect(screen.getByText("GraphQL")).toBeInTheDocument();
+    expect(screen.queryByText("WSDL")).not.toBeInTheDocument();
+  });
+
+  it("gives the GraphQL badge its own tooltip", () => {
+    render(<FormatBadge format="graphql" />);
+    expect(screen.getByTitle(/served to the graphql connections/i)).toBeInTheDocument();
+  });
+});
+
+describe("SpecModal format-specific copy", () => {
+  it("heads the paste box with the chosen format", () => {
+    renderModal();
+    expect(screen.getByLabelText(/OpenAPI YAML or JSON/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /wsdl/i }));
+    expect(screen.getByLabelText(/^WSDL$/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /graphql/i }));
+    expect(screen.getByLabelText(/GraphQL SDL/i)).toBeInTheDocument();
+  });
+
+  // The base path is a URL prefix the HTTP gateway joins onto an operation,
+  // and an SDL is never served to it, so the field has nothing to act on.
+  it("drops the gateway-only fields for an SDL and says why", () => {
+    renderModal();
+    expect(screen.getByLabelText(/base path/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /graphql/i }));
+    expect(screen.queryByLabelText(/base path/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^title/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/not read for this format/i)).toBeInTheDocument();
+  });
+
+  it("keeps a spec name and its content across a format change", async () => {
+    renderModal();
+    fillName("schema");
+    fireEvent.change(screen.getByLabelText(/OpenAPI YAML or JSON/i), {
+      target: { value: "type Query { a: String }" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /graphql/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(upsertMutate).toHaveBeenCalled());
+    expect(firstCallArgs()).toMatchObject({
+      spec_format: "graphql",
+      content: "type Query { a: String }",
+      specName: "schema",
+    });
+  });
 });

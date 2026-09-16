@@ -187,18 +187,35 @@ const SOURCE_BADGES: Record<
   embedded: { icon: Package, label: "embedded", variant: "outline" },
 };
 
+// FORMAT_BADGES is what each non-OpenAPI stored format says on the row. A
+// format gets an entry of its own rather than sharing one: a GraphQL schema
+// badged WSDL names a protocol the spec has nothing to do with, and the badge
+// is what an operator reads before they read anything else (#1765).
+const FORMAT_BADGES: Record<string, { label: string; title: string }> = {
+  wsdl: {
+    label: "WSDL",
+    title:
+      "Stored as a WSDL and served as an OpenAPI document the platform renders from it. Refresh re-imports.",
+  },
+  graphql: {
+    label: "GraphQL",
+    title:
+      "A schema in SDL, served to the graphql connections that reference this catalog; the HTTP API gateway skips it. Refresh re-imports.",
+  },
+};
+
 // FormatBadge marks a spec whose stored content is not an OpenAPI document.
 // OpenAPI renders nothing at all: it is the overwhelming majority and the
 // default, and a badge on every row would be noise that makes the one row that
 // differs harder to find rather than easier.
 export function FormatBadge({ format }: { format?: APICatalogSpec["spec_format"] }) {
   if (!format || format === "openapi") return null;
+  // A format the backend adds later is badged by its own name rather than by
+  // whichever entry happens to be first here.
+  const config = FORMAT_BADGES[format] ?? { label: format, title: `Stored as ${format}.` };
   return (
-    <Badge
-      variant="warning"
-      title="Stored as a WSDL and served as an OpenAPI document the platform renders from it. Refresh re-imports."
-    >
-      <FileText aria-hidden /> WSDL
+    <Badge variant="warning" title={config.title}>
+      <FileText aria-hidden /> {config.label}
     </Badge>
   );
 }

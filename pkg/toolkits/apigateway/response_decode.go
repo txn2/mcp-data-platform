@@ -108,7 +108,7 @@ func (d responseDecoder) decode(contentType string, body []byte) decoded {
 	}
 	switch d.effectiveMode(contentType) {
 	case DecodeJSON:
-		return decodeJSONBody(body)
+		return decodeJSONBody(body, d.mode == DecodeJSON)
 	case DecodeXML:
 		out, root := decodeXMLBody(body)
 		if d.soapOperation {
@@ -144,16 +144,31 @@ func (d responseDecoder) effectiveMode(contentType string) string {
 	return DecodeText
 }
 
-// decodeJSONBody parses JSON, falling back to the raw text. The fallback is
-// silent and deliberately unchanged: a JSON-typed response that is not JSON
-// has been returned as text since the gateway shipped, and a note on every one
-// of them would be noise on a path nobody asked to parse.
-func decodeJSONBody(body []byte) decoded {
+// decodeJSONBody parses JSON, falling back to the raw text. asked says the
+// caller pinned decode=json, which is what decides whether the fallback says
+// so: a caller who asked for a JSON reading and is holding a string is owed
+// the reason, the way a forced XML read is (#1763). Auto's fallback stays
+// silent and unchanged -- a JSON-typed response that is not JSON has been
+// returned as text since the gateway shipped, and a note on every one of them
+// would be noise on a path nobody asked to parse.
+func decodeJSONBody(body []byte, asked bool) decoded {
 	var v any
 	if err := json.Unmarshal(body, &v); err != nil {
-		return decoded{body: string(body)}
+		out := decoded{body: string(body)}
+		if asked {
+			out.note = jsonDecodeNote(err)
+		}
+		return out
 	}
 	return decoded{body: v, json: true}
+}
+
+// jsonDecodeNote is the hint on a response the caller asked to read as JSON
+// and that is not JSON. It says where the body went, because the caller asked
+// for a value and is holding a string.
+func jsonDecodeNote(err error) string {
+	return "Could not read the response as JSON: " + err.Error() +
+		". The body is returned as text instead; decode=xml reads an XML document, and decode=text asks for the string."
 }
 
 // decodeXMLBody parses XML into the same tree a managed script's xml.decode

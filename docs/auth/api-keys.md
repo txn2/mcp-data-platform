@@ -68,10 +68,25 @@ rather than reading the field as a restriction.
 A key a person issues for themselves never has one. They cannot widen their own
 key, and there is nothing to narrow it to that they could not already reach.
 
-Managing keys is a signed-in action. A request that authenticated with an API
-key cannot issue, list or revoke keys, so a bound key cannot mint a second key
-for the same account without the first one's role set or expiry, and a service
-key configured with somebody's address cannot act as them.
+**Who may manage keys.** The self-service routes behind Settings > API Keys are
+a signed-in action: a request that authenticated with an API key cannot issue,
+list or revoke keys for its own account, and is answered 403.
+
+The admin routes are not. `GET/POST /api/v1/admin/auth/keys` and
+`DELETE /api/v1/admin/auth/keys/{name}` require the admin persona and accept any
+credential that carries it, an API key included. A service key whose roles reach
+that persona manages keys exactly as an administrator signed in to the portal
+does: it lists every key, issues one with any role set and any expiry, revokes
+any of them, and issues a key bound to a person, which then authenticates as
+that person, with their user id, their address and their roles.
+
+An admin role on a key is therefore the whole of key management, and a key that
+holds one can issue a second key wider than itself. Give that role only to a key
+meant to administer the deployment: an automation that reads data carries the
+roles of its work, not an administrator's. Whichever route issues a key, the key
+store records the address of the credential that issued it in `created_by` --
+for a key-authenticated request, the issuing key's own address, which is
+`<name>@apikey.local` when that key declares no contact address.
 
 **The account must have signed in.** A directory row an administrator pre-added
 has no recorded subject and no recorded roles, so a key bound to it would

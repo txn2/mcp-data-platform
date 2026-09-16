@@ -156,7 +156,11 @@ func TestListConnections_SortedByName(t *testing.T) {
 	}
 }
 
-func TestListConnections_DescriptionFallsBackToBaseURL(t *testing.T) {
+// TestListConnections_DescriptionIsNeverTheBaseURL is #1764: a connection
+// nobody described reported its upstream root as its description, which every
+// surface that renders one repeated -- and the root is already reported in its
+// own field beside it.
+func TestListConnections_DescriptionIsNeverTheBaseURL(t *testing.T) {
 	tk := New("test")
 	if err := tk.AddConnection("plain", map[string]any{"base_url": "https://api.example.com"}); err != nil {
 		t.Fatalf("AddConnection(plain): %v", err)
@@ -171,8 +175,8 @@ func TestListConnections_DescriptionFallsBackToBaseURL(t *testing.T) {
 	for _, c := range tk.ListConnections() {
 		byName[c.Name] = c.Description
 	}
-	if got := byName["plain"]; got != "https://api.example.com" {
-		t.Errorf("plain description = %q; want base URL fallback", got)
+	if got := byName["plain"]; got != "" {
+		t.Errorf("plain description = %q; want none", got)
 	}
 	if got := byName["described"]; got != "A friendly explanation." {
 		t.Errorf("described description = %q; want the supplied description", got)

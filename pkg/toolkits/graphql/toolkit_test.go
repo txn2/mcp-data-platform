@@ -118,11 +118,12 @@ func TestListConnectionsReportsWhatAnOperatorNeeds(t *testing.T) {
 		t.Error("operation count is zero; the fixture schema exposes operations")
 	}
 
-	// With no description of their own a connection is named by the
-	// endpoint it reaches, rather than by nothing.
+	// A connection nobody described carries no description. The endpoint is
+	// not one, and answering it as one is the defect #1764 names on the api
+	// kind, which shared this shape.
 	bare := newToolkit(t, u, "", nil)
-	if got := bare.ListConnections()[0].Description; got != u.server.URL {
-		t.Errorf("description = %q; want the endpoint", got)
+	if got := bare.ListConnections()[0].Description; got != "" {
+		t.Errorf("description = %q; want none", got)
 	}
 }
 

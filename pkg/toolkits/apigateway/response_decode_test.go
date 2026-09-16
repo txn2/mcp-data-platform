@@ -116,6 +116,40 @@ func TestResponseDecoder_ParseFailureKeepsTheBodyAndSaysWhy(t *testing.T) {
 	assert.Contains(t, got.note, "returned as text instead")
 }
 
+// TestResponseDecoder_ForcedJSONSaysWhyItIsText is #1763: decode=json on a
+// body that is not JSON answered the raw text and no hint at all, so a caller
+// that asked for a JSON reading was handed a string and told nothing. The
+// forced XML read has always said so; both forced modes now do.
+func TestResponseDecoder_ForcedJSONSaysWhyItIsText(t *testing.T) {
+	got := responseDecoder{mode: DecodeJSON}.decode("text/xml", []byte(ratesXML))
+	assert.Equal(t, ratesXML, got.body, "an unparseable body is still handed back")
+	assert.False(t, got.json)
+	assert.Contains(t, got.note, "Could not read the response as JSON")
+	assert.Contains(t, got.note, "returned as text instead")
+	assert.Contains(t, got.note, "decode=xml", "the hint names the mode that reads this document")
+}
+
+// TestResponseDecoder_AutoJSONFallbackStaysSilent is the other half: a
+// response that declares JSON and is not JSON has come back as a string since
+// the gateway shipped, on a path nobody asked to parse, and a note on every
+// one of those would be noise.
+func TestResponseDecoder_AutoJSONFallbackStaysSilent(t *testing.T) {
+	for _, mode := range []string{"", DecodeAuto} {
+		got := responseDecoder{mode: mode}.decode("application/json", []byte("<html>error</html>"))
+		assert.Equal(t, "<html>error</html>", got.body)
+		assert.Empty(t, got.note, "mode %q", mode)
+	}
+}
+
+// TestResponseDecoder_ForcedJSONThatParsesCarriesNoNote holds the note to the
+// failure: a body the caller asked to read as JSON and that is JSON is the
+// ordinary path, and says nothing.
+func TestResponseDecoder_ForcedJSONThatParsesCarriesNoNote(t *testing.T) {
+	got := responseDecoder{mode: DecodeJSON}.decode("text/plain", []byte(`{"a":1}`))
+	assert.True(t, got.json)
+	assert.Empty(t, got.note)
+}
+
 func TestResponseDecoder_OversizeDocumentSteersToExport(t *testing.T) {
 	huge := "<a>" + string(make([]byte, xmlOversizeProbeBytes)) + "</a>"
 	got := responseDecoder{mode: DecodeXML}.decode("text/xml", []byte(huge))
@@ -335,6 +369,25 @@ func TestInvoke_EndToEnd_DecodeFailureCarriesTheReason(t *testing.T) {
 		InvokeInput{Connection: "x", Method: "GET", Path: "/status", Decode: DecodeXML})
 	assert.Equal(t, "<p>gateway timeout", out.Body)
 	assert.Contains(t, out.Hint, "Could not read the response as XML")
+}
+
+// TestInvoke_EndToEnd_DecodeJSONFailureCarriesTheReason is #1763 through the
+// tool's own output: the reason reaches the caller in `hint`, beside the text
+// body, exactly as the XML one does.
+func TestInvoke_EndToEnd_DecodeJSONFailureCarriesTheReason(t *testing.T) {
+	out := runInvokeAgainstXML(t, "", "text/xml", ratesXML,
+		InvokeInput{Connection: "x", Method: "POST", Path: "/soap/rates", Decode: DecodeJSON})
+	assert.Equal(t, ratesXML, out.Body)
+	assert.Contains(t, out.Hint, "Could not read the response as JSON")
+}
+
+// TestInvoke_EndToEnd_AutoJSONFallbackCarriesNoHint keeps auto's silence on
+// the path it has always taken.
+func TestInvoke_EndToEnd_AutoJSONFallbackCarriesNoHint(t *testing.T) {
+	out := runInvokeAgainstXML(t, "", "application/json", "<p>gateway timeout",
+		InvokeInput{Connection: "x", Method: "GET", Path: "/status"})
+	assert.Equal(t, "<p>gateway timeout", out.Body)
+	assert.Empty(t, out.Hint)
 }
 
 func TestInvoke_EndToEnd_XMLTreeIsNotProbedForPageCursors(t *testing.T) {
