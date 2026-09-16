@@ -252,9 +252,9 @@ API Catalogs are versioned, globally-owned bundles of OpenAPI 3.x specs that `ki
 
 **Left pane**: Catalogs grouped by name, each showing its component-spec count and how many connections reference it.
 
-**Right pane**: The selected catalog's component specs, each with an embedding-health badge (`78/78 indexed`, or a live `running` count while a spec re-embeds), source badge (URL / upload / inline), and last-fetched timestamp. A banner summarizes catalog-wide readiness ("all specs indexed; semantic ranking is active"). Per-spec actions cover refresh-from-URL, retry-embedding, edit, and delete; catalog actions are Edit, Clone, and Delete (blocked while any connection references the catalog).
+**Right pane**: The selected catalog's component specs, each with an embedding-health badge (`78/78 indexed`, or a live `running` count while a spec re-embeds), source badge (URL / upload / inline), a format badge on a spec that is not an OpenAPI document (**WSDL** or **GraphQL**, each naming what is stored and who is served from it), and a last-fetched timestamp. A banner summarizes catalog-wide readiness ("all specs indexed; semantic ranking is active"). Per-spec actions cover refresh-from-URL, retry-embedding, edit, and delete; catalog actions are Edit, Clone, and Delete (blocked while any connection references the catalog).
 
-Ingest a spec by paste, file upload, or a public HTTPS URL (fetched once, ETag captured). Per-operation embeddings power semantic endpoint ranking in `api_discover`.
+Ingest a spec by paste, file upload, or a public HTTPS URL (fetched once, ETag captured). The spec form follows the format chosen above the source tabs: the paste box is headed OpenAPI YAML or JSON, WSDL or GraphQL SDL, the upload filter and its note follow it, and the base path, title and description -- which are the HTTP gateway's -- are absent on a GraphQL schema, which is served to the graphql connections that read the document itself. Per-operation embeddings power semantic endpoint ranking in `api_discover`.
 
 ![Add spec](../images/screenshots/light/admin-catalog-spec-modal-light.webp#only-light)![Add spec](../images/screenshots/dark/admin-catalog-spec-modal-dark.webp#only-dark)
 

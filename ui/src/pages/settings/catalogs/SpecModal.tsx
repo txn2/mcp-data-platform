@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 
-import type { APISpecFormat } from "@/api/admin/hooks/catalogs";
+import type { APICatalogSpec, APISpecFormat } from "@/api/admin/hooks/catalogs";
 import {
   useAPICatalogSpec,
   useUploadAPICatalogSpec,
@@ -37,27 +37,100 @@ function normalizeSpecName(raw: string): string {
 
 export type SourceTab = "paste" | "upload" | "url";
 
-// What each format means to the operator choosing it. The union itself is
-// APISpecFormat, declared once beside the type that carries it; a WSDL is
-// converted to OpenAPI at save time, so a document that cannot be imported
-// fails the save here rather than registering a connection with no operations.
-const SPEC_FORMATS: { value: APISpecFormat; label: string; help: string }[] = [
-  {
-    value: "openapi",
-    label: "OpenAPI",
-    help: "An OpenAPI 3.x document, in JSON or YAML.",
-  },
+// What each format means to the operator choosing it, and what the rest of the
+// form says once it is chosen. The union itself is APISpecFormat, declared once
+// beside the type that carries it; a WSDL is converted to OpenAPI at save time,
+// so a document that cannot be imported fails the save here rather than
+// registering a connection with no operations.
+//
+// The labels follow the format because this form is where an operator decides
+// what to paste: a box headed "OpenAPI YAML or JSON" above an SDL is the wrong
+// instruction, not merely an unhelpful one (#1765).
+interface SpecFormatCopy {
+  value: APISpecFormat;
+  label: string;
+  help: string;
+  // pasteLabel heads the Paste box, and pastePlaceholder opens a document in
+  // this format.
+  pasteLabel: string;
+  pastePlaceholder: string;
+  // uploadAccept filters the file picker and uploadHelp says what the server
+  // will read the file as; both are per-format, because a .wsdl and a
+  // .graphqls are neither YAML nor JSON.
+  uploadAccept: string;
+  uploadHelp: string;
+  // servesGateway is false for a format the HTTP API gateway never serves,
+  // which is what makes the base path meaningless for it: nothing joins a path
+  // prefix onto a GraphQL operation.
+  servesGateway: boolean;
+}
+
+// OPENAPI_FORMAT is the default, and the fallback for a spec_format the
+// backend adds before this form knows it.
+const OPENAPI_FORMAT: SpecFormatCopy = {
+  value: "openapi",
+  label: "OpenAPI",
+  help: "An OpenAPI 3.x document, in JSON or YAML.",
+  pasteLabel: "OpenAPI YAML or JSON",
+  pastePlaceholder: "openapi: 3.0.0\ninfo:\n  title: Vendor\n...",
+  uploadAccept: ".yaml,.yml,.json,application/yaml,application/json,text/yaml",
+  uploadHelp:
+    "Max 10 MB. YAML or JSON. The server validates the content as OpenAPI 3.x before saving.",
+  servesGateway: true,
+};
+
+const SPEC_FORMATS: SpecFormatCopy[] = [
+  OPENAPI_FORMAT,
   {
     value: "wsdl",
     label: "WSDL (SOAP)",
     help: "A WSDL 1.1 document/literal service description, SOAP 1.1 or 1.2. Each operation becomes a discoverable operation and the gateway builds the SOAP envelope, so a caller sends the operation's fields rather than XML. RPC and encoded bindings are not imported.",
+    pasteLabel: "WSDL",
+    pastePlaceholder: '<?xml version="1.0"?>\n<wsdl:definitions ...>\n...',
+    uploadAccept: ".wsdl,.xml,application/xml,text/xml",
+    uploadHelp:
+      "Max 10 MB. A WSDL 1.1 document. The server imports it to OpenAPI before saving; one it cannot import is refused here rather than registering a connection with no operations.",
+    servesGateway: true,
   },
   {
     value: "graphql",
     label: "GraphQL (SDL)",
     help: "A GraphQL schema in SDL. It is served to graphql connections that reference this catalog, not to the HTTP API gateway, so an endpoint that disables introspection gets its schema here and several connections against one endpoint share it. graphql_export writes SDL, as does a schema registry.",
+    pasteLabel: "GraphQL SDL",
+    pastePlaceholder: "type Query {\n  order(id: ID!): Order\n}\n...",
+    uploadAccept: ".graphql,.graphqls,.gql,.sdl,text/plain",
+    uploadHelp:
+      "Max 10 MB. A schema in SDL. The server parses it before saving; an introspection result is refused, since graphql_export and a schema registry both write SDL.",
+    servesGateway: false,
   },
 ];
+
+// sourceTabOf is the tab a stored spec opens on: where its content came from.
+// A source kind this form does not author -- `embedded`, the built-in
+// platform-admin catalog's -- opens on Paste, showing what is stored.
+function sourceTabOf(kind: APICatalogSpec["source_kind"] | undefined): SourceTab {
+  if (kind === "url") return "url";
+  if (kind === "upload") return "upload";
+  return "paste";
+}
+
+// stored is a stored spec's optional field as the form holds it: a string,
+// never null, so the inputs stay controlled.
+function stored(value: string | null | undefined): string {
+  return value ?? "";
+}
+
+// formatCopy is the entry for the chosen format, falling back to OpenAPI's so
+// a value the backend adds later renders the default form rather than nothing.
+function formatCopy(format: APISpecFormat): SpecFormatCopy {
+  return SPEC_FORMATS.find((f) => f.value === format) ?? OPENAPI_FORMAT;
+}
+
+// specFileSuffix is the extension stripped from an uploaded file's name when
+// it seeds the spec name. It covers every format's extensions rather than the
+// chosen one's, since the name is a label either way and a file named
+// orders.graphqls should not seed a spec called "orders.graphqls".
+const specFileSuffix = /\.(ya?ml|json|wsdl|xml|graphqls?|gql|sdl)$/i;
 
 // maxUploadBytes mirrors catalogSpecMaxUploadBytes on the upload route, so an
 // oversized file is refused here rather than after the upload has been sent.
@@ -136,9 +209,7 @@ function SpecFormatPicker({
           </Button>
         ))}
       </div>
-      <p className="text-muted-foreground text-xs">
-        {SPEC_FORMATS.find((f) => f.value === value)?.help}
-      </p>
+      <p className="text-muted-foreground text-xs">{formatCopy(value).help}</p>
     </fieldset>
   );
 }
@@ -174,24 +245,18 @@ export function SpecModal({
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputID = useId();
+  const copy = formatCopy(specFormat);
 
   useEffect(() => {
     if (!existing) return;
-    if (
-      existing.source_kind === "inline" ||
-      existing.source_kind === "upload"
-    ) {
-      setContent(existing.content ?? "");
-      setTab(existing.source_kind === "upload" ? "upload" : "paste");
-    }
-    if (existing.source_kind === "url") {
-      setSourceURL(existing.source_url ?? "");
-      setTab("url");
-    }
+    const opensOn = sourceTabOf(existing.source_kind);
+    setTab(opensOn);
+    setContent(opensOn === "url" ? "" : stored(existing.content));
+    setSourceURL(stored(existing.source_url));
     setSpecFormat(existing.spec_format ?? "openapi");
-    setBasePath(existing.base_path ?? "");
-    setTitle(existing.title ?? "");
-    setDescription(existing.description ?? "");
+    setBasePath(stored(existing.base_path));
+    setTitle(stored(existing.title));
+    setDescription(stored(existing.description));
   }, [existing]);
 
   const submit = useCallback(async () => {
@@ -304,10 +369,10 @@ export function SpecModal({
 
           <TabsContent value="paste" className="pt-2">
             <LabeledTextarea
-              label="OpenAPI YAML or JSON"
+              label={copy.pasteLabel}
               value={content}
               onChange={setContent}
-              placeholder="openapi: 3.0.0&#10;info:&#10;  title: Vendor&#10;..."
+              placeholder={copy.pastePlaceholder}
               rows={14}
               mono
             />
@@ -320,22 +385,17 @@ export function SpecModal({
             <Input
               id={fileInputID}
               type="file"
-              accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml"
+              accept={copy.uploadAccept}
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
                 setFile(f);
                 if (f && !specName && !isEditing) {
-                  setSpecName(
-                    normalizeSpecName(f.name.replace(/\.(ya?ml|json)$/i, "")),
-                  );
+                  setSpecName(normalizeSpecName(f.name.replace(specFileSuffix, "")));
                 }
               }}
               className="py-1"
             />
-            <p className="text-xs text-muted-foreground">
-              Max 10 MB. YAML or JSON. The server validates the content as
-              OpenAPI 3.x before saving.
-            </p>
+            <p className="text-xs text-muted-foreground">{copy.uploadHelp}</p>
           </TabsContent>
 
           <TabsContent value="url" className="pt-2">
@@ -350,31 +410,47 @@ export function SpecModal({
           </TabsContent>
         </Tabs>
 
-        <LabeledInput
-          label="Base path (optional)"
-          help="URL path segment prepended to every operation in this spec at invoke time. Set this when the spec ships without a servers[] entry, or when you need to override the spec author's value (sandbox, proxy, version pin). When empty, the toolkit derives the prefix from the spec's first servers[].url. Must start with '/'. Example: /v1 or /api/v2."
-          value={basePath}
-          onChange={setBasePath}
-          placeholder="/v1"
-          mono
-        />
+        {/* The base path, title and description are the HTTP gateway's: a path
+            prefix joined onto an operation, and the labels api_discover shows
+            at its specs level. A format the gateway never serves reads none of
+            the three, so the form says so rather than offering fields whose
+            values nothing will read. What an earlier save stored is kept: the
+            draft still carries it and Save still sends it. */}
+        {copy.servesGateway ? (
+          <>
+            <LabeledInput
+              label="Base path (optional)"
+              help="URL path segment prepended to every operation in this spec at invoke time. Set this when the spec ships without a servers[] entry, or when you need to override the spec author's value (sandbox, proxy, version pin). When empty, the toolkit derives the prefix from the spec's first servers[].url. Must start with '/'. Example: /v1 or /api/v2."
+              value={basePath}
+              onChange={setBasePath}
+              placeholder="/v1"
+              mono
+            />
 
-        <LabeledInput
-          label="Title (optional)"
-          help="Short label for this spec shown at api_discover's specs level, so the agent can pick the right section. When empty, the toolkit derives it from the spec's info.title. Set this to override an unhelpful title or give a deployment-specific name. Max 200 characters."
-          value={title}
-          onChange={setTitle}
-          placeholder="Orders API"
-        />
+            <LabeledInput
+              label="Title (optional)"
+              help="Short label for this spec shown at api_discover's specs level, so the agent can pick the right section. When empty, the toolkit derives it from the spec's info.title. Set this to override an unhelpful title or give a deployment-specific name. Max 200 characters."
+              value={title}
+              onChange={setTitle}
+              placeholder="Orders API"
+            />
 
-        <LabeledTextarea
-          label="Description (optional)"
-          help="One- or two-sentence summary shown alongside the title at api_discover's specs level. When empty, the toolkit derives it from the spec's info.description. Set this when the spec ships without a useful description. Max 2000 characters."
-          value={description}
-          onChange={setDescription}
-          placeholder="Create, list, and refund orders."
-          rows={3}
-        />
+            <LabeledTextarea
+              label="Description (optional)"
+              help="One- or two-sentence summary shown alongside the title at api_discover's specs level. When empty, the toolkit derives it from the spec's info.description. Set this when the spec ships without a useful description. Max 2000 characters."
+              value={description}
+              onChange={setDescription}
+              placeholder="Create, list, and refund orders."
+              rows={3}
+            />
+          </>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            Base path, title and description are not read for this format: the
+            schema is served to the graphql connections that reference this
+            catalog, which read the document itself.
+          </p>
+        )}
 
         {error && (
           <Alert variant="destructive">

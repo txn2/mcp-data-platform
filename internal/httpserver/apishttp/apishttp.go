@@ -24,7 +24,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"slices"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -169,7 +168,8 @@ type connectionListResponse struct {
 func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request, c *Caller) {
 	ctx := h.elevate(r.Context(), c)
 	out := connectionListResponse{Connections: []connectionResponse{}}
-	for _, name := range h.reachable(r.Context(), c) {
+	for _, conn := range h.reachable(r.Context(), c) {
+		name := conn.Name
 		browser := h.deps.Locate(name)
 		if browser == nil {
 			// The connection is enumerated but no live toolkit serves it,
@@ -182,7 +182,7 @@ func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request, c *Cal
 		if err != nil {
 			continue
 		}
-		out.Connections = append(out.Connections, toConnectionResponse(detail))
+		out.Connections = append(out.Connections, toConnectionResponse(detail, conn.Description))
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)
 }
@@ -220,7 +220,7 @@ type operationListResponse struct {
 // @Router       /apis/{connection}/operations [get]
 func (h *Handler) listOperations(w http.ResponseWriter, r *http.Request, c *Caller) {
 	name := r.PathValue("connection")
-	browser, ok := h.browserFor(w, r, c, name)
+	browser, conn, ok := h.browserFor(w, r, c, name)
 	if !ok {
 		return
 	}
@@ -236,7 +236,7 @@ func (h *Handler) listOperations(w http.ResponseWriter, r *http.Request, c *Call
 		return
 	}
 	out := operationListResponse{
-		Connection: toConnectionResponse(detail),
+		Connection: toConnectionResponse(detail, conn.Description),
 		Operations: make([]operationResponse, 0, len(ops)),
 	}
 	for _, op := range ops {
@@ -274,7 +274,7 @@ func (h *Handler) listOperations(w http.ResponseWriter, r *http.Request, c *Call
 // @Router       /apis/{connection}/operations/{operationId} [get]
 func (h *Handler) getOperation(w http.ResponseWriter, r *http.Request, c *Caller) {
 	name := r.PathValue("connection")
-	browser, ok := h.browserFor(w, r, c, name)
+	browser, _, ok := h.browserFor(w, r, c, name)
 	if !ok {
 		return
 	}
@@ -295,7 +295,7 @@ func (h *Handler) getOperation(w http.ResponseWriter, r *http.Request, c *Caller
 // connection outside it does not exist here.
 func (h *Handler) browserFor(
 	w http.ResponseWriter, r *http.Request, c *Caller, name string,
-) (OperationBrowser, bool) {
+) (OperationBrowser, Connection, bool) {
 	// Locating runs first because locating is what takes a connection
 	// another replica saved into service on this one, and the enumeration
 	// the reachability check reads is of the connections in service
@@ -303,30 +303,42 @@ func (h *Handler) browserFor(
 	// for a connection whose save had already returned. What the caller
 	// reaches is still decided entirely by the check below.
 	browser := h.deps.Locate(name)
-	if name == "" || browser == nil || !h.reaches(r.Context(), c, name) {
-		httpjson.WriteError(w, http.StatusNotFound, "connection not found")
-		return nil, false
-	}
-	return browser, true
-}
-
-// reachable lists the api-kind connection names this caller reaches. The
-// enumeration covers every kind the deployment holds; this surface is about one
-// of them.
-func (h *Handler) reachable(ctx context.Context, c *Caller) []string {
-	conns := h.deps.Connections(ctx, c)
-	names := make([]string, 0, len(conns))
-	for _, conn := range conns {
-		if conn.Kind == apigatewaykit.Kind {
-			names = append(names, conn.Name)
+	if name != "" && browser != nil {
+		if conn, reaches := h.reaches(r.Context(), c, name); reaches {
+			return browser, conn, true
 		}
 	}
-	return names
+	httpjson.WriteError(w, http.StatusNotFound, "connection not found")
+	return nil, Connection{}, false
 }
 
-// reaches reports whether one named connection is in the caller's reach.
-func (h *Handler) reaches(ctx context.Context, c *Caller, name string) bool {
-	return slices.Contains(h.reachable(ctx, c), name)
+// reachable lists the api-kind connections this caller reaches. The
+// enumeration covers every kind the deployment holds; this surface is about one
+// of them.
+//
+// The whole entry travels rather than the name alone because the entry carries
+// the description, which is the connection store's -- where an operator writes
+// it -- and not the configuration map a toolkit parsed (#1757, #1764).
+func (h *Handler) reachable(ctx context.Context, c *Caller) []Connection {
+	conns := h.deps.Connections(ctx, c)
+	out := make([]Connection, 0, len(conns))
+	for _, conn := range conns {
+		if conn.Kind == apigatewaykit.Kind {
+			out = append(out, conn)
+		}
+	}
+	return out
+}
+
+// reaches returns the enumerated connection of that name, and whether the
+// caller reaches it at all.
+func (h *Handler) reaches(ctx context.Context, c *Caller, name string) (Connection, bool) {
+	for _, conn := range h.reachable(ctx, c) {
+		if conn.Name == name {
+			return conn, true
+		}
+	}
+	return Connection{}, false
 }
 
 // elevate puts the caller on the context the toolkit reads, so the route policy
@@ -338,11 +350,16 @@ func (h *Handler) elevate(ctx context.Context, c *Caller) context.Context {
 	return h.deps.Elevate(ctx, c)
 }
 
-// toConnectionResponse projects the toolkit's view onto the wire shape.
-func toConnectionResponse(detail *apigatewaykit.BrowseConnection) connectionResponse {
+// toConnectionResponse projects the toolkit's view onto the wire shape, with
+// the description the inventory reports rather than the one the toolkit
+// derived from its configuration map: an operator writing a description on
+// Admin > Connections writes it to the connection store's own column, which
+// the toolkit never sees, and the route answered the upstream root in its
+// place (#1764).
+func toConnectionResponse(detail *apigatewaykit.BrowseConnection, description string) connectionResponse {
 	out := connectionResponse{
 		Name:           detail.Name,
-		Description:    detail.Description,
+		Description:    description,
 		BaseURL:        detail.BaseURL,
 		AuthMode:       detail.AuthMode,
 		CatalogID:      detail.CatalogID,

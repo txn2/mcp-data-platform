@@ -80,6 +80,8 @@ Both views are read-only and neither returns a spec document.
 | `GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations` | the operations one stored catalog spec parses to |
 | `GET /api/v1/admin/api-catalogs/{id}/specs/{spec}/operations/{operationId}` | one of those operations in full |
 
+A listed connection carries the description its operator wrote, which is the one thing a non-MCP client has to tell two connections apart, and its upstream root in `base_url` beside it. A connection nobody described carries no description rather than its URL (#1764); the description comes from the connection inventory, so this route, `list_connections` and the admin page cannot disagree about it.
+
 The `/api/v1/apis` routes are named outside `/api/v1/portal` because their second reader is not the portal, and they take any credential the portal takes: a session cookie, `Authorization: Bearer <token>`, or `X-API-Key: <key>`. They are mounted with the rest of the portal API, so they are present wherever it is — a deployment with a database, which is also the only kind that can hold a catalog. A caller whose roles map to no persona is refused; one whose persona reaches no api connection gets an empty list rather than a refusal.
 
 An operation id with no declared `operationId` is synthesized as `METHOD path` (`GET /things/{id}`), so it carries a space and slashes. Percent-encode it as one path segment:

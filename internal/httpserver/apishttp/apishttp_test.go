@@ -253,6 +253,23 @@ func TestOperationRoutes_ConnectionOutsideTheCallersReachIsNotFound(t *testing.T
 	}
 }
 
+// TestOperationRoutes_AServedConnectionOutsideTheReachIsNotFound is the other
+// half of the reachability check: the toolkit here serves the connection, so
+// the refusal comes from the persona boundary rather than from nothing serving
+// it. A caller whose roles reach no persona reaches no connection.
+func TestOperationRoutes_AServedConnectionOutsideTheReachIsNotFound(t *testing.T) {
+	caller := &apishttp.Caller{UserID: "u9", Email: "nobody@example.com"}
+	mux := fixture(t, caller, billingBrowser())
+	for _, path := range []string{
+		"/api/v1/apis/billing/operations",
+		"/api/v1/apis/billing/operations/listInvoices",
+	} {
+		if res := get(t, mux, path); res.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", path, res.Code)
+		}
+	}
+}
+
 func TestGetOperation_ReturnsTheResolvedSchema(t *testing.T) {
 	res := get(t, fixture(t, analyst(), billingBrowser()), "/api/v1/apis/billing/operations/listInvoices")
 	if res.Code != http.StatusOK {
@@ -416,5 +433,88 @@ func TestRegister_WrapsEveryRoute(t *testing.T) {
 		if res := get(t, mux, path); res.Code != http.StatusTeapot {
 			t.Errorf("%s bypassed the middleware: status = %d", path, res.Code)
 		}
+	}
+}
+
+// TestConnectionRoutes_DescriptionIsTheInventorys is #1764: the route reported
+// the description the toolkit derived from its configuration map, which for an
+// api connection was the upstream root, while the description an operator
+// wrote lives in the connection store and reaches this surface through the
+// enumeration. The two are made to disagree here, and the operator's wins on
+// both routes that carry a connection.
+func TestConnectionRoutes_DescriptionIsTheInventorys(t *testing.T) {
+	browser := billingBrowser()
+	browser.detail.Description = "https://billing.example.com"
+	mux := fixture(t, analyst(), browser)
+
+	var list struct {
+		Connections []struct {
+			Description string `json:"description"`
+			BaseURL     string `json:"base_url"`
+		} `json:"connections"`
+	}
+	res := get(t, mux, "/api/v1/apis")
+	if err := json.Unmarshal(res.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(list.Connections) != 1 {
+		t.Fatalf("connections = %+v", list.Connections)
+	}
+	if got := list.Connections[0].Description; got != "the billing API" {
+		t.Errorf("description = %q; want the one the inventory carries", got)
+	}
+	if got := list.Connections[0].BaseURL; got != "https://billing.example.com" {
+		t.Errorf("base_url = %q; the upstream root is still reported, in its own field", got)
+	}
+
+	var ops struct {
+		Connection struct {
+			Description string `json:"description"`
+		} `json:"connection"`
+	}
+	res = get(t, mux, "/api/v1/apis/billing/operations")
+	if err := json.Unmarshal(res.Body.Bytes(), &ops); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if ops.Connection.Description != "the billing API" {
+		t.Errorf("operations route description = %q", ops.Connection.Description)
+	}
+}
+
+// TestListConnections_NoDescriptionIsEmpty holds the other half: a connection
+// nobody described carries no description rather than its upstream root, which
+// is what a reader tells two connections apart by.
+func TestListConnections_NoDescriptionIsEmpty(t *testing.T) {
+	browser := billingBrowser()
+	browser.detail.Description = "https://internal.example.com"
+	caller := &apishttp.Caller{UserID: "u3", Email: "admin@example.com", Roles: []string{"admin"}, Persona: "admin", IsAdmin: true}
+	mux := http.NewServeMux()
+	apishttp.New(apishttp.Deps{
+		Caller: func(*http.Request) *apishttp.Caller { return caller },
+		Connections: func(context.Context, *apishttp.Caller) []apishttp.Connection {
+			return []apishttp.Connection{{Name: "internal", Kind: "api"}}
+		},
+		Locate:  func(string) apishttp.OperationBrowser { return browser },
+		Elevate: nil,
+	}).Register(mux, nil)
+
+	var out struct {
+		Connections []struct {
+			Description string `json:"description"`
+			BaseURL     string `json:"base_url"`
+		} `json:"connections"`
+	}
+	res := get(t, mux, "/api/v1/apis")
+	if err := json.Unmarshal(res.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Connections) != 1 {
+		t.Fatalf("connections = %+v", out.Connections)
+	}
+	if got := out.Connections[0].Description; got != "" {
+		t.Errorf("description = %q; a connection nobody described carries none", got)
+	}
+	if got := out.Connections[0].BaseURL; got != "https://billing.example.com" {
+		t.Errorf("base_url = %q; the upstream root is unaffected", got)
 	}
 }

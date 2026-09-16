@@ -1035,16 +1035,16 @@ func (t *Toolkit) HasConnection(name string) bool {
 	return ok
 }
 
-// connectionDescription resolves the description surfaced for a connection:
-// the operator/built-in-supplied Description when set, otherwise the base
-// URL. The base-URL fallback preserves the long-standing behavior where an
-// api connection's subtitle in the admin UI (and list_connections) is its
-// upstream root.
+// connectionDescription is the description surfaced for a connection: the one
+// its operator or a built-in wrote, and nothing when neither did.
+//
+// It does not fall back to the base URL. A connection reports its upstream
+// root in base_url already, and answering the same string as the description
+// made every surface that renders one -- GET /api/v1/apis, list_connections,
+// the pickers -- report a URL where a sentence belongs, which is the one thing
+// a reader has to tell two connections apart (#1764).
 func connectionDescription(cfg Config) string {
-	if cfg.Description != "" {
-		return cfg.Description
-	}
-	return cfg.BaseURL
+	return cfg.Description
 }
 
 // ListConnections returns details for every registered connection,

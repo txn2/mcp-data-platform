@@ -520,13 +520,13 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 }
 
 // connectionDescription is what an operator sees under a connection's
-// name: their own description, or the endpoint it reaches when they
-// wrote none.
+// name: the description they wrote, and nothing when they wrote none.
+//
+// The endpoint is not a description, and answering it as one is the defect
+// #1764 names on the api kind -- the same code, in the same shape, one kind
+// over. A caller that wants the endpoint reads the endpoint.
 func connectionDescription(cfg Config) string {
-	if cfg.Description != "" {
-		return cfg.Description
-	}
-	return cfg.EndpointURL
+	return cfg.Description
 }
 
 // connectionNames returns every registered connection name, sorted.

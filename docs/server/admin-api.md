@@ -803,6 +803,8 @@ Deletes a persona. Only available in `database` config mode. Cannot delete the a
 
 ## Auth Key Endpoints
 
+These routes require the admin persona and accept any credential that carries it, an API key included: a service key whose roles reach that persona lists, issues and revokes keys, including a key bound to a person, which then authenticates as that person. The self-service routes under `/api/v1/portal/api-keys` are the ones that refuse an API-key request, since they act on the strength of the caller being signed in. See [API Key Authentication](../auth/api-keys.md) for what that means for the roles a key is given.
+
 Every replica of a deployment answers these routes, and authenticates API keys, from the one key store in the database. A key created through one replica is listed by, and authenticates on, every replica as soon as the create returns; a deleted key is refused by every replica as soon as the delete returns, and its name can be used again at once. A replica confirms a database key against the store on each request that presents it, so a deleted key is never accepted because a replica had not yet heard of the delete. When the store cannot be read, the key routes answer `500 Internal Server Error` rather than a listing that may be out of date, and a database key is refused rather than accepted unconfirmed. Keys declared in the configuration file are unaffected by the store.
 
 ### List Auth Keys
@@ -875,7 +877,8 @@ Generates a new API key: 64 hexadecimal characters, the encoding of 32 random by
 | `name` | string | yes | Unique key name |
 | `email` | string | no | Owner email |
 | `description` | string | no | Description |
-| `roles` | array | yes | Roles to assign |
+| `user_email` | string | no | Issue the key against this person's account: it authenticates as them, with their user id and address. The platform must have seen them sign in, or the create is refused naming that. Omit for the standalone service key. |
+| `roles` | array | yes, unless `user_email` is set | Roles to assign. On a bound key, omitting them makes the key carry whatever roles that person holds, read on every request; giving them replaces the person's roles on that key and is used verbatim. |
 | `expires_in` | string | no | Duration until expiry (e.g., `24h`, `720h`, `8760h`). Omit for no expiration. |
 
 **Response** (`201 Created`):
