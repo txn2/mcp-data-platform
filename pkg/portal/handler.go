@@ -260,6 +260,13 @@ type Deps struct {
 	// notification substrate, not in this package. nil leaves the
 	// /api/v1/portal/notification-prefs routes unregistered.
 	NotificationRegistrar func(*http.ServeMux)
+	// APIKeyRegistrar, when set, registers the self-scoped API key routes a
+	// person manages their own keys through (#1759) onto the portal's
+	// authenticated mux, the same way NotificationRegistrar does: the feature
+	// lives with the key substrate, not in this package. nil leaves the
+	// /api/v1/portal/api-keys routes unregistered, which is what a deployment
+	// with no key store should do.
+	APIKeyRegistrar func(*http.ServeMux)
 
 	// ContentRefs records the managed resources an asset's content
 	// references (#1474). Every content read this handler serves rewrites the
@@ -453,6 +460,11 @@ func (h *Handler) registerRoutes() {
 	// notification substrate onto the authenticated mux.
 	if h.deps.NotificationRegistrar != nil {
 		h.deps.NotificationRegistrar(h.mux)
+	}
+	// Self-scoped API keys (#1759), registered by the key substrate onto the
+	// authenticated mux.
+	if h.deps.APIKeyRegistrar != nil {
+		h.deps.APIKeyRegistrar(h.mux)
 	}
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
 	// Relevance search is registered only when the wired asset store supports it

@@ -53,6 +53,12 @@ TAG_DESCRIPTIONS = {
         "Asset and collection sharing via public links (token-based, time-limited) "
         "and user shares (email-based with viewer/editor permissions)."
     ),
+    "API Keys": (
+        "The API keys a person issues for their own account. A key authenticates as its "
+        "owner and carries the roles they hold, so a client that speaks only bearer tokens "
+        "reaches the platform as the same identity their signed-in session does. A key "
+        "value is readable once, at creation."
+    ),
     "Audit": (
         "Platform-wide audit log of every tool call. Paginated event queries with filtering, "
         "aggregate statistics, performance percentiles, enrichment metrics, and discovery "
@@ -157,6 +163,7 @@ TAG_GROUPS = [
         "tags": [
             "User",
             "Activity",
+            "API Keys",
             "APIs",
             "Assets",
             "Collections",

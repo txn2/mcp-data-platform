@@ -317,3 +317,10 @@ func TestResubscribeFn(t *testing.T) {
 		t.Error("a store error must propagate")
 	}
 }
+
+// passthroughStringEncryptor satisfies notification.StringEncryptor for the
+// substrate handles these tests build.
+type passthroughStringEncryptor struct{}
+
+func (passthroughStringEncryptor) Encrypt(s string) (string, error) { return s, nil }
+func (passthroughStringEncryptor) Decrypt(s string) (string, error) { return s, nil }

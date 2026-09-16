@@ -2878,6 +2878,13 @@ func (p *Platform) loadDBAPIKeys() {
 		return
 	}
 	p.apiKeyAuth.SetHashedKeySource(p.apiKeyStore)
+	// A key issued against a person's account resolves to them through the
+	// known-users directory (#1759). Without one -- no database, so no keys to
+	// bind either -- none is attached and a bound key is refused rather than
+	// authenticating as something other than the person it names.
+	if p.users.Directory() != nil {
+		p.apiKeyAuth.SetPrincipalSource(p.users)
+	}
 	if err := p.apiKeyAuth.SyncHashedKeys(context.Background()); err != nil {
 		slog.Warn("failed to load DB api keys", logKeyError, err)
 	}

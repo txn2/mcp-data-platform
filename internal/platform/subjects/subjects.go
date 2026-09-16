@@ -21,8 +21,6 @@ package subjects
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -46,54 +44,22 @@ const observeTimeout = 30 * time.Second
 // grows past it, so the throttle stays bounded by the active set.
 const maxSeenEntries = 4096
 
-// Store persists the pair.
+// Store persists the pair. The PostgreSQL implementation is
+// internal/platform/subjects/postgres.
 type Store interface {
 	// Record notes that address most recently authenticated as subject.
-	Record(ctx context.Context, address, subject string) error
+	// fromPerson says whether the principal was the person themselves (an
+	// identity-provider session) rather than a key they hold: a key's pair
+	// never overwrites a person's (#1759).
+	Record(ctx context.Context, address, subject string, fromPerson bool) error
 	// Lookup returns the subject recorded for address, or "" when the platform
-	// has not seen it authenticate.
+	// has not seen it authenticate. It answers whatever wrote the row.
 	Lookup(ctx context.Context, address string) (string, error)
-}
-
-// PostgresStore implements Store over the identity_subjects table.
-type PostgresStore struct{ db *sql.DB }
-
-// NewPostgresStore builds the store. A nil db yields a store that records
-// nothing and knows nothing, so a caller need not check.
-func NewPostgresStore(db *sql.DB) *PostgresStore {
-	return &PostgresStore{db: db}
-}
-
-// Record upserts the pair, keeping the subject most recently seen.
-func (s *PostgresStore) Record(ctx context.Context, address, subject string) error {
-	if s == nil || s.db == nil {
-		return nil
-	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO identity_subjects (address, subject, seen_at) VALUES ($1, $2, NOW())
-		 ON CONFLICT (address) DO UPDATE SET subject = EXCLUDED.subject, seen_at = NOW()`,
-		address, subject)
-	if err != nil {
-		return fmt.Errorf("recording the subject for an address: %w", err)
-	}
-	return nil
-}
-
-// Lookup reads the subject recorded for address.
-func (s *PostgresStore) Lookup(ctx context.Context, address string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", nil
-	}
-	var subject string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT subject FROM identity_subjects WHERE address = $1`, address).Scan(&subject)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("reading the subject for an address: %w", err)
-	}
-	return subject, nil
+	// LookupPerson returns the subject recorded for address by the person
+	// themselves, or "" when the only pair on record was written by a key.
+	// A credential that authenticates AS somebody resolves through this, so a
+	// key can never decide who somebody is.
+	LookupPerson(ctx context.Context, address string) (string, error)
 }
 
 // Book is the recorded pairs plus the fold they enable. It is nil-safe: a
@@ -156,12 +122,36 @@ func (b *Book) Observe(info *middleware.UserInfo) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
 		defer cancel()
-		if err := b.store.Record(ctx, key, info.UserID); err != nil {
+		if err := b.store.Record(ctx, key, info.UserID, isSelf(info)); err != nil {
 			slog.Warn("identity subjects: recording failed", "error", logsan.SanitizeForLog(err.Error()))
 			return
 		}
 		b.foldInto(ctx, address, info.UserID)
 	}()
+}
+
+// Subject is the subject this address authenticates as in its own sessions, or
+// "" when the platform has not seen that person sign in themselves.
+//
+// It reads only a pair the person recorded, never one a key they hold recorded,
+// because a credential resolving through this authenticates AS them: a key that
+// could write this row could decide who somebody is (#1759). Unlike ForRun it
+// folds nothing -- a caller only asking who somebody is must not move their
+// files as a side effect. A lookup that fails is reported, never reported as
+// "nobody": a credential is refused on the difference.
+func (b *Book) Subject(ctx context.Context, address string) (string, error) {
+	if b == nil {
+		return "", nil
+	}
+	key := normalize(address)
+	if key == "" {
+		return "", nil
+	}
+	subject, err := b.store.LookupPerson(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("reading the subject an address authenticates as: %w", err)
+	}
+	return subject, nil
 }
 
 // ForRun is the subject a run acting for address presents, with everything
@@ -222,6 +212,26 @@ func (b *Book) foldInto(ctx context.Context, address, subject string) {
 
 // isPerson reports whether an authenticated identity is one a user library is
 // keyed for.
+// isSelf reports whether the principal IS the person at that address, rather
+// than a credential they hold. An identity-provider session is; so is a key
+// issued against the account, which presents that person's own subject. A
+// service key is not, whatever address it carries.
+func isSelf(info *middleware.UserInfo) bool {
+	switch info.AuthType {
+	case middleware.AuthTypeOIDC, middleware.AuthTypeOAuth:
+		return true
+	case middleware.AuthTypeAPIKey:
+		// A bound key presents the person's own subject; a service key
+		// presents its own.
+		return !strings.HasPrefix(info.UserID, apiKeySubjectPrefix)
+	default:
+		return false
+	}
+}
+
+// apiKeySubjectPrefix opens the subject a key bound to nobody presents.
+const apiKeySubjectPrefix = "apikey:"
+
 func isPerson(info *middleware.UserInfo) bool {
 	switch info.AuthType {
 	case middleware.AuthTypeOIDC, middleware.AuthTypeOAuth, middleware.AuthTypeAPIKey:

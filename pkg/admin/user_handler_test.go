@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,9 @@ func newFakeUserStore() *fakeUserStore {
 	return &fakeUserStore{users: make(map[string]user.User)}
 }
 
-func (*fakeUserStore) Observe(context.Context, string, string, string) error { return nil }
+func (*fakeUserStore) Observe(context.Context, string, string, string, []string) error {
+	return nil
+}
 
 func (f *fakeUserStore) Insert(_ context.Context, u user.User) error {
 	f.mu.Lock()
@@ -229,9 +232,11 @@ func TestDeleteUser(t *testing.T) {
 // errUserStore returns errSentinel from every operation to exercise 500 paths.
 type errUserStore struct{ err error }
 
-func (e *errUserStore) Observe(context.Context, string, string, string) error { return e.err }
-func (e *errUserStore) Insert(context.Context, user.User) error               { return e.err }
-func (e *errUserStore) Get(context.Context, string) (*user.User, error)       { return nil, e.err }
+func (e *errUserStore) Observe(context.Context, string, string, string, []string) error {
+	return e.err
+}
+func (e *errUserStore) Insert(context.Context, user.User) error         { return e.err }
+func (e *errUserStore) Get(context.Context, string) (*user.User, error) { return nil, e.err }
 func (e *errUserStore) List(context.Context, user.Filter) ([]user.User, int, error) {
 	return nil, 0, e.err
 }
@@ -297,4 +302,23 @@ func TestUserRoutes_ReadOnlyInFileMode(t *testing.T) {
 
 	w := doUserReq(t, h, http.MethodPost, "/api/v1/admin/users", `{"email":"a@b.io"}`)
 	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+}
+
+// TestUserSummaryCarriesRecordedRoles is #1759: the admin key form fills a
+// bound key's roles from the directory, so the listing has to carry them. A
+// summary that dropped them showed every person as holding none, and the form
+// would have offered an empty set for somebody who holds several.
+func TestUserSummaryCarriesRecordedRoles(t *testing.T) {
+	seen := time.Now().UTC()
+	got := toUserSummary(user.User{
+		Email:       "analyst@example.com",
+		Roles:       []string{"dp_analyst"},
+		RolesSeenAt: &seen,
+	})
+	if len(got.Roles) != 1 || got.Roles[0] != "dp_analyst" {
+		t.Errorf("Roles = %v, want [dp_analyst]", got.Roles)
+	}
+	if got.RolesSeenAt == nil || !got.RolesSeenAt.Equal(seen) {
+		t.Errorf("RolesSeenAt = %v, want %v", got.RolesSeenAt, seen)
+	}
 }

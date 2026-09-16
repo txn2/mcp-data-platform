@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
@@ -55,7 +56,7 @@ func TestMountPortalAPI_RealDB(t *testing.T) {
 	require.NotNil(t, p.PortalShareStore(), "portal share store must be wired from the real DB")
 
 	mux := http.NewServeMux()
-	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p), true))
+	require.NoError(t, mountPortalAPI(mux, p, notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)}), true))
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
@@ -81,7 +82,7 @@ func TestMountAssetRefRoute_RealDB(t *testing.T) {
 	p := newRealDBPlatform(t)
 
 	mux := http.NewServeMux()
-	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p), true))
+	require.NoError(t, mountPortalAPI(mux, p, notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)}), true))
 	// The SPA is mounted the way the composition root mounts it, so the
 	// pattern that shadowed the route is present in this mux too.
 	mux.Handle("/portal/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -109,7 +110,7 @@ func TestMountScriptPortalAPI_RealDB(t *testing.T) {
 	p := newRealDBPlatform(t)
 
 	mux := http.NewServeMux()
-	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p), true))
+	require.NoError(t, mountPortalAPI(mux, p, notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)}), true))
 
 	// The pattern the mux matched is what proves these routes exist: every
 	// /api/v1/portal/ path is answered by the portal subtree handler otherwise,
@@ -149,7 +150,7 @@ func TestMountResourcesAPI_RealDB(t *testing.T) {
 func TestBuildNotifications_RealDB(t *testing.T) {
 	p := newRealDBPlatform(t)
 
-	h := buildNotifications(p)
+	h := notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)})
 	require.NotNil(t, h, "database-backed platform must yield a notification handle")
 	require.NotNil(t, h.Enqueuer())
 	require.NotNil(t, h.Prefs())
@@ -172,9 +173,9 @@ func TestBuildNotifications_RealDB(t *testing.T) {
 func TestBuildReviewAlert_RealDB(t *testing.T) {
 	p := newRealDBPlatform(t)
 
-	checker := buildReviewAlert(p, buildNotifications(p))
+	checker := notifywire.BuildReviewAlert(p, notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)}))
 	require.NotNil(t, checker, "database-backed platform must yield a review-queue checker")
-	require.NotNil(t, reviewAlertSettings(p, reviewalert.KnowledgeTarget()))
+	require.NotNil(t, notifywire.ReviewAlertSettings(p, reviewalert.KnowledgeTarget()))
 
 	ctx := context.Background()
 	require.NoError(t, checker.Check(ctx))

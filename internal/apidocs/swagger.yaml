@@ -319,11 +319,26 @@ definitions:
         example: ci-pipeline
         type: string
       roles:
+        description: |-
+          Roles is required for a service key. On a key bound through UserEmail it
+          is optional: left out, the key carries whatever roles that person holds,
+          on every request, so a role their provider revokes stops reaching the
+          key. Given, it replaces theirs on this key and is used verbatim -- it is
+          not intersected with what they hold.
         example:
         - analyst
         items:
           type: string
         type: array
+      user_email:
+        description: |-
+          UserEmail issues the key against a person's account: it authenticates as
+          them, so what they do through a client that speaks only bearer tokens is
+          theirs and is there when they sign in to the portal (#1759). The person
+          must be somebody the platform has seen sign in. Leave it out for the
+          standalone service key a key has always been.
+        example: analyst@example.com
+        type: string
     type: object
   admin.authKeyCreateResponse:
     properties:
@@ -352,6 +367,12 @@ definitions:
         items:
           type: string
         type: array
+      user_email:
+        description: |-
+          UserEmail is the account the key was issued against, absent for a
+          service key.
+        example: analyst@example.com
+        type: string
       warning:
         example: Store this key securely. It will not be shown again.
         type: string
@@ -409,6 +430,13 @@ definitions:
       source:
         description: '"file", "database", or "both"'
         example: database
+        type: string
+      user_email:
+        description: |-
+          UserEmail is the account the key is issued against, absent on a service
+          key bound to nobody. A key listing is how an administrator sees whose a
+          key is, including one a person issued for themselves.
+        example: analyst@example.com
         type: string
     type: object
   admin.changelogListResponse:
@@ -1425,6 +1453,23 @@ definitions:
         example: Johnson
         type: string
       last_seen_at:
+        type: string
+      roles:
+        description: |-
+          Roles is the role set the identity provider last said this person holds,
+          recorded at every real sign-in (#1759). It grants nothing on its own: it
+          is what an API key issued against this account carries, which is why the
+          key form fills its roles from here. Empty for somebody who has never
+          signed in.
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      roles_seen_at:
+        description: |-
+          RolesSeenAt is when Roles was last recorded, so a current role set can
+          be told from a long-stale one.
         type: string
       source:
         example: auth
@@ -8601,6 +8646,78 @@ definitions:
       reachable:
         type: boolean
     type: object
+  userkeyhttp.createRequest:
+    properties:
+      description:
+        example: ChatGPT desktop
+        type: string
+      expires_in:
+        description: |-
+          ExpiresIn ends the key after a Go duration (e.g. "720h"). Left out, the
+          key lasts until its owner revokes it.
+        example: 720h
+        type: string
+      name:
+        example: chatgpt
+        type: string
+    type: object
+  userkeyhttp.createResponse:
+    properties:
+      description:
+        example: ChatGPT desktop
+        type: string
+      expires_at:
+        type: string
+      key:
+        example: 3f9a1c07e2b84d56a0c3e1f7b9d2468ace13579bdf02468ace13579bdf024681
+        type: string
+      name:
+        example: chatgpt
+        type: string
+      roles:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      warning:
+        example: Store this key securely. It will not be shown again.
+        type: string
+    type: object
+  userkeyhttp.keyResponse:
+    properties:
+      description:
+        example: ChatGPT desktop
+        type: string
+      expired:
+        example: false
+        type: boolean
+      expires_at:
+        type: string
+      name:
+        description: |-
+          Name is the name the person gave the key, not the name it is stored
+          under. They chose it and it is theirs; the scoping is the platform's
+          business.
+        example: chatgpt
+        type: string
+      roles:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+    type: object
+  userkeyhttp.listResponse:
+    properties:
+      keys:
+        items:
+          $ref: '#/definitions/userkeyhttp.keyResponse'
+        type: array
+      total:
+        example: 2
+        type: integer
+    type: object
   versionhttp.assignCollectionRequest:
     properties:
       collection_id:
@@ -15035,6 +15152,127 @@ paths:
       summary: Get activity timeseries
       tags:
       - Activity
+  /portal/api-keys:
+    get:
+      description: 'Returns the API keys the calling user has issued for themselves.
+        Key values are never included; a value is readable only in the create response.
+        Server-side self-scope: another person''s keys are never listed.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/userkeyhttp.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my API keys
+      tags:
+      - API Keys
+    post:
+      consumes:
+      - application/json
+      description: 'Issues an API key bound to the calling user''s own account. The
+        key authenticates as them and carries the roles they hold, so a client that
+        speaks only bearer tokens reaches the platform as the same identity their
+        signed-in session does. The key value is shown once and never again. The request
+        takes no roles: a person cannot widen their own key.'
+      parameters:
+      - description: The key to issue
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/userkeyhttp.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/userkeyhttp.createResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Issue an API key for myself
+      tags:
+      - API Keys
+  /portal/api-keys/{name}:
+    delete:
+      description: 'Revokes an API key the calling user issued for themselves. It
+        stops authenticating on every replica from the moment this returns. Server-side
+        self-scope: the path names only the caller''s own key, so another person''s
+        key cannot be addressed here.'
+      parameters:
+      - description: The name the key was issued under
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Revoke one of my API keys
+      tags:
+      - API Keys
   /portal/assets:
     get:
       description: Returns paginated assets owned by the current user with optional
@@ -23581,6 +23819,8 @@ tags:
     description: "Human-uploaded reference materials — SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."
   - name: "Shares"
     description: "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."
+  - name: "API Keys"
+    description: "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."
   - name: "Audit"
     description: "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."
   - name: "Auth Keys"
@@ -23629,6 +23869,7 @@ x-tagGroups:
     tags:
       - "User"
       - "Activity"
+      - "API Keys"
       - "APIs"
       - "Assets"
       - "Collections"

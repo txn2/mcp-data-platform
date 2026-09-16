@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ConfigToggle } from "./connections/fields";
+import { MyAPIKeys } from "./MyAPIKeys";
 import { MyNotifications } from "./MyNotifications";
 import { SettingsCard } from "./panels";
 import { ErrorBanner, WarningBanner } from "./settingsChrome";
@@ -162,12 +163,16 @@ function NoDeliveryNotice({ onNavigate }: Props) {
 // preferences (what should I be told) with the notification history (what was
 // I actually told), because a user checking one is usually answering the
 // other -- "I turned shares on, so why have I had no email?"
+//
+// Between them sit the keys a person issues for themselves (#1759), which is
+// the other thing about their own account they manage rather than an admin.
 // ---------------------------------------------------------------------------
 
 export function UserSettingsPage({ onNavigate }: Props) {
   return (
     <div className="space-y-4">
       <NotificationPrefsCard onNavigate={onNavigate} />
+      <MyAPIKeys />
       <MyNotifications />
     </div>
   );

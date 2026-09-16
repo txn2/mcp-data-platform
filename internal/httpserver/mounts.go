@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
@@ -90,6 +91,9 @@ func portalDisabled(p *platform.Platform) bool {
 // the second step only matters for a Config assembled in code without the
 // loader's defaults.
 func portalBrandName(p *platform.Platform) string {
+	if p == nil {
+		return ""
+	}
 	if name := p.Config().Portal.BrandName; name != "" {
 		return name
 	}
@@ -694,6 +698,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		PersonaStore:       p.PersonaStore(),
 		APIKeyStore:        p.APIKeyStore(),
 		UserStore:          p.UserStore(),
+		BoundPrincipals:    p.APIKeyAuthenticator().Principals(),
 		PromptStore:        p.PromptStore(),
 		PromptRegistrar:    p,
 		PromptInfoProvider: p,
@@ -763,12 +768,12 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.NotificationPrefs = notify.Prefs()
 	deps.NotificationHistory = notify.History()
 	deps.NotificationRetention = notifydelivery.HistoryRetention
-	deps.ReviewQueueAlert = reviewAlertSettings(p, reviewalert.KnowledgeTarget())
-	deps.ConnectionAlert = connAlertSettings(p)
+	deps.ReviewQueueAlert = notifywire.ReviewAlertSettings(p, reviewalert.KnowledgeTarget())
+	deps.ConnectionAlert = notifywire.ConnAlertSettings(p)
 	// The OAuth callback forgets a connection's open revocation as it
 	// authorizes it again (#1694). Assigned through the same nil-guarded
 	// builder so a typed nil never reaches the interface.
-	if store := connAlertStore(p); store != nil {
+	if store := notifywire.ConnAlertStore(p); store != nil {
 		deps.ConnectionRevocations = store
 	}
 

@@ -25,11 +25,14 @@ func TestPostgresStore_Observe(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 
+	// The roles arrive as the JSON the JSONB column takes, so a role set the
+	// provider stated is recorded as written rather than as a Go slice the
+	// driver would refuse.
 	mock.ExpectExec("INSERT INTO users").
-		WithArgs("a@b.io", "Marcus", "Johnson").
+		WithArgs("a@b.io", "Marcus", "Johnson", []byte(`["analyst"]`)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	if err := store.Observe(context.Background(), "a@b.io", "Marcus", "Johnson"); err != nil {
+	if err := store.Observe(context.Background(), "a@b.io", "Marcus", "Johnson", []string{"analyst"}); err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -44,7 +47,7 @@ func TestPostgresStore_Observe_Error(t *testing.T) {
 	mock.ExpectExec("INSERT INTO users").
 		WillReturnError(errors.New("connection reset"))
 
-	if err := store.Observe(context.Background(), "a@b.io", "", ""); err == nil {
+	if err := store.Observe(context.Background(), "a@b.io", "", "", nil); err == nil {
 		t.Fatal("expected error to propagate")
 	}
 }
@@ -89,8 +92,8 @@ func TestPostgresStore_Get(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
 		"email", "first_name", "last_name", "source", "confirmed", "added_by",
-		"last_seen_at", "created_at", "updated_at",
-	}).AddRow("a@b.io", "Marcus", "Johnson", "auth", true, "", now, now, now)
+		"last_seen_at", "roles", "roles_seen_at", "created_at", "updated_at",
+	}).AddRow("a@b.io", "Marcus", "Johnson", "auth", true, "", now, []byte(`["dp_analyst"]`), now, now, now)
 	mock.ExpectQuery("SELECT .+ FROM users WHERE email = \\$1").
 		WithArgs("a@b.io").
 		WillReturnRows(rows)
@@ -104,6 +107,14 @@ func TestPostgresStore_Get(t *testing.T) {
 	}
 	if u.LastSeenAt == nil {
 		t.Error("expected non-nil LastSeenAt")
+	}
+	// The recorded role set comes back as a slice, which is what a key bound
+	// to this person carries (#1759).
+	if len(u.Roles) != 1 || u.Roles[0] != "dp_analyst" {
+		t.Errorf("Roles = %v, want [dp_analyst]", u.Roles)
+	}
+	if u.RolesSeenAt == nil {
+		t.Error("expected non-nil RolesSeenAt")
 	}
 }
 
@@ -131,8 +142,8 @@ func TestPostgresStore_List(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
 		"email", "first_name", "last_name", "source", "confirmed", "added_by",
-		"last_seen_at", "created_at", "updated_at",
-	}).AddRow("a@b.io", "Marcus", "Johnson", "auth", true, "", nil, now, now)
+		"last_seen_at", "roles", "roles_seen_at", "created_at", "updated_at",
+	}).AddRow("a@b.io", "Marcus", "Johnson", "auth", true, "", nil, []byte(`[]`), nil, now, now)
 	mock.ExpectQuery("SELECT .+ FROM users").
 		WillReturnRows(rows)
 
@@ -157,8 +168,8 @@ func TestPostgresStore_List_ClampsLimit(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
 		"email", "first_name", "last_name", "source", "confirmed", "added_by",
-		"last_seen_at", "created_at", "updated_at",
-	}).AddRow("a@b.io", "A", "B", "auth", true, "", nil, now, now)
+		"last_seen_at", "roles", "roles_seen_at", "created_at", "updated_at",
+	}).AddRow("a@b.io", "A", "B", "auth", true, "", nil, []byte(`[]`), nil, now, now)
 	// An over-large requested limit must be clamped to MaxListLimit in the args.
 	mock.ExpectQuery("SELECT .+ FROM users").
 		WithArgs(MaxListLimit, 0).

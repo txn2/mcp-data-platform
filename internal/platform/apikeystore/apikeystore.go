@@ -34,8 +34,12 @@ type Definition struct {
 	Description string     `json:"description,omitempty"`
 	Roles       []string   `json:"roles"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	CreatedBy   string     `json:"created_by"`
-	CreatedAt   time.Time  `json:"created_at"`
+	// UserEmail is the account the key is issued against, or "" for the
+	// standalone service key this table has always held. Empty Roles on a
+	// bound key means it carries whatever roles that person holds (#1759).
+	UserEmail string    `json:"user_email,omitempty"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Store manages API key persistence. It is the record of which
@@ -64,7 +68,7 @@ func NewPostgres(db *sql.DB) *PostgresStore {
 // List returns all API key definitions.
 func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at
+		`SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email
 		 FROM api_keys ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("listing api keys: %w", err)
@@ -92,11 +96,11 @@ func (s *PostgresStore) Create(ctx context.Context, def Definition) error {
 
 	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO api_keys
-		 (name, key_hash, email, description, roles, expires_at, created_by, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		 (name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
 		 ON CONFLICT (name) DO NOTHING`,
 		def.Name, def.KeyHash, def.Email, def.Description,
-		roles, def.ExpiresAt, def.CreatedBy,
+		roles, def.ExpiresAt, def.CreatedBy, def.UserEmail,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting api key: %w", err)
@@ -144,6 +148,7 @@ func authKeys(defs []Definition) []auth.APIKey {
 			Description: d.Description,
 			Roles:       d.Roles,
 			ExpiresAt:   d.ExpiresAt,
+			UserEmail:   d.UserEmail,
 		})
 	}
 	return keys
@@ -172,7 +177,7 @@ func scanDefinition(rows *sql.Rows) (Definition, error) {
 	var roles []byte
 	var expiresAt sql.NullTime
 	if err := rows.Scan(&d.Name, &d.KeyHash, &d.Email, &d.Description,
-		&roles, &expiresAt, &d.CreatedBy, &d.CreatedAt); err != nil {
+		&roles, &expiresAt, &d.CreatedBy, &d.CreatedAt, &d.UserEmail); err != nil {
 		return d, fmt.Errorf("scanning api key: %w", err)
 	}
 	if expiresAt.Valid {

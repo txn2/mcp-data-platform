@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -37,7 +38,14 @@ type Store interface {
 	// inserts a new confirmed row or, on conflict, fills ONLY blank name
 	// fields (admin-entered names win) and stamps last_seen_at + confirmed.
 	// firstName/lastName may be empty.
-	Observe(ctx context.Context, email, firstName, lastName string) error
+	//
+	// roles is the role set the identity provider stated at this sign-in, and
+	// it replaces whatever was recorded: a role the provider has stopped
+	// granting stops being recorded here, which is what makes a key bound to
+	// this person lose it too. A provider that states no roles records an
+	// empty set, which is the truthful answer and not a reason to keep a
+	// stale one.
+	Observe(ctx context.Context, email, firstName, lastName string, roles []string) error
 	// Insert adds a directory row, returning ErrAlreadyExists if the email is
 	// already present. Used by the admin pre-add path.
 	Insert(ctx context.Context, u User) error
@@ -63,22 +71,42 @@ func NewPostgresStore(db *sql.DB) *PostgresStore {
 
 // Observe upserts a person seen via authentication. On conflict it fills only
 // the blank name fields so an admin-entered name is never overwritten, and it
-// always marks the row confirmed and bumps last_seen_at.
-func (s *PostgresStore) Observe(ctx context.Context, email, firstName, lastName string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (email, first_name, last_name, source, confirmed, last_seen_at)
-		 VALUES ($1, $2, $3, 'auth', TRUE, NOW())
+// always marks the row confirmed, records the roles the provider stated, and
+// bumps last_seen_at.
+func (s *PostgresStore) Observe(ctx context.Context, email, firstName, lastName string, roles []string) error {
+	encoded, err := encodeRoles(roles)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO users (email, first_name, last_name, source, confirmed, last_seen_at, roles, roles_seen_at)
+		 VALUES ($1, $2, $3, 'auth', TRUE, NOW(), $4, NOW())
 		 ON CONFLICT (email) DO UPDATE SET
-		   first_name   = CASE WHEN users.first_name = '' THEN EXCLUDED.first_name ELSE users.first_name END,
-		   last_name    = CASE WHEN users.last_name  = '' THEN EXCLUDED.last_name  ELSE users.last_name  END,
-		   confirmed    = TRUE,
-		   last_seen_at = NOW(),
-		   updated_at   = NOW()`,
-		email, firstName, lastName)
+		   first_name    = CASE WHEN users.first_name = '' THEN EXCLUDED.first_name ELSE users.first_name END,
+		   last_name     = CASE WHEN users.last_name  = '' THEN EXCLUDED.last_name  ELSE users.last_name  END,
+		   confirmed     = TRUE,
+		   last_seen_at  = NOW(),
+		   roles         = EXCLUDED.roles,
+		   roles_seen_at = NOW(),
+		   updated_at    = NOW()`,
+		email, firstName, lastName, encoded)
 	if err != nil {
 		return fmt.Errorf("observing user: %w", err)
 	}
 	return nil
+}
+
+// encodeRoles renders a role set for the JSONB column. A nil slice is stored
+// as an empty array rather than JSON null, so every row scans back as a slice.
+func encodeRoles(roles []string) ([]byte, error) {
+	if roles == nil {
+		roles = []string{}
+	}
+	encoded, err := json.Marshal(roles)
+	if err != nil {
+		return nil, fmt.Errorf("encoding user roles: %w", err)
+	}
+	return encoded, nil
 }
 
 // Insert adds a new directory row. The source defaults to 'admin' when unset,
@@ -106,7 +134,7 @@ func (s *PostgresStore) Insert(ctx context.Context, u User) error {
 func (s *PostgresStore) Get(ctx context.Context, email string) (*User, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT email, first_name, last_name, source, confirmed, added_by,
-		        last_seen_at, created_at, updated_at
+		        last_seen_at, roles, roles_seen_at, created_at, updated_at
 		 FROM users WHERE email = $1`, email)
 	u, err := scanUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -141,7 +169,7 @@ func (s *PostgresStore) List(ctx context.Context, filter Filter) ([]User, int, e
 	}
 	query := fmt.Sprintf( // #nosec G201 -- `where` holds only $N placeholders; all user input is parameterized via args
 		`SELECT email, first_name, last_name, source, confirmed, added_by,
-		        last_seen_at, created_at, updated_at
+		        last_seen_at, roles, roles_seen_at, created_at, updated_at
 		 FROM users%s
 		 ORDER BY last_name, first_name, email
 		 LIMIT $%d OFFSET $%d`, where, len(args)+1, len(args)+2)
@@ -220,13 +248,23 @@ type rowScanner interface {
 // scanUser reads a full user row.
 func scanUser(row rowScanner) (*User, error) {
 	var u User
-	var lastSeen sql.NullTime
+	var lastSeen, rolesSeen sql.NullTime
+	var roles []byte
 	if err := row.Scan(&u.Email, &u.FirstName, &u.LastName, &u.Source,
-		&u.Confirmed, &u.AddedBy, &lastSeen, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&u.Confirmed, &u.AddedBy, &lastSeen, &roles, &rolesSeen,
+		&u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err //nolint:wrapcheck // callers add context per call site
 	}
 	if lastSeen.Valid {
 		u.LastSeenAt = &lastSeen.Time
+	}
+	if rolesSeen.Valid {
+		u.RolesSeenAt = &rolesSeen.Time
+	}
+	if len(roles) > 0 {
+		if err := json.Unmarshal(roles, &u.Roles); err != nil {
+			return nil, fmt.Errorf("decoding user roles: %w", err)
+		}
 	}
 	return &u, nil
 }

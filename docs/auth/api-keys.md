@@ -1,6 +1,21 @@
 # API Key Authentication
 
-API keys provide simple authentication for service accounts, automation, and development environments. Each key is associated with a name and a set of roles.
+API keys authenticate clients that cannot sign in through an identity provider.
+A key is one of two things:
+
+- **A service key**, with a name and a set of roles of its own. This is the
+  standalone identity a key has always been, and it is right for automation:
+  an ingestion job or a scheduler is not a person and should not act as one.
+- **A key issued against a person's account** (#1759). It authenticates as that
+  person — their user id, their address, their roles — so a client that can only
+  send a bearer token reaches the platform as the same identity their signed-in
+  session does. Their work through that client is theirs, and it is there when
+  they open the portal.
+
+Some MCP clients do not support OAuth. Without the second kind, a person
+connecting through one of those is a different user from themselves, their
+activity is attributed to a key, and their access follows the key rather than
+their account.
 
 ## Configuration
 
@@ -29,6 +44,53 @@ auth:
 | `keys[].key` | Yes | The API key value (use env vars) |
 | `keys[].name` | Yes | Identifier for this key |
 | `keys[].roles` | Yes | Roles assigned to this key |
+
+## Keys issued against a user account
+
+A person issues a key for themselves on **Settings > API Keys** in the portal,
+or an administrator issues one for them on **Admin > API Keys** by picking the
+account under *Issued against*.
+
+**What the key carries.** A bound key presents the subject that person's own
+sessions present, so audit rows, portal assets, saved work and the search-first
+gate all see one identity across both credentials. Its roles are the ones the
+platform last recorded for them, read on every request: a role their identity
+provider stops granting stops reaching the key at their next sign-in.
+
+**A role set of its own.** An administrator may give a bound key roles of its
+own, pre-filled on the form with the roles that person holds. Edited, the set is
+stored on the key and used verbatim: it replaces the person's roles on that key
+rather than narrowing them, so an administrator can issue a key that acts as
+somebody with access they do not themselves have. That follows from an
+administrator deciding what every key may reach, and it is worth stating plainly
+rather than reading the field as a restriction.
+
+A key a person issues for themselves never has one. They cannot widen their own
+key, and there is nothing to narrow it to that they could not already reach.
+
+Managing keys is a signed-in action. A request that authenticated with an API
+key cannot issue, list or revoke keys, so a bound key cannot mint a second key
+for the same account without the first one's role set or expiry, and a service
+key configured with somebody's address cannot act as them.
+
+**The account must have signed in.** A directory row an administrator pre-added
+has no recorded subject and no recorded roles, so a key bound to it would
+authenticate as nobody and list no tools. Creating one is refused, naming the
+reason. The person signs in once and the key can be issued.
+
+**Revocation.** A person revokes their own keys on their settings page.
+An administrator sees every key on Admin > API Keys, keys people issued for
+themselves included (badged **user**, with the account under *Issued against*),
+and can revoke any of them. Removing somebody from the users directory stops
+their bound keys authenticating, since there is no longer an account to resolve.
+
+**Requirements.** Binding needs a database: the users directory is where the
+subject and roles are recorded. A deployment without one issues service keys
+only, and the self-service routes are not registered.
+
+Keys declared in the config file are always service keys. A file is not where a
+person's credential belongs, and a binding declared there could name somebody
+the platform has never seen.
 
 ## Using API Keys
 
@@ -90,9 +152,11 @@ file owns it, while a database key is created and deleted there.
 
 ![Admin API Keys: the create form and the key list](../images/screenshots/light/admin-admin-key-create-light.webp#only-light)![Admin API Keys: the create form and the key list](../images/screenshots/dark/admin-admin-key-create-dark.webp#only-dark)
 
-The create form takes a name, an email, a description, the same roles this
-YAML sets, and an expiration. The generated key is shown once in a copy-now
-banner and never again.
+The create form takes a name, an *Issued against* account, a description, roles
+and an expiration. Left as a service key, it takes a contact email and requires
+roles, as it always has. Bound to a person, it fills the roles with the ones
+that person holds and the key follows them unless the roles are edited. The
+generated key is shown once in a copy-now banner and never again.
 
 ## Multiple Keys
 

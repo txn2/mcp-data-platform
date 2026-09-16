@@ -18,6 +18,7 @@ const (
 
 var apikeyColumns = []string{
 	"name", "key_hash", "email", "description", "roles", "expires_at", "created_by", "created_at",
+	"user_email",
 }
 
 func newTestAPIKeyStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
@@ -43,9 +44,9 @@ func TestPostgresAPIKeyStoreList(t *testing.T) {
 
 	rows := sqlmock.NewRows(apikeyColumns).
 		AddRow("admin-key", "$2a$10$hash1", "admin@example.com", "Admin key",
-			[]byte(`["admin"]`), exp, "creator@example.com", now).
+			[]byte(`["admin"]`), exp, "creator@example.com", now, "").
 		AddRow("readonly-key", "$2a$10$hash2", "readonly@example.com", "Read-only key",
-			[]byte(`["viewer"]`), nil, "creator@example.com", now)
+			[]byte(`["viewer"]`), nil, "creator@example.com", now, "")
 
 	mock.ExpectQuery("SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at").
 		WillReturnRows(rows)
@@ -94,7 +95,7 @@ func TestPostgresAPIKeyStoreList_ScanError(t *testing.T) {
 	store, mock := newTestAPIKeyStore(t)
 
 	rows := sqlmock.NewRows(apikeyColumns).
-		AddRow("bad", "hash", "email", "desc", "not-json", nil, "admin", time.Now())
+		AddRow("bad", "hash", "email", "desc", "not-json", nil, "admin", time.Now(), "")
 
 	mock.ExpectQuery("SELECT .+ FROM api_keys").WillReturnRows(rows)
 
@@ -127,7 +128,7 @@ func TestPostgresAPIKeyStoreCreate(t *testing.T) {
 		WithArgs(
 			def.Name, def.KeyHash, def.Email, def.Description,
 			[]byte(`["admin","viewer"]`),
-			def.ExpiresAt, def.CreatedBy,
+			def.ExpiresAt, def.CreatedBy, def.UserEmail,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -212,12 +213,15 @@ func TestPostgresAPIKeyStoreHashedKeys(t *testing.T) {
 	exp := time.Now().Add(time.Hour).UTC()
 	mock.ExpectQuery("SELECT name, key_hash").
 		WillReturnRows(sqlmock.NewRows(apikeyColumns).
-			AddRow("ci", "$2a$10$hash", "ci@example.com", "pipeline", []byte(`["analyst"]`), exp, "admin@example.com", time.Now()))
+			AddRow("ci", "$2a$10$hash", "ci@example.com", "pipeline", []byte(`["analyst"]`), exp, "admin@example.com", time.Now(), "analyst@example.com"))
 
 	keys, err := store.HashedKeys(context.Background())
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
 	assert.Equal(t, "ci", keys[0].Name)
+	// The account a key is issued against reaches the authenticator with it,
+	// which is what makes the key resolve to that person (#1759).
+	assert.Equal(t, "analyst@example.com", keys[0].UserEmail)
 	assert.Equal(t, "$2a$10$hash", keys[0].KeyHash)
 	assert.Empty(t, keys[0].Key, "a stored key carries no plaintext")
 	assert.Equal(t, "ci@example.com", keys[0].Email)

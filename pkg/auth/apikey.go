@@ -32,6 +32,12 @@ const hashedKeySyncTimeout = 5 * time.Second
 // errInvalidAPIKey is the refusal for a token no key matches.
 var errInvalidAPIKey = errors.New("invalid API key")
 
+// ErrKeyNameTaken is GenerateKey's refusal for a name already held. It is a
+// sentinel so a caller can tell it from the other way minting fails -- a
+// shortage of entropy -- which is not the requester's doing and must not be
+// reported to them as a name they chose being unavailable (#1759).
+var ErrKeyNameTaken = errors.New("key name already exists")
+
 // APIKeyConfig holds API key configuration.
 type APIKeyConfig struct {
 	Keys []APIKey
@@ -53,8 +59,13 @@ type APIKey struct {
 	Name        string     // Display name for the key
 	Email       string     // Email address for this key (optional; defaults to the synthetic name@apikey.local, which receives no mail)
 	Description string     // Human-readable description of what this key is for
-	Roles       []string   // Roles assigned to this key
+	Roles       []string   // Roles assigned to this key; empty on a bound key means the roles its person holds
 	ExpiresAt   *time.Time // Optional expiration time (nil = never expires)
+	// UserEmail is the account this key is issued against, or "" for the
+	// standalone service identity a key has always been. A bound key
+	// authenticates as that person: their subject, their address, and their
+	// roles unless Roles narrows them (#1759).
+	UserEmail string
 }
 
 // IsExpired returns true if the key has an expiration date that has passed.
@@ -71,6 +82,10 @@ type APIKeySummary struct {
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	Expired     bool       `json:"expired,omitempty" example:"false"`
 	Source      string     `json:"source,omitempty" example:"database"` // "file", "database", or "both"
+	// UserEmail is the account the key is issued against, absent on a service
+	// key bound to nobody. A key listing is how an administrator sees whose a
+	// key is, including one a person issued for themselves.
+	UserEmail string `json:"user_email,omitempty" example:"analyst@example.com"`
 }
 
 // HashedKeySource is the store the database-managed keys live in. Every
@@ -101,6 +116,7 @@ type APIKeyAuthenticator struct {
 	fileKeys   map[string]*APIKey // indexed by raw key value
 	hashedKeys []*APIKey          // DB-loaded keys, checked via bcrypt
 	source     HashedKeySource
+	principals PrincipalSource
 	syncs      singleflight.Group
 }
 
@@ -135,7 +151,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 	a.mu.RUnlock()
 
 	if fileKey != nil {
-		return keyUserInfo(fileKey)
+		return a.userInfo(ctx, fileKey)
 	}
 
 	// Slow path: bcrypt comparison for DB-loaded hashed keys.
@@ -145,7 +161,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 		if matched == nil {
 			return nil, errInvalidAPIKey
 		}
-		return keyUserInfo(matched)
+		return a.userInfo(ctx, matched)
 	}
 	if matched == nil {
 		matched = a.matchAfterSync(ctx, hashed, token)
@@ -156,7 +172,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 	if err := a.confirmHeld(ctx, source, matched); err != nil {
 		return nil, err
 	}
-	return keyUserInfo(matched)
+	return a.userInfo(ctx, matched)
 }
 
 // matchFileKey returns the file key token is, or nil. The caller holds a.mu.
@@ -252,19 +268,16 @@ func isGeneratedKeyShape(token string) bool {
 	return err == nil
 }
 
-// keyUserInfo is the identity a matched key authenticates as, or the refusal
-// for a key past its expiry.
-func keyUserInfo(key *APIKey) (*middleware.UserInfo, error) {
-	if key.IsExpired() {
-		return nil, fmt.Errorf("api key %q has expired", key.Name)
-	}
+// keyUserInfo is the standalone identity a key bound to nobody authenticates
+// as. Expiry is checked by userInfo, which is the only caller.
+func keyUserInfo(key *APIKey) *middleware.UserInfo {
 	return &middleware.UserInfo{
 		UserID:   "apikey:" + key.Name,
 		Email:    apiKeyEmail(*key),
 		Claims:   make(map[string]any),
 		Roles:    key.Roles,
 		AuthType: middleware.AuthTypeAPIKey,
-	}, nil
+	}
 }
 
 // SetHashedKeySource attaches the store the database-managed keys live in. It
@@ -355,6 +368,7 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 			ExpiresAt:   k.ExpiresAt,
 			Expired:     k.IsExpired(),
 			Source:      sourceFile,
+			UserEmail:   k.UserEmail,
 		}
 	}
 	for _, k := range a.hashedKeys {
@@ -370,12 +384,20 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 				ExpiresAt:   k.ExpiresAt,
 				Expired:     k.IsExpired(),
 				Source:      sourceDatabase,
+				UserEmail:   k.UserEmail,
 			}
 		}
 	}
 
 	summaries := make([]APIKeySummary, 0, len(byName))
 	for _, s := range byName {
+		// Roles is a list in the published contract, so a key carrying none
+		// is listed as an empty one. A bound key deliberately holds none (it
+		// follows its person), and a reader that walked a null here would
+		// fail on exactly the key this exists to serve.
+		if s.Roles == nil {
+			s.Roles = []string{}
+		}
 		summaries = append(summaries, s)
 	}
 	sort.Slice(summaries, func(i, j int) bool {
@@ -397,12 +419,12 @@ func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
 	// Check for duplicate name across both collections.
 	for _, v := range a.fileKeys {
 		if v.Name == def.Name {
-			return "", fmt.Errorf("key with name %q already exists", def.Name)
+			return "", fmt.Errorf("api key name %q is already held: %w", def.Name, ErrKeyNameTaken)
 		}
 	}
 	for _, v := range a.hashedKeys {
 		if v.Name == def.Name {
-			return "", fmt.Errorf("key with name %q already exists", def.Name)
+			return "", fmt.Errorf("api key name %q is already held: %w", def.Name, ErrKeyNameTaken)
 		}
 	}
 

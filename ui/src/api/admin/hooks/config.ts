@@ -21,7 +21,16 @@ export function useAPIKeys() {
 export function useCreateAPIKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; email?: string; description?: string; roles: string[]; expires_in?: string }) =>
+    mutationFn: (body: {
+      name: string;
+      email?: string;
+      description?: string;
+      /** Issue the key against this person's account (#1759). */
+      user_email?: string;
+      /** Optional on a bound key: left out, the key follows its person's roles. */
+      roles?: string[];
+      expires_in?: string;
+    }) =>
       apiFetch<import("../types").APIKeyCreateResponse>("/auth/keys", {
         method: "POST",
         body: JSON.stringify(body),

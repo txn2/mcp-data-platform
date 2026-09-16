@@ -263,6 +263,15 @@ export interface DirectoryUser {
   confirmed: boolean;
   added_by?: string;
   last_seen_at?: string;
+  /**
+   * The roles the identity provider last said this person holds, recorded at
+   * every real sign-in. An API key issued against their account carries these,
+   * so the admin key form fills its roles from here (#1759). Empty for somebody
+   * an admin pre-added who has never signed in.
+   */
+  roles?: string[];
+  /** When `roles` was last recorded. */
+  roles_seen_at?: string;
   created_at: string;
   updated_at: string;
 }

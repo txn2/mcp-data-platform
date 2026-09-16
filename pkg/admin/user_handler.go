@@ -20,8 +20,17 @@ type userSummary struct {
 	Confirmed  bool       `json:"confirmed" example:"true"`
 	AddedBy    string     `json:"added_by,omitempty" example:"admin@example.com"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	// Roles is the role set the identity provider last said this person holds,
+	// recorded at every real sign-in (#1759). It grants nothing on its own: it
+	// is what an API key issued against this account carries, which is why the
+	// key form fills its roles from here. Empty for somebody who has never
+	// signed in.
+	Roles []string `json:"roles,omitempty" example:"analyst"`
+	// RolesSeenAt is when Roles was last recorded, so a current role set can
+	// be told from a long-stale one.
+	RolesSeenAt *time.Time `json:"roles_seen_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // userListResponse wraps a page of directory users.
@@ -330,14 +339,16 @@ func validateUserUpdate(req userUpdateRequest) error {
 // toUserSummary converts a domain user to its admin API representation.
 func toUserSummary(u user.User) userSummary {
 	return userSummary{
-		Email:      u.Email,
-		FirstName:  u.FirstName,
-		LastName:   u.LastName,
-		Source:     u.Source,
-		Confirmed:  u.Confirmed,
-		AddedBy:    u.AddedBy,
-		LastSeenAt: u.LastSeenAt,
-		CreatedAt:  u.CreatedAt,
-		UpdatedAt:  u.UpdatedAt,
+		Email:       u.Email,
+		FirstName:   u.FirstName,
+		LastName:    u.LastName,
+		Source:      u.Source,
+		Confirmed:   u.Confirmed,
+		AddedBy:     u.AddedBy,
+		LastSeenAt:  u.LastSeenAt,
+		Roles:       u.Roles,
+		RolesSeenAt: u.RolesSeenAt,
+		CreatedAt:   u.CreatedAt,
+		UpdatedAt:   u.UpdatedAt,
 	}
 }

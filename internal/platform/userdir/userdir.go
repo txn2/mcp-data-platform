@@ -17,10 +17,17 @@
 package userdir
 
 import (
+	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"log/slog"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/txn2/mcp-data-platform/internal/platform/subjects"
+	subjectspg "github.com/txn2/mcp-data-platform/internal/platform/subjects/postgres"
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/user"
@@ -60,7 +67,7 @@ func New(db *sql.DB) *Handle {
 	return &Handle{
 		store:     store,
 		directory: user.NewDirectory(store),
-		subjects:  subjects.New(subjects.NewPostgresStore(db)),
+		subjects:  subjects.New(subjectspg.New(db)),
 	}
 }
 
@@ -118,16 +125,84 @@ func (h *Handle) ObserveAuthenticated(info *middleware.UserInfo) {
 		return
 	}
 	first, last := user.NameFromClaims(info.Claims, info.Name)
-	h.directory.Observe(info.Email, first, last)
+	h.directory.Observe(info.Email, first, last, info.Roles)
 }
 
 // ObserveBrowserLogin records a portal/admin SPA user in the directory at login.
-// The browser-session flow already supplies a split first/last name from the
-// id_token, so this routes straight to the directory (which sanitizes, throttles,
-// and writes asynchronously). No-op on a nil Handle or a nil directory.
-func (h *Handle) ObserveBrowserLogin(email, firstName, lastName string) {
+// The browser-session flow already supplies a split first/last name and the
+// subject and roles it extracted from the id_token, so this routes straight to
+// the directory (which sanitizes, throttles, and writes asynchronously). No-op
+// on a nil Handle or a nil directory.
+//
+// The subject pair is recorded here as well as on the token path. A person who
+// only ever signs in through the portal never passes through the authenticator,
+// so this is the only place the platform learns what they authenticate as --
+// which a managed-script run acting for them reads (#1677), and which a key
+// issued against their account authenticates as (#1759).
+func (h *Handle) ObserveBrowserLogin(email, firstName, lastName, subject string, roles []string) {
 	if h == nil || h.directory == nil {
 		return
 	}
-	h.directory.Observe(email, firstName, lastName)
+	h.directory.Observe(email, firstName, lastName, roles)
+	h.subjects.Observe(&middleware.UserInfo{
+		UserID:   subject,
+		Email:    email,
+		Roles:    roles,
+		AuthType: authTypeLabelOIDC,
+	})
+}
+
+// BoundPrincipal resolves the person an API key is issued against: the subject
+// their own sessions authenticate as, their address as the directory holds it,
+// and the roles the identity provider last said they hold (#1759).
+//
+// It answers auth.ErrNoBoundPrincipal for somebody the platform cannot speak
+// for: an address the directory has no row for (including a person an
+// administrator has since removed, which is how removing them revokes their
+// keys) and one it has never seen sign in, which has no subject to present and
+// no roles to carry. A read that FAILED reports that failure instead, so a key
+// is refused rather than resolved against a directory that could not answer,
+// and a caller can tell "there is nobody" from "I could not look".
+//
+// The two reads are independent and are made together, so a bound key costs one
+// round trip's worth of latency rather than two.
+func (h *Handle) BoundPrincipal(ctx context.Context, email string) (*auth.BoundPrincipal, error) {
+	if h == nil || h.store == nil {
+		return nil, auth.ErrNoBoundPrincipal
+	}
+	address, err := user.NormalizeEmail(email)
+	if err != nil {
+		// Not an address the directory could hold, so nobody is bound.
+		return nil, auth.ErrNoBoundPrincipal
+	}
+
+	var person *user.User
+	var subject string
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		found, err := h.store.Get(groupCtx, address)
+		if errors.Is(err, user.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("reading the account a key is bound to: %w", err)
+		}
+		person = found
+		return nil
+	})
+	group.Go(func() error {
+		found, err := h.subjects.Subject(groupCtx, address)
+		if err != nil {
+			return fmt.Errorf("reading the subject that account authenticates as: %w", err)
+		}
+		subject = found
+		return nil
+	})
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("resolving the account a key is bound to: %w", err)
+	}
+	if person == nil || subject == "" {
+		return nil, auth.ErrNoBoundPrincipal
+	}
+	return &auth.BoundPrincipal{Subject: subject, Email: person.Email, Roles: person.Roles}, nil
 }

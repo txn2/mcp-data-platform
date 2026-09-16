@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
@@ -298,7 +299,7 @@ func wireTableToolRegistrar(p *platform.Platform, adminRoles []string) {
 	if registry == nil {
 		return
 	}
-	for _, tk := range registry.GetByKind(portalToolkitKind) {
+	for _, tk := range registry.GetByKind(notifywire.PortalToolkitKind) {
 		if sink, ok := tk.(tableRegistrarSink); ok {
 			sink.SetTableRegistrar(adapter)
 		}
