@@ -1,10 +1,12 @@
 // Package user provides a directory of known people keyed by email (#614).
 //
-// It is NOT an authorization layer. A row simply records that a person exists
-// so share pickers can resolve a name from an email address. Rows are upserted
-// when a person authenticates (token claims fill the name) and can be pre-added
-// by an admin before the person has ever logged in. Admin-entered names take
-// precedence: a login only fills blank name fields.
+// It is NOT where access is granted. A row records that a person exists, so
+// share pickers can resolve a name from an email address, and it records the
+// role set the identity provider last said they hold, so a credential issued
+// against their account carries what they carry (#1759). Rows are upserted when
+// a person authenticates (token claims fill the name and the roles) and can be
+// pre-added by an admin before the person has ever logged in. Admin-entered
+// names take precedence: a login only fills blank name fields.
 package user
 
 import "time"
@@ -26,8 +28,17 @@ type User struct {
 	Confirmed  bool       `json:"confirmed" example:"true"`
 	AddedBy    string     `json:"added_by,omitempty" example:"admin@example.com"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	// Roles is the role set the identity provider last said this person holds,
+	// recorded at every real sign-in. It is not an access grant: the provider
+	// decides, and a row only remembers what it said. An API key bound to this
+	// person carries these roles, so the key reaches the persona they do.
+	// Empty for somebody an admin pre-added who has never signed in.
+	Roles []string `json:"roles,omitempty" example:"analyst"`
+	// RolesSeenAt is when Roles was last recorded, so an operator reading the
+	// directory can tell a current role set from a long-stale one.
+	RolesSeenAt *time.Time `json:"roles_seen_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // Filter specifies criteria for listing directory users.

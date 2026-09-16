@@ -7,23 +7,30 @@ import (
 	"net/http"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
+	"github.com/txn2/mcp-data-platform/internal/apikeyissue"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
-// errNoAPIKeyStore is the create failure for a handler built without a key store.
-var errNoAPIKeyStore = errors.New("no api key store")
-
 // authKeyCreateRequest is the request body for creating an API key.
 type authKeyCreateRequest struct {
-	Name        string   `json:"name" example:"ci-pipeline"`
-	Email       string   `json:"email,omitempty" example:"ci@example.com"`
-	Description string   `json:"description,omitempty" example:"CI/CD pipeline integration"`
-	Roles       []string `json:"roles" example:"analyst"`
-	ExpiresIn   string   `json:"expires_in,omitempty" example:"720h"` // e.g. "24h", "720h", "8760h"
+	Name        string `json:"name" example:"ci-pipeline"`
+	Email       string `json:"email,omitempty" example:"ci@example.com"`
+	Description string `json:"description,omitempty" example:"CI/CD pipeline integration"`
+	// UserEmail issues the key against a person's account: it authenticates as
+	// them, so what they do through a client that speaks only bearer tokens is
+	// theirs and is there when they sign in to the portal (#1759). The person
+	// must be somebody the platform has seen sign in. Leave it out for the
+	// standalone service key a key has always been.
+	UserEmail string `json:"user_email,omitempty" example:"analyst@example.com"`
+	// Roles is required for a service key. On a key bound through UserEmail it
+	// is optional: left out, the key carries whatever roles that person holds,
+	// on every request, so a role their provider revokes stops reaching the
+	// key. Given, it replaces theirs on this key and is used verbatim -- it is
+	// not intersected with what they hold.
+	Roles     []string `json:"roles" example:"analyst"`
+	ExpiresIn string   `json:"expires_in,omitempty" example:"720h"` // e.g. "24h", "720h", "8760h"
 }
 
 // authKeyCreateResponse is the response after creating an API key.
@@ -34,7 +41,10 @@ type authKeyCreateResponse struct {
 	Key         string     `json:"key" example:"3f9a1c07e2b84d56a0c3e1f7b9d2468ace13579bdf02468ace13579bdf024681"`
 	Roles       []string   `json:"roles" example:"analyst"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Warning     string     `json:"warning" example:"Store this key securely. It will not be shown again."`
+	// UserEmail is the account the key was issued against, absent for a
+	// service key.
+	UserEmail string `json:"user_email,omitempty" example:"analyst@example.com"`
+	Warning   string `json:"warning" example:"Store this key securely. It will not be shown again."`
 	// Persona is the persona the key acts as. Absent when its roles reach none.
 	Persona string `json:"persona,omitempty" example:"analyst"`
 	// Warnings name what is wrong with the key as created. The key is created
@@ -81,7 +91,7 @@ func (h *Handler) listAuthKeys(w http.ResponseWriter, r *http.Request) {
 	out := make([]authKeySummary, 0, len(keys))
 	for _, k := range keys {
 		entry := authKeySummary{APIKeySummary: k}
-		entry.Persona, entry.NoPersona = h.keyPersona(k.Roles)
+		entry.Persona, entry.NoPersona = h.keyPersona(h.effectiveRoles(r, k))
 		out = append(out, entry)
 	}
 	writeJSON(w, http.StatusOK, authKeyListResponse{Keys: out, Total: len(out)})
@@ -113,70 +123,139 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if len(req.Roles) == 0 {
-		writeError(w, http.StatusBadRequest, "roles is required")
+	// Roles say what a service key may reach and are the only thing that does,
+	// so one without them reaches nothing. A key bound to a person has a role
+	// set already -- theirs -- and names one only to narrow it.
+	if req.UserEmail == "" && len(req.Roles) == 0 {
+		writeError(w, http.StatusBadRequest, "roles is required, or bind the key to a user with user_email")
 		return
 	}
 
-	def := auth.APIKey{
-		Name:        req.Name,
-		Email:       req.Email,
-		Description: req.Description,
-		Roles:       req.Roles,
-	}
-
-	// Parse expiration if provided.
-	if req.ExpiresIn != "" {
-		dur, err := time.ParseDuration(req.ExpiresIn)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid expires_in duration: "+err.Error())
-			return
-		}
-		if dur <= 0 {
-			writeError(w, http.StatusBadRequest, "expires_in must be a positive duration")
-			return
-		}
-		exp := time.Now().Add(dur)
-		def.ExpiresAt = &exp
+	expiresAt, ok := authKeyExpiry(w, req.ExpiresIn)
+	if !ok {
+		return
 	}
 
 	if !h.syncAPIKeys(w, r) {
 		return
 	}
-	keyValue, err := h.deps.APIKeyManager.GenerateKey(def)
+	issued, err := h.apiKeyIssuer().Issue(r.Context(), apikeyissue.Request{
+		Name:        req.Name,
+		Description: req.Description,
+		Email:       apiKeyEmailFallback(req.Email, req.Name),
+		UserEmail:   req.UserEmail,
+		Roles:       req.Roles,
+		ExpiresAt:   expiresAt,
+		CreatedBy:   extractAuthor(r),
+	})
 	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		writeAuthKeyIssueError(w, req.Name, req.UserEmail, err)
 		return
 	}
-
-	// The store is where the key comes into being: it authenticates once it is
-	// stored, and a name another replica stored first is refused here.
-	if err := h.persistAPIKey(r, keyValue, def); err != nil {
-		if errors.Is(err, platform.ErrAPIKeyExists) {
-			writeError(w, http.StatusConflict, fmt.Sprintf("key with name %q already exists", def.Name))
-			return
-		}
-		slog.Warn("failed to persist api key", logKeyName, logsan.SanitizeForLog(def.Name), logKeyError, err)
-		writeError(w, http.StatusInternalServerError, "failed to persist api key")
-		return
-	}
-	h.afterAPIKeyWrite(r)
 
 	resp := authKeyCreateResponse{
 		Name:        req.Name,
-		Email:       apiKeyEmailFallback(req.Email, req.Name),
+		Email:       issued.Email,
 		Description: req.Description,
-		Key:         keyValue,
-		Roles:       req.Roles,
-		ExpiresAt:   def.ExpiresAt,
+		Key:         issued.Key,
+		Roles:       issued.Roles,
+		ExpiresAt:   expiresAt,
+		UserEmail:   req.UserEmail,
 		Warning:     "Store this key securely. It will not be shown again.",
 	}
+	// A bound key with no roles of its own reaches the persona its person
+	// reaches, so the persona reported is the one those roles map to.
+	effective := issued.Roles
+	if len(effective) == 0 && issued.Person != nil {
+		effective = issued.Person.Roles
+		resp.Roles = effective
+	}
 	var unmapped bool
-	resp.Persona, unmapped = h.keyPersona(req.Roles)
+	resp.Persona, unmapped = h.keyPersona(effective)
 	if unmapped {
-		resp.Warnings = []string{h.noPersonaWarning(req.Roles)}
+		resp.Warnings = []string{h.noPersonaWarning(effective)}
 	}
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// effectiveRoles is what a listed key actually reaches: its own roles, or, for
+// a key issued against an account with none of its own, the roles that person
+// holds (#1759).
+//
+// Without this such a key lists as reaching no persona, which is the opposite
+// of true: it reaches whatever persona its owner does. An account that cannot
+// be resolved answers the key's own roles, so the listing reports what it can
+// rather than a persona it has not checked.
+func (h *Handler) effectiveRoles(r *http.Request, k auth.APIKeySummary) []string {
+	if k.UserEmail == "" || len(k.Roles) > 0 || h.deps.BoundPrincipals == nil {
+		return k.Roles
+	}
+	person, err := h.deps.BoundPrincipals.BoundPrincipal(r.Context(), k.UserEmail)
+	if err != nil {
+		return k.Roles
+	}
+	return person.Roles
+}
+
+// authKeyExpiry parses the requested lifetime, answering the refusal itself and
+// reporting false when it cannot. A key with no lifetime never expires.
+func authKeyExpiry(w http.ResponseWriter, expiresIn string) (*time.Time, bool) {
+	if expiresIn == "" {
+		return nil, true
+	}
+	dur, err := time.ParseDuration(expiresIn)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid expires_in duration: "+err.Error())
+		return nil, false
+	}
+	if dur <= 0 {
+		writeError(w, http.StatusBadRequest, "expires_in must be a positive duration")
+		return nil, false
+	}
+	exp := time.Now().Add(dur)
+	return &exp, true
+}
+
+// apiKeyIssuer is the shared key-issuing core, wired to this handler's deps.
+// The portal's self-service route issues through the same one, so a key a
+// person makes for themselves is made by the same rules (#1759).
+func (h *Handler) apiKeyIssuer() *apikeyissue.Issuer {
+	issuer := &apikeyissue.Issuer{
+		Manager:    h.deps.APIKeyManager,
+		Principals: h.deps.BoundPrincipals,
+	}
+	if h.deps.APIKeyStore != nil {
+		issuer.Store = h.deps.APIKeyStore
+	}
+	if h.deps.ReloadNotifier != nil {
+		issuer.Announce = h.deps.ReloadNotifier.PublishAPIKeyReload
+	}
+	return issuer
+}
+
+// writeAuthKeyIssueError answers a refusal from the issuing core in the admin
+// API's own words.
+func writeAuthKeyIssueError(w http.ResponseWriter, name, userEmail string, err error) {
+	switch {
+	case errors.Is(err, apikeyissue.ErrNameTaken):
+		writeError(w, http.StatusConflict, fmt.Sprintf("key with name %q already exists", name))
+	case errors.Is(err, apikeyissue.ErrUnknownPerson):
+		writeError(w, http.StatusBadRequest, fmt.Sprintf(
+			"no key can be issued against %q: the platform has no record of that person signing in, "+
+				"so it does not know what they authenticate as or what roles they hold. "+
+				"They can sign in once, or the key can be issued with roles of its own and no user_email.",
+			userEmail))
+	case errors.Is(err, apikeyissue.ErrReservedName):
+		writeError(w, http.StatusBadRequest, fmt.Sprintf(
+			"a key name may not begin with %q unless it is issued against a user account: that is the namespace "+
+				"of keys people issue for themselves, and a key bound to nobody there would take a name its "+
+				"apparent owner can neither see nor revoke.", apikeyissue.SelfIssuedPrefix))
+	case errors.Is(err, apikeyissue.ErrNoStore):
+		writeError(w, http.StatusInternalServerError, "this deployment stores no api keys")
+	default:
+		slog.Warn("failed to issue api key", logKeyName, logsan.SanitizeForLog(name), logKeyError, logsan.SanitizeForLog(err.Error()))
+		writeError(w, http.StatusInternalServerError, "failed to persist api key")
+	}
 }
 
 // deleteAuthKey handles DELETE /api/v1/admin/auth/keys/{name}.
@@ -261,35 +340,6 @@ func (h *Handler) keySourceByName(name string) string {
 		}
 	}
 	return ""
-}
-
-// persistAPIKey hashes the raw key value and persists it to the database.
-// Returns an error if persistence fails, platform.ErrAPIKeyExists among them.
-// With no store there is nowhere for the key to exist, so that is an error too.
-func (h *Handler) persistAPIKey(r *http.Request, keyValue string, def auth.APIKey) error {
-	if h.deps.APIKeyStore == nil {
-		return errNoAPIKeyStore
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(keyValue), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("hashing api key: %w", err)
-	}
-
-	dbDef := platform.APIKeyDefinition{
-		Name:        def.Name,
-		KeyHash:     string(hash),
-		Email:       apiKeyEmailFallback(def.Email, def.Name),
-		Description: def.Description,
-		Roles:       def.Roles,
-		ExpiresAt:   def.ExpiresAt,
-		CreatedBy:   extractAuthor(r),
-	}
-
-	if err := h.deps.APIKeyStore.Create(r.Context(), dbDef); err != nil {
-		return fmt.Errorf("persisting api key: %w", err)
-	}
-	return nil
 }
 
 // apiKeyEmailFallback returns the email or the synthetic address built from the

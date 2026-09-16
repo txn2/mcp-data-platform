@@ -1,4 +1,14 @@
-package httpserver
+// Package notifywire assembles the notification substrate for the HTTP
+// composition root: the delivery handle, the branded templates, the review and
+// connection alerts, and the portal's notifier and self-scoped preference
+// routes.
+//
+// It was extracted from internal/httpserver (#1759) when that package reached
+// its size budget. The seam is a real one: everything here takes a
+// *platform.Platform and returns an assembled subsystem handle, and nothing in
+// it touches a mux, a route or a middleware, which is what the composition root
+// itself is about.
+package notifywire
 
 import (
 	"log"
@@ -29,12 +39,12 @@ func reviewAlertStore(p *platform.Platform, target reviewalert.Target) *reviewal
 	return reviewalert.NewPostgresStore(p.DB(), target)
 }
 
-// reviewAlertSettings narrows one queue's store to the half the admin settings
+// ReviewAlertSettings narrows one queue's store to the half the admin settings
 // surface needs, or nil when the alert cannot exist here. A nil result unmounts
 // the admin routes, matching what the SMTP section already does in the same
 // states: an operator must not be able to configure an alert nothing will
 // ever send. The explicit nil check keeps a typed nil out of the interface.
-func reviewAlertSettings(p *platform.Platform, target reviewalert.Target) reviewalert.SettingsStore {
+func ReviewAlertSettings(p *platform.Platform, target reviewalert.Target) reviewalert.SettingsStore {
 	store := reviewAlertStore(p, target)
 	if store == nil {
 		return nil
@@ -42,11 +52,11 @@ func reviewAlertSettings(p *platform.Platform, target reviewalert.Target) review
 	return store
 }
 
-// buildReviewAlert assembles the scheduled knowledge review-queue staleness
+// BuildReviewAlert assembles the scheduled knowledge review-queue staleness
 // check. Returns nil (a no-op checker) when anything it needs is absent: no
 // database, notifications off, no knowledge insight store -- an alert with
 // nowhere to send is not an alert.
-func buildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
+func BuildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
 	target := reviewalert.KnowledgeTarget()
 	store := reviewAlertStore(p, target)
 	if store == nil {
@@ -72,25 +82,25 @@ func buildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *revi
 	return checker
 }
 
-// connAlertStore builds the connection-revocation alert's persistence (#1694),
+// ConnAlertStore builds the connection-revocation alert's persistence (#1694),
 // or nil when the alert cannot exist in this deployment: no database, or
 // notifications turned off in YAML. Like the review alert's store it is
 // stateless over the pool, so the admin API and the sweep each build one rather
 // than sharing a handle whose lifecycle it does not have.
-func connAlertStore(p *platform.Platform) *connalert.PostgresStore {
+func ConnAlertStore(p *platform.Platform) *connalert.PostgresStore {
 	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
 		return nil
 	}
 	return connalert.NewPostgresStore(p.DB())
 }
 
-// connAlertSettings narrows the store to the half the admin settings surface
+// ConnAlertSettings narrows the store to the half the admin settings surface
 // needs, or nil when the alert cannot exist here. A nil result unmounts the
 // admin routes: an operator must not be able to name recipients for an alert
 // nothing will ever send. The explicit nil check keeps a typed nil out of the
 // interface.
-func connAlertSettings(p *platform.Platform) connalert.SettingsStore {
-	store := connAlertStore(p)
+func ConnAlertSettings(p *platform.Platform) connalert.SettingsStore {
+	store := ConnAlertStore(p)
 	if store == nil {
 		return nil
 	}
@@ -100,7 +110,7 @@ func connAlertSettings(p *platform.Platform) connalert.SettingsStore {
 // buildConnAlertConfig assembles what the revocation alert and its escalation
 // both need, or the zero config when anything is absent.
 func buildConnAlertConfig(p *platform.Platform, notify *notifydelivery.Handle) connalert.Config {
-	store := connAlertStore(p)
+	store := ConnAlertStore(p)
 	if store == nil || notify == nil {
 		return connalert.Config{}
 	}
@@ -112,7 +122,7 @@ func buildConnAlertConfig(p *platform.Platform, notify *notifydelivery.Handle) c
 	}
 }
 
-// wireConnRevocationAlert tells the auth-event writer where to announce a
+// WireConnRevocationAlert tells the auth-event writer where to announce a
 // discarded credential (#1694), and returns the sweep that escalates one nobody
 // has acted on. Both are nil when the alert cannot exist here.
 //
@@ -121,7 +131,7 @@ func buildConnAlertConfig(p *platform.Platform, notify *notifydelivery.Handle) c
 // It is the one dependency every connoauth.Source already carries, which is why
 // the announcement rides it instead of being threaded a second time through
 // every toolkit that wires OAuth.
-func wireConnRevocationAlert(p *platform.Platform, notify *notifydelivery.Handle) *connalert.Escalator {
+func WireConnRevocationAlert(p *platform.Platform, notify *notifydelivery.Handle) *connalert.Escalator {
 	cfg := buildConnAlertConfig(p, notify)
 	alerter := connalert.NewAlerter(cfg)
 	if alerter == nil {
@@ -132,11 +142,24 @@ func wireConnRevocationAlert(p *platform.Platform, notify *notifydelivery.Handle
 	return connalert.NewEscalator(cfg)
 }
 
-// buildNotifications assembles the email-notification substrate from the
-// platform's database, encryptor, and branding. Returns nil when the
+// Brand is what an email says it is from and where its footer links go. The
+// composition root resolves both -- the brand name has fallbacks that belong to
+// the portal's config, and the unsubscribe link needs the browser-session
+// signing key -- so they arrive here rather than being derived twice.
+type Brand struct {
+	// Name is the deployment's brand name, already resolved through its
+	// fallbacks.
+	Name string
+	// UnsubscribeURL builds the no-login opt-out link for an address, or nil
+	// when the endpoint cannot be served.
+	UnsubscribeURL func(email string) string
+}
+
+// BuildNotifications assembles the email-notification substrate from the
+// platform's database, encryptor, and the brand supplied. Returns nil when the
 // feature is unavailable (no platform, no database) or disabled by config;
 // every consumer of the handle is nil-safe.
-func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
+func BuildNotifications(p *platform.Platform, brand Brand) *notifydelivery.Handle {
 	if p == nil || !p.Config().Notifications.IsEnabled() {
 		return nil
 	}
@@ -145,7 +168,7 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 		DSN:       p.Config().Database.DSN,
 		Encryptor: p.RestEncryptor(),
 		Branding: notifyrender.Branding{
-			Name:            portalBrandName(p),
+			Name:            brand.Name,
 			BaseURL:         p.Config().Portal.PublicBaseURL,
 			ImplementorName: p.Config().Portal.Implementor.Name,
 			ImplementorURL:  p.Config().Portal.Implementor.URL,
@@ -157,7 +180,7 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 			LogoPNG:         emailLogo(p.Config().Portal.LogoEmail),
 		},
 		DigestHourUTC:  p.Config().Notifications.DigestHour(),
-		UnsubscribeURL: unsubscribeURLFn(p),
+		UnsubscribeURL: brand.UnsubscribeURL,
 	})
 	if err != nil {
 		// A renderer build failure means broken embedded templates — a build
@@ -216,29 +239,32 @@ type feedbackNotificationSink interface {
 // It runs only on the HTTP path, which is where that substrate lives: under
 // stdio the feedback tool stores replies but mails nothing (see
 // portal.Toolkit.SetFeedbackNotifications).
-func wireFeedbackToolNotifications(p *platform.Platform, notifier portal.Notifier) {
+func wireFeedbackToolNotifications(p *platform.Platform, notifier portal.Notifier, audience *mention.Audience) {
 	registry := p.ToolkitRegistry()
 	if registry == nil {
 		return
 	}
 	var resolver portal.MentionResolver
-	if aud := mentionAudience(p); aud != nil {
-		resolver = mention.NewService(aud)
+	if audience != nil {
+		resolver = mention.NewService(audience)
 	}
-	for _, tk := range registry.GetByKind(portalToolkitKind) {
+	for _, tk := range registry.GetByKind(PortalToolkitKind) {
 		if sink, ok := tk.(feedbackNotificationSink); ok {
 			sink.SetFeedbackNotifications(notifier, resolver)
 		}
 	}
 }
 
-// portalToolkitKind is the registry kind of the asset-portal toolkit.
-const portalToolkitKind = "portal"
+// PortalToolkitKind is the registry kind of the asset-portal toolkit.
+const PortalToolkitKind = "portal"
 
-// wirePortalNotifications attaches the notification substrate to the portal
+// WirePortalNotifications attaches the notification substrate to the portal
 // dependency set: the share/thread trigger bridge and the self-scoped
 // preference routes. A nil handle leaves both unset (feature unavailable).
-func wirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *notifydelivery.Handle) {
+//
+// The mention audience is supplied rather than built here: the composition root
+// builds one and hands the same one to every surface that resolves a mention.
+func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *notifydelivery.Handle, audience *mention.Audience) {
 	if notify == nil {
 		return
 	}
@@ -250,12 +276,12 @@ func wirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	// Assign only a live audience: a typed nil in the interface field would
 	// read as wired and panic on the first lookup.
-	if aud := mentionAudience(p); aud != nil {
-		stores.Grantees = aud
+	if audience != nil {
+		stores.Grantees = audience
 	}
 	if bridge := notify.PortalNotifier(stores, p.Config().Portal.PublicBaseURL); bridge != nil {
 		deps.Notifier = bridge
-		wireFeedbackToolNotifications(p, bridge)
+		wireFeedbackToolNotifications(p, bridge, audience)
 	}
 	callerEmail := func(r *http.Request) string {
 		if user := portal.GetUser(r.Context()); user != nil {

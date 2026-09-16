@@ -8,9 +8,13 @@ import type { NotificationPrefs } from "@/api/portal/hooks/notifications";
 vi.mock("@/api/portal/hooks", () => ({
   useNotificationPrefs: vi.fn(),
   useSetNotificationPrefs: vi.fn(),
-  // The page also renders the user's own notification history alongside the
-  // preferences; these tests are about the preferences, so it stays empty.
+  // The page also renders the user's own notification history and their own
+  // API keys alongside the preferences; these tests are about the
+  // preferences, so both stay empty. MyAPIKeys has its own tests.
   useMyNotifications: () => ({ data: undefined, isLoading: false, error: null }),
+  useMyAPIKeys: () => ({ data: undefined, isLoading: false, error: null, refetch: vi.fn() }),
+  useCreateMyAPIKey: () => ({ mutate: vi.fn(), isPending: false }),
+  useRevokeMyAPIKey: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 // The no-delivery notice offers admins the way in to SMTP settings, so the

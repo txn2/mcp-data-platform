@@ -80,10 +80,15 @@ type FlowConfig struct {
 	HTTPClient *http.Client
 
 	// OnLogin, if set, is called after a successful login with the person's
-	// email and name derived from the id_token. It records browser-session
-	// (portal/admin SPA) users in the known-users directory (#614). It must be
-	// non-blocking and best-effort — login must never depend on it.
-	OnLogin func(email, firstName, lastName string)
+	// email, name, subject and roles derived from the id_token. It records
+	// browser-session (portal/admin SPA) users in the known-users directory
+	// (#614), and the subject and roles with them, since a credential issued
+	// against a person's account authenticates as that subject and carries
+	// those roles (#1759). Somebody who only ever signs in here is as much a
+	// person as somebody who presents a token, so this path records the same
+	// pair the token path does. It must be non-blocking and best-effort —
+	// login must never depend on it.
+	OnLogin func(email, firstName, lastName, subject string, roles []string)
 }
 
 // oidcEndpoints holds discovered OIDC provider endpoints.
@@ -368,7 +373,7 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 	// token authenticator. Best-effort: the observer is non-blocking and must
 	// not affect login.
 	if f.cfg.OnLogin != nil {
-		f.cfg.OnLogin(claims.Email, claims.FirstName, claims.LastName)
+		f.cfg.OnLogin(claims.Email, claims.FirstName, claims.LastName, claims.UserID, claims.Roles)
 	}
 	return nil
 }

@@ -9613,6 +9613,186 @@
                 }
             }
         },
+        "/portal/api-keys": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the API keys the calling user has issued for themselves. Key values are never included; a value is readable only in the create response. Server-side self-scope: another person's keys are never listed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Keys"
+                ],
+                "summary": "List my API keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/userkeyhttp.listResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Issues an API key bound to the calling user's own account. The key authenticates as them and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. The key value is shown once and never again. The request takes no roles: a person cannot widen their own key.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Keys"
+                ],
+                "summary": "Issue an API key for myself",
+                "parameters": [
+                    {
+                        "description": "The key to issue",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/userkeyhttp.createRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/userkeyhttp.createResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/api-keys/{name}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes an API key the calling user issued for themselves. It stops authenticating on every replica from the moment this returns. Server-side self-scope: the path names only the caller's own key, so another person's key cannot be addressed here.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Keys"
+                ],
+                "summary": "Revoke one of my API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The name the key was issued under",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/portal/assets": {
             "get": {
                 "security": [
@@ -22970,6 +23150,7 @@
                     "example": "ci-pipeline"
                 },
                 "roles": {
+                    "description": "Roles is required for a service key. On a key bound through UserEmail it\nis optional: left out, the key carries whatever roles that person holds,\non every request, so a role their provider revokes stops reaching the\nkey. Given, it replaces theirs on this key and is used verbatim -- it is\nnot intersected with what they hold.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -22977,6 +23158,11 @@
                     "example": [
                         "analyst"
                     ]
+                },
+                "user_email": {
+                    "description": "UserEmail issues the key against a person's account: it authenticates as\nthem, so what they do through a client that speaks only bearer tokens is\ntheirs and is there when they sign in to the portal (#1759). The person\nmust be somebody the platform has seen sign in. Leave it out for the\nstandalone service key a key has always been.",
+                    "type": "string",
+                    "example": "analyst@example.com"
                 }
             }
         },
@@ -23015,6 +23201,11 @@
                     "example": [
                         "analyst"
                     ]
+                },
+                "user_email": {
+                    "description": "UserEmail is the account the key was issued against, absent for a\nservice key.",
+                    "type": "string",
+                    "example": "analyst@example.com"
                 },
                 "warning": {
                     "type": "string",
@@ -23089,6 +23280,11 @@
                     "description": "\"file\", \"database\", or \"both\"",
                     "type": "string",
                     "example": "database"
+                },
+                "user_email": {
+                    "description": "UserEmail is the account the key is issued against, absent on a service\nkey bound to nobody. A key listing is how an administrator sees whose a\nkey is, including one a person issued for themselves.",
+                    "type": "string",
+                    "example": "analyst@example.com"
                 }
             }
         },
@@ -24426,6 +24622,20 @@
                     "example": "Johnson"
                 },
                 "last_seen_at": {
+                    "type": "string"
+                },
+                "roles": {
+                    "description": "Roles is the role set the identity provider last said this person holds,\nrecorded at every real sign-in (#1759). It grants nothing on its own: it\nis what an API key issued against this account carries, which is why the\nkey form fills its roles from here. Empty for somebody who has never\nsigned in.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "roles_seen_at": {
+                    "description": "RolesSeenAt is when Roles was last recorded, so a current role set can\nbe told from a long-stale one.",
                     "type": "string"
                 },
                 "source": {
@@ -33346,6 +33556,102 @@
                 }
             }
         },
+        "userkeyhttp.createRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "ChatGPT desktop"
+                },
+                "expires_in": {
+                    "description": "ExpiresIn ends the key after a Go duration (e.g. \"720h\"). Left out, the\nkey lasts until its owner revokes it.",
+                    "type": "string",
+                    "example": "720h"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "chatgpt"
+                }
+            }
+        },
+        "userkeyhttp.createResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "ChatGPT desktop"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string",
+                    "example": "3f9a1c07e2b84d56a0c3e1f7b9d2468ace13579bdf02468ace13579bdf024681"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "chatgpt"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "warning": {
+                    "type": "string",
+                    "example": "Store this key securely. It will not be shown again."
+                }
+            }
+        },
+        "userkeyhttp.keyResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "ChatGPT desktop"
+                },
+                "expired": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is the name the person gave the key, not the name it is stored\nunder. They chose it and it is theirs; the scoping is the platform's\nbusiness.",
+                    "type": "string",
+                    "example": "chatgpt"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                }
+            }
+        },
+        "userkeyhttp.listResponse": {
+            "type": "object",
+            "properties": {
+                "keys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/userkeyhttp.keyResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
         "versionhttp.assignCollectionRequest": {
             "type": "object",
             "properties": {
@@ -33451,6 +33757,10 @@
             "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."
         },
         {
+            "name": "API Keys",
+            "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."
+        },
+        {
             "name": "Audit",
             "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."
         },
@@ -33541,6 +33851,7 @@
             "tags": [
                 "User",
                 "Activity",
+                "API Keys",
                 "APIs",
                 "Assets",
                 "Collections",

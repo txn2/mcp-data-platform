@@ -59,7 +59,7 @@ Configuring and operating the platform. These are the pages under `docs` > Admin
 
 - [Auth Overview](https://mcp-data-platform.txn2.com/auth/overview/): Fail-closed security model, stdio vs HTTP authentication, and what an identity-provider outage looks like to a client (in-band retryable refusals, never a 401 that would trigger a futile re-auth)
 - [OIDC](https://mcp-data-platform.txn2.com/auth/oidc/): Keycloak, Auth0, Okta, Azure AD setup with required claims; self-healing JWKS cache that refreshes on demand for key rotation
-- [API Keys](https://mcp-data-platform.txn2.com/auth/api-keys/): Service account authentication; a key whose roles no persona carries is flagged No persona at creation and in the listing, since it authenticates and lists no tools
+- [API Keys](https://mcp-data-platform.txn2.com/auth/api-keys/): Service-account authentication, and keys issued against a person's account so a client that can only send a bearer token authenticates as them with their roles; a key whose roles no persona carries is flagged No persona at creation and in the listing, since it authenticates and lists no tools
 - [OAuth Server](https://mcp-data-platform.txn2.com/auth/oauth-server/): Built-in OAuth 2.1 authorization server for Claude Desktop and other MCP clients, with PKCE, Dynamic Client Registration, upstream IdP integration via OIDC discovery of the authorization/token endpoints (works with any OIDC-compliant provider; optional explicit-endpoint override), refresh tokens hashed at rest, HS256 access tokens with `kid`-based signing-key rotation (verify-only previous keys), and default-on rate limiting (trusted-proxy-aware per-IP + global backstop) on the `/token` and `/register` endpoints
 - [OAuth to Upstream MCPs](https://mcp-data-platform.txn2.com/auth/oauth-gateway/): Outbound OAuth to gateway upstreams: client_credentials and authorization_code + PKCE grants, encrypted refresh tokens that survive restarts, background refresh, endpoint URL validation, and a full auth-event history
 
@@ -167,7 +167,7 @@ The `portal` rail section: a guided tour of every screen the built-in web portal
 - [Knowledge and Memory](https://mcp-data-platform.txn2.com/portal/knowledge/): Promoted knowledge pages, the catalog and graph views, the insight review queue, and captured memory
 - [Prompts](https://mcp-data-platform.txn2.com/portal/prompts/): The prompt library, collections, authoring, version history and diffs
 - [Scripts](https://mcp-data-platform.txn2.com/portal/scripts/): A managed script's page: its schedule, source, dry run, versions, run history, state and delete
-- [Settings](https://mcp-data-platform.txn2.com/portal/settings/): Your notification delivery mode, category toggles, and what the platform has sent you
+- [Settings](https://mcp-data-platform.txn2.com/portal/settings/): Your notification delivery mode, category toggles, the API keys you have issued for your own account, and what the platform has sent you
 - [Admin Dashboard](https://mcp-data-platform.txn2.com/portal/admin-dashboard/): The operator's summary, indexing health, and the MCP, API Gateway (including outbound calls split by the persona that caused them), Health, Events and Notifications tabs
 - [Admin Tools](https://mcp-data-platform.txn2.com/portal/admin-tools/): Every registered tool with its schema, a live runner, per-tool activity, enrichment rules, and the visibility kill-switch
 - [Admin Sessions and Calls](https://mcp-data-platform.txn2.com/portal/admin-sessions/): Who was working, what they ran, and what came of it

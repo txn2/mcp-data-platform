@@ -175,7 +175,15 @@ services:
   #   - the pre-seeded oauth-mcp-dev / oauth-api-dev connection fixtures
   # Realm + clients + dev users come from ./keycloak-realm.json, imported
   # on first boot. Re-runs of `make dev` re-use the existing realm; only
-  # `make dev-down` (which removes the postgres volume) resets it.
+  # `make dev-down` (which removes the postgres volume) resets it -- so a
+  # change to that file needs a dev-down before it takes.
+  #
+  # The portal client enables directAccessGrantsEnabled so the acceptance suite
+  # can hold a REAL person session (#1759): it signs a dev user in and presents
+  # the resulting id_token, whose audience is the portal client, which is what
+  # auth.oidc.audience checks. A criterion about a key resolving to the same
+  # identity as its owner's signed-in session has to be executed by an actual
+  # signed-in session. Dev only: this realm is never a deployment's.
   keycloak:
     image: quay.io/keycloak/keycloak:25.0.6@sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2
     container_name: acme-dev-keycloak

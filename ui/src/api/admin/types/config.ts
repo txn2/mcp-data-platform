@@ -40,6 +40,11 @@ export interface APIKeySummary {
   expires_at?: string;
   expired?: boolean;
   source?: "file" | "database" | "both";
+  /**
+   * The account this key is issued against (#1759). A key with one
+   * authenticates as that person; absent on a standalone service key.
+   */
+  user_email?: string;
   /** The persona the key's roles reach. Absent when they reach none. */
   persona?: string;
   /** True when no persona carries any of the key's roles, so it lists no tools (#1705). */
@@ -58,6 +63,8 @@ export interface APIKeyCreateResponse {
   key: string;
   roles: string[];
   expires_at?: string;
+  /** The account the key was issued against, absent on a service key (#1759). */
+  user_email?: string;
   warning: string;
   /** The persona the key's roles reach. Absent when they reach none. */
   persona?: string;

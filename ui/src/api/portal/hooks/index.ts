@@ -7,6 +7,7 @@ export * from "./threads";
 export * from "./mentions";
 export * from "./knowledge-pages";
 export * from "./notifications";
+export * from "./apiKeys";
 export * from "./scripts";
 export * from "./sessions";
 export * from "./calls";

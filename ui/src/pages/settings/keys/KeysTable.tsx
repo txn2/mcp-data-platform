@@ -42,7 +42,7 @@ export function KeysTable({
       <TableHeader>
         <TableRow className="bg-muted/30 text-xs text-muted-foreground hover:bg-muted/30">
           <TableHead className="px-5">Name</TableHead>
-          <TableHead className="px-5">Email</TableHead>
+          <TableHead className="px-5">Issued against</TableHead>
           <TableHead className="w-full px-5">Description</TableHead>
           <TableHead className="px-5">Roles</TableHead>
           <TableHead className="px-5">Expiration</TableHead>
@@ -96,8 +96,8 @@ function KeyRow({
       <TableCell className="whitespace-normal px-5 py-3 font-medium">
         <KeyName apiKey={k} />
       </TableCell>
-      <TableCell className="px-5 py-3 text-muted-foreground">
-        {k.email || <span className="italic opacity-50">--</span>}
+      <TableCell className="whitespace-normal px-5 py-3 text-muted-foreground">
+        <KeyOwner apiKey={k} />
       </TableCell>
       <TableCell
         className="max-w-0 truncate px-5 py-3 text-muted-foreground"
@@ -106,7 +106,11 @@ function KeyRow({
         {k.description || <span className="italic opacity-50">--</span>}
       </TableCell>
       <TableCell className="whitespace-normal px-5 py-3">
-        <KeyRoles roles={k.roles} persona={k.persona} />
+        <KeyRoles
+          roles={k.roles}
+          persona={k.persona}
+          followsUser={Boolean(k.user_email)}
+        />
       </TableCell>
       <TableCell className="px-5 py-3 text-muted-foreground">
         {formatExpiration(k.expires_at)}
@@ -156,11 +160,58 @@ function KeyName({ apiKey: k }: { apiKey: APIKeySummary }) {
   );
 }
 
+// KeyOwner is the account a key is issued against: a person, whose identity and
+// roles the key carries, or nobody, which is the standalone service key a key
+// has always been (#1759). A key somebody issued for themselves is listed here
+// like any other, so an administrator sees and can revoke it.
+function KeyOwner({ apiKey: k }: { apiKey: APIKeySummary }) {
+  if (!k.user_email) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="whitespace-nowrap">
+          {k.email || <span className="italic opacity-50">--</span>}
+        </span>
+        <Badge variant="muted" className="rounded px-1">
+          service
+        </Badge>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="whitespace-nowrap">{k.user_email}</span>
+      <Badge
+        variant="info"
+        className="rounded px-1"
+        title="This key authenticates as this person: their identity, and their roles unless the key narrows them."
+      >
+        user
+      </Badge>
+    </div>
+  );
+}
+
 // KeyRoles lists the key's roles and the persona they reach, since the persona
 // is what decides which tools the key lists and the roles alone do not say.
-function KeyRoles({ roles, persona }: { roles: string[]; persona?: string }) {
+function KeyRoles({
+  roles,
+  persona,
+  followsUser,
+}: {
+  roles: string[];
+  persona?: string;
+  /** True when the key carries whatever roles its person holds (#1759). */
+  followsUser?: boolean;
+}) {
   if (roles.length === 0) {
-    return (
+    return followsUser ? (
+      <span
+        className="text-xs italic text-muted-foreground"
+        title="This key carries whatever roles its owner currently holds, read on every request."
+      >
+        follows its owner
+      </span>
+    ) : (
       <span className="text-xs italic text-muted-foreground opacity-50">None</span>
     );
   }

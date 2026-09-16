@@ -21,21 +21,31 @@ func TestUserStore_Observe_FillsBlankNames_RealDB(t *testing.T) {
 	store := NewPostgresStore(testdb.New(t))
 	ctx := context.Background()
 
-	// First login: no name known yet.
-	require.NoError(t, store.Observe(ctx, "marcus@example.com", "", ""))
+	// First login: no name known yet, and the provider states one role.
+	require.NoError(t, store.Observe(ctx, "marcus@example.com", "", "", []string{"dp_analyst"}))
 	u, err := store.Get(ctx, "marcus@example.com")
 	require.NoError(t, err)
 	assert.True(t, u.Confirmed)
 	assert.Equal(t, SourceAuth, u.Source)
 	assert.Empty(t, u.FirstName)
 	assert.NotNil(t, u.LastSeenAt)
+	assert.Equal(t, []string{"dp_analyst"}, u.Roles)
+	assert.NotNil(t, u.RolesSeenAt)
 
 	// Later login carries claims: blank names get filled.
-	require.NoError(t, store.Observe(ctx, "marcus@example.com", "Marcus", "Johnson"))
+	require.NoError(t, store.Observe(ctx, "marcus@example.com", "Marcus", "Johnson", []string{"dp_analyst"}))
 	u, err = store.Get(ctx, "marcus@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, "Marcus", u.FirstName)
 	assert.Equal(t, "Johnson", u.LastName)
+
+	// A role the provider has stopped granting stops being recorded, which is
+	// what makes a key bound to this person lose it too (#1759). Unlike a
+	// name, the recorded roles are replaced rather than filled in.
+	require.NoError(t, store.Observe(ctx, "marcus@example.com", "Marcus", "Johnson", nil))
+	u, err = store.Get(ctx, "marcus@example.com")
+	require.NoError(t, err)
+	assert.Empty(t, u.Roles, "a revoked role must not survive in the directory")
 }
 
 func TestUserStore_Observe_DoesNotOverwriteAdminName_RealDB(t *testing.T) {
@@ -49,13 +59,15 @@ func TestUserStore_Observe_DoesNotOverwriteAdminName_RealDB(t *testing.T) {
 	}))
 
 	// The person logs in; their claims carry a different spelling. Admin wins.
-	require.NoError(t, store.Observe(ctx, "dana@example.com", "Daniela", "Leigh"))
+	require.NoError(t, store.Observe(ctx, "dana@example.com", "Daniela", "Leigh", []string{"dp_analyst"}))
 
 	u, err := store.Get(ctx, "dana@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, "Dana", u.FirstName, "admin-entered first name must stick")
 	assert.Equal(t, "Lee", u.LastName, "admin-entered last name must stick")
 	assert.True(t, u.Confirmed, "login should still confirm the row")
+	assert.Equal(t, []string{"dp_analyst"}, u.Roles,
+		"the roles a login states are recorded even on a row an admin pre-added")
 }
 
 func TestUserStore_Search_EscapesLikeMetachars_RealDB(t *testing.T) {

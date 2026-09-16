@@ -1,6 +1,6 @@
-package httpserver
+package notifywire
 
-// The database-present happy path of buildNotifications requires a live
+// The database-present happy path of BuildNotifications requires a live
 // Postgres (Platform only wires p.db from a real DSN) and is exercised by
 // TestBuildNotifications_RealDB in dbmounts_realdb_integration_test.go,
 // following the dbmounts.go coverage convention.
@@ -21,7 +21,7 @@ import (
 )
 
 func TestBuildNotifications_NilPlatform(t *testing.T) {
-	if got := buildNotifications(nil); got != nil {
+	if got := BuildNotifications(nil, Brand{}); got != nil {
 		t.Error("nil platform must yield nil handle")
 	}
 }
@@ -33,7 +33,7 @@ func TestBuildNotifications_Disabled(t *testing.T) {
 	p := newTestPlatform(t, cfg)
 	defer func() { _ = p.Close() }()
 
-	if got := buildNotifications(p); got != nil {
+	if got := BuildNotifications(p, Brand{}); got != nil {
 		t.Error("disabled notifications must yield nil handle")
 	}
 }
@@ -42,7 +42,7 @@ func TestBuildNotifications_NoDatabase(t *testing.T) {
 	p := newTestPlatform(t, &platform.Config{})
 	defer func() { _ = p.Close() }()
 
-	if got := buildNotifications(p); got != nil {
+	if got := BuildNotifications(p, Brand{}); got != nil {
 		t.Error("no database must yield nil handle")
 	}
 }
@@ -52,25 +52,25 @@ func TestBuildNotifications_NoDatabase(t *testing.T) {
 // (Platform wires p.db only from a real DSN) and is covered by
 // TestBuildReviewAlert_RealDB in dbmounts_realdb_integration_test.go.
 func TestBuildReviewAlert_NoDatabase(t *testing.T) {
-	if got := buildReviewAlert(nil, nil); got != nil {
+	if got := BuildReviewAlert(nil, nil); got != nil {
 		t.Error("nil platform must yield no checker")
 	}
-	if got := reviewAlertSettings(nil, reviewalert.KnowledgeTarget()); got != nil {
+	if got := ReviewAlertSettings(nil, reviewalert.KnowledgeTarget()); got != nil {
 		t.Error("nil platform must yield no settings store")
 	}
 
 	p := newTestPlatform(t, &platform.Config{})
 	defer func() { _ = p.Close() }()
 
-	if got := buildReviewAlert(p, nil); got != nil {
+	if got := BuildReviewAlert(p, nil); got != nil {
 		t.Error("no database must yield no checker")
 	}
-	if got := reviewAlertSettings(p, reviewalert.KnowledgeTarget()); got != nil {
+	if got := ReviewAlertSettings(p, reviewalert.KnowledgeTarget()); got != nil {
 		t.Error("no database must yield no settings store")
 	}
 	// The composition root brackets Start/Stop on whatever it got back.
-	buildReviewAlert(p, nil).Start(context.Background())
-	buildReviewAlert(p, nil).Stop()
+	BuildReviewAlert(p, nil).Start(context.Background())
+	BuildReviewAlert(p, nil).Stop()
 }
 
 // TestReviewAlertSettings_NotificationsDisabled: with notifications off in
@@ -84,7 +84,7 @@ func TestReviewAlertSettings_NotificationsDisabled(t *testing.T) {
 	p := newTestPlatform(t, cfg)
 	defer func() { _ = p.Close() }()
 
-	if got := reviewAlertSettings(p, reviewalert.KnowledgeTarget()); got != nil {
+	if got := ReviewAlertSettings(p, reviewalert.KnowledgeTarget()); got != nil {
 		t.Error("disabled notifications must yield no settings store")
 	}
 }
@@ -131,7 +131,7 @@ func TestWirePortalNotifications(t *testing.T) {
 
 	// Nil handle: the portal deps stay unset.
 	var deps portal.Deps
-	wirePortalNotifications(&deps, p, nil)
+	WirePortalNotifications(&deps, p, nil, nil)
 	if deps.Notifier != nil || deps.NotificationRegistrar != nil {
 		t.Fatal("nil handle must leave the portal deps unset")
 	}
@@ -149,7 +149,7 @@ func TestWirePortalNotifications(t *testing.T) {
 	}
 	defer handle.Stop()
 
-	wirePortalNotifications(&deps, p, handle)
+	WirePortalNotifications(&deps, p, handle, nil)
 	if deps.Notifier == nil {
 		t.Error("live handle must wire the trigger bridge")
 	}
@@ -193,4 +193,14 @@ func TestEmailReplyTo(t *testing.T) {
 	if got := emailReplyTo("not an address"); got != "" {
 		t.Errorf("invalid reply_to must be dropped with a warning, got %q", got)
 	}
+}
+
+// newTestPlatform creates a minimal platform for these tests.
+func newTestPlatform(t *testing.T, cfg *platform.Config) *platform.Platform {
+	t.Helper()
+	p, err := platform.New(platform.WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("failed to create test platform: %v", err)
+	}
+	return p
 }

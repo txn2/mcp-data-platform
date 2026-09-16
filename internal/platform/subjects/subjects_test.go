@@ -18,22 +18,38 @@ import (
 
 // fakeStore records pairs in memory and signals each write.
 type fakeStore struct {
-	mu      sync.Mutex
-	pairs   map[string]string
-	written chan struct{}
-	fail    error
+	mu sync.Mutex
+	// pairs is every recorded pair; byPerson marks the ones the person
+	// themselves recorded, which is all a bound credential may resolve through.
+	pairs    map[string]string
+	byPerson map[string]bool
+	written  chan struct{}
+	fail     error
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{pairs: map[string]string{}, written: make(chan struct{}, 8)}
+	return &fakeStore{pairs: map[string]string{}, byPerson: map[string]bool{}, written: make(chan struct{}, 8)}
 }
 
-func (f *fakeStore) Record(_ context.Context, address, subject string) error {
+// person marks a pair as one the person themselves recorded, which is the
+// state an address reaches by signing in.
+func (f *fakeStore) person(address, subject string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pairs[address] = subject
+	f.byPerson[address] = true
+}
+
+func (f *fakeStore) Record(_ context.Context, address, subject string, fromPerson bool) error {
 	if f.fail != nil {
 		return f.fail
 	}
 	f.mu.Lock()
-	f.pairs[address] = subject
+	// A key's pair never overwrites a person's, as the real upsert refuses to.
+	if fromPerson || !f.byPerson[address] {
+		f.pairs[address] = subject
+		f.byPerson[address] = fromPerson
+	}
 	f.mu.Unlock()
 	f.written <- struct{}{}
 	return nil
@@ -45,6 +61,18 @@ func (f *fakeStore) Lookup(_ context.Context, address string) (string, error) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.pairs[address], nil
+}
+
+func (f *fakeStore) LookupPerson(_ context.Context, address string) (string, error) {
+	if f.fail != nil {
+		return "", f.fail
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.byPerson[address] {
+		return "", nil
+	}
 	return f.pairs[address], nil
 }
 
@@ -294,4 +322,116 @@ type brokenLibrary struct{ resource.Store }
 
 func (brokenLibrary) List(context.Context, resource.Filter) ([]resource.Resource, int, error) {
 	return nil, 0, errors.New("postgres is unreachable")
+}
+
+// TestSubject_AnswersWithoutFolding is #1759: a caller only asking who somebody
+// is must not move their files as a side effect, and a lookup that failed must
+// not read as "nobody" -- a credential is refused on the difference.
+func TestSubject_AnswersWithoutFolding(t *testing.T) {
+	store := newFakeStore()
+	store.person("jane@example.com", "sub-1")
+	lib := newLibraryStore()
+	lib.file("Jane@example.com")
+	b := New(store)
+	b.BindResources(resource.Deps{Store: lib, URIScheme: "mcp"})
+
+	got, err := b.Subject(context.Background(), "Jane@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "sub-1", got)
+	assert.Equal(t, "mcp://user/Jane@example.com/qa/rolling.csv", lib.uri(runMade),
+		"asking who somebody is must not refile what they own")
+}
+
+func TestSubject_UnknownAndUnusableAddresses(t *testing.T) {
+	store := newFakeStore()
+	b := New(store)
+
+	got, err := b.Subject(context.Background(), "jane@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "", got, "somebody the platform has not seen authenticate")
+
+	got, err = b.Subject(context.Background(), "   ")
+	require.NoError(t, err)
+	assert.Equal(t, "", got)
+
+	var nilBook *Book
+	got, err = nilBook.Subject(context.Background(), "jane@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "", got)
+}
+
+func TestSubject_ALookupThatFailedIsReported(t *testing.T) {
+	store := newFakeStore()
+	store.fail = errors.New("database away")
+	_, err := New(store).Subject(context.Background(), "jane@example.com")
+	require.Error(t, err, "a failed read must not be answered as nobody")
+}
+
+// TestSubject_AKeyCannotDecideWhoSomebodyIs is #1759's sharpest refusal: a
+// service key configured with a person's address must not become the subject
+// that address authenticates as.
+//
+// Without this a key issued against that account would present the key's own
+// `apikey:<name>` identity instead of the person's -- the exact inverse of what
+// binding a key to an account is for -- and whatever it wrote would land in the
+// key's library, readable by everyone holding that key.
+func TestSubject_AKeyCannotDecideWhoSomebodyIs(t *testing.T) {
+	store := newFakeStore()
+	b := New(store)
+
+	// Jane signs in; her own subject is recorded.
+	b.Observe(&middleware.UserInfo{
+		Email: "jane@example.com", UserID: "sub-jane", AuthType: middleware.AuthTypeOIDC,
+	})
+	<-store.written
+
+	// A service key carrying her address authenticates. It is recorded (a run
+	// acting for a key-only author still needs the pair, #1677) but it does not
+	// take her address over.
+	b.Observe(&middleware.UserInfo{
+		Email: "jane@example.com", UserID: "apikey:ci", AuthType: middleware.AuthTypeAPIKey,
+	})
+	<-store.written
+
+	got, err := b.Subject(context.Background(), "jane@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "sub-jane", got, "a service key overwrote the subject a person authenticates as")
+}
+
+// TestSubject_AKeyWrittenPairIsNotAPerson holds the other half: an address the
+// platform has only ever seen a key authenticate at resolves to nobody, so a
+// credential is refused rather than authenticating as a key identity.
+func TestSubject_AKeyWrittenPairIsNotAPerson(t *testing.T) {
+	store := newFakeStore()
+	b := New(store)
+
+	b.Observe(&middleware.UserInfo{
+		Email: "jane@example.com", UserID: "apikey:ci", AuthType: middleware.AuthTypeAPIKey,
+	})
+	<-store.written
+
+	got, err := b.Subject(context.Background(), "jane@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "", got, "a pair only a key wrote must not answer for the person")
+
+	// The run path still reads it: a script whose author authenticates only by
+	// key files where that author's sessions file (#1677).
+	assert.Equal(t, "apikey:ci", b.ForRun(context.Background(), "jane@example.com"))
+}
+
+// TestSubject_ABoundKeyRecordsThePersonsOwnSubject holds that a key issued
+// against an account is the person for this purpose: it presents their subject,
+// so recording from it keeps the pair correct rather than corrupting it.
+func TestSubject_ABoundKeyRecordsThePersonsOwnSubject(t *testing.T) {
+	store := newFakeStore()
+	b := New(store)
+
+	b.Observe(&middleware.UserInfo{
+		Email: "jane@example.com", UserID: "sub-jane", AuthType: middleware.AuthTypeAPIKey,
+	})
+	<-store.written
+
+	got, err := b.Subject(context.Background(), "jane@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "sub-jane", got)
 }

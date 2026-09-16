@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -151,20 +152,23 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// Email notification substrate (queue + send worker + LISTEN adapter).
 	// Owned by this composition root: started before the surfaces that
 	// enqueue into it mount, stopped after the HTTP server drains.
-	notify := buildNotifications(p)
+	notify := notifywire.BuildNotifications(p, notifywire.Brand{
+		Name:           portalBrandName(p),
+		UnsubscribeURL: unsubscribeURLFn(p),
+	})
 	notify.Start(ctx)
 	defer notify.Stop()
 
 	// Scheduled knowledge review-queue staleness check (#803). It enqueues
 	// through the substrate above, so it starts after it and stops before it.
-	reviewAlert := buildReviewAlert(p, notify)
+	reviewAlert := notifywire.BuildReviewAlert(p, notify)
 	reviewAlert.Start(ctx)
 	defer reviewAlert.Stop()
 
 	// Connection-revocation alerts (#1694). The sink is attached to the
 	// auth-event writer here, once the substrate it enqueues into exists; the
 	// escalation sweep starts and stops alongside the check above.
-	connEscalator := wireConnRevocationAlert(p, notify)
+	connEscalator := notifywire.WireConnRevocationAlert(p, notify)
 	connEscalator.Start(ctx)
 	defer connEscalator.Stop()
 

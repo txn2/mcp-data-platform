@@ -13,6 +13,7 @@ import (
 type fakeObserveStore struct {
 	mu     sync.Mutex
 	calls  [][3]string // email, first, last
+	roles  [][]string  // the role set recorded alongside each call
 	failN  int         // fail the first failN calls
 	signal chan struct{}
 }
@@ -21,9 +22,10 @@ func newFakeObserveStore() *fakeObserveStore {
 	return &fakeObserveStore{signal: make(chan struct{}, 16)}
 }
 
-func (f *fakeObserveStore) Observe(_ context.Context, email, first, last string) error {
+func (f *fakeObserveStore) Observe(_ context.Context, email, first, last string, roles []string) error {
 	f.mu.Lock()
 	f.calls = append(f.calls, [3]string{email, first, last})
+	f.roles = append(f.roles, roles)
 	fail := f.failN > 0
 	if fail {
 		f.failN--
@@ -62,11 +64,11 @@ func TestDirectory_Observe_WritesOnce(t *testing.T) {
 	f := newFakeObserveStore()
 	d := NewDirectory(f)
 
-	d.Observe("A@B.io", "Marcus", "Johnson")
+	d.Observe("A@B.io", "Marcus", "Johnson", nil)
 	waitForSignal(t, f)
 
 	// Second call within the TTL is throttled — no new write.
-	d.Observe("a@b.io", "Marcus", "Johnson")
+	d.Observe("a@b.io", "Marcus", "Johnson", nil)
 	time.Sleep(50 * time.Millisecond)
 
 	if got := f.count(); got != 1 {
@@ -81,8 +83,8 @@ func TestDirectory_Observe_SkipsInvalidEmail(t *testing.T) {
 	f := newFakeObserveStore()
 	d := NewDirectory(f)
 
-	d.Observe("", "X", "Y")
-	d.Observe("not-an-email", "X", "Y")
+	d.Observe("", "X", "Y", nil)
+	d.Observe("not-an-email", "X", "Y", nil)
 	time.Sleep(50 * time.Millisecond)
 
 	if got := f.count(); got != 0 {
@@ -98,10 +100,10 @@ func TestDirectory_Observe_NoRetryStormOnError(t *testing.T) {
 	// First write fails. The throttle entry is kept (not dropped), so a second
 	// Observe within the TTL must NOT spawn an immediate retry — otherwise a
 	// database outage would turn every authentication into a write storm.
-	d.Observe("a@b.io", "Marcus", "Johnson")
+	d.Observe("a@b.io", "Marcus", "Johnson", nil)
 	waitForSignal(t, f)
 
-	d.Observe("a@b.io", "Marcus", "Johnson")
+	d.Observe("a@b.io", "Marcus", "Johnson", nil)
 	time.Sleep(50 * time.Millisecond)
 
 	if got := f.count(); got != 1 {
@@ -113,7 +115,7 @@ func TestDirectory_Observe_SanitizesNames(t *testing.T) {
 	f := newFakeObserveStore()
 	d := NewDirectory(f)
 
-	d.Observe("a@b.io", "  Mar\ncus\t", "Johnson\x00")
+	d.Observe("a@b.io", "  Mar\ncus\t", "Johnson\x00", nil)
 	waitForSignal(t, f)
 
 	if f.calls[0][1] != "Marcus" || f.calls[0][2] != "Johnson" {
@@ -139,8 +141,8 @@ func TestDirectory_PruneExpired(t *testing.T) {
 
 func TestDirectory_Observe_NilSafe(_ *testing.T) {
 	var d *Directory
-	d.Observe("a@b.io", "X", "Y") // must not panic
+	d.Observe("a@b.io", "X", "Y", nil) // must not panic
 
 	d2 := &Directory{} // zero value, nil store
-	d2.Observe("a@b.io", "X", "Y")
+	d2.Observe("a@b.io", "X", "Y", nil)
 }

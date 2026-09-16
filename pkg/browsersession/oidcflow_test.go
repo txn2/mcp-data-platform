@@ -280,10 +280,11 @@ func TestCallbackHandler(t *testing.T) {
 
 func TestCallbackHandlerObservesLogin(t *testing.T) {
 	claims := map[string]any{
-		"sub":         "user-42",
-		"email":       "user@example.com",
-		"given_name":  "Marcus",
-		"family_name": "Johnson",
+		"sub":          "user-42",
+		"email":        "user@example.com",
+		"given_name":   "Marcus",
+		"family_name":  "Johnson",
+		"realm_access": map[string]any{"roles": []any{"dp_analyst"}},
 	}
 	srv := mockOIDCProvider(t, claims)
 	defer srv.Close()
@@ -291,9 +292,10 @@ func TestCallbackHandlerObservesLogin(t *testing.T) {
 	cfg := testFlowConfig(srv.URL)
 	cfg.HTTPClient = srv.Client()
 
-	var gotEmail, gotFirst, gotLast string
-	cfg.OnLogin = func(email, first, last string) {
-		gotEmail, gotFirst, gotLast = email, first, last
+	var gotEmail, gotFirst, gotLast, gotSubject string
+	var gotRoles []string
+	cfg.OnLogin = func(email, first, last, subject string, roles []string) {
+		gotEmail, gotFirst, gotLast, gotSubject, gotRoles = email, first, last, subject, roles
 	}
 
 	flow, err := NewFlow(context.Background(), cfg)
@@ -329,6 +331,19 @@ func TestCallbackHandlerObservesLogin(t *testing.T) {
 	}
 	if gotEmail != "user@example.com" || gotFirst != "Marcus" || gotLast != "Johnson" {
 		t.Errorf("OnLogin got (%q, %q, %q), want (user@example.com, Marcus, Johnson)", gotEmail, gotFirst, gotLast)
+	}
+	// The subject and roles reach the observer too: somebody who only ever
+	// signs in through the portal never passes the token authenticator, so
+	// this is the only place the platform learns what they authenticate as and
+	// what they may reach -- which is what a key issued against their account
+	// resolves through (#1759).
+	if gotSubject != "user-42" {
+		t.Errorf("OnLogin subject = %q, want user-42", gotSubject)
+	}
+	// The prefix is kept, as the MCP auth path keeps it, so the role set
+	// recorded for a person is the one their token sessions carry.
+	if len(gotRoles) != 1 || gotRoles[0] != "dp_analyst" {
+		t.Errorf("OnLogin roles = %v, want [dp_analyst]", gotRoles)
 	}
 }
 

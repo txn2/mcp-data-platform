@@ -51,15 +51,21 @@ func NewDirectory(store Store) *Directory {
 // RFC 5322 parse, so the ~99% of calls that are throttled never pay for
 // parsing. Names are sanitized (control characters stripped, length bounded)
 // because they come from untrusted token claims.
-func (d *Directory) Observe(email, firstName, lastName string) {
+//
+// roles joins the throttle key, so a person whose role set has just changed at
+// the identity provider is written through on their next sign-in rather than
+// waiting out the window. What a key bound to them may reach follows from this
+// row (#1759), so a revocation the provider has already made must not sit
+// unrecorded for the length of a throttle window.
+func (d *Directory) Observe(email, firstName, lastName string, roles []string) {
 	if d == nil || d.store == nil {
 		return
 	}
-	key := strings.ToLower(strings.TrimSpace(email))
-	if key == "" {
+	address := strings.ToLower(strings.TrimSpace(email))
+	if address == "" {
 		return
 	}
-	if !d.shouldWrite(key) {
+	if !d.shouldWrite(address + "\x00" + strings.Join(roles, ",")) {
 		return
 	}
 	// Full validation only once we have decided to write. An invalid address
@@ -74,7 +80,7 @@ func (d *Directory) Observe(email, firstName, lastName string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
 		defer cancel()
-		if err := d.store.Observe(ctx, normalized, first, last); err != nil {
+		if err := d.store.Observe(ctx, normalized, first, last, roles); err != nil {
 			// Best-effort: log and let the TTL drive the next attempt. We
 			// deliberately keep the throttle entry so a database outage cannot
 			// turn every subsequent authentication into an immediate retry

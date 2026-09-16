@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
@@ -133,7 +134,9 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	deps.OnAssetDeleted = hooks.AssetDeleted
 	deps.OnAssetRevised = hooks.AssetRevised
 
-	wirePortalNotifications(&deps, p, notify)
+	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p))
+
+	wirePortalUserKeys(&deps, p)
 
 	wirePortalOptionalDeps(&deps, p)
 

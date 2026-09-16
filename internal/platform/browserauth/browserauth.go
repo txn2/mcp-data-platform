@@ -36,8 +36,9 @@ type Config struct {
 	RedirectURI        string
 	PostLogoutRedirect string
 
-	// OnLogin records a user at login; may be nil.
-	OnLogin func(email, firstName, lastName string)
+	// OnLogin records a user, with the subject and roles their id_token
+	// carried, at login; may be nil.
+	OnLogin func(email, firstName, lastName, subject string, roles []string)
 }
 
 // Session holds the login flow and cookie authenticator for the browser UI.

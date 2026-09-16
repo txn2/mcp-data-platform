@@ -76,3 +76,39 @@ describe("CreatedKeyBanner warnings", () => {
     expect(screen.queryByRole("note")).toBeNull();
   });
 });
+
+describe("KeysTable: whose a key is (#1759)", () => {
+  it("shows the account a bound key is issued against, badged as a person's", () => {
+    renderTable([
+      {
+        name: "user:analyst@example.com:chatgpt",
+        user_email: "analyst@example.com",
+        roles: [],
+        source: "database",
+      },
+    ]);
+    expect(screen.getByText("analyst@example.com")).toBeTruthy();
+    expect(screen.getByText("user")).toBeTruthy();
+  });
+
+  it("says a bound key with no roles of its own follows its owner", () => {
+    renderTable([{ name: "k", user_email: "analyst@example.com", roles: [] }]);
+    // "None" would be the opposite of true: the key reaches whatever its
+    // owner reaches.
+    expect(screen.getByText("follows its owner")).toBeTruthy();
+    expect(screen.queryByText("None")).toBeNull();
+  });
+
+  it("badges a key bound to nobody as a service key, with its contact email", () => {
+    // The role is deliberately not "service", so the badge is what matches.
+    renderTable([{ name: "etl", email: "etl@example.com", roles: ["ingest"] }]);
+    expect(screen.getByText("etl@example.com")).toBeTruthy();
+    expect(screen.getByText("service")).toBeTruthy();
+  });
+
+  it("still reads None for a service key carrying no roles", () => {
+    renderTable([{ name: "etl", roles: [] }]);
+    expect(screen.getByText("None")).toBeTruthy();
+    expect(screen.queryByText("follows its owner")).toBeNull();
+  });
+});

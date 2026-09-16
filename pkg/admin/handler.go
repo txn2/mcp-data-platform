@@ -172,7 +172,13 @@ type Deps struct {
 	APIKeyStore       platform.APIKeyStore
 	// UserStore is the known-users directory (#614). nil disables the
 	// /api/v1/admin/users routes (no database configured).
-	UserStore          user.Store
+	UserStore user.Store
+	// BoundPrincipals resolves the account an API key is issued against
+	// (#1759). It is the same resolver the authenticator uses, so a key the
+	// create route accepts is one that will resolve when it is presented. nil
+	// refuses every binding, which is what a deployment with no directory
+	// should do.
+	BoundPrincipals    auth.PrincipalSource
 	PromptStore        prompt.Store
 	PromptRegistrar    PromptRegistrar
 	PromptInfoProvider PromptInfoProvider
