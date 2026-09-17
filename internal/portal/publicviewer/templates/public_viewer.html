@@ -219,11 +219,20 @@
         }
         .content iframe {
             flex: 1;
-            min-height: 60vh;
             width: 100%;
             height: auto !important;
             display: block;
         }
+        /* The framed document's own controls (Present, Overview, Export PDF),
+           rendered here by the viewer bundle so they share the header rather
+           than taking a row above the frame (#1769). */
+        .content-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .content-actions:empty { display: none; }
         .info-toggle {
             background: none;
             border: 1px solid var(--page-border);
@@ -355,6 +364,7 @@
             {{if .Version}}<span class="badge">v{{.Version}}</span>{{end}}
             {{if .IsGuest}}<span class="badge">Viewing as guest</span>{{end}}
         </div>
+        <div class="content-actions" id="content-actions"></div>
         <button class="info-toggle" id="info-toggle" aria-label="Asset info" title="Asset info">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         </button>

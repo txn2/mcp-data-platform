@@ -372,6 +372,79 @@ test.describe("a slide deck share", () => {
     expect(foreign, `fetched from ${foreign.join(", ")}`).toHaveLength(0);
   });
 
+  // The controls share the header (#1769): a row above the frame was a third
+  // band under a header the page already gives a lot of height to.
+  test("the controls sit in the header and the frame fills the page under the notices", async ({ page, viewport }) => {
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+    const header = page.locator(".header");
+    const actions = header.locator("#content-actions");
+    await expect(actions.getByRole("button", { name: "Present" })).toBeVisible();
+    await expect(actions.getByRole("button", { name: "Overview" })).toBeVisible();
+    await expect(actions.getByRole("button", { name: "Export PDF" })).toBeVisible();
+    // The info toggle follows the controls on the same row.
+    const present = await actions.getByRole("button", { name: "Present" }).boundingBox();
+    const info = await page.locator("#info-toggle").boundingBox();
+    expect(present!.x + present!.width).toBeLessThanOrEqual(info!.x);
+    expect(Math.abs(present!.y + present!.height / 2 - (info!.y + info!.height / 2))).toBeLessThanOrEqual(2);
+
+    // No band under the frame: it ends at the content area's padding, and the
+    // page has nothing to scroll.
+    const frame = await page.locator(".content iframe").first().boundingBox();
+    const padding = await page.locator(".content").evaluate((c) => parseFloat(getComputedStyle(c).paddingBottom));
+    expect(Math.abs(frame!.y + frame!.height + padding - viewport!.height)).toBeLessThanOrEqual(1);
+    const scroll = await page.evaluate(() => document.documentElement.scrollHeight - document.documentElement.clientHeight);
+    expect(scroll, "the share page scrolls").toBeLessThanOrEqual(1);
+  });
+
+  test("Overview shows every slide and a second press returns to the deck", async ({ page }) => {
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+    const frame = artifactFrame(page);
+    await expect(frame.locator("section.present")).toContainText("Presenting from the portal");
+    const overview = page.getByRole("button", { name: "Overview" });
+
+    await overview.click();
+    // The runtime marks its root while the overview is up.
+    await expect(frame.locator(".reveal.overview")).toHaveCount(1);
+    await overview.click();
+    await expect(frame.locator(".reveal.overview")).toHaveCount(0);
+  });
+
+  test("Export PDF lays the deck out one slide per page and prints it", async ({ page }) => {
+    // The print document calls print(); headless Chromium answers with no
+    // dialog and returns at once, so the print frame would be gone before it
+    // could be read. The stand-in records what the document looked like at
+    // the moment of printing, and the recording arrives on the page's console.
+    await page.addInitScript(() => {
+      window.print = () => {
+        console.log(
+          "printed:" +
+            JSON.stringify({
+              printView: document.documentElement.classList.contains("reveal-print"),
+              pages: document.querySelectorAll(".pdf-page").length,
+            }),
+        );
+      };
+    });
+    const printed: Array<{ printView: boolean; pages: number }> = [];
+    page.on("console", (m) => {
+      if (m.text().startsWith("printed:")) printed.push(JSON.parse(m.text().slice("printed:".length)));
+    });
+
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+    const slides = await artifactFrame(page).locator(".slides > section").count();
+    expect(slides).toBeGreaterThan(1);
+
+    await page.getByRole("button", { name: "Export PDF" }).click();
+    await expect.poll(() => printed.length, { timeout: 15_000 }).toBe(1);
+    expect(printed[0]!.printView).toBe(true);
+    expect(printed[0]!.pages).toBeGreaterThanOrEqual(slides);
+
+    // Once the document reports it printed, the print frame is taken down and
+    // the control is offered again.
+    await expect(page.locator('iframe[sandbox="allow-scripts allow-modals"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Export PDF" })).toBeEnabled();
+  });
+
   test("Present moves the keyboard into the frame", async ({ page }) => {
     await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
     const present = page.getByRole("button", { name: "Present" });

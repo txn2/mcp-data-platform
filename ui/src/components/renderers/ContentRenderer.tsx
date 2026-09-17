@@ -34,6 +34,11 @@ interface Props {
    */
   contentUrl?: string;
   sizeBytes?: number;
+  /**
+   * Where an HTML document's controls render when the page has a row for them
+   * (#1769); the other families carry no controls.
+   */
+  controlsSlot?: HTMLElement | null;
 }
 
 const Loading = () => (
@@ -48,7 +53,7 @@ const Loading = () => (
  * generic type before the server settled types at write time still reaches the
  * right viewer.
  */
-export function ContentRenderer({ contentType, content, fileName, contentUrl, sizeBytes }: Props) {
+export function ContentRenderer({ contentType, content, fileName, contentUrl, sizeBytes, controlsSlot }: Props) {
   // Resolution scans a prefix of the content when the declared type is
   // generic, so it is memoized rather than repeated on every parent re-render.
   const entry = useMemo(
@@ -59,7 +64,7 @@ export function ContentRenderer({ contentType, content, fileName, contentUrl, si
   if (entry.source === "url") {
     return renderFromURL(entry, { fileName, contentUrl, sizeBytes });
   }
-  return renderFromText(entry, content ?? "", fileName);
+  return renderFromText(entry, content ?? "", fileName, controlsSlot);
 }
 
 interface URLProps {
@@ -96,7 +101,12 @@ function renderFromURL(entry: Resolution, { fileName, contentUrl, sizeBytes }: U
 }
 
 /** The families that render from text already in hand. */
-function renderFromText(entry: Resolution, text: string, fileName?: string): ReactNode {
+function renderFromText(
+  entry: Resolution,
+  text: string,
+  fileName?: string,
+  controlsSlot?: HTMLElement | null,
+): ReactNode {
   switch (entry.kind) {
     case "json":
       return (
@@ -143,7 +153,7 @@ function renderFromText(entry: Resolution, text: string, fileName?: string): Rea
     case "html":
       return (
         <Suspense fallback={<Loading />}>
-          <HtmlRenderer content={text} />
+          <HtmlRenderer content={text} controlsSlot={controlsSlot} />
         </Suspense>
       );
     default:

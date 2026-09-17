@@ -101,7 +101,7 @@ export function ResourceContent({ resource }: { resource: Resource }) {
   }
 
   return (
-    <div data-testid="resource-content">
+    <div data-testid="resource-content" className="flex min-h-0 flex-1 flex-col">
       <ContentRenderer
         contentType={resource.mime_type}
         content={text}
