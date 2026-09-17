@@ -19,6 +19,35 @@ const iso = (daysAgo: number, hour = 14): string => {
 };
 
 export const mockAssetVersions: Record<string, AssetVersion[]> = {
+  // Q3 Regional Review (text/html), the slide deck: a second version, so the
+  // asset page draws the version picker the deck's controls share a row with
+  // (#1769).
+  "ast-deck": [
+    {
+      id: "ver-ast-deck-2",
+      asset_id: "ast-deck",
+      version: 2,
+      s3_key: "assets/ast-deck/v2.html",
+      s3_bucket: "portal-assets",
+      content_type: "text/html",
+      size_bytes: 2_310,
+      created_by: "alice@example.com",
+      change_summary: "Name the two stores behind the Northeast gap",
+      created_at: iso(1),
+    },
+    {
+      id: "ver-ast-deck-1",
+      asset_id: "ast-deck",
+      version: 1,
+      s3_key: "assets/ast-deck/v1.html",
+      s3_bucket: "portal-assets",
+      content_type: "text/html",
+      size_bytes: 2_180,
+      created_by: "alice@example.com",
+      change_summary: "First cut",
+      created_at: iso(2),
+    },
+  ],
   // Q4 Revenue Dashboard (text/html) — five iterations.
   "ast-001": [
     {

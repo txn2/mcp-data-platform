@@ -9,11 +9,15 @@ like a dashboard.
 
 ```mermaid
 flowchart LR
-  A["save_asset<br/>text/html"] --> B["asset page<br/>framed, Present control"]
-  A --> C["share link<br/>same frame, same control"]
+  A["save_asset<br/>text/html"] --> B["asset page<br/>framed; Present, Overview, Export PDF"]
+  A --> C["share link<br/>same frame, same controls"]
   A --> D["thumbnail<br/>the title slide"]
   B --> E["fullscreen, keyboard<br/>on the slides"]
+  B --> F["every slide at once"]
+  B --> G["print dialog<br/>one slide per page"]
   C --> E
+  C --> F
+  C --> G
   R["/portal/vendor/reveal/<br/>served by this deployment"] -.-> B
   R -.-> C
   R -.-> D
@@ -129,10 +133,21 @@ thing; what does apply is the viewport declaration, which is still yours.
 ## How the portal presents it
 
 The asset page and the share viewer frame the deck as they frame any HTML
-document, and each carries a **Present** control. Present fullscreens the frame
-and moves the keyboard into it: arrow keys and space advance, Esc leaves
-fullscreen. Without Present, a click on the deck gives it the keyboard and the
-same keys work at the page's own size.
+document, with the frame filling the page under its header, and each carries
+three controls on that header row. **Present** fullscreens the frame and moves
+the keyboard into it: arrow keys and space advance, Esc leaves fullscreen.
+Without Present, a click on the deck gives it the keyboard and the same keys
+work at the page's own size. **Overview** shows every slide at once, as the
+runtime's own grid; a click on a slide goes to it, and a second press returns
+to the deck. **Export PDF** opens the browser's print dialog on the deck laid
+out one slide per page, in the runtime's print view, and the reader chooses
+Save as PDF there. Nothing leaves the browser, and the deck itself is not
+changed by either.
+
+A slide that is right on screen is right on the page: the print view uses the
+deck's configured slide size, so a deck designed at the default 960 by 700
+prints at that shape. Content that only appears on a keypress (a `fragment`)
+is printed in its final state, on one page per slide.
 
 The thumbnail on the asset card is the title slide. Write the first section as
 the slide you want on the tile.

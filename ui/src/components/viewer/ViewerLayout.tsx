@@ -54,7 +54,11 @@ export function ViewerLayout({
     // a 320px column next to the content is wider than a phone screen, and the
     // page scrolled sideways whenever it was open (#1693).
     <div className="flex h-full flex-col gap-4 lg:flex-row">
-      <div data-testid="viewer-content" className="min-w-0 flex-1 space-y-3">
+      {/* A flex column rather than stacked blocks: the content is the column's
+          last item, and a viewer that grows (an HTML frame, #1769) takes the
+          height left under the header and the controls, so the page fits the
+          viewport with its own padding under the content. */}
+      <div data-testid="viewer-content" className="flex min-w-0 flex-1 flex-col gap-3">
         <PageHeader
           onBack={onBack}
           title={<span className="min-w-0 truncate">{title}</span>}

@@ -132,6 +132,7 @@ if (dataEl) {
                 fileName={name}
                 contentUrl={contentURL || downloadURL}
                 sizeBytes={sizeBytes}
+                controlsSlot={document.getElementById("content-actions")}
               />,
             ),
       );

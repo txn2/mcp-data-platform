@@ -126,11 +126,12 @@ export const mockAssets: Asset[] = [
       ],
     },
     session_id: agentSessions[0]!,
-    current_version: 1,
+    current_version: 2,
     // Settled, like the rest of the fixture library: an HTML document takes
-    // one capture, and a pending tile here would be the first thing the
-    // refresh queue captured in every spec (thumbnail-refresh.spec.ts).
-    thumbnail_version: 1,
+    // one capture, stamped at the current version, and a pending tile here
+    // would be the first thing the refresh queue captured in every spec
+    // (thumbnail-refresh.spec.ts).
+    thumbnail_version: 2,
     thumbnail_dark_version: 0,
     created_at: daysAgo(1),
     updated_at: daysAgo(1),

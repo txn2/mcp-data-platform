@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
@@ -60,9 +60,14 @@ export function AssetContentView({
   editedContent,
   onSourceChange,
 }: AssetContentViewProps) {
+  // The end of the control row, where an HTML document's own controls
+  // (Present, Overview, Export PDF) render rather than on a row of their own
+  // (#1769). Held as state so the renderer re-renders once the row exists.
+  const [controlsSlot, setControlsSlot] = useState<HTMLElement | null>(null);
+
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <ViewModeToggle
           show={canEditSource && !viewingOldVersion}
           viewMode={viewMode}
@@ -87,6 +92,7 @@ export function AssetContentView({
         {viewingOldVersion && (
           <span className="text-xs text-muted-foreground">Viewing v{selectedVersion} (read-only)</span>
         )}
+        <div ref={setControlsSlot} data-testid="content-controls" className="ml-auto flex flex-wrap items-center gap-2" />
       </div>
 
       {/* Content display */}
@@ -100,6 +106,7 @@ export function AssetContentView({
             selectedVersion={selectedVersion}
             versionContent={versionContent}
             contentUrl={contentUrl}
+            controlsSlot={controlsSlot}
           />
         )
       ) : (
@@ -112,6 +119,7 @@ export function AssetContentView({
           editedContent={editedContent}
           hasChanges={hasChanges}
           onSourceChange={onSourceChange}
+          controlsSlot={controlsSlot}
         />
       )}
     </>
@@ -124,12 +132,14 @@ function VersionContent({
   selectedVersion,
   versionContent,
   contentUrl,
+  controlsSlot,
 }: {
   asset: Asset;
   versions?: AssetVersion[];
   selectedVersion?: number | null;
   versionContent?: string;
   contentUrl: string;
+  controlsSlot: HTMLElement | null;
 }) {
   const version = versions?.find((v) => v.version === selectedVersion);
   const sizeBytes = version?.size_bytes ?? 0;
@@ -146,6 +156,7 @@ function VersionContent({
       fileName={asset.name}
       contentUrl={contentUrl}
       sizeBytes={sizeBytes}
+      controlsSlot={controlsSlot}
     />
   );
 }
@@ -159,6 +170,7 @@ function CurrentContent({
   editedContent,
   hasChanges,
   onSourceChange,
+  controlsSlot,
 }: {
   asset: Asset;
   content: string | ArrayBuffer | undefined;
@@ -168,6 +180,7 @@ function CurrentContent({
   editedContent: string;
   hasChanges: boolean;
   onSourceChange: (v: string) => void;
+  controlsSlot: HTMLElement | null;
 }) {
   // Binary families never load content into the page: their renderers point an
   // element at the content endpoint, so there is nothing to wait for.
@@ -205,6 +218,7 @@ function CurrentContent({
           fileName={asset.name}
           contentUrl={media.src || contentUrl}
           sizeBytes={asset.size_bytes}
+          controlsSlot={controlsSlot}
         />
       )}
     </>
