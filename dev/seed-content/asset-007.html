@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presenting from the portal</title>
+<link rel="stylesheet" href="/portal/vendor/reveal/reset.css">
+<link rel="stylesheet" href="/portal/vendor/reveal/reveal.css">
+<link rel="stylesheet" href="/portal/vendor/reveal/theme/white.css">
+<style>
+  .reveal h1, .reveal h2 { text-transform: none; }
+  .reveal img { max-width: 100%; height: auto; }
+  .reveal .muted { color: #64748b; font-size: 0.7em; }
+</style>
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+    <section>
+      <h1>Presenting from the portal</h1>
+      <p class="muted">A deck is an HTML asset. This one is the seeded example.</p>
+    </section>
+    <section>
+      <h2>One idea per slide</h2>
+      <ul>
+        <li>The heading states it</li>
+        <li>The evidence sits under it</li>
+        <li>A number the room came for gets its own slide</li>
+      </ul>
+    </section>
+    <section>
+      <section>
+        <h2>Detail goes down, not across</h2>
+        <p>Press the down arrow for the detail behind this slide.</p>
+      </section>
+      <section>
+        <p>A vertical slide the presenter can step into or skip.</p>
+      </section>
+    </section>
+    <section data-markdown>
+      <textarea data-template>
+## Written in Markdown
+- The markdown plugin renders this section
+- One section, one slide, same as HTML
+      </textarea>
+    </section>
+    <section>
+      <h2>Where to spend the next quarter</h2>
+      <p>End on the recommendation, with the evidence named beneath it.</p>
+      <p class="muted">Revenue by region, Q3 2026; store maturity curve, FY2025.</p>
+    </section>
+  </div>
+</div>
+<script src="/portal/vendor/reveal/reveal.js"></script>
+<script src="/portal/vendor/reveal/plugin/markdown.js"></script>
+<script src="/portal/vendor/reveal/plugin/zoom.js"></script>
+<script>
+  Reveal.initialize({ hash: false, plugins: [RevealMarkdown, RevealZoom] });
+</script>
+</body>
+</html>

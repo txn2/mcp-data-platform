@@ -34,6 +34,7 @@ upload "asset-003" "$CONTENT_DIR/asset-003.jsx"
 upload "asset-004" "$CONTENT_DIR/asset-004.md"
 upload "asset-005" "$CONTENT_DIR/asset-005.svg"
 upload "asset-006" "$CONTENT_DIR/asset-006.html"
+upload "asset-007" "$CONTENT_DIR/asset-007.html"
 
 # Content for the 120 generated demo assets (seed-0001..0120 from seed.sql).
 # Reuse the five content files, cycled by the same (n % 5) index used in the

@@ -80,11 +80,83 @@ function mockRefRoute(): Plugin {
   };
 }
 
+/**
+ * Serve the presentation runtime the platform ships (#1767).
+ *
+ * A slide deck is an HTML asset that loads reveal.js, and the platform serves
+ * that library itself rather than leaving each deck to name a CDN: a deck then
+ * renders on a locked-down client network and an offline deployment, and the
+ * same-origin source sits inside the share viewer's existing `script-src
+ * 'self'` without the policy widening. The release is pinned in package.json
+ * (exact version, integrity in the lockfile) and copied out of node_modules at
+ * build time, so nothing under ui/public carries a third-party blob.
+ *
+ * In dev the same files are answered from node_modules by a middleware, so the
+ * path a deck names is the one path in every mode. The list below is the
+ * contract: the knowledge page an agent reads names these paths, and the
+ * acceptance suite fetches every path that page names.
+ */
+// Only the two themes that embed their typeface are served. The others
+// (simple, night, ...) @import Google Fonts, which is the CDN dependence the
+// served runtime exists to remove: a deck on one would render on an open
+// network and fall back to a system face on a closed one, silently.
+const REVEAL_VENDOR_PREFIX = "/portal/vendor/reveal/";
+const REVEAL_VENDOR_FILES = [
+  "reveal.js",
+  "reveal.css",
+  "reset.css",
+  "theme/white.css",
+  "theme/black.css",
+  "plugin/markdown.js",
+  "plugin/zoom.js",
+];
+const REVEAL_LICENSE = "LICENSE";
+
+function revealContentType(file: string): string {
+  return file.endsWith(".css") ? "text/css; charset=utf-8" : "application/javascript; charset=utf-8";
+}
+
+function revealVendor(): Plugin {
+  const pkgDir = path.resolve(__dirname, "node_modules/reveal.js");
+  let outDir = "dist";
+  return {
+    name: "reveal-vendor",
+    configResolved(config) {
+      outDir = config.build.outDir;
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url ?? "").split("?")[0] ?? "";
+        if (!url.startsWith(REVEAL_VENDOR_PREFIX)) {
+          next();
+          return;
+        }
+        const file = url.slice(REVEAL_VENDOR_PREFIX.length);
+        if (!REVEAL_VENDOR_FILES.includes(file)) {
+          next();
+          return;
+        }
+        res.setHeader("Content-Type", revealContentType(file));
+        res.end(fs.readFileSync(path.join(pkgDir, "dist", file)));
+      });
+    },
+    closeBundle() {
+      const dest = path.resolve(__dirname, outDir, "vendor/reveal");
+      for (const file of REVEAL_VENDOR_FILES) {
+        const target = path.join(dest, file);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(path.join(pkgDir, "dist", file), target);
+      }
+      fs.copyFileSync(path.join(pkgDir, REVEAL_LICENSE), path.join(dest, REVEAL_LICENSE));
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const apiTarget = process.env.VITE_API_TARGET || "http://localhost:8080";
 
   return {
-    plugins: [react(), tailwindcss(), ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : [])],
+    plugins: [react(), tailwindcss(), revealVendor(), ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : [])],
     base: "/portal/",
     resolve: {
       alias: {

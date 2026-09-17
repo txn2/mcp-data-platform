@@ -64,6 +64,7 @@
     "recharts": "^2.15.3",
     "redoc": "2.5.4",
     "remark-gfm": "^4.0.1",
+    "reveal.js": "6.0.2",
     "sucrase": "^3.35.1",
     "tailwind-merge": "^3.3.0",
     "zustand": "^5.0.5"

@@ -560,6 +560,17 @@ INSERT INTO portal_assets (
   '{"tool": "save_asset", "session_id": "sess-206"}'::jsonb,
   'sess-206', 1,
   NOW() - interval '1 day', NOW() - interval '1 day'
+),
+(
+  'asset-007', 'apikey:admin', 'admin@apikey.local',
+  'Presenting from the portal',
+  'A slide deck on the reveal.js runtime the platform serves (#1767): the seeded example of a presentation saved as an HTML asset.',
+  'text/html',
+  'portal-assets', 'portal/apikey:admin/asset-007/v1/content.html', 2012,
+  '["presentation", "slides", "example"]'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-207"}'::jsonb,
+  'sess-207', 1,
+  NOW() - interval '12 hours', NOW() - interval '12 hours'
 )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
@@ -607,7 +618,8 @@ INSERT INTO portal_asset_versions (
 ('ver-003', 'asset-003', 1, 'portal/apikey:admin/asset-003/v1/content.jsx',  'portal-assets', 'text/jsx',      6340, 'apikey:admin', 'Initial version', NOW() - interval '4 days'),
 ('ver-004', 'asset-004', 1, 'portal/apikey:admin/asset-004/v1/content.md',   'portal-assets', 'text/markdown', 2890, 'apikey:admin', 'Initial version', NOW() - interval '3 days'),
 ('ver-005', 'asset-005', 1, 'portal/apikey:admin/asset-005/v1/content.svg',  'portal-assets', 'image/svg+xml', 8150, 'apikey:admin', 'Initial version', NOW() - interval '2 days'),
-('ver-006', 'asset-006', 1, 'portal/apikey:admin/asset-006/v1/content.html', 'portal-assets', 'text/html',     5420, 'apikey:admin', 'Initial version', NOW() - interval '1 day')
+('ver-006', 'asset-006', 1, 'portal/apikey:admin/asset-006/v1/content.html', 'portal-assets', 'text/html',     5420, 'apikey:admin', 'Initial version', NOW() - interval '1 day'),
+('ver-007', 'asset-007', 1, 'portal/apikey:admin/asset-007/v1/content.html', 'portal-assets', 'text/html',     2012, 'apikey:admin', 'Initial version', NOW() - interval '12 hours')
 ON CONFLICT (id) DO NOTHING;
 
 -- Shares (5 assets shared: one user share, four public links)
@@ -647,6 +659,11 @@ INSERT INTO portal_shares (
 (
   'share-006', 'asset-005', 'tok-regional-heatmap-public',
   'apikey:admin', NOW() + interval '30 days', NOW() - interval '2 days',
+  NULL, NULL, 'viewer', 'public'
+),
+(
+  'share-007', 'asset-007', 'tok-intro-deck-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '12 hours',
   NULL, NULL, 'viewer', 'public'
 )
 ON CONFLICT (id) DO UPDATE SET

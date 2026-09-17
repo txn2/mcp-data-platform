@@ -2,7 +2,10 @@ package knowledgebuiltin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -341,5 +344,42 @@ func knowledgePageRefs(text string) []string {
 			end = len(rest)
 		}
 		slugs = append(slugs, rest[:end])
+	}
+}
+
+// The presentations page names the runtime release the portal build pins
+// (#1767). The pin lives in ui/package.json; the page is prose. Reading one
+// from the other is what stops an upgrade of the dependency leaving the page
+// telling agents about a version the deployment no longer serves.
+func TestPages_PresentationsPageNamesThePinnedRuntime(t *testing.T) {
+	pkg, err := os.ReadFile(filepath.Join("..", "..", "..", "ui", "package.json"))
+	require.NoError(t, err)
+	var manifest struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	require.NoError(t, json.Unmarshal(pkg, &manifest))
+	version := manifest.Dependencies["reveal.js"]
+	require.NotEmpty(t, version, "ui/package.json no longer pins reveal.js")
+	require.Regexp(t, `^\d+\.\d+\.\d+$`, version, "reveal.js must be pinned to an exact release, not a range")
+
+	pages, err := Pages()
+	require.NoError(t, err)
+	var body string
+	for _, p := range pages {
+		if p.Slug == instructions.PagePresentations {
+			body = p.Body
+		}
+	}
+	require.NotEmpty(t, body, "the presentations page is not shipped")
+	assert.Containsf(t, body, "reveal.js "+version,
+		"the page names a different release than ui/package.json pins (%s)", version)
+	for _, path := range []string{
+		"/portal/vendor/reveal/reveal.js",
+		"/portal/vendor/reveal/reveal.css",
+		"/portal/vendor/reveal/reset.css",
+		"/portal/vendor/reveal/plugin/markdown.js",
+		"/portal/vendor/reveal/plugin/zoom.js",
+	} {
+		assert.Containsf(t, body, path, "the page does not name %s", path)
 	}
 }

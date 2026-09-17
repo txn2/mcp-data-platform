@@ -79,7 +79,10 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //     that is already running, which 'unsafe-inline' has already permitted.
 //   - style-src 'unsafe-inline', img-src, font-src — the page and its assets
 //     style themselves inline and reference images and webfonts from
-//     arbitrary hosts. All three are passive.
+//     arbitrary hosts. All three are passive. style-src also carries 'self'
+//     for the same reason script-src does: the slide runtime the platform
+//     serves under /portal/vendor/reveal/ (#1767) is stylesheets as well as
+//     script, and on a plaintext deployment `https:` covers neither.
 //   - media-src and object-src 'self' — audio and video stream from the
 //     same-origin raw content endpoint, and PDFs render through an <object>
 //     pointed at it (ui/src/components/renderers/MediaRenderer.tsx).
@@ -96,7 +99,7 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //nolint:lll // CSP directives are necessarily long
 const baseCSP = "default-src 'none'; " +
 	"script-src 'self' 'unsafe-inline' blob: https:; " +
-	"style-src 'unsafe-inline' https:; " +
+	"style-src 'self' 'unsafe-inline' https:; " +
 	"img-src * data: blob:; " +
 	"media-src 'self' blob: data:; " +
 	"object-src 'self'; " +

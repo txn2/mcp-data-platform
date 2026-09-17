@@ -220,21 +220,37 @@ function insertRefWatch(html: string): string {
 
 /**
  * Capture an iframe element's content using the bundled html2canvas.
- * The iframe must have same-origin access (blob: URL satisfies this when
- * the sandbox includes allow-same-origin).
+ * The iframe must have same-origin access (an srcdoc frame satisfies this
+ * when the sandbox includes allow-same-origin).
+ *
+ * The pixels are drawn on a canvas the FRAME's document creates, not this
+ * one. html2canvas measures where each word sits in the frame's document,
+ * whose stylesheets declare the artifact's web fonts, and then draws the
+ * glyphs through a canvas context; a context belonging to this document
+ * knows none of those fonts and draws a fallback face instead. A wider
+ * fallback overran the measured positions and closed every word gap, which is
+ * how a slide deck on the served runtime's embedded typeface captured as
+ * "Presentingfromthe portal" (#1767). The canvas is sized here because
+ * html2canvas sizes only a canvas it created itself.
  */
 export async function captureIframe(iframe: HTMLIFrameElement): Promise<CaptureResult> {
   const doc = iframe.contentDocument;
   if (!doc?.body) throw new Error("Cannot access iframe content");
+
+  const scale = THUMB_WIDTH / RENDER_WIDTH;
+  const canvas = doc.createElement("canvas");
+  canvas.width = Math.floor(RENDER_WIDTH * scale);
+  canvas.height = Math.floor(RENDER_HEIGHT * scale);
 
   const outcome = await rasterize(doc.body, {
     width: RENDER_WIDTH,
     height: RENDER_HEIGHT,
     windowWidth: RENDER_WIDTH,
     windowHeight: RENDER_HEIGHT,
-    scale: THUMB_WIDTH / RENDER_WIDTH,
+    scale,
     logging: false,
     useCORS: true,
+    canvas,
   });
 
   return { blob: await canvasToPng(outcome.canvas), outcome };

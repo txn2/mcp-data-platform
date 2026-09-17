@@ -29,6 +29,13 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // A slide deck (#1767): the HTML viewer with its Present control above the
+    // frame and the runtime's first slide inside it.
+    slug: "asset-deck",
+    path: "/portal/assets/ast-deck",
+    category: "user",
+  },
+  {
     // Provenance panel (#1320): what the asset was built from, grouped by the
     // write that captured it. Lives behind the metadata sidebar, so the plain
     // asset-html capture never shows it.

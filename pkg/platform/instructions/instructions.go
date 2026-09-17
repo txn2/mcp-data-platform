@@ -153,6 +153,7 @@ const (
 	PageProvenanceCapture     = "platform-provenance-and-the-capture-loop"
 	PageContentTypes          = "platform-content-types-for-stored-files"
 	PageFitAnyScreen          = "platform-documents-that-fit-any-screen"
+	PagePresentations         = "platform-presentations"
 )
 
 // baselinePage is one entry of the page index: the tool whose capability the
@@ -169,11 +170,11 @@ type baselinePage struct {
 var baselinePages = []baselinePage{
 	{
 		toolManageScript, PageWritingManagedScripts,
-		"the Starlark dialect and its deliberate absences, what a script may call and the persona that decides it, and the validate/dry-run loop a save follows",
+		"the Starlark dialect and its absences, what a script may call and who decides it, and the validate/dry-run loop",
 	},
 	{
 		toolManageScript, PageScriptOutputs,
-		"where a script's output lands and what identity it keeps across runs: a stable name refreshes one asset, a dated name archives",
+		"where a script's output lands: a stable name refreshes one asset, a dated name archives",
 	},
 	{
 		toolManageScript, PageSemiDynamicDashboards,
@@ -181,19 +182,23 @@ var baselinePages = []baselinePage{
 	},
 	{
 		toolSaveAsset, PageAssetReferences,
-		"the two reference forms, the patterns an HTML or JSX document uses, and who can load a declared file",
+		"the two reference forms and who can load a declared file",
 	},
 	{
 		toolMemoryCapture, PageProvenanceCapture,
-		"naming sources so an asset's provenance is exact, and the loop that turns session knowledge into reviewed catalog knowledge",
+		"naming sources so provenance is exact, and the loop from session knowledge to reviewed catalog knowledge",
 	},
 	{
 		toolSaveAsset, PageContentTypes,
-		"the media type every stored file carries, the families detection cannot name from bytes, and what a write must declare",
+		"the media type a write must declare, and the families detection cannot name from bytes",
 	},
 	{
 		toolSaveAsset, PageFitAnyScreen,
 		"writing a document that fits the reader's screen",
+	},
+	{
+		toolSaveAsset, PagePresentations,
+		"a presentation, deck or slides: an HTML asset on the slide runtime the platform serves",
 	},
 }
 

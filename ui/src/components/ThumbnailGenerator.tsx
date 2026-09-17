@@ -219,12 +219,11 @@ function IframeCapture({
   const assetId = target.id;
   const isJsx = contentType.toLowerCase().includes("jsx");
 
-  const blobUrl = useMemo(() => {
+  const doc = useMemo(() => {
     const html = isJsx
       ? buildJsxThumbnailHtml(content, assetId)
       : injectCaptureScript(content, assetId);
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    return URL.createObjectURL(blob);
+    return html;
   }, [assetId, content, isJsx]);
 
   // A frame that reported a failed reference load is not stored. The pixels
@@ -260,7 +259,7 @@ function IframeCapture({
 
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
-      // With allow-same-origin, blob: iframes inherit the parent's origin
+      // With allow-same-origin, an srcdoc frame shares the parent's origin
       if (e.origin !== window.location.origin) return;
       if (e.data?.type !== "thumbnail-ready") return;
       // The refresh queue and the viewer both mount a capturer, so two frames
@@ -288,10 +287,6 @@ function IframeCapture({
     return () => clearTimeout(timer);
   }, [target, onFailed]);
 
-  useEffect(() => {
-    return () => URL.revokeObjectURL(blobUrl);
-  }, [blobUrl]);
-
   return (
     <div
       style={{
@@ -308,7 +303,7 @@ function IframeCapture({
       <iframe
         ref={iframeRef}
         sandbox="allow-scripts allow-same-origin"
-        src={blobUrl}
+        srcDoc={doc}
         width={RENDER_WIDTH}
         height={RENDER_HEIGHT}
         style={{ border: "none" }}
