@@ -331,3 +331,56 @@ async function renderInArtifactFrame(page: Page, html: string, settleMs: number)
   const frame = page.frameLocator("#probe-frame");
   return (await frame.locator("#out").textContent()) ?? "";
 }
+
+// A slide deck (#1767) is an HTML share whose document loads the reveal.js
+// runtime the platform serves from its own origin. What is asserted here is
+// what the ticket promised through the real surface: the runtime loads with
+// nothing refused and nothing fetched from a third party, the slides advance
+// on the keyboard, and the Present control hands the frame the keyboard.
+test.describe("a slide deck share", () => {
+  const DECK_TOKEN = "tok-intro-deck-public";
+
+  /** Hosts the page fetched from, other than its own. */
+  function watchForeignHosts(page: Page, ownHost: string): string[] {
+    const foreign: string[] = [];
+    page.on("request", (r) => {
+      const host = new URL(r.url()).host;
+      if (host !== ownHost && !foreign.includes(host)) foreign.push(host);
+    });
+    return foreign;
+  }
+
+  test("renders on the served runtime, from this origin only, and advances on the arrow keys", async ({ page, baseURL }) => {
+    const refusals = watchCSP(page);
+    const foreign = watchForeignHosts(page, new URL(baseURL!).host);
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+
+    const frame = artifactFrame(page);
+    // The runtime initialized: reveal.js marks the current slide `present`,
+    // which a document whose script never loaded does not carry.
+    const current = frame.locator("section.present");
+    await expect(current).toContainText("Presenting from the portal");
+    // The markdown plugin loaded too: its section is rendered as a heading
+    // rather than left as the textarea the author wrote.
+    await expect(frame.locator("section h2", { hasText: "Written in Markdown" })).toHaveCount(1);
+
+    await frame.locator("body").click();
+    await page.keyboard.press("ArrowRight");
+    await expect(frame.locator("section.present")).toContainText("One idea per slide");
+
+    expect(refusals, refusals.join("\n")).toHaveLength(0);
+    expect(foreign, `fetched from ${foreign.join(", ")}`).toHaveLength(0);
+  });
+
+  test("Present moves the keyboard into the frame", async ({ page }) => {
+    await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
+    const present = page.getByRole("button", { name: "Present" });
+    await expect(present).toBeVisible();
+    await present.click();
+    // Fullscreen needs a real user gesture the automation may not carry; the
+    // focus move is the part the keyboard depends on either way.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe("IFRAME");
+    await page.keyboard.press("ArrowRight");
+    await expect(artifactFrame(page).locator("section.present")).toContainText("One idea per slide");
+  });
+});

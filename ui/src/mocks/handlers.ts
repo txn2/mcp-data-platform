@@ -610,6 +610,12 @@ const STATIC_THUMBNAILS: Record<string, string> = {
 <rect x="112" y="228" width="176" height="34" rx="4" fill="#22c55e"/>
 <text x="124" y="250" font-family="system-ui" font-size="11" font-weight="600" fill="white">Won: 82</text>
 </svg>`,
+  "ast-deck": `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+<rect width="400" height="300" fill="#ffffff"/>
+<text x="200" y="128" text-anchor="middle" font-family="system-ui" font-size="30" font-weight="700" fill="#1a1d24">Q3 regional review</text>
+<text x="200" y="164" text-anchor="middle" font-family="system-ui" font-size="12" fill="#5b6270">Revenue, stores and the one decision for Q4</text>
+<path d="M378 270 l6 6 l-6 6" fill="none" stroke="#1f3a93" stroke-width="2"/>
+</svg>`,
   "ast-001": `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
 <defs><linearGradient id="hdr1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1e293b"/><stop offset="100%" stop-color="#334155"/></linearGradient></defs>
 <rect width="400" height="300" fill="#f0f2f5"/>

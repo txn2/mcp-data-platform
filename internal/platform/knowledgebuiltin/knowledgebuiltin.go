@@ -89,6 +89,12 @@ var pageMetas = []pageMeta{
 		tags:    []string{"assets", "authoring", "layout"},
 	},
 	{
+		file:    "presentations.md",
+		slug:    "platform-presentations",
+		summary: "Building a presentation as an HTML asset on the reveal.js runtime the platform serves: the paths a deck names and why they are same-origin, the document skeleton, one slide per section with vertical detail, Markdown slides, brand by reference, what the Present control and the thumbnail do with it, and what the portal frame does not allow.",
+		tags:    []string{"assets", "authoring", "presentations", "slides"},
+	},
+	{
 		file:    "content-types-for-stored-files.md",
 		slug:    knowledgepage.BuiltinSlugContentTypes,
 		summary: "The media type every stored file carries and why a write declares it: the families detection cannot name from bytes, the types to declare for text and for binary content, and what a replacement keeps.",

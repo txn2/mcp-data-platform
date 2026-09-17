@@ -103,6 +103,39 @@ export const mockAssets: Asset[] = [
     updated_at: daysAgo(1),
   },
   {
+    // A slide deck (#1767): an HTML asset on the reveal.js runtime the portal
+    // serves. The screenshot pipeline captures its asset page, Present control
+    // included, and the interactive suite drives it.
+    id: "ast-deck",
+    owner_id: "user-alice",
+    owner_email: "alice@example.com",
+    name: "Q3 Regional Review",
+    description: "Slide deck for the Q3 regional review: revenue by region, the two stores behind the Northeast gap, and the Q4 recommendation.",
+    content_type: "text/html",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-deck.html",
+    thumbnail_s3_key: "thumbnails/ast-deck.png",
+    size_bytes: 2_310,
+    tags: ["presentation", "slides", "q3-2026"],
+    provenance: {
+      session_id: agentSessions[0]!,
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_query", timestamp: daysAgo(1), parameters: { sql: "SELECT region, SUM(revenue) FROM sales.quarterly WHERE quarter = 'Q3' GROUP BY region" } },
+        { tool_name: "save_asset", timestamp: daysAgo(1), parameters: { name: "Q3 Regional Review" } },
+      ],
+    },
+    session_id: agentSessions[0]!,
+    current_version: 1,
+    // Settled, like the rest of the fixture library: an HTML document takes
+    // one capture, and a pending tile here would be the first thing the
+    // refresh queue captured in every spec (thumbnail-refresh.spec.ts).
+    thumbnail_version: 1,
+    thumbnail_dark_version: 0,
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+  },
+  {
     id: "ast-002",
     owner_id: "user-alice",
     owner_email: "alice@example.com",

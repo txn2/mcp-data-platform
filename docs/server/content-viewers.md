@@ -174,7 +174,7 @@ content type renders identically wherever it is opened.
 | Audio | `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac` | Native player with seek | None |
 | Video | `video/mp4`, `video/webm`, `video/ogg` | Native player with seek | None |
 | PDF | `application/pdf` | Embedded viewer (`<object>`) over the content URL, with a download fallback | None |
-| Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers | Source editor |
+| Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers; an HTML asset is framed as `srcdoc` with a Present control that fullscreens the frame, which is how a slide deck on the served reveal.js runtime is presented (#1767) | Source editor |
 | Structured text | `application/xml`, `application/yaml` | CodeMirror, read-only, with folding and a wrap toggle | CodeMirror |
 | Code and logs | `application/sql`, `text/x-python`, `text/javascript`, `text/plain` | CodeMirror, read-only, with line numbers and a wrap toggle | CodeMirror |
 | Anything else | | Metadata card naming the type and size, with a download action | None |
@@ -190,7 +190,11 @@ highlighted code:
 ![The Markdown viewer](../images/screenshots/light/user-asset-markdown-light.webp#only-light)![The Markdown viewer](../images/screenshots/dark/user-asset-markdown-dark.webp#only-dark)
 
 HTML, sandboxed, and a JSX artifact, which runs under a policy of its own
-(see [The JSX artifact's own policy](#the-jsx-artifacts-own-policy)):
+(see [The JSX artifact's own policy](#the-jsx-artifacts-own-policy)). The HTML
+frame is an `srcdoc` document rather than a blob: URL, so a root-relative path
+in the artifact resolves against the page that framed it; that is what lets a
+deck load the slide runtime the platform serves at `/portal/vendor/reveal/`
+(see [Presenting a slide deck](../portal/assets.md#presenting-a-slide-deck)):
 
 ![The HTML viewer](../images/screenshots/light/user-asset-html-light.webp#only-light)![The HTML viewer](../images/screenshots/dark/user-asset-html-dark.webp#only-dark)
 
@@ -335,7 +339,7 @@ viewer page, and the untrusted HTML and JSX assets it renders in `blob:` URL
 iframes, which inherit the creating document's policy. The page is served with:
 
 ```
-default-src 'none'; script-src 'self' 'unsafe-inline' blob: https:; style-src 'unsafe-inline' https:;
+default-src 'none'; script-src 'self' 'unsafe-inline' blob: https:; style-src 'self' 'unsafe-inline' https:;
 img-src * data: blob:; media-src 'self' blob: data:; object-src 'self';
 font-src * data:; connect-src 'self' https:;
 ```
@@ -371,7 +375,9 @@ blob: data:` for a collection, whose items open in a same-origin iframe.
   runtime. An artifact that calls `eval` or `new Function` is refused.
 - `style-src`, `img-src` and `font-src` stay permissive for artifacts that style
   themselves inline and pull images and webfonts from arbitrary hosts. All three
-  are passive.
+  are passive. `style-src` also names `'self'`, for the reason `script-src`
+  does: the slide runtime served under `/portal/vendor/reveal/` is stylesheets
+  as well as script, and on a plaintext deployment `https:` covers neither.
 - `connect-src` is there for artifacts. No viewer path issues a request it
   governs — content URLs are handed to elements, which answer to `img-src`,
   `media-src` and `object-src` instead.
