@@ -682,7 +682,9 @@ func TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo(t *testing.T
 	assert.Equal(t, encodingWindows1252, defect.Encoding)
 	assert.Contains(t, defect.Unreadable, "bare \" in non-quoted-field")
 	assert.False(t, defect.Correctable())
-	assert.Contains(t, defect.Reason(), "not readable as a CSV all the way through")
+	// The header is the record it stopped on, so the refusal says that rather
+	// than that the read stopped somewhere (#1774).
+	assert.Contains(t, defect.Reason(), "this file's first line cannot be read as a CSV header")
 
 	_, _, err := Normalize([]byte(body))
 	require.Error(t, err, "which is the answer the correction would have given")
@@ -697,7 +699,24 @@ func TestInspectCSV_AHeaderTheReaderCannotParseWithdrawsTheOfferToo(t *testing.T
 func TestInspectCSV_NeitherConditionIsADefectOnItsOwn(t *testing.T) {
 	assert.Nil(t, Inspect([]byte("a,b\n1,2\n3\n")), "ragged, and readable by a line-based reader")
 	assert.Nil(t, Inspect([]byte("a,b\n1,2\n3,he\"llo\n")), "unparseable partway, and every record on its own line")
-	assert.Nil(t, Inspect([]byte("a,he said \"hi\"\n1,2\n")), "and the same where the header is the record it stops on")
+}
+
+// TestInspectCSV_AnUnreadableHeaderIsADefectOnItsOwn is where that stops.
+//
+// This case was asserted as nil above on the reading that such a file
+// "registers today and goes on registering". It never did: the registration
+// hands the same first line to the same reader, gets the same error, and turns
+// it into "the file has no header row" -- about a header the file has. Nothing
+// downstream can improve on a nil here, so the parse error is the answer
+// (#1774).
+func TestInspectCSV_AnUnreadableHeaderIsADefectOnItsOwn(t *testing.T) {
+	defect := Inspect([]byte("a,he said \"hi\"\n1,2\n"))
+	require.NotNil(t, defect)
+
+	assert.Contains(t, defect.Unreadable, "bare \" in non-quoted-field")
+	assert.False(t, defect.Correctable(), "the correction reads the same line with the same reader")
+	assert.Contains(t, defect.Reason(), "this file's first line cannot be read as a CSV header")
+	assert.Equal(t, "Correct it where it was written and upload it again.", defect.Remedy())
 }
 
 // TestInspectCSV_AConsistentFileWithATornRowIsStillOffered is the other half:
@@ -759,4 +778,68 @@ func TestCSVDefect_CorrectableIsEveryRuleTheCorrectionApplies(t *testing.T) {
 	assert.False(t, (&Defect{Rows: 1, Encoding: encodingWide}).Correctable())
 	assert.False(t, (&Defect{Rows: 1, Ragged: []string{"record 1 has 1"}}).Correctable())
 	assert.False(t, (&Defect{Rows: 1, Unreadable: "parse error"}).Correctable())
+}
+
+// facebookExport is the shape every spreadsheet and reporting export that
+// quotes its strings writes: a UTF-8 byte-order mark, then a QUOTED first
+// header field. Facebook Insights, Excel's "CSV UTF-8" and Google Ads all
+// produce it, so it is not an edge case (#1774).
+func facebookExport(rows string) []byte {
+	return append([]byte(bomUTF8), []byte("\"Post ID\",\"Page ID\",\"Title\"\n"+rows)...)
+}
+
+// TestInspectCSV_AMarkBeforeAQuotedHeaderIsNotADefect. The mark sits inside
+// the first field, so encoding/csv reads it as an unquoted field with a bare
+// quote in it and fails on line 1. Nothing is wrong with the file.
+func TestInspectCSV_AMarkBeforeAQuotedHeaderIsNotADefect(t *testing.T) {
+	assert.Nil(t, Inspect(facebookExport("p1,pg1,Hello\n")))
+}
+
+// TestInspectCSV_AMarkDoesNotHideTheDefectBehindIt is the half that matters
+// more: with the parse failing on line 1 the scan reached no record, so the
+// line breaks inside cells -- the defect the correction exists for -- were
+// never seen and the repair was never offered.
+func TestInspectCSV_AMarkDoesNotHideTheDefectBehindIt(t *testing.T) {
+	defect := Inspect(facebookExport("p1,pg1,\"one\ntwo\"\np2,pg2,fine\n"))
+	require.NotNil(t, defect)
+
+	assert.Equal(t, 1, defect.Rows)
+	assert.Equal(t, []string{"Title"}, defect.Columns)
+	assert.Empty(t, defect.Unreadable)
+	assert.True(t, defect.Correctable(), "and the correction is offered")
+
+	out, report, err := Normalize(facebookExport("p1,pg1,\"one\ntwo\"\np2,pg2,fine\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, report.RowsRepaired)
+	// Re-emitted without the quotes the export wrote around fields that do not
+	// need them, and with the mark gone.
+	assert.Equal(t, "Post ID,Page ID,Title\np1,pg1,one two\np2,pg2,fine\n", string(out))
+}
+
+// TestTrimBOM covers what it is and is not: a leading UTF-8 mark goes, and
+// content without one is returned as it came.
+func TestTrimBOM(t *testing.T) {
+	assert.Equal(t, []byte("a,b\n"), TrimBOM([]byte(bomUTF8+"a,b\n")))
+	assert.Equal(t, []byte("a,b\n"), TrimBOM([]byte("a,b\n")))
+	assert.Equal(t, []byte("a,"+bomUTF8+"b\n"), TrimBOM([]byte("a,"+bomUTF8+"b\n")),
+		"a mark that is not leading is a character in a cell")
+}
+
+// TestInspectCSV_AMarkInACodePageIsConvertedNotDropped. Those three bytes are
+// three windows-1252 characters, and the conversion carries them; dropping
+// them here would take characters out of a file the platform is about to
+// report on.
+func TestInspectCSV_AMarkInACodePageIsConvertedNotDropped(t *testing.T) {
+	// The mark's bytes, then a byte no UTF-8 sequence can start with, which is
+	// what makes these bytes a code page rather than UTF-8.
+	body := append([]byte(bomUTF8), []byte("caf\xe9,b\n1,2\n")...)
+
+	defect := Inspect(body)
+	require.NotNil(t, defect)
+	assert.Equal(t, encodingWindows1252, defect.Encoding)
+
+	out, report, err := Normalize(body)
+	require.NoError(t, err)
+	assert.Equal(t, encodingWindows1252, report.FromEncoding)
+	assert.Equal(t, "ï»¿café,b\n1,2\n", string(out))
 }

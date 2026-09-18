@@ -60,12 +60,36 @@ func ColumnsFrom(record []string) []Column {
 		if i == 0 {
 			name = strings.TrimPrefix(name, bomUTF8)
 		}
+		name = withoutCommas(name)
 		if name == "" {
 			name = "column_" + strconv.Itoa(i+1)
 		}
 		columns = append(columns, Column{Name: uniqueName(name, seen), Type: ColumnType})
 	}
 	return columns
+}
+
+// withoutCommas removes the one character a Hive column name may not hold.
+//
+// The metastore stores a table's column list comma-separated, so a comma in a
+// name is refused by the connector itself -- "Hive column names must not
+// contain commas" -- and no quoting gets past it. Every other character a
+// spreadsheet puts in a heading is accepted: a space, a dot, a colon, a
+// parenthesis, a slash, a semicolon, a percent and an equals were each created
+// without complaint on Trino 476 while a comma was refused.
+//
+// It is dropped rather than refused for the same reason a blank name is filled
+// in positionally and a repeated one is suffixed: the file is what it is, and
+// a table that refuses to exist over an ordinary export helps nobody. A
+// Facebook Insights export names a column "Reactions, Comments and Shares" and
+// could not be registered at all until this (#1774). Each comma becomes a
+// space and the runs collapse, so that name is "Reactions Comments and
+// Shares" -- what the heading reads as, addressable.
+func withoutCommas(name string) string {
+	if !strings.Contains(name, ",") {
+		return name
+	}
+	return strings.Join(strings.Fields(strings.ReplaceAll(name, ",", " ")), " ")
 }
 
 // uniqueName disambiguates a repeated column name by suffixing it, and records

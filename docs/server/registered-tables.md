@@ -341,6 +341,36 @@ already reading it for the header row - and refuses three things:
 None of the three is refused silently and none leaves anything behind: no table
 is created and no registration is recorded.
 
+A leading UTF-8 byte-order mark is not one of the three. It is dropped before
+the file is read at all, because it is not an encoding declaration to any
+reader here - it is the first bytes of the first field, and `<mark>"Post ID"`
+parses as an unquoted field carrying a bare quote. Every export that quotes its
+strings writes that shape, so a file leading with a mark registers like any
+other, and the first column is named what the header calls it.
+
+A comma in a heading does not survive into the column's name. The Hive
+metastore stores a table's column list comma-separated, so the connector
+refuses a name holding one whatever the quoting, and a heading like
+`Reactions, Comments and Shares` would fail at the DDL — after a correction of
+the file had already been written. Each comma becomes a space and the runs
+collapse, the way a blank heading becomes `column_3` and a repeated one is
+suffixed. Every other character a spreadsheet puts in a heading is kept: a
+space, a dot, a colon, a parenthesis, a slash, a semicolon, a percent and an
+equals were each created without complaint on Trino 476.
+
+A first line the reader cannot parse at all is refused, and the refusal carries
+the parse error. It is not "the file has no header row": a file with nothing in
+it has no header row, and a file whose first line could not be read has one
+(#1774).
+
+A registration that could not be completed for a reason that is the platform's
+rather than the file's - a store that stopped answering, a coordinator that
+would not run the statement - says which of those it was, naming the stage it
+stopped at. The whole error, which may carry addresses and topology a caller
+should not see, goes to the audit trail and the server log instead. Every
+failed registration writes an audit event, whether it was refused or failed,
+carrying the caller, the connection, the file and that error (#1775).
+
 The line endings are settled before the rest of the file is read, so a refusal
 counts the records the file holds and names the columns it declares, rather
 than the single record a reader that splits on the newline alone found in it.

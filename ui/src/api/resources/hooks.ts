@@ -62,7 +62,8 @@ export function useFacets(params?: { scope?: string; scope_id?: string }) {
 
   return useQuery({
     queryKey: ["resource-facets", qs],
-    queryFn: () => resourceFetch<FacetsResponse>(`/facets${qs ? `?${qs}` : ""}`),
+    queryFn: () =>
+      resourceFetch<FacetsResponse>(`/facets${qs ? `?${qs}` : ""}`),
   });
 }
 
@@ -125,8 +126,8 @@ export function useInfiniteResources(
       const sp = resourceParams(params);
       sp.set("limit", String(limit));
       sp.set("offset", String(offset));
-      return resourceFetch<ResourceListResponse>(`?${sp.toString()}`).then((r) =>
-        toPaginated(r.resources, r.total, limit, offset),
+      return resourceFetch<ResourceListResponse>(`?${sp.toString()}`).then(
+        (r) => toPaginated(r.resources, r.total, limit, offset),
       );
     },
   });
@@ -163,7 +164,13 @@ export function useUploadResource() {
 export function useUpdateResource() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, update }: { id: string; update: ResourceUpdate }) => {
+    mutationFn: async ({
+      id,
+      update,
+    }: {
+      id: string;
+      update: ResourceUpdate;
+    }) => {
       return resourceFetch<Resource>(`/${id}`, {
         method: "PATCH",
         body: JSON.stringify(update),
@@ -207,7 +214,9 @@ export function useClearResourceThumbnail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await resourceFetchRaw(`/${id}/thumbnail`, { method: "DELETE" });
+      const res = await resourceFetchRaw(`/${id}/thumbnail`, {
+        method: "DELETE",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(body.error || res.statusText);
@@ -228,7 +237,8 @@ export function useClearResourceThumbnail() {
 export function useResourceVersions(id: string, enabled = true) {
   return useQuery({
     queryKey: ["resources", id, "versions"],
-    queryFn: () => resourceFetch<ResourceVersionListResponse>(`/${id}/versions`),
+    queryFn: () =>
+      resourceFetch<ResourceVersionListResponse>(`/${id}/versions`),
     enabled: !!id && enabled,
   });
 }
@@ -236,13 +246,34 @@ export function useResourceVersions(id: string, enabled = true) {
 // useReplaceContent uploads new content for an existing resource. The resource
 // keeps its ID, URI, and filename, so every reference and prompt attachment
 // pointing at it keeps resolving.
+//
+// changeSummary says why the content changed and is recorded on the version
+// this writes. A file picked from disk says nothing -- the person replaced the
+// file, and the version trail already shows that -- while an edit made in the
+// viewer names itself, so a reader of the history can tell the two apart.
 export function useReplaceContent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+    mutationFn: async ({
+      id,
+      file,
+      changeSummary,
+    }: {
+      id: string;
+      file: File;
+      changeSummary?: string;
+    }) => {
       const formData = new FormData();
+      // Before the file: the route stops its walk at the file part, so a field
+      // behind it is never read.
+      if (changeSummary) {
+        formData.append("change_summary", changeSummary);
+      }
       formData.append("file", file);
-      const res = await resourceFetchRaw(`/${id}/content`, { method: "POST", body: formData });
+      const res = await resourceFetchRaw(`/${id}/content`, {
+        method: "POST",
+        body: formData,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(body.error || res.statusText);
@@ -260,7 +291,9 @@ export function useRestoreVersion() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, version }: { id: string; version: number }) => {
-      const res = await resourceFetchRaw(`/${id}/versions/${version}/restore`, { method: "POST" });
+      const res = await resourceFetchRaw(`/${id}/versions/${version}/restore`, {
+        method: "POST",
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(body.error || res.statusText);

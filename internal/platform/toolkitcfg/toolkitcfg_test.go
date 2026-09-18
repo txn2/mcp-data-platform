@@ -357,3 +357,47 @@ func TestS3ConfigNamesTheResolvedConnection(t *testing.T) {
 		t.Errorf("S3Config(lake) = %+v, want ConnectionName lake", named)
 	}
 }
+
+// TestBlobReadTimeout pins the three answers: an operator's own timeout, a
+// budget sized by what the platform will read, and the floor below which the
+// budget never goes.
+func TestBlobReadTimeout(t *testing.T) {
+	const mb = 1 << 20
+
+	if got := BlobReadTimeout(90*time.Second, 250*mb); got != 90*time.Second {
+		t.Errorf("a configured timeout is the answer: got %v", got)
+	}
+	if got := BlobReadTimeout(0, 250*mb); got != 250*time.Second {
+		t.Errorf("250 MB at the floor throughput is 250s: got %v", got)
+	}
+	// 100 MB is the compiled-in upload ceiling, which at the floor throughput
+	// is already past the mcp-s3 default.
+	if got := BlobReadTimeout(0, 100*mb); got != 100*time.Second {
+		t.Errorf("100 MB is 100s: got %v", got)
+	}
+	// A deployment storing small objects keeps exactly the client it had.
+	if got := BlobReadTimeout(0, 8*mb); got != DefaultBlobReadTimeout {
+		t.Errorf("a small ceiling floors at the mcp-s3 default: got %v", got)
+	}
+	if got := BlobReadTimeout(0, 0); got != DefaultBlobReadTimeout {
+		t.Errorf("an unknown ceiling floors too: got %v", got)
+	}
+}
+
+// TestS3Config_Timeout: the instance's documented `timeout` key reaches the
+// extracted config. It was read for the s3_* tools and nowhere else, so an
+// operator could not raise the deadline on the clients that read whole objects
+// (#1773).
+func TestS3Config_Timeout(t *testing.T) {
+	toolkits := map[string]any{"s3": map[string]any{"instances": map[string]any{
+		"primary": map[string]any{"region": "us-east-1", "timeout": "5m"},
+		"plain":   map[string]any{"region": "us-east-1"},
+	}}}
+
+	if got := S3Config(toolkits, "primary").Timeout; got != 5*time.Minute {
+		t.Errorf("S3Config(primary).Timeout = %v, want 5m", got)
+	}
+	if got := S3Config(toolkits, "plain").Timeout; got != 0 {
+		t.Errorf("an instance that sets none reports none: got %v", got)
+	}
+}

@@ -25,7 +25,16 @@ func TestReadHeaderColumns(t *testing.T) {
 		{"repeated names are disambiguated", "id,id,id\n", []string{"id", "id_2", "id_3"}},
 		{"case-insensitive collision", "ID,id\n", []string{"ID", "id_2"}},
 		{"a BOM is not part of the first name", "\ufeffstore_id,b\n", []string{"store_id", "b"}},
-		{"quoted fields with commas", `"last, first",age` + "\n", []string{"last, first", "age"}},
+		// The quoting is what makes this ONE field, which is the half being
+		// pinned here. The comma itself does not survive into the name: Hive
+		// stores a table's column list comma-separated and refuses a name
+		// holding one, so the name this used to produce could never reach a
+		// table (#1774).
+		{
+			"a quoted comma is one field, and the comma is dropped from the name",
+			`"last, first",age` + "\n",
+			[]string{"last first", "age"},
+		},
 		{"surrounding space is trimmed", " a , b \n", []string{"a", "b"}},
 		{"a ragged file still has a header", "a,b\n1\n2,3,4\n", []string{"a", "b"}},
 	}
@@ -189,4 +198,37 @@ func TestJoinAnd(t *testing.T) {
 func TestFileNameOf(t *testing.T) {
 	assert.Equal(t, "content.csv", fileNameOf("a/b/content.csv"))
 	assert.Equal(t, "content.csv", fileNameOf("content.csv"))
+}
+
+// TestReadHeaderColumns_AMarkBeforeAQuotedField is the shape #1774 was filed
+// for. The mark is the first bytes of the first field, so encoding/csv reads
+// <mark>"Post ID" as an unquoted field carrying a bare quote and fails on line
+// 1 -- and every error was answered as "the file has no header row", about a
+// header the file has.
+func TestReadHeaderColumns_AMarkBeforeAQuotedField(t *testing.T) {
+	cols, err := ReadHeaderColumns(append([]byte{0xEF, 0xBB, 0xBF},
+		[]byte("\"Post ID\",\"Page ID\",\"Title\"\np1,pg1,Hello\n")...))
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(cols))
+	for _, c := range cols {
+		names = append(names, c.Name)
+	}
+	assert.Equal(t, []string{"Post ID", "Page ID", "Title"}, names)
+}
+
+// TestReadHeaderColumns_AnUnparseableHeaderNamesTheParseError. A file with
+// nothing in it has no header row; one whose first line the reader could not
+// parse has one, and the two must not be answered with the same sentence.
+func TestReadHeaderColumns_AnUnparseableHeaderNamesTheParseError(t *testing.T) {
+	_, err := ReadHeaderColumns([]byte("a,he said \"hi\"\n1,2\n"))
+	require.Error(t, err)
+
+	assert.ErrorIs(t, err, ErrRefused)
+	assert.NotErrorIs(t, err, ErrEmptyHeader)
+	assert.Contains(t, err.Error(), "the file's first line could not be read as a CSV header")
+	assert.Contains(t, err.Error(), "bare \" in non-quoted-field")
+
+	_, empty := ReadHeaderColumns(nil)
+	assert.ErrorIs(t, empty, ErrEmptyHeader, "and a file with nothing in it still says that")
 }

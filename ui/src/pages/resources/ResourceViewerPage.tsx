@@ -30,7 +30,9 @@ async function downloadResource(r: Resource) {
     a.download = r.filename;
     a.click();
     URL.revokeObjectURL(url);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 interface Props {
@@ -108,8 +110,12 @@ export function ResourceViewerPage({
   // administrator looking at a file they did not upload, on a resource the
   // server would have let them rewrite (#1527).
   const canModify =
-    (resource.uploader_sub !== "" && resource.uploader_sub === currentUser?.user_id) ||
-    canWriteScope(currentUser, { scope: resource.scope, scope_id: resource.scope_id });
+    (resource.uploader_sub !== "" &&
+      resource.uploader_sub === currentUser?.user_id) ||
+    canWriteScope(currentUser, {
+      scope: resource.scope,
+      scope_id: resource.scope_id,
+    });
 
   return (
     <>
@@ -124,11 +130,19 @@ export function ResourceViewerPage({
           <span className="flex min-w-0 items-center gap-1.5">
             <ScopeIcon className="h-3 w-3 shrink-0" />
             <FolderBreadcrumbs
-              library={scopeLabel(resource.scope, resource.scope_id, currentUser)}
+              library={scopeLabel(
+                resource.scope,
+                resource.scope_id,
+                currentUser,
+              )}
               path={resource.path}
               onOpen={
                 onOpenFolder &&
-                ((path) => onOpenFolder(libraryTabFor(resource.scope, resource.scope_id), path))
+                ((path) =>
+                  onOpenFolder(
+                    libraryTabFor(resource.scope, resource.scope_id),
+                    path,
+                  ))
               }
             />
             <span className="shrink-0 text-muted-foreground">/</span>
@@ -136,16 +150,30 @@ export function ResourceViewerPage({
           </span>
         }
         actions={
-          <div data-testid="resource-detail-actions" className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void downloadResource(resource)}>
+          <div
+            data-testid="resource-detail-actions"
+            className="flex items-center gap-2"
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void downloadResource(resource)}
+            >
               <Download />
               Download
             </Button>
             {canModify && (
               <>
-                <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                {/* Named for what it edits. The content editor is on the
+                    content itself, and one control called Edit on a page
+                    showing a file is read as the file's (#1775). */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(true)}
+                >
                   <Pencil />
-                  Edit
+                  Edit details
                 </Button>
                 <Button
                   variant="outline"
@@ -174,7 +202,7 @@ export function ResourceViewerPage({
         // would hide behind a toggle everything the dialog put in front.
         sidebarInitiallyOpen
       >
-        <ResourceContent resource={resource} />
+        <ResourceContent resource={resource} canModify={canModify} />
       </ViewerLayout>
 
       {editing && (

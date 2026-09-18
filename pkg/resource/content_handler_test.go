@@ -56,7 +56,11 @@ func (f *fakeVersions) AddRevision(_ context.Context, rev Revision) (*Version, e
 		ResourceID: rev.ResourceID, Version: next, MIMEType: rev.MIMEType,
 		SizeBytes: rev.SizeBytes, S3Key: rev.S3Key, UploaderSub: rev.UploaderSub,
 		UploaderEmail: rev.UploaderEmail, RestoredFrom: rev.RestoredFrom,
-		CreatedAt: time.Now().UTC(),
+		// The Postgres store records this on the row it writes, so the fake
+		// does too: dropping it here would let a route stop sending one while
+		// every test went on passing.
+		ChangeSummary: rev.ChangeSummary,
+		CreatedAt:     time.Now().UTC(),
 	}
 	f.byResource[rev.ResourceID] = append(f.byResource[rev.ResourceID], v)
 	if head, ok := f.store.resources[rev.ResourceID]; ok {
@@ -951,5 +955,60 @@ func TestCreate_SucceedsWhenTheInitialVersionCannotBeRecorded(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201: an unrecordable trail must not fail the upload itself", w.Code)
+	}
+}
+
+// TestReplaceContent_RecordsTheChangeSummary. A revision that says why it
+// happened is what lets a reader of the version trail tell an edit made in the
+// portal from a file somebody picked off disk. The field was on RevisionUpload
+// for the correction a table registration saves, and this route sent an empty
+// one whatever the caller passed (#1775).
+func TestReplaceContent_RecordsTheChangeSummary(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	h, store, s3, versions := fx.handler, fx.store, fx.s3, fx.versions
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+	req := buildMultipartRequest(t,
+		map[string]string{"change_summary": "  edited in the portal  "},
+		[]byte("revised,content\n1,2\n"), "seasonal.csv")
+	req.URL.Path = "/api/v1/resources/res-1/content"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	written := versions.byResource["res-1"]
+	if len(written) == 0 {
+		t.Fatal("no version was recorded")
+	}
+	latest := written[len(written)-1]
+	if latest.ChangeSummary != "edited in the portal" {
+		t.Errorf("change_summary = %q, want it recorded and trimmed", latest.ChangeSummary)
+	}
+}
+
+// TestReplaceContent_ASummarylessReplacementSaysNothing is the other half: a
+// file picked off disk has no reason to give, and the route must not invent
+// one.
+func TestReplaceContent_ASummarylessReplacementSaysNothing(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	h, store, s3, versions := fx.handler, fx.store, fx.s3, fx.versions
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+	req := buildMultipartRequest(t, nil, []byte("revised,content\n1,2\n"), "seasonal.csv")
+	req.URL.Path = "/api/v1/resources/res-1/content"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	written := versions.byResource["res-1"]
+	if len(written) == 0 {
+		t.Fatal("no version was recorded")
+	}
+	if latest := written[len(written)-1]; latest.ChangeSummary != "" {
+		t.Errorf("change_summary = %q, want empty", latest.ChangeSummary)
 	}
 }

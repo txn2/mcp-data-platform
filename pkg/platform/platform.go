@@ -1756,6 +1756,27 @@ func (p *Platform) initPortal() error {
 	return nil
 }
 
+// blobReadCeiling is the largest object the platform reads from an object
+// store in one piece, which is what an S3 client's read deadline is sized from
+// (#1773).
+//
+// It is one number for both clients rather than each surface's own, because
+// the reader that needs the whole object spans them: a table registration
+// reads a managed resource and a portal asset through their separate clients
+// and caps both at the managed-resource ceiling (#1634). Taking the larger of
+// the two is what keeps a deadline from being shorter than a read the platform
+// will actually ask that client for.
+//
+// It is a function of the config rather than a method on Platform because the
+// facade is at its method ceiling and this answers from two config fields.
+func blobReadCeiling(cfg *Config) int64 {
+	ceiling := resource.NormalizeMaxUploadBytes(cfg.Resources.Managed.MaxUploadBytes)
+	if assets := int64(cfg.Portal.MaxContentSize); assets > ceiling {
+		return assets
+	}
+	return ceiling
+}
+
 // createPortalS3Client creates an S3Client from the referenced S3 connection config.
 func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 	connName := p.config.Portal.S3Connection
@@ -1771,6 +1792,9 @@ func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 		SecretAccessKey: s3Cfg.SecretKey,
 		Name:            s3Cfg.ConnectionName,
 		UsePathStyle:    s3Cfg.UsePathStyle,
+		// An asset is read whole by the registration that takes its header
+		// row, and the client's one deadline covers that read (#1773).
+		Timeout: toolkitcfg.BlobReadTimeout(s3Cfg.Timeout, blobReadCeiling(p.config)),
 	}
 
 	c, err := s3client.New(context.Background(), clientCfg)
@@ -1872,10 +1896,11 @@ func (p *Platform) initManagedResources() error {
 	}
 
 	handle, err := resourcelayer.New(p.db, resourcelayer.Config{
-		S3Connection: p.config.Resources.Managed.S3Connection,
-		S3Bucket:     p.config.Resources.Managed.S3Bucket,
-		URIScheme:    p.config.Resources.Managed.URIScheme,
-		Toolkits:     p.config.Toolkits,
+		S3Connection:   p.config.Resources.Managed.S3Connection,
+		S3Bucket:       p.config.Resources.Managed.S3Bucket,
+		URIScheme:      p.config.Resources.Managed.URIScheme,
+		Toolkits:       p.config.Toolkits,
+		MaxObjectBytes: blobReadCeiling(p.config),
 	})
 	if err != nil {
 		return fmt.Errorf("creating managed-resources layer: %w", err)

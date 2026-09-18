@@ -72,13 +72,64 @@ type Trino struct {
 
 // S3 holds extracted S3 configuration.
 type S3 struct {
-	Region         string
-	Endpoint       string
-	AccessKeyID    string
-	SecretKey      string
-	BucketPrefix   string
+	Region       string
+	Endpoint     string
+	AccessKeyID  string
+	SecretKey    string
+	BucketPrefix string
+	// Timeout is the instance's `timeout` key, and is 0 when the instance sets
+	// none. It bounds a whole S3 call in the client the platform builds from
+	// this -- the request AND the read of the response body -- so a caller
+	// reading a whole object is choosing a throughput budget when it sets one.
+	// See BlobReadTimeout.
+	Timeout        time.Duration
 	ConnectionName string
 	UsePathStyle   bool
+}
+
+// DefaultBlobReadTimeout is the floor a platform-built S3 client's timeout is
+// never set below. It is the value mcp-s3 fills in for itself, so a deployment
+// storing small objects gets exactly the client it got before.
+const DefaultBlobReadTimeout = 30 * time.Second
+
+// blobReadFloorBytesPerSecond is the throughput a full-object read is allowed
+// to be as slow as before the client gives up on it.
+//
+// It is deliberately far below any healthy path. The number exists to convert
+// a size the platform already bounds into a duration, not to describe the
+// network: a store that is answering at all will beat it, and one that has
+// stopped answering hits the deadline either way.
+const blobReadFloorBytesPerSecond = 1 << 20
+
+// BlobReadTimeout is the deadline the platform's own S3 clients carry.
+//
+// mcp-s3 wraps the request and the io.ReadAll of the body in one deadline and
+// fills in 30 s when a caller sets none, which neither builder of these
+// clients did. On a read of a whole object that is not a timeout but a
+// throughput budget: the same 126 MB CSV registered in 2 s on a healthy path
+// and failed at exactly 30.0 s, 116 MB in, the day the deployment's DNS sent
+// the pod across a WAN link -- so whether a file could be registered turned on
+// which A record the resolver handed out (#1773).
+//
+// The registrar already bounds what it will read to the deployment's own
+// upload ceiling, so that ceiling is what the deadline is sized from: the
+// largest object the platform will ever ask for, at a throughput floor it
+// would have to fall under to be considered broken. An operator who sets the
+// instance's `timeout` still gets exactly that -- their word is the answer,
+// and until now it reached the s3_* tools and nothing else.
+//
+// This is arithmetic against a deadline that should not have to bound a
+// transfer at all; the separation belongs in mcp-s3, and is asked for there as
+// txn2/mcp-s3#148.
+func BlobReadTimeout(configured time.Duration, maxObjectBytes int64) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	budget := time.Duration(maxObjectBytes/blobReadFloorBytesPerSecond) * time.Second
+	if budget < DefaultBlobReadTimeout {
+		return DefaultBlobReadTimeout
+	}
+	return budget
 }
 
 // InstanceConfig retrieves one instance's config map for a toolkit kind. When
@@ -267,6 +318,7 @@ func S3Config(toolkits map[string]any, instance string) *S3 {
 		AccessKeyID:    cfgmap.String(instanceCfg, "access_key_id"),
 		SecretKey:      cfgmap.String(instanceCfg, fieldcrypt.CfgKeySecretAccessKey),
 		BucketPrefix:   cfgmap.String(instanceCfg, "bucket_prefix"),
+		Timeout:        cfgmap.Duration(instanceCfg, "timeout", 0),
 		ConnectionName: cfgmap.String(instanceCfg, "connection_name"),
 		UsePathStyle:   cfgmap.Bool(instanceCfg, "use_path_style"),
 	}
