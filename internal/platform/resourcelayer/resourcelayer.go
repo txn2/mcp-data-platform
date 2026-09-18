@@ -66,6 +66,10 @@ type Config struct {
 	// Toolkits is the raw toolkits config map, walked to resolve a default S3
 	// instance when S3Connection is empty.
 	Toolkits map[string]any
+	// MaxObjectBytes is the largest object this layer's blob client will be
+	// asked to read in one piece, which is what its read deadline is sized
+	// from (#1773). Zero leaves the client on the mcp-s3 default.
+	MaxObjectBytes int64
 }
 
 // Handle owns the assembled managed-resources layer: the resource store and the
@@ -211,6 +215,10 @@ func New(db *sql.DB, cfg Config) (*Handle, error) {
 			SecretAccessKey: s3Cfg.SecretKey,
 			Name:            s3Cfg.ConnectionName,
 			UsePathStyle:    s3Cfg.UsePathStyle,
+			// A resource is read whole -- by the registration that takes its
+			// header row, by a download, by the correction that rewrites it --
+			// and the client's one deadline covers that read (#1773).
+			Timeout: toolkitcfg.BlobReadTimeout(s3Cfg.Timeout, cfg.MaxObjectBytes),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)

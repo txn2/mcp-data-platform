@@ -506,17 +506,35 @@ func statusFor(err error) int {
 // wrapped store or driver error that says nothing a caller can act on and may
 // carry topology they should not see.
 //
-// The one thing a platform failure does carry through is a correction that
+// What a platform failure does say is the stage it stopped at. "The
+// registration could not be completed" on its own named neither a field, a
+// reason nor a step, which left a person with nothing to retry differently and
+// support with nothing to look for; the stage is the registrar's own word for
+// where it was, and reading the file is a different thing to chase than
+// running the statement (#1775). The whole error is in the log line and on the
+// audit event either way.
+//
+// The other thing a platform failure carries through is a correction that
 // preceded it: the file changed before the failure and stays changed after it,
 // so a message about the table alone would leave its owner not knowing that.
 func detailFor(err error, status int) string {
 	if status != http.StatusInternalServerError {
 		return err.Error()
 	}
+	stage := tableregister.StageOf(err)
 	if repair := tableregister.RepairOf(err); repair != nil {
-		return repair.Summary() + " The table was not created; register it again."
+		if stage == "" {
+			return repair.Summary() + " The table was not created; register it again."
+		}
+		// The colon introduces the reason, as it does on the same sentence the
+		// registrar builds for the callers that are not this one.
+		return repair.Summary() + " The table was not created: the registration stopped while " +
+			stage + ". Register it again."
 	}
-	return "the registration could not be completed"
+	if stage == "" {
+		return "the registration could not be completed"
+	}
+	return "the registration could not be completed while " + stage
 }
 
 // problem writes an RFC 9457 Problem Details response, the form every other

@@ -179,7 +179,7 @@ describe("what the page lets the reader do to the resource", () => {
   it("offers Download, Edit and Delete to the uploader", async () => {
     renderPage();
     expect(await screen.findByRole("button", { name: "Download" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit details" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
@@ -187,7 +187,7 @@ describe("what the page lets the reader do to the resource", () => {
     signIn({ user_id: "someone-else", email: "someone.else@example.com" });
     renderPage();
     expect(await screen.findByRole("button", { name: "Download" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
@@ -199,7 +199,7 @@ describe("what the page lets the reader do to the resource", () => {
   it("offers all three to an administrator reading somebody else's resource", async () => {
     signIn({ user_id: "operator", email: "operator@example.com", is_admin: true });
     renderPage();
-    expect(await screen.findByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Edit details" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
@@ -211,7 +211,7 @@ describe("what the page lets the reader do to the resource", () => {
       persona: undefined,
     });
     renderPage();
-    expect(await screen.findByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Edit details" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 

@@ -365,6 +365,40 @@ func needsRepairf(format string, args ...any) error {
 	return &refusal{reason: fmt.Sprintf(format, args...), repairable: true}
 }
 
+// failedf wraps a failure of the PLATFORM -- a store that stopped answering, a
+// coordinator that would not run a statement -- with the stage of the
+// registration it happened at.
+//
+// The wrapped text is unchanged, so the log line and the audit event carry the
+// whole error as before. The stage is the half a caller can be told: it names
+// where the registration stopped without the store or driver text that says
+// so, which may carry topology they should not see. A 500 whose detail was
+// "the registration could not be completed" gave a person nothing to act on
+// and support nothing to triage from (#1775).
+func failedf(stage string, err error) error {
+	return &failure{stage: stage, err: err}
+}
+
+// failure is a platform failure that knows which stage it happened at.
+type failure struct {
+	stage string
+	err   error
+}
+
+func (e *failure) Error() string { return e.stage + ": " + e.err.Error() }
+func (e *failure) Unwrap() error { return e.err }
+
+// StageOf names the stage a platform failure stopped at, or "" for an error
+// that is not one. A surface renders it to a caller; the wrapped error is not
+// rendered anywhere a caller reads.
+func StageOf(err error) string {
+	var f *failure
+	if errors.As(err, &f) {
+		return f.stage
+	}
+	return ""
+}
+
 // refusal is a caller-actionable refusal that reads as its own sentence and
 // still answers to ErrRefused.
 type refusal struct {

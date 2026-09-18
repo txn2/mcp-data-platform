@@ -3,7 +3,6 @@ package tableregister
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"sort"
@@ -162,13 +161,21 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 
 	p, err := r.plan(ctx, caller, src, req)
 	if err != nil {
-		// A correction is written before the last of the checks have run, so a
-		// refusal can arrive after the person's file has already changed. It is
-		// audited either way, and the refusal says so, because a message about
-		// the table alone would leave them not knowing their file moved.
-		if p.repair != nil {
-			r.audit(ctx, auditRecord{caller: caller, reg: p.reg, source: req.Source, repair: p.repair, err: err})
-		}
+		// Every failure past this point is audited, not only one that had
+		// already corrected the person's file. A refusal and a platform
+		// failure are both things the caller was told and support is asked
+		// about afterwards, and recording only the successes left the trail
+		// saying that every registration this deployment ever attempted had
+		// worked: two people failed to register a CSV on the same afternoon
+		// and the audit query for them came back empty (#1775). The
+		// correction, when there was one, is still on the event, and the
+		// refusal still says so -- a message about the table alone would leave
+		// them not knowing their file moved.
+		//
+		// The two refusals above this are not: a deployment that cannot
+		// register anything is a state rather than an attempt, and a call
+		// carrying no identity has nobody to record it against.
+		r.audit(ctx, auditRecord{caller: caller, reg: p.reg, source: req.Source, repair: p.repair, err: err})
 		return nil, repairedFailure(p.repair, err)
 	}
 
@@ -204,12 +211,12 @@ func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req
 	if p.existing != nil {
 		if err := r.deps.Store.Delete(ctx, p.existing.ID); err != nil {
 			r.rollBackTable(ctx, a, err)
-			return nil, repairedFailure(p.repair, fmt.Errorf("replacing the previous registration: %w", err))
+			return nil, repairedFailure(p.repair, failedf("replacing the previous registration", err))
 		}
 	}
 	if err := r.deps.Store.Insert(ctx, p.reg); err != nil {
 		r.rollBackTable(ctx, a, err)
-		return nil, repairedFailure(p.repair, fmt.Errorf("recording the registration: %w", err))
+		return nil, repairedFailure(p.repair, failedf("recording the registration", err))
 	}
 	// A correction moved the file's head, which is the same move every other
 	// write makes, so every OTHER registration over the file is followed or
@@ -252,7 +259,19 @@ func (r *Registrar) plan(ctx context.Context, caller Caller, src Source, req Req
 	// The plan is returned even when it fails, because part of it may already
 	// have happened: a correction is a write, and the caller has to be able to
 	// see one that a later refusal followed.
-	p := &planned{src: src}
+	//
+	// What the request itself says is filled in before the first check, so the
+	// audit event for an attempt that got no further than the connection
+	// boundary still names the connection it was refused on and the file it
+	// was for. claim settles the rest on top.
+	p := &planned{src: src, reg: Registration{
+		SourceKind:   src.Kind,
+		SourceID:     src.ID,
+		Connection:   req.Connection,
+		RegisteredBy: caller.Email,
+		Follow:       req.Follow,
+		Repair:       req.Repair,
+	}}
 	if err := r.claim(ctx, caller, req, p); err != nil {
 		return p, err
 	}
@@ -280,25 +299,16 @@ func (r *Registrar) claim(ctx context.Context, caller Caller, req Request, p *pl
 		return refusedf("a table name could not be derived; give one explicitly")
 	}
 
-	// Everything a registration is except what the file itself decides. It is
-	// filled in here rather than at the end so an audit event written for a
-	// correction that a later refusal followed names the table it was for.
+	// Where the table lands and what it is called, on top of what plan already
+	// took from the request. It is settled here rather than at the end so an
+	// audit event written for a failure that followed names the table it was
+	// for.
 	p.target = target
-	p.reg = Registration{
-		SourceKind:   p.src.Kind,
-		SourceID:     p.src.ID,
-		Connection:   req.Connection,
-		Catalog:      target.Catalog,
-		Schema:       target.Schema,
-		Table:        table,
-		RegisteredBy: caller.Email,
-		Follow:       req.Follow,
-		Repair:       req.Repair,
-	}
+	p.reg.Catalog, p.reg.Schema, p.reg.Table = target.Catalog, target.Schema, table
 
 	p.existing, err = r.deps.Store.ByName(ctx, req.Connection, target.Catalog, target.Schema, table)
 	if err != nil {
-		return fmt.Errorf("checking the table name: %w", err)
+		return failedf("checking the table name", err)
 	}
 	return mayReplace(caller, p.existing, target, table)
 }
@@ -380,11 +390,11 @@ func (r *Registrar) saveCorrected(
 		if errors.Is(err, tablecsv.ErrUncorrectable) {
 			return nil, nil, refusedf("%s", err.Error())
 		}
-		return nil, nil, fmt.Errorf("correcting the file: %w", err)
+		return nil, nil, failedf("correcting the file", err)
 	}
 	revised, err := r.deps.Revisers[src.Kind].Revise(ctx, *src, caller, corrected, repairSummary(report))
 	if err != nil {
-		return nil, nil, fmt.Errorf("saving a corrected version of the file: %w", err)
+		return nil, nil, failedf("saving a corrected version of the file", err)
 	}
 
 	src.Bucket, src.HeadKey, src.ContentType = revised.Bucket, revised.Key, contenttype.CSV
@@ -508,7 +518,7 @@ func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error)
 
 	entries, truncated, err := objects.ListDirectory(ctx, src.Bucket, dir)
 	if err != nil {
-		return "", fmt.Errorf("listing the file's directory: %w", err)
+		return "", failedf("listing the file's directory", err)
 	}
 	if truncated {
 		return "", refusedf("this file's directory holds more objects than can be checked, so it cannot be registered")
@@ -560,7 +570,7 @@ func (r *Registrar) contentFor(ctx context.Context, src Source) ([]byte, error) 
 	}
 	body, _, err := objects.GetObject(ctx, src.Bucket, src.HeadKey)
 	if err != nil {
-		return nil, fmt.Errorf("reading the file: %w", err)
+		return nil, failedf("reading the file", err)
 	}
 	if int64(len(body)) > r.deps.MaxBytes {
 		return nil, refusedf("the file is larger than the %d MB a registration reads", r.deps.MaxBytes>>20)
@@ -616,7 +626,7 @@ func (r *Registrar) newID() (string, error) {
 	}
 	id, err := r.deps.NewID()
 	if err != nil {
-		return "", fmt.Errorf("generating a registration id: %w", err)
+		return "", failedf("generating a registration id", err)
 	}
 	return id, nil
 }
@@ -630,7 +640,7 @@ func (r *Registrar) runDDL(ctx context.Context, connection string, ddl []string)
 	ran := make([]string, 0, len(ddl))
 	for _, stmt := range ddl {
 		if err := r.deps.Trino.Exec(ctx, connection, stmt); err != nil {
-			return ran, fmt.Errorf("registering the table: %w", err)
+			return ran, failedf("registering the table", err)
 		}
 		ran = append(ran, stmt)
 	}
@@ -763,7 +773,7 @@ func (r *Registrar) Unregister(ctx context.Context, caller Caller, id, source st
 			logFieldError, logsan.SanitizeForLog(execErr.Error()))
 	}
 	if err := r.deps.Store.Delete(ctx, reg.ID); err != nil {
-		return fmt.Errorf("removing the registration: %w", err)
+		return failedf("removing the registration", err)
 	}
 	// The DROP may have taken a name-prefix sibling with it (#1546); the
 	// registrations left on the connection are checked and the listing says
@@ -919,10 +929,15 @@ func (r *Registrar) audit(ctx context.Context, rec auditRecord) {
 	ev.Connection = rec.reg.Connection
 	ev.Parameters = map[string]any{
 		"sql":         strings.Join(rec.ddl, ";\n"),
-		"table":       rec.reg.QualifiedName(),
 		"location":    rec.reg.Location,
 		"source_kind": rec.reg.SourceKind,
 		"source_id":   rec.reg.SourceID,
+	}
+	// Only once there is one. An attempt refused before a target was resolved
+	// has no catalog, schema or table, and QualifiedName renders that as "..",
+	// which is a name support would go looking for.
+	if rec.reg.Table != "" {
+		ev.Parameters["table"] = rec.reg.QualifiedName()
 	}
 	// A correction rewrote somebody's file on their behalf, which is a write
 	// in its own right and is recorded beside the statement that followed it.
@@ -932,7 +947,10 @@ func (r *Registrar) audit(ctx context.Context, rec auditRecord) {
 	ev.Source = source
 	ev.Transport = "http"
 	ev.EventKind = audit.EventTypeMCPToolCall
-	ev.Authorized = true
+	// The one refusal that is not an authorized call. Recording a persona
+	// denied its connection as authorized:true would put a lie in the trail
+	// the access review reads.
+	ev.Authorized = !errors.Is(rec.err, ErrConnectionDenied)
 	ev.Success = rec.err == nil
 	if rec.err != nil {
 		ev.ErrorMessage = rec.err.Error()

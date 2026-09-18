@@ -842,6 +842,19 @@ toolkits:
 | `connection_name` | string | - | No effect; accepted for compatibility and warned about at startup. Trino routes by the `instances:` key, so that key is the name `list_connections` advertises, a `connection` parameter carries, an audit row records and a persona rule matches. See [Connection Names](multi-provider.md#connection-names) |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: `s3_list` or `s3_object`, value: description text) |
 
+**The default `timeout` is not a fixed 30 s for every caller.** The `s3_*`
+tools bound a call at 30 s when the instance sets nothing. The platform's own
+clients — the portal's asset client and the managed-resource client — read a
+whole object in one call, because a table registration takes the header row and
+the line-break scan from the full bytes. A fixed deadline on a read that size
+is a throughput budget rather than a timeout: the same 126 MB CSV registered in
+2 s on a healthy path and failed at exactly 30.0 s the day one deployment's DNS
+sent the pod across a WAN link (#1773). With no `timeout` set, those two
+clients take the deployment's own object ceiling — the larger of
+`resources.managed.max_upload_bytes` and `portal.max_content_size` — at a floor
+of 1 MB/s, never below 30 s. A 250 MB ceiling is a 250 s deadline; a deployment
+storing small objects keeps the 30 s it had.
+
 A non-default connection could not be plain HTTP before #1436: `ssl: false`
 was indistinguishable from an absent `ssl`, so it reached the client as
 "auto-detect", and auto-detect turns HTTPS on for every host that is not
@@ -935,7 +948,7 @@ toolkits:
 | `session_token` | string | - | AWS session token (for temporary creds) |
 | `profile` | string | - | AWS credentials profile name |
 | `use_path_style` | bool | `false` | Use path-style S3 URLs |
-| `timeout` | duration | `30s` | Request timeout |
+| `timeout` | duration | see below | Bounds a whole S3 call: the request and the read of the response body. It applies to the `s3_*` tools and, when this instance is named by `portal.s3_connection` or `resources.managed.s3_connection`, to the platform's own reads of assets and managed resources. Setting it is the operator's final word. |
 | `disable_ssl` | bool | `false` | Disable SSL (for local testing) |
 | `read_only` | bool | `false` | Refuse the writing actions of `s3_object` (`put`, `copy`, `delete`) on this connection; the refusal names the connection. Per connection, so a read-only connection added at run time is bound by its own flag. |
 | `max_get_size` | int64 | `10485760` | Max bytes to read from objects |

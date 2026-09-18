@@ -449,6 +449,10 @@ type harness struct {
 	store   *memStore
 	audit   *captureAudit
 	reviser *fakeReviser
+	// scope is the persona connection boundary. Nil leaves Deps.Scope unset,
+	// which the registrar reads as every connection allowed -- the shape every
+	// test but the denial one wants.
+	scope ConnectionScope
 }
 
 func newHarness(t *testing.T, opts ...func(*harness)) *harness {
@@ -476,6 +480,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		Trino:    h.trino,
 		Objects:  map[string]ObjectReader{KindAsset: h.objects, KindResource: h.objects},
 		Revisers: map[string]Reviser{KindAsset: h.reviser, KindResource: h.reviser},
+		Scope:    h.scope,
 		Audit:    h.audit,
 		NewID: func() (string, error) {
 			n++
@@ -1934,8 +1939,10 @@ func TestRegister_AHeaderTheReaderCannotParseIsRefusedOnce(t *testing.T) {
 		assert.ErrorIs(t, err, ErrRefused)
 		assert.NotErrorIs(t, err, ErrNeedsRepair,
 			"nothing is offered that the correction would then decline")
-		assert.Contains(t, err.Error(), "not readable as a CSV all the way through")
+		assert.Contains(t, err.Error(), "this file's first line cannot be read as a CSV header")
 		assert.NotContains(t, err.Error(), "Register it again asking")
+		assert.NotContains(t, err.Error(), "no header row",
+			"the file has one; the reader could not get to it (#1774)")
 
 		assert.Empty(t, h.reviser.saved, "the file is never rewritten")
 		assert.Empty(t, h.trino.statements)
@@ -2091,4 +2098,67 @@ func TestRegister_ReadsByTheBoundItWasGiven(t *testing.T) {
 		})
 		assert.EqualValues(t, DefaultMaxBytes, reg.deps.MaxBytes)
 	})
+}
+
+// --- what a failed registration leaves behind (#1775) ---
+
+// TestRegister_AFailureIsAudited. Only a failure that had already corrected
+// the file was recorded, so the audit trail of a deployment where
+// registrations were failing said every registration it ever attempted had
+// worked. The event carries the caller, the connection, the file, and the
+// error that is kept out of the caller's answer.
+func TestRegister_AFailureIsAudited(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.objects.getErr = errors.New("context deadline exceeded") })
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.Error(t, err)
+
+	require.Len(t, h.audit.events, 1)
+	ev := h.audit.events[0]
+	assert.False(t, ev.Success)
+	assert.True(t, ev.Authorized, "the caller was allowed to ask; the read is what failed")
+	assert.Equal(t, "reading the file: context deadline exceeded", ev.ErrorMessage)
+	assert.Equal(t, "alice@example.com", ev.UserEmail)
+	assert.Equal(t, "scratch", ev.Connection)
+	assert.Equal(t, KindAsset, ev.Parameters["source_kind"])
+	assert.Equal(t, "asset_1", ev.Parameters["source_id"])
+}
+
+// TestRegister_ARefusalBeforeAnythingIsSettledIsStillAudited. claim refuses
+// before it has resolved a target, so the event is written against a
+// registration that names only what the request said. Those are the fields
+// support looks the attempt up by, so they are filled in before the first
+// check rather than by the check that passed.
+func TestRegister_ARefusalBeforeAnythingIsSettledIsStillAudited(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.trino.hasTarget = false })
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "mcp"})
+	require.ErrorIs(t, err, ErrNoScratchTarget)
+
+	require.Len(t, h.audit.events, 1)
+	ev := h.audit.events[0]
+	assert.False(t, ev.Success)
+	assert.Equal(t, "scratch", ev.Connection)
+	assert.Equal(t, "asset_1", ev.Parameters["source_id"])
+	assert.Equal(t, "mcp", ev.Source)
+	assert.NotContains(t, ev.Parameters, "table",
+		`and names no table: there is none, and ".." is a name support would go looking for`)
+	assert.Empty(t, h.trino.statements, "and nothing ran")
+}
+
+// TestRegister_ADeniedConnectionIsNotAnAuthorizedCall. It is the one refusal
+// that is an authorization decision, and recording it as authorized:true would
+// put a lie in the trail an access review reads.
+func TestRegister_ADeniedConnectionIsNotAnAuthorizedCall(t *testing.T) {
+	h := newHarness(t, func(h *harness) { h.scope = denyScope{denied: "scratch"} })
+
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Source: "portal"})
+	require.ErrorIs(t, err, ErrConnectionDenied)
+
+	require.Len(t, h.audit.events, 1)
+	assert.False(t, h.audit.events[0].Authorized)
+	assert.False(t, h.audit.events[0].Success)
 }

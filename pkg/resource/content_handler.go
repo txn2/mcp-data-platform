@@ -11,10 +11,17 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
+
+// changeSummaryField is the form field a revision says why it happened in. It
+// is optional: a plain re-upload says nothing beyond that the file changed,
+// while an edit made through a portal editor or a correction saved by a table
+// registration both name what they did.
+const changeSummaryField = "change_summary"
 
 // pathParamVersion is the path segment carrying a version number; it doubles as
 // the log key for the version a line is about.
@@ -98,6 +105,7 @@ func (h *Handler) resolveRevisable(w http.ResponseWriter, r *http.Request) (*Res
 // @Accept       multipart/form-data
 // @Produce      json
 // @Param        id    path      string  true  "Resource ID"
+// @Param        change_summary  formData  string  false  "Why the content changed, recorded on the version this writes so the version panel says what a revision did. Must precede the file part. Empty for a plain re-upload, which says nothing beyond that the file was replaced"
 // @Param        file  formData  file    true  "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB). It must be the last part of the multipart form: it is streamed to blob storage where the walk finds it"
 // @Success      200  {object}  resource.revisedResource
 // @Failure      400  {object}  resource.errorResponse
@@ -120,7 +128,10 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := walkUpload(mr, limit, url.Values{})
+	// The fields precede the file part, so what the walk collected is in hand
+	// by the time it stops at the file.
+	fields := url.Values{}
+	file, err := walkUpload(mr, limit, fields)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, refusalFor(err, limit))
 		return
@@ -130,8 +141,16 @@ func (h *Handler) handleReplaceContent(w http.ResponseWriter, r *http.Request) {
 	// embeds the resource's filename, and a revision that changed the URI would
 	// break every mcp:resource:<id> citation and prompt attachment pointing at
 	// it — the exact breakage this route exists to end.
-	revised, err := h.storeRevision(r.Context(), res, claims,
-		RevisionUpload{Content: file.body, MIMEType: file.mimeType})
+	// A caller that says why the content changed has it recorded on the
+	// version, which is where the version panel reads it from. The correction a
+	// table registration saves has always written one; an edit made in the
+	// portal is the same kind of event and was indistinguishable from a
+	// re-upload without it.
+	revised, err := h.storeRevision(r.Context(), res, claims, RevisionUpload{
+		Content:       file.body,
+		MIMEType:      file.mimeType,
+		ChangeSummary: strings.TrimSpace(fields.Get(changeSummaryField)),
+	})
 	if err != nil {
 		if refusal, caller := uploadRefusal(err, limit); caller {
 			writeError(w, http.StatusBadRequest, refusal)

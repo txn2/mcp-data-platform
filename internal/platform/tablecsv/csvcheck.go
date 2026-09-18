@@ -35,6 +35,24 @@ import (
 // first column's name, so a correction drops it.
 const bomUTF8 = "\ufeff"
 
+// TrimBOM returns UTF-8 content without a leading byte-order mark.
+//
+// The mark is not an encoding declaration to any reader on this path: it is
+// the first bytes of the first field. encoding/csv reads <mark>"Post ID" as an
+// unquoted field with a bare quote inside it and fails the parse on line 1, so
+// a header whose first field is QUOTED is unreadable while an unquoted one
+// parses and is trimmed by name afterwards. Every spreadsheet export that
+// quotes its strings writes the first shape, which is why the mark is dropped
+// before anything here reads a record rather than only inside the correction
+// (#1774).
+//
+// It is a byte trim, so it applies to content already established as UTF-8. A
+// code page assigns those three bytes three characters of its own, and the
+// conversion carries them rather than dropping them.
+func TrimBOM(content []byte) []byte {
+	return bytes.TrimPrefix(content, []byte(bomUTF8))
+}
+
 // The encodings a CSV that is not UTF-8 turns out to be.
 //
 // windows-1252 is the case that reaches the platform: a spreadsheet exported
@@ -111,6 +129,13 @@ type Defect struct {
 // correction, so a defect found alongside one of them is refused rather than
 // offered a repair that would then decline (#1449).
 //
+// A parse that stopped on the HEADER is the exception, and refuses on its own.
+// The file it describes does not register today: the registration reads the
+// same first line three lines later, fails on it too, and answers that the
+// file has no header row -- about a header the file has and the reader could
+// not get to. Naming the parse error here is what the person is owed instead
+// (#1774).
+//
 // The line endings are settled first and the record scan runs over the
 // translated bytes, because the scan is itself a line-based reader: over a
 // carriage-return file it sees one record, reports the file as a single torn
@@ -128,12 +153,29 @@ func Inspect(content []byte) *Defect {
 	if !defect.convertibleEncoding() {
 		return &defect
 	}
+	// Before any record is read, and only for bytes that are already UTF-8:
+	// sourceEncoding above identifies a wide encoding BY its own mark, and a
+	// code page carries these three bytes as three of its characters.
+	if defect.Encoding == "" {
+		content = TrimBOM(content)
+	}
 	content, defect.LineEndings = withLineFeeds(content)
 	defect.scanRecords(content)
-	if defect.Rows == 0 && defect.Encoding == "" && defect.LineEndings == "" {
+	if defect.Rows == 0 && defect.Encoding == "" && defect.LineEndings == "" && !defect.headerUnreadable() {
 		return nil
 	}
 	return &defect
+}
+
+// headerUnreadable reports whether the parse stopped on the header row rather
+// than somewhere in the records below it.
+//
+// A scan that read a header recorded its width, so no width and a parse error
+// is the header itself. The two are different files: one has columns and a
+// table, the other has neither and is about to be refused for the wrong
+// reason.
+func (d *Defect) headerUnreadable() bool {
+	return d.Unreadable != "" && d.HeaderFields == 0
 }
 
 // withLineFeeds returns the content with carriage-return line endings
@@ -521,6 +563,11 @@ func (d *Defect) encodingReason() string {
 // the records it never reached are not in the ragged list either.
 func (d *Defect) uncorrectableReason() string {
 	switch {
+	case d.headerUnreadable():
+		// Its own sentence, with the file as its subject: this is the whole of
+		// what is wrong with such a file, so there is no clause in front of it
+		// for an "it" to refer back to.
+		return "this file's first line cannot be read as a CSV header (" + d.Unreadable + ")"
 	case d.Unreadable != "":
 		return unreadableClause(d.Unreadable)
 	case len(d.Ragged) > 0:

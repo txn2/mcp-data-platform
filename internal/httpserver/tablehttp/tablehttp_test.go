@@ -56,10 +56,14 @@ func (*fakeTrino) TableExists(context.Context, string, string, string, string) (
 type fakeObjects struct {
 	body    []byte
 	entries []tableregister.ObjectEntry
+	getErr  error
 	listErr error
 }
 
 func (f *fakeObjects) GetObject(_ context.Context, _, _ string) (body []byte, contentType string, err error) {
+	if f.getErr != nil {
+		return nil, "", f.getErr
+	}
 	return f.body, "text/csv", nil
 }
 
@@ -265,7 +269,10 @@ type harness struct {
 	// siblings are objects the listing reports beside the file, which is what
 	// a directory holding one is refused for.
 	siblings []tableregister.ObjectEntry
-	reviser  *fakeReviser
+	// getErr is what the object store answers the read of the file with, for
+	// the failures that happen before anything is settled.
+	getErr  error
+	reviser *fakeReviser
 	// The three seams the cross-source listing adds (#1472). Each has a
 	// default below, so a test that is not about the listing states none of
 	// them.
@@ -305,6 +312,7 @@ func newHarness(t *testing.T, opts ...func(*harness)) *harness {
 		body: []byte(h.body),
 		entries: append(
 			[]tableregister.ObjectEntry{{Key: "artifacts/u1/asset_1/content.csv"}}, h.siblings...),
+		getErr: h.getErr,
 	}
 	h.reviser = &fakeReviser{objects: objects}
 	n := 0
@@ -665,6 +673,7 @@ func TestStatusFor(t *testing.T) {
 }
 
 func TestDetailFor(t *testing.T) {
+	// An error the registrar did not stage-wrap still reads as it did.
 	assert.Equal(t, "the registration could not be completed",
 		detailFor(errors.New("pq: relation does not exist"), http.StatusInternalServerError))
 	assert.Equal(t, tableregister.ErrNotCSV.Error(),
@@ -897,4 +906,44 @@ func TestRegisterRoute_ARefusalAfterACorrectionCarriesTheCorrectedType(t *testin
 	assert.Equal(t, httpjson.ProblemTypePrefix+"file-corrected", problem.Type)
 	assert.Contains(t, problem.Detail, "Saved version 2 of this file")
 	require.Len(t, h.reviser.saved, 1, "the correction ran before the refusal")
+}
+
+// TestRegisterRoute_APlatformFailureNamesWhereItStopped. A 500 that said only
+// "could not be completed" gave a person nothing to retry differently and
+// support nothing to look for. The stage is the registrar's own word for where
+// it stopped, and reading the file is a different thing to chase than running
+// the statement (#1775). The driver's own text still never leaves the server.
+func TestRegisterRoute_APlatformFailureNamesWhereItStopped(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.getErr = errors.New("s3 get: context deadline exceeded reading s3://bucket/key")
+	})
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables", `{"connection":"scratch"}`)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+
+	var problem httpjson.ProblemDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+	assert.Equal(t, "the registration could not be completed while reading the file", problem.Detail)
+	assert.NotContains(t, w.Body.String(), "s3://bucket/key")
+}
+
+// TestRegisterRoute_ACorrectionAndAStageAreBothReported. A correction is
+// written before the last checks and before the DDL, so a platform failure can
+// follow one. The file changed either way, which leads, and the stage follows
+// it rather than replacing it.
+func TestRegisterRoute_ACorrectionAndAStageAreBothReported(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.body = "store_id,address\n101,\"12 Mill Rd\nSuite 4\"\n"
+		h.trino.err = errors.New("trino coordinator unreachable at 10.0.0.7:8080")
+	})
+
+	w := h.do(http.MethodPost, "/api/v1/portal/assets/asset_1/tables", `{"connection":"scratch","repair":true}`)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+
+	var problem httpjson.ProblemDetail
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &problem))
+	assert.Contains(t, problem.Detail, "put 1 row back onto one line",
+		"the file changed, which is the consequential half")
+	assert.Contains(t, problem.Detail, "The table was not created: the registration stopped while registering the table")
+	assert.NotContains(t, problem.Detail, "10.0.0.7")
 }

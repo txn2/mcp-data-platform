@@ -21878,6 +21878,12 @@
                         "required": true
                     },
                     {
+                        "type": "string",
+                        "description": "Why the content changed, recorded on the version this writes so the version panel says what a revision did. Must precede the file part. Empty for a plain re-upload, which says nothing beyond that the file was replaced",
+                        "name": "change_summary",
+                        "in": "formData"
+                    },
+                    {
                         "type": "file",
                         "description": "Replacement file; the ceiling is resources.managed.max_upload_bytes (default 100 MB). It must be the last part of the multipart form: it is streamed to blob storage where the walk finds it",
                         "name": "file",

@@ -3,6 +3,8 @@ package tableregister
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
+	"io"
 	"strings"
 	"unicode"
 
@@ -22,15 +24,29 @@ const maxColumns = 512
 // and a table that refuses to exist over it helps nobody. A duplicate name is
 // suffixed for the same reason -- the file is what it is, and the column still
 // has to be addressable.
+//
+// The byte-order mark is dropped before the parse rather than trimmed off the
+// name afterwards. Trimming the name only ever ran on a file whose first field
+// was unquoted, because a quoted one fails the parse with the mark in front of
+// it (#1774). Every caller here has passed tablecsv.Inspect, which reads the
+// bytes as UTF-8 or refuses them.
 func ReadHeaderColumns(content []byte) ([]Column, error) {
-	reader := csv.NewReader(bytes.NewReader(content))
+	reader := csv.NewReader(bytes.NewReader(tablecsv.TrimBOM(content)))
 	// A ragged file still has a header; the count here must not be pinned to
 	// whatever the first record happened to hold.
 	reader.FieldsPerRecord = -1
 
 	record, err := reader.Read()
 	if err != nil {
-		return nil, ErrEmptyHeader
+		// A file with nothing in it has no header row. A file whose first line
+		// the reader could not parse has one, and telling its owner the header
+		// is absent sends them looking for a row that is there -- which is how
+		// a byte-order mark before a quoted field was reported for as long as
+		// it was (#1774). What the reader could not do is the answer.
+		if errors.Is(err, io.EOF) {
+			return nil, ErrEmptyHeader
+		}
+		return nil, refusedf("the file's first line could not be read as a CSV header: %s", err.Error())
 	}
 	if len(record) == 0 {
 		return nil, ErrEmptyHeader
