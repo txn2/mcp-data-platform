@@ -348,6 +348,17 @@ parses as an unquoted field carrying a bare quote. Every export that quotes its
 strings writes that shape, so a file leading with a mark registers like any
 other, and the first column is named what the header calls it.
 
+A record that ends before the header does is not a defect. Its trailing columns
+are absent rather than wrong, and every reader of a CSV supplies them: Go's
+`encoding/csv` and Python's `csv` return the short record, PapaParse fills the
+missing keys, Excel and Preview open it, and the Hive CSV reader a registered
+table is served by reads the values it finds and leaves the rest null. A
+Facebook Insights export whose exporter omits two trailing columns for one post
+type - 21 of its 178 records - registers, and those columns come back null for
+those rows. What is refused is the other direction: a record carrying MORE
+fields than the header cannot be trimmed to fit without losing a value the file
+holds.
+
 A comma in a heading does not survive into the column's name. The Hive
 metastore stores a table's column list comma-separated, so the connector
 refuses a name holding one whatever the quoting, and a heading like

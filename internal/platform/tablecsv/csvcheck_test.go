@@ -261,9 +261,10 @@ func TestNormalizeCSV_NeverMergesTheRecordsOfACarriageReturnFile(t *testing.T) {
 
 // normalizePreserves reports whether the body came through the correction with
 // at least the records it holds, and fails the test if it came through with
-// fewer. A refusal is neither: refusing a file whose records do not all have
-// the header's fields is the honest answer, and merging them is not, which is
-// the whole distinction being asserted.
+// fewer. A refusal is neither: refusing a file holding a record WIDER than its
+// header is the honest answer, and merging records is not, which is the whole
+// distinction being asserted. A record narrower than the header is corrected
+// like any other (#1779).
 func normalizePreserves(t *testing.T, body string, rows int) bool {
 	t.Helper()
 
@@ -272,7 +273,11 @@ func normalizePreserves(t *testing.T, body string, rows int) bool {
 		assert.ErrorIs(t, err, ErrUncorrectable, body)
 		return false
 	}
-	records, readErr := csv.NewReader(strings.NewReader(string(out))).ReadAll()
+	// The width is unpinned because a record narrower than the header is now
+	// written back as it came, and the default reader refuses one.
+	reader := csv.NewReader(strings.NewReader(string(out)))
+	reader.FieldsPerRecord = -1
+	records, readErr := reader.ReadAll()
 	require.NoError(t, readErr, body)
 	return assert.GreaterOrEqual(t, len(records), rows,
 		"%q was written back with fewer records than it holds", body)
@@ -307,7 +312,7 @@ func macFile(values []string, rows, headerWidth, rowWidth int) string {
 func TestInspectCSV_ACarriageReturnFileWhoseRowsDoNotMatchItsHeader(t *testing.T) {
 	for _, tc := range []struct{ name, body, refusal string }{
 		{"an unquoted comma in an address", "store_id,address\r101,12 Mill Rd, Suite 4\r", "record 1 has 3"},
-		{"rows narrower than the header", "a,b\r1\r2\r3\r", "record 1 has 1"},
+		{"rows wider than the header", "a,b\r1,2,3\r4,5,6\r", "record 1 has 3"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defect := Inspect([]byte(tc.body))
@@ -362,10 +367,10 @@ func TestNormalizeCSV_GivesEachRecordItsOwnLine(t *testing.T) {
 // that wrote one wrote the other, and the person is told about both in one
 // sentence rather than being sent round the loop twice.
 func TestNormalizeCSV_CarriageReturnFileIsStillHeldToTheHeaderShape(t *testing.T) {
-	_, _, err := Normalize([]byte("a,b,c\r1,2,3\r4,5\r"))
+	_, _, err := Normalize([]byte("a,b,c\r1,2,3\r4,5,6,7\r"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUncorrectable)
-	assert.Contains(t, err.Error(), "record 2 has 2")
+	assert.Contains(t, err.Error(), "record 2 has 4")
 }
 
 // TestNormalizeCSV_PutsEveryRecordOnOneLine is the acceptance assertion for the
@@ -413,11 +418,21 @@ func TestNormalizeCSV_DropsTheByteOrderMark(t *testing.T) {
 // record invents data and truncating a long one discards it, so neither is a
 // correction the platform makes on somebody's behalf.
 func TestNormalizeCSV_RefusesARecordThatIsNotTheHeaderShape(t *testing.T) {
-	_, _, err := Normalize([]byte("a,b,c\n1,2,3\n4,5\n"))
+	_, _, err := Normalize([]byte("a,b,c\n1,2,3\n4,5,6,7\n"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUncorrectable)
-	assert.Contains(t, err.Error(), "record 2 has 2")
+	assert.Contains(t, err.Error(), "record 2 has 4")
 	assert.Contains(t, err.Error(), "3 fields")
+}
+
+// TestNormalizeCSV_WritesAShortRecordBackAsItCame. A record missing its
+// trailing fields is not a defect: its columns are absent rather than wrong,
+// and the correction carries it through untouched (#1774).
+func TestNormalizeCSV_WritesAShortRecordBackAsItCame(t *testing.T) {
+	out, report, err := Normalize([]byte("a,b,c\n1,2,3\n4,5\n"))
+	require.NoError(t, err)
+	assert.Zero(t, report.RowsRepaired)
+	assert.Equal(t, "a,b,c\n1,2,3\n4,5\n", string(out))
 }
 
 func TestNormalizeCSV_RefusesAFileWithNoHeader(t *testing.T) {
@@ -623,27 +638,27 @@ func TestNormalizeCSV_ConvertsTheDefinedBytesAroundTheUndefinedOnes(t *testing.T
 // inspection now settles both, and that neither condition refuses a file that
 // nothing else is wrong with.
 
-// TestInspectCSV_ARaggedRecordWithdrawsTheOffer: the file has a torn row, so
+// TestInspectCSV_AnOverWideRecordWithdrawsTheOffer: the file has a torn row, so
 // it is refused either way; what changed is that the refusal states the field
 // counts and no correction is offered for it.
-func TestInspectCSV_ARaggedRecordWithdrawsTheOffer(t *testing.T) {
-	defect := Inspect([]byte("a,b\n1,\"x\ny\"\n2\n"))
+func TestInspectCSV_AnOverWideRecordWithdrawsTheOffer(t *testing.T) {
+	defect := Inspect([]byte("a,b\n1,\"x\ny\"\n2,3,4\n"))
 	require.NotNil(t, defect)
 
 	assert.Equal(t, 1, defect.Rows, "the torn row is still what was found")
 	assert.Equal(t, 2, defect.HeaderFields)
-	assert.Equal(t, []string{"record 2 has 1"}, defect.Ragged)
+	assert.Equal(t, []string{"record 2 has 3"}, defect.Ragged)
 	assert.False(t, defect.Correctable())
 
 	reason := defect.Reason()
 	assert.Contains(t, reason, "line break inside a cell", "both findings are stated")
-	assert.Contains(t, reason, "the header's 2 fields (record 2 has 1)")
+	assert.Contains(t, reason, "more than the header's 2 fields (record 2 has 3)")
 	assert.Equal(t, "Correct it where it was written and upload it again.", defect.Remedy(),
 		"and the person is not told to re-export bytes that are already UTF-8")
 
-	_, _, err := Normalize([]byte("a,b\n1,\"x\ny\"\n2\n"))
+	_, _, err := Normalize([]byte("a,b\n1,\"x\ny\"\n2,3,4\n"))
 	require.Error(t, err, "which is the same answer the correction would have given")
-	assert.Contains(t, err.Error(), "the header's 2 fields (record 2 has 1)")
+	assert.Contains(t, err.Error(), "more than the header's 2 fields (record 2 has 3)")
 }
 
 // TestInspectCSV_AParseThatStopsShortWithdrawsTheOffer. The correction rewrites
@@ -742,13 +757,13 @@ func TestInspectCSV_AConsistentFileWithATornRowIsStillOffered(t *testing.T) {
 // sentence that says so. The bound is the one checkFieldCounts uses, so the
 // two refusals name the same records.
 func TestInspectCSV_NamesAtMostFiveRaggedRecords(t *testing.T) {
-	body := "a,b\n1,\"x\ny\"\n" + strings.Repeat("9\n", maxNamedRecords+3)
+	body := "a,b\n1,\"x\ny\"\n" + strings.Repeat("9,8,7\n", maxNamedRecords+3)
 
 	defect := Inspect([]byte(body))
 	require.NotNil(t, defect)
 	assert.Len(t, defect.Ragged, maxNamedRecords)
-	assert.Equal(t, "record 2 has 1", defect.Ragged[0])
-	assert.False(t, defect.Correctable(), "every record beyond the bound is still ragged")
+	assert.Equal(t, "record 2 has 3", defect.Ragged[0])
+	assert.False(t, defect.Correctable(), "every record beyond the bound is still over-wide")
 
 	_, _, err := Normalize([]byte(body))
 	require.Error(t, err)
@@ -765,7 +780,7 @@ func TestCSVDefect_RemedyMatchesWhatIsWrong(t *testing.T) {
 	assert.Equal(t, "Re-export it as UTF-8 CSV and upload that.",
 		(&Defect{Encoding: encodingUTF16}).Remedy())
 	assert.Equal(t, "Correct it where it was written and upload it again.",
-		(&Defect{HeaderFields: 2, Ragged: []string{"record 1 has 1"}}).Remedy())
+		(&Defect{HeaderFields: 2, Ragged: []string{"record 1 has 3"}}).Remedy())
 	assert.Equal(t, "Correct it where it was written and upload it again.",
 		(&Defect{Unreadable: "parse error"}).Remedy())
 }
@@ -776,7 +791,7 @@ func TestCSVDefect_RemedyMatchesWhatIsWrong(t *testing.T) {
 func TestCSVDefect_CorrectableIsEveryRuleTheCorrectionApplies(t *testing.T) {
 	assert.True(t, (&Defect{Rows: 1}).Correctable())
 	assert.False(t, (&Defect{Rows: 1, Encoding: encodingWide}).Correctable())
-	assert.False(t, (&Defect{Rows: 1, Ragged: []string{"record 1 has 1"}}).Correctable())
+	assert.False(t, (&Defect{Rows: 1, Ragged: []string{"record 1 has 3"}}).Correctable())
 	assert.False(t, (&Defect{Rows: 1, Unreadable: "parse error"}).Correctable())
 }
 

@@ -44,7 +44,20 @@
     --muted-foreground: 215.4 16.3% 44%;
     --accent: 210 40% 94.5%;
     --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    /* --destructive is the colour destructive TEXT is set in, because that is
+       what almost every use of it is: 100 places in this UI set text with it
+       against 2 that fill a shape. It is read against the surface it sits on,
+       so it clears WCAG AA (4.5:1) on all three -- 6.47:1 on a card, 6.17:1
+       on the page, 5.68:1 on a muted fill.
+
+       It used to be the FILL value (0 84.2% 60.2%), which put every refusal
+       in the product at 3.76:1 here and 1.78:1 in dark mode, where the fill is
+       darker still. A fill moves TOWARD the surface as the theme darkens and
+       text moves AWAY from it, so one token could not do both jobs (#1780). */
+    --destructive: 0 72% 42%;
+    /* The fill a destructive button and a status dot are painted with, read
+       against --destructive-foreground rather than against the page. */
+    --destructive-fill: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
     --border: 214 32% 88%;
     --input: 214 32% 88%;
@@ -76,7 +89,13 @@
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    /* LIGHTER than its light-mode counterpart, which is the point: text moves
+       away from the surface it is read on, and here the surface is dark.
+       5.39:1 on a card, 5.78:1 on the page, 4.49:1 on a muted fill. */
+    --destructive: 0 70% 65%;
+    /* The fill moves the other way, toward the surface, so white on it stays
+       readable: 10:1 against --destructive-foreground. */
+    --destructive-fill: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
     --border: 217 24% 20%;
     --input: 217 24% 20%;
@@ -99,8 +118,15 @@
 }
 
 @keyframes pulse-brand {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.95); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.95);
+  }
 }
 
 .animate-pulse-brand {
@@ -123,6 +149,7 @@
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
   --color-destructive: hsl(var(--destructive));
+  --color-destructive-fill: hsl(var(--destructive-fill));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
@@ -150,7 +177,11 @@
     linear-gradient(45deg, transparent 75%, var(--checker) 75%),
     linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
   background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
 }
 
 .dark .checkerboard {

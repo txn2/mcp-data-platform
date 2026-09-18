@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SortableHead } from "@/components/patterns/SortableHead";
+import { RowDetailDialog } from "./RowDetailDialog";
 
 interface Props {
   content: string;
@@ -25,6 +26,15 @@ interface Props {
 
 const MAX_DISPLAY_ROWS = 500;
 
+/** Enter and Space open a row, the way they open a button. */
+function openOnEnterOrSpace(e: React.KeyboardEvent, open: () => void) {
+  if (e.key !== "Enter" && e.key !== " ") {
+    return;
+  }
+  e.preventDefault();
+  open();
+}
+
 function isNumeric(val: unknown): val is number {
   return typeof val === "number" && !isNaN(val);
 }
@@ -33,6 +43,8 @@ export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
   const isTsv = delimiter === "\t";
   const downloadName = fileName || (isTsv ? "data.tsv" : "data.csv");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
+  // Which row is open, as an index into the rows on screen.
+  const [openRow, setOpenRow] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [filterText, setFilterText] = useState("");
 
@@ -54,7 +66,11 @@ export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
     if (!filterText) return allRows;
     const lower = filterText.toLowerCase();
     return allRows.filter((row) =>
-      columns.some((col) => String(row[col] ?? "").toLowerCase().includes(lower)),
+      columns.some((col) =>
+        String(row[col] ?? "")
+          .toLowerCase()
+          .includes(lower),
+      ),
     );
   }, [allRows, columns, filterText]);
 
@@ -152,8 +168,23 @@ export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
           </TableHeader>
           <TableBody>
             {displayRows.map((row, i) => (
-              <TableRow key={i} className="even:bg-muted/20">
+              // The row is the control that opens the record, which is how
+              // every other list in the portal behaves, and it is focusable
+              // and operable from the keyboard because a body of hundreds of
+              // rows is otherwise unreachable without a pointer (#1781).
+              <TableRow
+                key={i}
+                className="cursor-pointer even:bg-muted/20 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                tabIndex={0}
+                role="button"
+                aria-label={`Open row ${i + 1}`}
+                onClick={() => setOpenRow(i)}
+                onKeyDown={(e) => openOnEnterOrSpace(e, () => setOpenRow(i))}
+              >
                 {columns.map((col) => (
+                  // Truncated on purpose: the table is for finding a row, and
+                  // the dialog is for reading it. The title is a convenience
+                  // for a short value, never the way to read a long one.
                   <TableCell
                     key={col}
                     className="max-w-[200px] truncate"
@@ -168,11 +199,92 @@ export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
         </Table>
       </div>
 
+      <OpenRow
+        columns={columns}
+        rows={displayRows}
+        at={openRow}
+        onGo={setOpenRow}
+      />
+
       {/* Footer */}
       <p className="text-xs text-muted-foreground">
         Showing {displayRows.length} of {allRows.length} rows
-        {filtered.length < allRows.length && ` (${filtered.length} matching filter)`}
+        {filtered.length < allRows.length &&
+          ` (${filtered.length} matching filter)`}
       </p>
+      <ShapeNotice errors={parsed.errors} />
     </div>
+  );
+}
+
+/**
+ * What the parser found wrong with the file's shape, which the viewer used to
+ * throw away.
+ *
+ * PapaParse reports a record that does not have the header's fields as a
+ * `FieldMismatch`, and this component read `parsed.data` and ignored
+ * `parsed.errors`. A short record was drawn with its missing columns as empty
+ * cells, so a file whose exporter omits trailing fields looked complete here
+ * while a table registered over it answered that its records do not all have
+ * the header's fields. Nobody looking at the viewer could tell (#1779).
+ *
+ * It is a note rather than a warning: a short record is ordinary and registers
+ * (#1779). What it must not do is go unsaid.
+ */
+function ShapeNotice({ errors }: { errors: Papa.ParseError[] }) {
+  const short = errors.filter((e) => e.code === "TooFewFields").length;
+  const long = errors.filter((e) => e.code === "TooManyFields").length;
+  if (short === 0 && long === 0) {
+    return null;
+  }
+  const parts: string[] = [];
+  if (short > 0) {
+    parts.push(
+      `${short} ${short === 1 ? "row ends" : "rows end"} before the last column; the columns after it are shown empty`,
+    );
+  }
+  if (long > 0) {
+    parts.push(
+      `${long} ${long === 1 ? "row has" : "rows have"} more fields than the header names`,
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="csv-shape-notice">
+      {parts.join(". ")}.
+    </p>
+  );
+}
+
+/**
+ * The row dialog, and the arithmetic of moving between rows.
+ *
+ * It sits here rather than inline so the renderer keeps one job: the guard for
+ * "no row is open" and the bounds on previous and next are all the same
+ * question -- which row, if any -- and they belong together.
+ */
+function OpenRow({
+  columns,
+  rows,
+  at,
+  onGo,
+}: {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  at: number | null;
+  onGo: (at: number | null) => void;
+}) {
+  if (at === null || !rows[at]) {
+    return null;
+  }
+  return (
+    <RowDetailDialog
+      columns={columns}
+      row={rows[at]}
+      position={at + 1}
+      total={rows.length}
+      onPrev={at > 0 ? () => onGo(at - 1) : undefined}
+      onNext={at < rows.length - 1 ? () => onGo(at + 1) : undefined}
+      onClose={() => onGo(null)}
+    />
   );
 }

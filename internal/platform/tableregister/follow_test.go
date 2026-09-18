@@ -609,11 +609,13 @@ const tornNewVersion = "store_id,vendor_code,rebate_pct\n" +
 	"101,\"ACME\nNorth West\",4.5\n" +
 	"102,\"BAY\nSeattle\",6.0\n"
 
-// raggedNewVersion carries a defect the platform will not correct: its records
-// do not all have the header's fields, and neither filling one in nor dropping
-// one from another is something to do to somebody's data.
+// raggedNewVersion carries a defect the platform will not correct: a record
+// carrying MORE fields than the header, which cannot be trimmed to fit without
+// losing a value the file holds. A record with FEWER is not this: its trailing
+// columns are absent and every reader supplies them, so it corrects and
+// registers like any other (#1779).
 var raggedNewVersion = "store_id,vendor_code,rebate_pct\n101,\"ACME\nNW\",4.5\n" +
-	strings.Repeat("9\n", 8)
+	strings.Repeat("9,8,7,6\n", 8)
 
 // defectiveHead moves the source's head onto a version whose cells carry line
 // breaks -- the shape a weekly spreadsheet export repeats. The write produced
@@ -725,8 +727,8 @@ func TestFollowSource_APinnedRegistrationCarryingTheChoiceCorrectsNothing(t *tes
 // TestFollowSource_AnUncorrectableVersionIsStillRefused: what the platform
 // cannot honestly correct it does not touch, whatever the registration asked
 // for. Bytes in an encoding it does not convert are read wrongly by the
-// correction too, and records that do not match the header are what the
-// correction refuses in turn (#1449).
+// correction too, and a record carrying more fields than the header is what the
+// correction refuses in turn (#1449, #1779).
 func TestFollowSource_AnUncorrectableVersionIsStillRefused(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -739,9 +741,9 @@ func TestFollowSource_AnUncorrectableVersionIsStillRefused(t *testing.T) {
 			reason: "Re-export it as UTF-8 CSV",
 		},
 		{
-			name:   "records that do not match the header",
+			name:   "a record carrying more than the header",
 			body:   raggedNewVersion,
-			reason: "its records do not all have the header's 3 fields",
+			reason: "its records carry more than the header's 3 fields",
 		},
 	}
 	for _, tc := range cases {

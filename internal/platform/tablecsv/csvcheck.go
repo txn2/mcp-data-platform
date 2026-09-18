@@ -105,8 +105,9 @@ type Defect struct {
 	// HeaderFields is how many fields the header row declares, and is what a
 	// ragged record is short or long of.
 	HeaderFields int `json:"header_fields,omitempty"`
-	// Ragged names the records whose field count differs from the header's,
-	// in file order and at most maxNamedRecords of them.
+	// Ragged names the records carrying MORE fields than the header declares,
+	// in file order and at most maxNamedRecords of them. A record with fewer
+	// is not one: see noteRagged.
 	Ragged []string `json:"ragged_records,omitempty"`
 	// Unreadable is the parse error that stopped a read of this file before
 	// its end, and is empty when every record parsed.
@@ -349,10 +350,11 @@ func sourceEncoding(content []byte) string {
 // made rather than after it is taken up. Three things say no: bytes in an
 // encoding the platform does not convert, because everything else about the
 // file is read through that encoding and would be corrected into mojibake; a
-// record whose field count differs from the header's, because padding a short
-// one invents data and truncating a long one discards it; and a parse that
-// does not reach the end of the file, because the correction has to read every
-// record to write it back.
+// a record carrying MORE fields than the header, because dropping one to fit
+// would lose data; and a parse that does not reach the end of the file,
+// because the correction has to read every record to write it back. A record
+// with FEWER fields is none of these: its trailing columns are absent, which
+// is what every reader supplies for itself.
 func (d *Defect) Correctable() bool {
 	return d.convertibleEncoding() && len(d.Ragged) == 0 && d.Unreadable == ""
 }
@@ -411,7 +413,7 @@ func (d *Defect) scanRecords(content []byte) {
 		}
 		// The header is the width every record is measured against, so it is
 		// counted as a torn row like any other and compared with nothing.
-		if number > 0 && len(record) != d.HeaderFields {
+		if number > 0 && len(record) > d.HeaderFields {
 			d.noteRagged(number, len(record))
 		}
 		number++
@@ -429,9 +431,19 @@ func (d *Defect) noteUnreadable(err error) {
 	}
 }
 
-// noteRagged records a record whose field count differs from the header's, up
-// to the number a refusal lists. Beyond that the record is still ragged and
+// noteRagged records a record carrying MORE fields than the header declares, up
+// to the number a refusal lists. Beyond that the record is still over-wide and
 // the file is still refused; only its name is dropped.
+//
+// A record with FEWER fields is not one of these. Its trailing columns are
+// absent rather than wrong, and every reader of a CSV supplies them: Go's
+// encoding/csv returns the short record, Python's csv module does, PapaParse
+// fills the missing keys, and the Hive CSV reader a registered table is served
+// by reads the values it finds and leaves the rest null. Refusing such a file
+// put this platform alone among them -- a Facebook Insights export whose
+// exporter omits two trailing columns for one post type (21 of 178 records)
+// could not be registered, while the portal's own viewer, Excel and Preview
+// all opened it (#1774).
 func (d *Defect) noteRagged(number, fields int) {
 	if len(d.Ragged) >= maxNamedRecords {
 		return
@@ -583,17 +595,18 @@ func raggedRecordLabel(number, fields int) string {
 	return "record " + strconv.Itoa(number) + " has " + strconv.Itoa(fields)
 }
 
-// raggedClause states that a file's records do not all have the header's
-// fields and why the platform will not adjust them. It is the one wording for
-// the condition, so the inspection that declines to offer a correction and the
-// correction that refuses to make one say the same thing about the same file.
+// raggedClause states that a file holds a record carrying more fields than its
+// header declares, and why the platform will not adjust it. It is the one
+// wording for the condition, so the inspection that declines to offer a
+// correction and the correction that refuses to make one say the same thing
+// about the same file.
 //
 // Its subject is "it", so it reads after a sentence that has already named the
 // file. Both of its callers give it one.
 func raggedClause(headerFields int, ragged []string) string {
-	return "its records do not all have the header's " + strconv.Itoa(headerFields) +
-		" fields (" + JoinAnd(ragged) + "), and filling in a short record would invent data while" +
-		" dropping a field from a long one would lose some"
+	return "its records carry more than the header's " + strconv.Itoa(headerFields) +
+		" fields (" + JoinAnd(ragged) + "), and dropping a field to fit would lose data this" +
+		" platform cannot choose to lose"
 }
 
 // unreadableClause states that a read of the file stopped before its end. A
@@ -636,10 +649,10 @@ type NormalizeReport struct {
 // every field on one line.
 //
 // It is a decode and a re-emit, never a repair of the record structure. A
-// record whose field count differs from the header is refused rather than
-// adjusted: padding a short record invents data and truncating a long one
-// discards it, and neither is a correction the platform can make on somebody's
-// behalf.
+// record carrying more fields than the header is refused rather than trimmed,
+// because dropping one to fit loses data the platform cannot choose to lose. A
+// record carrying fewer is written back as it came: its trailing columns are
+// absent, and supplying them is the reader's to do -- which every reader does.
 func Normalize(content []byte) ([]byte, NormalizeReport, error) {
 	decoded, from, err := decodeToUTF8(content)
 	if err != nil {
@@ -705,13 +718,15 @@ func decodeToUTF8(content []byte) (decoded []byte, from string, err error) {
 // them buries the sentence that says so.
 const maxNamedRecords = 5
 
-// checkFieldCounts refuses a file holding a record that does not have the
-// header's fields.
+// checkFieldCounts refuses a file holding a record with MORE fields than the
+// header declares. A record with fewer is written back as it came: its
+// trailing columns are absent, which is what every reader of the corrected
+// file will make of them too.
 func checkFieldCounts(records [][]string) error {
 	want := len(records[0])
 	var ragged []string
 	for i, record := range records[1:] {
-		if len(record) == want {
+		if len(record) <= want {
 			continue
 		}
 		if len(ragged) < maxNamedRecords {

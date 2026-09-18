@@ -168,7 +168,7 @@ content type renders identically wherever it is opened.
 |---|---|---|---|
 | JSON | `application/json` | Collapsible tree with search across keys and values, match count and jump-to-match, JSONPath breadcrumb with copy-path and copy-value, type-aware values, and raw/formatted/tree views. Virtualized. | CodeMirror with JSON mode and a parse-error gutter |
 | JSON Lines | `application/x-ndjson` | One expandable row per record, each opening into the JSON viewer | CodeMirror |
-| Tabular | `text/csv`, `text/tab-separated-values` | Sortable, searchable table | CodeMirror |
+| Tabular | `text/csv`, `text/tab-separated-values` | Sortable, searchable table; a row opens its record in a dialog | CodeMirror |
 | Images | `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif`, ... | Zoom and pan, checkerboard backing for transparency, dimensions and size readout, fit/actual-size toggle | None |
 | SVG | `image/svg+xml` | Sanitized inline render | Source editor |
 | Audio | `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac` | Native player with seek | None |
@@ -203,6 +203,33 @@ deck load the slide runtime the platform serves at `/portal/vendor/reveal/`
 SVG, sanitized and rendered inline rather than framed:
 
 ![The SVG viewer](../images/screenshots/light/user-asset-svg-light.webp#only-light)![The SVG viewer](../images/screenshots/dark/user-asset-svg-dark.webp#only-dark)
+
+### Reading what does not fit a cell
+
+**A table cell is truncated, and the row opens the record.** A tabular cell is
+capped so the table can be scanned; clicking a row - or focusing it and pressing
+Enter or Space - opens that record in a dialog, one field per line, values
+wrapping at a readable measure, selectable and copyable, with previous and next
+so reading several records is not close-and-re-aim. It is the row-click every
+other list in the portal answers to.
+
+**This is the pattern for any dense table, not just this one.** Truncate in the
+table, open the record in a dialog, and never leave something a person needs to
+read reachable only through a `title` tooltip: a tooltip cannot be selected or
+copied, does not wrap usefully for a paragraph, does not exist on touch, and
+disappears when the pointer moves. The table's job is to find a row; the
+dialog's job is to read it.
+
+**A field that is absent says so.** A CSV record may end before the header does,
+which is not the same as a field being present and empty, and a table registered
+over such a file serves null for those columns. The dialog distinguishes the two
+rather than drawing both as a blank.
+
+**The parser's own complaints are shown.** A file holding records that do not
+have the header's fields carries a note under the table saying how many end
+early and how many carry extra. The viewer used to read the parsed rows and
+discard the parse errors, so such a file looked complete here while a
+registration over it named the same records.
 
 And a CSV, in the sortable, searchable table the tabular family gets:
 

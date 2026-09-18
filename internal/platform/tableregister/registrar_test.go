@@ -1364,19 +1364,21 @@ func TestRegister_RepairGivesACarriageReturnFileTheRowsItHolds(t *testing.T) {
 	assert.Zero(t, res.Correction.RowsRepaired, "no cell held a line break")
 }
 
-// TestRegister_RepairRefusesARaggedFile: filling in a short record invents data
-// and dropping a field from a long one loses some, so a file the platform
-// cannot correct honestly is refused with nothing written.
-func TestRegister_RepairRefusesARaggedFile(t *testing.T) {
+// TestRegister_RepairRefusesAnOverWideFile: dropping a field from a record
+// carrying more than the header loses data the platform cannot choose to lose,
+// so such a file is refused with nothing written. A record with FEWER fields is
+// not this case and registers -- see
+// TestRegister_ARecordShortOfTheHeaderStillRegisters.
+func TestRegister_RepairRefusesAnOverWideFile(t *testing.T) {
 	h := newHarness(t, func(h *harness) {
-		h.objects.body = []byte("a,b,c\n1,\"x\ny\",3\n4,5\n")
+		h.objects.body = []byte("a,b,c\n1,\"x\ny\",3\n4,5,6,7\n")
 	})
 
 	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
 		Request{Connection: "scratch", Repair: true})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRefused)
-	assert.Contains(t, err.Error(), "record 2 has 2")
+	assert.Contains(t, err.Error(), "record 2 has 4")
 
 	assert.Empty(t, h.reviser.saved, "no version is written")
 	assert.Empty(t, h.trino.statements)
@@ -1880,7 +1882,7 @@ func TestRegister_AFileTheCorrectionWouldRefuseIsNotOfferedIt(t *testing.T) {
 		body  string
 		names string
 	}{
-		{"a record short of the header", "a,b\n1,\"x\ny\"\n2\n", "the header's 2 fields (record 2 has 1)"},
+		{"a record carrying more than the header", "a,b\n1,\"x\ny\"\n2,3,4\n", "more than the header's 2 fields (record 2 has 3)"},
 		{"a parse that stops short", "a,b\n1,\"x\ny\"\n2,he\"llo\n", "not readable as a CSV all the way through"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2012,7 +2014,7 @@ func TestSaveCorrected_SeparatesARefusalFromAPlatformFailure(t *testing.T) {
 	_, _, err := h.reg.saveCorrected(context.Background(), &src, testCaller(), ragged)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRefused)
-	assert.Contains(t, err.Error(), "its records do not all have the header's 2 fields")
+	assert.Contains(t, err.Error(), "its records carry more than the header's 2 fields")
 
 	// Anything else is the platform's, and keeps its own error rather than
 	// being dressed up as something the caller did.
@@ -2161,4 +2163,52 @@ func TestRegister_ADeniedConnectionIsNotAnAuthorizedCall(t *testing.T) {
 	require.Len(t, h.audit.events, 1)
 	assert.False(t, h.audit.events[0].Authorized)
 	assert.False(t, h.audit.events[0].Success)
+}
+
+// TestRegister_ARecordShortOfTheHeaderStillRegisters. A record missing its
+// TRAILING fields is not a defect and never was: its columns are absent rather
+// than wrong, and every reader of a CSV supplies them -- Go's encoding/csv and
+// Python's csv module return the short record, PapaParse fills the missing
+// keys, and the Hive CSV reader a registered table is served by leaves the
+// rest null. Refusing such a file put this platform alone among them, and a
+// Facebook Insights export whose exporter omits two trailing columns for one
+// post type (21 of its 178 records) could not be registered while the portal's
+// own viewer, Excel and Preview all opened it (#1774).
+func TestRegister_ARecordShortOfTheHeaderStillRegisters(t *testing.T) {
+	h := newHarness(t, func(h *harness) {
+		h.objects.body = []byte("a,b,c\n1,2,3\n4,5\n6,7,8\n")
+	})
+
+	res, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.NoError(t, err)
+
+	assert.Nil(t, res.Correction, "nothing was corrected")
+	assert.Empty(t, h.reviser.saved, "and the file was never rewritten")
+	assert.NotEmpty(t, h.trino.statements, "the table is created")
+	assert.Len(t, h.store.rows, 1)
+}
+
+// TestRegister_AShortRecordDoesNotWithdrawTheCorrection is the half that
+// matters for the file this was found on: it carries line breaks inside cells
+// AND short records, and the short ones used to withdraw the offer to correct
+// the line breaks, leaving the file with no way forward at all.
+func TestRegister_AShortRecordDoesNotWithdrawTheCorrection(t *testing.T) {
+	body := []byte("a,b,c\n1,\"x\ny\",3\n4,5\n6,7,8\n")
+
+	h := newHarness(t, func(h *harness) { h.objects.body = body })
+	_, err := h.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNeedsRepair, "the correction is offered")
+	assert.Contains(t, err.Error(), "line break inside a cell")
+	assert.NotContains(t, err.Error(), "header's 3 fields")
+
+	// And taking it corrects the file and registers.
+	h2 := newHarness(t, func(h *harness) { h.objects.body = body })
+	res, err := h2.reg.Register(context.Background(), testCaller(), testSource(),
+		Request{Connection: "scratch", Repair: true})
+	require.NoError(t, err)
+	assert.NotNil(t, res.Correction)
+	assert.Len(t, h2.store.rows, 1)
 }
