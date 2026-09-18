@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Table2, Trash2, Loader2, AlertTriangle, Plus, Wrench, FileCheck2, Pin, RefreshCw } from "lucide-react";
+import {
+  Table2,
+  Trash2,
+  Loader2,
+  AlertTriangle,
+  Plus,
+  Wrench,
+  FileCheck2,
+  Pin,
+  RefreshCw,
+} from "lucide-react";
 import {
   useTableRegistrations,
   useTableConnections,
@@ -9,6 +19,7 @@ import {
 } from "@/api/tables/hooks";
 import { CSV_NEEDS_REPAIR } from "@/api/tables/types";
 import type { TableRegistration, TableSourceKind } from "@/api/tables/types";
+import { RefusalDialog } from "./RefusalDialog";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { CopyButton } from "@/components/provenance/parts";
@@ -77,12 +88,17 @@ export function TablesPanel({
     <SectionCard
       title="Query as a table"
       data-testid="tables-panel"
-      action={<RegisterAction shown={canOffer && !adding} onClick={() => setAdding(true)} />}
+      action={
+        <RegisterAction
+          shown={canOffer && !adding}
+          onClick={() => setAdding(true)}
+        />
+      }
     >
       <p className="text-xs text-muted-foreground">
-        Registering points a query engine at this file where it already sits. Nothing is copied, and a
-        table that follows the file moves onto each new version as it is written. Every column comes
-        back as text.
+        Registering points a query engine at this file where it already sits.
+        Nothing is copied, and a table that follows the file moves onto each new
+        version as it is written. Every column comes back as text.
       </p>
 
       {adding && (
@@ -136,7 +152,10 @@ function usePanelData(
   const isCSV = contentType.toLowerCase().includes("csv");
   const eligible = isCSV && canModify;
   const connectionQuery = useTableConnections(eligible);
-  const registrationQuery = useTableRegistrations(kind, eligible ? id : undefined);
+  const registrationQuery = useTableRegistrations(
+    kind,
+    eligible ? id : undefined,
+  );
 
   const connections = connectionQuery.data?.connections ?? [];
   const registrations = registrationQuery.data?.table_registrations ?? [];
@@ -150,7 +169,13 @@ function usePanelData(
 
 // RegisterAction is the section's own control, rendered only while there is
 // somewhere to register onto and no form already open.
-function RegisterAction({ shown, onClick }: { shown: boolean; onClick: () => void }) {
+function RegisterAction({
+  shown,
+  onClick,
+}: {
+  shown: boolean;
+  onClick: () => void;
+}) {
   if (!shown) {
     return null;
   }
@@ -189,7 +214,13 @@ function RegistrationList({
   return (
     <ul className="space-y-2">
       {registrations.map((reg) => (
-        <RegistrationRow key={reg.id} kind={kind} id={id} reg={reg} canModify={canModify} />
+        <RegistrationRow
+          key={reg.id}
+          kind={kind}
+          id={id}
+          reg={reg}
+          canModify={canModify}
+        />
       ))}
     </ul>
   );
@@ -224,10 +255,15 @@ function RegistrationRow({
             of it a CSV asset ever showed. It has no spaces, so the break has
             to be allowed mid-token.
           */}
-          <code className="block font-mono text-sm break-all text-foreground">{reg.query_table}</code>
+          <code className="block font-mono text-sm break-all text-foreground">
+            {reg.query_table}
+          </code>
           <p className="mt-0.5 text-muted-foreground">
-            on <span className="font-medium text-foreground">{reg.connection}</span> · registered by{" "}
-            {reg.registered_by}
+            on{" "}
+            <span className="font-medium text-foreground">
+              {reg.connection}
+            </span>{" "}
+            · registered by {reg.registered_by}
           </p>
           <div className="mt-1 flex flex-wrap gap-1">
             <FollowBadge reg={reg} />
@@ -246,7 +282,11 @@ function RegistrationRow({
               title="Drop this table"
               aria-label={`Drop ${reg.query_table}`}
             >
-              {unregister.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              {unregister.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Trash2 />
+              )}
             </Button>
           )}
         </div>
@@ -262,7 +302,11 @@ function RegistrationRow({
       {reg.columns.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {reg.columns.map((c) => (
-            <Badge key={c.name} variant="muted" className="rounded px-1.5 font-mono">
+            <Badge
+              key={c.name}
+              variant="muted"
+              className="rounded px-1.5 font-mono"
+            >
               {c.name}
             </Badge>
           ))}
@@ -351,7 +395,12 @@ function RegisterForm({
   kind: TableSourceKind;
   id: string;
   filename?: string;
-  connections: { name: string; description?: string; catalog: string; schema: string }[];
+  connections: {
+    name: string;
+    description?: string;
+    catalog: string;
+    schema: string;
+  }[];
   /** onDone closes the form, carrying what a correction of the file changed. */
   onDone: (repaired?: string) => void;
 }) {
@@ -376,14 +425,16 @@ function RegisterForm({
     );
   };
 
-
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     send(false);
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-md border bg-muted/30 p-3">
+    <form
+      onSubmit={submit}
+      className="space-y-3 rounded-md border bg-muted/30 p-3"
+    >
       <div className="space-y-1.5">
         <Label htmlFor="table-connection" className="text-xs">
           Connection
@@ -413,7 +464,8 @@ function RegisterForm({
 
       <div className="space-y-1.5">
         <Label htmlFor="table-name" className="text-xs">
-          Table name <span className="font-normal text-muted-foreground">(optional)</span>
+          Table name{" "}
+          <span className="font-normal text-muted-foreground">(optional)</span>
         </Label>
         <Input
           id="table-name"
@@ -429,8 +481,9 @@ function RegisterForm({
           prefix (mayReplace, internal/platform/tableregister/registrar.go).
         */}
         <p className="text-xs text-muted-foreground">
-          Your persona is added as a prefix. The schema is shared, so reusing a name you registered
-          replaces that table, and a name someone else registered is refused.
+          Your persona is added as a prefix. The schema is shared, so reusing a
+          name you registered replaces that table, and a name someone else
+          registered is refused.
         </p>
       </div>
 
@@ -446,102 +499,44 @@ function RegisterForm({
           <span>
             <span className="font-medium">Follow the file</span>
             <span className="block text-muted-foreground">
-              Each new version of the file moves the table onto it, so a refresh by a person or a
-              script is what the table reads next. Turn this off to pin the table to the version it
-              is registered over.
+              Each new version of the file moves the table onto it, so a refresh
+              by a person or a script is what the table reads next. Turn this
+              off to pin the table to the version it is registered over.
             </span>
           </span>
         </label>
       </div>
 
       {register.isError && (
-        <Alert variant="destructive" className="py-2" data-testid="table-register-error">
-          <AlertTriangle />
-          <AlertDescription className="space-y-2">
-            <span className="block">{errorText(register.error)}</span>
-            <RepairOffer
-              shown={needsRepair(register.error)}
-              pending={register.isPending}
-              follow={follow}
-              onClick={() => send(true)}
-            />
-          </AlertDescription>
-        </Alert>
+        <RefusalDialog
+          reason={errorText(register.error)}
+          repairable={needsRepair(register.error)}
+          pending={register.isPending}
+          follow={follow}
+          onRepair={() => send(true)}
+          onClose={() => register.reset()}
+        />
       )}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={() => onDone()}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onDone()}
+        >
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={!connection || register.isPending}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!connection || register.isPending}
+        >
           {register.isPending && <Loader2 className="animate-spin" />}
           Register
         </Button>
       </div>
     </form>
-  );
-}
-
-// RepairOffer is the way out of a file that cannot be read as a table the way
-// it is stored. The refusal above it says what is wrong; this says what the
-// platform will do about it, and does it on one click.
-//
-// It is a control rather than an instruction because the correction is the
-// platform's to make: a person told "put every cell back on one line and save
-// it as UTF-8" has been handed the problem back.
-function RepairOffer({
-  shown,
-  pending,
-  follow,
-  onClick,
-}: {
-  shown: boolean;
-  pending: boolean;
-  /** follow decides whether the correction keeps happening; see below. */
-  follow: boolean;
-  onClick: () => void;
-}) {
-  if (!shown) {
-    return null;
-  }
-  return (
-    <span className="block space-y-1.5">
-      {/*
-        The label wraps and the height follows it. A button is nowrap and
-        fixed-height by default, which in a sidebar this narrow renders the
-        last word of this one outside the column (#1617); the icon keeps its
-        own line by sitting at the top of the two.
-      */}
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        className="h-auto max-w-full items-start py-1 text-left whitespace-normal"
-        disabled={pending}
-        onClick={onClick}
-        data-testid="table-repair-button"
-      >
-        {pending ? <Loader2 className="animate-spin" /> : <Wrench />}
-        Save a corrected copy and register that
-      </Button>
-      <span className="block text-xs">
-        The file you uploaded is kept as the version before it, so the correction can be undone from
-        the version history.
-        {/*
-          The correction keeps happening only for a table that follows its
-          file: a pinned one is never moved onto a new version, so it never
-          meets one to correct (#1577). The offer says which of the two this
-          registration will be, because the box above it is the person's to
-          untick and the promise would otherwise be one the platform does not
-          keep.
-        */}
-        {follow
-          ? " The table keeps correcting: a later version of the file with the same problem is saved" +
-            " corrected too, and the table moves onto it."
-          : " This corrects the file once. The table is pinned to the corrected version, so a later" +
-            " version of the file is left alone; tick Follow the file to keep correcting it."}
-      </span>
-    </span>
   );
 }
 

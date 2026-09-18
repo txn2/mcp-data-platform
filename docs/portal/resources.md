@@ -189,6 +189,13 @@ A spreadsheet export often has a line break inside a cell — a multi-line addre
 
 ![A CSV that has to be corrected first](../images/screenshots/light/admin-resource-table-repair-offer-light.webp#only-light)![A CSV that has to be corrected first](../images/screenshots/dark/admin-resource-table-repair-offer-dark.webp#only-dark)
 
+A registration that is refused opens a dialog rather than writing into the
+sidebar. The reason is several sentences and names the rows and columns it
+found, which in a 320px column was small red type below the fold; in a dialog it
+has room to be read, and the action that resolves it is an ordinary button
+beside Cancel. A refusal with no next step reads the same way, with only a
+dismiss.
+
 **Save a corrected copy and register that** does the correction for you: every record gets its own line, every cell goes back onto one line, and the text is converted to UTF-8 if it was not already. The result is a new version of the file itself, so the bytes you uploaded stay as the version before it and the correction can be undone from Version history like any other. The panel then says what changed, and so does the new version's row in Version history.
 
 ![What the correction changed](../images/screenshots/light/admin-resource-table-repaired-light.webp#only-light)![What the correction changed](../images/screenshots/dark/admin-resource-table-repaired-dark.webp#only-dark)

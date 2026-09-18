@@ -1,8 +1,8 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import * as Slot from "@radix-ui/react-slot"
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import * as Slot from "@radix-ui/react-slot";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
   "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3",
@@ -13,7 +13,7 @@ const badgeVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
-          "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
+          "bg-destructive-fill text-white focus-visible:ring-destructive-fill/20 dark:bg-destructive-fill/60 dark:focus-visible:ring-destructive-fill/40 [a&]:hover:bg-destructive-fill/90",
         outline:
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
@@ -23,7 +23,8 @@ const badgeVariants = cva(
         // read as blocks on a dark surface, so dark uses translucent fills.
         success:
           "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300",
-        warning: "bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300",
+        warning:
+          "bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300",
         danger: "bg-red-100 text-red-800 dark:bg-red-500/10 dark:text-red-300",
         info: "bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300",
         muted: "bg-muted text-muted-foreground",
@@ -32,8 +33,8 @@ const badgeVariants = cva(
     defaultVariants: {
       variant: "default",
     },
-  }
-)
+  },
+);
 
 function Badge({
   className,
@@ -42,7 +43,7 @@ function Badge({
   ...props
 }: React.ComponentProps<"span"> &
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot.Root : "span"
+  const Comp = asChild ? Slot.Root : "span";
 
   return (
     <Comp
@@ -51,7 +52,7 @@ function Badge({
       className={cn(badgeVariants({ variant }), className)}
       {...props}
     />
-  )
+  );
 }
 
-export { Badge, badgeVariants }
+export { Badge, badgeVariants };

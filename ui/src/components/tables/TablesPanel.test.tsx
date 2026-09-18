@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TablesPanel } from "./TablesPanel";
 import type { TableConnectionList, TableRegistrationList } from "@/api/tables/types";
@@ -282,7 +282,7 @@ describe("a CSV a query engine cannot read", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^register$/i }));
   }
 
-  it("lets the refusal wrap to the column instead of running past it", async () => {
+  it("reads the refusal in a dialog rather than wrapped into the column", async () => {
     stubRegister(
       () =>
         new Response(JSON.stringify(NEEDS_REPAIR), {
@@ -292,18 +292,55 @@ describe("a CSV a query engine cannot read", () => {
     );
     await openFormAndRegister();
 
-    // A button is nowrap and will not shrink, so in a grid whose track takes
-    // its minimum from its content one long label sets a floor wider than the
-    // sidebar and every sentence beside it is laid out at that width and
-    // clipped mid-word. The label wraps, and the track is capped (#1617).
+    // The details column is 320px and a CSV refusal is several sentences, so
+    // it is read in a dialog instead (#1780). #1617 had to make the repair
+    // control wrap like a paragraph to fit that column; in a dialog it is an
+    // ordinary button again.
+    const panel = await screen.findByTestId("modal-panel");
+    expect(panel).toBeTruthy();
     const repair = await screen.findByTestId("table-repair-button");
-    expect(repair.className).toContain("whitespace-normal");
-    expect(repair.className).toContain("h-auto");
+    expect(panel.contains(repair)).toBe(true);
+    expect(repair.className).not.toContain("whitespace-normal");
+    expect(repair.className).not.toContain("h-auto");
 
-    const alert = screen.getByTestId("table-register-error");
-    expect(alert.className).toContain("minmax(0,1fr)");
-    const description = alert.querySelector('[data-slot="alert-description"]');
-    expect(description?.className).toContain("min-w-0");
+    // And the reason is inside the same dialog, at a readable measure.
+    const reason = screen.getByTestId("table-register-error");
+    expect(panel.contains(reason)).toBe(true);
+  });
+
+  it("closes the refusal without registering anything", async () => {
+    stubRegister(
+      () =>
+        new Response(JSON.stringify(NEEDS_REPAIR), {
+          status: 409,
+          headers: { "Content-Type": "application/problem+json" },
+        }),
+    );
+    await openFormAndRegister();
+    const panel = await screen.findByTestId("modal-panel");
+
+    // The form behind it has its own Cancel, so the dialog's is found inside
+    // the dialog rather than by name across the page.
+    fireEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByTestId("modal-panel")).toBeNull());
+  });
+
+  it("offers only a dismiss for a refusal with no next step", async () => {
+    stubRegister(
+      () =>
+        new Response(JSON.stringify({ detail: "that name is already registered" }), {
+          status: 409,
+          headers: { "Content-Type": "application/problem+json" },
+        }),
+    );
+    await openFormAndRegister();
+
+    await screen.findByTestId("modal-panel");
+    expect(screen.getByTestId("table-register-error").textContent).toContain(
+      "that name is already registered",
+    );
+    expect(screen.queryByTestId("table-repair-button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
   it("offers to correct the file rather than handing the problem back", async () => {

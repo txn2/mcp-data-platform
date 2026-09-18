@@ -14,7 +14,9 @@ import { cn } from "@/lib/utils";
 // Dot is the leading indicator inside a health badge. It restates the badge's
 // variant as a shape, so the state survives a monochrome render.
 function Dot({ className }: { className?: string }) {
-  return <span aria-hidden className={cn("size-1.5 rounded-full", className)} />;
+  return (
+    <span aria-hidden className={cn("size-1.5 rounded-full", className)} />
+  );
 }
 
 // ConnectionOAuthHealthBadge renders the per-row health indicator
@@ -41,7 +43,7 @@ export function ConnectionOAuthHealthBadge({
       : "Reauth required. Click in to view details.";
     return (
       <Badge variant="danger" title={tooltip} aria-label={tooltip}>
-        <Dot className="bg-destructive" />
+        <Dot className="bg-destructive-fill" />
         reauth
       </Badge>
     );
@@ -88,7 +90,7 @@ export function GatewayHealthBadge({
     : "Unreachable.";
   return (
     <Badge variant="danger" title={tooltip} aria-label={tooltip}>
-      <Dot className="bg-destructive" />
+      <Dot className="bg-destructive-fill" />
       unreachable
     </Badge>
   );
