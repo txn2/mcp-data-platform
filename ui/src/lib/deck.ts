@@ -14,6 +14,8 @@
  * head, and frames that with the grant.
  */
 
+import { lightRendition } from "@/lib/printLight";
+
 /** The served runtime's script path, which every deck names (#1767). */
 export const RUNTIME_PATH = "/portal/vendor/reveal/reveal.js";
 
@@ -48,12 +50,22 @@ export const PRINTED_MESSAGE = "mcp-data-platform:printed";
  * `pdf-ready` event the print view dispatches once every slide is a page. The
  * listener prints. A document that never assigns the runtime is not a deck
  * and prints as it is, once it has loaded.
+ *
+ * Whatever the document is, the last thing before the dialog opens is the
+ * light rendition (lib/printLight): paper is white and a browser prints
+ * backgrounds only on request, so a dark document printed as it stands is
+ * light text on white (#1772). The rendition is carried into the frame as its
+ * own text because the frame's origin is opaque and nothing can be called
+ * across it. It runs inside a try: a document this cannot recolour is still a
+ * document the reader asked to print.
  */
 export const PRINT_STEP = `<script>(function(){
+var lightRendition=${lightRendition.toString()};
 var printed=false;
 function print(){
   if(printed)return;
   printed=true;
+  try{lightRendition(document);}catch(e){}
   try{window.print();}catch(e){}
   window.parent.postMessage(${JSON.stringify(PRINTED_MESSAGE)},"*");
 }

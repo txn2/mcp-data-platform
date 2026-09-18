@@ -1,4 +1,17 @@
-import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+import {
+  API_BASE,
+  API_KEY,
+  assetRow,
+  authenticate,
+  pending,
+  removeAsset,
+  removeResource,
+  resourceRow,
+  seedAsset,
+  seedResource,
+} from "./stack";
 
 // Does the capture pipeline actually work?
 //
@@ -10,71 +23,6 @@ import { test, expect, type Page, type APIRequestContext } from "@playwright/tes
 //
 // This drives a live stack. It is slow and it needs `make dev`, which is why it
 // is not in `make verify`; it is the gate that says the feature works.
-
-const API_BASE = process.env["THUMBNAIL_API_URL"] ?? "http://localhost:28080";
-const API_KEY = process.env["THUMBNAIL_API_KEY"] ?? "acme-dev-key-2024";
-
-/**
- * Sign the page in without touching the sign-in form.
- *
- * The auth store reads its key from sessionStorage at init, so seeding it is
- * the same act the form performs and none of the typing. It runs before any
- * document script, so the store is authenticated on first render.
- */
-async function authenticate(page: Page): Promise<void> {
-  await page.addInitScript(
-    ([key]) => window.sessionStorage.setItem("mcp-portal-api-key", key as string),
-    [API_KEY],
-  );
-}
-
-/**
- * File a markdown resource that certainly needs a capture, and return its id.
- *
- * The suite used to assert against whatever the stack happened to hold, so it
- * passed once and then failed on a drained stack -- a test that depends on
- * leftover state is a test that reports the state, not the feature. Creating
- * its own subject makes every run identical.
- */
-async function seedResource(
-  api: APIRequestContext,
-  file: { ext: string; mimeType: string; body: string } = {
-    ext: "md",
-    mimeType: "text/markdown",
-    body: "# probe\n\nProse for the capturer to render.\n",
-  },
-): Promise<string> {
-  const name = `capture-probe-${Date.now()}`;
-  const form = {
-    multipart: {
-      scope: "global",
-      path: "references",
-      display_name: name,
-      description: "Live capture probe: a document that certainly needs a thumbnail.",
-      file: {
-        name: `${name}.${file.ext}`,
-        mimeType: file.mimeType,
-        buffer: Buffer.from(file.body),
-      },
-    },
-    headers: { "X-API-Key": API_KEY },
-  };
-  const res = await api.post(`${API_BASE}/api/v1/resources`, form);
-  expect(res.ok(), `seeding a probe resource: HTTP ${res.status()}`).toBeTruthy();
-  return (await res.json()).id as string;
-}
-
-/** One resource's row, which is where a capture is recorded. */
-async function resourceRow(
-  api: APIRequestContext,
-  id: string,
-): Promise<Record<string, unknown>> {
-  const res = await api.get(`${API_BASE}/api/v1/resources/${id}`, {
-    headers: { "X-API-Key": API_KEY },
-  });
-  expect(res.ok(), `reading resource ${id}: HTTP ${res.status()}`).toBeTruthy();
-  return (await res.json()) as Record<string, unknown>;
-}
 
 /**
  * A document holding the box html2canvas cannot draw: a bar chart whose fills
@@ -100,53 +48,56 @@ const SUB_PIXEL_BARS = `<!doctype html><html><head><meta charset="utf-8"><style>
   <p>Three of the bars above are narrower than one pixel.</p>
 </body></html>`;
 
-/** File a markdown asset that certainly needs a capture, and return its id. */
-async function seedAsset(api: APIRequestContext): Promise<string> {
-  const res = await api.post(`${API_BASE}/api/v1/portal/assets`, {
-    headers: { "X-API-Key": API_KEY },
-    data: {
-      name: `capture-probe-${Date.now()}`,
-      description: "Live capture probe: an asset whose tile is taken in a browser.",
-      content_type: "text/markdown",
-      content: "# Probe\n\nProse for the capturer to render.\n",
+/**
+ * A document that places an SVG which declares a viewBox and no width or
+ * height, the shape a mark exported from a design tool has.
+ *
+ * The browser gives such an image the default object size, and html2canvas
+ * draws a replaced element from a source rectangle of that size out of a
+ * drawing whose own coordinates are the viewBox -- so what reached the tile was
+ * a corner of the mark stretched to fill the box, at every size it was placed
+ * at, and a recapture produced the same corner (#1771). Each quadrant of the
+ * drawing is a different colour, so whether the whole of it is in the tile is
+ * four pixels.
+ */
+const VIEWBOX_ONLY_MARK = `<!doctype html><html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; background: #fff; }
+  img { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+</style></head><body>
+  <img alt="" src="data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 378 338">` +
+      `<rect x="0" y="0" width="189" height="169" fill="#ff0000"/>` +
+      `<rect x="189" y="0" width="189" height="169" fill="#00ff00"/>` +
+      `<rect x="0" y="169" width="189" height="169" fill="#0000ff"/>` +
+      `<rect x="189" y="169" width="189" height="169" fill="#ffff00"/></svg>`,
+  )}">
+</body></html>`;
+
+/**
+ * The colour of the stored tile at each quadrant, read in the browser because
+ * that is where there is a decoder.
+ */
+async function tileQuadrants(page: Page, id: string): Promise<string[]> {
+  return page.evaluate(
+    async ([url, key]) => {
+      const res = await fetch(url as string, { headers: { "X-API-Key": key as string } });
+      const bitmap = await createImageBitmap(await res.blob());
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+      const ctx = canvas.getContext("2d")!;
+      const at = (fx: number, fy: number): string =>
+        [
+          ...ctx.getImageData(Math.round(bitmap.width * fx), Math.round(bitmap.height * fy), 1, 1)
+            .data,
+        ]
+          .slice(0, 3)
+          .join(",");
+      return [at(0.25, 0.25), at(0.75, 0.25), at(0.25, 0.75), at(0.75, 0.75)];
     },
-  });
-  expect(res.ok(), `seeding a probe asset: HTTP ${res.status()}`).toBeTruthy();
-  return (await res.json()).id as string;
-}
-
-/** One asset's row, which is where its capture is recorded. */
-async function assetRow(api: APIRequestContext, id: string): Promise<Record<string, unknown>> {
-  const res = await api.get(`${API_BASE}/api/v1/portal/assets/${id}`, {
-    headers: { "X-API-Key": API_KEY },
-  });
-  expect(res.ok(), `reading asset ${id}: HTTP ${res.status()}`).toBeTruthy();
-  return (await res.json()) as Record<string, unknown>;
-}
-
-/** Remove a probe asset so a run leaves the library as it found it. */
-async function removeAsset(api: APIRequestContext, id: string): Promise<void> {
-  await api.delete(`${API_BASE}/api/v1/portal/assets/${id}`, {
-    headers: { "X-API-Key": API_KEY },
-  });
-}
-
-/** Remove a probe so a run leaves the library as it found it. */
-async function removeResource(api: APIRequestContext, id: string): Promise<void> {
-  await api.delete(`${API_BASE}/api/v1/resources/${id}`, { headers: { "X-API-Key": API_KEY } });
-}
-
-/** What the platform still reports as needing a capture. */
-async function pending(api: APIRequestContext, kind: "resources" | "assets"): Promise<string[]> {
-  const path =
-    kind === "resources"
-      ? `${API_BASE}/api/v1/resources/thumbnails/pending?limit=200`
-      : `${API_BASE}/api/v1/portal/thumbnails/pending?limit=200`;
-  const res = await api.get(path, { headers: { "X-API-Key": API_KEY } });
-  expect(res.ok(), `${kind} pending list: HTTP ${res.status()}`).toBeTruthy();
-  const body = await res.json();
-  const rows = kind === "resources" ? body.resources : body.data;
-  return (rows ?? []).map((r: { id: string }) => r.id);
+    [`${API_BASE}/api/v1/resources/${id}/thumbnail`, API_KEY],
+  );
 }
 
 test.describe("thumbnail capture against a live stack", () => {
@@ -294,6 +245,40 @@ test.describe("thumbnail capture against a live stack", () => {
       // The rest of the document is in it: a 400x300 tile of a rendered page is
       // thousands of bytes, where a blank one is a few hundred.
       expect((await img.body()).length).toBeGreaterThan(2_000);
+    } finally {
+      await removeResource(request, id);
+    }
+  });
+
+  // An SVG placed by reference is the platform's own way of putting a brand
+  // mark in a document, and the tile showed a sliver of one (#1771).
+  test("a document placing an SVG with only a viewBox captures the whole drawing", async ({
+    page,
+    request,
+  }) => {
+    const id = await seedResource(request, {
+      ext: "html",
+      mimeType: "text/html",
+      body: VIEWBOX_ONLY_MARK,
+    });
+
+    try {
+      await authenticate(page);
+      await page.goto("/portal/resources");
+      await page.locator("nav").waitFor({ state: "visible" });
+
+      await expect
+        .poll(async () => !!(await resourceRow(request, id))["thumbnail_s3_key"], {
+          timeout: 150_000,
+          intervals: [2_000],
+          message: "a document placing a viewBox-only SVG was never captured",
+        })
+        .toBe(true);
+
+      // Every quadrant of the mark is in the tile. Before this, all four read
+      // the same colour: the drawing's top-left corner, stretched to fill.
+      const quadrants = await tileQuadrants(page, id);
+      expect(new Set(quadrants).size, `the tile holds ${quadrants.join(" | ")}`).toBe(4);
     } finally {
       await removeResource(request, id);
     }

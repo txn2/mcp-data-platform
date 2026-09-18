@@ -1,4 +1,5 @@
 import html2canvas from "html2canvas";
+import { flattenImages } from "@/lib/thumbnailImages";
 
 /**
  * Rasterizing a document that holds something html2canvas cannot draw.
@@ -46,12 +47,15 @@ export interface RasterOutcome {
  * Draw an element, leaving out what cannot be rasterized rather than
  * abandoning the capture.
  *
- * Two passes, in the order of how much they cost the picture. The first drops
- * the background of every box whose painted area is under a pixel -- which is
- * invisible at any scale, so the tile is unchanged -- and draws. Only if that
- * still throws does the second drop every background image in the document and
- * draw again: a flatter picture of the document, which is the thing the reader
- * wanted, instead of no picture at all.
+ * Every image is redrawn first (lib/thumbnailImages), which costs the picture
+ * nothing and is what makes an SVG placed by reference appear whole (#1771).
+ *
+ * Then two passes, in the order of how much they cost the picture. The first
+ * drops the background of every box whose painted area is under a pixel --
+ * which is invisible at any scale, so the tile is unchanged -- and draws. Only
+ * if that still throws does the second drop every background image in the
+ * document and draw again: a flatter picture of the document, which is the
+ * thing the reader wanted, instead of no picture at all.
  *
  * The tree is mutated in place and not restored. Every caller hands this an
  * off-screen container or a capture-only iframe document that is torn down
@@ -61,6 +65,7 @@ export async function rasterize(
   element: HTMLElement,
   options: RasterOptions,
 ): Promise<RasterOutcome> {
+  await flattenImages(element);
   const neutralized = dropUndrawableBackgrounds(element);
   try {
     return { canvas: await html2canvas(element, options), neutralized, degraded: false };

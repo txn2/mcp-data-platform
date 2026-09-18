@@ -16,11 +16,19 @@ export const mockContent: Record<string, string> = {
 <title>Q3 regional review</title>
 <link rel="stylesheet" href="/portal/vendor/reveal/reset.css">
 <link rel="stylesheet" href="/portal/vendor/reveal/reveal.css">
-<link rel="stylesheet" href="/portal/vendor/reveal/theme/white.css">
+<link rel="stylesheet" href="/portal/vendor/reveal/theme/black.css">
 <style>
-  .reveal h1, .reveal h2 { text-transform: none; }
+  /* A deck is written for a room with the lights off, which is what the
+     fixture is: the served dark theme with a palette of its own, the shape
+     Export PDF has to render light before it prints (#1772). */
+  :root { --bg: #020617; --ink: #f4f4f5; --muted: #a1a1aa; --teal: #2dd3cb; --panel: #0f172a;
+          --r-background-color: #020617; --r-main-color: #f4f4f5; --r-heading-color: #f4f4f5; }
+  html, body, .reveal-viewport { background: var(--bg); }
+  .reveal h1, .reveal h2 { text-transform: none; color: var(--ink); }
+  .reveal p, .reveal li { color: var(--ink); }
   .reveal img { max-width: 100%; height: auto; }
-  .reveal .muted { color: #64748b; font-size: 0.7em; }
+  .reveal .muted { color: var(--muted); font-size: 0.7em; }
+  .reveal .panel { background: var(--panel); border-radius: .4em; padding: .5em .8em; font-size: .7em; }
 </style>
 </head>
 <body>
@@ -29,6 +37,7 @@ export const mockContent: Record<string, string> = {
     <section>
       <h1>Q3 regional review</h1>
       <p class="muted">Revenue, stores and the one decision for Q4</p>
+      <div class="panel">Prepared from the warehouse, Q3 2026.</div>
     </section>
     <section>
       <h2>One idea per slide</h2>
