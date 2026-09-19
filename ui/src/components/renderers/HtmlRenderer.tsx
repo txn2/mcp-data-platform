@@ -167,7 +167,9 @@ export function HtmlRenderer({ content, controlsSlot }: Props) {
             title="Print"
             aria-hidden="true"
             tabIndex={-1}
-            style={{ position: "fixed", left: 0, top: 0, width: 1280, height: 720, opacity: 0, pointerEvents: "none", zIndex: -1 }}
+            // Paper is light whatever the reader's theme, so the copy starts
+            // from the document's own light styles.
+            style={{ position: "fixed", left: 0, top: 0, width: 1280, height: 720, opacity: 0, pointerEvents: "none", zIndex: -1, colorScheme: "light" }}
           />,
           document.body,
         )}

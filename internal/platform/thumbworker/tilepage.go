@@ -14,18 +14,18 @@ import (
 )
 
 const (
-	// A tile is 400x300. The families the portal lays out on its own surface
-	// are drawn at that size directly.
+	// A tile is laid out at 400x300 CSS pixels, the size a card shows it at,
+	// and stored at tileScale times that: an 800x600 image, so a card on a
+	// high-density display is not stretching a picture half its size (#1789).
 	tileWidth  = 400
 	tileHeight = 300
+	tileScale  = 2.0
 	// A document that lays itself out at page size -- HTML, JSX -- is drawn at
-	// 1280x960 and scaled into the tile, which is how it looks in the viewer's
-	// frame.
+	// 1280x960, which is how it looks in the viewer's frame, and reduced to the
+	// same stored size.
 	pageWidth  = 1280
 	pageHeight = 960
-	pageScale  = float64(tileWidth) / pageWidth
-	// tileScale draws a family laid out at tile size one to one.
-	tileScale = 1.0
+	pageScale  = tileScale * tileWidth / pageWidth
 
 	// contentPath is where the tile page loads a binary document's own bytes.
 	contentPath = "/content"

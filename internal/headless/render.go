@@ -102,7 +102,11 @@ type Page struct {
 	Ready string
 	// Width and Height are the page's viewport in CSS pixels.
 	Width, Height int
-	// Scale is applied to the screenshot: 1280x960 at 0.3125 is a 400x300 PNG.
+	// Scale is image pixels per CSS pixel: 400x300 at 2 is an 800x600 PNG,
+	// 1280x960 at 0.625 is one too. Above 1 the page is painted at that pixel
+	// density; below 1 it is painted at full size and reduced with a
+	// resampling filter, because a browser painting a page at a fraction of
+	// its size draws text a few pixels tall and illegible (#1789). Zero is 1.
 	Scale float64
 	// Dark emulates a reader who prefers a dark color scheme.
 	Dark bool
@@ -227,11 +231,14 @@ func (rs *render) openPage(ctx context.Context, browserContext string) (string, 
 		{"Page.enable", nil},
 		rs.scrubStep(scrubOnNewDocument),
 		{"Emulation.setDeviceMetricsOverride", map[string]any{
-			"width": rs.page.Width, "height": rs.page.Height, "deviceScaleFactor": 1, "mobile": false,
+			"width": rs.page.Width, "height": rs.page.Height, "deviceScaleFactor": paintDensity(rs.page.Scale), "mobile": false,
 		}},
 		{"Emulation.setEmulatedMedia", map[string]any{
 			"features": []map[string]string{{"name": "prefers-color-scheme", "value": scheme}},
 		}},
+		// A document taller than the viewport would otherwise put a scrollbar
+		// in the picture, the frame's and the page's alike.
+		{"Emulation.setScrollbarsHidden", map[string]any{"hidden": true}},
 		pauseChildren,
 	}
 	for _, s := range steps {
@@ -291,7 +298,8 @@ func (rs *render) awaitReady(ctx context.Context, session string) error {
 	return nil
 }
 
-// screenshot captures the viewport at the page's scale.
+// screenshot captures the viewport as it was painted, and reduces it to the
+// page's scale when that is below the density it was painted at.
 func (rs *render) screenshot(ctx context.Context, session string) ([]byte, error) {
 	var shot struct {
 		Data string `json:"data"`
@@ -299,7 +307,7 @@ func (rs *render) screenshot(ctx context.Context, session string) ([]byte, error
 	if err := rs.c.call(ctx, session, "Page.captureScreenshot", map[string]any{
 		"format": "png",
 		"clip": map[string]any{
-			"x": 0, "y": 0, "width": rs.page.Width, "height": rs.page.Height, "scale": rs.page.Scale,
+			"x": 0, "y": 0, "width": rs.page.Width, "height": rs.page.Height, "scale": 1,
 		},
 	}, &shot); err != nil {
 		return nil, err
@@ -311,7 +319,10 @@ func (rs *render) screenshot(ctx context.Context, session string) ([]byte, error
 	if len(png) == 0 {
 		return nil, errors.New("headless: the renderer returned an empty screenshot")
 	}
-	return png, nil
+	if rs.page.Scale <= 0 || rs.page.Scale >= 1 {
+		return png, nil
+	}
+	return reduce(png, rs.page.Width, rs.page.Height, rs.page.Scale)
 }
 
 // dispose tears down the render's browser context, closing every page, frame

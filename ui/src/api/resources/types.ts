@@ -35,6 +35,10 @@ export interface Resource {
   // row carries no version, so this is the comparison.
   thumbnail_captured_at?: string;
   thumbnail_dark_captured_at?: string;
+  // The renderer generation that drew the tiles. It goes in the tile's URL: a
+  // redraw by a new generation keeps the capture time, and without it a
+  // browser shows the old picture for the hour it is cached (#1789).
+  thumbnail_renderer?: number;
   // Why the renderer could not draw this file's tile, and the updated_at of the
   // file it tried. The failure stands until the file changes or the tile is
   // cleared (#1787).

@@ -929,6 +929,43 @@ func TestGetCollectionThumbnail(t *testing.T) {
 		assert.Equal(t, "PNG", w.Body.String())
 	})
 
+	// The dark mosaic is stored beside the light one (#1789). A collection
+	// composed before it had one is served its light mosaic in both modes.
+	t.Run("dark_variant", func(t *testing.T) {
+		light, dark := "portal/collections/coll-1/thumbnail.png", "portal/collections/coll-1/thumbnail_dark.png"
+		for _, tc := range []struct {
+			name    string
+			objects map[string][]byte
+			query   string
+			want    string
+		}{
+			{"dark mosaic stored", map[string][]byte{light: []byte("LIGHT"), dark: []byte("DARK")}, "?variant=dark", "DARK"},
+			{"no dark mosaic yet", map[string][]byte{light: []byte("LIGHT")}, "?variant=dark", "LIGHT"},
+			{"light asked", map[string][]byte{light: []byte("LIGHT"), dark: []byte("DARK")}, "?variant=light", "LIGHT"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				coll := baseCollection()
+				coll.ThumbnailS3Key = light
+				cs := &collHandlerMockCollStore{getColl: coll}
+				h := newTestHandlerWithCollections(&mockAssetStore{}, &mockCollectionShareStore{}, cs, &mockS3Client{objects: tc.objects}, testUser)
+				r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/collections/coll-1/thumbnail"+tc.query, http.NoBody)
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, r)
+				assert.Equal(t, http.StatusOK, w.Code)
+				assert.Equal(t, tc.want, w.Body.String())
+			})
+		}
+	})
+
+	t.Run("bad_variant", func(t *testing.T) {
+		cs := &collHandlerMockCollStore{getColl: baseCollection()}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, &mockCollectionShareStore{}, cs, &mockS3Client{}, testUser)
+		r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/collections/coll-1/thumbnail?variant=sepia", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
 	t.Run("no_thumbnail", func(t *testing.T) {
 		coll := baseCollection()
 		coll.ThumbnailS3Key = "" // no thumbnail

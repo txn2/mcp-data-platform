@@ -99,7 +99,9 @@ const collectionMosaicTiles = 4
 //
 // A collection's source names the member tiles its mosaic is drawn from: the
 // first collectionMosaicTiles members, in section and item order, that have a
-// tile, each with the version and renderer generation of that tile. A mosaic
+// tile, each with the versions of its light and dark tiles and the renderer
+// generation that drew them. The dark version is there because the collection
+// has a dark mosaic composed from the members' dark tiles (#1789). A mosaic
 // is owed when its recorded source differs -- a member was added or removed,
 // or a member's tile was redrawn -- including when no member has a tile any
 // more and a mosaic is still held, which is cleared.
@@ -108,7 +110,7 @@ const collectionMosaicTiles = 4
 func buildCollectionThumbnailClaim() string {
 	return `
 		WITH member_tiles AS (
-			SELECT s.collection_id, pa.id AS asset_id, pa.thumbnail_version, pa.thumbnail_renderer,
+			SELECT s.collection_id, pa.id AS asset_id, pa.thumbnail_version, pa.thumbnail_dark_version, pa.thumbnail_renderer,
 			       row_number() OVER (PARTITION BY s.collection_id ORDER BY s.position, ci.position) AS n
 			FROM portal_collection_sections s
 			JOIN portal_collection_items ci ON ci.section_id = s.id
@@ -116,7 +118,7 @@ func buildCollectionThumbnailClaim() string {
 		),
 		sources AS (
 			SELECT collection_id,
-			       string_agg(asset_id || ':' || thumbnail_version || ':' || thumbnail_renderer, ',' ORDER BY n) AS source
+			       string_agg(asset_id || ':' || thumbnail_version || ':' || thumbnail_dark_version || ':' || thumbnail_renderer, ',' ORDER BY n) AS source
 			FROM member_tiles WHERE n <= ` + fmt.Sprint(collectionMosaicTiles) + `
 			GROUP BY collection_id
 		),
@@ -173,7 +175,8 @@ const recordCollectionThumbnailQuery = `UPDATE portal_collections
 	WHERE id = $3 AND deleted_at IS NULL`
 
 // RecordCollectionThumbnail records the mosaic stored at key, composed from
-// source; an empty key clears the collection's tile.
+// source; an empty key clears the collection's tile. The dark mosaic is stored
+// beside key and is not recorded (portaldomain.CollectionThumbnailKey).
 func (s *postgresCollectionStore) RecordCollectionThumbnail(ctx context.Context, id, key, source string) error {
 	res, err := s.db.ExecContext(ctx, recordCollectionThumbnailQuery, key, source, id)
 	if err != nil {

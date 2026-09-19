@@ -12688,7 +12688,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Downloads the collection's PNG thumbnail image.",
+                "description": "Downloads the collection's PNG thumbnail image. The dark variant is the mosaic of the members' dark tiles, and is the light mosaic for a collection composed before it had one.",
                 "produces": [
                     "image/png"
                 ],
@@ -12703,6 +12703,16 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Thumbnail variant",
+                        "name": "variant",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -26940,6 +26950,10 @@ const docTemplate = `{
                     "description": "ThumbnailFailure is why the renderer could not draw this file's tile,\nand ThumbnailFailedAt the UpdatedAt of the file it tried. The failure\nholds until the file changes or the tile is asked for again, so a file\nthe renderer cannot draw is not retried forever and the reason is\nvisible.",
                     "type": "string"
                 },
+                "thumbnail_renderer": {
+                    "description": "ThumbnailRenderer is the generation of the renderer that drew the tile.\nA tile from an older generation still serves and is drawn again (#1787).\nA reader puts it in the tile's URL: a redraw by a new generation keeps\nthe capture time, and without it a browser would show the old picture\nfor the hour it is cached for (#1789).",
+                    "type": "integer"
+                },
                 "thumbnail_s3_key": {
                     "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
                     "type": "string"
@@ -28063,6 +28077,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "the document did not finish drawing before the deadline"
                 },
+                "thumbnail_renderer": {
+                    "description": "ThumbnailRenderer is the generation of the renderer that drew the tile.\nA tile from an older generation still serves and is drawn again (#1787).\nA reader puts it in the tile's URL beside the version: a redraw by a new\ngeneration keeps the version, and without it a browser would show the\nold picture for the hour it is cached for (#1789).",
+                    "type": "integer",
+                    "example": 2
+                },
                 "thumbnail_s3_key": {
                     "type": "string",
                     "example": "assets/01HK7R8Z/thumb.png"
@@ -28544,6 +28563,11 @@ const docTemplate = `{
                     "description": "ThumbnailFailure is why the renderer could not draw this asset's tile,\nand ThumbnailFailedVersion the version it tried. The failure holds until\nthe content changes or the tile is asked for again, so a document the\nrenderer cannot draw is not retried forever and the reason is visible.",
                     "type": "string",
                     "example": "the document did not finish drawing before the deadline"
+                },
+                "thumbnail_renderer": {
+                    "description": "ThumbnailRenderer is the generation of the renderer that drew the tile.\nA tile from an older generation still serves and is drawn again (#1787).\nA reader puts it in the tile's URL beside the version: a redraw by a new\ngeneration keeps the version, and without it a browser would show the\nold picture for the hour it is cached for (#1789).",
+                    "type": "integer",
+                    "example": 2
                 },
                 "thumbnail_s3_key": {
                     "type": "string",
@@ -29491,6 +29515,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "asset_thumbnail_dark_version": {
+                    "type": "integer"
+                },
+                "asset_thumbnail_renderer": {
+                    "description": "AssetThumbnailRenderer is the generation that drew the asset's tiles,\nwhich goes in the URL with the versions for the same reason (#1789).",
                     "type": "integer"
                 },
                 "asset_thumbnail_s3_key": {
@@ -30475,6 +30503,10 @@ const docTemplate = `{
                 "thumbnail_failure": {
                     "description": "ThumbnailFailure is why the renderer could not draw this file's tile,\nand ThumbnailFailedAt the UpdatedAt of the file it tried. The failure\nholds until the file changes or the tile is asked for again, so a file\nthe renderer cannot draw is not retried forever and the reason is\nvisible.",
                     "type": "string"
+                },
+                "thumbnail_renderer": {
+                    "description": "ThumbnailRenderer is the generation of the renderer that drew the tile.\nA tile from an older generation still serves and is drawn again (#1787).\nA reader puts it in the tile's URL: a redraw by a new generation keeps\nthe capture time, and without it a browser would show the old picture\nfor the hour it is cached for (#1789).",
+                    "type": "integer"
                 },
                 "thumbnail_s3_key": {
                     "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",

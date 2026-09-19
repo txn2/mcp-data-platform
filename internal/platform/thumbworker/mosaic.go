@@ -43,6 +43,6 @@ func mosaicPage(tiles [][]byte) headless.Page {
 		Ready:  mosaicReady,
 		Width:  tileWidth,
 		Height: tileHeight,
-		Scale:  1,
+		Scale:  tileScale,
 	}
 }

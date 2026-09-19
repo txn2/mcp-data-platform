@@ -15,14 +15,18 @@ export interface Asset {
   s3_bucket: string;
   s3_key: string;
   thumbnail_s3_key?: string;
-  // Dark-mode thumbnail variant. Only present for themeable content types
-  // (markdown, CSV); other types reuse thumbnail_s3_key in both modes.
+  // Dark-mode thumbnail variant. Absent for SVG and raster images, which reuse
+  // thumbnail_s3_key in both modes.
   thumbnail_dark_s3_key?: string;
   // The asset version each thumbnail was drawn from; below current_version
   // means the image is of an older body. It still serves until the platform's
   // renderer draws the new one (#1431, #1787). Zero means never drawn.
   thumbnail_version: number;
   thumbnail_dark_version: number;
+  // The renderer generation that drew the tiles. It goes in the tile's URL: a
+  // redraw by a new generation keeps the version, and without it a browser
+  // shows the old picture for the hour it is cached (#1789).
+  thumbnail_renderer?: number;
   // Why the renderer could not draw this asset's tile, and the version it
   // tried. The failure stands until the document changes or the tile is
   // cleared (#1787).
@@ -199,6 +203,8 @@ export interface CollectionItem {
   /** The asset versions each capture was taken from; the tile URL carries them. */
   asset_thumbnail_version?: number;
   asset_thumbnail_dark_version?: number;
+  /** The renderer generation that drew the asset's tiles; the tile URL carries it too. */
+  asset_thumbnail_renderer?: number;
   asset_description?: string;
   created_at: string;
 }

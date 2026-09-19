@@ -27,7 +27,9 @@ import (
 // Renderer is the generation of the renderer this worker draws as. A tile
 // drawn by an older generation still serves and is drawn again; raising this
 // redraws every tile in the library.
-const Renderer = 1
+//
+// 2 draws at twice the density and gives HTML and JSX a dark tile (#1789).
+const Renderer = 2
 
 const (
 	defaultPoll          = 5 * time.Second

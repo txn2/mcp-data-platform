@@ -139,20 +139,25 @@ func TestThumbnailClaim_RealDB_DarkVariant(t *testing.T) {
 	seedPendingAsset(t, db, store, "asset_csv_dark_behind", "text/csv", 100, 3, thumbState{
 		light: "k/x/.thumbnail.png", dark: "k/x/.thumbnail_dark.png", lightVersion: 3, darkVersion: 2,
 	})
-	// HTML carries its own colors: one capture serves both modes, so an empty
-	// dark key is not a gap and must not put the asset on the list forever.
-	seedPendingAsset(t, db, store, "asset_html_no_dark", "text/html", 100, 2, thumbState{
+	// HTML is drawn in each scheme it styles itself for (#1789), so a light
+	// tile alone leaves it owed the dark one.
+	seedPendingAsset(t, db, store, "asset_html_dark_missing", "text/html", 100, 2, thumbState{
+		light: "k/x/.thumbnail.png", lightVersion: 2,
+	})
+	// A raster image is drawn as stored: one capture serves both modes, so an
+	// empty dark key is not a gap and must not put the asset on the list forever.
+	seedPendingAsset(t, db, store, "asset_png_no_dark", "image/png", 100, 2, thumbState{
 		light: "k/x/.thumbnail.png", lightVersion: 2,
 	})
 	// An SVG's type contains "xml", which IS themeable; it is still an SVG and
-	// carries its own colors. Reading it as XML owed it a dark tile nothing ever
+	// is drawn as stored. Reading it as XML owed it a dark tile nothing ever
 	// draws, which under a server renderer is a document redrawn forever.
 	seedPendingAsset(t, db, store, "asset_svg_no_dark", "image/svg+xml", 100, 2, thumbState{
 		light: "k/x/.thumbnail.png", lightVersion: 2,
 	})
 
 	assert.ElementsMatch(t,
-		[]string{"asset_csv_dark_missing", "asset_csv_dark_behind"},
+		[]string{"asset_csv_dark_missing", "asset_csv_dark_behind", "asset_html_dark_missing"},
 		pendingIDs(t, store))
 }
 
@@ -299,9 +304,11 @@ func TestThumbnailClaim_RealDB_RecordingAResultEndsTheLease(t *testing.T) {
 	require.Len(t, claimed, 1)
 	before := claimed[0].UpdatedAt
 
-	key, version, renderer := "k/asset_drawn/.thumbnail.png", 1, testRenderer
+	// HTML is drawn in both schemes (#1789), so a drawn tile is both variants.
+	key, darkKey, version, renderer := "k/asset_drawn/.thumbnail.png", "k/asset_drawn/.thumbnail_dark.png", 1, testRenderer
 	require.NoError(t, store.Update(ctx, "asset_drawn", portaldomain.AssetUpdate{
 		ThumbnailS3Key: &key, ThumbnailVersion: &version, ThumbnailRenderer: &renderer,
+		ThumbnailDarkS3Key: &darkKey, ThumbnailDarkVersion: &version,
 		ReleaseThumbnailClaim: true,
 	}))
 
@@ -370,7 +377,7 @@ func TestCollectionThumbnailClaim_RealDB_AMosaicFollowsItsMembers(t *testing.T) 
 	}
 
 	got := claim()
-	assert.Equal(t, map[string]string{"c_mosaic": "a_one:1:1,a_two:2:1"}, got,
+	assert.Equal(t, map[string]string{"c_mosaic": "a_one:1:1:1,a_two:2:2:1"}, got,
 		"a member with no tile is skipped, and a collection with nothing to draw and no mosaic is not owed")
 
 	before := updatedAt()
@@ -380,7 +387,14 @@ func TestCollectionThumbnailClaim_RealDB_AMosaicFollowsItsMembers(t *testing.T) 
 
 	_, err := db.ExecContext(ctx, `UPDATE portal_assets SET current_version = 3, thumbnail_version = 3 WHERE id = 'a_two'`)
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"c_mosaic": "a_one:1:1,a_two:3:1"}, claim(), "a redrawn member makes the mosaic owed again")
+	assert.Equal(t, map[string]string{"c_mosaic": "a_one:1:1:1,a_two:3:2:1"}, claim(), "a redrawn member makes the mosaic owed again")
+
+	// The collection has a dark mosaic composed from its members' dark tiles,
+	// so a member's new dark tile alone makes it owed too (#1789).
+	require.NoError(t, colls.RecordCollectionThumbnail(ctx, "c_mosaic", "portal/collections/c_mosaic/thumbnail.png", "a_one:1:1:1,a_two:3:2:1"))
+	_, err = db.ExecContext(ctx, `UPDATE portal_assets SET thumbnail_dark_version = 3 WHERE id = 'a_two'`)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"c_mosaic": "a_one:1:1:1,a_two:3:3:1"}, claim(), "a member's redrawn dark tile makes the mosaic owed again")
 
 	require.NoError(t, colls.SetSections(ctx, "c_mosaic", nil))
 	assert.Equal(t, map[string]string{"c_mosaic": ""}, claim(), "a mosaic whose members are gone is owed, with nothing to draw, so it is cleared")

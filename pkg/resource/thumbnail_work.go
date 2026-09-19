@@ -29,8 +29,8 @@ var _ ThumbnailWork = (*postgresStore)(nil)
 // another replica, not failed on the file as it stands, and carrying a tile
 // that is missing, older than the file, or drawn by a renderer generation
 // older than renderer. The dark variant is asked only of the types that carry
-// one: a file that brings its own colors stores a single image and serves it
-// in both modes, and a type is judged by the first family it matches, so
+// one: an SVG or a raster image stores a single image and serves it in both
+// modes, and a type is judged by the first family it matches, so
 // image/svg+xml is an SVG and not the XML its name also contains. Scope is not
 // part of it -- the renderer is the platform, drawing every library's files,
 // not a person reading one.

@@ -69,14 +69,14 @@ describe("injectCaptureScript", () => {
 });
 
 describe("isThemeable", () => {
-  it("is true for content rendered on a forced background", () => {
-    expect(isThemeable("text/markdown")).toBe(true);
-    expect(isThemeable("text/csv")).toBe(true);
-    expect(isThemeable("TEXT/MARKDOWN")).toBe(true);
+  it("is true for content drawn once per color scheme", () => {
+    for (const ct of ["text/markdown", "text/csv", "TEXT/MARKDOWN", "text/html", "text/jsx"]) {
+      expect(isThemeable(ct)).toBe(true);
+    }
   });
 
-  it("is false for self-themed content types", () => {
-    for (const ct of ["text/html", "text/jsx", "image/svg+xml", "image/png"]) {
+  it("is false for content drawn as stored", () => {
+    for (const ct of ["image/svg+xml", "image/png"]) {
       expect(isThemeable(ct)).toBe(false);
     }
   });

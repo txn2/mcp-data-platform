@@ -3657,6 +3657,14 @@ definitions:
           the renderer cannot draw is not retried forever and the reason is
           visible.
         type: string
+      thumbnail_renderer:
+        description: |-
+          ThumbnailRenderer is the generation of the renderer that drew the tile.
+          A tile from an older generation still serves and is drawn again (#1787).
+          A reader puts it in the tile's URL: a redraw by a new generation keeps
+          the capture time, and without it a browser would show the old picture
+          for the hour it is cached for (#1789).
+        type: integer
       thumbnail_s3_key:
         description: |-
           ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside
@@ -4509,6 +4517,15 @@ definitions:
           renderer cannot draw is not retried forever and the reason is visible.
         example: the document did not finish drawing before the deadline
         type: string
+      thumbnail_renderer:
+        description: |-
+          ThumbnailRenderer is the generation of the renderer that drew the tile.
+          A tile from an older generation still serves and is drawn again (#1787).
+          A reader puts it in the tile's URL beside the version: a redraw by a new
+          generation keeps the version, and without it a browser would show the
+          old picture for the hour it is cached for (#1789).
+        example: 2
+        type: integer
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
         type: string
@@ -4881,6 +4898,15 @@ definitions:
           renderer cannot draw is not retried forever and the reason is visible.
         example: the document did not finish drawing before the deadline
         type: string
+      thumbnail_renderer:
+        description: |-
+          ThumbnailRenderer is the generation of the renderer that drew the tile.
+          A tile from an older generation still serves and is drawn again (#1787).
+          A reader puts it in the tile's URL beside the version: a redraw by a new
+          generation keeps the version, and without it a browser would show the
+          old picture for the hour it is cached for (#1789).
+        example: 2
+        type: integer
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
         type: string
@@ -5599,6 +5625,11 @@ definitions:
           fetched rather than served from the hour the previous one is cached for.
         type: string
       asset_thumbnail_dark_version:
+        type: integer
+      asset_thumbnail_renderer:
+        description: |-
+          AssetThumbnailRenderer is the generation that drew the asset's tiles,
+          which goes in the URL with the versions for the same reason (#1789).
         type: integer
       asset_thumbnail_s3_key:
         type: string
@@ -6431,6 +6462,14 @@ definitions:
           the renderer cannot draw is not retried forever and the reason is
           visible.
         type: string
+      thumbnail_renderer:
+        description: |-
+          ThumbnailRenderer is the generation of the renderer that drew the tile.
+          A tile from an older generation still serves and is drawn again (#1787).
+          A reader puts it in the tile's URL: a redraw by a new generation keeps
+          the capture time, and without it a browser would show the old picture
+          for the hour it is cached for (#1789).
+        type: integer
       thumbnail_s3_key:
         description: |-
           ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside
@@ -17148,12 +17187,21 @@ paths:
       - Feedback
   /portal/collections/{id}/thumbnail:
     get:
-      description: Downloads the collection's PNG thumbnail image.
+      description: Downloads the collection's PNG thumbnail image. The dark variant
+        is the mosaic of the members' dark tiles, and is the light mosaic for a collection
+        composed before it had one.
       parameters:
       - description: Collection ID
         in: path
         name: id
         required: true
+        type: string
+      - description: Thumbnail variant
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
         type: string
       produces:
       - image/png

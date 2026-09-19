@@ -5,6 +5,7 @@ import {
   captureFamily,
   CAPTURE_BY_RENDERER_KIND,
   collectionItemThumbnailSrc,
+  collectionMosaicSrc,
   isThemeable,
   isThumbnailSupported,
   resourceThumbnailBehind,
@@ -21,9 +22,9 @@ function state(over: Partial<Parameters<typeof thumbnailBehind>[0]> = {}) {
     content_type: "text/html",
     current_version: 3,
     thumbnail_s3_key: "k/a/.thumbnail.png",
-    thumbnail_dark_s3_key: "",
+    thumbnail_dark_s3_key: "k/a/.thumbnail_dark.png",
     thumbnail_version: 3,
-    thumbnail_dark_version: 0,
+    thumbnail_dark_version: 3,
     ...over,
   };
 }
@@ -70,10 +71,16 @@ describe("thumbnailBehind", () => {
     ).toBe(true);
   });
 
-  // A type carrying its own colors stores one image and serves it in both
-  // modes, so its empty dark key is not a gap.
-  it("ignores the dark variant for a type that carries its own colors", () => {
-    expect(thumbnailBehind(state({ content_type: "text/html" }))).toBe(false);
+  it("is true for an HTML asset with no dark tile, which it is now drawn with (#1789)", () => {
+    expect(thumbnailBehind(state({ thumbnail_dark_s3_key: "", thumbnail_dark_version: 0 }))).toBe(true);
+  });
+
+  // A type drawn as stored keeps one image and serves it in both modes, so
+  // its empty dark key is not a gap.
+  it("ignores the dark variant for a type drawn as stored", () => {
+    expect(
+      thumbnailBehind(state({ content_type: "image/svg+xml", thumbnail_dark_s3_key: "", thumbnail_dark_version: 0 })),
+    ).toBe(false);
   });
 });
 
@@ -115,16 +122,21 @@ describe("thumbnail support", () => {
     expect(isThumbnailSupported("image/vnd.adobe.photoshop")).toBe(false);
   });
 
-  it("marks only the forced-background types as themeable", () => {
+  it("marks every family drawn per color scheme as themeable", () => {
     expect(isThemeable("text/markdown; charset=utf-8")).toBe(true);
     expect(isThemeable("text/csv")).toBe(true);
     // Both JSON families are drawn on the platform's own background.
     expect(isThemeable("application/json")).toBe(true);
     expect(isThemeable("application/x-ndjson")).toBe(true);
     expect(isThemeable("text/plain")).toBe(true);
-    expect(isThemeable("text/html")).toBe(false);
-    // A raster image carries its own colors; capturing it twice would store
-    // the same downscale under both keys.
+    // A document answers the scheme the renderer emulates, as it does in the
+    // viewer's frame (#1789).
+    expect(isThemeable("text/html; charset=utf-8")).toBe(true);
+    expect(isThemeable("text/jsx")).toBe(true);
+    // An SVG is drawn as stored, and is not the XML its name also contains.
+    expect(isThemeable("image/svg+xml")).toBe(false);
+    // A raster image is drawn as stored; capturing it twice would store the
+    // same downscale under both keys.
     expect(isThemeable("image/png")).toBe(false);
   });
 });
@@ -246,7 +258,10 @@ describe("resourceThumbnailBehind", () => {
     updated_at: "2026-08-02T00:00:00Z",
     thumbnail_s3_key: "user/u1/f/.thumbnail.png",
     thumbnail_captured_at: "2026-08-02T00:00:00Z",
+    thumbnail_dark_s3_key: "user/u1/f/.thumbnail_dark.png",
+    thumbnail_dark_captured_at: "2026-08-02T00:00:00Z",
   };
+  const lightOnly = { ...resource, thumbnail_dark_s3_key: undefined, thumbnail_dark_captured_at: undefined };
 
   it("is false for a capture taken at the file's own last write", () => {
     expect(resourceThumbnailBehind(resource)).toBe(false);
@@ -269,11 +284,12 @@ describe("resourceThumbnailBehind", () => {
   });
 
   it("is true for a themeable resource whose dark variant is missing", () => {
-    expect(resourceThumbnailBehind({ ...resource, mime_type: "text/markdown" })).toBe(true);
+    expect(resourceThumbnailBehind({ ...lightOnly, mime_type: "text/markdown" })).toBe(true);
+    expect(resourceThumbnailBehind(lightOnly)).toBe(true);
   });
 
-  it("ignores the dark variant for a type that carries its own colors", () => {
-    expect(resourceThumbnailBehind(resource)).toBe(false);
+  it("ignores the dark variant for a type drawn as stored", () => {
+    expect(resourceThumbnailBehind({ ...lightOnly, mime_type: "image/png" })).toBe(false);
   });
 });
 
@@ -327,7 +343,7 @@ describe("resourceThumbnailSrc", () => {
 // cacheable for an hour, so a refreshed capture that reused the URL would not
 // reach a browser holding the old image until the hour was up (#1431).
 describe("assetThumbnailSrc", () => {
-  const asset = { id: "ast-1", ...state({ thumbnail_version: 6 }) };
+  const asset = { id: "ast-1", ...state({ thumbnail_version: 6, thumbnail_dark_s3_key: "", thumbnail_dark_version: 0 }) };
 
   it("carries the version of the capture it points at", () => {
     expect(assetThumbnailSrc(asset)).toBe("/api/v1/portal/assets/ast-1/thumbnail?c=6");
@@ -347,6 +363,14 @@ describe("assetThumbnailSrc", () => {
 
   it("falls back to the light capture when the asset has no dark variant", () => {
     expect(assetThumbnailSrc(asset, true)).toBe("/api/v1/portal/assets/ast-1/thumbnail?c=6");
+  });
+
+  // A redraw by a new renderer generation keeps the version, so the URL carries
+  // the generation too, or a browser shows the old picture for the hour it is
+  // cached (#1789).
+  it("carries the renderer generation, so a redraw is a new URL", () => {
+    expect(assetThumbnailSrc({ ...asset, thumbnail_renderer: 1 })).toBe("/api/v1/portal/assets/ast-1/thumbnail?c=6&r=1");
+    expect(assetThumbnailSrc({ ...asset, thumbnail_renderer: 2 })).toBe("/api/v1/portal/assets/ast-1/thumbnail?c=6&r=2");
   });
 
   it("is undefined when no capture has been recorded, which is what shows the icon", () => {
@@ -404,5 +428,47 @@ describe("collectionItemThumbnailSrc", () => {
     expect(
       collectionItemThumbnailSrc({ asset_id: "ast-1", asset_thumbnail_s3_key: "k.png" }, PORTAL),
     ).toBe(`${PORTAL}/ast-1/thumbnail?c=0`);
+  });
+});
+
+describe("renderer generation in the other tile URLs (#1789)", () => {
+  it("is on a resource's tile URL", () => {
+    expect(
+      resourceThumbnailSrc({
+        id: "res-1",
+        mime_type: "text/markdown",
+        updated_at: "2026-08-02T00:00:00Z",
+        thumbnail_s3_key: "k/.thumbnail.png",
+        thumbnail_captured_at: "2026-08-02T00:00:00Z",
+        thumbnail_renderer: 2,
+      }),
+    ).toBe("/api/v1/resources/res-1/thumbnail?c=2026-08-02T00%3A00%3A00Z&r=2");
+  });
+
+  it("is on a collection item's tile URL", () => {
+    expect(
+      collectionItemThumbnailSrc(
+        { asset_id: "ast-1", asset_thumbnail_s3_key: "k", asset_thumbnail_version: 6, asset_thumbnail_renderer: 2 },
+        "/api/v1/portal/assets",
+      ),
+    ).toBe("/api/v1/portal/assets/ast-1/thumbnail?c=6&r=2");
+  });
+});
+
+// A collection has a dark mosaic of its members' dark tiles (#1789), stored
+// beside the light one, and the route falls back to the light one.
+describe("collectionMosaicSrc", () => {
+  it("asks for the dark mosaic in a dark portal", () => {
+    expect(collectionMosaicSrc({ id: "c1", thumbnail_s3_key: "k" }, true)).toBe(
+      "/api/v1/portal/collections/c1/thumbnail?variant=dark",
+    );
+  });
+
+  it("asks for the light mosaic in a light portal", () => {
+    expect(collectionMosaicSrc({ id: "c1", thumbnail_s3_key: "k" })).toBe("/api/v1/portal/collections/c1/thumbnail");
+  });
+
+  it("is undefined for a collection with no mosaic, which shows the folder icon", () => {
+    expect(collectionMosaicSrc({ id: "c1" }, true)).toBeUndefined();
   });
 });

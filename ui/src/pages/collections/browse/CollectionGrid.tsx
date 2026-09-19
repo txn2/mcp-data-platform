@@ -6,6 +6,8 @@ import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { collectionMosaicSrc } from "@/lib/thumbnailSupport";
+import { useResolvedDark } from "@/stores/theme";
 import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayCollection } from "./types";
 
@@ -57,12 +59,11 @@ function CollectionCard({
   onNavigate: (path: string) => void;
 }) {
   const tags = coll.asset_tags ?? [];
+  const isDark = useResolvedDark();
   return (
     <ThumbCard
       onClick={() => onNavigate(`/collections/${coll.id}`)}
-      thumbnailSrc={
-        coll.thumbnail_s3_key ? `/api/v1/portal/collections/${coll.id}/thumbnail` : undefined
-      }
+      thumbnailSrc={collectionMosaicSrc(coll, isDark)}
       fallbackIcon={FolderOpen}
       overlay={
         // Share state belongs to the owner's own view; on a collection shared

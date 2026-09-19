@@ -1,10 +1,13 @@
 package headless
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,8 +53,24 @@ func firstFeature(t *testing.T, c call) map[string]any {
 	return f
 }
 
+// tile is a page laid out at tile size and painted at twice the density, which
+// the renderer returns as the browser captured it.
 func tile() Page {
-	return Page{Document: []byte("<p>x</p>"), Ready: "Promise.resolve('')", Width: 1280, Height: 960, Scale: 0.3125}
+	return Page{Document: []byte("<p>x</p>"), Ready: "Promise.resolve('')", Width: 400, Height: 300, Scale: 2}
+}
+
+// pngOf is a solid w x h PNG, standing in for what a browser captures.
+func pngOf(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for i := range img.Pix {
+		img.Pix[i] = 0xff
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
 }
 
 func find(t *testing.T, calls []call, method, session string) call {
@@ -101,12 +120,66 @@ func TestRender_ArmsThePageBeforeItNavigatesAndReturnsTheScreenshot(t *testing.T
 	if media["value"] != "light" {
 		t.Errorf("color scheme = %v, want light", media["value"])
 	}
+	// Enlarging is painting at that density and capturing what was painted.
+	if dsf := find(t, calls, "Emulation.setDeviceMetricsOverride", "page1").Params["deviceScaleFactor"]; dsf != float64(2) {
+		t.Errorf("deviceScaleFactor = %v, want the page's scale of 2", dsf)
+	}
 	clip, _ := find(t, calls, "Page.captureScreenshot", "page1").Params["clip"].(map[string]any)
-	if clip["scale"] != 0.3125 || clip["width"] != float64(1280) {
+	if clip["scale"] != float64(1) || clip["width"] != float64(400) {
 		t.Errorf("screenshot clip = %v", clip)
+	}
+	if hidden, _ := find(t, calls, "Emulation.setScrollbarsHidden", "page1").Params["hidden"].(bool); !hidden {
+		t.Error("scrollbars are not hidden, so a tall document draws one into its tile")
 	}
 	if dispose := find(t, calls, "Target.disposeBrowserContext", ""); dispose.Params["browserContextId"] != "ctx1" {
 		t.Errorf("disposed %v, want the render's own context", dispose.Params)
+	}
+}
+
+// A page reduced below its size is painted at full size and resampled, rather
+// than painted small by the browser, which sets a document's text a few pixels
+// tall (#1789).
+func TestRender_AReducedPageIsPaintedFullSizeThenResampled(t *testing.T) {
+	full := base64.StdEncoding.EncodeToString(pngOf(t, 1280, 960))
+	fb := newFakeBrowser(t, happy(map[string]func(call) answer{
+		"Page.captureScreenshot": func(call) answer { return ok(map[string]any{"data": full}) },
+	}))
+	p := tile()
+	p.Width, p.Height, p.Scale = 1280, 960, 0.625
+	got, err := New(fb.endpoint(), nil).Render(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(got))
+	if err != nil {
+		t.Fatalf("the result is not a PNG: %v", err)
+	}
+	if cfg.Width != 800 || cfg.Height != 600 {
+		t.Errorf("reduced to %dx%d, want 800x600", cfg.Width, cfg.Height)
+	}
+	calls := fb.recorded()
+	if dsf := find(t, calls, "Emulation.setDeviceMetricsOverride", "page1").Params["deviceScaleFactor"]; dsf != float64(1) {
+		t.Errorf("deviceScaleFactor = %v, want the page painted at full size", dsf)
+	}
+	if clip, _ := find(t, calls, "Page.captureScreenshot", "page1").Params["clip"].(map[string]any); clip["scale"] != float64(1) {
+		t.Errorf("the browser was asked for a scaled picture: %v", clip)
+	}
+}
+
+// A page that names no scale is captured as painted, not reduced to nothing.
+func TestRender_AnUnsetScaleIsCapturedAsPainted(t *testing.T) {
+	fb := newFakeBrowser(t, happy(nil))
+	p := tile()
+	p.Scale = 0
+	got, err := New(fb.endpoint(), nil).Render(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if string(got) != "hello" {
+		t.Fatalf("Render returned %q, want the screenshot's bytes untouched", got)
+	}
+	if dsf := find(t, fb.recorded(), "Emulation.setDeviceMetricsOverride", "page1").Params["deviceScaleFactor"]; dsf != float64(1) {
+		t.Errorf("deviceScaleFactor = %v, want 1", dsf)
 	}
 }
 
@@ -174,10 +247,16 @@ func TestRender_EachFailureIsReported(t *testing.T) {
 		{"screenshot empty", map[string]func(call) answer{"Page.captureScreenshot": func(call) answer {
 			return ok(map[string]any{"data": ""})
 		}}, "empty screenshot"},
+		// Reducing decodes the capture; bytes that are not a PNG cannot be.
+		{"screenshot not an image", nil, "decoding the screenshot"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fb := newFakeBrowser(t, happy(tc.overrides))
-			_, err := New(fb.endpoint(), nil).Render(context.Background(), tile())
+			p := tile()
+			if tc.overrides == nil {
+				p.Scale = 0.5
+			}
+			_, err := New(fb.endpoint(), nil).Render(context.Background(), p)
 			if err == nil || !contains(err.Error(), tc.want) {
 				t.Fatalf("Render = %v, want an error naming %q", err, tc.want)
 			}

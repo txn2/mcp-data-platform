@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -221,26 +222,41 @@ func payload(t *testing.T, p headless.Page) map[string]any {
 
 // --- assets ----------------------------------------------------------------
 
-func TestDrawAsset_AnHTMLDocumentIsDrawnAtPageSizeAndRecorded(t *testing.T) {
+// An HTML document is drawn at page size, reduced to the stored tile size, in
+// each color scheme: its own prefers-color-scheme rules answer to the scheme
+// the renderer emulates, as they do in the viewer's frame (#1789).
+func TestDrawAsset_AnHTMLDocumentIsDrawnAtPageSizeInBothSchemesAndRecorded(t *testing.T) {
 	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
 	a := asset("a1", "text/html", 3)
 	a.ThumbnailS3Key = "artifacts/owner/a1/v2/.thumbnail.png"
 	blobs.objects[bucket+"/"+a.S3Key] = []byte("<p>hi</p>")
 	worker(d, assets, blobs).drawAsset(context.Background(), a)
 
-	if len(d.pages) != 1 {
-		t.Fatalf("rendered %d pages, want one light tile for HTML", len(d.pages))
+	if len(d.pages) != 2 || d.pages[0].Dark || !d.pages[1].Dark {
+		t.Fatalf("rendered %d pages, want a light then a dark tile for HTML", len(d.pages))
 	}
-	if p := d.pages[0]; p.Width != pageWidth || p.Height != pageHeight || p.Scale != pageScale || p.Dark {
-		t.Errorf("an HTML document was drawn at %dx%d scale %v dark %v", p.Width, p.Height, p.Scale, p.Dark)
+	for _, p := range d.pages {
+		if p.Width != pageWidth || p.Height != pageHeight || p.Scale != pageScale {
+			t.Errorf("an HTML document was drawn at %dx%d scale %v", p.Width, p.Height, p.Scale)
+		}
+		if w := int(float64(p.Width) * p.Scale); w != 800 {
+			t.Errorf("an HTML tile is stored %d pixels wide, want 800", w)
+		}
 	}
 	want := portaldomain.DeriveThumbnailKeyVariant(a.S3Key, portaldomain.ThumbnailVariantLight)
 	if _, ok := blobs.objects[bucket+"/"+want]; !ok {
 		t.Fatalf("the tile was not stored at %s", want)
 	}
+	wantDark := portaldomain.DeriveThumbnailKeyVariant(a.S3Key, portaldomain.ThumbnailVariantDark)
+	if _, ok := blobs.objects[bucket+"/"+wantDark]; !ok {
+		t.Fatalf("the dark tile was not stored at %s", wantDark)
+	}
 	u := assets.updates["a1"]
 	if u.ThumbnailS3Key == nil || *u.ThumbnailS3Key != want || *u.ThumbnailVersion != 3 {
 		t.Errorf("recorded key/version = %v/%v", u.ThumbnailS3Key, u.ThumbnailVersion)
+	}
+	if u.ThumbnailDarkS3Key == nil || *u.ThumbnailDarkS3Key != wantDark || *u.ThumbnailDarkVersion != 3 {
+		t.Errorf("recorded dark key/version = %v/%v", u.ThumbnailDarkS3Key, u.ThumbnailDarkVersion)
 	}
 	if u.ThumbnailRenderer == nil || *u.ThumbnailRenderer != Renderer || *u.ThumbnailFailure != "" || *u.ThumbnailFailedVersion != 0 || !u.ReleaseThumbnailClaim {
 		t.Errorf("a drawn tile must record the renderer, clear any failure and end the lease: %+v", u)
@@ -259,8 +275,8 @@ func TestDrawAsset_AThemeableDocumentGetsBothSchemes(t *testing.T) {
 	if len(d.pages) != 2 || d.pages[0].Dark || !d.pages[1].Dark {
 		t.Fatalf("pages = %d, want a light then a dark render", len(d.pages))
 	}
-	if p := d.pages[0]; p.Width != tileWidth || p.Scale != 1 {
-		t.Errorf("markdown was drawn at %dx%d scale %v, want the tile's own size", p.Width, p.Height, p.Scale)
+	if p := d.pages[0]; p.Width != tileWidth || p.Scale != tileScale {
+		t.Errorf("markdown was drawn at %dx%d scale %v, want the tile's own size at twice the density", p.Width, p.Height, p.Scale)
 	}
 	if !strings.Contains(string(d.pages[1].Document), `class="dark"`) {
 		t.Error("the dark page does not carry the dark theme")
@@ -353,6 +369,9 @@ func TestDrawAsset_AnImageIsServedToThePageByURL(t *testing.T) {
 	blobs.objects[bucket+"/"+a.S3Key] = []byte("\x89PNG-bytes")
 	worker(d, assets, blobs).drawAsset(context.Background(), a)
 
+	if len(d.pages) != 1 || d.pages[0].Dark {
+		t.Fatalf("rendered %d pages, want one tile: a raster image is drawn as stored", len(d.pages))
+	}
 	p := d.pages[0]
 	data := payload(t, p)
 	if fromURL, _ := data["serveFromURL"].(bool); !fromURL || data["content"] != nil {
@@ -361,6 +380,22 @@ func TestDrawAsset_AnImageIsServedToThePageByURL(t *testing.T) {
 	f, ok := p.Files(contentPath)
 	if !ok || string(f.Body) != "\x89PNG-bytes" || f.ContentType != "image/png" {
 		t.Fatalf("the page's content route served %v %q", ok, f.Body)
+	}
+}
+
+// An SVG is drawn as stored: one tile, served in both schemes. It contains
+// "xml" and is still not the themeable XML family.
+func TestDrawAsset_AnSVGGetsOneTile(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a9", "image/svg+xml", 1)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte("<svg/>")
+	worker(d, assets, blobs).drawAsset(context.Background(), a)
+
+	if len(d.pages) != 1 || d.pages[0].Dark {
+		t.Fatalf("rendered %d pages, want one light tile", len(d.pages))
+	}
+	if u := assets.updates["a9"]; u.ThumbnailS3Key == nil || u.ThumbnailDarkS3Key != nil {
+		t.Errorf("an SVG must record one tile and no dark one: %+v", u)
 	}
 }
 
@@ -454,28 +489,45 @@ func TestDrawResource_AFailureIsRecordedAgainstTheFile(t *testing.T) {
 
 // --- collections -----------------------------------------------------------
 
-func TestDrawCollection_AMosaicIsComposedFromItsMembers(t *testing.T) {
+// A collection has a light mosaic of its members' light tiles and a dark one
+// of their dark tiles, a member stored once lending its light tile to both
+// (#1789).
+func TestDrawCollection_AMosaicIsComposedFromItsMembersInEachScheme(t *testing.T) {
 	d, blobs := &fakeDrawer{}, newBlobs()
 	assets := &fakeAssets{byID: map[string]*portaldomain.Asset{
-		"m1": {ID: "m1", S3Bucket: bucket, ThumbnailS3Key: "t/m1.png"},
+		"m1": {ID: "m1", S3Bucket: bucket, ThumbnailS3Key: "t/m1.png", ThumbnailDarkS3Key: "t/m1_dark.png"},
 		"m2": {ID: "m2", S3Bucket: bucket, ThumbnailS3Key: "t/m2.png"},
 		"m3": {ID: "m3", S3Bucket: bucket, ThumbnailS3Key: "t/m3-missing.png"},
 	}}
 	blobs.objects[bucket+"/t/m1.png"] = []byte("one")
+	blobs.objects[bucket+"/t/m1_dark.png"] = []byte("one-dark")
 	blobs.objects[bucket+"/t/m2.png"] = []byte("two")
 	colls := &fakeCollections{}
 	w := worker(d, assets, blobs)
 	w.deps.Collections = colls
-	w.drawCollection(context.Background(), portaldomain.CollectionThumbnailWork{ID: "c1", Source: "m1:1:1,m2:3:1,m3:1:1,gone:1:1"})
+	source := "m1:1:1:1,m2:3:0:1,m3:1:1:1,gone:1:1:1"
+	w.drawCollection(context.Background(), portaldomain.CollectionThumbnailWork{ID: "c1", Source: source})
 
-	p := d.pages[0]
-	if !strings.Contains(string(p.Document), `class="m n2"`) || p.Width != tileWidth || p.Scale != 1 {
-		t.Fatalf("mosaic page = %s at %dx%d", p.Document, p.Width, p.Height)
+	if len(d.pages) != 2 {
+		t.Fatalf("composed %d mosaics, want a light and a dark one", len(d.pages))
 	}
-	if f, ok := p.Files("/m/1.png"); !ok || string(f.Body) != "two" {
-		t.Errorf("the second member's tile was not served to the mosaic")
+	for i, want := range [][2]string{{"one", "two"}, {"one-dark", "two"}} {
+		p := d.pages[i]
+		if !strings.Contains(string(p.Document), `class="m n2"`) || p.Width != tileWidth || p.Scale != tileScale {
+			t.Fatalf("mosaic page = %s at %dx%d", p.Document, p.Width, p.Height)
+		}
+		for j, body := range want {
+			if f, ok := p.Files(fmt.Sprintf("/m/%d.png", j)); !ok || string(f.Body) != body {
+				t.Errorf("mosaic %d member %d was %q, want %q", i, j, f.Body, body)
+			}
+		}
 	}
-	if rec := colls.recorded["c1"]; rec[0] != collectionKey("c1") || rec[1] != "m1:1:1,m2:3:1,m3:1:1,gone:1:1" {
+	for _, v := range []string{portaldomain.ThumbnailVariantLight, portaldomain.ThumbnailVariantDark} {
+		if _, ok := blobs.objects[bucket+"/"+portaldomain.CollectionThumbnailKey("c1", v)]; !ok {
+			t.Errorf("the %s mosaic was not stored", v)
+		}
+	}
+	if rec := colls.recorded["c1"]; rec[0] != portaldomain.CollectionThumbnailKey("c1", portaldomain.ThumbnailVariantLight) || rec[1] != source {
 		t.Errorf("recorded %v", rec)
 	}
 }
@@ -490,8 +542,9 @@ func TestDrawCollection_AMosaicWithNothingToDrawIsCleared(t *testing.T) {
 	if rec, ok := colls.recorded["c2"]; !ok || rec != [2]string{"", ""} {
 		t.Fatalf("recorded %v, want the tile cleared", rec)
 	}
-	if len(blobs.deleted) != 1 {
-		t.Errorf("the old mosaic object was not removed: %v", blobs.deleted)
+	want := []string{bucket + "/old/mosaic.png", bucket + "/" + portaldomain.CollectionThumbnailKey("c2", portaldomain.ThumbnailVariantDark)}
+	if !slices.Equal(blobs.deleted, want) {
+		t.Errorf("removed %v, want both mosaics %v", blobs.deleted, want)
 	}
 }
 
@@ -637,6 +690,7 @@ func TestDrawCollection_WhatCannotBeComposedIsLeftForTheLease(t *testing.T) {
 	}{
 		{"no member tile can be read", &fakeDrawer{}, newBlobs, &fakeCollections{}},
 		{"the mosaic cannot be drawn", &fakeDrawer{results: []error{errors.New("headless: decode")}}, seeded, &fakeCollections{}},
+		{"the dark mosaic cannot be drawn", &fakeDrawer{results: []error{nil, errors.New("headless: decode")}}, seeded, &fakeCollections{}},
 		{"the renderer went away", &fakeDrawer{results: []error{headless.ErrUnavailable}}, seeded, &fakeCollections{}},
 		{"the mosaic cannot be stored", &fakeDrawer{}, func() *fakeBlobs { b := seeded(); b.putErr = errors.New("s3 down"); return b }, &fakeCollections{}},
 		{"the store cannot record it", &fakeDrawer{}, seeded, &fakeCollections{recordErr: errors.New("db down")}},

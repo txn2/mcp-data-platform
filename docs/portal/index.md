@@ -196,7 +196,7 @@ All three fields are optional. When omitted, the left zone is hidden and only th
 
 The public viewer includes:
 
-- **Light/dark mode** — Defaults to the system `prefers-color-scheme` setting. A toggle button in the header allows switching; the choice is persisted to `localStorage`.
+- **Light/dark mode** — Defaults to the system `prefers-color-scheme` setting. A toggle button in the header allows switching; the choice is persisted to `localStorage`. Once you pick light or dark, everything in the portal follows your pick rather than the operating system: an HTML or JSX asset that has its own `prefers-color-scheme` styles opens in your chosen scheme in the viewer and on a share page, and its preview matches. **System** returns to following the operating system.
 - **Expiration notice** — When the share has an expiration, a notice bar shows the relative time remaining (e.g., "This page expires in 6 hours"). Only a public link is created with one, so the notice is what an older share created under the previous rule may still show as well. Hidden when the share has no expiry, or when its creator set `hide_expiration`.
 - **Notice text** — Configurable per-share via `notice_text`. Defaults to "Proprietary & Confidential. Only share with authorized viewers." Set to `""` to hide the notice entirely.
 
