@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -327,11 +328,14 @@ func TestRefRateLimitScalesWithTheCap(t *testing.T) {
 	assert.Equal(t, 60*assetrefs.MaxRefs, got.RequestsPerMinute)
 	assert.Equal(t, 10*assetrefs.MaxRefs, got.BurstSize)
 
-	// A field left unset stays unset so viewerlimit applies its own default
-	// before sizing the global backstop from it.
-	zero := refRateLimit(RateLimitConfig{})
-	assert.Zero(t, zero.RequestsPerMinute)
-	assert.Zero(t, zero.BurstSize)
+	// A deployment with no portal.rate_limit block is scaled from the viewer's
+	// defaults, not left on them: a page declaring more than ten files had the
+	// rest refused (#1791).
+	unset := refRateLimit(RateLimitConfig{})
+	defaults := viewerlimit.WithDefaults(RateLimitConfig{})
+	assert.Equal(t, defaults.RequestsPerMinute*assetrefs.MaxRefs, unset.RequestsPerMinute)
+	assert.Equal(t, defaults.BurstSize*assetrefs.MaxRefs, unset.BurstSize)
+	assert.GreaterOrEqual(t, unset.BurstSize, assetrefs.MaxRefs, "one page load must fit in one burst")
 }
 
 // TestCopyCarriesOnlyReferencesTheCopierCanRead is the acceptance criterion for

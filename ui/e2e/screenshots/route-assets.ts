@@ -1,5 +1,6 @@
 import {
   openAssetProducers,
+  openAssetReferencedBy,
   openAssetRefPicker,
   openAssetRefPickerAssets,
   openAssetRefs,
@@ -34,6 +35,15 @@ export const assetViewerRoutes: ScreenshotRoute[] = [
     slug: "asset-deck",
     path: "/portal/assets/ast-deck",
     category: "user",
+  },
+  {
+    // The knowledge pages that cite the deck, opened from the Referenced by
+    // button beside the version picker (#1792). The button replaced a card
+    // above the toolbar that pushed the document down to name one page.
+    slug: "asset-referenced-by",
+    path: "/portal/assets/ast-deck",
+    category: "user",
+    beforeCapture: openAssetReferencedBy,
   },
   {
     // Provenance panel (#1320): what the asset was built from, grouped by the

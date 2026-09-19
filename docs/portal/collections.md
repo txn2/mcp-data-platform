@@ -30,6 +30,7 @@ The editor arranges a collection into drag-and-drop sections of assets, with a m
 - **Asset cards** — Thumbnail previews with name, description, content type badge, and file size. The preview follows your theme, the same way it does in the assets grid.
 - **Thumbnail size** — Configurable per collection (Large, Medium, Small, None) via Settings
 - **Actions** — Back, Edit, Share, and Delete, offered according to what you may actually do with this collection (see [Sharing Collections](#sharing-collections)). A collection you did not create carries a badge naming your access, the same way a shared asset does.
+- **Referenced by** — When a [knowledge page](knowledge.md) references the collection, a button to the left of **Feedback** carries the number of pages that do and opens a list of them.
 
 Click any asset card to open it in the asset viewer:
 

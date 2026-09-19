@@ -102,6 +102,40 @@ func TestRateLimiterMiddleware(t *testing.T) {
 	assert.NotEmpty(t, w.Header().Get("Retry-After"))
 }
 
+// TestRateLimiterAdmitsTheProcessesOwnRequests: a request the platform makes of
+// its own routes is passed through uncounted, however drained the bucket its
+// address maps to, and leaves that bucket as it found it (#1791).
+func TestRateLimiterAdmitsTheProcessesOwnRequests(t *testing.T) {
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil)
+	defer rl.Close()
+	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := range 5 {
+		r := newReq("127.0.0.1:0", "")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r.WithContext(InProcess(r.Context())))
+		assert.Equal(t, http.StatusOK, w.Code, "in-process request %d", i)
+	}
+
+	// The bucket the loopback address maps to was never drawn on: the first
+	// counted request is admitted, and the one after it is not.
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, newReq("127.0.0.1:0", ""))
+	assert.Equal(t, http.StatusOK, w.Code)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, newReq("127.0.0.1:0", ""))
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+}
+
+// TestWithDefaults fills only the fields a deployment left unset.
+func TestWithDefaults(t *testing.T) {
+	assert.Equal(t, Config{RequestsPerMinute: defaultPortalRPM, BurstSize: defaultPortalBurst}, WithDefaults(Config{}))
+	assert.Equal(t, Config{RequestsPerMinute: 5, BurstSize: defaultPortalBurst}, WithDefaults(Config{RequestsPerMinute: 5, BurstSize: -1}))
+	assert.Equal(t, Config{RequestsPerMinute: 7, BurstSize: 3}, WithDefaults(Config{RequestsPerMinute: 7, BurstSize: 3}))
+}
+
 // TestRateLimiterIgnoresSpoofedXFF is the core #904 regression: with no trusted
 // proxies configured (nil resolver), a rotating X-Forwarded-For no longer mints
 // a fresh per-IP bucket. All requests from one peer share one bucket regardless

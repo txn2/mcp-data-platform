@@ -4,6 +4,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { AssetViewer } from "./AssetViewer";
 
+// One asset is referenced by a knowledge page; every other asset here is not,
+// so the rest of the file renders the viewer it always has.
+vi.mock("@/api/portal/hooks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/portal/hooks")>();
+  return {
+    ...actual,
+    useKnowledgeBacklinks: (urn?: string) => ({
+      data: {
+        pages: urn === "mcp:asset:cited" ? [{ id: "kp1", slug: "slides", title: "Building slides" }] : [],
+      },
+    }),
+  };
+});
+
 const stubMutation = () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, isError: false }) as never;
 
 function markdownAsset(overrides: Record<string, unknown> = {}) {
@@ -195,12 +209,56 @@ describe("AssetViewer thumbnail", () => {
       ),
     );
     try {
-      renderViewer({ asset: markdownAsset(cleared) });
+      // A tile that has been drawn: one being drawn offers no press (#1791).
+      renderViewer({
+        asset: markdownAsset({
+          ...cleared,
+          thumbnail_s3_key: "k/.thumbnail.png",
+          thumbnail_dark_s3_key: "k/.thumbnail_dark.png",
+          thumbnail_version: 4,
+          thumbnail_dark_version: 4,
+        }),
+      });
       fireEvent.click(screen.getByTitle("Show details"));
       fireEvent.click(screen.getByTitle("Discard this image and draw it again"));
       expect(await screen.findByText("Could not discard the stored image.")).toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// The asset viewer has little vertical room, and a card above the toolbar
+// naming one page pushed the document down by the toolbar's height (#1792).
+describe("AssetViewer knowledge page references", () => {
+  const versions = [1, 2].map((n) => ({
+    id: `ver-${n}`,
+    asset_id: "cited",
+    version: n,
+    s3_key: `k${n}`,
+    s3_bucket: "b",
+    content_type: "text/markdown",
+    size_bytes: 4,
+    created_by: "owner",
+    change_summary: "",
+    created_at: "2026-06-01T00:00:00Z",
+  }));
+
+  it("names them on a button to the right of the version selector, not in a card", () => {
+    renderViewer({
+      asset: markdownAsset({ id: "cited", current_version: 2 }),
+      versions,
+      onSelectVersion: vi.fn(),
+    });
+    const selector = screen.getByRole("combobox", { name: "Asset version" });
+    const refs = screen.getByRole("button", { name: /referenced by/i });
+    expect(selector.nextElementSibling).toBe(refs);
+    expect(screen.queryByText("1 knowledge page references this")).not.toBeInTheDocument();
+    expect(screen.queryByText("Building slides")).not.toBeInTheDocument();
+  });
+
+  it("shows no button for an asset no page references", () => {
+    renderViewer({ versions, onSelectVersion: vi.fn() });
+    expect(screen.queryByRole("button", { name: /referenced by/i })).not.toBeInTheDocument();
   });
 });

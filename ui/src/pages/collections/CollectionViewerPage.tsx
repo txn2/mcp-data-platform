@@ -6,7 +6,6 @@ import {
   useUpdateCollectionConfig,
 } from "@/api/portal/hooks";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
@@ -74,6 +73,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
             onShare={() => setShareOpen(true)}
             onDelete={() => setDeleteOpen(true)}
             deletePending={deleteMutation.isPending}
+            onNavigate={onNavigate}
           />
         }
       />
@@ -83,8 +83,6 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
           <MarkdownRenderer content={coll.description} bare />
         </div>
       )}
-
-      <KnowledgeBacklinks urn={`mcp:collection:${collectionId}`} onNavigate={onNavigate} />
 
       {coll.sections.map((section) => (
         <CollectionSection

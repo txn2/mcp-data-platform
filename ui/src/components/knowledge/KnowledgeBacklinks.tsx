@@ -3,6 +3,11 @@ import { useKnowledgeBacklinks } from "@/api/portal/hooks";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { EntityChip } from "./EntityChip";
 
+/** How many knowledge pages reference an entity, as a sentence. */
+export function backlinksSummary(count: number): string {
+  return `${count} knowledge ${count === 1 ? "page references" : "pages reference"} this`;
+}
+
 /**
  * KnowledgeBacklinks surfaces the knowledge pages that reference an entity (the
  * reverse lookup, #664 Phase 4) on that entity's view: "N knowledge pages
@@ -30,7 +35,7 @@ export function KnowledgeBacklinks({
       title={
         <span className="flex items-center gap-1.5 text-muted-foreground">
           <BookOpen className="size-3.5" aria-hidden />
-          {pages.length} knowledge {pages.length === 1 ? "page references" : "pages reference"} this
+          {backlinksSummary(pages.length)}
         </span>
       }
     >

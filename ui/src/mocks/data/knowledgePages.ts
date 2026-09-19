@@ -431,6 +431,10 @@ export const mockKnowledgePages: KnowledgePage[] = [
 export const mockPageRefs: Record<string, string[]> = {
   "kp-seed-2": ["urn:li:glossaryTerm:Revenue", "urn:li:domain:finance"],
   "kp-seed-3": ["urn:li:tag:pii"],
+  // Two pages cite the regional review deck, so its viewer carries the
+  // Referenced by button beside the version picker (#1792).
+  "kp-seed-9": ["mcp:asset:ast-deck"],
+  "kp-seed-4": ["mcp:asset:ast-deck"],
 };
 
 // GOVERNANCE_NAMES is what the catalog reports for a governance URN, which the

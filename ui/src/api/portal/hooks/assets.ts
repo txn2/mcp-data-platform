@@ -258,12 +258,16 @@ export function useClearAssetThumbnail() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/assets/${id}/thumbnail`, { method: "DELETE" }),
-    onSuccess: (_data, id) => {
-      // The asset query is what the thumbnail panel reads to show the tile
-      // being drawn and, once it lands, the new one.
-      void qc.invalidateQueries({ queryKey: ["asset", id] });
-      void qc.invalidateQueries({ queryKey: ["assets"] });
-    },
+    // The asset query is what the thumbnail panel reads to show the tile being
+    // drawn and, once it lands, the new one. The refetch is awaited, so the
+    // clear is pending until the panel holds the cleared row: between the two,
+    // the panel would offer the button again over the tile it just discarded
+    // (#1791).
+    onSuccess: (_data, id) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ["asset", id] }),
+        qc.invalidateQueries({ queryKey: ["assets"] }),
+      ]),
   });
 }
 

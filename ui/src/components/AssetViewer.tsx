@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { FileQuestion } from "lucide-react";
-import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
+import { KnowledgeBacklinksButton } from "@/components/knowledge/KnowledgeBacklinksButton";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
@@ -269,8 +269,6 @@ export function AssetViewer({
           />
         }
       >
-        <KnowledgeBacklinks urn={`mcp:asset:${asset.id}`} onNavigate={onNavigate} />
-
         <AssetContentView
           asset={asset}
           content={content}
@@ -294,6 +292,7 @@ export function AssetViewer({
           versionContent={versionContent}
           editedContent={editedContent}
           onSourceChange={(v) => { setEditedContent(v); setDirty(true); }}
+          afterVersion={<KnowledgeBacklinksButton urn={`mcp:asset:${asset.id}`} onNavigate={onNavigate} />}
         />
       </ViewerLayout>
 
