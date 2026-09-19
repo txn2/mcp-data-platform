@@ -1617,6 +1617,8 @@ thumbnails:
 | `enabled` | `*bool` | `true` (nil = enabled) | Draw thumbnails. Off, stored tiles keep serving and nothing new is drawn. |
 | `renderer_url` | string | `http://127.0.0.1:9222` | The renderer's DevTools address, `http://` or `ws://`. The platform dials it; the renderer is never pointed at the platform. |
 
+Tiles are stored at 800×600. HTML, JSX, markdown, CSV, JSON and the text families get a light and a dark tile; SVG and raster images get one. A release that changes how tiles are drawn raises the renderer generation, and on upgrade the worker redraws every stored tile once in the background, newest first; each old tile keeps serving until its replacement lands.
+
 With no renderer answering, the platform starts and serves normally: files keep their content-type icons, and the platform logs once that no renderer answers and once when one does. A binary built without the portal UI embeds no tile page and draws nothing. A document the renderer cannot draw -- one that does not settle within 45 seconds, an image no browser decodes, an artifact whose linked files did not load -- is recorded with the reason, shown on the file's Thumbnail panel, and not tried again until the file changes or its owner asks.
 
 ## Progress Notifications Configuration

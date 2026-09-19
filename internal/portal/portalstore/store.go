@@ -1480,9 +1480,9 @@ func thumbnailOwedPredicate(renderer int) sq.Sqlizer {
 			variantPendingPredicate(portaldomain.ThumbnailVariantLight),
 			sq.And{
 				sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Themeable))),
-				// image/svg+xml contains "xml" and is still an SVG, which carries
-				// its own colors: without this every SVG is owed a dark tile
-				// nothing draws, and is claimed forever.
+				// image/svg+xml contains "xml" and is still an SVG, which is
+				// drawn once: without this every SVG is owed a dark tile nothing
+				// draws, and is claimed forever.
 				sq.Expr("NOT (content_type ILIKE ANY(?))", pq.Array(thumbtypes.ILikePatterns(thumbtypes.ThemeableShadows()))),
 				variantPendingPredicate(portaldomain.ThumbnailVariantDark),
 			},

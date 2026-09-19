@@ -27,9 +27,10 @@ import (
 // MaxContentUploadBytes is the maximum size for content uploads (10 MB).
 const MaxContentUploadBytes = 10 << 20
 
-// MaxThumbnailBytes is the largest tile stored (512 KB). A 400x300 PNG is a
-// small fraction of it; a renderer returning more has not drawn a tile.
-const MaxThumbnailBytes = 512 << 10
+// MaxThumbnailBytes is the largest tile stored (2 MB). An 800x600 PNG of a
+// photograph can pass 1 MB; the same image uncompressed is under 2 MB, so a
+// renderer returning more has not drawn a tile.
+const MaxThumbnailBytes = 2 << 20
 
 // AssetCollectionRef is a lightweight reference to a collection that contains an asset.
 type AssetCollectionRef struct {
@@ -68,7 +69,10 @@ type Asset struct {
 	ThumbnailDarkVersion int `json:"thumbnail_dark_version" example:"3"`
 	// ThumbnailRenderer is the generation of the renderer that drew the tile.
 	// A tile from an older generation still serves and is drawn again (#1787).
-	ThumbnailRenderer int `json:"-"`
+	// A reader puts it in the tile's URL beside the version: a redraw by a new
+	// generation keeps the version, and without it a browser would show the
+	// old picture for the hour it is cached for (#1789).
+	ThumbnailRenderer int `json:"thumbnail_renderer" example:"2"`
 	// ThumbnailFailure is why the renderer could not draw this asset's tile,
 	// and ThumbnailFailedVersion the version it tried. The failure holds until
 	// the content changes or the tile is asked for again, so a document the
@@ -745,10 +749,23 @@ func DeriveThumbnailKeyVariant(s3Key, variant string) string {
 	return s3Key[:idx+1] + filename
 }
 
+// CollectionThumbnailKey is where each variant of a collection's mosaic is
+// stored. The dark mosaic is not recorded on the row: it is written beside the
+// light one whenever the light one is, so the key of the one names the other
+// (#1789).
+func CollectionThumbnailKey(id, variant string) string {
+	name := "thumbnail.png"
+	if variant == ThumbnailVariantDark {
+		name = "thumbnail_dark.png"
+	}
+	return "portal/collections/" + id + "/" + name
+}
+
 // StoredThumbnailKey returns the thumbnail key stored for a variant, or the
 // empty string when none has been captured yet. The dark variant falls back to
-// the light/default key: content types with a built-in theme (HTML, JSX, SVG)
-// only ever store one thumbnail and serve it in both modes.
+// the light/default key: SVG and raster images only ever store one thumbnail
+// and serve it in both modes, and a tile drawn before its family was themeable
+// has no dark one until it is redrawn.
 func (a Asset) StoredThumbnailKey(variant string) string {
 	if variant == ThumbnailVariantDark && a.ThumbnailDarkS3Key != "" {
 		return a.ThumbnailDarkS3Key
@@ -971,11 +988,14 @@ type CollectionItem struct {
 	// The two versions are the asset versions each capture was taken from; a
 	// collection tile puts them in the URL so a re-capture is a new URL and is
 	// fetched rather than served from the hour the previous one is cached for.
-	AssetThumbnailDark        string    `json:"asset_thumbnail_dark_s3_key,omitempty"`
-	AssetThumbnailVersion     int       `json:"asset_thumbnail_version"`
-	AssetThumbnailDarkVersion int       `json:"asset_thumbnail_dark_version"`
-	AssetDescription          string    `json:"asset_description,omitempty" example:"Interactive revenue breakdown"`
-	CreatedAt                 time.Time `json:"created_at"`
+	AssetThumbnailDark        string `json:"asset_thumbnail_dark_s3_key,omitempty"`
+	AssetThumbnailVersion     int    `json:"asset_thumbnail_version"`
+	AssetThumbnailDarkVersion int    `json:"asset_thumbnail_dark_version"`
+	// AssetThumbnailRenderer is the generation that drew the asset's tiles,
+	// which goes in the URL with the versions for the same reason (#1789).
+	AssetThumbnailRenderer int       `json:"asset_thumbnail_renderer"`
+	AssetDescription       string    `json:"asset_description,omitempty" example:"Interactive revenue breakdown"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // CollectionFilter defines filtering criteria for listing collections.

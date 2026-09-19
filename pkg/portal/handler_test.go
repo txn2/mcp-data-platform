@@ -242,6 +242,8 @@ type mockS3Client struct {
 	putKey    string   // captures the key of the most recent PutObject
 	getKey    string   // captures the key of the most recent GetObject
 	deleted   []string // captures every key passed to DeleteObject, in order
+	// objects, when set, answers GetObject by key: a key it lacks is an error.
+	objects map[string][]byte
 }
 
 func (m *mockS3Client) PutObject(_ context.Context, _, key string, _ []byte, _ string) error {
@@ -256,6 +258,13 @@ func (m *mockS3Client) PutObjectStream(_ context.Context, _, _ string, body io.R
 
 func (m *mockS3Client) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
 	m.getKey = key
+	if m.objects != nil {
+		data, ok := m.objects[key]
+		if !ok {
+			return nil, "", fmt.Errorf("no object at %s", key)
+		}
+		return data, "image/png", nil
+	}
 	return m.getData, m.getCT, m.getErr
 }
 func (m *mockS3Client) DeleteObject(_ context.Context, _, key string) error {

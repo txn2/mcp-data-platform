@@ -25,6 +25,19 @@
    another collapses a step — a page tinted all the way down to `--muted`, for
    instance, erases every tab track and code block that sits directly on it. */
 @layer base {
+  /* The color scheme a framed document sees. An HTML or JSX asset answers
+     prefers-color-scheme from the color-scheme of the frame that holds it, and
+     color-scheme is inherited from here, so a document follows the portal's
+     theme: the reader's choice once they have made one, the OS's until then.
+     Left at `normal`, every frame followed the OS whatever the toggle said
+     (#1789). Native controls and scrollbars follow it too. */
+  :root {
+    color-scheme: light;
+  }
+  :root.dark {
+    color-scheme: dark;
+  }
+
   :root {
     --background: 210 40% 96.5%;
     --foreground: 222.2 84% 4.9%;

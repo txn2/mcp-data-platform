@@ -352,8 +352,8 @@ func TestIssue1787_AResourceIsRenderedToo(t *testing.T) {
 	awaitResourceTile1787(t, c, id, true)
 	for _, variant := range []string{"light", "dark"} {
 		img := tile1787(t, c, "/api/v1/resources/"+id, variant)
-		if b := img.Bounds(); b.Dx() != 400 || b.Dy() != 300 {
-			t.Errorf("the %s tile is %dx%d, want 400x300", variant, b.Dx(), b.Dy())
+		if b := img.Bounds(); b.Dx() != 800 || b.Dy() != 600 {
+			t.Errorf("the %s tile is %dx%d, want 800x600 (#1789)", variant, b.Dx(), b.Dy())
 		}
 	}
 }
@@ -368,7 +368,8 @@ func TestIssue1787_ARewrittenDocumentIsRenderedAgain(t *testing.T) {
 	id := saveAsset1787(t, c, "text/html", solid("#16a34a"))
 	awaitAssetTile1787(t, c, id, false)
 	green := color.RGBA{R: 0x16, G: 0xa3, B: 0x4a}
-	if got := share1787(tile1787(t, c, "/api/v1/portal/assets/"+id, ""), image.Rect(0, 0, 400, 300), green, 12); got < 0.9 {
+	first := tile1787(t, c, "/api/v1/portal/assets/"+id, "")
+	if got := share1787(first, first.Bounds(), green, 12); got < 0.9 {
 		t.Fatalf("the first version's tile is %.1f%% green, want nearly all of it", 100*got)
 	}
 

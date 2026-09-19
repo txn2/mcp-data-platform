@@ -112,3 +112,18 @@ func TestAssetStoredThumbnailKey(t *testing.T) {
 	assert.Empty(t, Asset{}.StoredThumbnailKey(ThumbnailVariantLight),
 		"an asset whose thumbnail has not been generated yet has no key to serve")
 }
+
+// A collection's dark mosaic is stored beside its light one and is not
+// recorded on the row (#1789), so the renderer that writes it and the route
+// that serves it have to derive the same key.
+func TestCollectionThumbnailKey(t *testing.T) {
+	for _, tc := range []struct{ variant, want string }{
+		{ThumbnailVariantLight, "portal/collections/c1/thumbnail.png"},
+		{"", "portal/collections/c1/thumbnail.png"},
+		{ThumbnailVariantDark, "portal/collections/c1/thumbnail_dark.png"},
+	} {
+		if got := CollectionThumbnailKey("c1", tc.variant); got != tc.want {
+			t.Errorf("CollectionThumbnailKey(c1, %q) = %q, want %q", tc.variant, got, tc.want)
+		}
+	}
+}

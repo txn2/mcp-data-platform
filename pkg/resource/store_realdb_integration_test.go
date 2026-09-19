@@ -222,6 +222,15 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	}))
 	assert.False(t, pendingIDs()["res_t_txt"], "both variants captured and current")
 
+	// JSX answers the scheme the renderer emulates (#1789), so a light tile
+	// alone leaves it owed the dark one.
+	jsx, err := store.Get(ctx, "res_t_jsx")
+	require.NoError(t, err)
+	require.NoError(t, store.SetThumbnail(ctx, "res_t_jsx", ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/jsx.png", CapturedAt: jsx.UpdatedAt, Renderer: thumbnailTestRenderer,
+	}))
+	assert.True(t, pendingIDs()["res_t_jsx"], "still pending on its dark variant")
+
 	// The capture round-trips onto the row.
 	got, err := store.Get(ctx, "res_t_md")
 	require.NoError(t, err)
@@ -261,8 +270,11 @@ func TestResourceStore_ThumbnailClaim_RealDB(t *testing.T) {
 	ctx := context.Background()
 	insert := func(id string) *Resource {
 		require.NoError(t, store.Insert(ctx, Resource{
+			// A raster image stores one tile, so a light capture alone is a
+			// current one and this criterion is about the renderer, the lease
+			// and the failure only.
 			ID: id, Scope: ScopeGlobal, Path: "visual", Filename: id, DisplayName: id,
-			MIMEType: "text/html", SizeBytes: 100, S3Key: "resources/" + id + "/" + id,
+			MIMEType: "image/png", SizeBytes: 100, S3Key: "resources/" + id + "/" + id,
 			URI: "mcp://global/visual/" + id,
 		}))
 		r, err := store.Get(ctx, id)

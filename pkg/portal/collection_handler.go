@@ -579,10 +579,11 @@ func convertSectionInputs(inputs []sectionInput) ([]CollectionSection, error) {
 // getCollectionThumbnail handles GET /api/v1/portal/collections/{id}/thumbnail.
 //
 // @Summary      Get collection thumbnail
-// @Description  Downloads the collection's PNG thumbnail image.
+// @Description  Downloads the collection's PNG thumbnail image. The dark variant is the mosaic of the members' dark tiles, and is the light mosaic for a collection composed before it had one.
 // @Tags         Collections
 // @Produce      png
 // @Param        id  path  string  true  "Collection ID"
+// @Param        variant  query  string  false  "Thumbnail variant"  Enums(light, dark)
 // @Success      200  {file}  binary
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -598,6 +599,10 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	variant, ok := parseThumbnailVariant(w, r)
+	if !ok {
+		return
+	}
 	id := r.PathValue(pathKeyID)
 	coll, err := h.deps.CollectionStore.Get(r.Context(), id)
 	if err != nil || coll.ThumbnailS3Key == "" {
@@ -618,7 +623,7 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, coll.ThumbnailS3Key)
+	data, contentType, err := h.collectionMosaic(r, coll, variant)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "thumbnail not found")
 		return
@@ -627,6 +632,24 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 	w.Header().Set(headerContentType, contentType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data) // #nosec G705 -- content served from S3, content-type set by uploader
+}
+
+// collectionMosaic reads one variant of a collection's mosaic. The dark mosaic
+// is stored beside the light one rather than recorded (#1789), so a collection
+// composed before it had one is served its light mosaic in both modes until
+// the renderer composes it again.
+func (h *Handler) collectionMosaic(r *http.Request, coll *Collection, variant string) (data []byte, contentType string, err error) {
+	if variant == thumbnailVariantDark {
+		key := portaldomain.CollectionThumbnailKey(coll.ID, thumbnailVariantDark)
+		if data, contentType, err = h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, key); err == nil {
+			return data, contentType, nil
+		}
+	}
+	data, contentType, err = h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, coll.ThumbnailS3Key)
+	if err != nil {
+		return nil, "", fmt.Errorf("reading the collection's mosaic: %w", err)
+	}
+	return data, contentType, nil
 }
 
 // --- Collection Sharing ---

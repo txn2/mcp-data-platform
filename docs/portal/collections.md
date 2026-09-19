@@ -14,7 +14,7 @@ The collections list shows:
 - **New Collection** button — Creates a collection and opens the editor
 - **Sort** — The same control as Assets, minus size, which a collection does not have. Collections also open on most recently updated.
 - **View toggle** — Grid or table view
-- **Grid cards** — Thumbnail mosaic of contained assets, collection name, description, tags, sharing indicators, and the ordering date. The platform composes the mosaic from the first four assets that have a preview, and composes it again when those change
+- **Grid cards** — Thumbnail mosaic of contained assets, collection name, description, tags, sharing indicators, and the ordering date. The platform composes the mosaic from the first four assets that have a preview, in both a light and a dark version (the dark one from each asset's dark preview), and composes it again when those change
 
 ## Viewing a Collection
 

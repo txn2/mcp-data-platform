@@ -109,7 +109,7 @@ func (p *probe) marked(marker string) []string {
 const settled = `new Promise(function(r){function go(){setTimeout(function(){r("")},2000)}if(document.readyState==="complete"){go()}else{addEventListener("load",go)}})`
 
 func tilePage(doc string) Page {
-	return Page{Document: []byte(doc), Ready: settled, Width: 1280, Height: 960, Scale: 0.3125}
+	return Page{Document: []byte(doc), Ready: settled, Width: 1280, Height: 960, Scale: 0.625}
 }
 
 func decode(t *testing.T, data []byte) image.Image {
@@ -118,8 +118,8 @@ func decode(t *testing.T, data []byte) image.Image {
 	if err != nil {
 		t.Fatalf("the screenshot is not a PNG: %v", err)
 	}
-	if b := img.Bounds(); b.Dx() != 400 || b.Dy() != 300 {
-		t.Fatalf("the screenshot is %dx%d, want 400x300", b.Dx(), b.Dy())
+	if b := img.Bounds(); b.Dx() != 800 || b.Dy() != 600 {
+		t.Fatalf("the screenshot is %dx%d, want 800x600", b.Dx(), b.Dy())
 	}
 	return img
 }
@@ -163,8 +163,48 @@ func TestRendererIntegration_DrawsATransformedSlide_RealDB(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	img := decode(t, data)
-	if got := share(img, image.Rect(66, 50, 334, 250), color.RGBA{R: 0xff, G: 0xcc}, 40); got < 0.04 {
+	if got := share(img, image.Rect(132, 100, 668, 500), color.RGBA{R: 0xff, G: 0xcc}, 40); got < 0.04 {
 		t.Fatalf("the slide's title covers %.1f%% of the middle of the tile: the transformed slide was not drawn", 100*got)
+	}
+}
+
+// framedDocument is how the tile page draws an HTML document: in a frame of
+// its own, taller than the viewport. Its stylesheet answers the color scheme.
+const framedDocument = `<!DOCTYPE html><html><head><style>
+html,body{margin:0;overflow:hidden}iframe{display:block;width:100vw;height:100vh;border:0}
+</style></head><body><iframe srcdoc="<!DOCTYPE html><style>
+body{margin:0;height:4000px;background:#f6f7f9}
+@media (prefers-color-scheme: dark){body{background:#0d1117}}
+p{font:15px sans-serif;margin:24px}</style><p>Weather watch</p>"></iframe></body></html>`
+
+// The scheme the renderer emulates reaches a document drawn in a frame, which
+// is how the tile page draws HTML and JSX, and a document taller than the
+// frame puts no scrollbar in the picture (#1789).
+func TestRendererIntegration_AFramedDocumentAnswersTheSchemeWithoutAScrollbar_RealDB(t *testing.T) {
+	r := New(startRenderer(t, nil, nil), nil)
+	for _, tc := range []struct {
+		dark bool
+		bg   color.RGBA
+	}{
+		{false, color.RGBA{R: 0xf6, G: 0xf7, B: 0xf9}},
+		{true, color.RGBA{R: 0x0d, G: 0x11, B: 0x17}},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		page := tilePage(framedDocument)
+		page.Dark = tc.dark
+		data, err := r.Render(ctx, page)
+		cancel()
+		if err != nil {
+			t.Fatalf("Render dark=%v: %v", tc.dark, err)
+		}
+		img := decode(t, data)
+		if got := share(img, image.Rect(0, 100, 800, 600), tc.bg, 6); got < 0.98 {
+			t.Errorf("dark=%v: the document's background covers %.1f%% of the tile", tc.dark, 100*got)
+		}
+		// A scrollbar is drawn down the right edge of the frame.
+		if got := share(img, image.Rect(770, 0, 800, 600), tc.bg, 6); got < 0.98 {
+			t.Errorf("dark=%v: the right edge is %.1f%% the document's background: a scrollbar was drawn", tc.dark, 100*got)
+		}
 	}
 }
 
@@ -182,7 +222,7 @@ func TestRendererIntegration_AnInsetShadowIsAHairlineNotAFill_RealDB(t *testing.
 		t.Fatalf("Render: %v", err)
 	}
 	img := decode(t, data)
-	interior := image.Rect(0, 15, 400, 135)
+	interior := image.Rect(0, 30, 800, 270)
 	if got := share(img, interior, color.RGBA{R: 0xDC, G: 0x10, B: 0x8A}, 40); got > 0.01 {
 		t.Fatalf("%.1f%% of the block's interior is the rule's color: the inset shadow was painted as a fill", 100*got)
 	}
@@ -207,7 +247,7 @@ func TestRendererIntegration_ServesItsOwnFilesAndAnswersTheRest404_RealDB(t *tes
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if got := share(decode(t, data), image.Rect(0, 0, 400, 300), color.RGBA{R: 0x16, G: 0xa3, B: 0x4a}, 12); got < 0.95 {
+	if got := share(decode(t, data), image.Rect(0, 0, 800, 600), color.RGBA{R: 0x16, G: 0xa3, B: 0x4a}, 12); got < 0.95 {
 		t.Fatalf("the page's own stylesheet covers %.1f%% of the tile: it was not served", 100*got)
 	}
 }
@@ -339,7 +379,7 @@ func TestRendererIntegration_NoLayerLetsADocumentReachTheNetwork_RealDB(t *testi
 			if err != nil {
 				t.Fatalf("Render: %v", err)
 			}
-			if got := share(decode(t, data), image.Rect(0, 0, 400, 300), color.RGBA{R: 0x1d, G: 0x4e, B: 0xd8}, 12); got < 0.5 {
+			if got := share(decode(t, data), image.Rect(0, 0, 800, 600), color.RGBA{R: 0x1d, G: 0x4e, B: 0xd8}, 12); got < 0.5 {
 				t.Fatalf("the document itself covers %.1f%% of the tile: it was not drawn, so its requests were not tried", 100*got)
 			}
 			time.Sleep(time.Second)

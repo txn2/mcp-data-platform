@@ -200,7 +200,7 @@ func (s *postgresCollectionStore) getItemsBySections(ctx context.Context, sectio
 		       COALESCE(pa.name, ''), COALESCE(pa.content_type, ''),
 		       COALESCE(pa.thumbnail_s3_key, ''), COALESCE(pa.thumbnail_dark_s3_key, ''),
 		       COALESCE(pa.thumbnail_version, 0), COALESCE(pa.thumbnail_dark_version, 0),
-		       COALESCE(pa.description, '')
+		       COALESCE(pa.thumbnail_renderer, 0), COALESCE(pa.description, '')
 		FROM portal_collection_items ci
 		LEFT JOIN portal_assets pa ON ci.asset_id = pa.id AND pa.deleted_at IS NULL
 		WHERE ci.section_id = ANY($1)
@@ -220,7 +220,7 @@ func (s *postgresCollectionStore) getItemsBySections(ctx context.Context, sectio
 			&item.AssetName, &item.AssetContentType,
 			&item.AssetThumbnail, &item.AssetThumbnailDark,
 			&item.AssetThumbnailVersion, &item.AssetThumbnailDarkVersion,
-			&item.AssetDescription,
+			&item.AssetThumbnailRenderer, &item.AssetDescription,
 		); err != nil {
 			return nil, fmt.Errorf("scanning item row: %w", err)
 		}

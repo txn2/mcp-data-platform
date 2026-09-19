@@ -7,8 +7,8 @@ func TestFamilyPredicates(t *testing.T) {
 		ct                 string
 		themeable, docLike bool
 	}{
-		{"text/html; charset=utf-8", false, true},
-		{"text/jsx", false, true},
+		{"text/html; charset=utf-8", true, true},
+		{"text/jsx", true, true},
 		{"text/markdown", true, false},
 		{"TEXT/CSV", true, false},
 		{"application/x-ndjson", true, false},

@@ -65,7 +65,10 @@ type Resource struct {
 	ThumbnailDarkCapturedAt *time.Time `json:"thumbnail_dark_captured_at,omitempty"`
 	// ThumbnailRenderer is the generation of the renderer that drew the tile.
 	// A tile from an older generation still serves and is drawn again (#1787).
-	ThumbnailRenderer int `json:"-"`
+	// A reader puts it in the tile's URL: a redraw by a new generation keeps
+	// the capture time, and without it a browser would show the old picture
+	// for the hour it is cached for (#1789).
+	ThumbnailRenderer int `json:"thumbnail_renderer"`
 	// ThumbnailFailure is why the renderer could not draw this file's tile,
 	// and ThumbnailFailedAt the UpdatedAt of the file it tried. The failure
 	// holds until the file changes or the tile is asked for again, so a file

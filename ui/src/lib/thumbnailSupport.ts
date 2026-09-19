@@ -86,15 +86,17 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
 };
 
 /**
- * The families drawn on a forced background, which are drawn twice, once per
- * color scheme.
+ * The families drawn twice, once per color scheme.
  *
- * A property of the family rather than of each content type: HTML, JSX, SVG and
- * a raster image carry their own colors and store a single image for both
- * modes, and everything the tile page lays out itself needs one tile per
- * scheme.
+ * A property of the family rather than of each content type. Everything the
+ * tile page lays out itself is drawn on the scheme's background. HTML and JSX
+ * are drawn with the renderer emulating the scheme, which is what their own
+ * prefers-color-scheme rules answer to, as they do in the viewer's frame: a
+ * dashboard with a dark stylesheet opened dark and had a white card (#1789).
+ * SVG and a raster image are drawn as stored and serve one image in both modes.
  */
 const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
+  "iframe",
   "markdown",
   "csv",
   "json",
@@ -149,9 +151,12 @@ interface CapturableFamily {
  * no browser decodes: offering one is offering work that fails every time.
  */
 const CAPTURABLE_FAMILIES: CapturableFamily[] = [
+  // SVG first: it is the one family ahead of a themeable one that is not
+  // itself themeable, which is the shape the server's SQL form of the rule
+  // relies on (internal/thumbtypes, ThemeableShadows).
+  { fragment: "svg", family: "svg" },
   { fragment: "html", family: "iframe" },
   { fragment: "jsx", family: "iframe" },
-  { fragment: "svg", family: "svg" },
   { fragment: "markdown", family: "markdown" },
   { fragment: "csv", family: "csv" },
   { fragment: "tab-separated", family: "csv" },
@@ -187,15 +192,12 @@ export function isThumbnailSupported(contentType: string): boolean {
 }
 
 /**
- * Returns true if the content type is rendered on a forced (non-themed)
- * background and therefore needs a separate dark-mode thumbnail. HTML, JSX, SVG
- * and a raster image carry their own colors, so they reuse the single
- * light/default thumbnail in both modes.
+ * Returns true if the content type is drawn once per color scheme and so has a
+ * separate dark-mode thumbnail. SVG and a raster image are drawn as stored, so
+ * they reuse the single light/default thumbnail in both modes.
  *
- * Read off the family rather than off the content type: every family the tile
- * page lays out itself is themeable and every family that carries its own
- * document is not, so a content type added to the table above cannot get this
- * wrong.
+ * Read off the family rather than off the content type, so a content type
+ * added to the table above cannot get this wrong.
  */
 export function isThemeable(contentType: string): boolean {
   const family = captureFamily(contentType);
@@ -271,6 +273,12 @@ export interface Captures {
   dark?: string;
   stamp?: string | number;
   darkStamp?: string | number;
+  /**
+   * The renderer generation that drew the captures. A redraw by a new
+   * generation keeps the version or capture time the stamp is made of, so it
+   * is part of the URL too (#1789).
+   */
+  renderer?: number;
 }
 
 /**
@@ -313,16 +321,17 @@ export function thumbnailSrc(
  * The query string that selects a capture, or undefined when none was ever
  * taken -- which is what tells a card to show its content-type icon instead.
  *
- * The dark variant is asked for only when one was captured: a content type
- * that carries its own colors (HTML, JSX, SVG, a raster image) stores a single
- * image and serves it in both modes, so its empty dark key means "use the light
- * one", not "no thumbnail".
+ * The dark variant is asked for only when one was captured: SVG and a raster
+ * image store a single image and serve it in both modes, and a tile drawn
+ * before its family was themeable has no dark one yet, so an empty dark key
+ * means "use the light one", not "no thumbnail".
  */
 function thumbnailQuery(c: Captures, isDark: boolean): string | undefined {
   if (!c.light) return undefined;
   const dark = isDark && !!c.dark;
   const stamp = (dark ? c.darkStamp : c.stamp) ?? 0;
-  return `${dark ? "variant=dark&" : ""}c=${encodeURIComponent(String(stamp))}`;
+  const renderer = c.renderer ? `&r=${c.renderer}` : "";
+  return `${dark ? "variant=dark&" : ""}c=${encodeURIComponent(String(stamp))}${renderer}`;
 }
 
 /** The parts of an asset that say whether its capture is current. */
@@ -333,6 +342,7 @@ interface ThumbnailState {
   thumbnail_dark_s3_key?: string;
   thumbnail_version: number;
   thumbnail_dark_version: number;
+  thumbnail_renderer?: number;
   thumbnail_failure?: string;
   thumbnail_failed_version?: number;
 }
@@ -346,6 +356,7 @@ interface ResourceThumbnailState {
   thumbnail_dark_s3_key?: string;
   thumbnail_captured_at?: string;
   thumbnail_dark_captured_at?: string;
+  thumbnail_renderer?: number;
   thumbnail_failure?: string;
   thumbnail_failed_at?: string;
 }
@@ -357,6 +368,7 @@ export function assetCaptures(a: ThumbnailState): Captures {
     dark: a.thumbnail_dark_s3_key,
     stamp: a.thumbnail_version,
     darkStamp: a.thumbnail_dark_version,
+    renderer: a.thumbnail_renderer,
   };
 }
 
@@ -367,6 +379,7 @@ export function resourceCaptures(r: ResourceThumbnailState): Captures {
     dark: r.thumbnail_dark_s3_key,
     stamp: r.thumbnail_captured_at ?? "",
     darkStamp: r.thumbnail_dark_captured_at ?? "",
+    renderer: r.thumbnail_renderer,
   };
 }
 
@@ -401,6 +414,7 @@ interface ItemThumbnailState {
   asset_thumbnail_dark_s3_key?: string;
   asset_thumbnail_version?: number;
   asset_thumbnail_dark_version?: number;
+  asset_thumbnail_renderer?: number;
 }
 
 /**
@@ -424,10 +438,29 @@ export function collectionItemThumbnailSrc(
       dark: item.asset_thumbnail_dark_s3_key,
       stamp: item.asset_thumbnail_version,
       darkStamp: item.asset_thumbnail_dark_version,
+      renderer: item.asset_thumbnail_renderer,
     },
     isDark,
     assetBase,
   );
+}
+
+/**
+ * The URL a collection's own tile -- the mosaic of its first members -- is
+ * fetched from, or undefined when it has none.
+ *
+ * A collection has a dark mosaic composed from its members' dark tiles (#1789).
+ * It is stored beside the light one rather than recorded on the row, so it is
+ * always asked for in a dark portal, and the route answers with the light
+ * mosaic for a collection composed before it had one.
+ */
+export function collectionMosaicSrc(
+  collection: { id: string; thumbnail_s3_key?: string },
+  isDark = false,
+): string | undefined {
+  if (!collection.thumbnail_s3_key) return undefined;
+  const path = `/api/v1/portal/collections/${collection.id}/thumbnail`;
+  return isDark ? `${path}?variant=dark` : path;
 }
 
 /**
@@ -439,8 +472,8 @@ export function collectionItemThumbnailSrc(
  * A version write leaves the recorded capture in place, so an asset that has
  * been rewritten still shows an image — of the body it had one or more versions
  * ago. This is the question that says so. The dark variant is asked only of the
- * types that carry one; a type with its own colors serves the single capture in
- * both modes, so its empty dark key is not a gap.
+ * types that carry one; SVG and a raster image serve the single capture in both
+ * modes, so their empty dark key is not a gap.
  *
  * The renderer's claim asks the same question of every asset at once, in SQL
  * (internal/portal/portalstore); this copy is for the one asset on screen.

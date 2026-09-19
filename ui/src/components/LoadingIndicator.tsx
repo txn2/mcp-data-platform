@@ -1,14 +1,9 @@
 import { useBranding } from "@/api/portal/hooks";
-import { useThemeStore } from "@/stores/theme";
+import { useResolvedDark } from "@/stores/theme";
 
 export function LoadingIndicator() {
   const { data: branding } = useBranding();
-  const theme = useThemeStore((s) => s.theme);
-  const isDark =
-    theme === "dark" ||
-    (theme === "system" &&
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const isDark = useResolvedDark();
 
   const base = import.meta.env.BASE_URL;
   const defaultLogo = isDark
