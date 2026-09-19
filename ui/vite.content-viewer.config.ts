@@ -35,7 +35,13 @@ export default defineConfig({
     manifest: true,
     cssCodeSplit: false,
     rollupOptions: {
-      input: path.resolve(__dirname, "src/content-viewer-entry.tsx"),
+      // Two pages load from this build: the share viewer, and the page the
+      // platform's renderer draws a tile from (#1787). They share chunks, so a
+      // renderer the viewer draws with is the one a tile is drawn with.
+      input: {
+        "content-viewer-entry": path.resolve(__dirname, "src/content-viewer-entry.tsx"),
+        "tile-entry": path.resolve(__dirname, "src/tile-entry.tsx"),
+      },
       output: {
         format: "es",
         entryFileNames: "[name]-[hash].js",

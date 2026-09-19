@@ -697,16 +697,15 @@ object under an external location and parses it as CSV. A stray file beside the
 content does not fail the query - it comes back as rows of that file's bytes.
 Registration therefore refuses a directory with such a sibling and names it. A
 name beginning with `.` or `_` is hidden: Trino skips it, and so does the
-check. Thumbnails the portal captures are written under those names, so a CSV
-asset that has been rendered in the portal registers with its thumbnails in
-place.
+check. The thumbnails the platform draws are written under those names, so a
+CSV asset with a thumbnail registers with its thumbnails in place.
 
-Thumbnails captured before those names were adopted are stored as
+Thumbnails written before those names were adopted are stored as
 `thumbnail.png` and `thumbnail_dark.png` - ordinary files that Trino does read,
-so an asset still carrying them is refused. An asset carrying one is on the
-portal's thumbnail refresh queue for exactly this reason, so opening the portal
-in any tab captures it again under the hidden names and removes the objects it
-supersedes, after which it registers. Nothing has to be run against the bucket.
+so an asset still carrying them is refused. The platform draws such an asset
+again for exactly this reason, under the hidden names, and removes the objects
+the new tiles supersede, after which it registers. Nothing has to be run
+against the bucket.
 
 **A file whose own name Trino skips.** The same `.`/`_` rule applies to the
 file being registered. A table over a hidden object is created, recorded and

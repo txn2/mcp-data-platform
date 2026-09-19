@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -257,6 +258,12 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// Build and mount the root handler (MCP streamable HTTP + session + browser redirect).
 	rootHandler := buildRootHandler(mcpServer, p, hcfg)
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
+
+	// The tile worker draws from the routes assembled above, so it starts once
+	// the mux is complete and stops after the server has drained.
+	thumbs := thumbwire.Build(p, mux)
+	thumbs.Start(ctx)
+	defer thumbs.Stop()
 
 	hcfg.mcpServer = mcpServer
 	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), corsMiddleware(mux)), hcfg, hc)

@@ -5,7 +5,6 @@ import {
   useDeleteCollection,
   useUpdateCollectionConfig,
 } from "@/api/portal/hooks";
-import { CollectionThumbnailGenerator } from "@/components/CollectionThumbnailQueue";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { EmptyState } from "@/components/patterns/EmptyState";
@@ -59,8 +58,6 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
 
   return (
     <div className="space-y-6">
-      <CollectionThumbnailGenerator collection={coll} />
-
       <PageHeader
         onBack={onBack}
         icon={FolderOpen}

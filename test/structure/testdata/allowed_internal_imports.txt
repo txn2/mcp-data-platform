@@ -52,6 +52,7 @@ internal/apikeyissue -> internal/platform/apikeystore
 internal/apikeyissue -> pkg/auth
 internal/conncatchup -> internal/logsan
 internal/docread -> pkg/contenttype
+internal/headless -> internal/egressguard
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/apikeyissue
@@ -69,6 +70,7 @@ internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/tablehttp
 internal/httpserver -> internal/httpserver/tablesource
+internal/httpserver -> internal/httpserver/thumbwire
 internal/httpserver -> internal/httpserver/unsubhttp
 internal/httpserver -> internal/httpserver/userkeyhttp
 internal/httpserver -> internal/httpserver/versionhttp
@@ -181,6 +183,14 @@ internal/httpserver/tablesource -> internal/platform/tableregister
 internal/httpserver/tablesource -> internal/portal/portaldomain
 internal/httpserver/tablesource -> pkg/portal
 internal/httpserver/tablesource -> pkg/resource
+internal/httpserver/thumbwire -> internal/contentviewer
+internal/httpserver/thumbwire -> internal/egressguard
+internal/httpserver/thumbwire -> internal/headless
+internal/httpserver/thumbwire -> internal/platform/thumbworker
+internal/httpserver/thumbwire -> internal/portal/assetrefs
+internal/httpserver/thumbwire -> pkg/platform
+internal/httpserver/thumbwire -> pkg/portal
+internal/httpserver/thumbwire -> pkg/resource
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/userkeyhttp -> internal/apikeyissue
 internal/httpserver/userkeyhttp -> internal/logsan
@@ -503,6 +513,12 @@ internal/platform/tableregister -> pkg/middleware
 internal/platform/tableregister -> pkg/portal/knowledgepage
 internal/platform/tableregister -> pkg/toolkits/portal
 internal/platform/tableregister -> pkg/toolkits/trino
+internal/platform/thumbworker -> internal/headless
+internal/platform/thumbworker -> internal/logsan
+internal/platform/thumbworker -> internal/portal/assetrefs
+internal/platform/thumbworker -> internal/portal/portaldomain
+internal/platform/thumbworker -> internal/thumbtypes
+internal/platform/thumbworker -> pkg/resource
 internal/platform/toolargs -> pkg/middleware
 internal/platform/toolinventory -> internal/logsan
 internal/platform/toolinventory -> pkg/registry
@@ -522,6 +538,7 @@ internal/platform/utilconn -> internal/platform/utilhandler
 internal/platform/utilconn -> pkg/toolkits/apigateway
 internal/platform/utilconn -> pkg/toolkits/apigateway/catalog
 internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
+internal/platform/utilhandler -> internal/egressguard
 internal/portal/access -> internal/portal/portaldomain
 internal/portal/access -> pkg/portal/threads
 internal/portal/access -> pkg/prompt
@@ -780,6 +797,7 @@ pkg/platform -> internal/platform/scriptstore
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/sessionview
+pkg/platform -> internal/platform/thumbworker
 pkg/platform -> internal/platform/toolargs
 pkg/platform -> internal/platform/toolinventory
 pkg/platform -> internal/platform/toolkitcfg

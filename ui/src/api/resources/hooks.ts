@@ -67,28 +67,6 @@ export function useFacets(params?: { scope?: string; scope_id?: string }) {
   });
 }
 
-/** How often a tab asks the server what still needs a capture. */
-const THUMBNAIL_PENDING_POLL_MS = 5 * 60_000;
-
-/**
- * usePendingResourceThumbnails lists the resources whose capture is missing or
- * older than the file it came from.
- *
- * The server decides what is pending, from the row rather than from queue
- * state, so a tab does not have to be displaying a resource -- or be on the
- * Resources page at all -- to capture one (#1554).
- */
-export function usePendingResourceThumbnails() {
-  return useQuery({
-    queryKey: ["resource-thumbnails-pending"],
-    queryFn: () => resourceFetch<ResourceListResponse>("/thumbnails/pending"),
-    refetchInterval: THUMBNAIL_PENDING_POLL_MS,
-    refetchOnWindowFocus: true,
-    staleTime: THUMBNAIL_PENDING_POLL_MS,
-    select: (r) => ({ data: r.resources, total: r.total }),
-  });
-}
-
 export function useResources(params?: ResourceQuery) {
   const qs = resourceParams(params).toString();
 
@@ -199,16 +177,9 @@ export function useDeleteResource() {
 }
 
 /**
- * useClearResourceThumbnail discards a resource's stored captures so a fresh
- * one is taken.
- *
- * It is the way back from a tile that shows the wrong thing. Nothing on the
- * server rasterizes a document, and the refresh queue offers only resources
- * whose row says a capture is missing or older than the file, so a resource
- * holding a picture of its own error state stayed that way until someone
- * replaced its content (#1568). Clearing the row's pointers is what puts it
- * back in front of a capturer. The route clears both variants, which is why
- * this sends no variant.
+ * useClearResourceThumbnail discards a resource's stored tile, and any failure
+ * recorded against it, so the platform's renderer draws it again (#1568,
+ * #1787). The route clears both variants, which is why this sends no variant.
  */
 export function useClearResourceThumbnail() {
   const qc = useQueryClient();
@@ -223,12 +194,10 @@ export function useClearResourceThumbnail() {
       }
     },
     onSuccess: (_data, id) => {
-      // The resource query is what the viewer reads to decide a capture is
-      // wanted, so refreshing it is what starts the new one; the listing is
+      // The resource query is what the thumbnail panel reads; the listing is
       // what draws the tile everywhere else.
       void qc.invalidateQueries({ queryKey: ["resources", id] });
       void qc.invalidateQueries({ queryKey: ["resources"] });
-      void qc.invalidateQueries({ queryKey: ["resource-thumbnails-pending"] });
     },
   });
 }

@@ -2,6 +2,8 @@
 
 package resource
 
+import "time"
+
 // SQLSamples renders each statement this package assembles at run time, for the
 // gate that hands store SQL to a real PostgreSQL to parse and plan (#1512).
 //
@@ -61,11 +63,10 @@ func SQLSamples() map[string]string {
 	// which is the one statement here whose shape the planner has to accept
 	// rather than just its predicate.
 	folders, _ := buildFolders(Filter{Scopes: scopes})
-	// The pending-capture predicate (#1554): an ILIKE ANY over a bound array,
-	// two nullable timestamp comparisons, and the whole resource projection.
-	pending, _ := buildPendingThumbnails(Filter{Scopes: scopes}, 25)
-	setThumb := "UPDATE resources SET thumbnail_s3_key = $1, thumbnail_captured_at = $2 WHERE id = $3"
-	clearThumb := "UPDATE resources SET thumbnail_dark_s3_key = '', thumbnail_dark_captured_at = NULL WHERE id = $1"
+	// The renderer's claim (#1554, #1787): a locking subquery over the owed
+	// predicate, an ILIKE ANY over a bound array, and the whole projection
+	// RETURNED. The tile writes are the statements the store runs, not copies.
+	claim, _ := buildThumbnailClaim(1, time.Minute, 25)
 	foldersAll, _ := buildFolders(Filter{AllScopes: true})
 
 	return map[string]string{
@@ -78,9 +79,12 @@ func SQLSamples() map[string]string {
 		"buildList/count.all":     everyCount,
 		"buildList/page.all":      everyPage,
 		"buildFolders":            folders,
-		"buildPendingThumbnails":  pending,
-		"setThumbnail":            setThumb,
-		"clearThumbnail":          clearThumb,
+		"buildThumbnailClaim":     claim,
+		"setThumbnailLight":       setThumbnailQuery(ThumbnailVariantLight),
+		"setThumbnailDark":        setThumbnailQuery(ThumbnailVariantDark),
+		"clearThumbnailLight":     clearThumbnailQuery(ThumbnailVariantLight),
+		"clearThumbnailDark":      clearThumbnailQuery(ThumbnailVariantDark),
+		"recordThumbnailFailure":  recordThumbnailFailureQuery,
 		"buildFolders/all":        foldersAll,
 	}
 }

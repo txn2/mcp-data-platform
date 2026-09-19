@@ -116,10 +116,9 @@ func TestAssetUpdatedAt_RealDB_AnAuthoredChangeStillStampsIt(t *testing.T) {
 	}
 }
 
-// Criterion 4: running the pending-thumbnail pass over a library leaves it in
-// the order it was in. The captures run newest-first, which is the order a
-// worker walking the queue would produce and the order that would invert the
-// library if each capture stamped.
+// Criterion 4: the renderer drawing a library's owed tiles leaves it in the
+// order it was in. The claim returns newest-first, which is the order that
+// would invert the library if each recorded tile stamped updated_at.
 func TestAssetUpdatedAt_RealDB_ARecapturePassDoesNotReorderTheLibrary(t *testing.T) {
 	db := testdb.New(t)
 	store := &postgresAssetStore{db: db}
@@ -145,15 +144,18 @@ func TestAssetUpdatedAt_RealDB_ARecapturePassDoesNotReorderTheLibrary(t *testing
 	require.NoError(t, err)
 	require.Equal(t, []string{"asset_august", "asset_june", "asset_march"}, ids(before))
 
-	pending, _, err := store.List(ctx, portaldomain.AssetFilter{Owner: portaldomain.NewAssetOwner(stampOwner, ""), ThumbnailPending: true})
+	pending, err := store.ClaimThumbnailWork(ctx, testRenderer, time.Minute, 100)
 	require.NoError(t, err)
-	require.Len(t, pending, 3, "every legacy-key row is due for re-capture")
+	require.Len(t, pending, 3, "every legacy-key row is due to be drawn again")
 
-	version := 1
+	// The write the renderer makes for each: the tile, its version and
+	// generation, and the end of the lease.
+	version, renderer := 1, testRenderer
 	for _, a := range pending {
 		key := "k/" + a.ID + "/v1/.thumbnail.png"
 		require.NoError(t, store.Update(ctx, a.ID, portaldomain.AssetUpdate{
-			ThumbnailS3Key: &key, ThumbnailVersion: &version,
+			ThumbnailS3Key: &key, ThumbnailVersion: &version, ThumbnailRenderer: &renderer,
+			ReleaseThumbnailClaim: true,
 		}))
 	}
 

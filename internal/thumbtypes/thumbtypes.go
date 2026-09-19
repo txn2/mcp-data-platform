@@ -15,6 +15,11 @@
 // managed resource.
 package thumbtypes
 
+import (
+	"slices"
+	"strings"
+)
+
 // Capturable are the content families a browser can draw into a tile, as
 // fragments of the media type rather than exact types: a stored type carries
 // parameters and vendor prefixes ("text/markdown; charset=utf-8",
@@ -71,4 +76,64 @@ func ILikePatterns(fragments []string) []string {
 		patterns = append(patterns, "%"+f+"%")
 	}
 	return patterns
+}
+
+// IsThemeable reports whether contentType is drawn on a forced background and
+// so has a tile per color scheme.
+//
+// A content type belongs to the family of the FIRST Capturable fragment it
+// contains, which is how Capturable's order resolves overlaps: image/svg+xml
+// contains both "svg" and "xml", is an SVG, and carries its own colors. Asking
+// only "does it contain a themeable fragment" would call it themeable, and a
+// store asking that would owe every SVG a dark tile nothing ever draws.
+func IsThemeable(contentType string) bool {
+	return isThemeableFamily(family(contentType))
+}
+
+// ThemeableShadows are the fragments that are not themeable and come before
+// the themeable ones in Capturable's order. A content type is themeable
+// exactly when it contains a themeable fragment and none of these, which is
+// the form a store's SQL asks it in. That is exact only while every such
+// fragment precedes all the themeable ones; a test holds the order to it.
+func ThemeableShadows() []string {
+	var out []string
+	for _, f := range Capturable {
+		if isThemeableFamily(f) {
+			break
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// family is the first Capturable fragment contentType contains, or "".
+func family(contentType string) string {
+	ct := strings.ToLower(contentType)
+	for _, f := range Capturable {
+		if strings.Contains(ct, f) {
+			return f
+		}
+	}
+	return ""
+}
+
+func isThemeableFamily(fragment string) bool {
+	return slices.Contains(Themeable, fragment)
+}
+
+// DrawnAsDocument reports whether contentType is a document that lays itself
+// out at page size -- HTML and JSX -- rather than a family the portal lays out
+// on its own tile-sized surface. The two are drawn at different geometries.
+func DrawnAsDocument(contentType string) bool {
+	return containsAny(contentType, []string{"html", "jsx"})
+}
+
+func containsAny(contentType string, fragments []string) bool {
+	ct := strings.ToLower(contentType)
+	for _, f := range fragments {
+		if strings.Contains(ct, f) {
+			return true
+		}
+	}
+	return false
 }

@@ -16,12 +16,10 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
-// Upload ceilings for content and thumbnails.
+// Upload ceilings for content.
 const (
 	// MaxContentUploadBytes is the maximum size for content uploads (10 MB).
 	MaxContentUploadBytes = portaldomain.MaxContentUploadBytes
-	// MaxThumbnailUploadBytes is the maximum size for thumbnail uploads (512 KB).
-	MaxThumbnailUploadBytes = portaldomain.MaxThumbnailUploadBytes
 	// MaxChangeSummaryLength is the maximum length for a version change summary.
 	MaxChangeSummaryLength = portaldomain.MaxChangeSummaryLength
 )

@@ -461,10 +461,6 @@ func (metadataOnlyStore) SetThumbnail(_ context.Context, _ string, _ resource.Th
 
 func (metadataOnlyStore) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
 
-func (metadataOnlyStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}
-
 // The capture routes are not exercised here: this fake stands in for the read
 // paths a memStore uses, and none of them captures or lists a thumbnail.
 func (*memStore) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailCapture) error {
@@ -472,7 +468,3 @@ func (*memStore) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailC
 }
 
 func (*memStore) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
-
-func (*memStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}

@@ -30,11 +30,16 @@ export interface Resource {
   // down, so a non-image had no tile at all and an image cost its full size.
   thumbnail_s3_key?: string;
   thumbnail_dark_s3_key?: string;
-  // When each capture was taken. Older than updated_at means the capture is
-  // behind the file it came from, which is what puts the resource back on the
-  // pending list; a resource row carries no version, so this is the comparison.
+  // When each tile was drawn. Older than updated_at means the tile is behind the
+  // file it came from, and the platform's renderer draws it again; a resource
+  // row carries no version, so this is the comparison.
   thumbnail_captured_at?: string;
   thumbnail_dark_captured_at?: string;
+  // Why the renderer could not draw this file's tile, and the updated_at of the
+  // file it tried. The failure stands until the file changes or the tile is
+  // cleared (#1787).
+  thumbnail_failure?: string;
+  thumbnail_failed_at?: string;
 }
 
 // ResourceUsage is the audit-derived read activity of a resource. Both counts

@@ -3,6 +3,8 @@
 package portalstore
 
 import (
+	"time"
+
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 )
@@ -74,9 +76,11 @@ func SQLSamples() map[string]string {
 		ContentType: "text/csv", Tag: "script", Search: "revenue", Limit: 10, Offset: 20,
 	}
 	listFilterIDOnly := portaldomain.AssetFilter{
-		Owner:            portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
-		ThumbnailPending: true,
+		Owner: portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),
 	}
+	// The renderer's claim (#1787): the owed predicate under a locking
+	// subquery, with the listing projection RETURNED.
+	thumbnailClaim, _, _ := buildThumbnailClaim(1, time.Minute, 25)
 	// A managed script run's own inventory joins content_producers rather than
 	// reading either identifier on the row (#1579).
 	listFilterScript := portaldomain.AssetFilter{
@@ -122,6 +126,9 @@ func SQLSamples() map[string]string {
 	collSelectScriptSQL, _, _ := collSelectScript.ToSql()
 
 	return map[string]string{
+		"buildThumbnailClaim":                      thumbnailClaim,
+		"buildCollectionThumbnailClaim":            buildCollectionThumbnailClaim(),
+		"recordCollectionThumbnailQuery":           recordCollectionThumbnailQuery,
 		"buildAssetCount":                          assetCount,
 		"buildAssetCount/idOnly":                   assetCountIDOnly,
 		"buildAssetCount/script":                   assetCountScript,

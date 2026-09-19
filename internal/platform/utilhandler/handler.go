@@ -1,8 +1,10 @@
 package utilhandler
 
 import (
+	"fmt"
 	"net/http"
-	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/egressguard"
 )
 
 // FetchPath is the catalog path of the fetch_url operation. The
@@ -14,22 +16,11 @@ const FetchPath = "/util/fetch"
 const (
 	// decimalBase is the base-10 radix passed to strconv parse/format.
 	decimalBase = 10
-	// portBits is the bitSize passed to strconv.ParseUint for a TCP
-	// port (a uint16).
-	portBits = 16
 	// contentTypeHeader is the canonical Content-Type header name.
 	contentTypeHeader = "Content-Type"
 	// linkHeader is relayed from the fetched response: it is the pagination
 	// signal a walk over a fetched document follows (#1544).
 	linkHeader = "Link"
-)
-
-// idleConnectionTimeout / maxIdleConnections mirror the gateway's own
-// outbound-transport pool tuning: occasional fan-out from tool calls,
-// not high-throughput traffic.
-const (
-	idleConnectionTimeout = 90 * time.Second
-	maxIdleConnections    = 10
 )
 
 // Options configures the util handler.
@@ -56,22 +47,16 @@ type handler struct {
 // operations the embedded catalog spec (SpecJSON) declares; the two
 // are versioned together in this package so they cannot drift.
 //
-// The outbound transport deliberately ignores proxy environment
-// variables: an egress proxy sits inside the network perimeter, and
-// routing guarded fetches through it would let the proxy reach
-// destinations the dial guard just refused.
+// Every outbound dial passes the shared egress guard, whose transport
+// ignores proxy environment variables: an egress proxy sits inside the
+// network perimeter, and routing a guarded fetch through it would let the
+// proxy reach a destination the guard just refused.
 func New(opts Options) (http.Handler, error) {
-	guard, err := newDialGuard(opts.AllowPrivateCIDRs)
+	guard, err := egressguard.New(opts.AllowPrivateCIDRs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("utilhandler: apigateway.util_connection.allow_private_cidrs: %w", err)
 	}
-	h := &handler{transport: &http.Transport{
-		DialContext:           guard.DialContext,
-		TLSHandshakeTimeout:   connectTimeout,
-		ExpectContinueTimeout: time.Second,
-		IdleConnTimeout:       idleConnectionTimeout,
-		MaxIdleConns:          maxIdleConnections,
-	}}
+	h := &handler{transport: guard.Transport()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+FetchPath, h.handleFetch)
 	return mux, nil

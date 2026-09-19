@@ -325,6 +325,25 @@ services:
       retries: 20
       start_period: 10s
 
+
+  # renderer: the headless Chrome the platform draws every tile in (#1787).
+  # A deployment runs the same image as a second container in the platform's
+  # pod; here the host-run replicas share this one on 127.0.0.1. The platform
+  # dials its DevTools socket and answers every request the page makes
+  # itself, so the renderer is never pointed at the platform.
+  #
+  # host.docker.internal resolves on Linux as it does on Docker Desktop, so
+  # the acceptance suite can name an address the renderer COULD reach and
+  # prove a document never does (issue_1787_test.go).
+  renderer:
+    image: chromedp/headless-shell@sha256:2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04
+    container_name: acme-dev-renderer
+    ports:
+      - "127.0.0.1:${DEV_RENDERER_PORT:-9222}:9222"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: "256m"
+
 volumes:
   acme_postgres_data:
   acme_seaweed_data:

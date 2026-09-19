@@ -196,8 +196,26 @@ func TestHandleFetch_BlockedDestinationIs403(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d; want 403 (body %q)", rec.Code, rec.Body.String())
 	}
-	if msg := errorField(t, rec); !strings.Contains(msg, "refused") {
-		t.Errorf("error = %q; want guard refusal text", msg)
+	// The refusal names the remedy this connection owns, so an operator who
+	// meant to allow the destination knows which setting exempts it.
+	msg := errorField(t, rec)
+	for _, want := range []string{"refused", "169.254.169.254", "apigateway.util_connection.allow_private_cidrs"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error = %q; missing %q", msg, want)
+		}
+	}
+}
+
+// TestNew_InvalidAllowPrivateCIDRNamesTheSetting pins the startup error: an
+// unparseable exemption names the configuration key it came from, not only
+// the shared guard that parsed it.
+func TestNew_InvalidAllowPrivateCIDRNamesTheSetting(t *testing.T) {
+	_, err := New(Options{AllowPrivateCIDRs: []string{"not-a-cidr"}})
+	if err == nil {
+		t.Fatal("expected an error for an unparseable prefix")
+	}
+	if !strings.Contains(err.Error(), "apigateway.util_connection.allow_private_cidrs") {
+		t.Errorf("err = %q; want it to name the setting", err)
 	}
 }
 

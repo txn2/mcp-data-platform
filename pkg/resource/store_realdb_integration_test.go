@@ -10,6 +10,7 @@ package resource
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -121,14 +122,19 @@ func TestResourceStore_Facets_RealDB(t *testing.T) {
 	assert.Empty(t, tags)
 }
 
-// A resource's captured thumbnail against a real PostgreSQL (#1554). The
-// pending predicate is two nullable timestamp comparisons and an ILIKE over a
-// bound array; sqlmock returns whatever rows a test supplies and would agree
-// with any of it.
+// thumbnailTestRenderer is the renderer generation these tests claim for.
+const thumbnailTestRenderer = 1
+
+// A resource's tile against a real PostgreSQL (#1554, #1787). The claim is
+// nullable timestamp comparisons and an ILIKE over a bound array under a
+// locking subquery; sqlmock returns whatever rows a test supplies and would
+// agree with any of it.
 func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
-	store := NewPostgresStore(testdb.New(t))
+	db := testdb.New(t)
+	store := NewPostgresStore(db)
+	work, ok := store.(ThumbnailWork)
+	require.True(t, ok, "the PostgreSQL store does not implement ThumbnailWork")
 	ctx := context.Background()
-	global := Filter{Scopes: []ScopeFilter{{Scope: ScopeGlobal}}}
 
 	insert := func(id, mime string, size int64) {
 		require.NoError(t, store.Insert(ctx, Resource{
@@ -138,6 +144,7 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 		}))
 	}
 	insert("res_t_md", "text/markdown", 100)
+	insert("res_t_svg", "image/svg+xml", 100)
 	insert("res_t_png", "image/png", 100)
 	// The two families this store had lost against the other copies of the rule
 	// (#1568): the capturer renders JSX and has prose CSS that draws plain text,
@@ -149,8 +156,12 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	insert("res_t_pdf", "application/pdf", 100)
 	insert("res_t_big", "text/markdown", MaxThumbnailSourceBytes+1)
 
+	// Claims what the renderer is owed, then releases the leases, so the
+	// criterion can ask more than once.
 	pendingIDs := func() map[string]bool {
-		out, err := store.PendingThumbnails(ctx, global, 100)
+		out, err := work.ClaimThumbnailWork(ctx, thumbnailTestRenderer, time.Minute, 100)
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, `UPDATE resources SET thumbnail_claimed_until = NULL`)
 		require.NoError(t, err)
 		ids := map[string]bool{}
 		for _, r := range out {
@@ -165,19 +176,19 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	assert.True(t, ids["res_t_jsx"], "the capturer renders JSX, so a JSX resource is offered")
 	assert.True(t, ids["res_t_txt"], "plain text is drawn with the capturer's prose CSS")
 	assert.False(t, ids["res_t_pdf"], "nothing can rasterize a PDF, so it is never offered")
-	assert.False(t, ids["res_t_big"], "past the source cap the capture would stall the tab doing it")
+	assert.False(t, ids["res_t_big"], "past the source cap the renderer is never handed the file")
 
 	// Capturing the light variant is not enough for a themeable type: markdown
 	// renders on a forced background and needs the dark pass too.
 	md, err := store.Get(ctx, "res_t_md")
 	require.NoError(t, err)
 	require.NoError(t, store.SetThumbnail(ctx, "res_t_md", ThumbnailCapture{
-		Variant: ThumbnailVariantLight, S3Key: "k/light.png", CapturedAt: md.UpdatedAt,
+		Variant: ThumbnailVariantLight, S3Key: "k/light.png", CapturedAt: md.UpdatedAt, Renderer: thumbnailTestRenderer,
 	}))
 	assert.True(t, pendingIDs()["res_t_md"], "still pending on its dark variant")
 
 	require.NoError(t, store.SetThumbnail(ctx, "res_t_md", ThumbnailCapture{
-		Variant: ThumbnailVariantDark, S3Key: "k/dark.png", CapturedAt: md.UpdatedAt,
+		Variant: ThumbnailVariantDark, S3Key: "k/dark.png", CapturedAt: md.UpdatedAt, Renderer: thumbnailTestRenderer,
 	}))
 	assert.False(t, pendingIDs()["res_t_md"], "both variants captured and current")
 
@@ -185,20 +196,29 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	png, err := store.Get(ctx, "res_t_png")
 	require.NoError(t, err)
 	require.NoError(t, store.SetThumbnail(ctx, "res_t_png", ThumbnailCapture{
-		Variant: ThumbnailVariantLight, S3Key: "k/png.png", CapturedAt: png.UpdatedAt,
+		Variant: ThumbnailVariantLight, S3Key: "k/png.png", CapturedAt: png.UpdatedAt, Renderer: thumbnailTestRenderer,
 	}))
 	assert.False(t, pendingIDs()["res_t_png"], "one capture is enough for a type with its own colours")
+
+	// image/svg+xml contains "xml"; it is an SVG, with its own colors, and one
+	// capture settles it rather than owing a dark tile nothing draws.
+	svg, err := store.Get(ctx, "res_t_svg")
+	require.NoError(t, err)
+	require.NoError(t, store.SetThumbnail(ctx, "res_t_svg", ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/svg.png", CapturedAt: svg.UpdatedAt, Renderer: thumbnailTestRenderer,
+	}))
+	assert.False(t, pendingIDs()["res_t_svg"], "an SVG is not owed a dark tile")
 
 	// Plain text is drawn on a forced background, so like markdown it is asked
 	// for both variants rather than settled by the light one.
 	txt, err := store.Get(ctx, "res_t_txt")
 	require.NoError(t, err)
 	require.NoError(t, store.SetThumbnail(ctx, "res_t_txt", ThumbnailCapture{
-		Variant: ThumbnailVariantLight, S3Key: "k/txt.png", CapturedAt: txt.UpdatedAt,
+		Variant: ThumbnailVariantLight, S3Key: "k/txt.png", CapturedAt: txt.UpdatedAt, Renderer: thumbnailTestRenderer,
 	}))
 	assert.True(t, pendingIDs()["res_t_txt"], "still pending on its dark variant")
 	require.NoError(t, store.SetThumbnail(ctx, "res_t_txt", ThumbnailCapture{
-		Variant: ThumbnailVariantDark, S3Key: "k/txt_dark.png", CapturedAt: txt.UpdatedAt,
+		Variant: ThumbnailVariantDark, S3Key: "k/txt_dark.png", CapturedAt: txt.UpdatedAt, Renderer: thumbnailTestRenderer,
 	}))
 	assert.False(t, pendingIDs()["res_t_txt"], "both variants captured and current")
 
@@ -228,4 +248,81 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 		Variant: ThumbnailVariantLight, S3Key: "k", CapturedAt: time.Now(),
 	}))
 	assert.Error(t, store.ClearThumbnail(ctx, "res_t_missing", ThumbnailVariantLight))
+}
+
+// TestResourceStore_ThumbnailClaim_RealDB pins what the renderer's claim adds
+// to the owed predicate (#1787): an older renderer is owed again, a failure
+// holds until the file changes, a lease is exclusive until it lapses, and a
+// drawn tile clears both the failure and the lease.
+func TestResourceStore_ThumbnailClaim_RealDB(t *testing.T) {
+	db := testdb.New(t)
+	store := NewPostgresStore(db)
+	work := store.(ThumbnailWork)
+	ctx := context.Background()
+	insert := func(id string) *Resource {
+		require.NoError(t, store.Insert(ctx, Resource{
+			ID: id, Scope: ScopeGlobal, Path: "visual", Filename: id, DisplayName: id,
+			MIMEType: "text/html", SizeBytes: 100, S3Key: "resources/" + id + "/" + id,
+			URI: "mcp://global/visual/" + id,
+		}))
+		r, err := store.Get(ctx, id)
+		require.NoError(t, err)
+		return r
+	}
+	claim := func() []string {
+		out, err := work.ClaimThumbnailWork(ctx, thumbnailTestRenderer, time.Minute, 100)
+		require.NoError(t, err)
+		ids := make([]string, 0, len(out))
+		for _, r := range out {
+			ids = append(ids, r.ID)
+		}
+		return ids
+	}
+	release := func() {
+		_, err := db.ExecContext(ctx, `UPDATE resources SET thumbnail_claimed_until = NULL`)
+		require.NoError(t, err)
+	}
+
+	old := insert("res_c_old")
+	require.NoError(t, work.SetThumbnail(ctx, old.ID, ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/old.png", CapturedAt: old.UpdatedAt, Renderer: 0,
+	}))
+	current := insert("res_c_current")
+	require.NoError(t, work.SetThumbnail(ctx, current.ID, ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/cur.png", CapturedAt: current.UpdatedAt, Renderer: thumbnailTestRenderer,
+	}))
+	failed := insert("res_c_failed")
+	require.NoError(t, work.RecordThumbnailFailure(ctx, failed.ID, "the document did not finish drawing", failed.UpdatedAt))
+
+	first := claim()
+	assert.ElementsMatch(t, []string{"res_c_old"}, first,
+		"an older renderer's tile is owed; a current one is not; a failure at the file as it stands is not retried")
+	assert.Empty(t, claim(), "a leased row was claimed a second time")
+	release()
+
+	// The failure is readable, and a write to the file puts it back.
+	got, err := store.Get(ctx, failed.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "the document did not finish drawing", got.ThumbnailFailure)
+	require.NotNil(t, got.ThumbnailFailedAt)
+	name := "Renamed"
+	require.NoError(t, store.Update(ctx, failed.ID, Update{DisplayName: &name}))
+	assert.Contains(t, claim(), "res_c_failed", "a file that changed after its failure is tried again")
+	release()
+
+	// Drawing the tile clears the failure and the lease.
+	fresh, err := store.Get(ctx, failed.ID)
+	require.NoError(t, err)
+	require.NoError(t, work.SetThumbnail(ctx, failed.ID, ThumbnailCapture{
+		Variant: ThumbnailVariantLight, S3Key: "k/drawn.png", CapturedAt: fresh.UpdatedAt, Renderer: thumbnailTestRenderer,
+	}))
+	drawn, err := store.Get(ctx, failed.ID)
+	require.NoError(t, err)
+	assert.Empty(t, drawn.ThumbnailFailure)
+	assert.Nil(t, drawn.ThumbnailFailedAt)
+	var leased sql.NullTime
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT thumbnail_claimed_until FROM resources WHERE id = $1`, failed.ID).Scan(&leased))
+	assert.False(t, leased.Valid, "the lease survived the drawn tile")
+
+	assert.Error(t, work.RecordThumbnailFailure(ctx, "res_c_missing", "x", time.Now()))
 }

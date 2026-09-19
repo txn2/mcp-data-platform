@@ -646,30 +646,3 @@ for (const asset of mockAssets) {
   };
 }
 
-/**
- * Marks an asset's thumbnail as one version behind its content, the state a
- * rewrite leaves since #1431.
- *
- * The fixture library is otherwise settled: every asset in it has a current
- * capture, so no page in the portal finds work for the refresh queue. That is
- * deliberate. The queue runs in the shell now, so a permanently stale fixture
- * would have every spec in the suite fetch the capturer (html2canvas, the
- * markdown renderer and the diagram engine) and rasterize an asset it is not
- * testing -- which took the e2e suite from 1.3 to 5 minutes and timed out the
- * chunk loads of pages that had nothing to do with thumbnails.
- *
- * A spec that IS testing the queue sets `__STALE_THUMBNAILS__` before the app
- * boots, and pays that cost on purpose.
- */
-const stale = (globalThis as { __STALE_THUMBNAILS__?: string[] }).__STALE_THUMBNAILS__;
-if (stale) {
-  for (const id of stale) {
-    const asset = mockAssets.find((a) => a.id === id);
-    if (asset) {
-      asset.thumbnail_version = Math.max(0, asset.current_version - 1);
-      asset.thumbnail_dark_version = asset.thumbnail_dark_s3_key
-        ? Math.max(0, asset.current_version - 1)
-        : 0;
-    }
-  }
-}

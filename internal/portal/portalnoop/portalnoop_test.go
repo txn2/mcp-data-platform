@@ -159,9 +159,6 @@ func TestNoopCollectionStore(t *testing.T) {
 	err = store.UpdateConfig(ctx, "any", portaldomain.CollectionConfig{})
 	assert.NoError(t, err)
 
-	err = store.UpdateThumbnail(ctx, "any", "key")
-	assert.NoError(t, err)
-
 	err = store.SoftDelete(ctx, "any")
 	assert.NoError(t, err)
 

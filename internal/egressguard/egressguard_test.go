@@ -1,9 +1,10 @@
-package utilhandler
+package egressguard
 
 import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"net/netip"
 	"strings"
 	"testing"
@@ -69,19 +70,19 @@ func TestHostnameBlocked(t *testing.T) {
 	}
 }
 
-func TestNewDialGuard_InvalidCIDR(t *testing.T) {
-	if _, err := newDialGuard([]string{"not-a-cidr"}); err == nil {
+func TestNew_InvalidCIDR(t *testing.T) {
+	if _, err := New([]string{"not-a-cidr"}); err == nil {
 		t.Fatal("expected error for invalid CIDR")
 	}
-	if _, err := newDialGuard([]string{"127.0.0.1"}); err == nil {
+	if _, err := New([]string{"127.0.0.1"}); err == nil {
 		t.Fatal("expected error for bare IP (prefix required)")
 	}
 }
 
-func TestDialGuard_AllowPrivateOverride(t *testing.T) {
-	g, err := newDialGuard([]string{" 127.0.0.0/8 ", "10.5.0.0/16"})
+func TestGuard_AllowPrivateOverride(t *testing.T) {
+	g, err := New([]string{" 127.0.0.0/8 ", "10.5.0.0/16"})
 	if err != nil {
-		t.Fatalf("newDialGuard: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	for _, allowed := range []string{"127.0.0.1", "10.5.9.9"} {
 		if ok, reason := g.permitted(netip.MustParseAddr(allowed)); !ok {
@@ -96,13 +97,13 @@ func TestDialGuard_AllowPrivateOverride(t *testing.T) {
 
 // stubGuard builds a guard whose resolver and dialer are test doubles.
 // dialed records every address handed to the dialer. The guard carries
-// no allow-list — these tests exercise the classifier and dial path,
-// not the operator exemption (covered by TestDialGuard_AllowPrivateOverride).
-func stubGuard(t *testing.T, addrs []netip.Addr, lookupErr, dialErr error) (*dialGuard, *[]netip.AddrPort) {
+// no allow-list -- these tests exercise the classifier and dial path,
+// not the operator exemption (covered by TestGuard_AllowPrivateOverride).
+func stubGuard(t *testing.T, addrs []netip.Addr, lookupErr, dialErr error) (*Guard, *[]netip.AddrPort) {
 	t.Helper()
-	g, err := newDialGuard(nil)
+	g, err := New(nil)
 	if err != nil {
-		t.Fatalf("newDialGuard: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	g.lookup = func(_ context.Context, _ string) ([]netip.Addr, error) {
 		return addrs, lookupErr
@@ -120,38 +121,38 @@ func stubGuard(t *testing.T, addrs []netip.Addr, lookupErr, dialErr error) (*dia
 	return g, dialed
 }
 
-func TestDialGuard_DialContext_BlockedHostname(t *testing.T) {
+func TestGuard_DialContext_BlockedHostname(t *testing.T) {
 	g, dialed := stubGuard(t, nil, nil, nil)
 	_, err := g.DialContext(context.Background(), "tcp", "internal.svc.cluster.local:443")
-	var blocked *blockedDestinationError
+	var blocked *BlockedError
 	if !errors.As(err, &blocked) {
-		t.Fatalf("err = %v; want blockedDestinationError", err)
+		t.Fatalf("err = %v; want *BlockedError", err)
 	}
 	if len(*dialed) != 0 {
 		t.Errorf("dialed %v; blocked hostname must never dial", *dialed)
 	}
 }
 
-// TestDialGuard_DialContext_RebindingResolver is the DNS-rebinding
-// case: a public-looking hostname whose resolver answer is a private
-// address. The guard must refuse at dial time — the only sound place,
-// because any earlier check races a second resolution.
-func TestDialGuard_DialContext_RebindingResolver(t *testing.T) {
+// TestGuard_DialContext_RebindingResolver is the DNS-rebinding case: a
+// public-looking hostname whose resolver answer is a private address. The
+// guard must refuse at dial time -- the only sound place, because any earlier
+// check races a second resolution.
+func TestGuard_DialContext_RebindingResolver(t *testing.T) {
 	g, dialed := stubGuard(t, []netip.Addr{netip.MustParseAddr("10.0.0.5")}, nil, nil)
 	_, err := g.DialContext(context.Background(), "tcp", "public-looking.example.com:443")
-	var blocked *blockedDestinationError
+	var blocked *BlockedError
 	if !errors.As(err, &blocked) {
-		t.Fatalf("err = %v; want blockedDestinationError", err)
+		t.Fatalf("err = %v; want *BlockedError", err)
 	}
 	if len(*dialed) != 0 {
 		t.Errorf("dialed %v; private resolution must never dial", *dialed)
 	}
 }
 
-// TestDialGuard_DialContext_MixedAnswersDialsVettedOnly pins the pin:
-// with mixed public+private answers, only the vetted public address
-// is dialed, and it is dialed literally (not re-resolved).
-func TestDialGuard_DialContext_MixedAnswersDialsVettedOnly(t *testing.T) {
+// TestGuard_DialContext_MixedAnswersDialsVettedOnly pins the pin: with mixed
+// public+private answers, only the vetted public address is dialed, and it is
+// dialed literally (not re-resolved).
+func TestGuard_DialContext_MixedAnswersDialsVettedOnly(t *testing.T) {
 	pub := netip.MustParseAddr("93.184.216.34")
 	g, dialed := stubGuard(t, []netip.Addr{netip.MustParseAddr("169.254.169.254"), pub}, nil, nil)
 	conn, err := g.DialContext(context.Background(), "tcp", "mixed.example.com:80")
@@ -164,7 +165,7 @@ func TestDialGuard_DialContext_MixedAnswersDialsVettedOnly(t *testing.T) {
 	}
 }
 
-func TestDialGuard_DialContext_Errors(t *testing.T) {
+func TestGuard_DialContext_Errors(t *testing.T) {
 	errResolve := errors.New("resolve boom")
 	errDial := errors.New("dial boom")
 	pub := []netip.Addr{netip.MustParseAddr("93.184.216.34")}
@@ -196,12 +197,43 @@ func TestDialGuard_DialContext_Errors(t *testing.T) {
 	}
 }
 
-func TestBlockedDestinationError_Text(t *testing.T) {
-	e := &blockedDestinationError{host: "10.0.0.1", reason: "private address range"}
+func TestBlockedError_Text(t *testing.T) {
+	e := &BlockedError{Host: "10.0.0.1", Reason: "private address range"}
 	msg := e.Error()
-	for _, want := range []string{"10.0.0.1", "private address range", "allow_private_cidrs"} {
+	for _, want := range []string{"10.0.0.1", "private address range"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error text %q missing %q", msg, want)
 		}
+	}
+}
+
+// TestTransport_RoutesThroughGuardAndIgnoresProxy pins the two properties a
+// guarded client depends on: the transport's dials pass the guard, and no
+// proxy is consulted -- an egress proxy inside the perimeter would reach a
+// destination the guard refused.
+func TestTransport_RoutesThroughGuardAndIgnoresProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+	t.Setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
+
+	g, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	tr := g.Transport()
+	if tr.Proxy != nil {
+		t.Fatal("Transport().Proxy is set; a guarded transport must not consult a proxy")
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://localhost:1/", http.NoBody)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	var blocked *BlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("err = %v; want *BlockedError from the guard", err)
 	}
 }

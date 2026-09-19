@@ -130,36 +130,6 @@ export function useAssetContent(id: string, sizeBytes?: number) {
   });
 }
 
-/**
- * How often a tab asks the server what still needs a thumbnail.
- *
- * The queue is drained by whichever tab happens to be open, so the poll is what
- * connects an asset a script rewrote in the background to a browser that can
- * rasterize it. Five minutes is slow enough to be invisible next to the rest of
- * the portal's traffic and fast enough that an asset refreshed on an hourly
- * schedule has an up-to-date image long before anyone looks at it.
- */
-const THUMBNAIL_PENDING_POLL_MS = 5 * 60_000;
-
-/**
- * usePendingThumbnails lists the caller's assets whose thumbnail is missing or
- * has not caught up with the current version.
- *
- * The server decides what is pending -- from the asset row, not from queue
- * state -- so a tab does not have to be displaying an asset, or even be on the
- * assets page, to capture one. Refetching on focus is deliberate: a tab left
- * open all day is the one most likely to be holding a stale answer.
- */
-export function usePendingThumbnails() {
-  return useQuery({
-    queryKey: ["thumbnails-pending"],
-    queryFn: () => apiFetch<PaginatedResponse<Asset>>("/thumbnails/pending"),
-    refetchInterval: THUMBNAIL_PENDING_POLL_MS,
-    refetchOnWindowFocus: true,
-    staleTime: THUMBNAIL_PENDING_POLL_MS,
-  });
-}
-
 export function useShares(assetId: string) {
   return useQuery({
     queryKey: ["shares", assetId],
@@ -276,14 +246,12 @@ export function useUpdateAsset() {
 }
 
 /**
- * useClearAssetThumbnail discards an asset's stored captures so a fresh one is
- * taken.
+ * useClearAssetThumbnail discards an asset's stored tile, and any failure
+ * recorded against it, so the platform's renderer draws it again.
  *
- * It is the way back from a tile that shows the wrong thing. Nothing on the
- * server rasterizes an asset, and the refresh queue offers only assets whose
- * row says a capture is missing or behind, so an asset holding a picture of its
- * own error state stayed that way until someone wrote a new version (#1497).
- * Clearing the row's pointers is what puts it back in front of a capturer.
+ * It is the way back from a tile that shows the wrong thing (#1497), and the
+ * way to ask for another attempt at a document the renderer could not draw
+ * (#1787).
  */
 export function useClearAssetThumbnail() {
   const qc = useQueryClient();
@@ -291,8 +259,8 @@ export function useClearAssetThumbnail() {
     mutationFn: (id: string) =>
       apiFetch(`/assets/${id}/thumbnail`, { method: "DELETE" }),
     onSuccess: (_data, id) => {
-      // The asset query is what the viewer reads to decide a capture is wanted,
-      // so refreshing it is what starts the new one.
+      // The asset query is what the thumbnail panel reads to show the tile
+      // being drawn and, once it lands, the new one.
       void qc.invalidateQueries({ queryKey: ["asset", id] });
       void qc.invalidateQueries({ queryKey: ["assets"] });
     },

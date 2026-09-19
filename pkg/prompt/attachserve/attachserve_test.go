@@ -480,7 +480,3 @@ func (*fakeResources) SetThumbnail(_ context.Context, _ string, _ resource.Thumb
 }
 
 func (*fakeResources) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
-
-func (*fakeResources) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}

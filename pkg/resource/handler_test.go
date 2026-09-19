@@ -16,8 +16,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 // --- mock store ---
@@ -180,54 +178,6 @@ func (m *mockStore) ClearThumbnail(_ context.Context, id, variant string) error 
 	}
 	r.ThumbnailS3Key, r.ThumbnailCapturedAt = "", nil
 	return nil
-}
-
-func (m *mockStore) PendingThumbnails(_ context.Context, filter Filter, limit int) ([]Resource, error) {
-	var out []Resource
-	for _, r := range m.resources {
-		if !filter.AllScopes && !visibleTo(filter.Scopes, r) {
-			continue
-		}
-		if !capturableType(r.MIMEType) || r.SizeBytes > MaxThumbnailSourceBytes {
-			continue
-		}
-		if thumbnailBehind(r, ThumbnailVariantLight) ||
-			(themeableType(r.MIMEType) && thumbnailBehind(r, ThumbnailVariantDark)) {
-			out = append(out, *r)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
-}
-
-// thumbnailBehind is the per-variant half of the pending rule.
-func thumbnailBehind(r *Resource, variant string) bool {
-	key, at := r.ThumbnailS3Key, r.ThumbnailCapturedAt
-	if variant == ThumbnailVariantDark {
-		key, at = r.ThumbnailDarkS3Key, r.ThumbnailDarkCapturedAt
-	}
-	return key == "" || at == nil || at.Before(r.UpdatedAt)
-}
-
-func capturableType(mime string) bool {
-	for _, fragment := range thumbtypes.Capturable {
-		if strings.Contains(strings.ToLower(mime), fragment) {
-			return true
-		}
-	}
-	return false
-}
-
-func themeableType(mime string) bool {
-	for _, fragment := range thumbtypes.Themeable {
-		if strings.Contains(strings.ToLower(mime), fragment) {
-			return true
-		}
-	}
-	return false
 }
 
 // visibleTo is the scope arm of the fake's List, Folders and Tags, stated once.

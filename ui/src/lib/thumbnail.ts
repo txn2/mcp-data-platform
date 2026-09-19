@@ -1,4 +1,3 @@
-import { authedFetch } from "@/api/authed";
 import {
   transformJsx,
   escapeScriptClose,
@@ -7,40 +6,20 @@ import {
   viewerOrigin,
   REF_PATH_PREFIX,
 } from "@/components/renderers/JsxRenderer";
-import { THUMB_WIDTH, THUMB_HEIGHT, thumbnailPath } from "@/lib/thumbnailSupport";
-import { rasterize, canvasToPng, type RasterOutcome } from "@/lib/thumbnailRaster";
-import type { ThumbnailTarget } from "@/lib/thumbnailSupport";
 
-// Re-exported so the capturer has one import for everything it needs. Callers
-// that only ask which types are supported import lib/thumbnailSupport directly
-// and stay clear of html2canvas.
-export {
-  THUMB_WIDTH,
-  THUMB_HEIGHT,
-  THUMBNAIL_SOURCE_LIMIT,
-  isThumbnailSupported,
-  isThemeable,
-  captureFamily,
-  thumbnailPath,
-  contentPath,
-} from "@/lib/thumbnailSupport";
-export type { ThumbnailTarget } from "@/lib/thumbnailSupport";
-
-/** Desktop viewport dimensions used for rendering before scaling down. */
-export const RENDER_WIDTH = 1280;
-export const RENDER_HEIGHT = 960;
-
-/** Capture timeout in milliseconds. */
-export const CAPTURE_TIMEOUT_MS = 15_000;
+// The documents a tile of HTML or JSX is drawn from (#1787). The platform's
+// renderer loads the tile page (src/tile-entry.tsx), which puts one of these in
+// a frame and waits for the frame to say it has settled.
 
 /**
  * How long the frame waits for reference loads still in flight when it would
  * otherwise report itself ready.
  *
  * A referenced CSV fetched at render time is the thing the artifact draws its
- * numbers from, so capturing before it lands stores a picture of the loading
- * state. The wait is bounded well inside CAPTURE_TIMEOUT_MS so a reference that
- * never answers ends as a discarded capture rather than as the parent's timeout.
+ * numbers from, so drawing before it lands stores a picture of the loading
+ * state. The wait is bounded well inside the renderer's own deadline, so a
+ * reference that never answers ends as a reason the tile was not stored rather
+ * than as a render that timed out.
  */
 const REF_SETTLE_TIMEOUT_MS = 8_000;
 
@@ -159,21 +138,11 @@ function notifierScript(assetId: string, delayMs: number): string {
 }
 
 /**
- * Inject the reference watcher and a self-capture notifier into HTML content
- * that runs inside a sandboxed blob: iframe. The script uses a bundled copy of
- * html2canvas (injected as an inline script) instead of loading from a CDN,
- * avoiding supply-chain risk and CSP issues.
- *
- * The injected code posts a "thumbnail-ready" message back to the parent via
- * postMessage with origin "null" (blob: iframe), carrying the count of
- * reference loads that failed.
+ * Put the reference watcher and the ready notifier into an HTML document, so
+ * the frame it is drawn in reports when it has settled and how many of the
+ * files it links to failed to load.
  */
 export function injectCaptureScript(html: string, assetId = ""): string {
-  // We serialize the html2canvas entry point path so the iframe can import it.
-  // Since the iframe is sandboxed with a blob: URL, we can't use ES module
-  // imports. Instead, we render the content and use the parent to capture.
-  // The iframe posts a "thumbnail-ready" message when loaded, and the parent
-  // captures it using html2canvas on the iframe's contentDocument.
   const script = `
 <script>
 (function() {
@@ -218,148 +187,8 @@ function insertRefWatch(html: string): string {
   return watch + html;
 }
 
-/**
- * Capture an iframe element's content using the bundled html2canvas.
- * The iframe must have same-origin access (an srcdoc frame satisfies this
- * when the sandbox includes allow-same-origin).
- *
- * The pixels are drawn on a canvas the FRAME's document creates, not this
- * one. html2canvas measures where each word sits in the frame's document,
- * whose stylesheets declare the artifact's web fonts, and then draws the
- * glyphs through a canvas context; a context belonging to this document
- * knows none of those fonts and draws a fallback face instead. A wider
- * fallback overran the measured positions and closed every word gap, which is
- * how a slide deck on the served runtime's embedded typeface captured as
- * "Presentingfromthe portal" (#1767). The canvas is sized here because
- * html2canvas sizes only a canvas it created itself.
- */
-export async function captureIframe(iframe: HTMLIFrameElement): Promise<CaptureResult> {
-  const doc = iframe.contentDocument;
-  if (!doc?.body) throw new Error("Cannot access iframe content");
-
-  const scale = THUMB_WIDTH / RENDER_WIDTH;
-  const canvas = doc.createElement("canvas");
-  canvas.width = Math.floor(RENDER_WIDTH * scale);
-  canvas.height = Math.floor(RENDER_HEIGHT * scale);
-
-  const outcome = await rasterize(doc.body, {
-    width: RENDER_WIDTH,
-    height: RENDER_HEIGHT,
-    windowWidth: RENDER_WIDTH,
-    windowHeight: RENDER_HEIGHT,
-    scale,
-    logging: false,
-    useCORS: true,
-    canvas,
-  });
-
-  return { blob: await canvasToPng(outcome.canvas), outcome };
-}
-
-/** A drawn tile, and what the rasterizer had to leave out to draw it. */
-export interface CaptureResult {
-  blob: Blob;
-  outcome: RasterOutcome;
-}
-
 /** Thumbnail color-scheme variant. Light is the default/shared variant. */
 export type ThumbnailVariant = "light" | "dark";
-
-/**
- * Downscale an image to tile size, as a PNG.
- *
- * The image is drawn to COVER the tile -- scaled until it fills both axes and
- * centred -- because that is how the card displays it. Storing a letterboxed
- * copy would mean the card cropping an image that was already cropped.
- *
- * The element loads the source itself, so the browser does the decoding, and
- * `crossOrigin` is deliberately not set: the content route is same-origin and
- * asking for CORS on it would taint the canvas and make toBlob throw.
- */
-export async function downscaleImage(src: string, contentType: string): Promise<Blob> {
-  const img = await loadImage(src);
-  const canvas = document.createElement("canvas");
-  canvas.width = THUMB_WIDTH;
-  canvas.height = THUMB_HEIGHT;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error(`no 2d context for ${contentType}`);
-
-  const scale = Math.max(THUMB_WIDTH / img.naturalWidth, THUMB_HEIGHT / img.naturalHeight);
-  const w = img.naturalWidth * scale;
-  const h = img.naturalHeight * scale;
-  ctx.drawImage(img, (THUMB_WIDTH - w) / 2, (THUMB_HEIGHT - h) / 2, w, h);
-
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error("canvas produced no image"))),
-      "image/png",
-    );
-  });
-}
-
-/**
- * Load an image element from an authenticated route.
- *
- * The bytes are fetched with the session's own credentials and handed to the
- * element as a blob URL, rather than pointing the element at the route: an
- * `<img src>` carries no `X-API-Key`, so on an API-key session -- which is how
- * the dev portal and every API-key deployment sign in -- the load 401s and the
- * capture fails silently. It is the same reason AuthImg exists.
- *
- * A blob URL is also same-origin, so the canvas it is drawn onto stays untainted
- * and toBlob can read it back.
- */
-async function loadImage(src: string): Promise<HTMLImageElement> {
-  const res = await authedFetch(src);
-  if (!res.ok) throw new Error(`could not read ${src}: HTTP ${res.status}`);
-  const url = URL.createObjectURL(await res.blob());
-  try {
-    return await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`could not decode ${src}`));
-      img.src = url;
-    });
-  } finally {
-    // The element holds the decoded bitmap; the URL has done its job either
-    // way, and leaving it allocated leaks for the life of the document.
-    URL.revokeObjectURL(url);
-  }
-}
-
-/**
- * Upload a PNG thumbnail blob for a target. The optional variant selects the
- * color scheme; "dark" is only captured for themeable content types (see
- * isThemeable). Defaults to the light/shared variant.
- */
-export async function uploadThumbnail(
-  target: ThumbnailTarget,
-  blob: Blob,
-  variant: ThumbnailVariant = "light",
-  version?: number,
-): Promise<void> {
-  // The version the capture was rendered from travels with it, so the asset row
-  // records what the image actually shows. Without it the server can only date
-  // the capture to whatever version the asset is on when the upload lands, and
-  // an asset rewritten mid-capture would be marked current while showing the
-  // version before it (#1431). A resource sends none: its row has no version
-  // column, and the server stamps the capture with the resource's own
-  // updated_at, which says the same thing without the round trip.
-  const params = new URLSearchParams();
-  if (variant === "dark") params.set("variant", "dark");
-  if (version != null) params.set("version", String(version));
-  const query = params.toString();
-  const url = `${thumbnailPath(target)}${query ? `?${query}` : ""}`;
-  const res = await authedFetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "image/png" },
-    body: blob,
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to upload thumbnail: ${url} answered ${res.status}`);
-  }
-}
 
 /**
  * Build a complete HTML document that transpiles and renders JSX content,
@@ -367,9 +196,8 @@ export async function uploadThumbnail(
  * as JsxRenderer (sucrase transform, import map, auto-mount, and its CSP) but
  * adds a postMessage notifier with a longer delay for async esm.sh loads.
  *
- * The asset id travels into the frame so its ready message names the asset it
- * is about: a queue capture and a viewer capture can be mounted at once, and a
- * message that named neither was read by both.
+ * The asset id travels into the frame so its ready message names the document
+ * it is about.
  *
  * The origin is the one the reference route is granted under, defaulted to the
  * viewer's own the way the live renderer defaults it. It is a parameter only so

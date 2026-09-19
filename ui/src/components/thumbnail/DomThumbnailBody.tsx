@@ -14,15 +14,12 @@ import {
 } from "@/components/thumbnail/JsonThumbnailBody";
 
 /**
- * The families the capturer draws into the page and rasterizes, rather than
- * into an iframe.
+ * The families the tile page lays out itself, rather than in a frame.
  *
- * They live here, beside the stylesheets they are drawn with, for the reason
- * the stylesheets do: every family the capturer grows adds a renderer and a
- * stylesheet, and keeping both in ThumbnailGenerator put it over its size
- * budget. What decides WHICH of these a content type is drawn as stays in the
- * capturer, derived from the one table that says what gets a thumbnail at all
- * (lib/thumbnailSupport).
+ * They live here, beside the stylesheets they are drawn with. What decides
+ * WHICH of these a content type is drawn as stays in the tile page
+ * (components/thumbnail/Tile), derived from the one table that says what gets a
+ * thumbnail at all (lib/thumbnailSupport).
  */
 export type DomKind = "csv" | "svg" | "json" | "ndjson" | "markdown" | "text";
 
@@ -73,9 +70,7 @@ export function DomBody({
  * How much of a plain-text file is drawn.
  *
  * The tile is 400x300 and holds on the order of twenty lines, so everything
- * past this is invisible; handing html2canvas a megabyte of text to lay out and
- * then clip is the cost the size cap exists to avoid, paid on the reader's main
- * thread for nothing.
+ * past this is invisible and laying it out is work for nothing.
  */
 const MAX_TEXT_THUMBNAIL_CHARS = 4000;
 

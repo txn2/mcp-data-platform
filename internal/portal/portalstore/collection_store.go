@@ -442,22 +442,6 @@ func (s *postgresCollectionStore) UpdateConfig(ctx context.Context, id string, c
 	return nil
 }
 
-func (s *postgresCollectionStore) UpdateThumbnail(ctx context.Context, id, thumbnailS3Key string) error { //nolint:revive // interface impl
-	query := `UPDATE portal_collections SET thumbnail_s3_key = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
-	result, err := s.db.ExecContext(ctx, query, thumbnailS3Key, time.Now(), id)
-	if err != nil {
-		return fmt.Errorf("updating thumbnail: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return wrapRowsAffected(err)
-	}
-	if affected == 0 {
-		return errCollStoreNotFound
-	}
-	return nil
-}
-
 func (s *postgresCollectionStore) SoftDelete(ctx context.Context, id string) error { //nolint:revive // interface impl
 	query := `UPDATE portal_collections SET deleted_at = $1, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL`
 	result, err := s.db.ExecContext(ctx, query, time.Now(), id)

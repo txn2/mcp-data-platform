@@ -11,7 +11,6 @@ import (
 
 	"github.com/lib/pq"
 
-	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -47,12 +46,9 @@ type Store interface {
 	// which is the definition of pending, so every capture would queue itself
 	// again forever (#1554).
 	SetThumbnail(ctx context.Context, id string, t ThumbnailCapture) error
-	// ClearThumbnail forgets a capture, which is how a wrong tile is asked to
-	// be taken again.
+	// ClearThumbnail forgets a tile and any failure recorded against it, which
+	// is how a tile is asked to be drawn again.
 	ClearThumbnail(ctx context.Context, id, variant string) error
-	// PendingThumbnails lists resources whose capture is missing or older than
-	// the file it came from, most recently changed first, capped at limit.
-	PendingThumbnails(ctx context.Context, filter Filter, limit int) ([]Resource, error)
 	// Tags returns the distinct tags carried by the resources the filter
 	// admits, so the tag facet offers what the library holds rather than what
 	// one page of it happened to carry.
@@ -136,7 +132,8 @@ const selectColumns = `id, scope, scope_id, path, filename, display_name, descri
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
 		       created_at, updated_at, last_read_at,
 		       thumbnail_s3_key, thumbnail_dark_s3_key,
-		       thumbnail_captured_at, thumbnail_dark_captured_at`
+		       thumbnail_captured_at, thumbnail_dark_captured_at,
+		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_at`
 
 // selectResource opens every read with that column list, so the projection is
 // written once rather than at each of the five call sites.
@@ -368,12 +365,10 @@ func buildUpdate(id string, u Update) (query string, args []any) {
 	return query, append(args, id)
 }
 
-// MaxThumbnailSourceBytes is the largest resource a capture is attempted from.
-//
-// Capture renders the document a second time and rasterizes it on the main
-// thread, so its cost tracks the file. It is the same cap the asset queue
-// applies, and the outliers it excludes are exactly the ones that stall the tab
-// doing the work.
+// MaxThumbnailSourceBytes is the largest resource a tile is drawn from. A tile
+// is drawn by loading the whole file into the renderer beside the platform,
+// whose memory is sized for documents, not archives; it is the same cap the
+// asset claim applies (#1787).
 const MaxThumbnailSourceBytes = 1 << 20 // 1 MB
 
 // ThumbnailVariantLight and ThumbnailVariantDark name the two captures a
@@ -390,6 +385,8 @@ type ThumbnailCapture struct {
 	Variant    string
 	S3Key      string
 	CapturedAt time.Time
+	// Renderer is the generation of the renderer that drew it.
+	Renderer int
 }
 
 // thumbnailColumns names the pair a variant writes.
@@ -400,13 +397,30 @@ func thumbnailColumns(variant string) (keyCol, atCol string) {
 	return "thumbnail_s3_key", "thumbnail_captured_at"
 }
 
-// SetThumbnail records a capture against the resource.
-func (s *postgresStore) SetThumbnail(ctx context.Context, id string, t ThumbnailCapture) error { //nolint:revive // interface impl
-	keyCol, atCol := thumbnailColumns(t.Variant)
+// setThumbnailQuery records a tile of one variant. A drawn tile also clears
+// any failure recorded against the file and ends the lease the replica that
+// drew it held (#1787).
+func setThumbnailQuery(variant string) string {
+	keyCol, atCol := thumbnailColumns(variant)
 	// #nosec G201 -- the column names come from thumbnailColumns, a closed set
 	// of constants; the values are bound.
-	query := fmt.Sprintf("UPDATE resources SET %s = $1, %s = $2 WHERE id = $3", keyCol, atCol)
-	res, err := s.db.ExecContext(ctx, query, t.S3Key, t.CapturedAt, id)
+	return fmt.Sprintf(`UPDATE resources SET %s = $1, %s = $2, thumbnail_renderer = $3,
+		thumbnail_failure = '', thumbnail_failed_at = NULL, thumbnail_claimed_until = NULL
+		WHERE id = $4`, keyCol, atCol)
+}
+
+// clearThumbnailQuery forgets a tile of one variant and any failure recorded
+// against the file, which puts it back in the renderer's claim.
+func clearThumbnailQuery(variant string) string {
+	keyCol, atCol := thumbnailColumns(variant)
+	// #nosec G201 -- closed set of column names, as above.
+	return fmt.Sprintf(`UPDATE resources SET %s = '', %s = NULL,
+		thumbnail_failure = '', thumbnail_failed_at = NULL WHERE id = $1`, keyCol, atCol)
+}
+
+// SetThumbnail records a capture against the resource.
+func (s *postgresStore) SetThumbnail(ctx context.Context, id string, t ThumbnailCapture) error { //nolint:revive // interface impl
+	res, err := s.db.ExecContext(ctx, setThumbnailQuery(t.Variant), t.S3Key, t.CapturedAt, t.Renderer, id)
 	if err != nil {
 		return fmt.Errorf("recording thumbnail: %w", err)
 	}
@@ -418,10 +432,7 @@ func (s *postgresStore) SetThumbnail(ctx context.Context, id string, t Thumbnail
 
 // ClearThumbnail forgets a capture, leaving the resource pending again.
 func (s *postgresStore) ClearThumbnail(ctx context.Context, id, variant string) error { //nolint:revive // interface impl
-	keyCol, atCol := thumbnailColumns(variant)
-	// #nosec G201 -- closed set of column names, as above.
-	query := fmt.Sprintf("UPDATE resources SET %s = '', %s = NULL WHERE id = $1", keyCol, atCol)
-	res, err := s.db.ExecContext(ctx, query, id)
+	res, err := s.db.ExecContext(ctx, clearThumbnailQuery(variant), id)
 	if err != nil {
 		return fmt.Errorf("clearing thumbnail: %w", err)
 	}
@@ -429,88 +440,6 @@ func (s *postgresStore) ClearThumbnail(ctx context.Context, id, variant string) 
 		return fmt.Errorf("resource not found: %s", id)
 	}
 	return nil
-}
-
-// buildPendingThumbnails renders the statement PendingThumbnails runs.
-//
-// Pending is: no capture recorded, or a capture older than the row it came
-// from. The dark variant is asked only of the types that carry one -- a file
-// that brings its own colors stores a single image and serves it in both
-// modes, so reading its empty dark key as pending would offer it forever, which
-// is the mistake the asset predicate documents at length.
-//
-// The size cap is the same one the asset queue applies: capture renders the
-// document a second time and rasterizes it on the main thread, so the cost
-// tracks the file, and the outliers are exactly the ones that stall the tab
-// they are captured in.
-func buildPendingThumbnails(filter Filter, limit int) (query string, args []any) {
-	where, args := buildScopeWhere(filter)
-	idx := len(args) + 1
-
-	typePatterns := thumbtypes.ILikePatterns(thumbtypes.Capturable)
-	themeablePatterns := thumbtypes.ILikePatterns(thumbtypes.Themeable)
-
-	// #nosec G201 -- the only interpolation is the scope predicate and the
-	// placeholder numbering; every value is bound.
-	query = fmt.Sprintf(`
-		%s FROM resources
-		WHERE %s
-		  AND mime_type ILIKE ANY($%d)
-		  AND size_bytes <= $%d
-		  AND (
-		        thumbnail_s3_key = ''
-		     OR thumbnail_captured_at IS NULL
-		     OR thumbnail_captured_at < updated_at
-		     OR (
-		          mime_type ILIKE ANY($%d)
-		          AND (
-		                thumbnail_dark_s3_key = ''
-		             OR thumbnail_dark_captured_at IS NULL
-		             OR thumbnail_dark_captured_at < updated_at
-		          )
-		        )
-		  )
-		ORDER BY updated_at DESC
-		LIMIT $%d`, selectResource, where, idx, idx+1, idx+2, idx+3)
-
-	args = append(args, pq.Array(typePatterns), MaxThumbnailSourceBytes, pq.Array(themeablePatterns), limit)
-	return query, args
-}
-
-// PendingThumbnails lists the resources whose capture is missing or behind.
-func (s *postgresStore) PendingThumbnails(ctx context.Context, filter Filter, limit int) ([]Resource, error) { //nolint:revive // interface impl
-	if len(filter.Scopes) == 0 && !filter.AllScopes {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = DefaultListLimit
-	}
-
-	query, args := buildPendingThumbnails(filter, limit)
-	// #nosec G701 -- the statement is assembled by buildPendingThumbnails from
-	// constants and placeholder numbers alone: the projection is selectResource,
-	// the column names are package constants and the type fragments
-	// come from internal/thumbtypes, and every
-	// caller-supplied value -- the scopes, the patterns, the size cap, the limit
-	// -- is bound as a parameter rather than written into the text.
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("listing pending thumbnails: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []Resource
-	for rows.Next() {
-		r, err := s.scanRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating pending thumbnail rows: %w", err)
-	}
-	return out, nil
 }
 
 // buildFolders renders the statement Folders runs, with the arguments its
@@ -776,6 +705,7 @@ type resourceScan struct {
 	lastRead    sql.NullTime
 	captured    sql.NullTime
 	darkCapture sql.NullTime
+	failedAt    sql.NullTime
 }
 
 // dest returns the scan destinations for a resource row, in the column order
@@ -790,6 +720,7 @@ func (s *resourceScan) dest(r *Resource) []any {
 		pq.Array(&s.tags), &r.UploaderSub, &r.UploaderEmail,
 		&r.CreatedAt, &r.UpdatedAt, &s.lastRead,
 		&r.ThumbnailS3Key, &r.ThumbnailDarkS3Key, &s.captured, &s.darkCapture,
+		&r.ThumbnailRenderer, &r.ThumbnailFailure, &s.failedAt,
 	}
 }
 
@@ -818,6 +749,10 @@ func (s *resourceScan) finish(r *Resource) {
 	if s.darkCapture.Valid {
 		t := s.darkCapture.Time
 		r.ThumbnailDarkCapturedAt = &t
+	}
+	if s.failedAt.Valid {
+		t := s.failedAt.Time
+		r.ThumbnailFailedAt = &t
 	}
 }
 

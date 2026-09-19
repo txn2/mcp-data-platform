@@ -293,6 +293,13 @@ func TestAssetUpdateIsThumbnailOnly(t *testing.T) {
 			want:   false,
 		},
 		{
+			// A render that failed records why and ends its lease, and that is
+			// no more a change to the asset than a tile is (#1787).
+			name:   "a recorded render failure",
+			update: AssetUpdate{ThumbnailFailure: new("the image could not be decoded"), ThumbnailFailedVersion: new(3), ReleaseThumbnailClaim: true},
+			want:   true,
+		},
+		{
 			name:   "an update with nothing set is not a capture",
 			update: AssetUpdate{},
 			want:   false,
@@ -316,6 +323,12 @@ func TestAssetUpdateFieldsAreClassified(t *testing.T) {
 		"ThumbnailDarkS3Key":   true,
 		"ThumbnailVersion":     true,
 		"ThumbnailDarkVersion": true,
+		// The renderer's own bookkeeping (#1787): which generation drew the
+		// tile, why it could not, and the lease it held while it tried.
+		"ThumbnailRenderer":      true,
+		"ThumbnailFailure":       true,
+		"ThumbnailFailedVersion": true,
+		"ReleaseThumbnailClaim":  true,
 	}
 	authored := map[string]bool{
 		"Name":        true,

@@ -18,11 +18,16 @@ export interface Asset {
   // Dark-mode thumbnail variant. Only present for themeable content types
   // (markdown, CSV); other types reuse thumbnail_s3_key in both modes.
   thumbnail_dark_s3_key?: string;
-  // The asset version each thumbnail was captured from; below current_version
-  // means the image is of an older body. It still serves, and the asset is what
-  // the refresh queue picks up (#1431). Zero means never captured.
+  // The asset version each thumbnail was drawn from; below current_version
+  // means the image is of an older body. It still serves until the platform's
+  // renderer draws the new one (#1431, #1787). Zero means never drawn.
   thumbnail_version: number;
   thumbnail_dark_version: number;
+  // Why the renderer could not draw this asset's tile, and the version it
+  // tried. The failure stands until the document changes or the tile is
+  // cleared (#1787).
+  thumbnail_failure?: string;
+  thumbnail_failed_version?: number;
   size_bytes: number;
   tags: string[];
   /** Carried by a single asset read, bounded to its newest captures (#1623). */

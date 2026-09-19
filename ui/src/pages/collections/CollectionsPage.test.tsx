@@ -14,9 +14,6 @@ vi.mock("@/api/portal/hooks", () => ({
   useCreateCollection: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
-vi.mock("@/components/CollectionThumbnailQueue", () => ({
-  CollectionThumbnailQueue: () => null,
-}));
 
 import { useInfiniteCollections } from "@/api/portal/hooks";
 const mockUseCollections = vi.mocked(useInfiniteCollections);

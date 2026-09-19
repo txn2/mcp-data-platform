@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/egressguard"
 )
 
 const (
@@ -204,6 +206,10 @@ func (h *handler) newClient(follow bool) *http.Client {
 	return &http.Client{Transport: h.transport, CheckRedirect: checkRedirect}
 }
 
+// blockedRemedy follows a guard refusal: the fix is the destination, or the
+// operator exemption this connection owns.
+const blockedRemedy = " (the util connection fetches public URLs only; internal address space is blocked unless listed in apigateway.util_connection.allow_private_cidrs)"
+
 // writeFetchFailure maps an outbound failure to a status the model can
 // act on: 403 for a guard refusal (fix the destination), 504 for a
 // timeout (narrow the request or raise timeout_seconds), 502 for
@@ -211,10 +217,10 @@ func (h *handler) newClient(follow bool) *http.Client {
 // net/http error strings embed the full URL, which for a presigned
 // link includes the signature.
 func writeFetchFailure(w http.ResponseWriter, u *url.URL, err error) {
-	var blocked *blockedDestinationError
+	var blocked *egressguard.BlockedError
 	switch {
 	case errors.As(err, &blocked):
-		writeError(w, http.StatusForbidden, blocked.Error())
+		writeError(w, http.StatusForbidden, blocked.Error()+blockedRemedy)
 	case errors.Is(err, context.DeadlineExceeded):
 		writeError(w, http.StatusGatewayTimeout, fmt.Sprintf("fetching %s timed out", redactedURL(u)))
 	default:

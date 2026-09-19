@@ -101,13 +101,11 @@ type Searcher interface {
 // Compile-time check: the PostgreSQL resource store provides ranked search.
 var _ Searcher = (*postgresStore)(nil)
 
-// searchColumns is the ranked search's projection. It must stay in step with
-// resourceScan.dest, which is what scans it: the two arms append their score
-// columns to the same destination list, so a column added to one and not the
-// other misaligns the scan rather than failing to compile.
-const searchColumns = `id, scope, scope_id, path, filename, display_name, description, ` +
-	`mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email, created_at, updated_at, last_read_at, ` +
-	`thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_captured_at, thumbnail_dark_captured_at`
+// searchColumns is the ranked search's projection. It is the store's own,
+// because resourceScan.dest scans both and the two arms append their score
+// columns to that same destination list: a second spelling of it drifts, and a
+// drift misaligns every search's scan rather than failing to compile.
+const searchColumns = selectColumns
 
 // ftsExpr is the full-text expression the lexical arm matches and ranks against.
 // It calls resource_fts() (migration 000091) with the same argument order so the

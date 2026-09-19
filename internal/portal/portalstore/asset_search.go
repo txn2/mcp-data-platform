@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/pgvector/pgvector-go"
 
@@ -15,15 +16,11 @@ import (
 // Compile-time check: the PostgreSQL asset store provides ranked search.
 var _ portaldomain.AssetSearcher = (*postgresAssetStore)(nil)
 
-// assetSearchColumns is the column list every ranked-search SELECT reads, in
-// assetScanDest order so the scan cannot drift from the query. It matches the
-// list-path projection (queryAssets) plus the COALESCE on idempotency_key,
-// which includes reading the provenance summary rather than the provenance
-// itself: a ranked search is a listing and is bounded like one (#1623).
-var assetSearchColumns = `id, owner_id, owner_email, name, description, content_type, ` +
-	`s3_bucket, s3_key, thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version, ` +
-	`size_bytes, tags, ` + provenanceSummaryExpr("provenance") + `, session_id, ` +
-	`current_version, created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions`
+// assetSearchColumns is the column list every ranked-search SELECT reads: the
+// listing's own projection, in assetScanDest order, so the scan cannot drift
+// from the query. A ranked search is a listing and is bounded like one, so it
+// reads the provenance summary rather than the provenance itself (#1623).
+var assetSearchColumns = strings.Join(assetListColumns(), ", ")
 
 // assetFTSExpr is the full-text expression the lexical arm matches and ranks
 // against. It calls portal_asset_fts() (migration 000063) with the same

@@ -4,15 +4,14 @@ package acceptance
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
 )
 
-// Issues #1554 and #1555: a resource's thumbnail is a captured image stored
-// beside it, and a library's folders come from the server with exact counts.
+// Issues #1554 and #1555: a resource's thumbnail is an image stored beside it,
+// and a library's folders come from the server with exact counts.
 //
 // Both were the same defect in different clothes -- the portal deriving from
 // the file, or from a page of the listing, what the server should have been
@@ -20,22 +19,22 @@ import (
 // cutoff; a folder count was "how many rows have arrived so far", which is why
 // a library root offered a Load-more control over rows it never displayed.
 //
-// Nothing on a server rasterizes a document, so the capture itself happens in a
-// browser and cannot be executed here. What is executed here is everything the
-// browser talks to: what the platform reports as needing a capture, what it
-// accepts, what it then serves, and what clearing one does.
+// Since #1787 the platform draws the tile itself, in the headless renderer
+// beside it, so the whole cycle runs here: a file gets its tiles without
+// anyone opening it, they are served back, a rewrite is drawn again, and a
+// clear is drawn again.
 //
 // Wire forms: every parameter is typed in its schema and admits exactly one
 // JSON form. manage_resource's action, filename, display_name, path,
-// description, content, content_base64 and content_type are strings and tags is
-// an array of strings, each sent below as a literal tools/call parameter of
-// that form. The REST surface takes its variant and limit as query-string
-// parameters, which have no second form, and the capture body is image/png
-// bytes rather than JSON. Both spellings of the capture route are issued --
-// with no variant and with variant=dark -- and both spellings of the facets
-// route, narrowed and unnarrowed.
+// description, content, content_type and reference are strings and tags is an
+// array of strings, each sent below as a literal tools/call parameter of that
+// form. The REST surface takes its variant as a query-string parameter, which
+// has no second form; both spellings of the tile route are issued -- with no
+// variant and with variant=dark -- and both spellings of the facets route,
+// narrowed and unnarrowed.
 
-// onePixelPNG is the smallest thing the upload route will accept as a capture.
+// onePixelPNG is the smallest valid PNG, for criteria that need a file whose
+// bytes are an image.
 const onePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 func unique1554() string {
@@ -50,8 +49,8 @@ func createResource1554(t *testing.T, c *client, name, path string) string {
 		"filename":     name + ".md",
 		"display_name": name,
 		"path":         path,
-		"description":  "Acceptance #1554: a file whose thumbnail is captured rather than drawn from the file.",
-		"content":      "# " + name + "\n\nSome prose for the capture to render.\n",
+		"description":  "Acceptance #1554: a file whose thumbnail is drawn by the platform.",
+		"content":      "# " + name + "\n\nSome prose for the renderer to draw.\n",
 		"content_type": "text/markdown",
 		"tags":         []any{"acceptance-1554"},
 	})
@@ -65,47 +64,7 @@ func createResource1554(t *testing.T, c *client, name, path string) string {
 	return id
 }
 
-// pendingIDs1554 returns the ids the platform reports as needing a capture.
-func pendingIDs1554(t *testing.T, c *client) map[string]bool {
-	t.Helper()
-	status, body := c.rest(http.MethodGet, "/api/v1/resources/thumbnails/pending?limit=200", http.NoBody)
-	if status != http.StatusOK {
-		t.Fatalf("GET pending: status %d: %v", status, body)
-	}
-	ids := map[string]bool{}
-	list, _ := body["resources"].([]any)
-	for _, item := range list {
-		r, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if id, _ := r["id"].(string); id != "" {
-			ids[id] = true
-		}
-	}
-	return ids
-}
-
-// putCapture1554 uploads a capture the way a portal tab does, and returns the
-// status so a refusal can be asserted as well as an acceptance.
-func putCapture1554(t *testing.T, c *client, id, query, contentType string, body []byte) int {
-	t.Helper()
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPut,
-		baseURL()+"/api/v1/resources/"+id+"/thumbnail"+query, bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("building the capture request: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", contentType)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("uploading the capture: %v", err)
-	}
-	defer res.Body.Close() //nolint:errcheck // best-effort close
-	return res.StatusCode
-}
-
-// getCapture1554 reads a stored capture, returning the status and the bytes.
+// getCapture1554 reads a stored tile, returning the status and the bytes.
 func getCapture1554(t *testing.T, c *client, id, query string) (int, []byte) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet,
@@ -116,7 +75,7 @@ func getCapture1554(t *testing.T, c *client, id, query string) (int, []byte) {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("reading the capture: %v", err)
+		t.Fatalf("reading the tile: %v", err)
 	}
 	defer res.Body.Close() //nolint:errcheck // best-effort close
 	buf := new(bytes.Buffer)
@@ -124,115 +83,75 @@ func getCapture1554(t *testing.T, c *client, id, query string) (int, []byte) {
 	return res.StatusCode, buf.Bytes()
 }
 
-// TestIssue1554_AResourcesThumbnailIsCapturedAndServed walks the whole cycle in
-// the order a portal tab performs it.
-func TestIssue1554_AResourcesThumbnailIsCapturedAndServed(t *testing.T) {
-	c := connect(t)
+// TestIssue1554_AResourcesThumbnailIsDrawnAndServed walks the whole cycle: a
+// file gets both tiles without anyone opening it, each is served back as the
+// PNG the platform stored, and a clear is drawn again.
+func TestIssue1554_AResourcesThumbnailIsDrawnAndServed(t *testing.T) {
+	c := connectFor(t, 3*tileWait1787)
 	id := createResource1554(t, c, "acceptance-1554-"+unique1554(), "references")
 
-	png, err := base64.StdEncoding.DecodeString(onePixelPNG)
-	if err != nil {
-		t.Fatalf("decoding the fixture PNG: %v", err)
-	}
-
-	// A resource with no capture is offered.
-	if !pendingIDs1554(t, c)[id] {
-		t.Fatalf("a resource with no thumbnail is not on the pending list")
-	}
-
-	// Nothing is served for it yet, which is what tells a card to draw its icon.
-	if status, _ := getCapture1554(t, c, id, ""); status != http.StatusNotFound {
-		t.Errorf("reading an uncaptured thumbnail: status %d, want 404", status)
-	}
-
-	// The capture the browser took.
-	if status := putCapture1554(t, c, id, "", "image/png", png); status != http.StatusOK {
-		t.Fatalf("uploading a capture: status %d, want 200", status)
-	}
-
-	// It is served back, byte for byte.
-	status, body := getCapture1554(t, c, id, "")
-	if status != http.StatusOK {
-		t.Fatalf("reading the capture: status %d, want 200", status)
-	}
-	if !bytes.Equal(body, png) {
-		t.Errorf("served %d bytes, want the %d uploaded", len(body), len(png))
-	}
-
-	// Markdown renders on a plain background, so it is captured twice: the
-	// light pass alone leaves it pending on its dark variant.
-	if !pendingIDs1554(t, c)[id] {
-		t.Errorf("a themeable resource with only a light capture is not still pending")
-	}
-	if status := putCapture1554(t, c, id, "?variant=dark", "image/png", png); status != http.StatusOK {
-		t.Fatalf("uploading the dark capture: status %d, want 200", status)
-	}
-	if pendingIDs1554(t, c)[id] {
-		t.Errorf("a resource with both captures is still offered")
-	}
-
-	// Clearing one is the way back from a tile that is wrong.
-	status, _ = c.rest(http.MethodDelete, "/api/v1/resources/"+id+"/thumbnail", http.NoBody)
-	if status != http.StatusNoContent {
-		t.Fatalf("clearing the capture: status %d, want 204", status)
-	}
-	if !pendingIDs1554(t, c)[id] {
-		t.Errorf("a cleared tile is not offered again")
-	}
-	if got, _ := getCapture1554(t, c, id, ""); got != http.StatusNotFound {
-		t.Errorf("reading a cleared thumbnail: status %d, want 404", got)
-	}
-}
-
-// TestIssue1554_ARewrittenFileIsCapturedAgain is the case the timestamp exists
-// for: a capture older than the file it came from is behind it.
-func TestIssue1554_ARewrittenFileIsCapturedAgain(t *testing.T) {
-	c := connect(t)
-	name := "acceptance-1554-rewritten-" + unique1554()
-	id := createResource1554(t, c, name, "references")
-
-	png, _ := base64.StdEncoding.DecodeString(onePixelPNG)
+	// Markdown renders on a plain background, so it is drawn twice.
+	awaitResourceTile1787(t, c, id, true)
 	for _, q := range []string{"", "?variant=dark"} {
-		if status := putCapture1554(t, c, id, q, "image/png", png); status != http.StatusOK {
-			t.Fatalf("uploading %q: status %d", q, status)
+		status, body := getCapture1554(t, c, id, q)
+		if status != http.StatusOK {
+			t.Fatalf("reading the %q tile: status %d, want 200", q, status)
+		}
+		if !bytes.HasPrefix(body, []byte("\x89PNG")) {
+			t.Errorf("the %q tile is not a PNG: %d bytes starting %q", q, len(body), body[:min(8, len(body))])
 		}
 	}
-	if pendingIDs1554(t, c)[id] {
-		t.Fatalf("a fully captured resource is still offered")
-	}
 
-	// Replace the content. The capture now predates the file.
+	// Clearing one is the way back from a tile that is wrong: both are gone at
+	// once, and both are drawn again.
+	status, _ := c.rest(http.MethodDelete, "/api/v1/resources/"+id+"/thumbnail", http.NoBody)
+	if status != http.StatusNoContent {
+		t.Fatalf("clearing the tile: status %d, want 204", status)
+	}
+	if got, _ := getCapture1554(t, c, id, ""); got != http.StatusNotFound {
+		t.Errorf("reading a cleared tile: status %d, want 404", got)
+	}
+	awaitResourceTile1787(t, c, id, true)
+}
+
+// TestIssue1554_ARewrittenFileIsDrawnAgain is the case the timestamp exists
+// for: a tile older than the file it came from is behind it, and the platform
+// draws the file as it now stands.
+func TestIssue1554_ARewrittenFileIsDrawnAgain(t *testing.T) {
+	c := connectFor(t, 3*tileWait1787)
+	name := "acceptance-1554-rewritten-" + unique1554()
+	id := createResource1554(t, c, name, "references")
+	before := awaitResourceTile1787(t, c, id, true)
+
+	// Replace the content. The tile now predates the file.
 	c.call("manage_resource", map[string]any{
 		"action":         "replace_content",
 		"reference":      "mcp:resource:" + id,
 		"content":        "# " + name + "\n\nRewritten.\n",
 		"content_type":   "text/markdown",
-		"change_summary": "Acceptance #1554: content moved on after the capture.",
+		"change_summary": "Acceptance #1554: content moved on after the tile was drawn.",
 	})
 
-	if !pendingIDs1554(t, c)[id] {
-		t.Errorf("a resource whose content moved on is not offered for re-capture")
-	}
-	// The tile it has keeps serving: one revision behind is worth more than no
-	// image at all.
+	// The tile it has keeps serving until the new one lands: one revision behind
+	// is worth more than no image at all.
 	if status, _ := getCapture1554(t, c, id, ""); status != http.StatusOK {
-		t.Errorf("the superseded capture stopped serving: status %d", status)
+		t.Errorf("the superseded tile stopped serving: status %d", status)
+	}
+	after := awaitResourceTile1787(t, c, id, true)
+	if before["thumbnail_captured_at"] == after["thumbnail_captured_at"] {
+		t.Errorf("the tile is still stamped %v, the file it was drawn from before the rewrite", after["thumbnail_captured_at"])
 	}
 }
 
-// TestIssue1554_TheCaptureRouteRefusesWhatItShould covers the two refusals a
-// browser can provoke and the one an ordinary caller can.
-func TestIssue1554_TheCaptureRouteRefusesWhatItShould(t *testing.T) {
-	admin := connect(t)
+// TestIssue1554_ATileIsReadOnlyByThoseWhoMaySeeTheFile covers the refusal an
+// ordinary caller can provoke. A resource nobody may see answers the same way
+// one that does not exist does: which resources exist in a library the caller
+// cannot reach is not theirs to learn.
+func TestIssue1554_ATileIsReadOnlyByThoseWhoMaySeeTheFile(t *testing.T) {
+	admin := connectFor(t, 3*tileWait1787)
 	id := createResource1554(t, admin, "acceptance-1554-refusals-"+unique1554(), "references")
+	awaitResourceTile1787(t, admin, id, false)
 
-	if status := putCapture1554(t, admin, id, "", "text/plain", []byte("not a png")); status != http.StatusBadRequest {
-		t.Errorf("a body that is not a PNG: status %d, want 400", status)
-	}
-
-	// A resource nobody may see answers the same way one that does not exist
-	// does: which resources exist in a library the caller cannot reach is not
-	// theirs to learn.
 	person := connectAs(t, devPeerAPIKey)
 	if status, _ := getCapture1554(t, person, id, ""); status != http.StatusNotFound {
 		t.Errorf("a caller who cannot see the resource: status %d, want 404", status)

@@ -40,8 +40,28 @@ var CSS string
 // "content-viewer-entry-C8tFPYTK.js". Empty when the bundle is not built.
 var entryFile string
 
+// tileEntryFile is the hashed filename of the tile entry: the page the
+// thumbnail renderer draws, over the same renderers the viewer uses (#1787).
+var tileEntryFile string
+
+// The build's two entries, by the source each is built from. The manifest is
+// read by these keys rather than by "the entry": with two entries, "the first
+// one listed" is whichever the build happened to write first.
+const (
+	viewerSource = "src/content-viewer-entry.tsx"
+	tileSource   = "src/tile-entry.tsx"
+)
+
 func init() {
 	CSS, entryFile = loadBundle(distFS)
+	tileEntryFile = loadEntry(distFS, tileSource)
+}
+
+// TileEntryURL returns the absolute path the thumbnail renderer's page loads
+// its entry from, or "" when no bundle is embedded, in which case the renderer
+// has nothing to draw with and draws nothing.
+func TileEntryURL() string {
+	return viewerURLFor(tileEntryFile)
 }
 
 // EntryURL returns the absolute path the share page should load the viewer
@@ -78,29 +98,34 @@ func loadBundle(fsys fs.FS) (css, entry string) {
 	if data, err := fs.ReadFile(fsys, "dist/content-viewer.css"); err == nil {
 		css = string(data)
 	}
+	return css, loadEntry(fsys, viewerSource)
+}
+
+// loadEntry resolves the hashed name of the entry built from source, or ""
+// when the manifest is missing, unreadable, or names no servable file for it.
+func loadEntry(fsys fs.FS, source string) string {
 	data, err := fs.ReadFile(fsys, "dist/.vite/manifest.json")
 	if err != nil {
-		return css, ""
+		return ""
 	}
 	var m viteManifest
 	if json.Unmarshal(data, &m) != nil {
-		return css, ""
+		return ""
 	}
-	for _, e := range m {
-		if e.IsEntry {
-			entry = e.File
-			break
-		}
+	e, ok := m[source]
+	if !ok || !e.IsEntry {
+		return ""
 	}
+	entry := e.File
 	// The chunks are served from one flat directory, so an entry naming a
 	// subpath is a build that no longer matches this loader. And a manifest
 	// naming a file the build did not emit would serve a 404 to every viewer,
 	// so the name is only accepted once the file is confirmed.
 	if entry == "" || strings.ContainsAny(entry, `/\`) {
-		return css, ""
+		return ""
 	}
 	if _, err := fs.Stat(fsys, "dist/"+entry); err != nil {
-		return css, ""
+		return ""
 	}
-	return css, entry
+	return entry
 }

@@ -1,10 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-const { fetchRaw } = vi.hoisted(() => ({ fetchRaw: vi.fn() }));
-vi.mock("@/api/portal/client", () => ({ apiFetchRaw: fetchRaw }));
+import { describe, it, expect } from "vitest";
 
 import { buildCSP, REF_PATH_PREFIX } from "@/components/renderers/JsxRenderer";
-import { buildJsxThumbnailHtml, injectCaptureScript, isThemeable, uploadThumbnail } from "./thumbnail";
+import { buildJsxThumbnailHtml, injectCaptureScript } from "./thumbnail";
+import { isThemeable } from "./thumbnailSupport";
 
 /** The policy the document declares, as the frame would read it. */
 const cspOf = (html: string): string =>
@@ -81,64 +79,6 @@ describe("isThemeable", () => {
     for (const ct of ["text/html", "text/jsx", "image/svg+xml", "image/png"]) {
       expect(isThemeable(ct)).toBe(false);
     }
-  });
-});
-
-describe("uploadThumbnail", () => {
-  // The uploader builds the whole URL and calls fetch itself, so the test
-  // watches fetch. Watching a client mock instead is what let the wrong API
-  // root through: the mock supplied the base, so the assertion agreed with a
-  // path that 404s in a browser (#1554).
-  const fetchMock = vi.fn();
-
-  beforeEach(() => {
-    fetchMock.mockReset();
-    fetchMock.mockResolvedValue({ ok: true, status: 200 });
-    vi.stubGlobal("fetch", fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  const asset = { kind: "asset" as const, id: "ast-1" };
-  const resource = { kind: "resource" as const, id: "res-1" };
-
-  it("uploads the light variant with no query param by default", async () => {
-    await uploadThumbnail(asset, new Blob(["x"]));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/portal/assets/ast-1/thumbnail");
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: "PUT" });
-  });
-
-  it("appends ?variant=dark for the dark variant", async () => {
-    await uploadThumbnail(asset, new Blob(["x"]), "dark");
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/portal/assets/ast-1/thumbnail?variant=dark");
-  });
-
-  // The capturer is the same for both kinds; only the route differs (#1554).
-  it("uploads a resource capture to the resource's own route", async () => {
-    await uploadThumbnail(resource, new Blob(["x"]));
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/resources/res-1/thumbnail");
-  });
-
-  it("sends a resource's dark variant to the same route", async () => {
-    await uploadThumbnail(resource, new Blob(["x"]), "dark");
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/resources/res-1/thumbnail?variant=dark");
-  });
-
-  // A resource row has no version column: the server stamps the capture with
-  // the resource's own updated_at, so nothing is sent.
-  it("carries a version only when one is given", async () => {
-    await uploadThumbnail(asset, new Blob(["x"]), "light", 4);
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/portal/assets/ast-1/thumbnail?version=4");
-  });
-
-  it("throws when the upload response is not ok", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 404 });
-    await expect(uploadThumbnail(asset, new Blob(["x"]))).rejects.toThrow(
-      "/api/v1/portal/assets/ast-1/thumbnail answered 404",
-    );
   });
 });
 

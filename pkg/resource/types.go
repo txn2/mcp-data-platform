@@ -63,6 +63,16 @@ type Resource struct {
 	// 000134 for why this is a timestamp rather than a version.
 	ThumbnailCapturedAt     *time.Time `json:"thumbnail_captured_at,omitempty"`
 	ThumbnailDarkCapturedAt *time.Time `json:"thumbnail_dark_captured_at,omitempty"`
+	// ThumbnailRenderer is the generation of the renderer that drew the tile.
+	// A tile from an older generation still serves and is drawn again (#1787).
+	ThumbnailRenderer int `json:"-"`
+	// ThumbnailFailure is why the renderer could not draw this file's tile,
+	// and ThumbnailFailedAt the UpdatedAt of the file it tried. The failure
+	// holds until the file changes or the tile is asked for again, so a file
+	// the renderer cannot draw is not retried forever and the reason is
+	// visible.
+	ThumbnailFailure  string     `json:"thumbnail_failure,omitempty"`
+	ThumbnailFailedAt *time.Time `json:"thumbnail_failed_at,omitempty"`
 }
 
 // Sort names an ordering for the list path.

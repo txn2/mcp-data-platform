@@ -33,6 +33,8 @@ interface Resource {
   thumbnail_dark_s3_key?: string;
   thumbnail_captured_at?: string;
   thumbnail_dark_captured_at?: string;
+  thumbnail_failure?: string;
+  thumbnail_failed_at?: string;
 }
 
 interface ResourceUsage {
@@ -1113,15 +1115,10 @@ for (const r of resources) {
   }
 }
 
-// Every fixture a browser could capture carries a settled capture, dated to the
-// file's own last write, which is what the server compares against.
-//
-// The library has to be settled for the same reason the asset fixtures are: the
-// capture queue is mounted in the portal shell, so an unsettled library is work
-// on the main thread of EVERY page under test -- a content fetch and an
-// html2canvas rasterization per file, on every navigation -- and the tests
-// waiting on that thread time out. The one spec that wants a capture to happen
-// marks its own subject stale (`__STALE_THUMBNAILS__`).
+// Every fixture the renderer would draw carries a settled tile, dated to the
+// file's own last write, which is what the server compares against: the mock
+// has no renderer behind it, so a fixture left owed would read as being drawn
+// forever.
 //
 // res-001 is left as it was declared above: it is the fixture with a drawn tile
 // behind it, which is what the library and the thumbnail-panel captures show.

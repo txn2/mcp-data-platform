@@ -64,8 +64,6 @@ interface AssetMetadataSidebarProps {
   versionsLoading?: boolean;
   /** Which route this reader reads an asset's stored tile through. */
   assetApiBase?: string;
-  /** Reported when the reader asks for the tile to be taken again. */
-  onThumbnailCapturing?: (running: boolean) => void;
 }
 
 /** Everything about an asset that is not its content, for the viewer sidebar. */
@@ -98,7 +96,6 @@ export function AssetMetadataSidebar({
   versions,
   versionsLoading,
   assetApiBase,
-  onThumbnailCapturing,
 }: AssetMetadataSidebarProps) {
   const openSession = sessionOpener(asset, sessionPath, onNavigate);
   return (
@@ -240,7 +237,6 @@ export function AssetMetadataSidebar({
           <ThumbnailPanel
             subject={assetSubject(asset, assetApiBase)}
             canModify={isOwner}
-            onCapturing={onThumbnailCapturing}
           />
 
           {versions && versions.length > 0 && (

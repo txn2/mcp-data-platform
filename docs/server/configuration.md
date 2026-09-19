@@ -1602,6 +1602,23 @@ resources:
 
 `content` and `content_file` are mutually exclusive. Invalid entries (missing required fields, both or neither content fields set) are skipped with a warning at startup; valid entries in the same list are still registered.
 
+## Thumbnails
+
+The platform draws a thumbnail of every portal asset, managed resource and collection itself, in a headless Chrome that runs beside it (#1787). A new or rewritten file gets its tile within seconds, whether or not anybody opens it. The renderer is a second container in the platform's pod; see [Thumbnail renderer](deployment.md#thumbnail-renderer) for the manifest and for how the platform keeps a document from reaching the network through it. Enabled by default; nothing here needs to be set when the renderer runs beside the platform.
+
+```yaml
+thumbnails:
+  enabled: false                        # only needed to opt out; defaults to true
+  renderer_url: "http://127.0.0.1:9222" # the renderer's DevTools address; this is the default
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `*bool` | `true` (nil = enabled) | Draw thumbnails. Off, stored tiles keep serving and nothing new is drawn. |
+| `renderer_url` | string | `http://127.0.0.1:9222` | The renderer's DevTools address, `http://` or `ws://`. The platform dials it; the renderer is never pointed at the platform. |
+
+With no renderer answering, the platform starts and serves normally: files keep their content-type icons, and the platform logs once that no renderer answers and once when one does. A binary built without the portal UI embeds no tile page and draws nothing. A document the renderer cannot draw -- one that does not settle within 45 seconds, an image no browser decodes, an artifact whose linked files did not load -- is recorded with the reason, shown on the file's Thumbnail panel, and not tried again until the file changes or its owner asks.
+
 ## Progress Notifications Configuration
 
 Progress notifications send granular updates to MCP clients during long-running Trino queries. The client must include `_meta.progressToken` in the request to receive updates. Enabled by default; set `enabled: false` to opt out.

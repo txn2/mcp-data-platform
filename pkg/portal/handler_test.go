@@ -2953,25 +2953,6 @@ func TestGetMe_WithPersonaResolver(t *testing.T) {
 	assert.Contains(t, resp.Tools, "datahub_search")
 }
 
-// --- DeriveThumbnailKey ---
-
-func TestDeriveThumbnailKey(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"portal/owner/asset/content.html", "portal/owner/asset/.thumbnail.png"},
-		{"portal/owner/asset/dashboard.jsx", "portal/owner/asset/.thumbnail.png"},
-		{"simple.html", ".thumbnail.png"},
-		{"a/b/c", "a/b/.thumbnail.png"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, DeriveThumbnailKey(tt.input))
-		})
-	}
-}
-
 func TestDeriveThumbnailKeyVariant(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -2987,176 +2968,6 @@ func TestDeriveThumbnailKeyVariant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, DeriveThumbnailKeyVariant(tt.input, tt.variant))
-		})
-	}
-}
-
-// --- uploadThumbnail ---
-
-func TestUploadThumbnailSuccess(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
-		ContentType: "text/html", Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "portal/u1/a1/.thumbnail.png", s3.putKey, "light upload writes the default key")
-}
-
-func TestUploadThumbnailDarkVariant(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.md",
-		ContentType: "text/markdown", Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{}
-	store := &mockAssetStore{getAsset: asset}
-	h := newTestHandler(store, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail?variant=dark", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "portal/u1/a1/.thumbnail_dark.png", s3.putKey, "dark upload writes the dark key")
-	require.NotNil(t, store.lastUpdate)
-	require.NotNil(t, store.lastUpdate.ThumbnailDarkS3Key)
-	assert.Equal(t, "portal/u1/a1/.thumbnail_dark.png", *store.lastUpdate.ThumbnailDarkS3Key)
-	assert.Nil(t, store.lastUpdate.ThumbnailS3Key, "dark upload must not touch the light key")
-}
-
-// A capture is dated to the version it was rendered from, which is the whole
-// mechanism by which a rewritten asset is found again: without the stamp the
-// row cannot say whether the image it holds is of the body it holds (#1431).
-func TestUploadThumbnailStampsTheCapturedVersion(t *testing.T) {
-	tests := []struct {
-		name        string
-		query       string
-		wantStatus  int
-		wantVersion int
-		wantPut     bool
-	}{
-		{
-			name:  "defaults to the version the asset is on",
-			query: "", wantStatus: http.StatusOK, wantVersion: 5, wantPut: true,
-		},
-		{
-			// The capturer read the body at v3 and the asset moved to v5 while
-			// it rendered. Recording 3 leaves the asset on the queue, which is
-			// correct: the image really is two versions behind.
-			name:  "records the version the capturer read",
-			query: "?version=3", wantStatus: http.StatusOK, wantVersion: 3, wantPut: true,
-		},
-		{
-			// Dating a capture to content that does not exist yet would put the
-			// asset beyond the queue's reach for good.
-			name:  "refuses a version ahead of the asset",
-			query: "?version=9", wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:  "refuses a version that is not a number",
-			query: "?version=latest", wantStatus: http.StatusBadRequest,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			now := time.Now()
-			asset := &Asset{
-				ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/v5/content.html",
-				ContentType: "text/html", CurrentVersion: 5, Tags: []string{}, Provenance: Provenance{},
-				CreatedAt: now, UpdatedAt: now,
-			}
-			s3 := &mockS3Client{}
-			store := &mockAssetStore{getAsset: asset}
-			h := newTestHandler(store, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-			body := strings.NewReader(strings.Repeat("x", 100))
-			req := httptest.NewRequestWithContext(context.Background(), "PUT",
-				"/api/v1/portal/assets/a1/thumbnail"+tt.query, body)
-			req.Header.Set("Content-Type", "image/png")
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-
-			assert.Equal(t, tt.wantStatus, w.Code)
-			if !tt.wantPut {
-				assert.Empty(t, s3.putKey, "a refused version writes no object")
-				assert.Nil(t, store.lastUpdate)
-				return
-			}
-			require.NotNil(t, store.lastUpdate)
-			require.NotNil(t, store.lastUpdate.ThumbnailVersion)
-			assert.Equal(t, tt.wantVersion, *store.lastUpdate.ThumbnailVersion)
-			assert.Nil(t, store.lastUpdate.ThumbnailDarkVersion,
-				"a light capture says nothing about the dark variant")
-		})
-	}
-}
-
-// The dark variant is stamped on its own because it is captured and uploaded on
-// its own: a pass that lands the light image and throws on the dark one leaves
-// the asset with one current variant and one behind.
-func TestUploadThumbnailStampsTheDarkVariantSeparately(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/v2/content.md",
-		ContentType: "text/markdown", CurrentVersion: 2, Tags: []string{}, Provenance: Provenance{},
-		CreatedAt: now, UpdatedAt: now,
-	}
-	store := &mockAssetStore{getAsset: asset}
-	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT",
-		"/api/v1/portal/assets/a1/thumbnail?variant=dark", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	require.NotNil(t, store.lastUpdate)
-	require.NotNil(t, store.lastUpdate.ThumbnailDarkVersion)
-	assert.Equal(t, 2, *store.lastUpdate.ThumbnailDarkVersion)
-	assert.Nil(t, store.lastUpdate.ThumbnailVersion)
-}
-
-// A capture is stored platform state, not something the asset's owner did, so
-// the update the endpoint builds is one the store will not stamp updated_at
-// for (#1466). The store is what enforces that; this is the half that keeps
-// the handler from carrying an authored field along with the capture.
-func TestUploadThumbnailIsNotAChangeToTheAsset(t *testing.T) {
-	for _, variant := range []string{"", "?variant=dark"} {
-		t.Run("variant"+variant, func(t *testing.T) {
-			now := time.Now()
-			asset := &Asset{
-				ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/v2/content.md",
-				ContentType: "text/markdown", CurrentVersion: 2, Tags: []string{}, Provenance: Provenance{},
-				CreatedAt: now, UpdatedAt: now,
-			}
-			store := &mockAssetStore{getAsset: asset}
-			h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-			body := strings.NewReader(strings.Repeat("x", 100))
-			req := httptest.NewRequestWithContext(context.Background(), "PUT",
-				"/api/v1/portal/assets/a1/thumbnail"+variant, body)
-			req.Header.Set("Content-Type", "image/png")
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-
-			require.Equal(t, http.StatusOK, w.Code)
-			require.NotNil(t, store.lastUpdate)
-			assert.True(t, store.lastUpdate.IsThumbnailOnly(),
-				"the capture must not carry a field that would re-date the asset")
 		})
 	}
 }
@@ -3190,6 +3001,31 @@ func TestClearThumbnailReturnsTheAssetToTheQueue(t *testing.T) {
 		"a version below the asset's is what makes the row pending on a deployment that stores no key")
 }
 
+// A document the renderer could not draw is held off its list until the
+// document changes. Asking for the tile again is asking it to try again, so the
+// clear takes the recorded failure with it (#1787).
+func TestClearThumbnailClearsARecordedFailure(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.html",
+		ContentType: "text/html", CurrentVersion: 2,
+		ThumbnailFailure: "the document did not finish drawing before the deadline", ThumbnailFailedVersion: 2,
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	store := &mockAssetStore{getAsset: asset}
+	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/assets/a1/thumbnail", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastUpdate.ThumbnailFailure)
+	assert.Empty(t, *store.lastUpdate.ThumbnailFailure)
+	require.NotNil(t, store.lastUpdate.ThumbnailFailedVersion)
+	assert.Zero(t, *store.lastUpdate.ThumbnailFailedVersion)
+}
+
 // Both variants go together: the reader asking for the tile again means the
 // tile, not the half their color mode happens to be showing.
 func TestClearThumbnailClearsBothVariants(t *testing.T) {
@@ -3221,7 +3057,7 @@ func TestClearThumbnailClearsBothVariants(t *testing.T) {
 // A capture outlives the version it was taken from (#1431), so the object a
 // cleared row pointed at can sit in an older version's directory, where nothing
 // else will ever remove it. That one is deleted; the key the next capture will
-// write is not, because another tab's capture may already have written it and
+// write is not, because a render in flight may already have written it and
 // pointed the row back at it.
 func TestClearThumbnailRemovesOnlyWhatNoCaptureWillReplace(t *testing.T) {
 	now := time.Now()
@@ -3305,346 +3141,6 @@ func TestClearThumbnailReportsAStoreFailure(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Empty(t, s3.deleted, "an object is deleted only once the row no longer names it")
-}
-
-// --- listPendingThumbnails ---
-
-// The queue's work list. Nothing renders a thumbnail on the server, so this is
-// the only way a browser learns about an asset it is not displaying (#1431).
-func TestListPendingThumbnails(t *testing.T) {
-	pending := Asset{
-		ID: "a1", OwnerID: "u1", Name: "Stale", ContentType: "text/html",
-		CurrentVersion: 5, ThumbnailVersion: 4, Tags: []string{},
-	}
-	store := &mockAssetStore{listRes: []Asset{pending}, listTotal: 1}
-	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	req := httptest.NewRequestWithContext(context.Background(), "GET",
-		"/api/v1/portal/thumbnails/pending", http.NoBody)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.NotNil(t, store.lastFilter)
-	assert.True(t, store.lastFilter.ThumbnailPending)
-	assert.Equal(t, "u1", store.lastFilter.Owner.UserID,
-		"capture reads the whole body of every asset it is offered, so the list is the caller's own")
-	assert.Equal(t, thumbnailPendingLimit, store.lastFilter.Limit)
-
-	var resp struct {
-		Data  []Asset `json:"data"`
-		Total int     `json:"total"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Len(t, resp.Data, 1)
-	assert.Equal(t, "a1", resp.Data[0].ID)
-	assert.Equal(t, 4, resp.Data[0].ThumbnailVersion,
-		"the browser is told which version the image it is replacing came from")
-}
-
-func TestListPendingThumbnailsRequiresAuth(t *testing.T) {
-	h := NewHandler(Deps{
-		AssetStore: &mockAssetStore{},
-		ShareStore: &mockShareStore{},
-	}, nil)
-
-	req := httptest.NewRequestWithContext(context.Background(), "GET",
-		"/api/v1/portal/thumbnails/pending", http.NoBody)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestListPendingThumbnailsStoreError(t *testing.T) {
-	store := &mockAssetStore{listErr: errors.New("db down")}
-	h := newTestHandler(store, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	req := httptest.NewRequestWithContext(context.Background(), "GET",
-		"/api/v1/portal/thumbnails/pending", http.NoBody)
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-// TestUploadThumbnailRemovesLegacyObject is what makes a CSV asset
-// thumbnailed before the leading-dot rename registrable as a table: the legacy
-// object is an ordinary file beside the content, so re-capturing under the
-// hidden name has to take the old one out of the directory.
-func TestUploadThumbnailRemovesLegacyObject(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.csv",
-		ContentType: "text/csv", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "portal/u1/a1/.thumbnail.png", s3.putKey)
-	assert.Equal(t, []string{"portal/u1/a1/thumbnail.png"}, s3.deleted,
-		"the superseded legacy object is removed from the directory")
-}
-
-// TestUploadThumbnailKeepsHiddenPredecessor pins the other side: a re-capture
-// over the same key overwrites the object in place, and deleting the key the row
-// now points at would leave the asset with no thumbnail at all.
-func TestUploadThumbnailKeepsHiddenPredecessor(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.csv",
-		ContentType: "text/csv", ThumbnailS3Key: "portal/u1/a1/.thumbnail.png",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, s3.deleted, "nothing is deleted when the recorded key is already hidden")
-}
-
-// A capture outlives the version it was taken from (#1431), so a re-capture
-// after several version writes replaces an object in an older version's
-// directory. Only the asset row ever names a thumbnail, so the pointer moving
-// is what makes that object unreachable -- and if the version whose directory
-// it sits in has already been pruned, this delete is the only thing that will
-// ever remove it.
-func TestUploadThumbnailRemovesTheObjectItSupersedes(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/v9/content.html",
-		ContentType: "text/html", CurrentVersion: 9,
-		ThumbnailS3Key: "portal/u1/a1/v4/.thumbnail.png",
-		Tags:           []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT",
-		"/api/v1/portal/assets/a1/thumbnail", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "portal/u1/a1/v9/.thumbnail.png", s3.putKey)
-	assert.Equal(t, []string{"portal/u1/a1/v4/.thumbnail.png"}, s3.deleted,
-		"the image the asset was serving until now is removed once the row points elsewhere")
-}
-
-// TestUploadThumbnailDarkRemovesLegacyDark covers the variant the light
-// capture never touches: a themeable asset records both keys, so both legacy
-// objects have to go before the directory is clean.
-func TestUploadThumbnailDarkRemovesLegacyDark(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.csv",
-		ContentType: "text/csv", ThumbnailS3Key: "portal/u1/a1/thumbnail.png",
-		ThumbnailDarkS3Key: "portal/u1/a1/thumbnail_dark.png",
-		Tags:               []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT",
-		"/api/v1/portal/assets/a1/thumbnail?variant=dark", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, []string{"portal/u1/a1/thumbnail_dark.png"}, s3.deleted,
-		"the dark capture removes the dark legacy object, not the light one")
-}
-
-func TestUploadThumbnailInvalidVariant(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/content.md",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	body := strings.NewReader(strings.Repeat("x", 100))
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail?variant=sepia", body)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestUploadThumbnailUnauth(t *testing.T) {
-	h := newTestHandler(&mockAssetStore{}, &mockShareStore{}, &mockS3Client{}, nil)
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestUploadThumbnailNotOwner(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "other-user", S3Bucket: "b", S3Key: "k",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
-func TestUploadThumbnailWrongContentType(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader("data"))
-	req.Header.Set("Content-Type", "image/jpeg")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestUploadThumbnailTooLarge(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	oversize := strings.Repeat("x", MaxThumbnailUploadBytes+1)
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader(oversize))
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
-}
-
-func TestUploadThumbnailAssetNotFound(t *testing.T) {
-	h := newTestHandler(
-		&mockAssetStore{getErr: fmt.Errorf("not found")},
-		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
-	)
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader("data"))
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestUploadThumbnailNoS3(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	user := &User{UserID: "u1"}
-	h := NewHandler(Deps{
-		AssetStore:    &mockAssetStore{getAsset: asset},
-		ShareStore:    &mockShareStore{},
-		S3Client:      nil, // true nil interface
-		S3Bucket:      "test-bucket",
-		PublicBaseURL: "https://example.com",
-		RateLimit:     RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
-	}, testAuthMiddleware(user))
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader("data"))
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
-
-func TestUploadThumbnailS3Error(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/c.html",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	s3 := &mockS3Client{putErr: fmt.Errorf("s3 fail")}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader("data"))
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
-
-func TestUploadThumbnailUpdateError(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/c.html",
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	h := newTestHandler(
-		&mockAssetStore{getAsset: asset, updateErr: fmt.Errorf("db fail")},
-		&mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"},
-	)
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader("data"))
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-func TestUploadThumbnailDeletedAsset(t *testing.T) {
-	now := time.Now()
-	asset := &Asset{
-		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k", DeletedAt: &now,
-		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
-	}
-	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
-
-	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail",
-		strings.NewReader("data"))
-	req.Header.Set("Content-Type", "image/png")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusGone, w.Code)
 }
 
 // --- getThumbnail ---

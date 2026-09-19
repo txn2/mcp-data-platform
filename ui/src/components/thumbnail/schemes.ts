@@ -1,17 +1,13 @@
 /**
- * The two color schemes a DOM thumbnail is captured in, and the CSS each
- * content family is drawn with.
+ * The two color schemes a DOM-drawn tile is drawn in, and the CSS each content
+ * family is drawn with.
  *
- * These live apart from the capturer because they are data rather than
- * behavior, and because every family the capturer grows adds a stylesheet
- * here: keeping them together kept ThumbnailGenerator over its size budget.
+ * These live apart from the tile page because they are data rather than
+ * behavior, and every family the tile page grows adds a stylesheet here.
  *
  * All prose CSS is scoped to a caller-supplied `scope` class rather than a
- * shared class name. The light and dark scheme containers are mounted into the
- * document at the same time, so a shared global selector would let the
- * later-rendered scheme's colors win for BOTH captures (the dark code/cell
- * backgrounds bled into the light thumbnail, rendering inline code as near-black
- * boxes). A unique scope per scheme keeps each capture's styles isolated.
+ * shared class name, so a tile's styles cannot reach anything else on the page
+ * it is drawn on.
  */
 
 import type { ThumbnailVariant } from "@/lib/thumbnail";
@@ -30,8 +26,8 @@ export interface ProseTokens {
   /**
    * Syntax tones for the JSON families. They mirror the JsonTree palette
    * (renderers/json/JsonTree.tsx) so a thumbnail reads as the same document the
-   * viewer shows, resolved to concrete hex because html2canvas cannot read CSS
-   * custom properties or Tailwind classes off-DOM.
+   * viewer shows, as concrete hex so a tile does not depend on which of the
+   * viewer's custom properties the tile page happens to define.
    */
   jsonKey: string;
   jsonString: string;
@@ -65,13 +61,11 @@ export const LIGHT_SCHEME: Scheme = {
   },
 };
 
-// Dark tokens mirror the portal's shadcn dark palette so the captured thumbnail
-// blends into the dark card. html2canvas needs concrete colors (it cannot
-// resolve CSS custom properties off-DOM), so these are hardcoded; keep them in
-// sync with the `.dark` block in src/index.css (--card -> #131a25,
-// --card-foreground -> #f8fafc, --border/--muted/...) if that palette changes.
-// A stale value here is not self-correcting: the thumbnail is captured once and
-// stored as a blob, so it keeps the old backing forever.
+// Dark tokens mirror the portal's shadcn dark palette so the drawn tile blends
+// into the dark card. They are concrete colors; keep them in sync with the
+// `.dark` block in src/index.css (--card -> #131a25, --card-foreground ->
+// #f8fafc, --border/--muted/...) if that palette changes. A changed value here
+// reaches existing tiles only when they are drawn again.
 export const DARK_SCHEME: Scheme = {
   variant: "dark",
   mermaidTheme: "dark",
@@ -164,12 +158,7 @@ export function jsonProseCss(t: ProseTokens, scope: string): string {
  * shape its viewer lists them in. `table-layout: fixed` is what holds the
  * gutter to its width and keeps a long record from stretching the table into a
  * layout of its own; the record itself is left to run off the right edge, where
- * the capture container clips it.
- *
- * Nothing here sets `overflow: hidden`, deliberately. Clipping the record
- * inside its cell is the obvious way to write this and html2canvas draws it
- * with the top of every row's text cut off; the container's own clip does not
- * have that problem.
+ * the tile's container clips it.
  */
 export function ndjsonProseCss(t: ProseTokens, scope: string): string {
   return `
