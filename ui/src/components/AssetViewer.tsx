@@ -5,11 +5,8 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
-import { useIdleGate } from "@/lib/idle";
-import { isThumbnailSupported, thumbnailBehind, THUMBNAIL_SOURCE_LIMIT } from "@/lib/thumbnailSupport";
 import { isEditableContent } from "@/components/renderers/registry";
 import { type AssetViewerProps, type ViewMode } from "./assetviewer/types";
-import { ThumbnailGeneratorWithInvalidation } from "./assetviewer/ThumbnailGeneratorWithInvalidation";
 import { AssetViewerActions } from "./assetviewer/AssetViewerActions";
 import { AssetContentView } from "./assetviewer/AssetContentView";
 import { AssetMetadataSidebar } from "./assetviewer/AssetMetadataSidebar";
@@ -65,43 +62,11 @@ export function AssetViewer({
   const [changeSummary, setChangeSummary] = useState("");
   const [revertModalOpen, setRevertModalOpen] = useState(false);
 
-  // Set while the thumbnail panel is running a capture the reader pressed for.
-  //
-  // A press clears the stored tile, which is exactly what puts the row back in
-  // the state this component captures on, so without this the same document
-  // would be drawn twice at once: once by the panel, once here (#1753). The
-  // panel is the one that knows how its press went, so it is the one that
-  // captures; this waits.
-  const [panelCapturing, setPanelCapturing] = useState(false);
-
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editedContent, setEditedContent] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
 
-  // Capturing a thumbnail renders the asset a second time off-screen and
-  // rasterizes it. Doing that while someone is reading the asset is what made
-  // the detail page stop responding on a first visit (#1351), so it waits for
-  // the browser to go idle with the tab in front, and is skipped entirely for
-  // a document too large to render twice cheaply.
-  //
-  // Whether one is wanted is read off the asset row rather than tracked here:
-  // a capture dated below the current version is one the reader is looking past
-  // — the image on the card is of an older body — and a save the reader just
-  // made moves the version, so the same comparison covers both (#1431).
-  //
-  // Only for a reader who could store the result: the capture endpoint takes an
-  // upload from the asset's owner or an administrator, so on an asset shared
-  // with the reader the whole pass would end in a refused PUT.
-  const thumbnailWanted =
-    isOwner &&
-    typeof content === "string" &&
-    content.length > 0 &&
-    !!asset &&
-    isThumbnailSupported(asset.content_type) &&
-    asset.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
-    thumbnailBehind(asset);
-  const captureThumbnail = useIdleGate(thumbnailWanted && !panelCapturing);
   const isSharedEditor = !isOwner && sharePermission === "editor";
 
   const canEditSource =
@@ -301,7 +266,6 @@ export function AssetViewer({
             onNavigate={onNavigate}
             versions={versions}
             versionsLoading={versionsLoading}
-            onThumbnailCapturing={setPanelCapturing}
           />
         }
       >
@@ -332,34 +296,6 @@ export function AssetViewer({
           onSourceChange={(v) => { setEditedContent(v); setDirty(true); }}
         />
       </ViewerLayout>
-
-      {/* The automatic capture: an asset the reader opened whose row says a
-          tile is wanted gets one now rather than when the background queue next
-          polls. A press of Recapture is the panel's job, which is why there is
-          no nonce here any more (#1753).
-
-          Remounted per version so a save, or a rewrite arriving on a refetch,
-          captures again rather than reusing the mounted capturer. The version
-          stamped is the asset's current one: the asset and its content are
-          refetched together, so a body older than the version it is dated to is
-          possible only in the moment between the two responses, and the next
-          write puts the asset back on the queue.
-
-          The asset is in the key because this component is not remounted per
-          asset: opening a second asset from a link reuses the viewer, and with
-          both rows behind at the same version there is no render where a
-          capture stops being wanted, so a key of the version alone left the
-          first asset's finished capturer in place and the second was never
-          taken (#1501). */}
-      {captureThumbnail && typeof content === "string" && (
-        <ThumbnailGeneratorWithInvalidation
-          key={`${asset.id}:${asset.current_version}`}
-          assetId={asset.id}
-          content={content}
-          contentType={asset.content_type}
-          version={asset.current_version}
-        />
-      )}
 
       <ShareDialog assetId={asset.id} open={shareOpen} onOpenChange={setShareOpen} />
 

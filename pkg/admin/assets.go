@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,9 +34,6 @@ const errAdminAssetDeleted = "asset has been deleted"
 // thumbnailCacheMaxAge is how long a browser may reuse a thumbnail it was
 // authorized for, matching the portal's own thumbnail route.
 const thumbnailCacheMaxAge = time.Hour
-
-// headerContentType is the HTTP Content-Type header name.
-const headerContentType = "Content-Type"
 
 // mimeTypeOctetStream is the default MIME type for binary content.
 const mimeTypeOctetStream = "application/octet-stream"
@@ -75,7 +71,6 @@ func (h *Handler) registerAssetRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/content", h.getAdminAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}", h.updateAdminAsset)
 	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/content", h.updateAdminAssetContent)
-	h.mux.HandleFunc("PUT /api/v1/admin/assets/{id}/thumbnail", h.uploadAdminThumbnail)
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/thumbnail", h.getAdminThumbnail)
 	h.mux.HandleFunc("DELETE /api/v1/admin/assets/{id}", h.deleteAdminAsset)
 	h.mux.HandleFunc("GET /api/v1/admin/assets/{id}/versions", h.listAdminVersions)
@@ -414,79 +409,6 @@ func (h *Handler) followTables(ctx context.Context, id string, version int) []st
 		return nil
 	}
 	return h.deps.OnAssetRevised(ctx, id, version)
-}
-
-// uploadAdminThumbnail uploads a PNG thumbnail for an asset (no owner check for admins).
-//
-// @Summary      Upload asset thumbnail
-// @Description  Stores a PNG thumbnail for an asset from the raw request body.
-// @Tags         Portal Assets
-// @Accept       png
-// @Produce      json
-// @Param        id    path  string  true  "Asset ID"
-// @Param        body  body  string  true  "Raw PNG thumbnail content"
-// @Success      200  {object}  statusResponse
-// @Failure      400  {object}  problemDetail
-// @Failure      404  {object}  problemDetail
-// @Failure      410  {object}  problemDetail
-// @Failure      413  {object}  problemDetail
-// @Failure      500  {object}  problemDetail
-// @Failure      503  {object}  problemDetail
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /admin/assets/{id}/thumbnail [put]
-func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
-	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
-		return
-	}
-
-	id := r.PathValue(pathValueID)
-	asset, err := h.deps.AssetStore.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
-		return
-	}
-
-	if asset.DeletedAt != nil {
-		writeError(w, http.StatusGone, errAdminAssetDeleted)
-		return
-	}
-
-	ct := r.Header.Get(headerContentType)
-	mediaType, _, _ := mime.ParseMediaType(ct)
-	if mediaType != mimeTypePNG {
-		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
-		return
-	}
-
-	data, err := io.ReadAll(io.LimitReader(r.Body, portal.MaxThumbnailUploadBytes+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	if int64(len(data)) > portal.MaxThumbnailUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("thumbnail exceeds %d KB limit", portal.MaxThumbnailUploadBytes>>10))
-		return
-	}
-
-	thumbKey := portal.DeriveThumbnailKey(asset.S3Key)
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, mimeTypePNG); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
-		return
-	}
-
-	// Dated to the version the asset is on now. The capture was taken from the
-	// body this request was made about, and without the stamp the asset would
-	// read as never captured and be offered to the portal's refresh queue for
-	// as long as it existed (#1431).
-	updates := portal.AssetUpdate{ThumbnailS3Key: &thumbKey, ThumbnailVersion: &asset.CurrentVersion}
-	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
 // getAdminThumbnail returns an asset's thumbnail (no owner check for admins).

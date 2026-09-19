@@ -255,3 +255,47 @@ func TestHandlerServesTheEmbeddedBundle(t *testing.T) {
 		t.Error("entry chunk served empty")
 	}
 }
+
+// TestLoadEntry_EachEntryByItsSource pins that with two entries in one build,
+// each is resolved by the source it was built from rather than as "the entry",
+// which would be whichever the manifest happened to list first.
+func TestLoadEntry_EachEntryByItsSource(t *testing.T) {
+	fsys := fstest.MapFS{
+		"dist/content-viewer-entry-AAAA1111.js": {Data: []byte("export const v = 1;")},
+		"dist/tile-entry-CCCC3333.js":           {Data: []byte("export const t = 1;")},
+		"dist/.vite/manifest.json": {Data: []byte(`{
+			"src/tile-entry.tsx": {"file": "tile-entry-CCCC3333.js", "isEntry": true},
+			"src/content-viewer-entry.tsx": {"file": "content-viewer-entry-AAAA1111.js", "isEntry": true}
+		}`)},
+	}
+	if got := loadEntry(fsys, viewerSource); got != "content-viewer-entry-AAAA1111.js" {
+		t.Errorf("viewer entry = %q", got)
+	}
+	if got := loadEntry(fsys, tileSource); got != "tile-entry-CCCC3333.js" {
+		t.Errorf("tile entry = %q", got)
+	}
+}
+
+// A chunk the manifest lists under a source without marking it an entry is a
+// shared chunk, not a page anything can load.
+func TestLoadEntry_ASourceThatIsNotAnEntry(t *testing.T) {
+	fsys := fstest.MapFS{
+		"dist/tile-entry-CCCC3333.js": {Data: []byte("export const t = 1;")},
+		"dist/.vite/manifest.json":    {Data: []byte(`{"src/tile-entry.tsx": {"file": "tile-entry-CCCC3333.js"}}`)},
+	}
+	if got := loadEntry(fsys, tileSource); got != "" {
+		t.Errorf("tile entry = %q, want empty for a non-entry chunk", got)
+	}
+}
+
+func TestTileEntryURL(t *testing.T) {
+	if tileEntryFile == "" {
+		if TileEntryURL() != "" {
+			t.Errorf("TileEntryURL() = %q with no bundle, want empty", TileEntryURL())
+		}
+		return
+	}
+	if !strings.HasSuffix(TileEntryURL(), tileEntryFile) {
+		t.Errorf("TileEntryURL() = %q, want it to end in %q", TileEntryURL(), tileEntryFile)
+	}
+}

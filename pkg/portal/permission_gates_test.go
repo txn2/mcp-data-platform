@@ -80,7 +80,6 @@ var assetManageRoutes = []assetManageRoute{
 	{"delete", http.MethodDelete, "/api/v1/portal/assets/a1", "", "", http.StatusOK},
 	{"create share", http.MethodPost, "/api/v1/portal/assets/a1/shares", `{"permission":"viewer"}`, "application/json", http.StatusCreated},
 	{"list shares", http.MethodGet, "/api/v1/portal/assets/a1/shares", "", "", http.StatusOK},
-	{"upload thumbnail", http.MethodPut, "/api/v1/portal/assets/a1/thumbnail", strings.Repeat("x", 100), "image/png", http.StatusOK},
 }
 
 func (rt assetManageRoute) do(h *Handler) *httptest.ResponseRecorder {
@@ -216,7 +215,6 @@ var collectionEditRoutes = []collectionRoute{
 	{"update", http.MethodPut, "/api/v1/portal/collections/coll-1", `{"name":"Renamed"}`, "application/json", http.StatusOK},
 	{"update config", http.MethodPut, "/api/v1/portal/collections/coll-1/config", `{"thumbnail_size":"small"}`, "application/json", http.StatusOK},
 	{"set sections", http.MethodPut, "/api/v1/portal/collections/coll-1/sections", `{"sections":[]}`, "application/json", http.StatusOK},
-	{"upload thumbnail", http.MethodPut, "/api/v1/portal/collections/coll-1/thumbnail", strings.Repeat("x", 100), "image/png", http.StatusNoContent},
 }
 
 // collectionManageRoutes stay with the owner and admins: destruction and

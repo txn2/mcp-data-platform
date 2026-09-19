@@ -1,33 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { useEffect, useRef } from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
-// One entry per time the viewer mounted a capturer. A capturer reports its
-// result once and holds it, so what the viewer asked for is not the question --
-// how many times it asked, and for which asset, is (#1501).
-const { captureMounts } = vi.hoisted(() => ({
-  captureMounts: [] as { assetId: string; version?: number }[],
-}));
-
-// The capturer is lazy and carries html2canvas, which does not run in jsdom.
-// Standing it in here is enough to see WHETHER the viewer asked for a capture,
-// and with what.
-vi.mock("./assetviewer/ThumbnailGeneratorWithInvalidation", () => ({
-  ThumbnailGeneratorWithInvalidation: ({ assetId, version }: { assetId: string; version?: number }) => {
-    // Recorded once per mounted capturer. A prop change on the instance already
-    // mounted is exactly what does NOT take a new picture -- the real capturer
-    // latches its result -- so counting those would make this blind to the
-    // defect.
-    const recorded = useRef(false);
-    useEffect(() => {
-      if (recorded.current) return;
-      recorded.current = true;
-      captureMounts.push({ assetId, version });
-    }, [assetId, version]);
-    return <div data-testid="thumbnail-capture" data-version={version} />;
-  },
-}));
 
 import { AssetViewer } from "./AssetViewer";
 
@@ -191,47 +164,10 @@ describe("AssetViewer version retention (#1421)", () => {
   });
 });
 
-// A version write leaves the recorded capture in place, so the image on the
-// card is of an older body until something captures again. Opening the asset is
-// one of the two things that does (#1431).
-describe("AssetViewer thumbnail capture", () => {
-  const behind = {
-    thumbnail_s3_key: "k/.thumbnail.png",
-    thumbnail_dark_s3_key: "k/.thumbnail_dark.png",
-    thumbnail_version: 3,
-    thumbnail_dark_version: 3,
-    current_version: 4,
-  };
-  const current = { ...behind, thumbnail_version: 4, thumbnail_dark_version: 4 };
-
-  it("captures again when the recorded one is older than the asset", async () => {
-    renderViewer({ asset: markdownAsset(behind) });
-    const capture = await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
-    expect(capture.getAttribute("data-version")).toBe("4");
-  });
-
-  it("leaves a current capture alone", async () => {
-    renderViewer({ asset: markdownAsset(current) });
-    await new Promise((r) => setTimeout(r, 1500));
-    expect(screen.queryByTestId("thumbnail-capture")).not.toBeInTheDocument();
-  });
-
-  // The capture endpoint takes an upload from the owner or an administrator, so
-  // on a shared asset the whole pass would end in a refused PUT.
-  it("does not capture on an asset shared with the reader", async () => {
-    renderViewer({ asset: markdownAsset(behind), isOwner: false, sharePermission: "editor" });
-    await new Promise((r) => setTimeout(r, 1500));
-    expect(screen.queryByTestId("thumbnail-capture")).not.toBeInTheDocument();
-  });
-});
-
-// Recapture is how a wrong tile is asked for again. The usual reason a tile is
-// wrong is a capture that was discarded, which leaves the capturer mounted on a
-// version that has not moved and the asset row already cleared -- so nothing
-// the capture condition reads changes on the second press, and the owner was
-// left pressing a control that could not act until the page was reloaded
-// (#1501).
-describe("AssetViewer recapture", () => {
+// Tiles are drawn by the platform's renderer (#1787). Opening an asset whose
+// tile is behind draws nothing in the reader's tab; the owner's panel says the
+// tile is being drawn and asks the server for another on a press.
+describe("AssetViewer thumbnail", () => {
   const cleared = {
     thumbnail_s3_key: "",
     thumbnail_dark_s3_key: "",
@@ -240,80 +176,31 @@ describe("AssetViewer recapture", () => {
     current_version: 4,
   };
 
-  beforeEach(() => {
-    captureMounts.length = 0;
+  it("draws nothing in the reader's tab and says the tile is being drawn", async () => {
+    renderViewer({ asset: markdownAsset(cleared) });
+    fireEvent.click(screen.getByTitle("Show details"));
+    expect(await screen.findByText("Being drawn")).toBeInTheDocument();
+    expect(document.querySelector("iframe[title='Thumbnail capture']")).toBeNull();
   });
-  afterEach(() => vi.unstubAllGlobals());
 
-  /**
-   * Answers the clear, and only the clear. Every other request the viewer makes
-   * is left to fail as it does in the rest of this file: answering them all with
-   * one shape crashes the panels that read them.
-   */
-  function stubClear(status: number, body: unknown) {
+  // A refused clear discarded nothing, and saying so is the only way the owner
+  // learns their press did not take.
+  it("reports a clear the server refused", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
         init?.method === "DELETE"
-          ? Promise.resolve(new Response(JSON.stringify(body), { status }))
+          ? Promise.resolve(new Response(JSON.stringify({ detail: "refused" }), { status: 403 }))
           : Promise.reject(new Error("not stubbed")),
       ),
     );
-  }
-
-  async function pressRecapture() {
-    fireEvent.click(screen.getByTitle("Show details"));
-    fireEvent.click(screen.getByTitle("Discard this image and take it again"));
-  }
-
-  it("takes the picture again on a press that moves nothing on the asset row", async () => {
-    stubClear(200, { status: "updated" });
-    renderViewer({ asset: markdownAsset(cleared) });
-
-    await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
-    // The element is in the DOM before the effect that records the mount has
-    // run, so the count is waited for rather than read (it read 0 on a loaded
-    // CI runner).
-    await waitFor(() => expect(captureMounts).toHaveLength(1));
-
-    await pressRecapture();
-
-    await waitFor(() => expect(captureMounts).toHaveLength(2));
-    expect(captureMounts).toEqual([
-      { assetId: "a1", version: 4 },
-      { assetId: "a1", version: 4 },
-    ]);
-  });
-
-  // Opening a second asset from a link reuses this viewer. With both rows behind
-  // at the same version there is no render where a capture stops being wanted,
-  // so the capturer is never unmounted and a key built from the version alone
-  // left the first asset's finished capturer in place.
-  it("takes the second asset's picture when a link moves the viewer to it", async () => {
-    stubClear(200, { status: "updated" });
-    const { rerender } = renderViewer({ asset: markdownAsset(cleared) });
-    await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
-
-    rerender({ asset: markdownAsset({ ...cleared, id: "a2" }) });
-
-    await waitFor(() =>
-      expect(captureMounts).toEqual([
-        { assetId: "a1", version: 4 },
-        { assetId: "a2", version: 4 },
-      ]),
-    );
-  });
-
-  // A refused clear discarded nothing, so there is no new picture to take and
-  // the capturer already mounted is still working on the one reason there was.
-  it("does not take it again when the clear was refused", async () => {
-    stubClear(403, { detail: "refused" });
-    renderViewer({ asset: markdownAsset(cleared) });
-
-    await screen.findByTestId("thumbnail-capture", {}, { timeout: 4000 });
-    await pressRecapture();
-
-    await screen.findByText("Could not discard the stored image.");
-    expect(captureMounts).toHaveLength(1);
+    try {
+      renderViewer({ asset: markdownAsset(cleared) });
+      fireEvent.click(screen.getByTitle("Show details"));
+      fireEvent.click(screen.getByTitle("Discard this image and draw it again"));
+      expect(await screen.findByText("Could not discard the stored image.")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

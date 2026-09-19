@@ -253,7 +253,3 @@ func (noResources) SetThumbnail(_ context.Context, _ string, _ resource.Thumbnai
 }
 
 func (noResources) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
-
-func (noResources) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}

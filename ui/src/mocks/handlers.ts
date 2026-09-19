@@ -23,12 +23,6 @@ import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
 import { versionsForAsset } from "./data/assetVersions";
-import {
-  isThemeable,
-  isThumbnailSupported,
-  thumbnailBehind,
-  THUMBNAIL_SOURCE_LIMIT,
-} from "@/lib/thumbnailSupport";
 import { fixtureTile, resourceTileSVG } from "./data/resourceTile";
 import { catalogHandlers } from "./handlers/catalogs";
 import { apiBrowseHandlers } from "./handlers/apis";
@@ -509,6 +503,9 @@ function assetProvenancePage(asset: Asset, request: Request) {
 }
 
 const thumbnailStore = new Map<string, ArrayBuffer>();
+
+/** How long the mock's stand-in for the platform's renderer takes to draw a tile. */
+const MOCK_RENDER_MS = 1_500;
 
 /**
  * The light-scheme colors of the static thumbnail fixtures, and the dark ones
@@ -2369,17 +2366,6 @@ export const handlers = [
     return HttpResponse.json(portalAssets[idx]);
   }),
 
-  http.put(`${ADMIN_BASE}/assets/:id/thumbnail`, async ({ params, request }) => {
-    const asset = portalAssets.find((a) => a.id === params.id && !a.deleted_at);
-    if (!asset) {
-      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
-    }
-    const buffer = await request.arrayBuffer();
-    thumbnailStore.set(asset.id, buffer);
-    asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
-    return new HttpResponse(null, { status: 204 });
-  }),
-
   http.delete(`${ADMIN_BASE}/assets/:id`, ({ params }) => {
     const idx = portalAssets.findIndex(
       (a) => a.id === params.id && !a.deleted_at,
@@ -2656,66 +2642,31 @@ export const handlers = [
     return HttpResponse.json(portalAssets[idx]);
   }),
 
-  http.put(`${PORTAL_BASE}/assets/:id/thumbnail`, async ({ params, request }) => {
-    const asset = portalAssets.find((a) => a.id === params.id && !a.deleted_at);
-    if (!asset) {
-      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
-    }
-    const url = new URL(request.url);
-    const variant = url.searchParams.get("variant");
-    // The capture is dated to the version it was rendered from, defaulting to
-    // the version the asset is on now, exactly as the server does. Without the
-    // stamp the mock would leave every captured asset pending and the queue
-    // would re-offer it on every poll.
-    const version = Number(url.searchParams.get("version") ?? asset.current_version);
-    const buffer = await request.arrayBuffer();
-    if (variant === "dark") {
-      thumbnailStore.set(`${asset.id}:dark`, buffer);
-      asset.thumbnail_dark_s3_key = `thumbnails/${asset.id}_dark.png`;
-      asset.thumbnail_dark_version = version;
-    } else {
-      thumbnailStore.set(asset.id, buffer);
-      asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
-      asset.thumbnail_version = version;
-    }
-    return new HttpResponse(null, { status: 204 });
-  }),
-
-  // Discarding an asset's captures is what returns it to the queue above: a
-  // reader whose tile shows the artifact's error state has no other way to move
-  // the row a capture is decided from (#1497).
+  // Discarding an asset's tile is asking the platform's renderer to draw it
+  // again (#1497, #1787). There is no renderer behind the mock, so it stands in
+  // for one: the row reads as owed, then as drawn a moment later, which is the
+  // sequence the Thumbnail panel shows a reader.
   http.delete(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params }) => {
     const asset = portalAssets.find((a) => a.id === params.id && !a.deleted_at);
     if (!asset) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    thumbnailStore.delete(asset.id);
-    thumbnailStore.delete(`${asset.id}:dark`);
+    const drawn = { light: asset.thumbnail_s3_key, dark: asset.thumbnail_dark_s3_key };
     asset.thumbnail_s3_key = "";
     asset.thumbnail_dark_s3_key = "";
     asset.thumbnail_version = 0;
     asset.thumbnail_dark_version = 0;
+    asset.thumbnail_failure = undefined;
+    asset.thumbnail_failed_version = 0;
+    setTimeout(() => {
+      asset.thumbnail_s3_key = drawn.light || `thumbnails/${asset.id}.png`;
+      asset.thumbnail_version = asset.current_version;
+      if (drawn.dark) {
+        asset.thumbnail_dark_s3_key = drawn.dark;
+        asset.thumbnail_dark_version = asset.current_version;
+      }
+    }, MOCK_RENDER_MS);
     return HttpResponse.json({ status: "updated" });
-  }),
-
-  // The refresh queue's work list: the assets whose capture is missing or
-  // behind the version they now hold. The server derives it in SQL over every
-  // asset the caller owns; the mock asks the same question of the fixtures.
-  http.get(`${PORTAL_BASE}/thumbnails/pending`, ({ request }) => {
-    const limit = parseInt(new URL(request.url).searchParams.get("limit") ?? "25", 10);
-    const pending = portalAssets.filter(
-      (a) =>
-        !a.deleted_at &&
-        isThumbnailSupported(a.content_type) &&
-        a.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
-        thumbnailBehind(a),
-    );
-    return HttpResponse.json({
-      data: pending.slice(0, limit),
-      total: pending.length,
-      limit,
-      offset: 0,
-    });
   }),
 
   http.get(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params, request }) => {
@@ -3203,15 +3154,6 @@ export const handlers = [
     return new HttpResponse(null, { status: 404 });
   }),
 
-  http.put(`${PORTAL_BASE}/collections/:id/thumbnail`, async ({ params, request }) => {
-    const id = params.id as string;
-    const buffer = await request.arrayBuffer();
-    thumbnailStore.set(`col-${id}`, buffer);
-    const col = mockCollections.find((c) => c.id === id);
-    if (col) (col as unknown as Record<string, unknown>).thumbnail_s3_key = `thumbnails/col-${id}.png`;
-    return new HttpResponse(null, { status: 204 });
-  }),
-
   http.get(`${PORTAL_BASE}/collections/:id`, ({ params }) => {
     const col = mockCollections.find((c) => c.id === params.id);
     if (!col) {
@@ -3457,62 +3399,6 @@ export const handlers = [
     });
   }),
 
-  // The capture routes a managed resource carries (#1554), which its library
-  // tiles and its own Thumbnail panel read (#1568). Registered before the
-  // by-id read below so "thumbnails" cannot be taken for a resource id.
-  http.get("/api/v1/resources/thumbnails/pending", () => {
-    // The server's predicate, which is what makes the queue terminate: a
-    // capture is wanted when it is missing or older than the file, and the dark
-    // one is asked for only of the families that carry one. Reading an empty
-    // dark key as pending on a family that stores a single image would offer
-    // the resource forever.
-    const behind = (key?: string, at?: string, updated?: string) =>
-      !key || !at || at < (updated ?? "");
-    const pending = mockResources.resources.filter(
-      (r) =>
-        isThumbnailSupported(r.mime_type) &&
-        // And one the fixtures can answer for. A family the mock cannot draw
-        // -- an HTML page, which the real capturer renders in an iframe and
-        // rasterizes -- is left off the queue rather than offered forever, so
-        // no page under test rasterizes on the main thread and a capture of the
-        // library is the same picture every run (#1619).
-        fixtureTile(r.id, r.mime_type, mockResources.content[r.id] ?? "") !== null &&
-        r.size_bytes <= THUMBNAIL_SOURCE_LIMIT &&
-        (behind(r.thumbnail_s3_key, r.thumbnail_captured_at, r.updated_at) ||
-          (isThemeable(r.mime_type) &&
-            behind(r.thumbnail_dark_s3_key, r.thumbnail_dark_captured_at, r.updated_at))),
-    );
-    return HttpResponse.json({ resources: pending, total: pending.length });
-  }),
-
-  // Where a capture the browser took is recorded. Without it the upload falls
-  // through to the dev proxy and fails, the row never records a capture, and
-  // the resource stays on the pending list -- so the queue re-fetches and
-  // re-rasterizes it on every page for the life of the suite, on the same main
-  // thread the tests are waiting on.
-  //
-  // The capture is dated to the resource's own updated_at, as the server dates
-  // it: a resource row carries no version, so that timestamp is what says a
-  // capture has caught up with the file it came from.
-  http.put("/api/v1/resources/:id/thumbnail", async ({ params, request }) => {
-    const resource = mockResources.resources.find((r) => r.id === params.id);
-    if (!resource) {
-      return HttpResponse.json({ error: "not found" }, { status: 404 });
-    }
-    const variant = new URL(request.url).searchParams.get("variant");
-    const buffer = await request.arrayBuffer();
-    if (variant === "dark") {
-      thumbnailStore.set(`${resource.id}:dark`, buffer);
-      resource.thumbnail_dark_s3_key = `thumbnails/${resource.id}_dark.png`;
-      resource.thumbnail_dark_captured_at = resource.updated_at;
-    } else {
-      thumbnailStore.set(resource.id, buffer);
-      resource.thumbnail_s3_key = `thumbnails/${resource.id}.png`;
-      resource.thumbnail_captured_at = resource.updated_at;
-    }
-    return HttpResponse.json(resource);
-  }),
-
   http.get("/api/v1/resources/:id/thumbnail", ({ params, request }) => {
     const id = params.id as string;
     const resource = mockResources.resources.find((r) => r.id === id);
@@ -3528,16 +3414,28 @@ export const handlers = [
   }),
 
   // Both variants, which is what the route does: two views of one file, and a
-  // reader asking for the tile to be taken again means the tile.
+  // reader asking for the tile to be drawn again means the tile. The mock
+  // stands in for the renderer as the asset route above does.
   http.delete("/api/v1/resources/:id/thumbnail", ({ params }) => {
     const resource = mockResources.resources.find((r) => r.id === params.id);
     if (!resource) {
       return HttpResponse.json({ error: "not found" }, { status: 404 });
     }
+    const drawn = { light: resource.thumbnail_s3_key, dark: resource.thumbnail_dark_s3_key };
     resource.thumbnail_s3_key = undefined;
     resource.thumbnail_dark_s3_key = undefined;
     resource.thumbnail_captured_at = undefined;
     resource.thumbnail_dark_captured_at = undefined;
+    resource.thumbnail_failure = undefined;
+    resource.thumbnail_failed_at = undefined;
+    setTimeout(() => {
+      resource.thumbnail_s3_key = drawn.light ?? `thumbnails/${resource.id}.png`;
+      resource.thumbnail_captured_at = resource.updated_at;
+      if (drawn.dark) {
+        resource.thumbnail_dark_s3_key = drawn.dark;
+        resource.thumbnail_dark_captured_at = resource.updated_at;
+      }
+    }, MOCK_RENDER_MS);
     return new HttpResponse(null, { status: 204 });
   }),
 

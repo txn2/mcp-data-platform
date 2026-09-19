@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiFetchRaw } from "../client";
+import { apiFetch } from "../client";
 import {
   useOffsetInfiniteQuery,
   paginatedFetch,
@@ -153,24 +153,6 @@ export function useUpdateCollectionConfig() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["collection"] });
       void qc.invalidateQueries({ queryKey: ["collections"] });
-    },
-  });
-}
-
-export function useUploadCollectionThumbnail() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, blob }: { id: string; blob: Blob }) => {
-      const res = await apiFetchRaw(`/collections/${id}/thumbnail`, {
-        method: "PUT",
-        headers: { "Content-Type": "image/png" },
-        body: blob,
-      });
-      if (!res.ok) throw new Error("Failed to upload thumbnail");
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["collections"] });
-      void qc.invalidateQueries({ queryKey: ["collection"] });
     },
   });
 }

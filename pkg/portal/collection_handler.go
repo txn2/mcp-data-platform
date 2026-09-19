@@ -3,7 +3,6 @@ package portal
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -576,72 +575,6 @@ func convertSectionInputs(inputs []sectionInput) ([]CollectionSection, error) {
 }
 
 // --- Collection Thumbnail ---
-
-// uploadCollectionThumbnail handles PUT /api/v1/portal/collections/{id}/thumbnail.
-//
-// @Summary      Upload collection thumbnail
-// @Description  Uploads a PNG thumbnail image for the collection. The owner, an admin, or a collection Editor.
-// @Tags         Collections
-// @Accept       png
-// @Produce      json
-// @Param        id    path  string  true  "Collection ID"
-// @Param        body  body  []byte  true  "PNG image data"
-// @Success      204
-// @Failure      401  {object}  problemDetail
-// @Failure      403  {object}  problemDetail
-// @Failure      404  {object}  problemDetail
-// @Failure      413  {object}  problemDetail
-// @Failure      500  {object}  problemDetail
-// @Failure      503  {object}  problemDetail
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /portal/collections/{id}/thumbnail [put]
-func (h *Handler) uploadCollectionThumbnail(w http.ResponseWriter, r *http.Request) {
-	user := GetUser(r.Context())
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, errAuthRequired)
-		return
-	}
-
-	id := r.PathValue(pathKeyID)
-	coll, err := h.deps.CollectionStore.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, errCollectionNotFound)
-		return
-	}
-	if !h.access.CanEditCollection(r.Context(), coll, user) {
-		writeError(w, http.StatusForbidden, "only the owner or an editor can upload a thumbnail")
-		return
-	}
-
-	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
-		return
-	}
-
-	data, err := io.ReadAll(io.LimitReader(r.Body, MaxThumbnailUploadBytes+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read upload")
-		return
-	}
-	if int64(len(data)) > MaxThumbnailUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "thumbnail too large")
-		return
-	}
-
-	s3Key := fmt.Sprintf("portal/collections/%s/thumbnail.png", id)
-	if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, s3Key, data, "image/png"); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to upload thumbnail")
-		return
-	}
-
-	if err := h.deps.CollectionStore.UpdateThumbnail(r.Context(), id, s3Key); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update thumbnail reference")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
 
 // getCollectionThumbnail handles GET /api/v1/portal/collections/{id}/thumbnail.
 //

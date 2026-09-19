@@ -586,12 +586,40 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+        # The headless Chrome every thumbnail is drawn in. See "Thumbnail
+        # renderer" below.
+        - name: renderer
+          image: chromedp/headless-shell@sha256:2d349b544a1ea6b5b5fd7c0fe99215ff662339c57407ee2e8c0a11af93516b04
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: renderer-tmp
+              mountPath: /tmp
+            - name: renderer-shm
+              mountPath: /dev/shm
       volumes:
         - name: config
           configMap:
             name: mcp-data-platform-config
         - name: tmp
           emptyDir: {}
+        - name: renderer-tmp
+          emptyDir: {}
+        - name: renderer-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
 ```
 
 `/readyz` reports `draining` (503) as soon as SIGTERM arrives, so the load
@@ -601,6 +629,14 @@ resource figures from the
 [Tuning and Scaling guide](../reference/tuning-and-scaling.md), which covers
 `GOMEMLIMIT`/`GOMAXPROCS` selection, the four-stage shutdown budget, and
 measured per-replica throughput.
+
+### Thumbnail renderer
+
+The platform draws every asset, resource and collection thumbnail in a headless Chrome (`chromedp/headless-shell`) that runs as a second container in the platform's pod, shown in the manifest above. It needs no Service, no port and no configuration: the platform reaches it on `127.0.0.1:9222`, which is the default for [`thumbnails.renderer_url`](configuration.md#thumbnails).
+
+The renderer never reaches the platform or anything else. The platform opens each tile's page over the DevTools protocol and answers every request the page makes itself: its own documents and the viewer's files in-process, and a public URL a document names (an image on a CDN, a module on esm.sh) by fetching it through the same guard the util connection uses, which refuses private, loopback and link-local addresses. Every page runs in its own browser context whose proxy is a dead address, and the constructors a page could open a socket with (WebSocket, WebTransport, WebRTC) are removed before the document runs. A document that names an address inside the cluster is drawn without it.
+
+Without the container the platform starts and serves normally; tiles keep their content-type icons, and the platform logs once that no renderer answers and again when one does. Set `thumbnails.enabled: false` to stop it looking. Chrome needs a writable `/tmp` and a shared-memory volume, which is why the manifest mounts both on a read-only root filesystem. The pod's `runAsUser: 1000` applies to it as well; the image runs unprivileged.
 
 ### Service
 

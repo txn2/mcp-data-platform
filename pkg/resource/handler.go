@@ -189,8 +189,6 @@ func NewHandler(deps Deps, extractFn ClaimsExtractor, authMiddle func(http.Handl
 func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/resources", h.handleCreate)
 	mux.HandleFunc("GET /api/v1/resources/facets", h.handleFacets)
-	mux.HandleFunc("GET /api/v1/resources/thumbnails/pending", h.handlePendingThumbnails)
-	mux.HandleFunc("PUT /api/v1/resources/{id}/thumbnail", h.handleUploadThumbnail)
 	mux.HandleFunc("GET /api/v1/resources/{id}/thumbnail", h.handleGetThumbnail)
 	mux.HandleFunc("DELETE /api/v1/resources/{id}/thumbnail", h.handleClearThumbnail)
 	mux.HandleFunc("POST /api/v1/resources/folders/move", h.handleFolderMove)

@@ -522,7 +522,3 @@ func (*resStore) SetThumbnail(_ context.Context, _ string, _ resource.ThumbnailC
 }
 
 func (*resStore) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
-
-func (*resStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}

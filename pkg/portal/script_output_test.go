@@ -106,7 +106,6 @@ func TestUpdateAssetByTheScriptOwner(t *testing.T) {
 func TestOwnerScopedListingsRefuseAnUnidentifiedCaller(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/portal/assets",
-		"/api/v1/portal/thumbnails/pending",
 	} {
 		t.Run(path, func(t *testing.T) {
 			store := &mockAssetStore{listRes: []Asset{*scriptOutput()}, listTotal: 1}

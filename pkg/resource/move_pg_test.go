@@ -238,10 +238,10 @@ func resourceRows(uri string) *sqlmock.Rows {
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 	}).AddRow("res-1", "persona", "ops", "templates", "report.docx", "Report", "desc",
 		"text/plain", int64(9), "s3/key", uri, pq.Array([]string{}), "sub-1", "me@example.com",
-		now, now, nil, "", "", nil, nil)
+		now, now, nil, "", "", nil, nil, 0, "", nil)
 }
 
 func TestPostgresStore_GetByURIResolvesAVacatedAddress(t *testing.T) {

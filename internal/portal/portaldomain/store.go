@@ -87,7 +87,6 @@ type CollectionStore interface {
 	List(ctx context.Context, filter CollectionFilter) ([]Collection, int, error)
 	Update(ctx context.Context, id, name, description string) error
 	UpdateConfig(ctx context.Context, id string, config CollectionConfig) error
-	UpdateThumbnail(ctx context.Context, id, thumbnailS3Key string) error
 	SoftDelete(ctx context.Context, id string) error
 	SetSections(ctx context.Context, collectionID string, sections []CollectionSection) error
 }

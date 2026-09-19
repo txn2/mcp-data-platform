@@ -1,32 +1,22 @@
 package resource
 
 import (
-	"io"
 	"log/slog"
-	"mime"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
 
-// A resource's thumbnail: the capture a browser took of it, stored beside the
-// resource's own object and served from a route of its own (#1554).
-//
-// Nothing on a server can rasterize a document, so the image is made in a
-// portal tab and uploaded here. That is the same arrangement an asset has had
-// since #1431, and these routes are its counterpart: what the queue asks for,
-// what it uploads, what the library reads, and how a wrong tile is cleared.
+// A resource's thumbnail: the tile the platform's renderer drew of it, stored
+// beside the resource's own object and served from a route of its own (#1554,
+// #1787). These routes are what the library reads and how a tile is asked to
+// be drawn again; the renderer writes the tile itself.
 
 const (
-	// MaxThumbnailUploadBytes bounds a capture upload. A tile is 400x300 PNG;
-	// anything approaching this is not one.
-	MaxThumbnailUploadBytes = 2 << 20 // 2 MB
-
-	// thumbnailMIMEType is the only form a capture is accepted in. One type
-	// means the serving route needs no stored type of its own.
+	// thumbnailMIMEType is the only form a tile is stored in. One type means
+	// the serving route needs no stored type of its own.
 	thumbnailMIMEType = "image/png"
 
 	// thumbnailLightFilename and thumbnailDarkFilename are what a capture is
@@ -40,14 +30,14 @@ const (
 	thumbnailDarkFilename  = ".thumbnail_dark.png"
 )
 
-// deriveThumbnailKey is where a capture is stored: beside the resource's own
+// ThumbnailKeyFor is where a tile is stored: beside the resource's own
 // object, under a hidden name.
 //
 // It is the resource's own copy of the rule portal assets apply to their
 // objects. The two live in different prefixes and neither reads the other's
 // keys, but the filenames are deliberately the same so a bucket shows one
 // convention rather than two.
-func deriveThumbnailKey(s3Key, variant string) string {
+func ThumbnailKeyFor(s3Key, variant string) string {
 	filename := thumbnailLightFilename
 	if variant == ThumbnailVariantDark {
 		filename = thumbnailDarkFilename
@@ -82,147 +72,14 @@ func storedThumbnailKey(r *Resource, variant string) string {
 	return r.ThumbnailS3Key
 }
 
-// handlePendingThumbnails handles GET /api/v1/resources/thumbnails/pending.
-//
-// @Summary      List resources needing a thumbnail
-// @Description  Resources the caller may read whose thumbnail is missing or older than the file it was captured from, most recently changed first. Nothing on a server can rasterize a document, so this is the work list a portal tab does on the deployment's behalf.
-// @Tags         Resources
-// @Produce      json
-// @Param        limit  query  int  false  "Max results to return (default 100, max 200)"
-// @Success      200  {object}  resource.listResponse
-// @Failure      401  {object}  resource.errorResponse
-// @Failure      500  {object}  resource.errorResponse
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /resources/thumbnails/pending [get]
-func (h *Handler) handlePendingThumbnails(w http.ResponseWriter, r *http.Request) {
-	claims, ok := h.authenticate(w, r)
-	if !ok {
-		return
-	}
-
-	scopes, allScopes := ListScopes(*claims, "", "")
-	resources, err := h.deps.Store.PendingThumbnails(
-		r.Context(), Filter{Scopes: scopes, AllScopes: allScopes}, thumbnailLimit(r),
-	)
-	if err != nil {
-		slog.Error("pending thumbnail list failed", msgError, err)
-		writeError(w, http.StatusInternalServerError, "listing pending thumbnails")
-		return
-	}
-	if resources == nil {
-		resources = []Resource{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"resources": resources, "total": len(resources)})
-}
-
-// thumbnailLimit is how many pending resources one poll asks for, clamped the
-// way the listing clamps its own page.
-func thumbnailLimit(r *http.Request) int {
-	limit := DefaultListLimit
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	if limit > MaxListLimit {
-		limit = MaxListLimit
-	}
-	return limit
-}
-
-// handleUploadThumbnail handles PUT /api/v1/resources/{id}/thumbnail.
-//
-// @Summary      Store a resource's thumbnail
-// @Description  Upload a captured PNG for a resource. Capturing is the authority to change the file, which is its uploader or an administrator of its library -- the same rule replacing its content runs under.
-// @Tags         Resources
-// @Accept       png
-// @Produce      json
-// @Param        id       path   string  true   "Resource ID"
-// @Param        variant  query  string  false  "Which capture this is"  Enums(light, dark)
-// @Success      200  {object}  resource.Resource
-// @Failure      400  {object}  resource.errorResponse
-// @Failure      403  {object}  resource.errorResponse
-// @Failure      404  {object}  resource.errorResponse
-// @Failure      413  {object}  resource.errorResponse
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /resources/{id}/thumbnail [put]
-func (h *Handler) handleUploadThumbnail(w http.ResponseWriter, r *http.Request) {
-	res, claims, ok := h.thumbnailTarget(w, r)
-	if !ok {
-		return
-	}
-	// Capturing is the authority to change the file, not to read it: the image
-	// stands for the resource everywhere it is listed.
-	if !CanModifyResource(*claims, res) {
-		writeError(w, http.StatusForbidden, "not allowed to change this resource")
-		return
-	}
-	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, "storage is not configured")
-		return
-	}
-
-	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if mediaType != thumbnailMIMEType {
-		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
-		return
-	}
-
-	data, err := io.ReadAll(io.LimitReader(r.Body, MaxThumbnailUploadBytes+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "reading the thumbnail")
-		return
-	}
-	if int64(len(data)) > MaxThumbnailUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "thumbnail is too large")
-		return
-	}
-
-	variant := readVariant(r)
-	key := deriveThumbnailKey(res.S3Key, variant)
-	if err := h.deps.S3Client.PutObject(r.Context(), h.deps.S3Bucket, key, data, thumbnailMIMEType); err != nil {
-		slog.Error("thumbnail upload failed", msgError, err)
-		writeError(w, http.StatusServiceUnavailable, "storing the thumbnail")
-		return
-	}
-
-	// Stamped with the resource's own UpdatedAt rather than with now. The
-	// capture is of the file as it stands, and a wall-clock time a moment later
-	// would make a capture look newer than content written between the read and
-	// this write -- which is exactly the file that still needs capturing.
-	capture := ThumbnailCapture{Variant: variant, S3Key: key, CapturedAt: res.UpdatedAt}
-	if err := h.deps.Store.SetThumbnail(r.Context(), res.ID, capture); err != nil {
-		slog.Error("recording thumbnail failed", msgError, err)
-		writeError(w, http.StatusInternalServerError, "recording the thumbnail")
-		return
-	}
-
-	applyCapture(res, capture)
-	writeJSON(w, http.StatusOK, res)
-}
-
-// applyCapture reflects a stored capture onto the resource being returned, so
-// the response says what the row now holds rather than what it held on read.
-func applyCapture(res *Resource, c ThumbnailCapture) {
-	at := c.CapturedAt
-	if c.Variant == ThumbnailVariantDark {
-		res.ThumbnailDarkS3Key, res.ThumbnailDarkCapturedAt = c.S3Key, &at
-		return
-	}
-	res.ThumbnailS3Key, res.ThumbnailCapturedAt = c.S3Key, &at
-}
-
 // handleGetThumbnail handles GET /api/v1/resources/{id}/thumbnail.
 //
 // @Summary      Read a resource's thumbnail
-// @Description  Serve the captured PNG for a resource. Reading a tile is the authority to read the resource; a resource with no capture answers 404, which is what tells a card to draw its content-type icon instead.
+// @Description  Serve the PNG the platform drew for a resource. Reading a tile is the authority to read the resource; a resource with no tile answers 404, which is what tells a card to draw its content-type icon instead.
 // @Tags         Resources
 // @Produce      png
 // @Param        id       path   string  true   "Resource ID"
-// @Param        variant  query  string  false  "Which capture to serve"  Enums(light, dark)
+// @Param        variant  query  string  false  "Which tile to serve"  Enums(light, dark)
 // @Success      200  {file}  binary
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      404  {object}  resource.errorResponse
@@ -241,7 +98,7 @@ func (h *Handler) handleGetThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	key := storedThumbnailKey(res, readVariant(r))
 	if key == "" {
-		writeError(w, http.StatusNotFound, "no thumbnail has been captured for this resource")
+		writeError(w, http.StatusNotFound, "no thumbnail has been drawn for this resource")
 		return
 	}
 
@@ -251,7 +108,7 @@ func (h *Handler) handleGetThumbnail(w http.ResponseWriter, r *http.Request) {
 		// rather than a 500 because the answer a caller acts on is the same one
 		// a resource with no capture gives: draw the icon.
 		slog.Warn("thumbnail object missing", msgError, err)
-		writeError(w, http.StatusNotFound, "no thumbnail has been captured for this resource")
+		writeError(w, http.StatusNotFound, "no thumbnail has been drawn for this resource")
 		return
 	}
 
@@ -269,19 +126,19 @@ func (h *Handler) handleGetThumbnail(w http.ResponseWriter, r *http.Request) {
 // handleClearThumbnail handles DELETE /api/v1/resources/{id}/thumbnail.
 //
 // Both variants go together, which is why this takes no variant. They are two
-// views of one file, and a reader asking for the tile to be taken again means
+// views of one file, and a reader asking for the tile to be drawn again means
 // the tile, not the half of it their color mode happens to be showing -- the
 // same rule the asset route applies (pkg/portal.clearThumbnail). Clearing the
-// light one alone would be enough to put the resource back on the pending list,
-// but it would leave a themeable file serving the stale dark capture until the
+// light one alone would be enough to have the renderer draw the resource again,
+// but it would leave a themeable file serving the stale dark tile until the
 // replacement landed, which is exactly the wrong picture being complained about.
 //
-// A capture writes a deterministic key beside the resource's own object, so the
-// next one overwrites what this forgets and leaving the objects in place
+// A tile is written under a deterministic key beside the resource's own object,
+// so the next one overwrites what this forgets and leaving the objects in place
 // orphans nothing.
 //
 // @Summary      Clear a resource's thumbnail
-// @Description  Forget a resource's captures, both variants, which leaves it pending and asks the portal to take them again. It is the way back from a tile that is wrong.
+// @Description  Forget a resource's tiles, both variants, and any failure recorded against them, so the platform's renderer draws the file again. It is the way back from a tile that is wrong.
 // @Tags         Resources
 // @Produce      json
 // @Param        id       path   string  true   "Resource ID"

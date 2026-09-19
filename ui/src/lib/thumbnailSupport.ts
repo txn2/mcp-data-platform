@@ -1,12 +1,10 @@
 /**
- * Which content types get a thumbnail, and how big a document is worth
- * capturing.
+ * Which content types get a thumbnail, how big a document is worth drawing,
+ * and where a stored tile is read from.
  *
- * These are separate from lib/thumbnail because the surfaces that ask the
- * questions — the assets list deciding what to queue, the asset viewer
- * deciding whether to offer a capture — must be able to ask them without
- * pulling in the capturer. lib/thumbnail imports html2canvas and the JSX
- * transformer, some 200 KB that only the capture itself needs (#1351).
+ * Tiles are drawn by the platform's own headless renderer (#1787); the tile
+ * page (src/tile-entry.tsx) dispatches on the families below. The surfaces that
+ * only show a tile or ask for another read this module and nothing heavier.
  */
 
 import type { RendererKind } from "@/components/renderers/registry";
@@ -16,32 +14,24 @@ export const THUMB_WIDTH = 400;
 export const THUMB_HEIGHT = 300;
 
 /**
- * Largest asset body a thumbnail is captured from, in bytes.
- *
- * Capture renders the asset a second time and rasterizes it on the main
- * thread, so its cost tracks the size of the document. A large interactive
- * dashboard is exactly the asset whose thumbnail would be most useful and
- * exactly the one whose capture stalls the page it was requested from
- * (#1351); above this it keeps the placeholder icon instead. The limit is
- * generous — a dashboard of a few hundred KB still gets a thumbnail — because
- * the point is to exclude the outliers, not the common case.
+ * Largest document a thumbnail is drawn from, in bytes. The server applies the
+ * same bound when it picks what to draw; above it a file keeps its content-type
+ * icon.
  */
 export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
 
 /**
- * How the capturer draws one family. The dispatch in
- * components/ThumbnailGenerator is over this rather than over its own list of
- * content types, so a family cannot be offered for capture by a surface that
- * nothing can draw -- which is what let a JSX resource sit on the pending list
- * forever (#1568).
+ * How the tile page draws one family. Its dispatch (components/thumbnail/Tile)
+ * is over this rather than over its own list of content types, so a family
+ * cannot be offered by a surface that nothing can draw (#1568).
  *
- * "iframe" is content that carries its own document (HTML, JSX); "image" is not
- * rendered at all but downscaled.
+ * "iframe" is content that carries its own document (HTML, JSX); "image" is a
+ * raster file scaled to cover the tile.
  */
 export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "text" | "image";
 
 /**
- * What the capturer draws each renderer kind as, or why it draws none.
+ * What the tile page draws each renderer kind as, or why it draws none.
  *
  * If a browser can render it in the viewer, it can have a tile: the two
  * questions were answered by two unrelated tables and the second was a
@@ -75,9 +65,9 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
   pdf: {
     drawn: false,
     because:
-      "rasterizing a page needs a PDF engine the capturer does not carry, and " +
-      "the pending query is a bounded window: offering work that fails every " +
-      "time starves the documents behind it",
+      "the tile page draws documents through the viewer's renderers, and the " +
+      "viewer shows a PDF in the browser's own plugin, which a headless " +
+      "renderer does not paint",
   },
   audio: {
     drawn: false,
@@ -96,13 +86,13 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
 };
 
 /**
- * The families drawn on a forced background, which are captured twice, once per
+ * The families drawn on a forced background, which are drawn twice, once per
  * color scheme.
  *
  * A property of the family rather than of each content type: HTML, JSX, SVG and
  * a raster image carry their own colors and store a single image for both
- * modes, and everything the capturer draws onto its own page needs one capture
- * per scheme.
+ * modes, and everything the tile page lays out itself needs one tile per
+ * scheme.
  */
 const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
   "markdown",
@@ -127,18 +117,18 @@ interface CapturableFamily {
  * matched against.
  *
  * This is the one browser-side definition. The rule used to be written out in
- * four places -- two Go stores, the browser gate here, and the capturer's own
+ * four places -- two Go stores, the browser gate here, and the tile's own
  * dispatch -- and the four stopped agreeing (#1568). The one Go definition is
  * internal/thumbtypes, and a Go test reads this table and the themeable family
  * set above and fails when the two languages disagree.
  *
  * It is written as fragments, rather than resolved through the renderer
- * registry the way the capturer's dispatch is, because the other half of the
- * rule is a SQL query: the server picks the next documents to offer with
- * ILIKE over a content_type column, and cannot resolve a registry. What keeps
- * it from drifting into a subset of what the viewer renders -- which is what it
- * had become (#1754) -- is the test that derives the expectation from
- * CAPTURE_BY_RENDERER_KIND and fails naming the type the two disagree on.
+ * registry, because the other half of the rule is a SQL query: the server
+ * picks the next documents to draw with ILIKE over a content_type column, and
+ * cannot resolve a registry. What keeps it from drifting into a subset of what
+ * the viewer renders -- which is what it had become (#1754) -- is the test that
+ * derives the expectation from CAPTURE_BY_RENDERER_KIND and fails naming the
+ * type the two disagree on.
  *
  * A stored type is canonical: the platform settles a declaration against its
  * alias table when the file is written (#1568), so "text/tsv" is stored as
@@ -150,16 +140,13 @@ interface CapturableFamily {
  * The "json" fragment covers both JSON families: every spelling of
  * newline-delimited JSON contains it ("application/x-ndjson",
  * "application/jsonl"), as do the vendor dialects. Which of the two is drawn is
- * a refinement the capturer makes inside the family. "text/plain" is spelled in
- * full because the bare word is a substring of "text/html", "text/csv" and
+ * a refinement the tile page makes inside the family. "text/plain" is spelled
+ * in full because the bare word is a substring of "text/html", "text/csv" and
  * "text/markdown", each of which is drawn differently.
  *
- * The raster families are named one by one rather than as "image/". A capture
- * downscales a raster image by decoding it in the browser, and TIFF, HEIC and
- * PSD are images no browser decodes: offering one is offering work that fails
- * every time, and the server's pending query is a bounded window, so a library
- * of them would starve the documents behind them of a capture that could
- * actually complete.
+ * The raster families are named one by one rather than as "image/". A tile of
+ * a raster image is the browser decoding it, and TIFF, HEIC and PSD are images
+ * no browser decodes: offering one is offering work that fails every time.
  */
 const CAPTURABLE_FAMILIES: CapturableFamily[] = [
   { fragment: "html", family: "iframe" },
@@ -205,10 +192,10 @@ export function isThumbnailSupported(contentType: string): boolean {
  * and a raster image carry their own colors, so they reuse the single
  * light/default thumbnail in both modes.
  *
- * Read off the family rather than off the content type: every family the
- * capturer draws onto its own page is themeable and every family that carries
- * its own document is not, so a content type added to the table above cannot
- * get this wrong.
+ * Read off the family rather than off the content type: every family the tile
+ * page lays out itself is themeable and every family that carries its own
+ * document is not, so a content type added to the table above cannot get this
+ * wrong.
  */
 export function isThemeable(contentType: string): boolean {
   const family = captureFamily(contentType);
@@ -227,8 +214,8 @@ function matchFamily(contentType: string): CapturableFamily | undefined {
  * They are ordinary files to Trino, which reads every non-hidden object under
  * an external location as CSV rows, so a CSV asset thumbnailed under them
  * cannot be registered as a table until they are replaced. An asset carrying
- * one is queued for capture again even though it already has a thumbnail; the
- * capture endpoint removes the object it supersedes.
+ * one is drawn again even though it already has a thumbnail, and the object it
+ * supersedes is removed when the new one is recorded.
  */
 const LEGACY_THUMBNAIL_FILENAMES = ["thumbnail.png", "thumbnail_dark.png"];
 
@@ -240,15 +227,7 @@ export function isLegacyThumbnailKey(key: string): boolean {
   return LEGACY_THUMBNAIL_FILENAMES.includes(name);
 }
 
-/**
- * What a capture belongs to: a portal asset, or a managed resource (#1554).
- *
- * The capturer is the same for both -- nothing on a server can rasterize a
- * document -- so the kind travels with the id rather than being forked into a
- * second component. It lives here rather than in lib/thumbnail because the
- * surfaces that only name a target, rather than capture one, must be able to do
- * it without pulling in html2canvas.
- */
+/** What a tile belongs to: a portal asset, or a managed resource (#1554). */
 export interface ThumbnailTarget {
   kind: "asset" | "resource";
   id: string;
@@ -264,26 +243,17 @@ export function thumbnailBase(target: ThumbnailTarget): string {
 }
 
 /**
- * The route a target's capture is uploaded to and served from, in full.
+ * The route a target's tile is served from and cleared through, in full.
  *
  * An absolute path rather than a fragment for one client to prefix: an asset
  * lives under /api/v1/portal and a resource under /api/v1/resources, so a
- * fragment handed to the wrong client is a 404 -- which is exactly what every
- * resource capture did until this was written out (#1554). The test that was
- * supposed to catch it asserted the fragment the mock received instead of the
- * URL that would be requested, and so agreed with the bug.
+ * fragment handed to the wrong client is a 404 (#1554).
  */
 export function thumbnailPath(target: ThumbnailTarget): string {
   return `${thumbnailBase(target)}/${target.id}/thumbnail`;
 }
 
-/**
- * The route a target's own bytes are read from.
- *
- * Here rather than beside the capturer because the panel that asks for a
- * capture reads the document too, and it must be able to name the route
- * without pulling in html2canvas (#1753).
- */
+/** The route a target's own bytes are read from. */
 export function contentPath(target: ThumbnailTarget): string {
   return `${thumbnailBase(target)}/${target.id}/content`;
 }
@@ -363,6 +333,8 @@ interface ThumbnailState {
   thumbnail_dark_s3_key?: string;
   thumbnail_version: number;
   thumbnail_dark_version: number;
+  thumbnail_failure?: string;
+  thumbnail_failed_version?: number;
 }
 
 /** The same of a managed resource, which dates its captures rather than versioning them. */
@@ -374,6 +346,8 @@ interface ResourceThumbnailState {
   thumbnail_dark_s3_key?: string;
   thumbnail_captured_at?: string;
   thumbnail_dark_captured_at?: string;
+  thumbnail_failure?: string;
+  thumbnail_failed_at?: string;
 }
 
 /** An asset's captures, under the field names an asset spells them with. */
@@ -468,7 +442,7 @@ export function collectionItemThumbnailSrc(
  * types that carry one; a type with its own colors serves the single capture in
  * both modes, so its empty dark key is not a gap.
  *
- * The refresh queue asks the same question of every asset at once, in SQL
+ * The renderer's claim asks the same question of every asset at once, in SQL
  * (internal/portal/portalstore); this copy is for the one asset on screen.
  */
 export function thumbnailBehind(a: ThumbnailState): boolean {
@@ -485,8 +459,8 @@ export function thumbnailBehind(a: ThumbnailState): boolean {
  * The same question of a managed resource.
  *
  * A resource row carries no version, so a capture is behind when it was taken
- * before the file was last written -- which is the comparison the pending query
- * makes in SQL (pkg/resource, buildPendingThumbnails). There is no legacy
+ * before the file was last written -- which is the comparison the renderer's
+ * claim makes in SQL (pkg/resource, buildThumbnailClaim). There is no legacy
  * filename arm: resource captures have only ever been written under the hidden
  * name.
  */
@@ -497,6 +471,25 @@ export function resourceThumbnailBehind(r: ResourceThumbnailState): boolean {
     behind(r.thumbnail_s3_key, r.thumbnail_captured_at) ||
     (isThemeable(r.mime_type) && behind(r.thumbnail_dark_s3_key, r.thumbnail_dark_captured_at))
   );
+}
+
+/**
+ * Why the renderer could not draw this asset's tile, while that still stands.
+ *
+ * A failure is recorded against the version the renderer tried, and holds the
+ * asset off the renderer's list until the document changes (#1787). Once the
+ * asset has moved past that version the renderer tries again, so an older
+ * failure is no longer the answer.
+ */
+export function assetThumbnailFailure(a: ThumbnailState): string | undefined {
+  if (!a.thumbnail_failure) return undefined;
+  return (a.thumbnail_failed_version ?? 0) >= a.current_version ? a.thumbnail_failure : undefined;
+}
+
+/** The same of a managed resource, whose failure is dated to the file it tried. */
+export function resourceThumbnailFailure(r: ResourceThumbnailState): string | undefined {
+  if (!r.thumbnail_failure || !r.thumbnail_failed_at) return undefined;
+  return Date.parse(r.thumbnail_failed_at) >= Date.parse(r.updated_at) ? r.thumbnail_failure : undefined;
 }
 
 /**
@@ -514,15 +507,14 @@ export interface ThumbnailSubject {
   name: string;
   contentType: string;
   sizeBytes: number;
-  /**
-   * The version a capture of this subject is stamped with, for a kind that has
-   * one. A resource sends none: the server dates its captures to the file's own
-   * updated_at (#1554).
-   */
-  version?: number;
   captures: Captures;
-  /** Whether a capture is wanted right now. */
+  /**
+   * Whether the renderer is drawing a tile right now: the stored one is missing
+   * or behind the file, and no failure stands against the file as it is.
+   */
   behind: boolean;
+  /** Why the renderer could not draw this file, while that still stands. */
+  failure?: string;
   /** Which route this reader is entitled to read the tile through. */
   base: string;
 }
@@ -537,9 +529,8 @@ export function assetSubject(
     name: asset.name,
     contentType: asset.content_type,
     sizeBytes: asset.size_bytes,
-    version: asset.current_version,
     captures: assetCaptures(asset),
-    behind: thumbnailBehind(asset),
+    ...drawState(thumbnailBehind(asset), assetThumbnailFailure(asset)),
     base,
   };
 }
@@ -554,7 +545,12 @@ export function resourceSubject(
     contentType: resource.mime_type,
     sizeBytes: resource.size_bytes,
     captures: resourceCaptures(resource),
-    behind: resourceThumbnailBehind(resource),
+    ...drawState(resourceThumbnailBehind(resource), resourceThumbnailFailure(resource)),
     base: RESOURCE_THUMBNAIL_BASE,
   };
+}
+
+/** A tile behind its file is being drawn unless a failure stands against it. */
+function drawState(behind: boolean, failure: string | undefined): { behind: boolean; failure?: string } {
+  return failure ? { behind: false, failure } : { behind };
 }

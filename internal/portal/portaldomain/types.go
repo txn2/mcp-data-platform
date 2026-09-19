@@ -27,8 +27,9 @@ import (
 // MaxContentUploadBytes is the maximum size for content uploads (10 MB).
 const MaxContentUploadBytes = 10 << 20
 
-// MaxThumbnailUploadBytes is the maximum size for thumbnail uploads (512 KB).
-const MaxThumbnailUploadBytes = 512 << 10
+// MaxThumbnailBytes is the largest tile stored (512 KB). A 400x300 PNG is a
+// small fraction of it; a renderer returning more has not drawn a tile.
+const MaxThumbnailBytes = 512 << 10
 
 // AssetCollectionRef is a lightweight reference to a collection that contains an asset.
 type AssetCollectionRef struct {
@@ -63,10 +64,19 @@ type Asset struct {
 	// The two variants are stamped independently because they are captured and
 	// uploaded independently, and a pass that lands one and throws on the other
 	// leaves exactly that state.
-	ThumbnailVersion     int      `json:"thumbnail_version" example:"3"`
-	ThumbnailDarkVersion int      `json:"thumbnail_dark_version" example:"3"`
-	SizeBytes            int64    `json:"size_bytes" example:"4200"`
-	Tags                 []string `json:"tags"`
+	ThumbnailVersion     int `json:"thumbnail_version" example:"3"`
+	ThumbnailDarkVersion int `json:"thumbnail_dark_version" example:"3"`
+	// ThumbnailRenderer is the generation of the renderer that drew the tile.
+	// A tile from an older generation still serves and is drawn again (#1787).
+	ThumbnailRenderer int `json:"-"`
+	// ThumbnailFailure is why the renderer could not draw this asset's tile,
+	// and ThumbnailFailedVersion the version it tried. The failure holds until
+	// the content changes or the tile is asked for again, so a document the
+	// renderer cannot draw is not retried forever and the reason is visible.
+	ThumbnailFailure       string   `json:"thumbnail_failure,omitempty" example:"the document did not finish drawing before the deadline"`
+	ThumbnailFailedVersion int      `json:"thumbnail_failed_version" example:"0"`
+	SizeBytes              int64    `json:"size_bytes" example:"4200"`
+	Tags                   []string `json:"tags"`
 	// Provenance is the asset's record of what produced it. A listing never
 	// carries it -- it grows by one capture per write and is unbounded, and
 	// carrying it made a library of 52 assets a megabyte of JSON (#1623). A
@@ -498,18 +508,6 @@ type AssetFilter struct {
 	SortBy string `json:"sort_by,omitempty"`
 	// SortDir is SortAsc or SortDesc. Anything else falls back to SortDesc.
 	SortDir string `json:"sort_dir,omitempty"`
-	// ThumbnailPending narrows the result to assets whose thumbnail is missing
-	// or has not caught up with the current version, and which the portal can
-	// actually rasterize. It is how a browser is told what to capture next:
-	// nothing regenerates a thumbnail server-side, so the work has to be found
-	// by a query rather than waiting for somebody to open the page an asset
-	// happens to be listed on (#1431).
-	//
-	// The condition is derived from the asset row on every read rather than
-	// recorded as queue state, so it cannot drift: an asset leaves the set by
-	// having a current capture and no other way, and a capture that fails is
-	// still pending on the next read.
-	ThumbnailPending bool `json:"thumbnail_pending,omitempty"`
 }
 
 // Order returns the ORDER BY clauses for this filter, with unknown columns and
@@ -552,7 +550,16 @@ type AssetUpdate struct {
 	// nothing can date, so the thumbnail-upload path sets both together.
 	ThumbnailVersion     *int `json:"thumbnail_version,omitempty"`
 	ThumbnailDarkVersion *int `json:"thumbnail_dark_version,omitempty"`
-	HasContent           bool `json:"-"` // set when content replacement provides SizeBytes (even if 0)
+	// ThumbnailRenderer, ThumbnailFailure and ThumbnailFailedVersion record
+	// what the renderer did with the asset's tile (#1787).
+	ThumbnailRenderer      *int    `json:"-"`
+	ThumbnailFailure       *string `json:"-"`
+	ThumbnailFailedVersion *int    `json:"-"`
+	// ReleaseThumbnailClaim ends the lease a replica took to render this
+	// asset's tile, so the next change to it is picked up at once rather than
+	// when the lease lapses.
+	ReleaseThumbnailClaim bool `json:"-"`
+	HasContent            bool `json:"-"` // set when content replacement provides SizeBytes (even if 0)
 	// MaxVersions sets the asset's version-retention cap; nil leaves the
 	// column as it is. Zero is a legitimate value (keep every version), which
 	// is why this is a pointer and why clearing the override back to "inherit
@@ -578,7 +585,9 @@ func (u AssetUpdate) IsThumbnailOnly() bool {
 // hasThumbnailField reports whether an update sets any thumbnail pointer.
 func (u AssetUpdate) hasThumbnailField() bool {
 	return u.ThumbnailS3Key != nil || u.ThumbnailDarkS3Key != nil ||
-		u.ThumbnailVersion != nil || u.ThumbnailDarkVersion != nil
+		u.ThumbnailVersion != nil || u.ThumbnailDarkVersion != nil ||
+		u.ThumbnailRenderer != nil || u.ThumbnailFailure != nil || u.ThumbnailFailedVersion != nil ||
+		u.ReleaseThumbnailClaim
 }
 
 // hasAuthoredField reports whether an update sets any column recording a
@@ -1124,4 +1133,14 @@ func ParseEmail(input string) (string, error) {
 func ValidateEmail(email string) error {
 	_, err := ParseEmail(email)
 	return err
+}
+
+// CollectionThumbnailWork is one collection whose tile the renderer owes: the
+// mosaic it holds now, and Source, the member tiles it should be composed
+// from (#1787). An empty Source means no member has a tile, and the mosaic the
+// collection holds, if any, is cleared.
+type CollectionThumbnailWork struct {
+	ID             string
+	ThumbnailS3Key string
+	Source         string
 }

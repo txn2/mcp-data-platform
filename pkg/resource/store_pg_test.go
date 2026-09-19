@@ -55,11 +55,11 @@ func TestPostgresStore_Get(t *testing.T) {
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil,
+		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
 		WithArgs("id-1").
@@ -91,11 +91,11 @@ func TestPostgresStore_GetByURI(t *testing.T) {
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 	}).AddRow(
 		"id-1", "user", "sub-1", "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://user/sub-1/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE uri = \\$1").
 		WithArgs("mcp://user/sub-1/samples/test.csv").
@@ -129,11 +129,11 @@ func TestPostgresStore_List(t *testing.T) {
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").WillReturnRows(rows)
 
@@ -165,7 +165,7 @@ func TestPostgresStore_List_ClampsLimit(t *testing.T) {
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 	})
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").
 		WithArgs(string(ScopeGlobal), MaxListLimit, 7).
@@ -361,11 +361,11 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 			"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 			"created_at", "updated_at", "last_read_at",
 			"thumbnail_s3_key", "thumbnail_dark_s3_key",
-			"thumbnail_captured_at", "thumbnail_dark_captured_at",
+			"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 		}).AddRow(
 			"id-null", "global", nil, "samples", "t.csv", "T", "d",
 			"text/csv", int64(1), "k", "mcp://global/samples/t.csv",
-			nil, "sub", "u@example.com", now, now, nil, "", "", nil, nil,
+			nil, "sub", "u@example.com", now, now, nil, "", "", nil, nil, 0, "", nil,
 		))
 
 	got, err := NewPostgresStore(db).Get(context.Background(), "id-null")
@@ -389,9 +389,9 @@ func resourceRow(id, name string) []driver.Value {
 		"text/csv", int64(50), "resources/" + id + "/" + name + ".csv",
 		"mcp://global/samples/" + name + ".csv",
 		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil,
-		// No capture taken, which is every resource until a portal tab takes
-		// one (#1554).
-		"", "", nil, nil,
+		// No tile drawn, which is every resource until the renderer draws
+		// one (#1554, #1787).
+		"", "", nil, nil, 0, "", nil,
 	}
 }
 
@@ -409,7 +409,7 @@ func TestPostgresStore_GetByIDs(t *testing.T) {
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
 		"created_at", "updated_at", "last_read_at",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
+		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 	}
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = ANY").
 		WithArgs(pq.Array([]string{"id-1", "id-2", "gone"})).
@@ -511,28 +511,33 @@ func TestPostgresStore_SetAndClearThumbnail(t *testing.T) {
 	store := NewPostgresStore(db)
 	now := time.Now()
 
-	// A capture writes the key and the moment, and nothing else: bumping
-	// updated_at here would mark the capture behind the row it came from.
-	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = \\$1, thumbnail_captured_at = \\$2 WHERE id = \\$3").
-		WithArgs("k/light.png", now, "id-1").
+	// A tile writes the key, the moment and the renderer that drew it, ends any
+	// failure and lease, and touches nothing else: bumping updated_at here would
+	// mark the tile behind the row it came from.
+	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = \\$1, thumbnail_captured_at = \\$2, thumbnail_renderer = \\$3, "+
+		"thumbnail_failure = '', thumbnail_failed_at = NULL, thumbnail_claimed_until = NULL WHERE id = \\$4").
+		WithArgs("k/light.png", now, 1, "id-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.SetThumbnail(context.Background(), "id-1", ThumbnailCapture{
-		Variant: ThumbnailVariantLight, S3Key: "k/light.png", CapturedAt: now,
+		Variant: ThumbnailVariantLight, S3Key: "k/light.png", CapturedAt: now, Renderer: 1,
 	}); err != nil {
 		t.Fatalf("SetThumbnail: %v", err)
 	}
 
 	// The dark variant writes its own pair.
-	mock.ExpectExec("UPDATE resources SET thumbnail_dark_s3_key = \\$1, thumbnail_dark_captured_at = \\$2 WHERE id = \\$3").
-		WithArgs("k/dark.png", now, "id-1").
+	mock.ExpectExec("UPDATE resources SET thumbnail_dark_s3_key = \\$1, thumbnail_dark_captured_at = \\$2, thumbnail_renderer = \\$3").
+		WithArgs("k/dark.png", now, 1, "id-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.SetThumbnail(context.Background(), "id-1", ThumbnailCapture{
-		Variant: ThumbnailVariantDark, S3Key: "k/dark.png", CapturedAt: now,
+		Variant: ThumbnailVariantDark, S3Key: "k/dark.png", CapturedAt: now, Renderer: 1,
 	}); err != nil {
 		t.Fatalf("SetThumbnail dark: %v", err)
 	}
 
-	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = '', thumbnail_captured_at = NULL WHERE id = \\$1").
+	// A clear takes a recorded failure with it: asking for the tile again is
+	// asking the renderer to try again.
+	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = '', thumbnail_captured_at = NULL,\\s+" +
+		"thumbnail_failure = '', thumbnail_failed_at = NULL WHERE id = \\$1").
 		WithArgs("id-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.ClearThumbnail(context.Background(), "id-1", ThumbnailVariantLight); err != nil {
@@ -554,50 +559,5 @@ func TestPostgresStore_SetAndClearThumbnail(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
-	}
-}
-
-func TestPostgresStore_PendingThumbnails(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-
-	cols := []string{
-		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
-		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at", "last_read_at",
-		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at",
-	}
-	mock.ExpectQuery("SELECT .+ FROM resources WHERE .+ thumbnail_captured_at").
-		WillReturnRows(sqlmock.NewRows(cols).AddRow(resourceRow("id-1", "First")...))
-
-	got, err := NewPostgresStore(db).PendingThumbnails(context.Background(),
-		Filter{Scopes: []ScopeFilter{{Scope: ScopeGlobal}}}, 25)
-	if err != nil {
-		t.Fatalf("PendingThumbnails: %v", err)
-	}
-	if len(got) != 1 || got[0].ID != "id-1" {
-		t.Errorf("pending = %v", got)
-	}
-}
-
-// A caller who named a library they may not read has nothing pending, and the
-// store answers without running a statement.
-func TestPostgresStore_PendingThumbnailsShortCircuits(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-
-	got, err := NewPostgresStore(db).PendingThumbnails(context.Background(), Filter{}, 25)
-	if err != nil || got != nil {
-		t.Errorf("PendingThumbnails = %v, %v; want nil, nil", got, err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("a short-circuit ran a statement: %v", err)
 	}
 }

@@ -1,48 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Asset } from "@/api/portal/types";
 import type { Resource } from "@/api/resources/types";
-import { assetSubject, resourceSubject, type ThumbnailTarget } from "@/lib/thumbnailSupport";
-import { onCaptureAttemptsReset } from "@/lib/thumbnailAttempts";
-import { ThumbnailPanel } from "./ThumbnailPanel";
+import { assetSubject, resourceSubject } from "@/lib/thumbnailSupport";
+import { DRAWING_POLL_MS, ThumbnailPanel } from "./ThumbnailPanel";
 
-// How the capture the panel runs turns out. The capturer itself is a browser
-// job -- it rasterizes a document with html2canvas -- so what is exercised here
-// is the panel's half: that a press starts one, and that its outcome reaches
-// the reader (#1752, #1753).
-const capture = vi.hoisted(() => ({ outcome: "captured" as "captured" | "failed" | "pending" }));
-
-vi.mock("@/components/ThumbnailGenerator", async () => {
-  const { useEffect } = await import("react");
-  return {
-    ThumbnailGenerator: ({
-      onCaptured,
-      onFailed,
-    }: {
-      onCaptured?: () => void;
-      onFailed?: (f: { code: string; detail: string; transient: boolean }) => void;
-    }) => {
-      useEffect(() => {
-        if (capture.outcome === "captured") onCaptured?.();
-        if (capture.outcome === "failed") {
-          onFailed?.({
-            code: "render",
-            detail: "InvalidStateError: the image argument is a canvas element with a width of 0",
-            transient: false,
-          });
-        }
-      }, [onCaptured, onFailed]);
-      return <div data-testid="capturer" />;
-    },
-  };
-});
-
-// A person looking at a tile that shows the artifact's error state had nothing
-// to press: the capture is taken in a browser, the refresh queue offers only
-// assets whose row says a capture is missing or behind, and the only way to
-// move that row was to write a new version -- which captured it wrong again
-// under the same policy (#1497). What is asserted here is the way back.
+// A person looking at a tile that shows the wrong thing had nothing to press
+// (#1497). The tile is drawn by the platform's renderer now (#1787): a press
+// discards the stored one, the renderer draws the file again, and the panel
+// shows the new tile -- or the reason the renderer gave -- when the row says so.
 
 const ASSET: Asset = {
   id: "ast-q4",
@@ -77,11 +44,15 @@ function stubApi(status = 200) {
   );
 }
 
-/** The row between a clear landing and the replacement capture being stored. */
+/** The row between a clear landing and the replacement tile being stored. */
 const CLEARED: Asset = { ...ASSET, thumbnail_s3_key: "", thumbnail_version: 0 };
 
-function renderPanel(asset: Asset = ASSET, isOwner = true, assetApiBase?: string) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPanel(
+  asset: Asset = ASSET,
+  isOwner = true,
+  assetApiBase?: string,
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   const tree = (a: Asset) => (
     <QueryClientProvider client={qc}>
       <ThumbnailPanel subject={assetSubject(a, assetApiBase)} canModify={isOwner} />
@@ -89,14 +60,14 @@ function renderPanel(asset: Asset = ASSET, isOwner = true, assetApiBase?: string
   );
   const result = render(tree(asset));
   // Rerenders the same panel against a later state of the asset row, which is
-  // how the clear and the capture that follows it reach this component.
+  // how the clear and the tile drawn after it reach this component.
   return { ...result, rerender: (a: Asset) => result.rerender(tree(a)) };
 }
 
-// The same panel over a managed resource. A resource is captured by the same
-// capturer and stored under the same rule, and had neither the picture nor the
-// button until #1568; what differs is that it carries no version, so its
-// captures are dated against the file's own updated_at.
+// The same panel over a managed resource. A resource's tile is drawn by the
+// same renderer and stored under the same rule, and had neither the picture nor
+// the button until #1568; what differs is that it carries no version, so its
+// tiles and failures are dated against the file's own updated_at.
 const RESOURCE: Resource = {
   id: "res-notes",
   scope: "user",
@@ -146,7 +117,6 @@ function cacheReplacements() {
 
 describe("ThumbnailPanel", () => {
   beforeEach(() => {
-    capture.outcome = "captured";
     stubApi();
   });
   afterEach(() => {
@@ -160,7 +130,7 @@ describe("ThumbnailPanel", () => {
     expect(img.getAttribute("src")).toContain("/api/v1/portal/assets/ast-q4/thumbnail");
   });
 
-  it("discards the stored image on request, which is what re-queues the asset", async () => {
+  it("discards the stored image on request, which is what has the renderer draw it again", async () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
 
@@ -175,7 +145,7 @@ describe("ThumbnailPanel", () => {
   // the one this browser already holds a cached copy of and the route is
   // cacheable for an hour: without replacing that entry the person who pressed
   // the button keeps seeing the picture they asked to replace (#1497).
-  it("replaces this browser's cached copy once the new capture has landed", async () => {
+  it("replaces this browser's cached copy once the new tile has landed", async () => {
     const { rerender } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
     await waitFor(() => expect(requests("DELETE")).toHaveLength(1));
@@ -189,7 +159,7 @@ describe("ThumbnailPanel", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(cacheReplacements()).toHaveLength(0);
 
-    // The replacement lands: the row names a capture again, at the version the
+    // The replacement lands: the row names a tile again, at the version the
     // reader is looking at.
     rerender(ASSET);
 
@@ -197,71 +167,10 @@ describe("ThumbnailPanel", () => {
     expect(cacheReplacements()[0]!.url).toContain("/api/v1/portal/assets/ast-q4/thumbnail");
   });
 
-  // Recapture was built as "discard the stored image, and a capturer will take
-  // another". On a file that has never been captured there is nothing to
-  // discard, so the press moved no row state and nothing happened at all
-  // (#1753). The press runs the capture itself now.
-  it("starts a capture on a file that has never been captured", async () => {
-    capture.outcome = "pending";
-    renderPanel(CLEARED);
-    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
-
-    await waitFor(() => expect(screen.getByTestId("capturer")).toBeInTheDocument());
-    expect(requests("GET").map((c) => c.url)).toContain("/api/v1/portal/assets/ast-q4/content");
-  });
-
-  // The background queue keeps its own count of what it has tried and drops a
-  // target after three, for the life of the tab. A press has to clear that too:
-  // nothing on the row moves, so there is nothing for the queue to notice.
-  it("tells the background queue to offer this target again", async () => {
-    const reset: ThumbnailTarget[] = [];
-    const stop = onCaptureAttemptsReset((t) => reset.push(t));
-    try {
-      renderPanel(CLEARED);
-      fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
-      expect(reset).toEqual([{ kind: "asset", id: "ast-q4" }]);
-    } finally {
-      stop();
-    }
-  });
-
-  // Every path a capture could fail on discarded its reason, so an asset with
-  // no tile was indistinguishable from one whose tile was being taken, forever
-  // (#1752).
-  it("says a capture could not be made, and why", async () => {
-    capture.outcome = "failed";
-    renderPanel(CLEARED);
-    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
-
-    await waitFor(() => expect(screen.getByText("Could not be made")).toBeInTheDocument());
-    expect(screen.getByTestId("thumbnail-explanation").textContent).toContain(
-      "this document could not be drawn",
-    );
-    // A document that threw throws every time: saying "in a moment" about it is
-    // a promise nothing will keep.
-    expect(screen.getByTestId("thumbnail-explanation").textContent).not.toContain("in a moment");
-    expect(screen.getByText(/InvalidStateError/)).toBeInTheDocument();
-    // And the way to try it anyway is still there.
-    expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
-  });
-
-  it("runs another capture when the reader tries again", async () => {
-    capture.outcome = "failed";
-    renderPanel(CLEARED);
-    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
-    await waitFor(() => expect(screen.getByText("Could not be made")).toBeInTheDocument());
-
-    capture.outcome = "pending";
-    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
-    await waitFor(() => expect(screen.getByTestId("capturer")).toBeInTheDocument());
-    expect(requests("DELETE")).toHaveLength(2);
-  });
-
-  // A tile the browser could not load is a verdict on one URL, and the refresh
-  // queue replaces tiles without anyone pressing anything: an asset a script
-  // rewrote is captured again by whatever tab is open, and the panel is pointed
-  // at the new capture. The placeholder that stood in for the broken image must
-  // not outlive it (#1501).
+  // A tile the browser could not load is a verdict on one URL, and the renderer
+  // replaces tiles without anyone pressing anything: an asset a script rewrote
+  // is drawn again, and the panel is pointed at the new tile. The placeholder
+  // that stood in for the broken image must not outlive it (#1501).
   it("shows a replacement that arrives after the image it was showing failed to load", async () => {
     const { rerender } = renderPanel();
     fireEvent.error(screen.getByRole("img"));
@@ -272,13 +181,75 @@ describe("ThumbnailPanel", () => {
     expect(screen.getByRole("img")).toBeInTheDocument();
   });
 
-  it("says a capture is being taken while the row says one is wanted", () => {
-    renderPanel({ ...ASSET, thumbnail_s3_key: "", thumbnail_version: 0 } as Asset);
-    expect(screen.getByText("Being taken")).toBeInTheDocument();
-    // Still pressable: a capture whose references cannot load is discarded
-    // every time, so an asset in that state would otherwise leave its owner
-    // with a control they could never use again.
+  it("says the tile is being drawn while the row says one is owed", () => {
+    renderPanel(CLEARED);
+    expect(screen.getByText("Being drawn")).toBeInTheDocument();
+    expect(screen.getByTestId("thumbnail-explanation").textContent).toContain("being drawn");
     expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled();
+  });
+
+  // The renderer draws a tile within seconds, and nothing pushes the row to the
+  // panel: it re-reads the asset while the tile is owed, and stops once it is
+  // not.
+  it("re-reads the asset while its tile is being drawn, and only then", () => {
+    vi.useFakeTimers();
+    try {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const invalidate = vi.spyOn(qc, "invalidateQueries");
+      const { rerender } = renderPanel(CLEARED, true, undefined, qc);
+      act(() => vi.advanceTimersByTime(DRAWING_POLL_MS * 2));
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["asset", "ast-q4"] });
+
+      invalidate.mockClear();
+      rerender(ASSET);
+      act(() => vi.advanceTimersByTime(DRAWING_POLL_MS * 2));
+      expect(invalidate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A document the renderer could not draw is held off its list until it
+  // changes, and the reason it gave is the only thing that tells its owner why
+  // the file has no tile (#1787). Saying "in a few seconds" about it would be a
+  // promise nothing keeps.
+  it("says the tile could not be drawn, and why", () => {
+    renderPanel({
+      ...CLEARED,
+      thumbnail_failure: "the document did not finish drawing before the deadline",
+      thumbnail_failed_version: 4,
+    } as Asset);
+    expect(screen.getByText("Could not be drawn")).toBeInTheDocument();
+    expect(screen.getByTestId("thumbnail-failure").textContent).toBe(
+      "the document did not finish drawing before the deadline",
+    );
+    expect(screen.getByTestId("thumbnail-explanation").textContent).not.toContain("few seconds");
+    expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
+  });
+
+  // A failure is recorded against the version the renderer tried. Once the
+  // document has moved on, the renderer tries again and the old reason is not
+  // the answer any more.
+  it("does not show a failure recorded against an earlier version", () => {
+    renderPanel({
+      ...CLEARED,
+      current_version: 5,
+      thumbnail_failure: "the document did not finish drawing before the deadline",
+      thumbnail_failed_version: 4,
+    } as Asset);
+    expect(screen.getByText("Being drawn")).toBeInTheDocument();
+    expect(screen.queryByTestId("thumbnail-failure")).toBeNull();
+  });
+
+  it("asks the renderer to try again by discarding the failure with the tile", async () => {
+    renderPanel({
+      ...CLEARED,
+      thumbnail_failure: "1 file(s) this document links to could not be loaded",
+      thumbnail_failed_version: 4,
+    } as Asset);
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(requests("DELETE")).toHaveLength(1));
+    expect(requests("DELETE")[0]!.url).toBe("/api/v1/portal/assets/ast-q4/thumbnail");
   });
 
   // An administrator reading someone else's asset is refused the portal
@@ -301,19 +272,19 @@ describe("ThumbnailPanel", () => {
     );
   });
 
-  // Storing a capture is the owner's, so offering the control to a reader who
-  // could not store the result would end in a refused request.
+  // Clearing a tile is the owner's, so offering the control to a reader who
+  // could not clear it would end in a refused request.
   it("is absent for a reader who does not own the asset", () => {
     const { container } = renderPanel(ASSET, false);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("is absent for an asset nothing rasterizes", () => {
+  it("is absent for an asset nothing draws", () => {
     const { container } = renderPanel({ ...ASSET, content_type: "application/pdf" } as Asset);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("is absent for a document too large to capture", () => {
+  it("is absent for a document too large to draw", () => {
     const { container } = renderPanel({ ...ASSET, size_bytes: 5 * 1024 * 1024 } as Asset);
     expect(container).toBeEmptyDOMElement();
   });
@@ -346,10 +317,7 @@ describe("ThumbnailPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // A resource viewer mounts no capturer of its own, so before this the press
-  // was inert for every managed resource there has ever been (#1753).
-  it("starts a capture for a managed resource", async () => {
-    capture.outcome = "pending";
+  it("says the tile is being drawn while a resource has none stored", () => {
     renderResourcePanel({
       ...RESOURCE,
       thumbnail_s3_key: undefined,
@@ -357,21 +325,20 @@ describe("ThumbnailPanel", () => {
       thumbnail_captured_at: undefined,
       thumbnail_dark_captured_at: undefined,
     });
-    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
-
-    await waitFor(() => expect(screen.getByTestId("capturer")).toBeInTheDocument());
-    expect(requests("GET").map((c) => c.url)).toContain("/api/v1/resources/res-notes/content");
+    expect(screen.getByText("Being drawn")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled();
   });
 
-  it("says a capture is being taken while a resource has none stored", () => {
+  it("shows why a managed resource could not be drawn, while its file is unchanged", () => {
     renderResourcePanel({
       ...RESOURCE,
       thumbnail_s3_key: undefined,
       thumbnail_dark_s3_key: undefined,
       thumbnail_captured_at: undefined,
       thumbnail_dark_captured_at: undefined,
+      thumbnail_failure: "the image could not be decoded",
+      thumbnail_failed_at: RESOURCE.updated_at,
     });
-    expect(screen.getByText("Being taken")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled();
+    expect(screen.getByTestId("thumbnail-failure").textContent).toBe("the image could not be decoded");
   });
 });

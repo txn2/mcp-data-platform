@@ -1,33 +1,45 @@
-// Package utilhandler implements the built-in "util" connection's
-// in-process operations (issue #1005). The api gateway dispatches a
-// connection configured with handler=internal to an http.Handler from
-// this package instead of proxying to an upstream base_url; everything
-// downstream of the dispatch (response buffering for
-// api_invoke_endpoint, streaming to a portal asset for api_export,
-// size and timeout caps, audit) is the gateway's normal machinery.
+// Package egressguard vets the outbound connections a server-side fetch makes
+// on behalf of content the platform did not write: a URL an agent hands the
+// util connection, a stylesheet or image a stored document names when the
+// thumbnail renderer draws it. Such a fetch runs inside the network perimeter,
+// so without a guard it reaches what the author of the URL cannot -- a cluster
+// service, a cloud metadata endpoint, a host on the operator's overlay network.
 //
-// The first operation is fetch_url (POST /util/fetch): fetch an
-// arbitrary public URL server-side, most importantly one-time signed
-// download links (S3/GCS/Azure presigned URLs, report-generation
-// links) whose host cannot be pre-registered as a connection.
-package utilhandler
+// The guard resolves a hostname once, refuses every non-public answer, and
+// dials the vetted address literally, so a public name cannot rebind to an
+// internal address between the check and the connect. A redirect is re-dialed
+// by the transport and passes the same check. An operator with trusted
+// internal hosts lists their prefixes in an allow-list consulted before the
+// internal-range block.
+package egressguard
 
 import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// connectTimeout bounds the dial step (TCP + TLS handshake) of every
-// outbound fetch. Deliberately not configurable per call: the overall
-// fetch is already bounded by the caller's context (the gateway's
-// invoke/export timeout), and a short dial bound makes an unreachable
-// host fail fast instead of consuming that whole budget.
-const connectTimeout = 10 * time.Second
+const (
+	// connectTimeout bounds the dial step (TCP + TLS handshake) of every
+	// guarded connection. The overall fetch is bounded by its caller's
+	// context; a short dial bound makes an unreachable host fail fast
+	// instead of consuming that whole budget.
+	connectTimeout = 10 * time.Second
+
+	// idleConnectionTimeout and maxIdleConnections size the pool for
+	// occasional fan-out, not high-throughput traffic.
+	idleConnectionTimeout = 90 * time.Second
+	maxIdleConnections    = 10
+
+	decimalBase = 10
+	// portBits is the bitSize passed to strconv.ParseUint for a TCP port.
+	portBits = 16
+)
 
 // cgnatPrefix is the carrier-grade NAT shared address space
 // (RFC 6598, 100.64.0.0/10). Not covered by netip.Addr.IsPrivate but
@@ -41,12 +53,12 @@ var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 // in their low bits. netip.Addr.Unmap only rewrites the IPv4-mapped
 // form (::ffff:0:0/96), so an address in one of these prefixes escapes
 // the IPv4-range classification below and would be dialed as a
-// "public" v6 literal — yet in a DNS64/NAT64 cluster (increasingly the
+// "public" v6 literal -- yet in a DNS64/NAT64 cluster (increasingly the
 // default for IPv6-only Kubernetes) or behind a 6to4 relay it reaches
 // the embedded IPv4, including RFC1918 and the 169.254.169.254 metadata
 // endpoint (e.g. http://[64:ff9b::a9fe:a9fe]/). None is a legitimate
-// presigned-download destination, so the whole prefix is refused
-// rather than decoded-and-reclassified.
+// public destination, so the whole prefix is refused rather than
+// decoded-and-reclassified.
 //
 //nolint:gochecknoglobals // immutable parsed constant set
 var embeddedIPv4Prefixes = []netip.Prefix{
@@ -77,25 +89,24 @@ var (
 	}
 )
 
-// blockedDestinationError marks a dial refused by the SSRF guard, as
-// opposed to a network failure. The fetch handler maps it to HTTP 403
-// so the model sees "this destination is not permitted" rather than a
-// retryable upstream error.
-type blockedDestinationError struct {
-	host   string
-	reason string
+// BlockedError is a dial the guard refused, as opposed to a network failure.
+// A caller that surfaces it says the destination is not permitted rather than
+// reporting a retryable upstream error, and words the remedy in its own terms:
+// the setting that exempts a prefix belongs to whichever feature owns the
+// guard.
+type BlockedError struct {
+	// Host is the hostname or literal address that was refused.
+	Host string
+	// Reason names the rule that refused it.
+	Reason string
 }
 
-func (e *blockedDestinationError) Error() string {
-	return fmt.Sprintf("destination %q refused: %s (the util connection fetches public URLs only; internal address space is blocked unless listed in apigateway.util_connection.allow_private_cidrs)", e.host, e.reason)
+func (e *BlockedError) Error() string {
+	return fmt.Sprintf("destination %q refused: %s", e.Host, e.Reason)
 }
 
-// dialGuard vets every outbound dial the fetch client performs. The
-// hostname is resolved first and only vetted IPs are dialed literally
-// (resolve-then-pin), so a public DNS name cannot rebind to an
-// internal address between check and connect. Redirect hops go
-// through the same guard because the transport re-dials per hop.
-type dialGuard struct {
+// Guard vets every outbound dial a guarded client performs.
+type Guard struct {
 	// allowPrivate lists operator-permitted prefixes that override the
 	// internal-range block (on-prem deployments fetching from trusted
 	// internal hosts; tests reaching 127.0.0.1 servers).
@@ -107,22 +118,21 @@ type dialGuard struct {
 	dialIP func(ctx context.Context, network string, addr netip.AddrPort) (net.Conn, error)
 }
 
-// newDialGuard builds the guard, parsing the operator's
-// allow_private_cidrs entries. An unparseable entry is a hard error:
-// silently dropping it would either block a destination the operator
-// explicitly permitted or (worse, if the intent was a broad prefix)
-// go unnoticed until a legitimate fetch fails.
-func newDialGuard(allowPrivateCIDRs []string) (*dialGuard, error) {
+// New builds a guard, parsing the operator's allow-list of private prefixes.
+// An unparseable entry is a hard error: silently dropping it would either
+// block a destination the operator explicitly permitted or, if the intent was
+// a broad prefix, go unnoticed until a legitimate fetch fails.
+func New(allowPrivateCIDRs []string) (*Guard, error) {
 	prefixes := make([]netip.Prefix, 0, len(allowPrivateCIDRs))
 	for _, c := range allowPrivateCIDRs {
 		p, err := netip.ParsePrefix(strings.TrimSpace(c))
 		if err != nil {
-			return nil, fmt.Errorf("utilhandler: invalid allow_private_cidrs entry %q: %w", c, err)
+			return nil, fmt.Errorf("egressguard: invalid private prefix %q: %w", c, err)
 		}
 		prefixes = append(prefixes, p.Masked())
 	}
 	d := &net.Dialer{Timeout: connectTimeout}
-	return &dialGuard{
+	return &Guard{
 		allowPrivate: prefixes,
 		lookup: func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host) //nolint:wrapcheck // transparent resolver seam
@@ -131,6 +141,22 @@ func newDialGuard(allowPrivateCIDRs []string) (*dialGuard, error) {
 			return d.DialContext(ctx, network, addr.String()) //nolint:wrapcheck // transparent dialer seam
 		},
 	}, nil
+}
+
+// Transport returns an HTTP transport whose every dial passes the guard.
+//
+// It deliberately ignores proxy environment variables (Proxy is nil): an
+// egress proxy sits inside the network perimeter, and routing a guarded fetch
+// through it would let the proxy reach a destination the guard just refused.
+func (g *Guard) Transport() *http.Transport {
+	return &http.Transport{
+		Proxy:                 nil,
+		DialContext:           g.DialContext,
+		TLSHandshakeTimeout:   connectTimeout,
+		ExpectContinueTimeout: time.Second,
+		IdleConnTimeout:       idleConnectionTimeout,
+		MaxIdleConns:          maxIdleConnections,
+	}
 }
 
 // hostnameBlocked refuses well-known internal names case-insensitively,
@@ -185,9 +211,9 @@ func containsAny(prefixes []netip.Prefix, a netip.Addr) bool {
 }
 
 // permitted applies the operator allow-list before the internal-range
-// block: an explicitly listed prefix is fetchable even when the
+// block: an explicitly listed prefix is reachable even when the
 // classifier would refuse it.
-func (g *dialGuard) permitted(a netip.Addr) (ok bool, reason string) {
+func (g *Guard) permitted(a netip.Addr) (ok bool, reason string) {
 	a = a.Unmap()
 	for _, p := range g.allowPrivate {
 		if p.Contains(a) {
@@ -200,33 +226,31 @@ func (g *dialGuard) permitted(a netip.Addr) (ok bool, reason string) {
 	return true, ""
 }
 
-// DialContext is installed as the fetch transport's dialer. It
-// resolves the hostname once, filters the answers, and dials only the
-// vetted literal addresses — the pin that defeats DNS rebinding. A
-// host whose every address is refused surfaces a
-// blockedDestinationError; mixed answers dial the permitted subset
-// only.
-func (g *dialGuard) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+// DialContext resolves the hostname once, filters the answers, and dials only
+// the vetted literal addresses -- the pin that defeats DNS rebinding. A host
+// whose every address is refused surfaces a *BlockedError; mixed answers dial
+// the permitted subset only.
+func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
-		return nil, fmt.Errorf("utilhandler: dial address %q: %w", addr, err)
+		return nil, fmt.Errorf("egressguard: dial address %q: %w", addr, err)
 	}
 	port, err := strconv.ParseUint(portStr, decimalBase, portBits)
 	if err != nil {
-		return nil, fmt.Errorf("utilhandler: dial port %q: %w", portStr, err)
+		return nil, fmt.Errorf("egressguard: dial port %q: %w", portStr, err)
 	}
 	if hostnameBlocked(host) {
-		return nil, &blockedDestinationError{host: host, reason: "internal hostname"}
+		return nil, &BlockedError{Host: host, Reason: "internal hostname"}
 	}
 	addrs, err := g.lookup(ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("utilhandler: resolving %q: %w", host, err)
+		return nil, fmt.Errorf("egressguard: resolving %q: %w", host, err)
 	}
 	var lastErr error
 	for _, a := range addrs {
 		ok, reason := g.permitted(a)
 		if !ok {
-			lastErr = &blockedDestinationError{host: host, reason: reason}
+			lastErr = &BlockedError{Host: host, Reason: reason}
 			continue
 		}
 		conn, derr := g.dialIP(ctx, network, netip.AddrPortFrom(a.Unmap(), uint16(port)))
@@ -236,7 +260,7 @@ func (g *dialGuard) DialContext(ctx context.Context, network, addr string) (net.
 		lastErr = derr
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("utilhandler: host %q resolved to no addresses", host)
+		lastErr = fmt.Errorf("egressguard: host %q resolved to no addresses", host)
 	}
 	return nil, lastErr
 }

@@ -507,6 +507,12 @@ portal:
   s3_connection: dev-s3
   s3_bucket: portal-assets
 
+# Tiles are drawn in the renderer container dev/docker-compose.yml runs
+# (#1787). A deployment leaves this out: the default is the renderer beside
+# the platform in its own pod, at http://127.0.0.1:9222.
+thumbnails:
+  renderer_url: "http://127.0.0.1:${DEV_RENDERER_PORT:-9222}"
+
 # Managed resources share the portal bucket in dev. Without this block they
 # default to a "resources" bucket the dev SeaweedFS never creates, and every
 # upload fails at storage — which made the whole resources surface untestable

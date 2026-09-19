@@ -437,10 +437,6 @@ func (*resourceRows) SetThumbnail(_ context.Context, _ string, _ resource.Thumbn
 
 func (*resourceRows) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
 
-func (*resourceRows) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}
-
 // TestAgentFindsRefreshesAndRemovesAFileByItsPath is the end-to-end test for
 // #1665, over the same real session, real writer and real portal handler.
 //

@@ -17,15 +17,14 @@ import (
 
 // Issue #1568: a thumbnail is a property of a piece of content, not of a kind.
 //
-// Three things around one shared capture pipeline had been written a second
+// Three things around one shared thumbnail pipeline had been written a second
 // time and each was wrong in a different way: a resource tile never asked for
-// the dark capture, markdown and plain text got no capture at all, and the four
+// the dark variant, markdown and plain text got no tile at all, and the four
 // copies of "what gets a thumbnail" had drifted apart.
 //
-// Nothing on a server rasterizes a document, so the capture itself happens in a
-// browser and is not executed here. What is executed here is everything the
-// browser talks to: what a generic declaration is stored as, what the platform
-// then reports as needing a capture, and what clearing one does.
+// Since #1787 the platform draws every tile itself, so what is executed here is
+// the whole of it: what a generic declaration is stored as, which families get
+// a tile without anyone opening them, and what clearing one does.
 //
 // Wire forms: manage_resource's action, filename, display_name, path,
 // description, content, content_base64 and content_type are typed strings in
@@ -37,9 +36,9 @@ import (
 // -- create refuses an empty one since #1508), and as the multipart part's
 // Content-Type on POST /api/v1/resources ("text/plain",
 // "application/octet-stream", and the part header omitted altogether, which is
-// the third form only the HTTP surface admits). The REST reads take their limit
-// as a query-string parameter, which has no second form, and the clear takes no
-// body at all.
+// the third form only the HTTP surface admits). The tile read takes its
+// variant as a query-string parameter, which has no second form, and the clear
+// takes no body at all.
 
 func unique1568() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano()%1_000_000_000)
@@ -156,27 +155,6 @@ func storedType1568(t *testing.T, c *client, id string) string {
 	return mime
 }
 
-// pendingIDs1568 returns the ids the platform reports as needing a capture.
-func pendingIDs1568(t *testing.T, c *client) map[string]bool {
-	t.Helper()
-	status, body := c.rest(http.MethodGet, "/api/v1/resources/thumbnails/pending?limit=200", http.NoBody)
-	if status != http.StatusOK {
-		t.Fatalf("GET pending: status %d: %v", status, body)
-	}
-	ids := map[string]bool{}
-	list, _ := body["resources"].([]any)
-	for _, item := range list {
-		r, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if id, _ := r["id"].(string); id != "" {
-			ids[id] = true
-		}
-	}
-	return ids
-}
-
 // TestIssue1568_AGenericDeclarationIsResolvedByTheExtension is criterion 3
 // through both write surfaces, in every form each of them admits.
 //
@@ -229,15 +207,15 @@ func TestIssue1568_TheNameNeverOverridesTheBytesOrASpecificDeclaration(t *testin
 	}
 }
 
-// TestIssue1568_EveryCapturableFamilyIsOfferedTheWork is criteria 5 and 6 on
-// the resource side: the families this store had lost against the other three
-// copies of the rule are on the pending list, and the ones nothing draws are
-// still not.
-func TestIssue1568_EveryCapturableFamilyIsOfferedTheWork(t *testing.T) {
-	c := connect(t)
+// TestIssue1568_EveryDrawableFamilyGetsATile is criteria 5 and 6 on the
+// resource side: the families this store had lost against the other three
+// copies of the rule are drawn, and the ones nothing draws are left alone
+// rather than recorded as failures.
+func TestIssue1568_EveryDrawableFamilyGetsATile(t *testing.T) {
+	c := connectFor(t, 3*tileWait1787)
 
 	// Plain text, which is one of the commonest things anyone uploads and got
-	// no thumbnail of either kind, and JSX, which the capturer renders and was
+	// no thumbnail of either kind, and JSX, which the viewer renders and was
 	// never offered.
 	textID, textMIME := createResource1568(t, c, "log-"+unique1568()+".txt", "text/plain",
 		"Rows written: 41208\nRows rejected: 0\nElapsed: 4.2s\n")
@@ -249,60 +227,53 @@ func TestIssue1568_EveryCapturableFamilyIsOfferedTheWork(t *testing.T) {
 	if jsxMIME != "text/jsx" {
 		t.Fatalf("the .jsx fixture stored as %q, want text/jsx", jsxMIME)
 	}
-	// A family nothing rasterizes, which must still never be offered: an item
-	// no browser will ever accept is offered forever and crowds out the rest.
+	// A family nothing draws, which must never be tried: a file the renderer
+	// cannot draw would be recorded as a failure it did nothing to earn.
 	pdfID, _ := createResource1568(t, c, "report-"+unique1568()+".pdf", "application/pdf",
 		"%PDF-1.7\nnot really a PDF, but declared as one\n")
 
-	pending := pendingIDs1568(t, c)
-	if !pending[textID] {
-		t.Errorf("a plain-text resource is not offered for capture")
+	// Plain text is laid out on the portal's own surface, so it gets a tile in
+	// each scheme; JSX carries its own colors and gets one.
+	awaitResourceTile1787(t, c, textID, true)
+	awaitResourceTile1787(t, c, jsxID, false)
+
+	// Both were drawn after the PDF was filed, so the renderer has passed over
+	// it by now.
+	status, row := c.rest(http.MethodGet, "/api/v1/resources/"+pdfID, http.NoBody)
+	if status != http.StatusOK {
+		t.Fatalf("GET the PDF: status %d: %v", status, row)
 	}
-	if !pending[jsxID] {
-		t.Errorf("a JSX resource is not offered for capture")
+	if key, _ := row["thumbnail_s3_key"].(string); key != "" {
+		t.Errorf("a PDF was given a tile, which nothing draws: %q", key)
 	}
-	if pending[pdfID] {
-		t.Errorf("a PDF is offered for capture, which nothing can draw")
+	if failure, _ := row["thumbnail_failure"].(string); failure != "" {
+		t.Errorf("a PDF was tried and recorded as a failure: %q", failure)
 	}
 }
 
 // TestIssue1568_ClearingAResourcesThumbnailTakesBothVariants is the server half
-// of criterion 8: the control the resource viewer now carries sends this, and
-// both views of one file go together.
+// of criterion 8: the control the resource viewer carries sends this, and both
+// views of one file go together.
 func TestIssue1568_ClearingAResourcesThumbnailTakesBothVariants(t *testing.T) {
-	c := connect(t)
+	c := connectFor(t, 3*tileWait1787)
 	id, mime := createResource1568(t, c, "notes-"+unique1568()+".md", "text/markdown",
-		"# Notes\n\nProse for the capture to render.\n")
+		"# Notes\n\nProse for the renderer to draw.\n")
 	if mime != "text/markdown" {
 		t.Fatalf("the fixture stored as %q, want text/markdown", mime)
 	}
+	awaitResourceTile1787(t, c, id, true)
 
-	png, err := base64.StdEncoding.DecodeString(onePixelPNG)
-	if err != nil {
-		t.Fatalf("decoding the fixture PNG: %v", err)
-	}
-	for _, q := range []string{"", "?variant=dark"} {
-		if status := putCapture1554(t, c, id, q, "image/png", png); status != http.StatusOK {
-			t.Fatalf("uploading the capture %q: status %d, want 200", q, status)
-		}
-	}
-	if pendingIDs1568(t, c)[id] {
-		t.Fatalf("a resource with both captures is still offered for capture")
-	}
-
-	// The clear takes no variant: asking for the tile to be taken again means
+	// The clear takes no variant: asking for the tile to be drawn again means
 	// the tile, not the half of it the reader's color mode happens to show.
 	status, body := c.rest(http.MethodDelete, "/api/v1/resources/"+id+"/thumbnail", http.NoBody)
 	if status != http.StatusNoContent {
-		t.Fatalf("clearing the captures: status %d: %v", status, body)
+		t.Fatalf("clearing the tiles: status %d: %v", status, body)
 	}
-
 	for _, q := range []string{"", "?variant=dark"} {
 		if got, _ := getCapture1554(t, c, id, q); got != http.StatusNotFound {
-			t.Errorf("reading the %q capture after the clear: status %d, want 404", q, got)
+			t.Errorf("reading the %q tile after the clear: status %d, want 404", q, got)
 		}
 	}
-	if !pendingIDs1568(t, c)[id] {
-		t.Errorf("a cleared resource is not offered for capture again")
-	}
+	// And both are drawn again.
+	awaitResourceTile1787(t, c, id, true)
 }

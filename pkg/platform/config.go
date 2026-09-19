@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
+	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -129,6 +130,7 @@ type Config struct {
 	Admin                AdminConfig         `yaml:"admin"`
 	Resources            ResourcesConfig     `yaml:"resources"`
 	Progress             ProgressConfig      `yaml:"progress"`
+	Thumbnails           ThumbnailsConfig    `yaml:"thumbnails"`
 	ClientLogging        ClientLoggingConfig `yaml:"client_logging"`
 	Icons                IconsConfig         `yaml:"icons"`
 	Elicitation          ElicitationConfig   `yaml:"elicitation"`
@@ -1186,6 +1188,11 @@ type CustomResourceDef struct {
 	Content     string `yaml:"content,omitempty"`      // inline text/JSON/SVG
 	ContentFile string `yaml:"content_file,omitempty"` // absolute or relative path
 }
+
+// ThumbnailsConfig configures the tiles the platform draws of every asset,
+// resource and collection (#1787). It lives in the thumbworker seam that reads
+// it; the alias keeps the section beside the rest of the platform's config.
+type ThumbnailsConfig = thumbworker.Config
 
 // ProgressConfig configures progress notifications during tool execution.
 // Enabled by default (nil = enabled); set enabled: false to disable.

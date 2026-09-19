@@ -213,15 +213,6 @@ func TestCollectionNonIndexedWritesEnqueueNothing(t *testing.T) {
 			},
 		},
 		{
-			name: "update thumbnail",
-			expect: func(m sqlmock.Sqlmock) {
-				m.ExpectExec("UPDATE portal_collections SET thumbnail_s3_key").WillReturnResult(sqlmock.NewResult(0, 1))
-			},
-			call: func(s portaldomain.CollectionStore) error {
-				return s.UpdateThumbnail(context.Background(), "c1", "thumbs/c1.png")
-			},
-		},
-		{
 			name: "soft delete",
 			expect: func(m sqlmock.Sqlmock) {
 				m.ExpectExec("UPDATE portal_collections SET deleted_at").WillReturnResult(sqlmock.NewResult(0, 1))

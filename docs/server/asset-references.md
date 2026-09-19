@@ -76,9 +76,9 @@ A reference that survives a save keeps its token, so a URL already rendered into
 
 ## The tile a referencing artifact gets
 
-An asset's thumbnail is captured in the reader's browser by rendering the asset a second time in an off-screen frame. That frame runs the artifact under the same policy the viewer's frame does, from the same definition, so a reference resolves during a capture exactly as it resolves for a reader. A referencing artifact captured with its references blocked would render the branch it draws when a file is missing, and that picture — a valid image of an error — is what would be stored and shown on every card.
+An asset's thumbnail is drawn by the platform, in the headless renderer beside it (#1787). The page it is drawn from runs the artifact in a frame under the same policy the viewer's frame does, from the same definition, and the platform answers the frame's requests for the reference route itself, from the same routes a reader's browser reaches, so a reference resolves while the tile is drawn exactly as it resolves for a reader. A referencing artifact drawn with its references blocked would render the branch it draws when a file is missing, and that picture — a valid image of an error — is what would be stored and shown on every card.
 
-The frame reports what it could not load, so a capture in which a referenced file was refused or answered an error is discarded rather than uploaded, and the asset stays on the queue for another try. An owner can also ask for the picture to be taken again: the **Thumbnail** panel in the metadata sidebar shows the stored image and offers **Recapture**, which discards it and re-queues the asset without waiting for its version to move.
+The frame reports what it could not load, so a document in which a referenced file was refused or answered an error is recorded as not drawable, with that reason, rather than stored. The **Thumbnail** panel in the metadata sidebar shows the reason, and **Try again** asks for another attempt without waiting for the asset's version to move.
 
 ## Managing references from the portal
 

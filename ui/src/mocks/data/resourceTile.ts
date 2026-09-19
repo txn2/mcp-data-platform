@@ -3,22 +3,21 @@ import { resourceImageBytes } from "./resourceImages";
 
 // The tile a fixture resource serves, drawn from the file's own content.
 //
-// The real capturer rasterizes the rendered document in the browser
-// (components/thumbnail/DomThumbnailBody), and the fixtures settle their
-// captures so no page under test does that work on the main thread. Settling
-// them left every resource claiming a tile that had no bytes behind it, so the
-// library rendered as a grid of file-type icons and shipped that way in the
-// documentation (#1619).
+// A real tile is drawn by the platform's renderer from the tile page
+// (components/thumbnail/Tile), which the mock does not have. The fixtures
+// settle their tiles, and settling them left every resource claiming a tile
+// that had no bytes behind it, so the library rendered as a grid of file-type
+// icons and shipped that way in the documentation (#1619).
 //
-// This draws the head of the document instead: the same families the capturer
+// This draws the head of the document instead: the same families the tile page
 // distinguishes, in the same two schemes, at a size a tile is shown at. It is a
 // picture of the file rather than a picture somebody drew of the file, so a
 // fixture added later carries a tile without anyone drawing one.
 
 /**
- * Tile geometry, taken from the capturer's own page: it renders the document
- * into a THUMB_WIDTH x THUMB_HEIGHT box at 12px with 1.6 line height and 16px
- * of padding (components/ThumbnailGenerator), and rasterizes that. Drawing at
+ * Tile geometry, taken from the tile page: it lays the document out in a
+ * THUMB_WIDTH x THUMB_HEIGHT box at 12px with 1.6 line height and 16px of
+ * padding (components/thumbnail/Tile), and the renderer takes that picture. Drawing at
  * the same numbers is what makes the fixture tile the size a real one is
  * rather than a page of text too small to read at tile scale.
  */

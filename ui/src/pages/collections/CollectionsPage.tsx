@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useCreateCollection } from "@/api/portal/hooks";
 import { AssetsTabs } from "@/components/AssetsTabs";
-import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import {
   DEFAULT_COLLECTION_SORT,
@@ -85,7 +84,6 @@ export function CollectionsPage({ onNavigate }: Props) {
 
       <ResultCount browse={browse} scope={scope} />
 
-      <CollectionThumbnailQueue collections={browse.collections} />
     </div>
   );
 }

@@ -142,6 +142,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*portaldomain.
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
+		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets WHERE id = $1
@@ -169,6 +170,7 @@ func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, k
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
+		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets
@@ -201,6 +203,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
 		       thumbnail_s3_key, thumbnail_dark_s3_key, thumbnail_version, thumbnail_dark_version,
+		       thumbnail_renderer, thumbnail_failure, thumbnail_failed_version,
 		       size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, ''), max_versions
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
@@ -267,14 +270,23 @@ func buildAssetCount(filter portaldomain.AssetFilter) (query string, args []any,
 	return qb.ToSql() //nolint:wrapcheck // rendered by the caller, which wraps
 }
 
-// buildAssetSelect renders the listing's page statement, for the same reason.
-func buildAssetSelect(filter portaldomain.AssetFilter) (query string, args []any, err error) {
-	qb := applyAssetFilter(psq.Select(
+// assetListColumns is the listing's projection, in assetScanDest order, with
+// the provenance summary in place of the provenance itself (#1623). The page
+// statement and the thumbnail claim both return listing rows, so both read
+// this one definition.
+func assetListColumns() []string {
+	return []string{
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
 		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version",
+		"thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version",
 		"size_bytes", "tags", provenanceSummaryExpr("provenance"), "session_id", "current_version",
 		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')", "max_versions",
-	).From("portal_assets"), filter).
+	}
+}
+
+// buildAssetSelect renders the listing's page statement, for the same reason.
+func buildAssetSelect(filter portaldomain.AssetFilter) (query string, args []any, err error) {
+	qb := applyAssetFilter(psq.Select(assetListColumns()...).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
 		OrderBy(filter.Order()...)
 	if limit := filter.EffectiveLimit(); limit > 0 {
@@ -566,22 +578,8 @@ func applyScalarUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (
 		qb = qb.Set("size_bytes", updates.SizeBytes)
 		changed = true
 	}
-	if updates.ThumbnailS3Key != nil {
-		qb = qb.Set("thumbnail_s3_key", *updates.ThumbnailS3Key)
-		changed = true
-	}
-	if updates.ThumbnailDarkS3Key != nil {
-		qb = qb.Set("thumbnail_dark_s3_key", *updates.ThumbnailDarkS3Key)
-		changed = true
-	}
-	if updates.ThumbnailVersion != nil {
-		qb = qb.Set("thumbnail_version", *updates.ThumbnailVersion)
-		changed = true
-	}
-	if updates.ThumbnailDarkVersion != nil {
-		qb = qb.Set("thumbnail_dark_version", *updates.ThumbnailDarkVersion)
-		changed = true
-	}
+	qb, thumbnailChanged := applyThumbnailUpdates(qb, updates)
+	changed = changed || thumbnailChanged
 	// Clearing wins over setting: an update that says both "inherit the
 	// platform default" and "keep N" is contradictory, and inheriting is the
 	// state a caller can always get back out of.
@@ -594,6 +592,47 @@ func applyScalarUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (
 		changed = true
 	}
 	return qb, changed
+}
+
+// applyThumbnailUpdates sets the columns that record an asset's tile: the
+// stored keys, the versions they were drawn from, the renderer generation, and
+// a recorded failure (#1787). Every one of them is platform state, which is
+// why an update carrying only these leaves updated_at alone.
+func applyThumbnailUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (sq.UpdateBuilder, bool) {
+	sets := []struct {
+		column string
+		set    bool
+		value  any
+	}{
+		{"thumbnail_s3_key", updates.ThumbnailS3Key != nil, deref(updates.ThumbnailS3Key)},
+		{"thumbnail_dark_s3_key", updates.ThumbnailDarkS3Key != nil, deref(updates.ThumbnailDarkS3Key)},
+		{"thumbnail_version", updates.ThumbnailVersion != nil, deref(updates.ThumbnailVersion)},
+		{"thumbnail_dark_version", updates.ThumbnailDarkVersion != nil, deref(updates.ThumbnailDarkVersion)},
+		{"thumbnail_renderer", updates.ThumbnailRenderer != nil, deref(updates.ThumbnailRenderer)},
+		{"thumbnail_failure", updates.ThumbnailFailure != nil, deref(updates.ThumbnailFailure)},
+		{"thumbnail_failed_version", updates.ThumbnailFailedVersion != nil, deref(updates.ThumbnailFailedVersion)},
+	}
+	changed := false
+	for _, s := range sets {
+		if s.set {
+			qb = qb.Set(s.column, s.value)
+			changed = true
+		}
+	}
+	if updates.ReleaseThumbnailClaim {
+		qb = qb.Set("thumbnail_claimed_until", nil)
+		changed = true
+	}
+	return qb, changed
+}
+
+// deref is *p, or the zero value when p is nil; the caller tests nil itself.
+func deref[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
 }
 
 // assetIndexTextChanged reports whether an update touches a field
@@ -964,7 +1003,8 @@ func buildSharedWithUserSelect() string {
 	return `
 		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
 		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.thumbnail_dark_s3_key,
-		       pa.thumbnail_version, pa.thumbnail_dark_version, pa.size_bytes, pa.tags, ` +
+		       pa.thumbnail_version, pa.thumbnail_dark_version,
+		       pa.thumbnail_renderer, pa.thumbnail_failure, pa.thumbnail_failed_version, pa.size_bytes, pa.tags, ` +
 		provenanceSummaryExpr("pa.provenance") + `,
 		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
 		       COALESCE(pa.idempotency_key, ''),
@@ -1015,7 +1055,8 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		if err := rows.Scan(
 			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
 			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.ThumbnailDarkS3Key,
-			&sa.Asset.ThumbnailVersion, &sa.Asset.ThumbnailDarkVersion, &sa.Asset.SizeBytes,
+			&sa.Asset.ThumbnailVersion, &sa.Asset.ThumbnailDarkVersion,
+			&sa.Asset.ThumbnailRenderer, &sa.Asset.ThumbnailFailure, &sa.Asset.ThumbnailFailedVersion, &sa.Asset.SizeBytes,
 			&tags, &summary, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt, &sa.Asset.IdempotencyKey,
 			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
@@ -1407,25 +1448,20 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 			sq.Expr("tags::text ILIKE ?", like),
 		})
 	}
-	if filter.ThumbnailPending {
-		qb = qb.Where(thumbnailPendingPredicate())
-	}
 	return qb
 }
 
-// maxThumbnailSourceBytes is the largest asset body a thumbnail is captured
-// from. Capture renders the asset a second time and rasterizes it on the main
-// thread of whichever tab picks the work up, so its cost tracks the size of the
-// document; above this the asset keeps the placeholder icon rather than stall
-// the page it was found from (#1351). The portal applies the same limit before
-// it captures anything, and the queue query applies it so a document no browser
-// will ever accept is not offered forever.
+// maxThumbnailSourceBytes is the largest asset body a tile is drawn from. A
+// tile is drawn by loading the whole document into the renderer beside the
+// platform, whose memory is sized for documents, not archives; above this the
+// asset keeps its content-type icon (#1351). The claim applies it so a document
+// the renderer will not take is never leased.
 const maxThumbnailSourceBytes = 1 << 20 // 1 MB
 
-// thumbnailPendingPredicate matches the assets a browser should capture a
-// thumbnail for: one the portal can rasterize, small enough to be worth
-// rendering twice, and carrying a capture that is missing, behind the current
-// version, or written under the pre-rename filename.
+// thumbnailOwedPredicate matches the assets the renderer owes a tile: one it
+// can draw, small enough to be worth drawing twice, and carrying a tile that
+// is missing, behind the current version, written under the pre-rename
+// filename, or drawn by a renderer generation older than renderer (#1787).
 //
 // The three reasons are one condition because they have one remedy. A missing
 // capture and a capture left behind by a version write are the same request to
@@ -1436,7 +1472,7 @@ const maxThumbnailSourceBytes = 1 << 20 // 1 MB
 // Light and dark are asked separately, and dark only of the types that carry
 // one: an HTML asset stores a single image and serves it in both modes, so
 // reading its empty dark key as "pending" would offer it forever.
-func thumbnailPendingPredicate() sq.Sqlizer {
+func thumbnailOwedPredicate(renderer int) sq.Sqlizer {
 	return sq.And{
 		sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable))),
 		sq.LtOrEq{"size_bytes": maxThumbnailSourceBytes},
@@ -1444,8 +1480,13 @@ func thumbnailPendingPredicate() sq.Sqlizer {
 			variantPendingPredicate(portaldomain.ThumbnailVariantLight),
 			sq.And{
 				sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Themeable))),
+				// image/svg+xml contains "xml" and is still an SVG, which carries
+				// its own colors: without this every SVG is owed a dark tile
+				// nothing draws, and is claimed forever.
+				sq.Expr("NOT (content_type ILIKE ANY(?))", pq.Array(thumbtypes.ILikePatterns(thumbtypes.ThemeableShadows()))),
 				variantPendingPredicate(portaldomain.ThumbnailVariantDark),
 			},
+			sq.Lt{"thumbnail_renderer": renderer},
 		},
 	}
 }
@@ -1484,7 +1525,8 @@ func assetScanDest(a *portaldomain.Asset, tags, prov *[]byte, deletedAt *sql.Nul
 	return []any{
 		&a.ID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Description,
 		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.ThumbnailDarkS3Key,
-		&a.ThumbnailVersion, &a.ThumbnailDarkVersion, &a.SizeBytes,
+		&a.ThumbnailVersion, &a.ThumbnailDarkVersion,
+		&a.ThumbnailRenderer, &a.ThumbnailFailure, &a.ThumbnailFailedVersion, &a.SizeBytes,
 		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
 		&a.IdempotencyKey, maxVersions,
 	}

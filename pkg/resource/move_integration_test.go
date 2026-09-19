@@ -737,7 +737,3 @@ func (*memResources) SetThumbnail(_ context.Context, _ string, _ resource.Thumbn
 }
 
 func (*memResources) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
-
-func (*memResources) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}

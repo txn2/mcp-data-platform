@@ -440,10 +440,6 @@ func (*countingStore) SetThumbnail(_ context.Context, _ string, _ resource.Thumb
 
 func (*countingStore) ClearThumbnail(_ context.Context, _, _ string) error { return nil }
 
-func (*countingStore) PendingThumbnails(_ context.Context, _ resource.Filter, _ int) ([]resource.Resource, error) {
-	return nil, nil
-}
-
 // The layer builds one document reader and hands the same one to both surfaces
 // that read a managed resource -- search `fetch` and the content index -- so a
 // file they both see reads the same way (#1657).

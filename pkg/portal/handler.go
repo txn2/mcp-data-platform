@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -477,10 +476,8 @@ func (h *Handler) registerRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/provenance", h.listAssetProvenance)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/content", h.updateAssetContent)
-	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}/thumbnail", h.uploadThumbnail)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/thumbnail", h.getThumbnail)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}/thumbnail", h.clearThumbnail)
-	h.mux.HandleFunc("GET /api/v1/portal/thumbnails/pending", h.listPendingThumbnails)
 	h.mux.HandleFunc("PUT /api/v1/portal/assets/{id}", h.updateAsset)
 	h.mux.HandleFunc("DELETE /api/v1/portal/assets/{id}", h.deleteAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/versions", h.listVersions)
@@ -520,7 +517,6 @@ func (h *Handler) registerRoutes() {
 		h.mux.HandleFunc("DELETE /api/v1/portal/collections/{id}", h.deleteCollection)
 		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}/config", h.updateCollectionConfig)
 		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}/sections", h.setCollectionSections)
-		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}/thumbnail", h.uploadCollectionThumbnail)
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/thumbnail", h.getCollectionThumbnail)
 		h.mux.HandleFunc("POST /api/v1/portal/collections/{id}/shares", h.createCollectionShare)
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/shares", h.listCollectionShares)
@@ -991,192 +987,20 @@ func (h *Handler) followTables(ctx context.Context, id string, version int) []st
 	return h.deps.OnAssetRevised(ctx, id, version)
 }
 
-// uploadThumbnail handles PUT /api/v1/portal/assets/{id}/thumbnail.
-//
-// @Summary      Upload asset thumbnail
-// @Description  Uploads a PNG thumbnail image for the asset.
-// @Tags         Assets
-// @Accept       png
-// @Produce      json
-// @Param        id       path   string  true   "Asset ID"
-// @Param        variant  query  string  false  "Thumbnail variant"  Enums(light, dark)
-// @Param        body     body   []byte  true   "PNG image data"
-// @Success      200  {object}  statusResponse
-// @Failure      400  {object}  problemDetail
-// @Failure      401  {object}  problemDetail
-// @Failure      403  {object}  problemDetail
-// @Failure      404  {object}  problemDetail
-// @Failure      410  {object}  problemDetail
-// @Failure      413  {object}  problemDetail
-// @Failure      503  {object}  problemDetail
-// @Security     ApiKeyAuth
-// @Security     BearerAuth
-// @Router       /portal/assets/{id}/thumbnail [put]
-func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
-	asset, ok := h.requireManageableAsset(w, r)
-	if !ok {
-		return
-	}
-
-	if h.deps.S3Client == nil {
-		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
-		return
-	}
-
-	ct := r.Header.Get(headerContentType)
-	mediaType, _, _ := mime.ParseMediaType(ct)
-	if mediaType != mimeTypePNG {
-		writeError(w, http.StatusBadRequest, "thumbnail must be image/png")
-		return
-	}
-
-	data, err := io.ReadAll(io.LimitReader(r.Body, MaxThumbnailUploadBytes+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	if int64(len(data)) > MaxThumbnailUploadBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("thumbnail exceeds %d KB limit", MaxThumbnailUploadBytes>>10))
-		return
-	}
-
-	variant, ok := parseThumbnailVariant(w, r)
-	if !ok {
-		return
-	}
-
-	capturedVersion, ok := parseCapturedVersion(w, r, asset.CurrentVersion)
-	if !ok {
-		return
-	}
-
-	thumbKey := DeriveThumbnailKeyVariant(asset.S3Key, variant)
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, mimeTypePNG); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
-		return
-	}
-
-	id := r.PathValue(pathKeyID)
-	superseded := asset.ThumbnailS3Key
-	updates := AssetUpdate{ThumbnailS3Key: &thumbKey, ThumbnailVersion: &capturedVersion}
-	if variant == thumbnailVariantDark {
-		superseded = asset.ThumbnailDarkS3Key
-		updates = AssetUpdate{ThumbnailDarkS3Key: &thumbKey, ThumbnailDarkVersion: &capturedVersion}
-	}
-	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
-		return
-	}
-	h.removeSupersededThumbnail(r.Context(), asset.S3Bucket, superseded, thumbKey)
-
-	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
-}
-
-// parseCapturedVersion reads the optional ?version= parameter: the asset
-// version the capturer rendered. It is what the stored capture is dated by, so
-// an asset rewritten while a capture was in flight is left pending rather than
-// stamped current with an image of the version before it.
-//
-// Absent, it falls back to the asset's current version, which is what a caller
-// that does not track versions means and what the endpoint did before the
-// parameter existed. A version above the current one is refused: it would date
-// a capture to content that does not exist yet and put the asset beyond the
-// reach of the refresh queue for good. Below it is accepted and left pending --
-// a capture of an older version is still an image worth serving.
-func parseCapturedVersion(w http.ResponseWriter, r *http.Request, currentVersion int) (int, bool) {
-	raw := r.URL.Query().Get("version")
-	if raw == "" {
-		return currentVersion, true
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < 1 {
-		writeError(w, http.StatusBadRequest, "version must be a positive integer")
-		return 0, false
-	}
-	if v > currentVersion {
-		writeError(w, http.StatusBadRequest, "version is ahead of the asset's current version")
-		return 0, false
-	}
-	return v, true
-}
-
-// thumbnailPendingLimit is how many assets one poll of the refresh queue is
-// offered. Capture is a long main-thread task per asset in whichever tab picks
-// the work up, so the batch is small enough that a browser can work through it
-// between idle periods; the rest are offered on the next poll, and an asset
-// leaves the set by having a current capture.
-const thumbnailPendingLimit = 25
-
-// listPendingThumbnails handles GET /api/v1/portal/thumbnails/pending.
-//
-// @Summary      List assets awaiting a thumbnail
-// @Description  Returns the caller's assets whose thumbnail is missing or has
-// @Description  not caught up with the current version, newest change first.
-// @Description  Nothing renders a thumbnail on the server, so this is how a
-// @Description  portal tab is told what to capture next -- including for assets
-// @Description  it is not displaying, which is what a managed script rewriting
-// @Description  an asset on a schedule depends on.
-// @Tags         Assets
-// @Produce      json
-// @Param        limit  query  int  false  "Maximum assets to return"
-// @Success      200  {object}  paginatedResponse
-// @Failure      401  {object}  problemDetail
-// @Failure      500  {object}  problemDetail
-// @Security     BearerAuth
-// @Router       /portal/thumbnails/pending [get]
-func (h *Handler) listPendingThumbnails(w http.ResponseWriter, r *http.Request) {
-	user := GetUser(r.Context())
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, errAuthRequired)
-		return
-	}
-
-	// Scoped to the caller's own assets, administrator or not: capture reads
-	// the whole body of every asset it is offered, and a background task that
-	// pulls other people's documents into a browser because of who is signed in
-	// is not what an admin asked for by opening the portal.
-	owner := access.AssetOwnerOf(user)
-	if !owner.Identified() {
-		writeJSON(w, http.StatusOK, paginatedResponse{Data: []Asset{}, Total: 0, Limit: thumbnailPendingLimit})
-		return
-	}
-	filter := AssetFilter{
-		Owner:            owner,
-		ThumbnailPending: true,
-		Limit:            intParam(r, paramLimit, thumbnailPendingLimit),
-	}
-
-	assets, total, err := h.deps.AssetStore.List(r.Context(), filter)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list assets")
-		return
-	}
-	if assets == nil {
-		assets = []Asset{}
-	}
-
-	writeJSON(w, http.StatusOK, paginatedResponse{
-		Data: assets, Total: total, Limit: filter.EffectiveLimit(),
-	})
-}
-
 // clearThumbnail handles DELETE /api/v1/portal/assets/{id}/thumbnail.
 //
-// It is how a wrong picture is asked for again. A capture is taken in a browser
-// and recorded on the asset row, and the refresh queue offers only assets whose
-// row says a capture is missing or behind, so an asset holding an image of
-// something the reader can see is wrong had no way back short of writing a new
-// version -- which captured it wrong again for the same reason (#1497). Clearing
-// the row's pointers puts the asset back on the queue, and the next tab idle
-// over it takes the picture again.
+// It is how a wrong picture is asked for again (#1497). The platform's renderer
+// draws an asset whose row says a tile is missing or behind (#1787), so
+// clearing the row's pointers is what has it drawn again, and clearing a
+// recorded failure is what has a document the renderer gave up on tried again.
 //
 // Both variants go together. They are two views of one asset and a reader
-// asking for the tile to be taken again means the tile, not the half of it their
-// color mode happens to be showing.
+// asking for the tile to be drawn again means the tile, not the half of it
+// their color mode happens to be showing.
 //
 // @Summary      Clear asset thumbnail
-// @Description  Discards the asset's stored thumbnails so a fresh capture is
-// @Description  taken. The asset returns to the pending-thumbnail list.
+// @Description  Discards the asset's stored thumbnails, and any failure recorded
+// @Description  against them, so the platform's renderer draws the asset again.
 // @Tags         Assets
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
@@ -1195,10 +1019,14 @@ func (h *Handler) clearThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A recorded failure is cleared with the tile: asking for the tile again is
+	// asking the renderer to try again, and a failure holds the asset off the
+	// renderer's list until the document changes.
 	cleared, zero := "", 0
 	updates := AssetUpdate{
 		ThumbnailS3Key: &cleared, ThumbnailVersion: &zero,
 		ThumbnailDarkS3Key: &cleared, ThumbnailDarkVersion: &zero,
+		ThumbnailFailure: &cleared, ThumbnailFailedVersion: &zero,
 	}
 	if err := h.deps.AssetStore.Update(r.Context(), r.PathValue(pathKeyID), updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
@@ -1212,7 +1040,7 @@ func (h *Handler) clearThumbnail(w http.ResponseWriter, r *http.Request) {
 	// Each recorded key is judged against the key the NEXT capture will write,
 	// so an object under an older version's directory or the pre-rename
 	// filename is cleaned up and the deterministic current key is left alone.
-	// Deleting that one would race a capture already in flight: another tab can
+	// Deleting that one would race a render already in flight: the renderer can
 	// have written it and pointed the row back at it between the update above
 	// and this loop, and the delete would then take away bytes the row names.
 	for _, variant := range []string{thumbnailVariantLight, thumbnailVariantDark} {
@@ -1286,7 +1114,7 @@ func (h *Handler) requireManageableAsset(w http.ResponseWriter, r *http.Request)
 //
 // @Summary      Get asset thumbnail
 // @Description  Downloads the asset's PNG thumbnail image. The dark variant
-// @Description  falls back to the light/default thumbnail when none was captured.
+// @Description  falls back to the light/default thumbnail when none was drawn.
 // @Tags         Assets
 // @Produce      png
 // @Param        id       path   string  true   "Asset ID"
@@ -1379,12 +1207,6 @@ func parseThumbnailVariant(w http.ResponseWriter, r *http.Request) (string, bool
 		return "", false
 	}
 	return variant, true
-}
-
-// DeriveThumbnailKey replaces the filename in an S3 key with ".thumbnail.png"
-// (the light/default variant).
-func DeriveThumbnailKey(s3Key string) string {
-	return DeriveThumbnailKeyVariant(s3Key, thumbnailVariantLight)
 }
 
 // DeriveThumbnailKeyVariant replaces the filename in an S3 key with the

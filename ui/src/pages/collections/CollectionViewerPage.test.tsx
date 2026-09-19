@@ -15,9 +15,6 @@ vi.mock("@/api/portal/hooks", () => ({
   useAssets: vi.fn(() => ({ data: { data: [] } })),
 }));
 
-vi.mock("@/components/CollectionThumbnailQueue", () => ({
-  CollectionThumbnailGenerator: () => null,
-}));
 
 vi.mock("@/components/knowledge/KnowledgeBacklinks", () => ({
   KnowledgeBacklinks: () => null,

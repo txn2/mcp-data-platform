@@ -190,9 +190,6 @@ func (*collectionStore) UpdateConfig(_ context.Context, _ string, _ portaldomain
 	return nil
 }
 
-func (*collectionStore) UpdateThumbnail(_ context.Context, _, _ string) error { //nolint:revive // interface impl
-	return nil
-}
 func (*collectionStore) SoftDelete(_ context.Context, _ string) error { return nil } //nolint:revive // interface impl
 func (*collectionStore) SetSections(_ context.Context, _ string, _ []portaldomain.CollectionSection) error { //nolint:revive // interface impl
 	return nil
