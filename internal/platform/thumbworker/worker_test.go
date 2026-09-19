@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -732,5 +733,22 @@ func TestServeInProcess_ARouteThatWritesNothingIsA200(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}), "/portal/refs/a/b"); ok {
 		t.Error("a second WriteHeader overrode the first")
+	}
+}
+
+// TestServeInProcess_IsNotCountedByTheViewerLimiter: every call the worker
+// makes presents the loopback address, so counted, they share one bucket and a
+// document's references are refused partway through it (#1791). A limiter of
+// burst one in front of the route admits every call.
+func TestServeInProcess_IsNotCountedByTheViewerLimiter(t *testing.T) {
+	rl := viewerlimit.New(viewerlimit.Config{RequestsPerMinute: 1, BurstSize: 1}, nil)
+	defer rl.Close()
+	routes := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<svg/>"))
+	}))
+	for i := range 3 * assetrefs.MaxRefs {
+		if f, ok := serveInProcess(routes, "/portal/refs/a/b"); !ok || string(f.Body) != "<svg/>" {
+			t.Fatalf("in-process call %d was refused: ok=%v body=%q", i, ok, f.Body)
+		}
 	}
 }

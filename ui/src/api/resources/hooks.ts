@@ -193,12 +193,10 @@ export function useClearResourceThumbnail() {
         throw new Error(body.error || res.statusText);
       }
     },
-    onSuccess: (_data, id) => {
-      // The resource query is what the thumbnail panel reads; the listing is
-      // what draws the tile everywhere else.
-      void qc.invalidateQueries({ queryKey: ["resources", id] });
-      void qc.invalidateQueries({ queryKey: ["resources"] });
-    },
+    // The resource query is what the thumbnail panel reads; the listing is
+    // what draws the tile everywhere else. Both sit under the "resources" key.
+    // Awaited for the reason the asset clear awaits its own (#1791).
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["resources"] }),
   });
 }
 

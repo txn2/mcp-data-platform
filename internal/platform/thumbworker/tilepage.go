@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
@@ -155,8 +156,14 @@ func servedInProcess(p string) bool {
 // serveInProcess calls routes for one GET and returns the body when it answers
 // 200. It carries no credentials, so only a route that answers anonymously can
 // answer it.
+//
+// It is marked as the platform's own request, which the public viewer's rate
+// limiter admits without counting (#1791). Counted, every request the worker
+// makes presents the one loopback address and shares one bucket, and the
+// reference route in front of a document's files ran it dry partway through a
+// document: its light tile loaded every file and its dark tile loaded none.
 func serveInProcess(routes http.Handler, p string) (headless.File, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), storageTimeout)
+	ctx, cancel := context.WithTimeout(viewerlimit.InProcess(context.Background()), storageTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p, http.NoBody)
 	if err != nil {

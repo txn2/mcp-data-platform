@@ -8,11 +8,11 @@ import { AuthImg } from "@/components/AuthImg";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Button } from "@/components/ui/button";
 import { useResolvedDark } from "@/stores/theme";
+import type { FailedPart, ThumbnailSubject } from "@/lib/thumbnailSubject";
 import {
   isThumbnailSupported,
   thumbnailSrc,
   THUMBNAIL_SOURCE_LIMIT,
-  type ThumbnailSubject,
   type ThumbnailTarget,
 } from "@/lib/thumbnailSupport";
 
@@ -77,8 +77,11 @@ export function ThumbnailPanel({
               setFailed(false);
               clear.mutate(subject.target.id, { onSuccess: markRecaptured });
             }}
-            disabled={clear.isPending}
-            title="Discard this image and draw it again"
+            // Pressing while a tile is being drawn asks for what is already
+            // happening; pressing once it lands discards it and pays for the
+            // whole draw again (#1791).
+            disabled={clear.isPending || drawing}
+            title={drawing ? "The picture is being drawn" : "Discard this image and draw it again"}
           >
             <RefreshCw /> {subject.failure ? "Try again" : "Recapture"}
           </Button>
@@ -89,6 +92,7 @@ export function ThumbnailPanel({
           shown={shown && !failed ? shown : undefined}
           drawing={drawing}
           failure={subject.failure}
+          failedPart={subject.failedPart}
           clearFailed={clear.isError}
           onImageFailed={() => setFailed(true)}
         />
@@ -106,6 +110,7 @@ function PanelBody({
   shown,
   drawing,
   failure,
+  failedPart = "file",
   clearFailed,
   onImageFailed,
 }: {
@@ -114,10 +119,13 @@ function PanelBody({
   shown?: string;
   drawing: boolean;
   failure?: string;
+  failedPart?: FailedPart;
   clearFailed: boolean;
   onImageFailed: () => void;
 }) {
-  const tone = failure ? "text-destructive" : "text-muted-foreground";
+  // Red is for a file with no picture at all. A failure beside a picture that
+  // was drawn is worth saying, not alarming about.
+  const tone = failure && (!shown || failedPart === "file") ? "text-destructive" : "text-muted-foreground";
   return (
     <div className="space-y-2">
       {shown ? (
@@ -146,7 +154,7 @@ function PanelBody({
         </div>
       )}
       <p className={`text-xs ${tone}`} data-testid="thumbnail-explanation">
-        {explain(drawing, failure)}
+        {explain(drawing, failure ? failedPart : undefined)}
       </p>
       {failure && (
         <p className="text-xs break-words text-muted-foreground" data-testid="thumbnail-failure">
@@ -209,14 +217,27 @@ function placeholder(drawing: boolean, failure: string | undefined): string {
   return drawing ? "Being drawn" : "No thumbnail stored";
 }
 
+/** What follows every failure: when it is tried again. */
+const RETRY = "It is tried again when the file changes, or now with Try again.";
+
 /**
  * What the panel says about the image it is showing, about the one coming, or
  * about the one that could not be drawn. Written for the person looking at the
  * page: what is happening, and what to do if it does not.
+ *
+ * A failure is said of the part that failed (#1791). The light tile is drawn
+ * first and kept when the dark one fails, so "could not be drawn" beside a
+ * picture of this very version was untrue of the picture the reader was
+ * looking at.
  */
-function explain(drawing: boolean, failure: string | undefined): string {
-  if (failure) {
-    return "The preview picture could not be drawn for this version of the file. It is tried again when the file changes, or now with Try again.";
+function explain(drawing: boolean, failed: FailedPart | undefined): string {
+  switch (failed) {
+    case "dark":
+      return `The dark-mode picture could not be drawn for this version of the file. ${RETRY}`;
+    case "version":
+      return `This picture is of an earlier version. This version could not be drawn. ${RETRY}`;
+    case "file":
+      return `The preview picture could not be drawn for this version of the file. ${RETRY}`;
   }
   return drawing
     ? "The preview picture is being drawn and will appear here in a few seconds."

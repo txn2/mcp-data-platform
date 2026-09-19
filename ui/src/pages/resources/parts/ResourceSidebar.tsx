@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { DetailRow } from "@/components/viewer/DetailRow";
 import { ThumbnailPanel } from "@/components/thumbnail/ThumbnailPanel";
 import { formatBytes } from "@/lib/format";
-import { resourceSubject } from "@/lib/thumbnailSupport";
+import { resourceSubject } from "@/lib/thumbnailSubject";
 import type { Resource } from "@/api/resources/types";
 import { UsagePanel } from "./UsagePanel";
 import { ProducersPanel } from "@/components/producers/ProducersPanel";

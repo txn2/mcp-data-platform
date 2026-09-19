@@ -633,6 +633,8 @@ portal:
 | `export.default_timeout` | string | `5m` | Default query timeout for exports |
 | `export.max_timeout` | string | `10m` | Maximum allowed query timeout for exports |
 
+The route an artifact's [declared files](asset-references.md) are served from has a limiter of its own, sized at twenty times the `rate_limit` values (an asset declares at most twenty files, and one page view fetches them all at once). With no `rate_limit` block that is 1,200 requests a minute and a burst of 200 per client. The platform's own requests to that route, the ones the [thumbnail renderer](#thumbnails) makes while it draws a document, are not counted.
+
 !!! note "Prerequisites"
     Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for asset content storage.
 

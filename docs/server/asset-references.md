@@ -80,6 +80,8 @@ An asset's thumbnail is drawn by the platform, in the headless renderer beside i
 
 The frame reports what it could not load, so a document in which a referenced file was refused or answered an error is recorded as not drawable, with that reason, rather than stored. The **Thumbnail** panel in the metadata sidebar shows the reason, and **Try again** asks for another attempt without waiting for the asset's version to move.
 
+The reference route is rate-limited per client (see [`portal.rate_limit`](configuration.md#portal-configuration)), and the renderer's requests are the platform's own: they are answered in-process and not counted. Counted, every file of every document the renderer draws would come out of one client's budget, and a document drawn after that budget ran out would be recorded as not drawable although every file it names exists.
+
 ## Managing references from the portal
 
 An asset's viewer sidebar carries a **References** panel listing what the asset depends on. A resource row names the file, its scope and its content type, with a thumbnail where it is an image; an asset row is marked as one and names the asset, its content type and its owner. A thumbnail loads through the reference's own URL rather than through the target's own route, so it renders for a reader who was only ever shown the asset.

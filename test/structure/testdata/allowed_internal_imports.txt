@@ -517,6 +517,7 @@ internal/platform/thumbworker -> internal/headless
 internal/platform/thumbworker -> internal/logsan
 internal/platform/thumbworker -> internal/portal/assetrefs
 internal/platform/thumbworker -> internal/portal/portaldomain
+internal/platform/thumbworker -> internal/portal/viewerlimit
 internal/platform/thumbworker -> internal/thumbtypes
 internal/platform/thumbworker -> pkg/resource
 internal/platform/toolargs -> pkg/middleware

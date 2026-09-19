@@ -3,7 +3,7 @@ import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Asset } from "@/api/portal/types";
 import type { Resource } from "@/api/resources/types";
-import { assetSubject, resourceSubject } from "@/lib/thumbnailSupport";
+import { assetSubject, resourceSubject } from "@/lib/thumbnailSubject";
 import { DRAWING_POLL_MS, ThumbnailPanel } from "./ThumbnailPanel";
 
 // A person looking at a tile that shows the wrong thing had nothing to press
@@ -182,11 +182,65 @@ describe("ThumbnailPanel", () => {
     expect(screen.getByRole("img")).toBeInTheDocument();
   });
 
-  it("says the tile is being drawn while the row says one is owed", () => {
+  // A press while the tile is being drawn asks for what is already happening,
+  // and one pressed the moment it lands discards it and pays for the whole
+  // draw again (#1791).
+  it("says the tile is being drawn while the row says one is owed, and offers no press", () => {
     renderPanel(CLEARED);
     expect(screen.getByText("Being drawn")).toBeInTheDocument();
     expect(screen.getByTestId("thumbnail-explanation").textContent).toContain("being drawn");
-    expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled();
+    const button = screen.getByRole("button", { name: /recapture/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "The picture is being drawn");
+  });
+
+  it("offers the press again once the tile has landed", async () => {
+    const { rerender } = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /recapture/i }));
+    await waitFor(() => expect(requests("DELETE")).toHaveLength(1));
+
+    rerender(CLEARED);
+    expect(screen.getByRole("button", { name: /recapture/i })).toBeDisabled();
+    rerender(ASSET);
+    await waitFor(() => expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled());
+  });
+
+  // The renderer draws the light tile first and keeps it when the dark one
+  // fails, so "the preview could not be drawn" beside that very picture was
+  // untrue of what the reader was looking at (#1791).
+  it("says only the dark tile failed when the light tile of this version was drawn", () => {
+    renderPanel({
+      ...ASSET,
+      thumbnail_dark_s3_key: "",
+      thumbnail_dark_version: 0,
+      thumbnail_failure: "4 file(s) this document links to could not be loaded",
+      thumbnail_failed_version: 4,
+    } as Asset);
+    expect(screen.getByAltText("Thumbnail for Q4 dashboard")).toBeInTheDocument();
+    const explanation = screen.getByTestId("thumbnail-explanation");
+    expect(explanation.textContent).toBe(
+      "The dark-mode picture could not be drawn for this version of the file. It is tried again when the file changes, or now with Try again.",
+    );
+    expect(explanation).toHaveClass("text-muted-foreground");
+    expect(screen.getByTestId("thumbnail-failure").textContent).toBe(
+      "4 file(s) this document links to could not be loaded",
+    );
+    expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
+  });
+
+  it("says the picture is of an earlier version when this version could not be drawn", () => {
+    renderPanel({
+      ...ASSET,
+      current_version: 5,
+      thumbnail_failure: "the document did not finish drawing before the deadline",
+      thumbnail_failed_version: 5,
+    } as Asset);
+    expect(screen.getByAltText("Thumbnail for Q4 dashboard")).toBeInTheDocument();
+    const explanation = screen.getByTestId("thumbnail-explanation");
+    expect(explanation.textContent).toBe(
+      "This picture is of an earlier version. This version could not be drawn. It is tried again when the file changes, or now with Try again.",
+    );
+    expect(explanation).toHaveClass("text-muted-foreground");
   });
 
   // The renderer draws a tile within seconds, and nothing pushes the row to the
@@ -224,7 +278,10 @@ describe("ThumbnailPanel", () => {
     expect(screen.getByTestId("thumbnail-failure").textContent).toBe(
       "the document did not finish drawing before the deadline",
     );
-    expect(screen.getByTestId("thumbnail-explanation").textContent).not.toContain("few seconds");
+    const explanation = screen.getByTestId("thumbnail-explanation");
+    expect(explanation.textContent).toContain("The preview picture could not be drawn for this version of the file.");
+    expect(explanation.textContent).not.toContain("few seconds");
+    expect(explanation).toHaveClass("text-destructive");
     expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
   });
 
@@ -327,7 +384,21 @@ describe("ThumbnailPanel", () => {
       thumbnail_dark_captured_at: undefined,
     });
     expect(screen.getByText("Being drawn")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /recapture/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /recapture/i })).toBeDisabled();
+  });
+
+  it("says only a managed resource's dark tile failed when its light tile is of the file as it stands", () => {
+    renderResourcePanel({
+      ...RESOURCE,
+      thumbnail_dark_s3_key: undefined,
+      thumbnail_dark_captured_at: undefined,
+      thumbnail_failure: "1 file(s) this document links to could not be loaded",
+      thumbnail_failed_at: RESOURCE.updated_at,
+    });
+    expect(screen.getByAltText("Thumbnail for Release notes")).toBeInTheDocument();
+    expect(screen.getByTestId("thumbnail-explanation").textContent).toContain(
+      "The dark-mode picture could not be drawn",
+    );
   });
 
   it("shows why a managed resource could not be drawn, while its file is unchanged", () => {

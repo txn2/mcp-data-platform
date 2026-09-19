@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
@@ -34,6 +34,11 @@ interface AssetContentViewProps {
   versionContent?: string;
   editedContent: string;
   onSourceChange: (v: string) => void;
+  /**
+   * What sits to the right of the version selector: the knowledge pages that
+   * reference this asset, as a button (#1792).
+   */
+  afterVersion?: ReactNode;
 }
 
 export function AssetContentView({
@@ -59,6 +64,7 @@ export function AssetContentView({
   versionContent,
   editedContent,
   onSourceChange,
+  afterVersion,
 }: AssetContentViewProps) {
   // The end of the control row, where an HTML document's own controls
   // (Present, Overview, Export PDF) render rather than on a row of their own
@@ -82,6 +88,7 @@ export function AssetContentView({
           canRevert={(isOwner || sharePermission === "editor") && !!revertMutation}
           onRevert={onRevert}
         />
+        {afterVersion}
         <SaveControls
           show={viewMode === "source" && !viewingOldVersion}
           hasChanges={hasChanges}

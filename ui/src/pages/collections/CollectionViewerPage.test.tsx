@@ -16,8 +16,8 @@ vi.mock("@/api/portal/hooks", () => ({
 }));
 
 
-vi.mock("@/components/knowledge/KnowledgeBacklinks", () => ({
-  KnowledgeBacklinks: () => null,
+vi.mock("@/components/knowledge/KnowledgeBacklinksButton", () => ({
+  KnowledgeBacklinksButton: ({ urn }: { urn: string }) => <button type="button">Referenced by {urn}</button>,
 }));
 
 vi.mock("@/components/ShareDialog", () => ({
@@ -123,6 +123,21 @@ describe("CollectionViewerPage: what an Editor share may do (#1294)", () => {
     expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
     expect(screen.getByText("Shared (Viewer)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /moderator/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("CollectionViewerPage: the pages that reference it (#1792)", () => {
+  it("names them on a button to the left of Feedback", () => {
+    mockUseCollection.mockReturnValue({
+      data: collectionWith({ is_owner: true, can_edit: true, can_manage: true }),
+      isLoading: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    renderViewer();
+
+    const refs = screen.getByRole("button", { name: "Referenced by mcp:collection:c1" });
+    const feedback = screen.getByRole("button", { name: /feedback/i });
+    expect(refs.nextElementSibling).toBe(feedback);
   });
 });
 

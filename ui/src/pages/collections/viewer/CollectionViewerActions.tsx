@@ -1,5 +1,6 @@
 import { Pencil, Share2, Trash2 } from "lucide-react";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
+import { KnowledgeBacklinksButton } from "@/components/knowledge/KnowledgeBacklinksButton";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { SharedPageLink } from "@/components/share/SharedPageLink";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,8 @@ interface Props {
   onShare: () => void;
   onDelete: () => void;
   deletePending: boolean;
+  /** Where a referencing knowledge page opens. */
+  onNavigate?: (path: string) => void;
 }
 
 /**
@@ -37,6 +40,7 @@ export function CollectionViewerActions({
   onShare,
   onDelete,
   deletePending,
+  onNavigate,
 }: Props) {
   return (
     <>
@@ -47,6 +51,7 @@ export function CollectionViewerActions({
         <Badge variant="warning">Shared{canEdit ? " (Editor)" : " (Viewer)"}</Badge>
       )}
       <SharedPageLink />
+      <KnowledgeBacklinksButton urn={`mcp:collection:${collectionId}`} onNavigate={onNavigate} />
       <FeedbackButton target={{ type: "collection", id: collectionId }} canModerate={canEdit} />
       {canEdit && (
         <Button variant="outline" size="sm" onClick={onEdit}>

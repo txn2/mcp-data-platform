@@ -12,6 +12,16 @@ import { openResourceNamed } from "./route-actions-library";
 // than at whatever line the limit falls on.
 
 /**
+ * openAssetReferencedBy opens the list of knowledge pages that cite the asset,
+ * from the button beside the version picker (#1792).
+ */
+export async function openAssetReferencedBy(page: Page): Promise<void> {
+  await page.getByRole("button", { name: /referenced by/i }).click();
+  await page.getByRole("dialog").waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(300);
+}
+
+/**
  * openAssetRefs opens the asset viewer's metadata sidebar and scrolls to what
  * the asset's content references (#1475, #1488). The sidebar is closed until
  * "Show details" is pressed, so the panel is not merely below the fold -- it is

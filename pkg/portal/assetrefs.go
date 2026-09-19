@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -36,15 +37,15 @@ const refRoutePattern = "GET " + assetrefs.PathPrefix + "{id}/{ref}"
 // "page views per minute" — while letting a page load fetch everything it
 // declared.
 //
-// A zero field is left zero so viewerlimit applies its own default, which it
-// must do before sizing the global backstop.
+// The scaling starts from the viewer's budget with its defaults applied. A
+// deployment with no portal.rate_limit block leaves both fields zero, and
+// scaling zero left the reference route on the viewer's unscaled default -- a
+// burst of ten -- so a page declaring more than ten files had the rest refused
+// (#1791).
 func refRateLimit(cfg RateLimitConfig) RateLimitConfig {
-	if cfg.RequestsPerMinute > 0 {
-		cfg.RequestsPerMinute *= assetrefs.MaxRefs
-	}
-	if cfg.BurstSize > 0 {
-		cfg.BurstSize *= assetrefs.MaxRefs
-	}
+	cfg = viewerlimit.WithDefaults(cfg)
+	cfg.RequestsPerMinute *= assetrefs.MaxRefs
+	cfg.BurstSize *= assetrefs.MaxRefs
 	return cfg
 }
 

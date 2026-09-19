@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
-import { assetSubject } from "@/lib/thumbnailSupport";
+import { assetSubject } from "@/lib/thumbnailSubject";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
 import { ThumbnailPanel } from "@/components/thumbnail/ThumbnailPanel";

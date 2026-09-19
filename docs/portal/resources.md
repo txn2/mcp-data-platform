@@ -60,7 +60,7 @@ A tile records the moment of the file it was drawn from. When a resource's conte
 
 A tile that is wrong can be replaced. The **Thumbnail** panel in a resource's sidebar shows the stored image and offers **Recapture**: it discards both variants and the platform draws the file again. It is there for whoever may change the file — its uploader, and anyone who may add to the library it is in — and for a type something draws; there is no tile for anyone else to be wrong about.
 
-A file the renderer could not draw says so on the panel, with the reason the renderer gave, and offers **Try again**. The platform does not try the same content again on its own, so one file that cannot be drawn does not hold up the rest; replacing the content tries again.
+A file the renderer could not draw says so on the panel, with the reason the renderer gave, and offers **Try again**. The panel says which part failed: the light tile is drawn first and kept when the dark one fails, so a file can show its light tile beside a note that the dark-mode picture could not be drawn. The platform does not try the same content again on its own, so one file that cannot be drawn does not hold up the rest; replacing the content tries again. While a tile is being drawn, **Recapture** is unavailable.
 
 ![The Thumbnail panel on a resource, with its Recapture control](../images/screenshots/light/admin-resource-thumbnail-light.webp#only-light)![The Thumbnail panel on a resource, with its Recapture control](../images/screenshots/dark/admin-resource-thumbnail-dark.webp#only-dark)
 

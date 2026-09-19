@@ -335,7 +335,7 @@ function thumbnailQuery(c: Captures, isDark: boolean): string | undefined {
 }
 
 /** The parts of an asset that say whether its capture is current. */
-interface ThumbnailState {
+export interface ThumbnailState {
   content_type: string;
   current_version: number;
   thumbnail_s3_key?: string;
@@ -348,7 +348,7 @@ interface ThumbnailState {
 }
 
 /** The same of a managed resource, which dates its captures rather than versioning them. */
-interface ResourceThumbnailState {
+export interface ResourceThumbnailState {
   id: string;
   mime_type: string;
   updated_at: string;
@@ -523,67 +523,4 @@ export function assetThumbnailFailure(a: ThumbnailState): string | undefined {
 export function resourceThumbnailFailure(r: ResourceThumbnailState): string | undefined {
   if (!r.thumbnail_failure || !r.thumbnail_failed_at) return undefined;
   return Date.parse(r.thumbnail_failed_at) >= Date.parse(r.updated_at) ? r.thumbnail_failure : undefined;
-}
-
-/**
- * One target's tile as the panel that shows and re-takes it needs to see it.
- *
- * The panel is over a target rather than over an asset (#1568): a resource
- * owner had no picture of their tile and no way to replace one that was wrong,
- * which is the same gap #1497 closed for assets. Everything that differs
- * between the two kinds -- where the captures are recorded, what dates them,
- * which route reads them -- is resolved into this before the panel sees it.
- */
-export interface ThumbnailSubject {
-  target: ThumbnailTarget;
-  /** What the tile is of, for the image's alt text. */
-  name: string;
-  contentType: string;
-  sizeBytes: number;
-  captures: Captures;
-  /**
-   * Whether the renderer is drawing a tile right now: the stored one is missing
-   * or behind the file, and no failure stands against the file as it is.
-   */
-  behind: boolean;
-  /** Why the renderer could not draw this file, while that still stands. */
-  failure?: string;
-  /** Which route this reader is entitled to read the tile through. */
-  base: string;
-}
-
-/** One asset as a thumbnail subject. */
-export function assetSubject(
-  asset: ThumbnailState & { id: string; name: string; size_bytes: number },
-  base = ASSET_THUMBNAIL_BASE,
-): ThumbnailSubject {
-  return {
-    target: { kind: "asset", id: asset.id },
-    name: asset.name,
-    contentType: asset.content_type,
-    sizeBytes: asset.size_bytes,
-    captures: assetCaptures(asset),
-    ...drawState(thumbnailBehind(asset), assetThumbnailFailure(asset)),
-    base,
-  };
-}
-
-/** One managed resource as a thumbnail subject. */
-export function resourceSubject(
-  resource: ResourceThumbnailState & { display_name: string; size_bytes: number },
-): ThumbnailSubject {
-  return {
-    target: { kind: "resource", id: resource.id },
-    name: resource.display_name,
-    contentType: resource.mime_type,
-    sizeBytes: resource.size_bytes,
-    captures: resourceCaptures(resource),
-    ...drawState(resourceThumbnailBehind(resource), resourceThumbnailFailure(resource)),
-    base: RESOURCE_THUMBNAIL_BASE,
-  };
-}
-
-/** A tile behind its file is being drawn unless a failure stands against it. */
-function drawState(behind: boolean, failure: string | undefined): { behind: boolean; failure?: string } {
-  return failure ? { behind: false, failure } : { behind };
 }
