@@ -364,6 +364,69 @@ func TestDrawAsset_ReferencesPointAtTheReferenceRoute(t *testing.T) {
 	}
 }
 
+// A table's tile is its header row and its first rows, so the tile page is
+// handed the head of the file rather than the whole of it (#1802). Before
+// this, a CSV over 1 MB was never offered for capture at all -- the other
+// 99.9% of it was parsed and discarded, which is what the bound refused.
+func TestDrawAsset_ATableIsDrawnFromItsHead(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a20", "text/csv", 1)
+	whole := csvOf(200_000)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte(whole)
+	worker(d, assets, blobs).drawAsset(context.Background(), a)
+
+	if len(d.pages) == 0 {
+		t.Fatal("nothing was drawn")
+	}
+	content, _ := payload(t, d.pages[0])["content"].(string)
+	if content == whole {
+		t.Fatalf("the whole %d-byte document was handed to the tile page", len(whole))
+	}
+	if !strings.HasPrefix(whole, content) {
+		t.Fatal("what the tile page was handed is not a prefix of the document")
+	}
+	// The rows the tile draws are all there.
+	if !strings.HasPrefix(content, "id,name\n") || !strings.Contains(content, "10,row 10\n") {
+		t.Errorf("the head does not hold the header and the first ten rows: %q", content[:min(80, len(content))])
+	}
+}
+
+// Every other family is laid out in full to be drawn, so a prefix of one would
+// be a document with its tail cut off.
+func TestDrawAsset_ADocumentLaidOutInFullIsHandedWhole(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a21", "text/markdown", 1)
+	whole := csvOf(200_000)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte(whole)
+	worker(d, assets, blobs).drawAsset(context.Background(), a)
+
+	if content, _ := payload(t, d.pages[0])["content"].(string); content != whole {
+		t.Fatalf("the tile page was handed %d of %d bytes", len(content), len(whole))
+	}
+}
+
+// The same of a managed resource, which is the half of the library a large CSV
+// most often arrives in.
+func TestDrawResource_ATableIsDrawnFromItsHead(t *testing.T) {
+	d, blobs, res := &fakeDrawer{}, newBlobs(), &fakeResources{}
+	r := resource.Resource{
+		ID: "r20", MIMEType: "text/tab-separated-values", S3Key: "resources/r20/export.tsv",
+		UpdatedAt: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+	}
+	whole := csvOf(200_000)
+	blobs.objects["res-bucket/"+r.S3Key] = []byte(whole)
+	New(Tuning{}, Deps{Drawer: d, Resources: res, ResourceBlobs: blobs, ResourceBucket: "res-bucket"}).
+		drawResource(context.Background(), r)
+
+	if len(d.pages) == 0 {
+		t.Fatal("nothing was drawn")
+	}
+	content, _ := payload(t, d.pages[0])["content"].(string)
+	if content == whole || !strings.HasPrefix(whole, content) {
+		t.Fatalf("the tile page was handed %d of %d bytes, and not as a prefix", len(content), len(whole))
+	}
+}
+
 func TestDrawAsset_AnImageIsServedToThePageByURL(t *testing.T) {
 	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
 	a := asset("a8", "image/png", 1)

@@ -103,6 +103,10 @@ func (w *Worker) drawAsset(ctx context.Context, a portaldomain.Asset) {
 		slog.Warn("thumbnails: reading an asset failed", "asset", logsan.SanitizeForLog(a.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
+	// The head is taken before the references are rewritten, so a document
+	// drawn from its head is scanned for references over the bytes that reach
+	// the tile page rather than over the whole file.
+	data = headFor(a.ContentType, data)
 	if !isBinary(a.ContentType) {
 		data = w.rewriteRefs(ctx, a.ID, a.ContentType, data)
 	}
@@ -190,7 +194,7 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) {
 		return
 	}
 	stored, reason, retry := w.drawVariants(ctx, target{
-		src:    tileSource{contentType: r.MIMEType, content: data, name: r.DisplayName},
+		src:    tileSource{contentType: r.MIMEType, content: headFor(r.MIMEType, data), name: r.DisplayName},
 		bucket: w.deps.ResourceBucket,
 		blobs:  w.deps.ResourceBlobs,
 		keyFor: func(v string) string { return resource.ThumbnailKeyFor(r.S3Key, v) },

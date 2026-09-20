@@ -64,23 +64,61 @@ func TestThemeableShadowsAgreeWithFirstMatch(t *testing.T) {
 	}
 }
 
-// TestSourceLimitRaisesOnlyForPDF. The bound exists because the renderer holds
-// the whole document; a PDF is the one family where that cost is not what its
-// size suggests, because only page one is decoded (#1794). Every other family
-// stays where it was, which is the half of the rule a change here would break
-// silently.
-func TestSourceLimitRaisesOnlyForPDF(t *testing.T) {
-	for _, ct := range []string{"application/pdf", "APPLICATION/PDF", "application/x-pdf"} {
+// TestSourceLimitRaisesForTheFamiliesDrawnFromPartOfTheFile. The bound exists
+// because the renderer holds the whole document; it rises for a family whose
+// tile is drawn from part of the file -- page one of a PDF (#1794), the first
+// rows of a table (#1802). Every other family stays where it was, which is the
+// half of the rule a change here would break silently.
+func TestSourceLimitRaisesForTheFamiliesDrawnFromPartOfTheFile(t *testing.T) {
+	for _, ct := range []string{
+		"application/pdf", "APPLICATION/PDF", "application/x-pdf",
+		"text/csv", "TEXT/CSV; charset=utf-8", "text/tab-separated-values",
+	} {
 		if got := SourceLimit(ct); got != LargeSourceLimit {
 			t.Errorf("SourceLimit(%q) = %d, want %d", ct, got, LargeSourceLimit)
 		}
 	}
 	for _, ct := range []string{
 		"text/html", "image/png", "image/svg+xml", "text/markdown",
-		"application/json", "text/csv", "text/plain", "application/zip",
+		"application/json", "text/plain", "application/zip",
 	} {
 		if got := SourceLimit(ct); got != DefaultSourceLimit {
 			t.Errorf("SourceLimit(%q) = %d, want %d", ct, got, DefaultSourceLimit)
+		}
+	}
+}
+
+// TestDrawnFromHead. The worker hands the tile page a prefix of a document in
+// this family and the whole of every other, so a family that answers yes here
+// and is laid out in full would be drawn from a document with its tail cut
+// off.
+func TestDrawnFromHead(t *testing.T) {
+	for _, ct := range []string{"text/csv", "TEXT/CSV", "text/tab-separated-values"} {
+		if !DrawnFromHead(ct) {
+			t.Errorf("DrawnFromHead(%q) = false, want true", ct)
+		}
+	}
+	for _, ct := range []string{
+		"application/pdf", "text/html", "text/markdown", "application/json",
+		"text/plain", "image/png", "application/zip",
+	} {
+		if DrawnFromHead(ct) {
+			t.Errorf("DrawnFromHead(%q) = true, want false", ct)
+		}
+	}
+}
+
+// TestEveryHeadDrawnFamilyIsHeldToTheRaisedBound. The head cut is what makes
+// the raised bound safe: a family drawn from its head but held to the default
+// bound gains nothing from the cut, and one past the default bound without a
+// cut hands the renderer a document the bound exists to refuse.
+func TestEveryHeadDrawnFamilyIsHeldToTheRaisedBound(t *testing.T) {
+	for _, f := range HeadDrawnFamilies {
+		if !slices.Contains(Capturable, f) {
+			t.Errorf("%q is drawn from its head but is not capturable", f)
+		}
+		if !slices.Contains(LargeSourceFamilies, f) {
+			t.Errorf("%q is drawn from its head but is held to the default source bound", f)
 		}
 	}
 }

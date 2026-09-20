@@ -8,7 +8,7 @@ import {
   collectionMosaicSrc,
   isThemeable,
   thumbnailSourceLimit,
-  PDF_THUMBNAIL_SOURCE_LIMIT,
+  LARGE_THUMBNAIL_SOURCE_LIMIT,
   THUMBNAIL_SOURCE_LIMIT,
   isThumbnailSupported,
   resourceThumbnailBehind,
@@ -149,14 +149,18 @@ describe("thumbnail support", () => {
   });
 });
 
-// The bound on how big a file a tile is drawn from. It rises for one family
-// and one family only: a scanned letter page measures about 2 MB, so holding a
-// PDF to the default would leave most real ones with an icon (#1794).
+// The bound on how big a file a tile is drawn from. It rises for the families
+// whose tile is drawn from part of the file: page one of a PDF, which a
+// scanned letter page already carries past the default (#1794), and the first
+// rows of a table, which is all the platform hands the tile page of a large
+// one (#1802).
 describe("thumbnailSourceLimit", () => {
-  it("gives a PDF its own bound and leaves every other family on the default", () => {
-    expect(thumbnailSourceLimit("application/pdf")).toBe(PDF_THUMBNAIL_SOURCE_LIMIT);
-    expect(PDF_THUMBNAIL_SOURCE_LIMIT).toBeGreaterThan(THUMBNAIL_SOURCE_LIMIT);
-    for (const ct of ["text/html", "image/png", "image/svg+xml", "text/markdown", "text/csv"]) {
+  it("raises the bound for a PDF and a table, and leaves every other family on the default", () => {
+    for (const ct of ["application/pdf", "text/csv", "text/tab-separated-values"]) {
+      expect(thumbnailSourceLimit(ct)).toBe(LARGE_THUMBNAIL_SOURCE_LIMIT);
+    }
+    expect(LARGE_THUMBNAIL_SOURCE_LIMIT).toBeGreaterThan(THUMBNAIL_SOURCE_LIMIT);
+    for (const ct of ["text/html", "image/png", "image/svg+xml", "text/markdown", "application/json"]) {
       expect(thumbnailSourceLimit(ct)).toBe(THUMBNAIL_SOURCE_LIMIT);
     }
   });

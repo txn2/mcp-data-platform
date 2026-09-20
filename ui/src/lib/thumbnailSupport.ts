@@ -14,23 +14,19 @@ export const THUMB_WIDTH = 400;
 export const THUMB_HEIGHT = 300;
 
 /**
- * Largest document a thumbnail is drawn from, in bytes, for every family but
- * one. The server applies the same bound when it picks what to draw; above it
- * a file keeps its content-type icon.
+ * Largest document a thumbnail is drawn from, in bytes, for every family held
+ * to the default bound. The server applies the same bound when it picks what
+ * to draw; above it a file keeps its content-type icon.
  */
 export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
 
 /**
- * The bound a PDF is held to instead.
+ * The bound the families in LARGE_SOURCE_FAMILIES are held to instead.
  *
- * The default one would leave the feature looking broken on the documents it
- * exists for: one letter page scanned at 300dpi measures about 2 MB, so most
- * scanned PDFs would keep an icon (#1794). What the bound protects against is
- * the renderer holding a whole document, and a PDF costs less of that than its
- * size suggests -- only page one is decoded. The Go definition of both bounds
- * is internal/thumbtypes.
+ * The Go definition of both bounds, and of which families take this one, is
+ * internal/thumbtypes; a test there fails when the two languages disagree.
  */
-export const PDF_THUMBNAIL_SOURCE_LIMIT = 32 * 1024 * 1024; // 32 MB
+export const LARGE_THUMBNAIL_SOURCE_LIMIT = 32 * 1024 * 1024; // 32 MB
 
 /**
  * How the tile page draws one family. Its dispatch (components/thumbnail/Tile)
@@ -114,6 +110,19 @@ const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
   "json",
   "text",
 ]);
+
+/**
+ * The families held to LARGE_THUMBNAIL_SOURCE_LIMIT rather than to the default
+ * bound.
+ *
+ * What the default bound protects against is the renderer holding a whole
+ * document, and a family is here when its tile costs less of that than the
+ * file's size suggests, because the tile is drawn from a part of the file.
+ * Only page one of a PDF is decoded (#1794); a table's tile is its header row
+ * and its first rows, which is all the platform hands the tile page of a large
+ * one (#1802).
+ */
+const LARGE_SOURCE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>(["pdf", "csv"]);
 
 /** One capturable family: how a content type is recognized, and what is done with it. */
 interface CapturableFamily {
@@ -200,11 +209,15 @@ export function captureFamily(contentType: string): CaptureFamily | null {
 }
 
 /**
- * The largest file of this content type a tile is drawn from. PDF has its own
- * bound; every other family shares the default.
+ * The largest file of this content type a tile is drawn from. The families
+ * drawn from part of the file have a bound of their own; every other family
+ * shares the default.
  */
 export function thumbnailSourceLimit(contentType: string): number {
-  return captureFamily(contentType) === "pdf" ? PDF_THUMBNAIL_SOURCE_LIMIT : THUMBNAIL_SOURCE_LIMIT;
+  const family = captureFamily(contentType);
+  return family !== null && LARGE_SOURCE_FAMILIES.has(family)
+    ? LARGE_THUMBNAIL_SOURCE_LIMIT
+    : THUMBNAIL_SOURCE_LIMIT;
 }
 
 /** Returns true if the content type supports thumbnail generation. */

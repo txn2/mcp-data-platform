@@ -95,18 +95,52 @@ const LargeSourceLimit = 32 << 20 // 32 MB
 // LargeSourceFamilies are the families whose source bound is LargeSourceLimit
 // rather than DefaultSourceLimit.
 //
-// PDF is here because the default bound would leave the feature looking broken
-// on the documents it exists for: one letter page scanned at 300dpi measures
-// about 2 MB, twice the default, so most scanned PDFs would keep an icon
-// (#1794). What the bound protects against is the renderer holding a whole
-// document, and a PDF costs less of that than its size suggests: the tile page
-// decodes page one and nothing else. A 26 MB, 12-page scan drew in 2.7s with
-// the renderer at 291 MiB.
+// What the default bound protects against is the renderer holding a whole
+// document. A family is here when its tile costs less of that than the file's
+// size suggests, because the tile is drawn from a part of the file rather than
+// from all of it.
 //
-// The bound rises for this family alone. Every other family is still held to
-// DefaultSourceLimit, because every other family is laid out in full to be
+// PDF: the tile page decodes page one and nothing else, and the default bound
+// would leave the feature looking broken on the documents it exists for --
+// one letter page scanned at 300dpi measures about 2 MB, twice the default, so
+// most scanned PDFs would keep an icon (#1794). A 26 MB, 12-page scan drew in
+// 2.7s with the renderer at 291 MiB.
+//
+// CSV and TSV: the tile is the header row and the first rows, so the worker
+// hands the renderer the head of the file and nothing else (HeadDrawnFamilies).
+// A CSV is the family most likely to be large -- it is what an export
+// produces, what a script lands on a schedule, and what a person uploads to
+// register as a table -- and at the default bound the files people upload most
+// kept an icon while the small ones tiled (#1802).
+//
+// The bound is still the most the worker reads from the object store for a
+// tile, which is why a family here has one at all. Every other family is held
+// to DefaultSourceLimit, because every other family is laid out in full to be
 // drawn.
-var LargeSourceFamilies = []string{"pdf"}
+var LargeSourceFamilies = []string{"pdf", "csv", "tab-separated"}
+
+// HeadDrawnFamilies are the families whose tile is drawn from the head of the
+// document rather than from the whole of it.
+//
+// A table's tile is its header row and its first rows -- the tile page keeps
+// ten of them -- so the rest of the document is parsed, copied through a
+// JavaScript string and discarded. The worker cuts the file at a record
+// boundary before the tile page is built, which is what makes the raised bound
+// above safe for these two (#1802).
+//
+// PDF is NOT here although only its first page is drawn: its bytes travel to
+// the tile page by URL and pdf.js reads the pages it needs itself, so there is
+// nothing for the worker to cut.
+var HeadDrawnFamilies = []string{"csv", "tab-separated"}
+
+// DrawnFromHead reports whether a tile of contentType is drawn from the head
+// of the document, so the worker may hand the tile page a prefix of it.
+//
+// The family is the FIRST Capturable fragment the type contains, as it is
+// everywhere else here.
+func DrawnFromHead(contentType string) bool {
+	return slices.Contains(HeadDrawnFamilies, family(contentType))
+}
 
 // SourceLimit is the largest document of contentType's family a tile is drawn
 // from.
