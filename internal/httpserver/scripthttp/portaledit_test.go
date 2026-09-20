@@ -245,7 +245,14 @@ func TestPortalGetScript_CarriesTheLiveSourceForItsOwner(t *testing.T) {
 	decodeInto(t, rec, &owned)
 	assert.Equal(t, reportSource, owned.Source)
 
+	// A script is visible to everyone and its CODE is not (#1795): a stranger
+	// reads the contract with owned false and an empty source, which is what
+	// the page renders read-only from.
 	rec = servePortal(t, portalDeps(store, nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
-	assert.Equal(t, http.StatusNotFound, rec.Code,
-		"the code is the owner's, and so is knowing the script is there at all")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var seen portalScriptResponse
+	decodeInto(t, rec, &seen)
+	assert.False(t, seen.Owned, "a stranger does not own the script")
+	assert.Empty(t, seen.Source, "the code is the owner's")
+	assert.Empty(t, seen.DraftParams, "so are the parameters the editor binds")
 }

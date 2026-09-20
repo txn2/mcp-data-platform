@@ -282,13 +282,58 @@ export function mockDropTable(sourceID: string, registrationID: string): void {
 //
 // Each name is the one its own page carries. A listing that renames the file it
 // links to sends the reader looking for something that is not there (#1617).
-const scratchTableSources: Record<string, { name: string; canModify: boolean }> = {
+const scratchTableSources: Record<
+  string,
+  { name: string; canModify: boolean; description?: string }
+> = {
   "ast-008": { name: "Regional Sales Summary", canModify: true },
   "res-015": { name: "Business Glossary Export", canModify: true },
   // Somebody else's upload: visible because the reader reaches the connection,
   // and not theirs to drop. Its table follows the file and its last follow
   // failed, which is the listing's fourth state.
   "res-008": { name: "Seasonal Factors", canModify: false },
+  // Name and description are res-011's own, from ./resources: the listing
+  // must not rename or re-describe the file it links to.
+  "res-011": {
+    name: "Store List",
+    canModify: true,
+    description:
+      "Western region stores with location codes, street addresses, opening dates, and square footage.",
+  },
+};
+
+// longNamedRegistration is the row that makes #1796's case: a table registered
+// from a file whose own contents became the table name -- the common shape for
+// a registered spreadsheet -- so its qualified name runs past 90 characters. Under the listing's old `table-layout: auto` it painted straight
+// over the Connection and Source cells beside it.
+const longNamedRegistration: TableRegistration = {
+  id: "reg_c71b45",
+  source_kind: "resource",
+  source_id: "res-011",
+  connection: "acme-scratch",
+  catalog: "scratch",
+  schema: "uploads",
+  table:
+    "analyst_store_list_western_region_locations_addresses_opening_dates_by_store_code",
+  location: "s3://acme-platform/resources/global/exports/v/rev-3/",
+  columns: [
+    { name: "store_code", type: "VARCHAR" },
+    { name: "region", type: "VARCHAR" },
+    { name: "city", type: "VARCHAR" },
+    { name: "state", type: "VARCHAR" },
+    { name: "address", type: "VARCHAR" },
+    { name: "opened_on", type: "VARCHAR" },
+    { name: "square_feet", type: "VARCHAR" },
+  ],
+  registered_by: "marcus.johnson@example.com",
+  registered_at: "2026-09-14T08:41:00Z",
+  query_table:
+    "scratch.uploads.analyst_store_list_western_region_locations_addresses_opening_dates_by_store_code",
+  sample_sql:
+    "SELECT * FROM scratch.uploads.analyst_store_list_western_region_locations_addresses_opening_dates_by_store_code",
+  stale: false,
+  follow: true,
+  repair: false,
 };
 
 // orphanedRegistration is a table whose file is no longer on the platform.
@@ -319,7 +364,7 @@ const orphanedRegistration: TableRegistration = {
 /** scratchTableRows is every registration the listing spans, newest first. */
 function scratchTableRows(): ScratchTable[] {
   const perSource = Object.values(mockTableRegistrations).flat();
-  const all = [...perSource, orphanedRegistration];
+  const all = [...perSource, longNamedRegistration, orphanedRegistration];
   return all
     .map(asScratchTable)
     .sort((a, b) => b.registered_at.localeCompare(a.registered_at));
@@ -334,6 +379,7 @@ function asScratchTable(reg: TableRegistration): ScratchTable {
       kind: reg.source_kind,
       id: reg.source_id,
       name: source?.name,
+      description: source?.description,
       missing: !source,
     },
     can_unregister: Boolean(source?.canModify) && reg.registered_by === "alice@example.com",

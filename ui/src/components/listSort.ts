@@ -21,6 +21,19 @@ export type AssetSortKey = "updated_at" | "created_at" | "name" | "size_bytes";
 export type CollectionSortKey = "updated_at" | "created_at" | "name";
 
 /**
+ * The columns the Scripts list can be ordered by, in step with
+ * script.SortColumns (pkg/script/script.go). Last run is not among them and
+ * gets no header affordance: it is attached to a page after the query, so an
+ * ordering over it would be an ordering over the page (#1795).
+ */
+export type ScriptSortKey =
+  | "updated_at"
+  | "created_at"
+  | "name"
+  | "display_name"
+  | "owner_email";
+
+/**
  * Both lists open on most-recently-touched. "Newest first" means newest work,
  * not newest row: an asset created in June and revised today belongs above one
  * created yesterday and never opened since.
@@ -30,6 +43,9 @@ export const DEFAULT_COLLECTION_SORT: ListSort<CollectionSortKey> = {
   key: "updated_at",
   dir: "desc",
 };
+
+/** Scripts open on most recently updated, as the listing always has. */
+export const DEFAULT_SCRIPT_SORT: ListSort<ScriptSortKey> = { key: "updated_at", dir: "desc" };
 
 /**
  * The sort options each list offers. The labels are the column, not the
@@ -52,8 +68,15 @@ export const COLLECTION_SORT_OPTIONS: FilterOption[] = ASSET_SORT_OPTIONS.filter
  * reads A-Z, everything else reads largest or most recent first.
  */
 export function defaultDirFor(key: string): SortDir {
-  return key === "name" ? "asc" : "desc";
+  return TEXT_COLUMNS.has(key) ? "asc" : "desc";
 }
+
+/**
+ * The columns that read A-Z. `name` is the shared one; scripts add the display
+ * name they are listed under and the author they belong to, both of which a
+ * reader sorting by expects alphabetically.
+ */
+const TEXT_COLUMNS = new Set(["name", "display_name", "owner_email"]);
 
 /**
  * Apply a column choice the way a sortable header does: clicking the active

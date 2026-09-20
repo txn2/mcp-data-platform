@@ -37,7 +37,7 @@ them.
 | [Scratch Tables](scratch-tables.md) | What is registered, whether it is current, and what a failed follow looks like |
 | [APIs](apis.md) | The operations a caller may invoke, and the gateway call each one produces |
 | [Shared With Me](shared.md) | Work other people shared with you |
-| [Feedback](feedback.md) | Threads on the work you own or that was shared with you |
+| [Inbox](feedback.md) | Everything addressed to you: threads on your work, and the notifications the platform has sent you |
 | [Knowledge and Memory](knowledge.md) | Promoted pages, the catalog, the graph, insights, and captured memory |
 | [Prompts](prompts.md) | The prompt library, collections, authoring, versions, and diffs |
 | [Scripts](scripts.md) | A script's page: schedule, source, versions, runs, and state |

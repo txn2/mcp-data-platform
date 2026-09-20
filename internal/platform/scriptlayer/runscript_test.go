@@ -395,6 +395,14 @@ func (s *unversionedStore) Delete(ctx context.Context, id string) (script.Remove
 func (s *unversionedStore) List(ctx context.Context, filter script.ListFilter) ([]script.Script, error) {
 	return s.inner.List(ctx, filter)
 }
+func (s *unversionedStore) Count(ctx context.Context, filter script.ListFilter) (int, error) {
+	rows, err := s.List(ctx, filter)
+	return len(rows), err
+}
+
+func (*unversionedStore) CountScheduled(context.Context, script.ListFilter) (int, error) {
+	return 0, nil
+}
 
 func (s *unversionedStore) Transfer(ctx context.Context, req script.TransferRequest, author script.Author) (script.Transferred, error) {
 	return s.inner.Transfer(ctx, req, author)

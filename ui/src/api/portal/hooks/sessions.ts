@@ -1,6 +1,7 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type {
+  AuditEvent,
   SessionDetail,
   SessionKind,
   SessionListResponse,
@@ -59,5 +60,25 @@ export function useMySession(sessionId: string, page = 1, perPage = 25) {
       ),
     enabled: Boolean(sessionId),
     placeholderData: keepPreviousData,
+  });
+}
+
+// useMyAuditEvent reads one of the caller's own calls in full: the parameters it
+// carried, the reason stated for it, and the error text when it failed, none
+// of which the timeline entry holds (#1797).
+//
+// Named apart from useMyCall, which reads the call catalog: they are different
+// records, and that difference is the reason this exists. It is not
+// GET /portal/calls/{id}. A call record is written only for the sql,
+// api and graphql kinds, so most of a session's rows -- search,
+// list_connections, manage_resource, manage_table -- have none, and a
+// drill-down that opened for two rows in eleven is not a drill-down. This reads
+// the audit event itself, scoped to the caller: somebody else's event is
+// not-found, the same answer an id that was never issued gets.
+export function useMyAuditEvent(eventId: string | null) {
+  return useQuery({
+    queryKey: ["my-audit-event", eventId],
+    queryFn: () => apiFetch<AuditEvent>(`/events/${encodeURIComponent(eventId ?? "")}`),
+    enabled: Boolean(eventId),
   });
 }

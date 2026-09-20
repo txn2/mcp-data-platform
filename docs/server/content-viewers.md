@@ -173,7 +173,7 @@ content type renders identically wherever it is opened.
 | SVG | `image/svg+xml` | Sanitized inline render | Source editor |
 | Audio | `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac` | Native player with seek | None |
 | Video | `video/mp4`, `video/webm`, `video/ogg` | Native player with seek | None |
-| PDF | `application/pdf` | Embedded viewer (`<object>`) over the content URL, with a download fallback | None |
+| PDF | `application/pdf` | PDF.js viewer over the content URL — page navigation, zoom, find and text selection — with a download fallback. NOT the browser's plugin: that honoured the document's `/OpenAction`, so a file exported with "print on open" raised the print dialog at its reader (#1783) | None |
 | Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers; an HTML asset is framed as `srcdoc`, filling the page under the control row, with Present (fullscreen), Overview (a deck's grid of every slide, asked of the runtime by message) and Export PDF (a second, print-stepped copy of the document under a modals grant, printed one slide per page and always rendered light, #1772) on that row, which is how a slide deck on the served reveal.js runtime is presented (#1767, #1769) | Source editor |
 | Structured text | `application/xml`, `application/yaml` | CodeMirror, read-only, with folding and a wrap toggle | CodeMirror |
 | Code and logs | `application/sql`, `text/x-python`, `text/javascript`, `text/plain` | CodeMirror, read-only, with line numbers and a wrap toggle | CodeMirror |

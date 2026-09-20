@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, FileAudio, FileText, FileVideo } from "lucide-react";
+import { Download, FileAudio, FileVideo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 
@@ -91,66 +91,6 @@ function MediaFrame({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-interface PdfRendererProps {
-  contentUrl: string;
-  fileName?: string;
-  sizeBytes?: number;
-}
-
-/**
- * PDF viewer.
- *
- * The document renders through `<object>` pointed at the content endpoint,
- * which hands it to the browser's own PDF viewer. `<object>` rather than
- * `<iframe>` because it degrades honestly: a browser with no PDF viewer renders
- * the fallback children below instead of a blank frame.
- *
- * There is deliberately no `sandbox` attribute. A sandboxed frame cannot
- * instantiate a plugin at all in Chrome, not with allow-scripts and not with
- * allow-same-origin, so a sandboxed PDF frame renders a broken-plugin icon and
- * nothing else. Containment comes from the serving side instead: the content
- * endpoint returns the object under a parsed `application/pdf` with
- * `X-Content-Type-Options: nosniff`, so the browser will not treat it as
- * anything else, and the public viewer's CSP pins `object-src` to 'self'.
- */
-export function PdfRenderer({ contentUrl, fileName, sizeBytes }: PdfRendererProps) {
-  return (
-    <div className="space-y-2" data-feedback-anchorable>
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>PDF document</span>
-        {sizeBytes ? <span>· {formatBytes(sizeBytes)}</span> : null}
-        <Button asChild variant="outline" size="xs" className="ml-auto text-foreground">
-          <a href={contentUrl} download={fileName}>
-            <Download />
-            Download
-          </a>
-        </Button>
-      </div>
-      <object
-        data={contentUrl}
-        type="application/pdf"
-        aria-label={fileName || "PDF document"}
-        className="w-full rounded-lg border bg-card"
-        style={{ height: "min(80vh, 900px)" }}
-      >
-        <div className="flex flex-col items-center gap-3 p-8 text-center">
-          <FileText className="h-8 w-8 text-muted-foreground" />
-          <div>
-            <p className="text-sm font-medium">This browser cannot display PDFs inline</p>
-            <p className="mt-1 text-xs text-muted-foreground">Download the file to open it in a PDF reader.</p>
-          </div>
-          <Button asChild>
-            <a href={contentUrl} download={fileName}>
-              <Download />
-              Download
-            </a>
-          </Button>
-        </div>
-      </object>
     </div>
   );
 }

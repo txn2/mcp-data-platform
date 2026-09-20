@@ -41,6 +41,7 @@ export function RecentErrorsList({ events, onNavigate, titleMap }: RecentErrorsL
       </div>
       {selectedEvent && (
         <EventDrawer
+          sessionPath={(id) => `/admin/sessions/${encodeURIComponent(id)}`}
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
           onNavigate={onNavigate}

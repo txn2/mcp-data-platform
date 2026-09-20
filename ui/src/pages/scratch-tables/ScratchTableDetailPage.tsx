@@ -113,36 +113,67 @@ function Registration({
         )}
       </SectionCard>
 
-      <SectionCard title={`Columns (${row.columns.length})`}>
-        {row.columns.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No columns were recorded.</p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {row.columns.map((c) => (
-              <Badge key={c.name} variant="muted" className="rounded px-1.5 font-mono">
-                {c.name}
-                <span className="ml-1 opacity-70">{c.type}</span>
-              </Badge>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+      <ColumnsSection row={row} />
 
-      <SectionCard title="What it reads">
+      <SectionCard title="The file behind this table">
+        {/* The description first, because it is the only thing here that says
+            what the data IS. The file's name and the directory it is stored
+            in are how it is addressed, not what it holds. */}
+        {row.source.description ? (
+          <p className="mb-3 text-sm">{row.source.description}</p>
+        ) : null}
         <dl className="grid gap-3 text-xs sm:grid-cols-2">
           <div>
-            <dt className="text-muted-foreground">Source</dt>
+            <dt className="text-muted-foreground">File</dt>
             <dd className="mt-0.5">
               <SourceValue row={row} onNavigate={onNavigate} />
             </dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Directory</dt>
+            {/* An operator's fact, and labelled as one: a reader needs it only
+                when they are going to look in the bucket themselves. */}
+            <dt className="text-muted-foreground">Stored at</dt>
             <dd className="mt-0.5 font-mono break-all">{row.location}</dd>
           </div>
         </dl>
       </SectionCard>
     </div>
+  );
+}
+
+// ColumnsSection lists the column names, and says the type once when every
+// column shares it.
+//
+// Every column of a registered table is VARCHAR -- the CSV connector's rule,
+// already stated in the section above this one -- so a badge per column
+// repeating it printed the same word thirty-five times and buried the names
+// the section exists to help a reader find (#1796). A table whose columns do
+// differ still gets the type on each one, because then it discriminates.
+function ColumnsSection({ row }: { row: ScratchTable }) {
+  const types = new Set(row.columns.map((c) => c.type));
+  const uniform = types.size === 1 ? [...types][0] : null;
+  return (
+    <SectionCard title={`Columns (${row.columns.length})`}>
+      {row.columns.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No columns were recorded.</p>
+      ) : (
+        <>
+          {uniform ? (
+            <p className="mb-2 text-xs text-muted-foreground">
+              Every column is <span className="font-mono">{uniform}</span>.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-1.5">
+            {row.columns.map((c) => (
+              <Badge key={c.name} variant="muted" className="rounded px-1.5 font-mono">
+                {c.name}
+                {uniform ? null : <span className="ml-1 opacity-70">{c.type}</span>}
+              </Badge>
+            ))}
+          </div>
+        </>
+      )}
+    </SectionCard>
   );
 }
 

@@ -200,6 +200,18 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 	return out, nil
 }
 
+// Count models the real store's contract: the same predicate as List, with no
+// limit applied. The fake's List applies none either, so counting its rows is
+// the same answer.
+func (m *memStore) Count(ctx context.Context, filter script.ListFilter) (int, error) {
+	rows, err := m.List(ctx, filter)
+	return len(rows), err
+}
+
+func (*memStore) CountScheduled(context.Context, script.ListFilter) (int, error) {
+	return 0, nil
+}
+
 // Transfer models the real store: the owner moves and the move is snapshotted
 // unconditionally, because the roles captured on that version are what the
 // script now runs with.
@@ -712,10 +724,16 @@ func TestGet_NotFound(t *testing.T) {
 	assert.Contains(t, resultText(res), "name is required")
 }
 
-// TestList_ShowsTheCallersOwnScripts proves the listing answers the same
-// question the read path answers: a caller lists what they own, and an
-// administrator lists every script on the platform.
-func TestList_ShowsTheCallersOwnScripts(t *testing.T) {
+// TestList_ShowsEveryScript proves the listing is the platform's, not the
+// caller's (#1795): an agent asked to write a weekly report can see that one
+// already exists rather than writing a second copy of it.
+//
+// What makes that safe is the projection, which is asserted here beside it: a
+// row says a script exists, who owns it and what it says about itself, and
+// carries no source. The read path is unchanged and still refuses somebody
+// else's script (TestRead_HidesAnotherPersonsScript), so this widens what can
+// be discovered without widening what can be read.
+func TestList_ShowsEveryScript(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h) // jane's
 	call(t, h, adminCtx(), manageScriptInput{Command: cmdCreate, Name: "admin-private", Source: "x = 1"})
@@ -724,11 +742,20 @@ func TestList_ShowsTheCallersOwnScripts(t *testing.T) {
 	})
 
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdList}))
-	assert.Equal(t, []string{"daily"}, listedNames(t, fields),
-		"a caller lists their own scripts and nobody else's")
+	assert.ElementsMatch(t, []string{"daily", "admin-private", "bobs-report"}, listedNames(t, fields),
+		"a caller lists every script on the platform, not only their own")
+
+	items, ok := fields["scripts"].([]any)
+	require.True(t, ok)
+	for _, item := range items {
+		row, ok := item.(map[string]any)
+		require.True(t, ok)
+		_, hasSource := row["source"]
+		assert.False(t, hasSource, "a listed row never carries the script's source")
+	}
 
 	fields = resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdList}))
-	assert.EqualValues(t, 3, fields["count"], "an admin sees every script")
+	assert.EqualValues(t, 3, fields["count"], "an admin sees the same three")
 }
 
 // listedNames extracts the script names from a list response.

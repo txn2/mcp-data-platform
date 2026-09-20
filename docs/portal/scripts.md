@@ -12,15 +12,19 @@ tabs: **Scripts** and **Runs**.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
-Above the table are three numbers, and each of them is also the control that shows what
-it counted: **Scripts**, **Scheduled** (anything with a schedule, paused or not), and
-**Failing** — the scripts whose last run failed, which is the number most people open
-this page for. Pressing a tile narrows the table to the scripts it counted; pressing it
-again, or pressing **Scripts**, shows all of them.
+Above the table is one line of numbers: how many scripts, how many are scheduled
+(anything with a cadence, paused or not), and how many failed their last run. Only the
+last one is a control, because it is the number most people open this page for: pressing
+it narrows the table to those scripts, and pressing it again shows all of them. The first
+two counts are the server's, over every script the filters match rather than over the
+rows this page happened to load, so the line says "showing 200" beside the total when the
+listing was capped.
 
-Every script here is yours: a script is one person's, so this page needs no owner column
-and shows nobody else's. An administrator can move a script to another owner, which is
-how one arrives here that you did not write.
+A script is visible to everyone; what is *readable* is not. The **Mine / All** tabs decide
+which you are looking at, and the page opens on Mine. A row you do not own tells you the
+script exists, who owns it, what it says about itself and when it runs — and nothing else:
+no source, no run history, no actions. An administrator can move a script to another owner,
+which is how one arrives in Mine that you did not write.
 
 Each row states what is worth knowing at a glance: what the script is called, its
 schedule and next fire, and how its most recent run ended. A script that will execute
@@ -30,11 +34,20 @@ healthy script and is stated on the script's own page. Opening a row opens the s
 way every other list in the portal opens a record. A script with no schedule runs on
 demand; a paused schedule says so rather than showing a next fire that will not happen.
 
-Each row also shows how the script is filed: the category it belongs to and the tags it
-carries. Under the tiles are a search box and a chip per category, with the tags on a
-second row. The search matches what a script is called and what it says about itself, and
-pressing an active chip again clears it. All three are applied by the server, so they
-cover every script you can see rather than only the ones already on screen.
+A row states its category once, beside the name. Tags are not on the row: a tag is how a
+script is *found*, which is what the filter bar is for, and repeating every script's tags
+down the table buried the two facts a row exists to report.
+
+One filter bar sits above the table: the scope tabs, a search box, and a facet each for
+author, category, tag and status. The search matches what a script is called and what it
+says about itself. Every axis is applied by the server, so each covers every script you
+can see rather than only the ones already on screen.
+
+The **Script**, **Author** and **Updated** headers order the listing, and clicking one
+again reverses it. The ordering is the server's, which is why it is trustworthy: the
+listing is capped, so sorting the rows already on screen would have meant "A–Z within the
+most recently updated 200" while reading as "A–Z". **Last run** carries no sort control,
+because it is attached to a page after the query and ordering by it would order the page.
 
 The schedule is stated in words, always — "Every weekday at 7:00 AM,
 America/Los_Angeles", "Every 30 minutes, UTC" — because this is the column you scan to

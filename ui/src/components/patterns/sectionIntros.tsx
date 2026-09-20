@@ -160,9 +160,10 @@ export const SECTION_INTROS: SectionIntroCopy[] = [
   },
   {
     path: "/feedback",
-    summary: "Comments and corrections people left on assets, collections, prompts and knowledge pages.",
+    summary:
+      "Everything addressed to you: comments and corrections people left on assets, collections, prompts and knowledge pages, and what the platform itself has sent you.",
     about:
-      "A thread hangs off the thing it is about, including work an agent or a script produced, and carries its status and its sign-off. A thread that settles on something true is captured as an insight.",
+      "A thread hangs off the thing it is about, including work an agent or a script produced, and carries its status and its sign-off. A thread that settles on something true is captured as an insight. Notifications are what was emailed to you; what you are sent is set in Settings.",
     storageKey: "portal.intro.feedback",
   },
   {

@@ -16,7 +16,9 @@ const CodeRenderer = lazy(() => import("./CodeRenderer").then((m) => ({ default:
 const ImageRenderer = lazy(() => import("./ImageRenderer").then((m) => ({ default: m.ImageRenderer })));
 const AudioRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ default: m.AudioRenderer })));
 const VideoRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ default: m.VideoRenderer })));
-const PdfRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ default: m.PdfRenderer })));
+// Its own chunk, not MediaRenderer's: the PDF viewer carries pdf.js and its
+// worker, which an audio or video preview must not pay for.
+const PdfRenderer = lazy(() => import("./PdfRenderer").then((m) => ({ default: m.PdfRenderer })));
 const JsxRenderer = lazy(() => import("./JsxRenderer").then((m) => ({ default: m.JsxRenderer })));
 const HtmlRenderer = lazy(() => import("./HtmlRenderer").then((m) => ({ default: m.HtmlRenderer })));
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer").then((m) => ({ default: m.MarkdownRenderer })));

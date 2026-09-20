@@ -75,9 +75,9 @@ test.describe("Feedback panel", () => {
 
 });
 
-// The redesigned Feedback hub page (#617): full-width, with a Recent activity
+// The Inbox (#617, renamed from Feedback by #1798): full-width, with a Recent activity
 // feed, a Worklist, and the General standalone channel under tabs.
-test.describe("Feedback hub page", () => {
+test.describe("Inbox page", () => {
   test("Recent tab lists activity across my items", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
@@ -113,12 +113,19 @@ test.describe("Feedback hub page", () => {
     await expect(page.getByText("Quarterly data refresh is one day late")).toBeVisible();
   });
 
-  test("Worklist tab shows the needs-resolution and validation sub-tabs", async ({ page }) => {
+  // The three worklists are selected by CHIPS, not by a second tab strip
+  // under the Inbox's own (#1798): two levels of the same control read as
+  // competing, and chips are how the other portal lists select a subset.
+  test("Worklist selects its lists with chips, not a second tab strip", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
     await page.getByRole("tab", { name: /Worklist/ }).click();
-    await expect(page.getByRole("tab", { name: /Needs resolution/ })).toBeVisible();
-    await expect(page.getByRole("tab", { name: /Awaiting my validation/ })).toBeVisible();
+
+    await expect(page.getByRole("button", { name: /Needs resolution/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Awaiting my validation/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Mentions of me/ })).toBeVisible();
+    // One tab strip on the page: the Inbox's own.
+    await expect(page.getByRole("tablist")).toHaveCount(1);
   });
 
   test("New feedback button posts to the General channel", async ({ page }) => {
@@ -170,11 +177,11 @@ test.describe("Mentions", () => {
     await expect(page.getByTitle("sarah.chen@example.com")).toHaveText("@Sarah Chen");
   });
 
-  test("the mentions inbox lists threads that named me", async ({ page }) => {
+  test("the mentions list shows threads that named me", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
     await page.getByRole("tab", { name: /Worklist/ }).click();
-    await page.getByRole("tab", { name: /Mentions of me/ }).click();
+    await page.getByRole("button", { name: /Mentions of me/ }).click();
     await expect(page.getByText("We don't use that term")).toBeVisible();
   });
 });

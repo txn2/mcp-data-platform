@@ -42,11 +42,12 @@ GO := go
 GOTEST := $(GO) test
 GOBUILD := $(GO) build
 GOMOD := $(GO) mod
+GOVET := $(GO) vet
 GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -297,6 +298,28 @@ lint-full:
 lint-fix:
 	@echo "Running linter with auto-fix..."
 	$(GOLINT) run --fix ./...
+
+## vet-tags: Compile-check the build tags no default build sees
+#
+# A file behind `//go:build integration` is compiled by nothing cheap. Every
+# other consumer of the tag wants a machine: test-integration wants the whole
+# suite, test-realdb wants Docker and a migrated Postgres, smoke wants a
+# running server, acceptance wants a dev stack and a renderer, frontend-e2e
+# wants a stack. The cheap gates (lint, patch-coverage, schedule-lane, gosec,
+# npm run build) all compile with the default tags, and .golangci.yml sets no
+# build tags either, so none of them reads these files.
+#
+# The result was that a compile error in a tagged file was first reported by
+# verify-docker, after the daemon had started and the migrations had replayed.
+# On #1794 three tagged files referenced constants that had been removed; every
+# cheap gate passed and the Docker lane failed six minutes in. This target
+# answers the same question in about a second, which is why it sits in the
+# serial preamble of `verify` rather than in a lane beside that Docker work.
+#
+# It is a compile, not a test: no container, no database, no stack.
+vet-tags:
+	@echo "Vetting the integration build..."
+	@$(GOVET) -tags=integration ./...
 
 ## fmt: Format code
 fmt:
@@ -667,6 +690,13 @@ verify:
 	@$(MAKE) --no-print-directory fmt
 	@$(MAKE) --no-print-directory swagger-check
 	@$(MAKE) --no-print-directory embed-clean
+	@# Then the tagged build, before the lanes fan out. It is here rather than
+	@# inside verify-lint because the lanes start together under -j4: a failure
+	@# reported from a lane does not stop verify-docker from having already
+	@# brought up the daemon and replayed the migrations. One second of serial
+	@# wall clock buys a broken integration-tagged file being reported before
+	@# any of that begins (#1799).
+	@$(MAKE) --no-print-directory vet-tags
 	@# CodeQL is deliberately NOT here. It cannot join the concurrent phase:
 	@# its Go extractor uses autobuild, which finds this Makefile and runs the
 	@# default goal, so the step quietly regenerates swagger, runs the whole

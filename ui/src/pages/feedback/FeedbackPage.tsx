@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Clock, Inbox, Megaphone, Plus, type LucideIcon } from "lucide-react";
+import { Bell, Clock, ListChecks, Megaphone, Plus, type LucideIcon } from "lucide-react";
 import { usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
 import { ActivityFeed } from "@/components/feedback/ActivityFeed";
 import { InboxPanel } from "@/components/feedback/InboxPanel";
 import { FeedbackPanel } from "@/components/feedback/FeedbackPanel";
+import { NotificationsPanel } from "@/components/feedback/NotificationsPanel";
 import { ThreadSlideOver } from "@/components/feedback/ThreadSlideOver";
 import { SlideOver } from "@/components/feedback/SlideOver";
 import { NewThreadForm } from "@/components/feedback/NewThreadForm";
@@ -15,21 +16,30 @@ interface Props {
   onNavigate: (path: string) => void;
 }
 
-type Tab = "recent" | "worklist" | "general";
+type Tab = "recent" | "worklist" | "general" | "notifications";
 
 const TAB_ITEMS: { key: Tab; label: string; icon: LucideIcon }[] = [
   { key: "recent", label: "Recent", icon: Clock },
-  { key: "worklist", label: "Worklist", icon: Inbox },
+  { key: "worklist", label: "Worklist", icon: ListChecks },
   { key: "general", label: "General", icon: Megaphone },
+  { key: "notifications", label: "Notifications", icon: Bell },
 ];
 
-// FeedbackPage is the portal's feedback hub (#617). It flows full-width with the
-// rest of the portal and gathers the three feedback surfaces under one roof:
+// FeedbackPage is the portal's Inbox (#617, renamed by #1798): one place for
+// everything addressed to the reader.
 //   - Recent: every thread on items the caller can access, newest first. With no
 //     push notifications, this is how a user discovers new feedback.
 //   - Worklist: open work that needs the caller's resolution or validation.
 //   - General: the shared standalone suggestion channel.
+//   - Notifications: what the platform itself has sent them, which used to be
+//     filed under Settings beside the preferences that decide what gets sent.
 // A thread opens in a right-side slide-over with a link back to its item.
+//
+// The page returns flowing content. It used to pin itself to `h-full` with a
+// scroll box per tab panel, which made it the one portal page that scrolled
+// inside a card while `main` (AppShell) stayed still -- so three threads filled
+// the viewport and the tab strip never scrolled away. `main` is the only scroll
+// container now, as it is on every other page.
 export function FeedbackPage({ onNavigate }: Props) {
   const [tab, setTab] = useState<Tab>("recent");
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
@@ -48,7 +58,7 @@ export function FeedbackPage({ onNavigate }: Props) {
   const worklistCount = (practitioner.data?.total ?? 0) + (sme.data?.total ?? 0);
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="space-y-4">
       {/* The section is named by the header bar and by its intro, so this row
           carries the action alone rather than a third copy of the title. */}
       <div className="flex justify-end">
@@ -63,11 +73,7 @@ export function FeedbackPage({ onNavigate }: Props) {
         </Button>
       </div>
 
-      <Tabs
-        value={tab}
-        onValueChange={(v) => selectTab(v as Tab)}
-        className="min-h-0 flex-1 gap-4"
-      >
+      <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)} className="gap-4">
         <TabsList
           variant="line"
           className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
@@ -88,23 +94,19 @@ export function FeedbackPage({ onNavigate }: Props) {
           ))}
         </TabsList>
 
-        <TabsContent
-          value="recent"
-          className="min-h-0 overflow-auto rounded-lg border bg-card"
-        >
+        {/* No `overflow` on any panel: the page is as tall as its content and
+            scrolls with `main`. */}
+        <TabsContent value="recent" className="rounded-lg border bg-card">
           <ActivityFeed onOpenThread={setOpenThreadId} onNavigate={onNavigate} />
         </TabsContent>
-        <TabsContent
-          value="worklist"
-          className="min-h-0 overflow-hidden rounded-lg border bg-card"
-        >
+        <TabsContent value="worklist" className="rounded-lg border bg-card">
           <InboxPanel onOpenThread={setOpenThreadId} />
         </TabsContent>
-        <TabsContent
-          value="general"
-          className="min-h-0 overflow-hidden rounded-lg border bg-card"
-        >
-          <FeedbackPanel target={{ type: "standalone" }} canModerate={false} />
+        <TabsContent value="general" className="rounded-lg border bg-card">
+          <FeedbackPanel target={{ type: "standalone" }} canModerate={false} flow />
+        </TabsContent>
+        <TabsContent value="notifications">
+          <NotificationsPanel />
         </TabsContent>
       </Tabs>
 

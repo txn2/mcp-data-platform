@@ -105,4 +105,21 @@ export const sessionHandlers = [
     }
     return HttpResponse.json(event);
   }),
+
+  // The caller's own call, in full: the drill-down behind a row of their own
+  // session timeline (#1797). Scoped here the way the server scopes it --
+  // somebody else's event is not-found, never a refusal, so the mock cannot
+  // make the user surface look right while hiding that rule.
+  http.get(`${PORTAL_BASE}/events/:id`, ({ params }) => {
+    const event = mockAuditEvents.find(
+      (e) => e.id === String(params.id) && e.user_id === MOCK_CALLER_EMAIL,
+    );
+    if (!event) {
+      return HttpResponse.json(
+        { title: "Not Found", status: 404, detail: "no such call" },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json(event);
+  }),
 ];

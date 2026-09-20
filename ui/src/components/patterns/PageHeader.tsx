@@ -40,7 +40,10 @@ export function PageHeader({
       {breadcrumb}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-lg font-semibold">
+          {/* break-words so a long unbroken identifier (a registered table's
+              catalog.schema.table, #1796) wraps inside the header instead of
+              running under the actions beside it. */}
+          <h2 className="flex items-center gap-2 text-lg font-semibold break-words">
             {Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
             {title}
           </h2>

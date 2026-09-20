@@ -263,11 +263,12 @@ func TestPortalGetScript_AdminReadsAnotherPersonsScript(t *testing.T) {
 	assert.True(t, body.Owned)
 }
 
-func TestPortalGetScript_InvisibleAnswersAsMissing(t *testing.T) {
-	contracts := &stubContracts{contract: &script.Contract{
-		ID: "script_1", Name: "daily", OwnerEmail: "jane@example.com",
-	}}
-	rec := servePortal(t, portalDeps(portalStore(), nil, contracts, stranger), "/api/v1/portal/scripts/script_1")
+// TestPortalGetScript_MissingIsMissing keeps the not-found answer for the one
+// thing that is actually not there. A script that EXISTS and is somebody
+// else's is readable in the projection the listing already applies (#1795);
+// only an id that names no script is a 404.
+func TestPortalGetScript_MissingIsMissing(t *testing.T) {
+	rec := servePortal(t, portalDeps(portalStore(), nil, &stubContracts{}, stranger), "/api/v1/portal/scripts/script_1")
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), errScriptNot)
 }
@@ -658,10 +659,12 @@ func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T
 		"the contract document's parameters pass through unchanged")
 }
 
-// TestPortalGetScript_WithholdsAnotherPersonsScriptEntirely keeps every half on
-// the same side of the line: a caller who does not own a script learns nothing
-// about it, not its contract, its code, or that it exists.
-func TestPortalGetScript_WithholdsAnotherPersonsScriptEntirely(t *testing.T) {
+// TestPortalGetScript_WithholdsAnotherPersonsCode draws the line where #1795
+// put it: a caller who does not own a script sees that it exists, whose it is
+// and what it says about itself, and gets neither its code nor the parameters
+// its editor binds. The listing lists it, so the page it opens must not be a
+// not-found.
+func TestPortalGetScript_WithholdsAnotherPersonsCode(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Source = "x = 1\n"
 	store.scripts[1].Params = []script.Param{{Name: "region", Type: script.ParamTypeString}}
@@ -672,6 +675,12 @@ func TestPortalGetScript_WithholdsAnotherPersonsScriptEntirely(t *testing.T) {
 
 	rec := servePortal(t, portalDeps(store, nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
 
-	require.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Contains(t, rec.Body.String(), errScriptNot)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var seen portalScriptResponse
+	decodeInto(t, rec, &seen)
+	assert.Equal(t, "carols-report", seen.Contract.Name)
+	assert.Equal(t, "carol@example.com", seen.Contract.OwnerEmail)
+	assert.False(t, seen.Owned)
+	assert.Empty(t, seen.Source, "the code is the owner's")
+	assert.Empty(t, seen.DraftParams)
 }

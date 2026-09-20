@@ -342,6 +342,14 @@ func (s *scheduleless) Delete(ctx context.Context, id string) (script.Removed, e
 func (s *scheduleless) List(ctx context.Context, f script.ListFilter) ([]script.Script, error) {
 	return s.inner.List(ctx, f)
 }
+func (s *scheduleless) Count(ctx context.Context, f script.ListFilter) (int, error) {
+	rows, err := s.List(ctx, f)
+	return len(rows), err
+}
+
+func (*scheduleless) CountScheduled(context.Context, script.ListFilter) (int, error) {
+	return 0, nil
+}
 
 // TestScheduleSet_StoreFailuresAreReportedNotPanicked covers the read and write
 // failures the commands can meet.

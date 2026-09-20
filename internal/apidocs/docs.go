@@ -15110,6 +15110,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/events/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one audit event of the calling user's own, by event id. It is the drill-down behind a row of the session timeline: the parameters the call carried, the reason stated for it, and the error text when it failed, none of which the timeline entry itself holds. The read is scoped to the caller the same way the session read is — an event belonging to someone else is answered as not-found rather than as a refusal, which is the same answer an id that was never issued gets. It is not the call catalog: GET /portal/calls/{id} answers only for the sql, api and graphql kinds, so most of a session's rows have no record there.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get one of my own calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Audit event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/audit.Event"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/feedback/activity": {
             "get": {
                 "security": [
@@ -18128,7 +18183,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category, tag and search parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.",
+                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
                 "produces": [
                     "application/json"
                 ],
@@ -18137,6 +18192,16 @@ const docTemplate = `{
                 ],
                 "summary": "List scripts visible to the portal caller",
                 "parameters": [
+                    {
+                        "enum": [
+                            "mine",
+                            "all"
+                        ],
+                        "type": "string",
+                        "description": "Whose scripts to list: mine (default) or all",
+                        "name": "scope",
+                        "in": "query"
+                    },
                     {
                         "type": "string",
                         "description": "Narrow to one category slug",
@@ -18157,6 +18222,47 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Narrow to the scripts whose name, display name or description contains this text",
                         "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to one author's scripts, by email",
+                        "name": "owner",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to one lifecycle status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Narrow to enabled or disabled scripts",
+                        "name": "enabled",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "name",
+                            "display_name",
+                            "owner_email",
+                            "created_at",
+                            "updated_at"
+                        ],
+                        "type": "string",
+                        "description": "Order by this column; an unknown value falls back to updated_at",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "type": "string",
+                        "description": "Order direction",
+                        "name": "dir",
                         "in": "query"
                     }
                 ],
@@ -31763,7 +31869,17 @@ const docTemplate = `{
                         "$ref": "#/definitions/scripthttp.portalScriptRow"
                     }
                 },
+                "failing": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "scheduled": {
+                    "description": "Scheduled and Failing count the same population Total does. They are\nthe health line above the listing, and they used to be computed in the\nbrowser over the rows it had been sent -- so past the page cap they\ncounted the page while the facets beside them counted the platform.",
+                    "type": "integer",
+                    "example": 2
+                },
                 "total": {
+                    "description": "Total is every script the predicate matches, not the number of rows in\nData. The two differ when the listing was capped, which is the only way\na reader can be told the page is not the whole answer (#1795).",
                     "type": "integer",
                     "example": 3
                 }
@@ -32961,6 +33077,10 @@ const docTemplate = `{
         "tablehttp.scratchSource": {
             "type": "object",
             "properties": {
+                "description": {
+                    "description": "Description is the source record's own description, which is what tells\na reader what the data is; a file name rarely does. Omitted when the\nrecord carries none, so a surface has nothing to render rather than an\nempty field (#1796).",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },

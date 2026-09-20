@@ -67,17 +67,18 @@ describe("InboxPanel", () => {
     expect(onOpen).toHaveBeenCalledWith("t1");
   });
 
-  it("switches to the SME tab and shows the empty state", () => {
+  it("switches to the SME list and shows the empty state", () => {
     mockPractitioner.mockReturnValue(result([row()], 1));
     mockSME.mockReturnValue(result([], 0));
 
     render(<InboxPanel />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /awaiting my validation/i }));
+    fireEvent.click(screen.getByRole("button", { name: /awaiting my validation/i }));
     expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
   });
 
-  // Being named in a comment is its own inbox tab (#627), so a mention is not
-  // lost among the resolution work.
+  // Being named in a comment is its own worklist (#627), so a mention is not
+  // lost among the resolution work. The three are chips rather than a second
+  // row of tabs under the Inbox's own (#1798).
   it("lists the threads where a comment mentioned me", () => {
     mockPractitioner.mockReturnValue(result([], 0));
     mockSME.mockReturnValue(result([], 0));
@@ -87,7 +88,7 @@ describe("InboxPanel", () => {
     render(<InboxPanel onOpenThread={onOpen} />);
     expect(screen.queryByText("Confirm the wording")).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /mentions of me/i }));
+    fireEvent.click(screen.getByRole("button", { name: /mentions of me/i }));
     fireEvent.click(screen.getByText("Confirm the wording"));
     expect(onOpen).toHaveBeenCalledWith("t9");
   });

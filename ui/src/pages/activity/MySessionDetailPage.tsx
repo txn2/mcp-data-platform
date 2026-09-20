@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { History } from "lucide-react";
-import { useMySession } from "@/api/portal/hooks";
+import { useMyAuditEvent, useMySession } from "@/api/portal/hooks";
+import { EventDrawer } from "@/components/EventDrawer";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import {
@@ -32,6 +33,10 @@ export function MySessionDetailPage({
   onBack: () => void;
 }) {
   const [page, setPage] = useState(1);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  // The drawer reads the event itself, scoped to the caller: the timeline
+  // entry carries no parameters and no error text (#1797).
+  const { data: selectedEvent } = useMyAuditEvent(selectedEventId);
   const { data, isLoading, error } = useMySession(
     sessionId,
     page,
@@ -69,6 +74,7 @@ export function MySessionDetailPage({
           session={data}
           page={page}
           onPage={setPage}
+          onSelectEvent={setSelectedEventId}
           onNavigate={onNavigate}
           assetPath={(assetId) => `/assets/${assetId}`}
           // No title map: the tool catalogue is an admin-only read, and a user
@@ -78,8 +84,23 @@ export function MySessionDetailPage({
         />
       ) : (
         <SectionCard title="Timeline">
-          <SessionTimeline isLoading={isLoading} titleMap={NO_TOOL_TITLES} />
+          <SessionTimeline
+            isLoading={isLoading}
+            onSelect={setSelectedEventId}
+            titleMap={NO_TOOL_TITLES}
+          />
         </SectionCard>
+      )}
+      {selectedEvent && (
+        <EventDrawer
+          event={selectedEvent}
+          onClose={() => setSelectedEventId(null)}
+          onNavigate={onNavigate}
+          // No Replay: it reads the tool catalogue, which is an
+          // administrator's read. No sessionPath either -- the reader is on
+          // that session, so the link would lead back to this page.
+          replayable={false}
+        />
       )}
     </div>
   );

@@ -26,6 +26,9 @@ vi.mock("@/api/portal/hooks", () => ({
     isLoading: false,
     error: state.error,
   }),
+  // The drill-down behind a timeline row (#1797). Nothing is selected in these
+  // cases, so it answers as the hook does with a null id.
+  useMyAuditEvent: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
 import { MySessionDetailPage } from "./MySessionDetailPage";

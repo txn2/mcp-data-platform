@@ -15,11 +15,30 @@ interface Props {
   canModerate: boolean;
   // When omitted (e.g. the full-page standalone channel) no close button shows.
   onClose?: () => void;
+  // flow renders the panel as content that flows into the page rather than as
+  // a viewport-height column with its own scroll box. The slide-over wants the
+  // column; a tab of the Inbox wants the flow, so the page scrolls in one
+  // place like every other portal page (#1798).
+  flow?: boolean;
 }
 
 type View = { kind: "list" } | { kind: "new" } | { kind: "detail"; threadId: string };
 
-export function FeedbackPanel({ target, canModerate, onClose }: Props) {
+// panelShape is the two layouts this panel has. It is a function rather than
+// two ternaries in the body because the body is already at the complexity
+// budget, and which shell to wear is not part of what the panel does.
+function panelShape(flow?: boolean): { shell: string; body: string } {
+  if (flow) {
+    return { shell: "flex w-full flex-col bg-card", body: "" };
+  }
+  return {
+    shell: "flex h-full w-full flex-col bg-card",
+    body: "min-h-0 flex-1 overflow-auto",
+  };
+}
+
+export function FeedbackPanel({ target, canModerate, onClose, flow }: Props) {
+  const shape = panelShape(flow);
   const filter = filterForTarget(target);
   const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
     useInfiniteThreads(filter);
@@ -33,7 +52,7 @@ export function FeedbackPanel({ target, canModerate, onClose }: Props) {
   ).length;
 
   return (
-    <div className="flex h-full w-full flex-col bg-card">
+    <div className={shape.shell}>
       {/* Header */}
       <div className="flex items-center gap-2 border-b p-3">
         <div className="min-w-0">
@@ -68,7 +87,7 @@ export function FeedbackPanel({ target, canModerate, onClose }: Props) {
       </div>
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className={shape.body}>
         {view.kind === "list" && (
           <>
             <ThreadList

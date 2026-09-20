@@ -131,3 +131,32 @@ func TestOwnedBy(t *testing.T) {
 		})
 	}
 }
+
+// TestParseSortColumn_ReportsRatherThanSubstituting covers the whitelist the
+// listing's ordering rests on (#1795). It REPORTS an unrecognized column
+// rather than substituting one, because a route that is told so leaves the
+// filter's Sort empty and gets the store's own default ordering — while
+// substituting SortUpdatedAt would leave the DIRECTION to the caller's `dir`
+// and answer oldest-first for a filter that named nothing valid.
+func TestParseSortColumn_ReportsRatherThanSubstituting(t *testing.T) {
+	for _, want := range script.SortColumns() {
+		got, ok := script.ParseSortColumn(string(want))
+		assert.True(t, ok, "%s is orderable", want)
+		assert.Equal(t, want, got)
+	}
+
+	for _, bad := range []string{"", "last_run", "source_code", "updated_at; DROP TABLE scripts"} {
+		_, ok := script.ParseSortColumn(bad)
+		assert.False(t, ok, "%q is not an orderable column", bad)
+	}
+}
+
+// TestSortColumns_ExcludesLastRun pins the one column deliberately absent: a
+// run is attached to a page AFTER the query, so ordering by it would be an
+// ordering over the page rather than over the listing.
+func TestSortColumns_ExcludesLastRun(t *testing.T) {
+	for _, col := range script.SortColumns() {
+		assert.NotContains(t, string(col), "run")
+	}
+	assert.Len(t, script.SortColumns(), 5)
+}

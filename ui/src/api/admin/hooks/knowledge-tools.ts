@@ -135,11 +135,15 @@ export function useRollbackChangeset() {
 // Tools — Schema & Execution
 // ---------------------------------------------------------------------------
 
-export function useToolSchemas() {
+// useToolSchemas reads the tool catalogue, which is an administrator's read.
+// `enabled` exists so a shared component can be mounted on a user surface
+// without firing a call that surface would be refused (#1797).
+export function useToolSchemas(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["tools", "schemas"],
     queryFn: () => apiFetch<ToolSchemaMap>("/tools/schemas"),
     staleTime: 5 * 60_000,
+    enabled: options?.enabled ?? true,
   });
 }
 

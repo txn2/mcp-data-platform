@@ -22,8 +22,30 @@ func SQLSamples() map[string]string {
 		OwnerEmail: "owner@example.com",
 		Limit:      10,
 	}
+	// The listing's own filter, carrying every axis at once so the rendered
+	// statement exercises each clause the builders can emit.
+	listing := script.ListFilter{
+		OwnerEmail: "owner@example.com",
+		Category:   "reports",
+		Tags:       []string{"weekly"},
+		Status:     "active",
+		Search:     "refresh",
+		Sort:       script.SortName,
+		Limit:      25,
+	}
 	return map[string]string{
 		"buildHybridSearch":  buildHybridSearch(q),
 		"buildLexicalSearch": buildLexicalSearch(),
+		// Rendered here because PostgreSQL is the only thing that catches a
+		// count naming a table that does not exist: the route treats a failed
+		// count as "no better total available" and falls back to the page
+		// length, so the failure is silent and looks exactly like the defect
+		// the count exists to fix (#1795).
+		"buildCountQuery": func() string { q, _ := buildCountQuery(listing); return q }(),
+		"buildScheduledCountQuery": func() string {
+			q, _ := buildScheduledCountQuery(listing)
+			return q
+		}(),
+		"buildListQuery": func() string { q, _ := buildListQuery(listing); return q }(),
 	}
 }

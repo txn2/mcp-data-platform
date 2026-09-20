@@ -188,7 +188,7 @@ export interface PortalScriptRow {
   owned: boolean;
 }
 
-interface ListResponse<T> {
+export interface ListResponse<T> {
   data: T[];
   total: number;
 }
@@ -213,48 +213,12 @@ export {
   type ScriptValidation,
 } from "./scriptDrafts";
 
-// ScriptListFilter narrows the listing to one category, one tag, free text, or
-// any combination (#1369, #1405). Every axis is applied by the server rather
-// than in the table, so the answer is the same one an agent's list gets, and a
-// filtered page does not depend on having already loaded every row — the
-// listing is capped, and a page that filtered its own rows would answer from a
-// truncated set while reporting a count to match.
-export interface ScriptListFilter {
-  category?: string;
-  tag?: string;
-  /** search matches a script's name, display name, or description. */
-  search?: string;
-}
-
-// useScriptListing reads the scripts this caller may see: their own, and every
-// script on the platform for an administrator, which is what the
-// administrator's section lists (#1407). One listing serves both surfaces
-// because the server answers both from one predicate; a second endpoint for
-// the admin page would be a second answer to the same question.
-export function useScriptListing(filter: ScriptListFilter = {}) {
-  const query = scriptListQuery(filter);
-  return useQuery({
-    queryKey: [
-      ...scriptsKey,
-      "list",
-      filter.category ?? "",
-      filter.tag ?? "",
-      filter.search ?? "",
-    ],
-    queryFn: () => apiFetch<ListResponse<PortalScriptRow>>(`/scripts${query}`),
-  });
-}
-
-// scriptListQuery renders the filter as a query string, empty when nothing is
-// filtered so the unfiltered request stays the plain one.
-export function scriptListQuery(filter: ScriptListFilter): string {
-  const params = new URLSearchParams();
-  if (filter.category) params.set("category", filter.category);
-  if (filter.tag) params.set("tag", filter.tag);
-  if (filter.search) params.set("search", filter.search);
-  const rendered = params.toString();
-  return rendered ? `?${rendered}` : "";
-}
+export type {
+  ScriptListFilter,
+  ScriptListResponse,
+  ScriptSortKey,
+} from "./scriptListFilter";
+export { scriptListQuery, useScriptListing } from "./scriptListFilter";
 
 // PortalScriptRun is one run in the caller's cross-script listing (#1405): the
 // run, plus which script it belongs to. The name is what the row reads as and

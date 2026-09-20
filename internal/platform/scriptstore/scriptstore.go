@@ -58,7 +58,13 @@ const scriptColumns = `id, name, display_name, description, category, source_cod
 	deprecated_at, version, created_at, updated_at`
 
 // scriptSelect is the base SELECT for the script columns.
-const scriptSelect = "SELECT " + scriptColumns + " FROM scripts"
+// scriptsTable is the one place the table's name is written. Every statement
+// over it is built from this, so a count and a listing cannot disagree about
+// which table they are reading (they did: #1795's first count named a
+// `managed_scripts` that has never existed).
+const scriptsTable = "scripts"
+
+const scriptSelect = "SELECT " + scriptColumns + " FROM " + scriptsTable
 
 // rowScanner is satisfied by *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -354,6 +360,30 @@ func (s *Store) List(ctx context.Context, filter script.ListFilter) ([]script.Sc
 	return out, nil
 }
 
+// Count returns how many scripts match the filter, ignoring its limit.
+func (s *Store) Count(ctx context.Context, filter script.ListFilter) (int, error) {
+	query, args := buildCountQuery(filter)
+	var total int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count scripts: %w", err)
+	}
+	return total, nil
+}
+
+// CountScheduled returns how many matching scripts carry a cadence.
+//
+// A correlated EXISTS rather than a join: a script has at most one schedule,
+// so a join could not multiply rows, but EXISTS says what is being asked and
+// stops short on the first match.
+func (s *Store) CountScheduled(ctx context.Context, filter script.ListFilter) (int, error) {
+	query, args := buildScheduledCountQuery(filter)
+	var total int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("count scheduled scripts: %w", err)
+	}
+	return total, nil
+}
+
 // listQuery accumulates a filtered listing's WHERE clauses and their bound
 // arguments, so each clause is added next to the value it binds.
 type listQuery struct {
@@ -420,5 +450,69 @@ func buildListQuery(filter script.ListFilter) (query string, args []any) {
 		limit = defaultListLimit
 	}
 	q.args = append(q.args, limit)
-	return fmt.Sprintf("%s ORDER BY updated_at DESC LIMIT $%d", query, len(q.args)), q.args
+	return fmt.Sprintf("%s %s LIMIT $%d", query, orderBy(filter), len(q.args)), q.args
+}
+
+// buildCountQuery counts every script the filter matches, ignoring its limit.
+//
+// It is the same predicate as the listing's, assembled by the same code, which
+// is the point: a total assembled a second way is a total that can disagree
+// with the rows it describes. The listing used to report len(rows) as its
+// total, so a deployment past the page cap read its own cap back as the
+// number of scripts it had, and nothing said the page was truncated (#1795).
+func buildCountQuery(filter script.ListFilter) (query string, args []any) {
+	q := &listQuery{}
+	q.addEquality(filter)
+	q.addSearch(filter)
+
+	// The table is `scripts`, the same one scriptSelect reads. Naming it a
+	// second time by hand is how the first version of this counted a
+	// `managed_scripts` that does not exist -- and because the route treats a
+	// failed count as "no better total available" and falls back to the page
+	// length, that failure was silent and reinstated the very defect the
+	// count exists to fix. It is derived from scriptSelect now, so the two
+	// cannot name different tables.
+	query = "SELECT COUNT(*) FROM " + scriptsTable
+	if len(q.where) > 0 {
+		query += " WHERE " + joinAnd(q.where)
+	}
+	return query, q.args
+}
+
+// buildScheduledCountQuery counts the matching scripts that have a schedule.
+func buildScheduledCountQuery(filter script.ListFilter) (query string, args []any) {
+	q := &listQuery{}
+	q.addEquality(filter)
+	q.addSearch(filter)
+
+	q.where = append(q.where,
+		"EXISTS (SELECT 1 FROM script_schedules WHERE script_schedules.script_id = "+
+			scriptsTable+".id)")
+	return "SELECT COUNT(*) FROM " + scriptsTable + " WHERE " + joinAnd(q.where), q.args
+}
+
+// orderBy renders the ORDER BY clause.
+//
+// The column is never interpolated from a caller's string: it comes from
+// script.SortColumn, whose values are the package's own constants, and an
+// unrecognized request has already been resolved to the default by
+// ParseSortColumn. The direction is one of two literals.
+//
+// id breaks the tie. Ordering by a column with duplicates -- every script
+// updated in the same migration, two scripts with the same display name --
+// otherwise leaves the order within a tie up to the plan, so a listing read
+// twice can return the same rows in a different order.
+func orderBy(filter script.ListFilter) string {
+	// No column asked for is the listing every caller got before ordering
+	// existed: most recently updated first. Desc is not consulted in that
+	// case, so a filter that names nothing cannot land on ascending by
+	// leaving a bool at its zero value.
+	if filter.Sort == "" {
+		return "ORDER BY updated_at DESC, id DESC"
+	}
+	direction := "ASC"
+	if filter.Desc {
+		direction = "DESC"
+	}
+	return fmt.Sprintf("ORDER BY %s %s, id %s", string(filter.Sort), direction, direction)
 }

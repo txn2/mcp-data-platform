@@ -50,6 +50,11 @@ func (*plainStore) Delete(context.Context, string) (script.Removed, error) {
 func (*plainStore) List(context.Context, script.ListFilter) ([]script.Script, error) {
 	return nil, nil
 }
+func (*plainStore) Count(context.Context, script.ListFilter) (int, error) { return 0, nil }
+
+func (*plainStore) CountScheduled(context.Context, script.ListFilter) (int, error) {
+	return 0, nil
+}
 
 // versioningStore adds the versioning capability, recording what the funnel
 // handed it.

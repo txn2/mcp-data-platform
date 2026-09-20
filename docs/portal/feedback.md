@@ -1,8 +1,13 @@
 ---
-description: "The Feedback page: threads on the work you own or that was shared with you."
+description: "The Inbox: everything addressed to you — threads on your work, and what the platform has sent you."
 ---
 
-# Feedback
+# Inbox
+
+The section is **Inbox**: one place for everything addressed to you. It holds the
+feedback threads on your work and, since #1798, the notification history that
+used to sit on the settings screen beside the preferences that decide what gets
+sent. The notification *preferences* stay in Settings, where a setting belongs.
 
 Feedback lets the people who review your work, including subject-matter experts and stakeholders who do not use an agent, leave structured corrections and questions on the things you share with them, instead of relaying that feedback over email.
 
