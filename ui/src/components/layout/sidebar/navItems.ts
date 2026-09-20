@@ -30,7 +30,7 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-// Fixed order (#661): Assets, Prompts, Resources, Feedback, Knowledge,
+// Fixed order (#661): Assets, Prompts, Resources, Inbox, Knowledge,
 // Activity. Knowledge is the single home for the Memory -> Insight -> Knowledge
 // lifecycle (the former Knowledge Pages, Knowledge & Memory surfaces). Activity
 // is the audit/landing view; Settings (per-user preferences, #631) trails the
@@ -49,7 +49,7 @@ export const portalNavItems: NavItem[] = [
   { path: "/scripts", label: "Scripts", icon: FileCode2 },
   { path: "/resources", label: "Resources", icon: FileUp },
   { path: "/scratch-tables", label: "Scratch Tables", icon: Table2 },
-  { path: "/feedback", label: "Feedback", icon: MessageCircle },
+  { path: "/feedback", label: "Inbox", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },
   { path: "/apis", label: "APIs", icon: Network },
   { path: "/activity", label: "Activity", icon: Activity },

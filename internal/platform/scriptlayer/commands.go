@@ -231,15 +231,21 @@ func scriptFields(sc *script.Script) map[string]any {
 	}
 }
 
-// handleList returns the scripts the caller may see: their own, or every script
-// on the platform for an admin.
+// handleList returns the scripts the caller may see, which is every script on
+// the platform (#1795).
+//
+// It used to be the caller's own unless they held an admin persona. Widening
+// it is the point: an agent asked to write a weekly report should be able to
+// see that one already exists rather than writing a second copy of it. What
+// each row carries is unchanged and is the reason this is safe -- name,
+// display name, description, owner, status, version, category and tags. The
+// projection below has never carried Source, and must keep not carrying it:
+// reading the code is the owner's and the administrator's, through the
+// portal's own read.
 func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	filter := script.ListFilter{
 		Status: input.Status, Search: input.Search, Limit: input.Limit,
 		Category: derefOr(input.Category), Tags: input.Tags,
-	}
-	if !h.isAdminPersona(ctx) {
-		filter.OwnerEmail = resolveEmail(ctx)
 	}
 	scripts, err := h.store.List(ctx, filter)
 	if err != nil {

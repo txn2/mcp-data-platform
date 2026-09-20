@@ -70,11 +70,18 @@ export function SessionTimeline({
               <TableCell className="px-3 text-xs" title={entry.tool_name}>
                 {formatToolName(entry.tool_name, titleMap[entry.tool_name])}
               </TableCell>
+              {/* The purpose wraps to two lines rather than truncating at one
+                  (#1797). A stated purpose is a sentence, and it is the one
+                  thing the event list could never show -- which is why the
+                  column exists. Clipped at 24rem with the rest only in a
+                  `title`, reading it meant holding a hover over the right
+                  cell, which is not reading it. Two lines carries the common
+                  case whole; the drawer carries the rest. */}
               <TableCell
-                className="max-w-[24rem] truncate px-3 text-xs text-muted-foreground"
-                title={entry.purpose}
+                className="px-3 text-xs whitespace-normal text-muted-foreground"
+                data-testid="timeline-purpose"
               >
-                {entry.purpose || "-"}
+                <span className="line-clamp-2">{entry.purpose || "-"}</span>
               </TableCell>
               <TableCell className="max-w-[9rem] truncate px-3 text-xs">
                 {entry.connection || "-"}

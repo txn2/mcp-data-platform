@@ -49,6 +49,14 @@ func (f *failingStore) List(ctx context.Context, filter script.ListFilter) ([]sc
 	}
 	return f.memStore.List(ctx, filter)
 }
+func (f *failingStore) Count(ctx context.Context, filter script.ListFilter) (int, error) {
+	rows, err := f.List(ctx, filter)
+	return len(rows), err
+}
+
+func (*failingStore) CountScheduled(context.Context, script.ListFilter) (int, error) {
+	return 0, nil
+}
 
 func (f *failingStore) Transfer(ctx context.Context, req script.TransferRequest, author script.Author) (script.Transferred, error) {
 	if f.transferErr != nil {

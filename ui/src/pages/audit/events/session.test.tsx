@@ -56,11 +56,27 @@ describe("the session in the event drawer", () => {
   it("is a way to the session, not just an id to copy", () => {
     const onNavigate = vi.fn();
     render(
-      <EventDrawer event={event()} onClose={vi.fn()} onNavigate={onNavigate} />,
+      <EventDrawer
+        event={event()}
+        onClose={vi.fn()}
+        onNavigate={onNavigate}
+        // Where the session leads is the caller's, not the drawer's: the user
+        // surface opens this FROM a session and passes none, so the id there
+        // reads as plain text rather than linking back to the page (#1797).
+        sessionPath={(id) => `/admin/sessions/${id}`}
+      />,
     );
 
     fireEvent.click(screen.getByText(SESSION_ID));
     expect(onNavigate).toHaveBeenCalledWith(`/admin/sessions/${SESSION_ID}`);
+  });
+
+  it("stays plain text when the caller names no destination", () => {
+    const { container } = render(
+      <EventDrawer event={event()} onClose={vi.fn()} onNavigate={vi.fn()} />,
+    );
+    const buttons = [...container.querySelectorAll("button")].map((b) => b.textContent);
+    expect(buttons).not.toContain(SESSION_ID);
   });
 
   it("stays plain text where there is nowhere to navigate", () => {

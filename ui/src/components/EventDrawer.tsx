@@ -13,12 +13,22 @@ export function EventDrawer({
   event,
   onClose,
   onNavigate,
+  replayable = true,
+  sessionPath,
 }: {
   event: AuditEvent;
   onClose: () => void;
   onNavigate?: (path: string) => void;
+  // replayable offers the Inspector. It reads the tool catalogue, which is an
+  // administrator's read, so a user surface passes false: the same drawer
+  // without a call it would be refused (#1797).
+  replayable?: boolean;
+  // sessionPath is where the call's session id leads. Omitted, the id reads as
+  // plain text -- which is what a reader opening this FROM that session wants,
+  // since the link would lead back to the page they are on.
+  sessionPath?: (sessionId: string) => string;
 }) {
-  const { data: schemasData } = useToolSchemas();
+  const { data: schemasData } = useToolSchemas({ enabled: replayable });
   const setReplayIntent = useInspectorStore((s) => s.setReplayIntent);
 
   const schemas = schemasData?.schemas ?? {};
@@ -43,7 +53,7 @@ export function EventDrawer({
     );
   };
 
-  const replay = onNavigate ? (
+  const replay = onNavigate && replayable ? (
     <div>
       <Button
         type="button"
@@ -128,14 +138,10 @@ export function EventDrawer({
           {/* The session is the call's context, so it is a way there and not
               just an identifier to copy (#1318). Without a navigator the id
               still reads as plain text. */}
-          {onNavigate && event.session_id ? (
+          {onNavigate && sessionPath && event.session_id ? (
             <button
               type="button"
-              onClick={() =>
-                onNavigate(
-                  `/admin/sessions/${encodeURIComponent(event.session_id)}`,
-                )
-              }
+              onClick={() => onNavigate(sessionPath(event.session_id))}
               className="break-all text-left font-mono text-xs text-primary hover:underline"
             >
               {event.session_id}

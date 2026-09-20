@@ -80,6 +80,7 @@ import {
 } from "./data/prompts";
 import { mockResources, mockResourceUsage, mockResourceVersions } from "./data/resources";
 import { resourceImageBytes } from "./data/resourceImages";
+import { pdfFixtureBytes } from "./data/pdfFixture";
 import {
   mockDropTable,
   mockRegisterTable,
@@ -3530,6 +3531,14 @@ export const handlers = [
     const image = resourceImageBytes(String(params.id));
     if (image) {
       return new HttpResponse(image, { headers: { "Content-Type": resource.mime_type } });
+    }
+    // A PDF fixture serves a real file rather than a placeholder string, so the
+    // viewer has something to render and the #1783 case has a document that
+    // asks to print itself. See ./data/pdfFixture.
+    if (resource.mime_type === "application/pdf") {
+      return new HttpResponse(pdfFixtureBytes(), {
+        headers: { "Content-Type": resource.mime_type },
+      });
     }
     return new HttpResponse(resourceBody(resource), {
       headers: { "Content-Type": resource.mime_type },

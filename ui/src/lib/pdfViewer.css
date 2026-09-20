@@ -1,0 +1,28 @@
+/* Re-asserts the portal's color scheme over pdf.js's.
+ *
+ * `pdfjs-dist/web/pdf_viewer.css` ends with `:root { color-scheme: light dark }`.
+ * That is the one rule in the whole 230 KB stylesheet that reaches outside the
+ * viewer: `:root` is its only non-class selector, and `color-scheme` its only
+ * declaration there that is not a `--pdfjs`-ish custom property.
+ *
+ * Left alone it would undo theme.css, whose `:root { color-scheme: light }` is
+ * what makes a framed HTML or JSX asset answer prefers-color-scheme from the
+ * portal's toggle rather than from the OS (#1789). Opening one PDF would put
+ * that bug back for the rest of the session, everywhere in the portal, because
+ * the stylesheet stays loaded once its chunk arrives.
+ *
+ * `html:root` rather than `:root` so this wins on specificity (0,1,1 against
+ * 0,1,0) rather than on which stylesheet the bundler happened to emit last.
+ *
+ * The vendor stylesheet is deliberately NOT moved into a cascade layer, which
+ * would contain this and everything else in one move: a layer below Tailwind's
+ * `base` puts pdf.js under preflight, and preflight's `canvas { max-width:
+ * 100% }` would then clamp a zoomed page that pdf.js sizes itself.
+ */
+html:root {
+  color-scheme: light;
+}
+
+html:root.dark {
+  color-scheme: dark;
+}

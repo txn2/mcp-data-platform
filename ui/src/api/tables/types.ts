@@ -85,6 +85,10 @@ export interface ScratchTableSource {
   kind: TableSourceKind;
   id: string;
   name?: string;
+  // description is the source record's own description. A table name and a
+  // file name together still do not say what the data is; this is the
+  // sentence that does, and it is absent when the record carries none.
+  description?: string;
   // missing says the source record is gone. Deleting a file unregisters its
   // tables, so this is the residue of a cleanup that did not complete.
   missing: boolean;

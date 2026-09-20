@@ -68,17 +68,22 @@ describe("ContentRenderer routing", () => {
     });
   });
 
-  it("renders a PDF through an object element pointed at the content URL", async () => {
-    // Deliberately not a sandboxed iframe: Chrome refuses to instantiate its
-    // PDF plugin inside any sandboxed frame, which renders a broken-plugin
-    // icon instead of the document. Containment is the serving side's job.
+  it("renders a PDF through our own viewer, not the browser's plugin", async () => {
+    // The plugin honoured the document's /OpenAction, so a file exported with
+    // "print on open" raised the print dialog at a reader who had asked only
+    // to look at it (#1783). Sandboxing was no answer -- Chrome refuses to
+    // instantiate the plugin inside any sandboxed frame. The viewer is PDF.js
+    // now, which executes no document-level action at all.
     render(<ContentRenderer contentType="application/pdf" contentUrl={CONTENT_URL} fileName="report.pdf" />);
 
-    const embed = await screen.findByLabelText("report.pdf");
-    expect(embed.tagName).toBe("OBJECT");
-    expect(embed).toHaveAttribute("data", CONTENT_URL);
-    expect(embed).toHaveAttribute("type", "application/pdf");
-    expect(embed).not.toHaveAttribute("sandbox");
+    const frame = await screen.findByLabelText("report.pdf");
+    expect(frame.tagName).not.toBe("OBJECT");
+    expect(document.querySelector('object[type="application/pdf"]')).toBeNull();
+    // Download stays reachable whatever the viewer does with the document.
+    expect(screen.getAllByRole("link", { name: /Download/ })[0]).toHaveAttribute(
+      "href",
+      CONTENT_URL,
+    );
   });
 
   it("shows a metadata card for an unrecognized binary type, never raw bytes", () => {

@@ -21,7 +21,7 @@ test.describe("Admin script pages", () => {
     await expect(page.getByText("daily-sales-report")).toBeVisible();
     // Whose script it is, which is the fact an administrator comes for
     // (#1404), and the cadence in the words the editor states it in (#1407).
-    await expect(page.getByRole("columnheader", { name: "Owner" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: /Author/ })).toBeVisible();
     await expect(page.getByText("sarah.chen@example.com").first()).toBeVisible();
     await expect(
       page.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),

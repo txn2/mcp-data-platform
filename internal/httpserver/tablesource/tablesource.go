@@ -249,10 +249,11 @@ func resourceSourceRefs(
 			continue
 		}
 		out[id] = tableregister.SourceRef{
-			Name:      res.DisplayName,
-			Bucket:    bucket,
-			HeadKey:   res.S3Key,
-			CanModify: resource.CanModifyResource(claims, res),
+			Name:        res.DisplayName,
+			Description: res.Description,
+			Bucket:      bucket,
+			HeadKey:     res.S3Key,
+			CanModify:   resource.CanModifyResource(claims, res),
 		}
 	}
 	return out
@@ -279,10 +280,11 @@ func assetSourceRefs(
 			continue
 		}
 		out[id] = tableregister.SourceRef{
-			Name:      asset.Name,
-			Bucket:    asset.S3Bucket,
-			HeadKey:   asset.S3Key,
-			CanModify: AssetVisibleTo(*asset, caller, adminRoles),
+			Name:        asset.Name,
+			Description: asset.Description,
+			Bucket:      asset.S3Bucket,
+			HeadKey:     asset.S3Key,
+			CanModify:   AssetVisibleTo(*asset, caller, adminRoles),
 		}
 	}
 	return out

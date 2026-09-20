@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ConfigToggle } from "./connections/fields";
 import { MyAPIKeys } from "./MyAPIKeys";
-import { MyNotifications } from "./MyNotifications";
 import { SettingsCard } from "./panels";
 import { ErrorBanner, WarningBanner } from "./settingsChrome";
 import { cn } from "@/lib/utils";
@@ -173,7 +172,6 @@ export function UserSettingsPage({ onNavigate }: Props) {
     <div className="space-y-4">
       <NotificationPrefsCard onNavigate={onNavigate} />
       <MyAPIKeys />
-      <MyNotifications />
     </div>
   );
 }
@@ -224,7 +222,7 @@ function NotificationPrefsCard({ onNavigate }: Props) {
     <SettingsCard
       icon={Bell}
       title="Notifications"
-      description="Email notifications for sharing and feedback activity"
+      description="Email notifications for sharing and feedback activity. What was actually sent to you is listed in the Inbox, under Notifications."
       notices={
         loadError && (
           <ErrorBanner

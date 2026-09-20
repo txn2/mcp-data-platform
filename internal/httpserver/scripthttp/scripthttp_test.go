@@ -123,6 +123,17 @@ func (s *stubStore) List(_ context.Context, filter script.ListFilter) ([]script.
 	return s.scripts, s.listErr
 }
 
+// Count answers the same predicate List does, unlimited -- which is the real
+// store's contract. The stub's List ignores Limit, so its row count is it.
+func (s *stubStore) Count(ctx context.Context, filter script.ListFilter) (int, error) {
+	rows, err := s.List(ctx, filter)
+	return len(rows), err
+}
+
+func (*stubStore) CountScheduled(context.Context, script.ListFilter) (int, error) {
+	return 0, nil
+}
+
 func (*stubStore) UpdateWithVersion(context.Context, *script.Script, script.Author) error {
 	return nil
 }

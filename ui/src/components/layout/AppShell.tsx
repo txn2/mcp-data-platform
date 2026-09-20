@@ -97,7 +97,7 @@ const pageTitles: Record<string, string> = {
   "/collections": "Collections",
   "/resources": "Resources",
   "/scratch-tables": "Scratch Tables",
-  "/feedback": "Feedback",
+  "/feedback": "Inbox",
   "/knowledge": "Knowledge",
   "/prompts": "Prompts",
   "/scripts": "Scripts",

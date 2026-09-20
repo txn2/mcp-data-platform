@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/scriptlist"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -220,19 +220,34 @@ type portalScriptRow struct {
 
 // portalScriptListResponse is the portal listing payload.
 type portalScriptListResponse struct {
-	Data  []portalScriptRow `json:"data"`
-	Total int               `json:"total" example:"3"`
+	Data []portalScriptRow `json:"data"`
+	// Total is every script the predicate matches, not the number of rows in
+	// Data. The two differ when the listing was capped, which is the only way
+	// a reader can be told the page is not the whole answer (#1795).
+	Total int `json:"total" example:"3"`
+	// Scheduled and Failing count the same population Total does. They are
+	// the health line above the listing, and they used to be computed in the
+	// browser over the rows it had been sent -- so past the page cap they
+	// counted the page while the facets beside them counted the platform.
+	Scheduled int `json:"scheduled" example:"2"`
+	Failing   int `json:"failing" example:"1"`
 }
 
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script. The category, tag and search parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned.
+// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
 // @Tags         Scripts
 // @Produce      json
+// @Param        scope     query  string    false  "Whose scripts to list: mine (default) or all"  Enums(mine, all)
 // @Param        category  query  string    false  "Narrow to one category slug"
 // @Param        tag       query  []string  false  "Narrow to the scripts carrying any of these tags"  collectionFormat(multi)
 // @Param        search    query  string    false  "Narrow to the scripts whose name, display name or description contains this text"
+// @Param        owner     query  string    false  "Narrow to one author's scripts, by email"
+// @Param        status    query  string    false  "Narrow to one lifecycle status"
+// @Param        enabled   query  boolean   false  "Narrow to enabled or disabled scripts"
+// @Param        sort      query  string    false  "Order by this column; an unknown value falls back to updated_at"  Enums(name, display_name, owner_email, created_at, updated_at)
+// @Param        dir       query  string    false  "Order direction"  Enums(asc, desc)
 // @Success      200  {object}  portalScriptListResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -240,7 +255,8 @@ type portalScriptListResponse struct {
 // @Security     BearerAuth
 // @Router       /portal/scripts [get]
 func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	scripts, err := h.deps.Scripts.List(r.Context(), portalListFilter(user, r.URL.Query()))
+	filter := scriptlist.Filter(user.owner(), user.IsAdmin, r.URL.Query())
+	scripts, err := h.deps.Scripts.List(r.Context(), filter)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
 		return
@@ -252,7 +268,38 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	}
 	h.attachSchedules(r.Context(), rows)
 	h.attachLastRuns(r.Context(), rows)
-	httpjson.WriteJSON(w, http.StatusOK, portalScriptListResponse{Data: rows, Total: len(rows)})
+
+	resp := portalScriptListResponse{Data: rows, Total: len(rows)}
+	// The total is the predicate's, counted without the cap. A count that
+	// fails leaves the page's own length standing rather than failing the
+	// listing: a listing that cannot say how much it truncated is still a
+	// listing.
+	if total, err := h.deps.Scripts.Count(r.Context(), filter); err == nil {
+		resp.Total = total
+	}
+	resp.Scheduled, resp.Failing = h.healthCounts(r.Context(), filter, rows)
+	httpjson.WriteJSON(w, http.StatusOK, resp)
+}
+
+// healthCounts answers the two numbers above the listing.
+//
+// Scheduled is counted in the store, over every script the predicate matches.
+// Failing is counted over the page, and is the one number here that cannot be
+// otherwise: a run is attached per page after the query (attachLastRuns), and
+// only for the rows the caller owns, so there is nothing else to count it
+// over. The listing says so rather than implying a platform-wide figure.
+func (h *Handler) healthCounts(
+	ctx context.Context, filter script.ListFilter, rows []portalScriptRow,
+) (scheduled, failing int) {
+	for i := range rows {
+		if rows[i].LastRun != nil && rows[i].LastRun.Status == script.RunStatusFailed {
+			failing++
+		}
+	}
+	if n, err := h.deps.Scripts.CountScheduled(ctx, filter); err == nil {
+		scheduled = n
+	}
+	return scheduled, failing
 }
 
 // reportableScript is a script row as its reader may have it: complete, except
@@ -289,32 +336,6 @@ func nonEmpty(values []string) []string {
 		return nil
 	}
 	return out
-}
-
-// portalListFilter applies the caller's visibility as a query predicate, plus
-// the category and tag axes the listing filters on (#1369) and the free-text
-// search the filter bar types into (#1405). The search runs in the store,
-// against the name, display name and description, so it covers every script
-// the caller owns rather than the page of them a listing happens to hold.
-//
-// An administrator carries no visibility predicate, which is the unfiltered
-// admin view; the three narrowing axes apply to them exactly as they do to
-// everybody else, because those narrow what a reader asked for rather than
-// what they are entitled to.
-//
-// A nil query names no axis, which is how a caller asks for the visibility
-// predicate alone.
-func portalListFilter(user *PortalIdentity, query url.Values) script.ListFilter {
-	filter := script.ListFilter{
-		Category: query.Get("category"),
-		Tags:     nonEmpty(query["tag"]),
-		Search:   query.Get("search"),
-	}
-	if user.IsAdmin {
-		return filter
-	}
-	filter.OwnerEmail = user.owner()
-	return filter
 }
 
 // attachSchedules fills in each row's cadence in one query, leaving every row
@@ -437,12 +458,26 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get script")
 		return
 	}
-	// A script the caller may not see is answered exactly as a script that does
-	// not exist, so the difference cannot be used to learn that one exists.
-	if contract == nil || (!user.IsAdmin && !contract.OwnedBy(user.owner())) {
+	if contract == nil {
 		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
 		return
 	}
+	// A script is visible to everyone; what is READABLE is not (#1795). This
+	// route used to answer not-found for a script the caller did not own,
+	// which the widened listing turns into a dead row: it lists the script,
+	// and the click it invites landed on "no such script".
+	//
+	// What a non-owner gets is the projection the listing already applies --
+	// the contract, so they can see that the script exists, whose it is, what
+	// it says about itself and when it runs. `owned` is false, so liveRecord
+	// below withholds the source and the draft parameters, and the page gates
+	// every editor, the run history and every action on the same flag. The
+	// version history and the runs are separate routes and still refuse a
+	// non-owner outright.
+	//
+	// `manage_script command=get` is unchanged and still refuses somebody
+	// else's script, because it answers WITH the source. The line is the
+	// source, not the script's existence.
 	owned := user.IsAdmin || ownsEmail(contract.OwnerEmail, user.owner())
 	source, draftParams := h.liveRecord(r, contract.ID, owned)
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptResponse{
@@ -627,7 +662,7 @@ const portalOwnRunsLimit = 50
 func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	// The visibility predicate alone: the facet axes narrow which scripts a
 	// reader asked to see, and a run listing is not filtered by them.
-	scripts, err := h.deps.Scripts.List(r.Context(), portalListFilter(user, nil))
+	scripts, err := h.deps.Scripts.List(r.Context(), scriptlist.Filter(user.owner(), user.IsAdmin, nil))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
 		return

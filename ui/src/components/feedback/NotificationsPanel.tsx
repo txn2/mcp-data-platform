@@ -3,9 +3,7 @@ import { useMyNotifications } from "@/api/portal/hooks";
 import type { NotificationItem, NotificationStatus } from "@/api/portal/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { History } from "lucide-react";
-import { SettingsCard } from "./panels";
-import { ErrorBanner } from "./settingsChrome";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const PER_PAGE = 20;
 
@@ -42,16 +40,20 @@ function describeRetention(retentionDays: number): string {
 }
 
 /**
- * MyNotifications shows the notifications the platform has addressed to the
- * signed-in user: what was sent, what is still queued, and what never went
- * out. It sits with the notification preferences because the two answer one
- * question together -- what should I be told, and what was I actually told.
+ * NotificationsPanel lists what the platform has sent the signed-in user: what
+ * went out, what is still queued, and what never arrived.
+ *
+ * It used to be a card on /settings, beside the preferences that decide what
+ * gets sent (#1798). That filed "what has the platform told me" under
+ * configuration, two sections away from "what has somebody said to me", when
+ * both are things addressed to the reader. It is a view of the Inbox now, and
+ * the preferences stay in settings, which is where a setting belongs.
  *
  * The endpoint behind it is self-scoped server-side, so there is nothing here
  * to choose whose activity to view. It shows no delivery-error text either:
  * a failure is the platform's to fix, not the recipient's.
  */
-export function MyNotifications() {
+export function NotificationsPanel() {
   const [page, setPage] = useState(1);
   const query = useMemo(() => ({ page, per_page: PER_PAGE }), [page]);
   const { data, isLoading, error } = useMyNotifications(query);
@@ -59,17 +61,19 @@ export function MyNotifications() {
   const retentionDays = data?.retention_days ?? 0;
 
   return (
-    <SettingsCard
-      icon={History}
-      title="Recent notifications"
-      description={describeRetention(retentionDays)}
-      feedback={
-        error && (
-          <ErrorBanner message="Failed to load your notifications. The server may be unavailable." />
-        )
-      }
-      contentClassName="p-0"
-    >
+    <div className="rounded-lg border bg-card">
+      <div className="border-b px-5 py-3">
+        <p className="text-xs text-muted-foreground">{describeRetention(retentionDays)}</p>
+      </div>
+
+      {error && (
+        <Alert variant="destructive" className="m-3 w-auto">
+          <AlertDescription>
+            Failed to load your notifications. The server may be unavailable.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Body isLoading={isLoading} items={data?.data ?? []} />
 
       {totalPages > 1 && (
@@ -80,7 +84,7 @@ export function MyNotifications() {
           onPage={setPage}
         />
       )}
-    </SettingsCard>
+    </div>
   );
 }
 

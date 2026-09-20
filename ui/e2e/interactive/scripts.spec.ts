@@ -307,7 +307,9 @@ test.describe("Portal script pages", () => {
   // without asking anybody: every fire executes the latest saved version.
   test("an owner gives an on-demand script a schedule", async ({ page }) => {
     await gotoScripts(page);
-    await page.getByRole("row").filter({ hasText: "Dormant Accounts" }).click();
+    // A script the CALLER owns: the listing opens on Mine now (#1795), and
+    // scheduling somebody else's is not theirs to do anyway.
+    await page.getByRole("row").filter({ hasText: "My Margin Check" }).click();
 
     await expect(page.getByText("Not scheduled")).toBeVisible();
     await page.getByRole("button", { name: /^Schedule/ }).click();
@@ -315,39 +317,43 @@ test.describe("Portal script pages", () => {
 
     await page.getByRole("button", { name: "Daily" }).click();
     await page.getByLabel("Time", { exact: true }).fill("05:00");
-    await page.locator("#script-param-schedule-cutoff").fill("2026-01-01");
+    // No parameter to bind: this script declares none. The `cutoff` field the
+    // case used to fill belongs to Dormant Accounts, which is somebody else's
+    // and so is no longer in the caller's own listing (#1795).
     await page.getByRole("button", { name: "Set schedule" }).click();
     await expect(page.getByText(/Every day at 5:00 AM/).first()).toBeVisible();
   });
 
-  // The tiles are computed from the listing itself and are the page's own
-  // filters (#1405), so they are exercised against the mock server rather than
-  // only through mocked hooks.
-  test("counts the caller's scripts in tiles that filter the listing", async ({
+  // The health line replaces three tiles (#1795). Only the failed count is a
+  // control, and the counts are the server's rather than the page's, so this
+  // runs against the mock server rather than through mocked hooks.
+  test("states the listing's health, and filters to what failed", async ({
     page,
   }) => {
     await gotoScripts(page);
-    // Scoped to the page: the sidebar carries a "Scripts" control of its own,
-    // which is the section's nav entry rather than the tile.
     const main = page.locator("main");
 
-    // Three tiles, each named plainly enough to need no caption under it, and
-    // the word this page no longer uses is nowhere on it.
-    await expect(
-      main.getByRole("button", { name: /^Scripts \d/ }),
-    ).toBeVisible();
-    await expect(
-      main.getByRole("button", { name: /^Scheduled/ }),
-    ).toBeVisible();
-    await expect(main.getByRole("button", { name: /^Failing/ })).toBeVisible();
+    await expect(main.getByTestId("script-health-total")).toBeVisible();
+    await expect(main.getByText(/\d+ scheduled/)).toBeVisible();
     await expect(page.getByText(/Automation/i)).toHaveCount(0);
 
-    // Pressing one shows the scripts it counted, and pressing "Scripts" is the
-    // way back to all of them.
-    await main.getByRole("button", { name: /^Scheduled/ }).click();
-    await expect(page.getByText("Dormant Accounts")).toHaveCount(0);
-    await main.getByRole("button", { name: /^Scripts \d/ }).click();
-    await expect(page.getByText("Dormant Accounts")).toBeVisible();
+    // The three bordered tiles are gone, and with them the only other controls
+    // that used to count this listing.
+    await expect(main.getByRole("button", { name: /^Scripts \d/ })).toHaveCount(0);
+    await expect(main.getByRole("button", { name: /^Failing/ })).toHaveCount(0);
+
+    // The failed count is pressable, states that it is pressed, and leaves
+    // only the scripts it counted.
+    const failing = main.getByTestId("script-health-failing");
+    await expect(failing).toBeVisible();
+    await expect(failing).toHaveAttribute("aria-pressed", "false");
+    await failing.click();
+    await expect(failing).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("Warehouse Freshness Check")).toBeVisible();
+    await expect(page.getByText("My Margin Check")).toHaveCount(0);
+
+    await failing.click();
+    await expect(page.getByText("My Margin Check")).toBeVisible();
   });
 
   // The search is a query predicate, so it reaches the route the server
@@ -379,7 +385,9 @@ test.describe("Portal script pages", () => {
       page.getByRole("cell", { name: /Daily Sales Report/ }).first(),
     ).toBeVisible();
     await expect(
-      page.getByRole("cell", { name: /Warehouse Freshness Check/ }),
+      // Two runs of it now: its most recent one failed, which is what the
+      // listing's health line counts (#1795).
+      page.getByRole("cell", { name: /Warehouse Freshness Check/ }).first(),
     ).toBeVisible();
     await expect(
       page.getByText(/relation "sales.orders" does not exist/),
@@ -555,6 +563,7 @@ test.describe("Portal script pages", () => {
     await expect(
       page.getByRole("heading", { name: "Scripts", level: 1 }),
     ).toBeVisible();
-    await expect(page.getByText("Dormant Accounts")).toBeVisible();
+    // Back on the listing, which opens on the caller's own scripts (#1795).
+    await expect(page.getByText("My Margin Check")).toBeVisible();
   });
 });

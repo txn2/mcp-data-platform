@@ -171,6 +171,10 @@ type Deps struct {
 	// narrowed to the sessions the reader ran themselves. nil (no database)
 	// leaves the routes unregistered.
 	SessionViewer SessionViewer
+	// AuditEvents reads one of the caller's own calls in full: the drill-down
+	// behind a session timeline row, which carries neither the parameters nor
+	// the error text. nil leaves that route unregistered.
+	AuditEvents AuditEvents
 	// CallCatalog is the record of the data-access calls the caller made
 	// (#1321), served scoped to them. nil (no database) leaves the routes
 	// unregistered.

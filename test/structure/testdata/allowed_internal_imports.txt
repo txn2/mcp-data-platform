@@ -166,6 +166,7 @@ internal/httpserver/notifywire -> pkg/platform
 internal/httpserver/notifywire -> pkg/portal
 internal/httpserver/notifywire -> pkg/portal/mention
 internal/httpserver/scripthttp -> internal/httpjson
+internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp -> internal/logsan
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptrun
@@ -173,6 +174,7 @@ internal/httpserver/scripthttp -> internal/producedview
 internal/httpserver/scripthttp -> pkg/audit
 internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
+internal/httpserver/scripthttp/scriptlist -> pkg/script
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/tablehttp -> internal/httpjson
 internal/httpserver/tablehttp -> internal/logsan
@@ -590,6 +592,7 @@ internal/portal/producerapi -> pkg/resource
 internal/portal/sessionapi -> internal/httpjson
 internal/portal/sessionapi -> internal/platform/sessionview
 internal/portal/sessionapi -> internal/portal/access
+internal/portal/sessionapi -> pkg/audit
 internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
 internal/portal/viewerlimit -> pkg/ratelimit

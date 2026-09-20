@@ -46,6 +46,11 @@ type scratchSource struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
+	// Description is the source record's own description, which is what tells
+	// a reader what the data is; a file name rarely does. Omitted when the
+	// record carries none, so a surface has nothing to render rather than an
+	// empty field (#1796).
+	Description string `json:"description,omitempty"`
 	// Missing says the source record is no longer there. Deleting a file
 	// unregisters its tables, so this is the residue of a cleanup that did not
 	// complete -- a table over a directory whose object is gone, which a
@@ -292,10 +297,11 @@ func scratchViewOf(
 			Stale:        reg.IsStale(ref.Bucket, ref.HeadKey),
 		},
 		Source: scratchSource{
-			Kind:    reg.SourceKind,
-			ID:      reg.SourceID,
-			Name:    ref.Name,
-			Missing: !found,
+			Kind:        reg.SourceKind,
+			ID:          reg.SourceID,
+			Name:        ref.Name,
+			Description: ref.Description,
+			Missing:     !found,
 		},
 		CanUnregister: found && ref.CanModify && mayDrop(reg, caller),
 	}

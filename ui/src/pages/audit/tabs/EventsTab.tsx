@@ -94,6 +94,7 @@ export function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void 
 
       {selectedEvent && (
         <EventDrawer
+          sessionPath={(id) => `/admin/sessions/${encodeURIComponent(id)}`}
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
           onNavigate={onNavigate}

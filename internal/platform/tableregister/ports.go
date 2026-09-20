@@ -101,6 +101,11 @@ type SourceRef struct {
 	// Name is what the source is called, for a reader who is looking at a
 	// table name and does not recognize it.
 	Name string
+	// Description is what the source record says it is. A table name and a
+	// file name together still do not tell a reader what the data is, and the
+	// record already carries the sentence that does; it is read in the same
+	// bulk query as the rest of this, so carrying it costs no extra query.
+	Description string
 	// Bucket and HeadKey are where the source's content sits NOW, which is the
 	// half IsStale needs and the registration does not carry.
 	Bucket  string

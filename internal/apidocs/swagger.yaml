@@ -7552,7 +7552,22 @@ definitions:
         items:
           $ref: '#/definitions/scripthttp.portalScriptRow'
         type: array
+      failing:
+        example: 1
+        type: integer
+      scheduled:
+        description: |-
+          Scheduled and Failing count the same population Total does. They are
+          the health line above the listing, and they used to be computed in the
+          browser over the rows it had been sent -- so past the page cap they
+          counted the page while the facets beside them counted the platform.
+        example: 2
+        type: integer
       total:
+        description: |-
+          Total is every script the predicate matches, not the number of rows in
+          Data. The two differ when the listing was capped, which is the only way
+          a reader can be told the page is not the whole answer (#1795).
         example: 3
         type: integer
     type: object
@@ -8532,6 +8547,13 @@ definitions:
     type: object
   tablehttp.scratchSource:
     properties:
+      description:
+        description: |-
+          Description is the source record's own description, which is what tells
+          a reader what the data is; a file name rarely does. Omitted when the
+          record carries none, so a surface has nothing to render rather than an
+          empty field (#1796).
+        type: string
       id:
         type: string
       kind:
@@ -18859,6 +18881,48 @@ paths:
       summary: List DataHub connections
       tags:
       - DataHub
+  /portal/events/{id}:
+    get:
+      description: 'Returns one audit event of the calling user''s own, by event id.
+        It is the drill-down behind a row of the session timeline: the parameters
+        the call carried, the reason stated for it, and the error text when it failed,
+        none of which the timeline entry itself holds. The read is scoped to the caller
+        the same way the session read is — an event belonging to someone else is answered
+        as not-found rather than as a refusal, which is the same answer an id that
+        was never issued gets. It is not the call catalog: GET /portal/calls/{id}
+        answers only for the sql, api and graphql kinds, so most of a session''s rows
+        have no record there.'
+      parameters:
+      - description: Audit event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/audit.Event'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one of my own calls
+      tags:
+      - Sessions
   /portal/feedback/activity:
     get:
       description: Lists feedback threads across every asset, collection, and prompt
@@ -20818,12 +20882,26 @@ paths:
       - Resources
   /portal/scripts:
     get:
-      description: Returns every managed script the caller is entitled to see, each
-        with its cadence and, for the scripts they own, the state of its most recent
-        run. Administrators see every script. The category, tag and search parameters
-        narrow the listing; tag may be repeated, and a script matching any of the
-        named tags is returned.
+      description: Returns the managed scripts the caller may see, each with its cadence
+        and, for the scripts they own, the state of its most recent run. A script
+        is visible to everyone; what is readable is not. A row the caller does not
+        own carries no source, no run state and no action — it says that the script
+        exists, who owns it, what it says about itself and when it runs. scope=mine
+        narrows to the caller's own and is the default; scope=all lists every script.
+        Administrators see every script either way. The category, tag, search, owner,
+        status and enabled parameters narrow the listing; tag may be repeated, and
+        a script matching any of the named tags is returned. sort and dir order it
+        in the store, ahead of the page cap, so an ordering is over every matching
+        script rather than over the page. total counts every script the predicate
+        matches, so it exceeds the rows returned when the listing was capped.
       parameters:
+      - description: 'Whose scripts to list: mine (default) or all'
+        enum:
+        - mine
+        - all
+        in: query
+        name: scope
+        type: string
       - description: Narrow to one category slug
         in: query
         name: category
@@ -20839,6 +20917,35 @@ paths:
           contains this text
         in: query
         name: search
+        type: string
+      - description: Narrow to one author's scripts, by email
+        in: query
+        name: owner
+        type: string
+      - description: Narrow to one lifecycle status
+        in: query
+        name: status
+        type: string
+      - description: Narrow to enabled or disabled scripts
+        in: query
+        name: enabled
+        type: boolean
+      - description: Order by this column; an unknown value falls back to updated_at
+        enum:
+        - name
+        - display_name
+        - owner_email
+        - created_at
+        - updated_at
+        in: query
+        name: sort
+        type: string
+      - description: Order direction
+        enum:
+        - asc
+        - desc
+        in: query
+        name: dir
         type: string
       produces:
       - application/json

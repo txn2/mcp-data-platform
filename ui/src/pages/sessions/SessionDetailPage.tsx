@@ -81,6 +81,7 @@ export function SessionDetailPage({
       )}
       {selectedEvent && (
         <EventDrawer
+          sessionPath={(id) => `/admin/sessions/${encodeURIComponent(id)}`}
           event={selectedEvent}
           onClose={() => setSelectedEventId(null)}
           onNavigate={onNavigate}

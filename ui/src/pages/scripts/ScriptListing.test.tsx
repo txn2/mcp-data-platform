@@ -12,8 +12,27 @@ import { useScriptListing } from "@/api/portal/hooks/scripts";
 const mockScripts = vi.mocked(useScriptListing);
 const onNavigate = vi.fn();
 
-function query<T>(data: T, extra: Record<string, unknown> = {}) {
-  return { data, isLoading: false, error: null, ...extra } as never;
+// answer is a listing response. The three counts are the server's: total and
+// scheduled are counted over the predicate, failing over the page (#1795), so
+// a test that wants them says so rather than having them derived from rows.
+function answer(
+  rows: PortalScriptRow[],
+  counts: Partial<{ total: number; scheduled: number; failing: number }> = {},
+) {
+  return {
+    data: {
+      data: rows,
+      total: counts.total ?? rows.length,
+      scheduled: counts.scheduled ?? rows.filter((r) => r.schedule).length,
+      failing: counts.failing ?? rows.filter((r) => r.last_run?.status === "failed").length,
+    },
+    isLoading: false,
+    error: null,
+  } as never;
+}
+
+function loading() {
+  return { data: undefined, isLoading: true, error: null } as never;
 }
 
 function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
@@ -58,465 +77,304 @@ function list() {
   return render(<ScriptListing audience="owner" basePath="/scripts" onNavigate={onNavigate} />);
 }
 
-// asAdmin renders the same listing as an administrator reads it (#1407).
-function asAdmin() {
-  return render(
-    <ScriptListing audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />,
-  );
+// The listing calls the hook TWICE per render: once for the rows and once,
+// narrowed by scope alone, for the facet vocabulary. Only the first carries an
+// ordering, which is what separates them here -- reading "the last call" would
+// read the vocabulary query and assert nothing about the listing.
+function lastFilter(): Record<string, unknown> {
+  const listings = filters().filter((f) => "sort" in f);
+  return listings[listings.length - 1] ?? {};
+}
+
+// A Radix tab activates on mousedown, not on click: the scope tabs are a
+// `ui/tabs` list, so a plain click leaves the listing on the scope it opened
+// with and asserts nothing.
+function chooseScope(label: string) {
+  fireEvent.mouseDown(screen.getByRole("tab", { name: label }));
+}
+
+/** The filters the listing has asked for, newest last. */
+function filters(): Record<string, unknown>[] {
+  return mockScripts.mock.calls.map(([f]) => (f ?? {}) as Record<string, unknown>);
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  mockScripts.mockReturnValue(query({ data: [row()], total: 1 }));
+  mockScripts.mockReset();
+  onNavigate.mockReset();
+  // globalThis.localStorage rather than the bare global: ScopeFilter reads it
+  // through globalThis and guards it, and this file runs in environments where
+  // the bare identifier is not defined.
+  globalThis.localStorage?.clear();
 });
 
 afterEach(cleanup);
 
 describe("ScriptListing", () => {
-  it("reports what a script is called, its cadence, and how it last ran", () => {
+  it("lists a script with its name, author, cadence and last run", () => {
+    mockScripts.mockReturnValue(answer([row()]));
     list();
 
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
-    expect(screen.getByText("succeeded")).toBeInTheDocument();
-  });
-
-  // #1407: the column this replaces said "Runs v2" on every healthy row, which
-  // is a fact about every script and therefore not one worth a column. The
-  // version a run executes is on the script's own page.
-  it("says nothing about the version a healthy script runs", () => {
-    list();
-    expect(screen.queryByText("Runs v2")).not.toBeInTheDocument();
-  });
-
-  // #1358: the column an owner scans to answer "what is running and when" said
-  // "0 7 * * 1-5", while the editor two clicks away said the same cadence in
-  // words. The sentence is the one the editor states.
-  it("states a cadence in the words the schedule editor states it in", () => {
-    list();
-    expect(
-      screen.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("daily-sales-report")).toBeInTheDocument();
+    expect(screen.getByText(/sarah\.chen/)).toBeInTheDocument();
+    // The cadence reads in words rather than as a cron expression (#1405).
     expect(screen.queryByText("0 7 * * 1-5")).not.toBeInTheDocument();
   });
 
-  // #1405: this column is in words whatever the expression is. A step cadence
-  // is the shape an agent writes and the builder has no control for.
-  it("states a step cadence in words", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [row({ schedule: { ...row().schedule!, cron_spec: "*/30 * * * *" } })],
-        total: 1,
-      }),
-    );
+  it("shows a loading state rather than an empty one while the listing is in flight", () => {
+    mockScripts.mockReturnValue(loading());
     list();
-    expect(
-      screen.getByText("Every 30 minutes, America/Los_Angeles"),
-    ).toBeInTheDocument();
+
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+    expect(screen.queryByText(/You have no scripts yet/)).not.toBeInTheDocument();
   });
 
-  // An expression this page cannot state is named as one, not printed. A cron
-  // expression belongs in the schedule editor, where somebody is editing one.
-  it("never shows a cron expression, whatever the cadence is", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [row({ schedule: { ...row().schedule!, cron_spec: "*/7 3 * 2 1-5" } })],
-        total: 1,
-      }),
-    );
+  it("opens the script when its row is clicked", () => {
+    mockScripts.mockReturnValue(answer([row()]));
     list();
-    expect(screen.getByText("Custom cadence, America/Los_Angeles")).toBeInTheDocument();
-    expect(screen.queryByText("*/7 3 * 2 1-5")).not.toBeInTheDocument();
-  });
 
-  it("says an enabled schedule with nothing due is not overdue", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [row({ schedule: { ...row().schedule!, next_run_at: undefined } })],
-        total: 1,
-      }),
-    );
-    list();
-    expect(screen.getByText("No fire due")).toBeInTheDocument();
-  });
-
-  // What a listing is scanned for is the exception, so the state that stops a
-  // script running is marked on its name (#1407).
-  it("marks a disabled script, whatever else is true of it", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [row({ script: { ...row().script, enabled: false } })],
-        total: 1,
-      }),
-    );
-    list();
-    expect(screen.getByText("disabled")).toBeInTheDocument();
-  });
-
-  it("marks a retired script by its status", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [row({ script: { ...row().script, status: "deprecated" } })],
-        total: 1,
-      }),
-    );
-    list();
-    expect(screen.getByText("deprecated")).toBeInTheDocument();
-  });
-
-  it("reports a paused schedule rather than a next fire that will not happen", () => {
-    mockScripts.mockReturnValue(
-      query({ data: [row({ schedule: { ...row().schedule!, enabled: false } })], total: 1 }),
-    );
-    list();
-    expect(screen.getByText("Paused")).toBeInTheDocument();
-  });
-
-  it("says a script with no schedule runs on demand", () => {
-    mockScripts.mockReturnValue(query({ data: [row({ schedule: undefined })], total: 1 }));
-    list();
-    expect(screen.getByText("On demand")).toBeInTheDocument();
-  });
-
-  it("distinguishes a script that has never run from one whose runs are not the caller's", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [
-          row({ last_run: undefined }),
-          row({
-            script: { ...row().script, id: "script-002", display_name: "Someone Else's" },
-            owned: false,
-            last_run: undefined,
-          }),
-        ],
-        total: 2,
-      }),
-    );
-    list();
-    expect(screen.getByText("Never run")).toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
-  });
-
-  // #1405: three tiles, each of them the control that shows what it counted,
-  // and each named plainly enough to need no sentence explaining its own title.
-  it("counts the listing in three tiles that need no caption", () => {
-    list();
-    expect(screen.getByRole("button", { name: /^Scripts/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Scheduled/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Failing/ })).toBeInTheDocument();
-    expect(screen.queryByText(/Automation/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("scripts you own")).not.toBeInTheDocument();
-  });
-
-  // The row is the target, as it is on every other listing in the portal.
-  it("opens a script's detail page from the row", () => {
-    list();
-    fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
+    fireEvent.click(screen.getByText("Daily Sales Report"));
     expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001");
   });
-
-  it("says plainly when there are no scripts at all", () => {
-    mockScripts.mockReturnValue(query({ data: [], total: 0 }));
-    list();
-    expect(screen.getByText(/You have no scripts yet/)).toBeInTheDocument();
-  });
-
-  // Nothing to narrow is nothing to narrow with: a search box over an empty
-  // listing is a control that cannot do anything.
-  it("offers no filter bar to a caller who owns no scripts", () => {
-    mockScripts.mockReturnValue(query({ data: [], total: 0 }));
-    list();
-    expect(screen.queryByLabelText("Search scripts")).not.toBeInTheDocument();
-  });
-
-  // A search that matched nothing keeps the control that clears it.
-  it("keeps the filter bar when a narrowed listing came back empty", () => {
-    mockScripts.mockImplementation((filter) =>
-      filter?.search ? query({ data: [], total: 0 }) : query({ data: [row()], total: 1 }),
-    );
-    list();
-    fireEvent.change(screen.getByLabelText("Search scripts"), { target: { value: "nothing" } });
-    expect(screen.getByLabelText("Search scripts")).toBeInTheDocument();
-  });
-
-  it("reports a listing that could not be loaded instead of showing it as empty", () => {
-    mockScripts.mockReturnValue(query(undefined, { error: new Error("boom") }));
-    list();
-    expect(screen.getByText(/scripts could not be loaded/)).toBeInTheDocument();
-  });
-
-  it("shows a loading state rather than an empty one while the listing is in flight", () => {
-    mockScripts.mockReturnValue(query(undefined, { isLoading: true }));
-    list();
-    expect(screen.getByText("Loading scripts...")).toBeInTheDocument();
-  });
 });
 
-// The two axes a script is filed on (#1369) and the free text over the rest
-// (#1405). All three were stored and searched on long before any of them was
-// shown anywhere, so a listing that could not narrow by them was a flat list.
-describe("ScriptListing: filing and filtering", () => {
-  const sales = row();
-  const margins = row({
-    script: {
-      ...row().script,
-      id: "script-004",
-      name: "my-margin-check",
-      display_name: "My Margin Check",
-      category: "finance",
-      tags: ["margins"],
-    },
-  });
-
-  beforeEach(() => {
-    sales.script.category = "reporting";
-    sales.script.tags = ["sales", "weekly"];
-    mockScripts.mockReturnValue(query({ data: [sales, margins], total: 2 }));
-  });
-
-  it("shows how each script is filed, on its row", () => {
-    list();
-    const salesRow = screen.getByRole("row", { name: /Daily Sales Report/ });
-    expect(salesRow).toHaveTextContent("reporting");
-    expect(salesRow).toHaveTextContent("sales");
-    expect(salesRow).toHaveTextContent("weekly");
-  });
-
-  it("offers a chip per category and tag, counted over the listing", () => {
-    list();
-    expect(screen.getByRole("button", { name: /reporting/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /finance/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /margins/ })).toBeInTheDocument();
-  });
-
-  // The narrowing is the SERVER's, not the table's: the listing is capped, so a
-  // page filtering the rows it received would answer from a truncated set.
-  it("asks the server for the narrowed listing", () => {
-    list();
-    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
-    expect(mockScripts).toHaveBeenCalledWith({ category: "reporting" });
-  });
-
-  it("clears an axis when its active chip is pressed again", () => {
-    list();
-    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
-    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
-
-    // The unfiltered facet-vocabulary read passes no argument at all, so the
-    // filter under test is the last call that carried one. A cleared axis is
-    // absent rather than undefined, which is what keeps the two reads on one
-    // query key when nothing is filtered.
-    const filters = mockScripts.mock.calls.map(([f]) => f).filter((f) => f !== undefined);
-    expect(filters[filters.length - 1]).toEqual({});
-  });
-
-  // The chips are read from the UNFILTERED listing, so narrowing to one
-  // category does not delete every other chip and strand the reader there.
-  it("keeps every chip on screen while a filter is applied", () => {
-    list();
-    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
-    expect(screen.getByRole("button", { name: /finance/ })).toBeInTheDocument();
-  });
-
-  it("distinguishes a filter that matched nothing from having no scripts", () => {
-    list();
-    // The filtered query answers empty; the unfiltered one still has the rows
-    // the chips are built from, which is what the second mock return models.
-    mockScripts.mockImplementation((filter) =>
-      filter?.category ? query({ data: [], total: 0 }) : query({ data: [sales, margins], total: 2 }),
+// The health line replaces three bordered tiles (#1795). The counts are the
+// server's, and only the failed one is a control.
+describe("ScriptListing: the health line", () => {
+  it("states the totals the server counted, not the rows on screen", () => {
+    mockScripts.mockReturnValue(
+      answer([row()], { total: 240, scheduled: 96, failing: 0 }),
     );
-    fireEvent.click(screen.getByRole("button", { name: /reporting/ }));
-
-    expect(screen.getByText(/No script you can see matches that/)).toBeInTheDocument();
-    expect(screen.queryByText(/You have no scripts yet/)).not.toBeInTheDocument();
-  });
-
-  // A script nobody has filed carries no chips, and the search stays: free
-  // text is how a listing is narrowed before anybody has filed anything.
-  it("offers the search with no chips when nothing is filed", () => {
-    mockScripts.mockReturnValue(query({ data: [row()], total: 1 }));
     list();
-    expect(screen.getByLabelText("Search scripts")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^All$/ })).not.toBeInTheDocument();
-    expect(screen.queryByText("Tag")).not.toBeInTheDocument();
-  });
-});
 
-// The tiles are the page's own filters (#1405): the number an owner opens this
-// page for — the reports that failed this morning — used to be a red badge
-// they had to find by reading the table row by row.
-describe("ScriptListing: the tiles filter", () => {
-  const failing = row({
-    script: { ...row().script, id: "script-005", display_name: "Broken Report" },
-    last_run: { ...row().last_run!, status: "failed" },
-  });
-  const onDemand = row({
-    script: { ...row().script, id: "script-006", display_name: "On Demand Report" },
-    schedule: undefined,
+    expect(screen.getByTestId("script-health-total")).toHaveTextContent("240 scripts");
+    expect(screen.getByText(/96 scheduled/)).toBeInTheDocument();
   });
 
-  beforeEach(() => {
-    mockScripts.mockReturnValue(query({ data: [row(), failing, onDemand], total: 3 }));
-  });
-
-  it("counts the scripts, the scheduled ones, and the ones whose last run failed", () => {
+  it("says so when the page is not the whole answer", () => {
+    mockScripts.mockReturnValue(answer([row()], { total: 240 }));
     list();
-    expect(screen.getByRole("button", { name: "Scripts 3" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Scheduled 2" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Failing 1" })).toBeInTheDocument();
+
+    expect(screen.getByText(/showing 1/)).toBeInTheDocument();
   });
 
-  it("shows the scripts a tile counted when the tile is pressed", () => {
+  it("says nothing about a page that is the whole answer", () => {
+    mockScripts.mockReturnValue(answer([row()], { total: 1 }));
     list();
-    fireEvent.click(screen.getByRole("button", { name: /^Failing/ }));
 
-    expect(screen.getByRole("button", { name: /^Failing/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByText("Broken Report")).toBeInTheDocument();
-    expect(screen.queryByText("On Demand Report")).not.toBeInTheDocument();
+    expect(screen.queryByText(/showing/)).not.toBeInTheDocument();
   });
 
-  // A paused schedule is still a schedule. Counting only the firing ones would
-  // report "Scheduled 0" over a row that states a cadence.
-  it("counts a paused schedule as scheduled", () => {
-    const paused = row({
-      script: { ...row().script, id: "script-007", display_name: "Paused Report" },
-      schedule: { ...row().schedule!, enabled: false },
+  it("offers the failed count as the one control on the line", () => {
+    const failed = row({
+      script: { ...row().script, id: "script-002", display_name: "Churn Watch" },
+      last_run: { ...row().last_run!, status: "failed" },
     });
-    mockScripts.mockReturnValue(query({ data: [paused, onDemand], total: 2 }));
+    mockScripts.mockReturnValue(answer([row(), failed]));
     list();
 
-    expect(screen.getByRole("button", { name: "Scheduled 1" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Scheduled/ }));
-    expect(screen.getByText("Paused Report")).toBeInTheDocument();
-    expect(screen.queryByText("On Demand Report")).not.toBeInTheDocument();
+    const control = screen.getByTestId("script-health-failing");
+    expect(control).toHaveTextContent("1 failed its last run");
+    expect(control).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-pressed", "true");
+    // Pressed, the listing is the scripts it counted.
+    expect(screen.getByText("Churn Watch")).toBeInTheDocument();
+    expect(screen.queryByText("Daily Sales Report")).not.toBeInTheDocument();
+
+    fireEvent.click(control);
+    expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
   });
 
-  it("clears the filter when the pressed tile is pressed again", () => {
+  it("offers nothing to press when nothing failed", () => {
+    mockScripts.mockReturnValue(answer([row()]));
     list();
-    fireEvent.click(screen.getByRole("button", { name: /^Failing/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Failing/ }));
-    expect(screen.getByText("On Demand Report")).toBeInTheDocument();
-  });
 
-  // "Scripts" is the whole listing, so pressing it is how a reader clears one
-  // of the other two — and it is what reads as pressed while nothing is.
-  it("clears the filter from the Scripts tile", () => {
-    list();
-    expect(screen.getByRole("button", { name: /^Scripts/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /^Scheduled/ }));
-    expect(screen.queryByText("On Demand Report")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Scripts/ }));
-    expect(screen.getByText("On Demand Report")).toBeInTheDocument();
-  });
-
-  // A tile counts what the server answered, so a tile and a chip pressed
-  // together agree with the table under them rather than with the whole corpus.
-  it("says plainly when a tile matched nothing", () => {
-    mockScripts.mockReturnValue(query({ data: [onDemand], total: 1 }));
-    list();
-    fireEvent.click(screen.getByRole("button", { name: /^Failing/ }));
-
-    expect(screen.getByText(/No script you can see matches that/)).toBeInTheDocument();
-    expect(screen.queryByText(/You have no scripts yet/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("script-health-failing")).not.toBeInTheDocument();
   });
 });
 
-// The search is the SERVER's, for the same reason the chips are: the listing is
-// capped, so a page searching the rows it received would answer from a
-// truncated set and report a count to match.
-describe("ScriptListing: the search", () => {
-  it("asks the server for the scripts matching what was typed", async () => {
+// Ordering is the server's, which is the whole point: sorting in the browser
+// would order the page the cap returned (#1795).
+describe("ScriptListing: ordering", () => {
+  it("opens on most recently updated, descending", () => {
+    mockScripts.mockReturnValue(answer([row()]));
     list();
-    fireEvent.change(screen.getByLabelText("Search scripts"), { target: { value: "sales" } });
 
+    expect(lastFilter()).toMatchObject({ sort: "updated_at", dir: "desc" });
+  });
+
+  it("asks the server for the column whose header was clicked", async () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+
+    fireEvent.click(screen.getByText("Script"));
     await waitFor(() => {
-      const filters = mockScripts.mock.calls.map(([f]) => f).filter((f) => f !== undefined);
-      expect(filters[filters.length - 1]).toMatchObject({ search: "sales" });
+      // A text column reads A-Z when it first becomes the sorted one.
+      expect(lastFilter()).toMatchObject({ sort: "display_name", dir: "asc" });
     });
   });
 
-  // A cleared box is an unfiltered listing, on the same query key the facet
-  // vocabulary is already read under, rather than a search for nothing.
-  it("carries no search once the box is cleared", async () => {
+  it("reverses the column when its header is clicked again", async () => {
+    mockScripts.mockReturnValue(answer([row()]));
     list();
+
+    fireEvent.click(screen.getByText("Author"));
+    await waitFor(() => expect(lastFilter()).toMatchObject({ sort: "owner_email", dir: "asc" }));
+
+    fireEvent.click(screen.getByText("Author"));
+    await waitFor(() => expect(lastFilter()).toMatchObject({ sort: "owner_email", dir: "desc" }));
+  });
+
+  it("offers no ordering on Last run, which is attached per page", () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+
+    fireEvent.click(screen.getByText("Last run"));
+    expect(lastFilter()).toMatchObject({ sort: "updated_at" });
+  });
+});
+
+describe("ScriptListing: the filter bar", () => {
+  const corpus = [
+    row(),
+    row({
+      script: {
+        ...row().script,
+        id: "script-002",
+        name: "churn-watch",
+        display_name: "Churn Watch",
+        category: "ops",
+        tags: ["churn"],
+        owner_email: "marcus.webb@example.com",
+      },
+    }),
+  ];
+
+  it("renders one row of controls and no chip cloud", () => {
+    mockScripts.mockReturnValue(answer(corpus));
+    list();
+
+    expect(screen.getByLabelText("Filter by author")).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by category")).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by tag")).toBeInTheDocument();
+    expect(screen.getByLabelText("Filter by status")).toBeInTheDocument();
+    // The tag vocabulary is reachable only through its facet: no chip per tag.
+    expect(screen.queryByRole("button", { name: /^churn/ })).not.toBeInTheDocument();
+  });
+
+  it("asks the server for what was typed", async () => {
+    mockScripts.mockReturnValue(answer(corpus));
+    list();
+
+    fireEvent.change(screen.getByLabelText("Search scripts"), {
+      target: { value: "sales" },
+    });
+    await waitFor(() => {
+      expect(filters().some((f) => f["search"] === "sales")).toBe(true);
+    });
+  });
+
+  it("carries no search once the box is cleared", async () => {
+    mockScripts.mockReturnValue(answer(corpus));
+    list();
+
     const box = screen.getByLabelText("Search scripts");
     fireEvent.change(box, { target: { value: "sales" } });
-    fireEvent.change(box, { target: { value: "  " } });
+    await waitFor(() => expect(filters().some((f) => f["search"] === "sales")).toBe(true));
 
+    fireEvent.change(box, { target: { value: "" } });
+    await waitFor(() => expect(lastFilter()["search"]).toBeUndefined());
+  });
+
+  it("distinguishes a filter that matched nothing from having no scripts", async () => {
+    mockScripts.mockImplementation((filter) => {
+      const narrowed = Boolean(filter && "search" in filter && filter.search);
+      return answer(narrowed ? [] : corpus);
+    });
+    list();
+
+    fireEvent.change(screen.getByLabelText("Search scripts"), {
+      target: { value: "nothing-matches-this" },
+    });
     await waitFor(() => {
-      const filters = mockScripts.mock.calls.map(([f]) => f).filter((f) => f !== undefined);
-      expect(filters[filters.length - 1]).toEqual({});
+      expect(screen.getByText(/No script you can see matches that/)).toBeInTheDocument();
     });
   });
 });
 
-// The administrator reads the same listing (#1407): every script on the
-// platform, in the same columns, plus whose script each one is.
-describe("ScriptListing: the administrator's reading", () => {
-  it("names who each script belongs to", () => {
-    mockScripts.mockReturnValue(
-      query({
-        data: [
-          row(),
-          row({
-            script: { ...row().script, id: "script-003", display_name: "Orphan Report", owner_email: "" },
-          }),
-        ],
-        total: 2,
-      }),
-    );
-    asAdmin();
-
-    expect(screen.getByRole("columnheader", { name: "Owner" })).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /Daily Sales Report/ })).toHaveTextContent(
-      "sarah.chen@example.com",
-    );
-    // A script authored by a principal carrying no address belongs to nobody
-    // until an administrator transfers it (#1404).
-    expect(screen.getByRole("row", { name: /Orphan Report/ })).toHaveTextContent("nobody");
-  });
-
-  // Every script here is the reader's own, so whose it is is not a fact worth
-  // a column.
-  it("carries no owner column for the person who owns the scripts", () => {
+// A script is visible to everyone; what is readable is not (#1795).
+describe("ScriptListing: scope", () => {
+  it("opens on the caller's own scripts", () => {
+    mockScripts.mockReturnValue(answer([row()]));
     list();
-    expect(screen.queryByRole("columnheader", { name: "Owner" })).not.toBeInTheDocument();
+
+    expect(lastFilter()).toMatchObject({ scope: "mine" });
   });
 
-  it("opens a script under the section the reader came from", () => {
-    asAdmin();
-    fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
-    expect(onNavigate).toHaveBeenCalledWith("/admin/scripts/script-001");
+  it("lists every script when the reader asks for all", async () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+
+    chooseScope("All");
+    await waitFor(() => expect(lastFilter()["scope"]).toBe("all"));
   });
 
-  it("says a platform with no scripts has none, rather than telling an administrator to write one", () => {
-    mockScripts.mockReturnValue(query({ data: [], total: 0 }));
-    asAdmin();
-    expect(screen.getByText(/No scripts have been authored yet/)).toBeInTheDocument();
-  });
+  // Persistence is asserted in the browser (e2e/interactive/scripts-listing
+  // .spec.ts), not here: this jsdom environment provides no localStorage at
+  // all, so a test of it would pass on a component that stored nothing.
 
-  it("reports a listing it could not read in the administrator's terms", () => {
-    mockScripts.mockReturnValue(query(undefined, { error: new Error("boom") }));
-    asAdmin();
-    expect(screen.getByText(/script listing could not be loaded/)).toBeInTheDocument();
-  });
-
-  // The search is the one the owners have, on the listing the administrator
-  // reads: the same predicate, applied by the server.
-  it("narrows every script by what an administrator typed", async () => {
-    asAdmin();
-    fireEvent.change(screen.getByLabelText("Search scripts"), { target: { value: "sales" } });
-
-    await waitFor(() => {
-      const filters = mockScripts.mock.calls.map(([f]) => f).filter((f) => f !== undefined);
-      expect(filters[filters.length - 1]).toMatchObject({ search: "sales" });
+  it("shows a row the reader does not own without its run state", () => {
+    const theirs = row({
+      script: { ...row().script, id: "script-003", display_name: "Someone Else's" },
+      owned: false,
+      last_run: undefined,
     });
+    mockScripts.mockReturnValue(answer([theirs]));
+    list();
+
+    expect(screen.getByText("Someone Else's")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+});
+
+describe("ScriptListing: a row", () => {
+  it("states its category once, beside the name, and carries no tag badges", () => {
+    const filed = row({
+      script: {
+        ...row().script,
+        category: "reports",
+        tags: ["finance", "weekly", "board"],
+      },
+    });
+    mockScripts.mockReturnValue(answer([filed]));
+    list();
+
+    expect(screen.getByText("reports")).toBeInTheDocument();
+    for (const tag of ["finance", "weekly", "board"]) {
+      expect(screen.queryByText(tag)).not.toBeInTheDocument();
+    }
+  });
+
+  it("marks a script that will execute nothing", () => {
+    const off = row({ script: { ...row().script, enabled: false } });
+    mockScripts.mockReturnValue(answer([off]));
+    list();
+
+    expect(screen.getByText("disabled")).toBeInTheDocument();
+  });
+});
+
+describe("ScriptListing: the administrator's reading", () => {
+  it("names who each script belongs to, and offers no scope tabs", () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    render(
+      <ScriptListing audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />,
+    );
+
+    expect(screen.getByText(/sarah\.chen/)).toBeInTheDocument();
+    // An administrator's listing is every script by definition.
+    expect(screen.queryByRole("tab", { name: "Mine" })).not.toBeInTheDocument();
   });
 });

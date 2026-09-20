@@ -347,6 +347,12 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if db := p.DB(); db != nil {
 		deps.SessionViewer = sessionview.NewPostgresStore(db)
 	}
+	// One row of that timeline, opened: the audit store rather than the read
+	// model, because what the drill-down adds is the event's own parameters
+	// and error text and those are columns of the audit row (#1797).
+	if p.Audit().Store() != nil {
+		deps.AuditEvents = p.Audit().Store()
+	}
 	// The call catalog and the promotion path are the same two objects the
 	// operator surface takes; what differs is the scope each read carries and
 	// who the action is attributed to.

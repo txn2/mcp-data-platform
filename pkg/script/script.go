@@ -263,6 +263,65 @@ type ListFilter struct {
 	Tags     []string
 	Search   string // free-text search on name, display_name, description
 	Limit    int    // cap the number of rows returned; 0 means the store default
+	// Sort names the column to order by and Desc the direction. An empty or
+	// unrecognized Sort falls back to the default, most-recently-updated
+	// first: a listing answers with the wrong order rather than refusing,
+	// because the caller of a listing is a page of a portal and a typo in a
+	// query string is not worth a blank screen.
+	//
+	// Ordering belongs here, and not in the reader, because Limit is applied
+	// by the store: sorting a page that the cap already chose orders the 200
+	// most recently updated scripts, so "A-Z" would silently mean "A-Z within
+	// the most recent 200". ORDER BY moves ahead of LIMIT, in SQL.
+	Sort SortColumn
+	Desc bool
+}
+
+// SortColumn is a column a listing may be ordered by. It is a type rather than
+// a string so the set is the type's own and a caller cannot reach a column by
+// spelling it: the value that arrives over a query string is resolved through
+// ParseSortColumn, which refuses everything not named here.
+type SortColumn string
+
+// The orderable columns. Last run is deliberately absent: it is attached to a
+// page after the query returns, so ordering by it would order the page rather
+// than the listing, which is the defect this type exists to prevent.
+const (
+	SortUpdatedAt   SortColumn = "updated_at"
+	SortCreatedAt   SortColumn = "created_at"
+	SortName        SortColumn = "name"
+	SortDisplayName SortColumn = "display_name"
+	SortOwnerEmail  SortColumn = "owner_email"
+)
+
+// sortColumns is the whitelist, keyed by the value a caller sends.
+var sortColumns = map[string]SortColumn{
+	string(SortUpdatedAt):   SortUpdatedAt,
+	string(SortCreatedAt):   SortCreatedAt,
+	string(SortName):        SortName,
+	string(SortDisplayName): SortDisplayName,
+	string(SortOwnerEmail):  SortOwnerEmail,
+}
+
+// ParseSortColumn resolves what a caller asked to sort by, reporting whether
+// the column was one this package orders on.
+//
+// It reports rather than substituting, because the two cases want different
+// answers: an unrecognized column must leave the filter's Sort EMPTY so the
+// store's own default applies (most recently updated first), while
+// substituting SortUpdatedAt would leave the direction to the caller's `dir`
+// and answer ascending for a filter that named nothing valid. An unknown
+// column is still not an error -- a stale link or a typo lists in the default
+// order rather than failing.
+func ParseSortColumn(v string) (SortColumn, bool) {
+	col, ok := sortColumns[v]
+	return col, ok
+}
+
+// SortColumns returns every orderable column, for the surfaces that document
+// or validate the set.
+func SortColumns() []SortColumn {
+	return []SortColumn{SortName, SortDisplayName, SortOwnerEmail, SortCreatedAt, SortUpdatedAt}
 }
 
 // ErrNotFound is what a store write reports when no script bears the ID it was
@@ -303,8 +362,23 @@ type Store interface {
 	// zero when the delete failed.
 	Delete(ctx context.Context, id string) (Removed, error)
 
-	// List returns scripts matching the filter, newest first.
+	// List returns scripts matching the filter, in the order the filter asks
+	// for and most recently updated first when it asks for none.
 	List(ctx context.Context, filter ListFilter) ([]Script, error)
+
+	// Count returns how many scripts match the filter, ignoring its Limit.
+	//
+	// It exists so a listing can say what it truncated. Reporting len(rows)
+	// as the total made a deployment past the page cap read its own cap back
+	// as the number of scripts it had, with nothing on the page saying so
+	// (#1795), and it is what the counts above the listing are computed from.
+	Count(ctx context.Context, filter ListFilter) (int, error)
+
+	// CountScheduled returns how many scripts matching the filter carry a
+	// cadence, ignoring its Limit. It answers the "scheduled" half of the
+	// health line above the listing, which was counted in the browser over
+	// the page the cap returned (#1795).
+	CountScheduled(ctx context.Context, filter ListFilter) (int, error)
 
 	// Transfer moves a script to a new owner and records the move as a version
 	// authored by the administrator making it, whose roles the new version

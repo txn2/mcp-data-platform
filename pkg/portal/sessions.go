@@ -10,10 +10,18 @@ import (
 // of it differs only in being scoped to the caller.
 type SessionViewer = sessionapi.Store
 
+// AuditEvents reads one of the caller's own calls in full, for the drill-down
+// behind a session timeline row. Aliased to the seam's declaration for the same
+// reason SessionViewer is.
+type AuditEvents = sessionapi.Events
+
 // registerSessionRoutes mounts the caller's own sessions, implemented in the
 // internal/portal/sessionapi seam. A session is derived from audit history, so
 // with no SessionViewer wired there is nothing to derive one from and the seam
 // registers nothing.
 func (h *Handler) registerSessionRoutes() {
-	sessionapi.Register(h.mux, sessionapi.Config{Sessions: h.deps.SessionViewer})
+	sessionapi.Register(h.mux, sessionapi.Config{
+		Sessions: h.deps.SessionViewer,
+		Events:   h.deps.AuditEvents,
+	})
 }

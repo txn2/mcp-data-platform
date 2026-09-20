@@ -103,12 +103,15 @@ authority a scheduled run executes; a script showing **nobody** as its owner was
 authored by a principal carrying no address and is visible only to
 administrators. Opening a row opens the script.
 
-The tiles above the table count the listing and also filter it — every script,
-the scheduled ones, and the ones whose last run failed — and the search box and
-the category and tag chips narrow it as query predicates, answered by the server
-over every script rather than over the rows this page happened to load. It is
-the same listing the owners read on their own Scripts page, with the Owner
-column added: one listing, so the two surfaces cannot drift apart.
+One health line above the table counts the listing — how many scripts, how many
+are scheduled, how many failed their last run, the last of which also filters to
+them — and one filter bar narrows it: a search box and a facet each for author,
+category, tag and status, every one a query predicate answered by the server over
+every script rather than over the rows this page happened to load. The Script,
+Author and Updated headers order it, in the store and ahead of the page cap. It
+is the same listing the owners read on their own Scripts page, without the scope
+tabs, which an administrator has no use for: one listing, so the two surfaces
+cannot drift apart.
 
 ### One script
 

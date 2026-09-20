@@ -66,9 +66,10 @@ afterEach(cleanup);
 describe("AdminScriptsPage", () => {
   it("lists every script with whose it is", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
-    expect(screen.getByRole("columnheader", { name: "Owner" })).toBeInTheDocument();
+    // The column is Author on both surfaces now, and sorts (#1795).
+    expect(screen.getByRole("columnheader", { name: /Author/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Daily Sales Report/ })).toHaveTextContent(
-      "sarah.chen@example.com",
+      "sarah.chen",
     );
   });
 

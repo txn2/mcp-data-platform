@@ -388,6 +388,23 @@ export const mockScriptRuns: Record<string, ScriptRun[]> = {
   ],
   "script-002": [],
   "script-003": [
+    // Its most recent run failed, which is what the listing's health line
+    // counts and the one number a person opens that page to find (#1795). A
+    // freshness check that cannot reach the warehouse is the ordinary shape of
+    // that: the schedule keeps firing and the answer stops arriving.
+    {
+      id: "run-102",
+      status: "failed",
+      trigger: "schedule",
+      version: 5,
+      fire_time: hoursAgo(3),
+      started_at: hoursAgo(3),
+      finished_at: hoursAgo(3),
+      duration_ms: 1_180,
+      error:
+        'platform.query: connection "acme-warehouse" refused the query: relation "ops.loads" does not exist',
+      output_count: 0,
+    },
     {
       id: "run-101",
       status: "succeeded",

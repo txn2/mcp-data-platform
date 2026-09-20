@@ -7,7 +7,7 @@ vi.mock("@/api/portal/hooks", () => ({
 }));
 
 import { useMyNotifications } from "@/api/portal/hooks";
-import { MyNotifications } from "./MyNotifications";
+import { NotificationsPanel } from "./NotificationsPanel";
 
 const mockUseHistory = vi.mocked(useMyNotifications);
 
@@ -43,7 +43,7 @@ function show(data?: NotificationHistory, state: { isLoading?: boolean; error?: 
     isLoading: state.isLoading ?? false,
     error: state.error ?? null,
   } as ReturnType<typeof useMyNotifications>);
-  render(<MyNotifications />);
+  render(<NotificationsPanel />);
 }
 
 beforeEach(() => {
@@ -52,7 +52,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("MyNotifications", () => {
+describe("NotificationsPanel", () => {
   it("lists the notifications addressed to the user", () => {
     show(history());
     expect(screen.getByText(/shared the asset/i)).toBeInTheDocument();

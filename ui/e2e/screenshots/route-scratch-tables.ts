@@ -1,7 +1,7 @@
 import { type ScreenshotRoute } from "./route-types";
 
 // The Scratch Tables section (#1472): the listing, and one registration at its
-// own address in the two states a reader meets it in. They live beside the
+// own address in the states a reader meets it in. They live beside the
 // manifest for the same reason the asset-viewer and managed-script routes do --
 // a page's captures kept together, so one added for a new state sits next to
 // the others of the same page.
@@ -30,6 +30,15 @@ export const scratchTableRoutes: ScreenshotRoute[] = [
     // thing only a cross-source read can tell a reader.
     slug: "scratch-table-stale",
     path: "/portal/scratch-tables/reg_7b3d90",
+    category: "user",
+  },
+  {
+    // A registration whose qualified name runs past 90 characters, which is
+    // what a table registered from a spreadsheet gets: the case that used to
+    // paint the name across the Connection and Source cells beside it, and the
+    // one that crowds a page header against its actions (#1796).
+    slug: "scratch-table-long-name",
+    path: "/portal/scratch-tables/reg_c71b45",
     category: "user",
   },
   {

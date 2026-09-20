@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import { MOCK_CALLER_EMAIL } from "../data/audit";
 import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
@@ -140,6 +141,28 @@ function reportable(schedule: ScriptSchedule): ScriptSchedule {
 }
 
 // Managed-script handlers, mirroring internal/httpserver/scripthttp.
+/**
+ * sortScripts orders a listing the way the store does: a whitelisted column,
+ * a direction, and an id tie-breaker so two scripts sharing a value do not
+ * swap places between reads. An unknown column falls back to the default
+ * rather than erroring, which is what ParseSortColumn does server-side.
+ */
+function sortScripts(
+  rows: typeof scripts,
+  sort: string | null,
+  dir: string | null,
+): typeof scripts {
+  const columns = ["name", "display_name", "owner_email", "created_at", "updated_at"];
+  const column = sort && columns.includes(sort) ? sort : "updated_at";
+  const factor = (sort ? dir !== "asc" : true) ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const av = String((a as unknown as Record<string, unknown>)[column] ?? "");
+    const bv = String((b as unknown as Record<string, unknown>)[column] ?? "");
+    const cmp = av.localeCompare(bv);
+    return factor * (cmp !== 0 ? cmp : a.id.localeCompare(b.id));
+  });
+}
+
 export const scriptHandlers = [
   http.get(`${ADMIN_BASE}/scripts`, () =>
     HttpResponse.json({ data: scripts, total: scripts.length }),
@@ -178,6 +201,7 @@ export const scriptHandlers = [
   // Portal script pages (#1290). The mock caller is an administrator, so every
   // script comes back owned: that is what the server answers an admin, whose
   // reach into this surface is unrestricted by design.
+  //
   http.get(`${PORTAL_BASE}/scripts`, ({ request }) => {
     // An account with no automations is a real product state, and the fixture
     // set is deliberately not empty. The demo and the screenshots reach it by
@@ -196,33 +220,58 @@ export const scriptHandlers = [
     // fields the store matches: what the script is called, what it is called
     // on a page, and what it says about itself.
     const search = (query.get("search") ?? "").toLowerCase();
-    const data = scripts
+    // Whose scripts, which is the server's predicate rather than a view: a row
+    // the caller does not own carries no source and no run state (#1795).
+    const scope = query.get("scope") === "all" ? "all" : "mine";
+    const owner = query.get("owner");
+    const status = query.get("status");
+    const enabled = query.get("enabled");
+    const matched = scripts
       .filter((script) => !category || script.category === category)
       .filter(
         (script) =>
           tags.length === 0 ||
           tags.some((t) => (script.tags ?? []).includes(t)),
       )
+      .filter((script) => !status || script.status === status)
+      .filter((script) => enabled === null || String(script.enabled) === enabled)
+      .filter((script) => {
+        if (owner) return script.owner_email === owner;
+        if (scope === "all") return true;
+        return script.owner_email === MOCK_CALLER_EMAIL;
+      })
       .filter(
         (script) =>
           !search ||
           [script.name, script.display_name, script.description]
             .filter((field): field is string => !!field)
             .some((field) => field.toLowerCase().includes(search)),
-      )
-      .map((script) => {
-        const runs = mockScriptRuns[script.id] ?? [];
-        return {
-          script,
-          // The mutable map, not the fixture: a cadence saved or paused in this
-          // session has to be what the listing shows next, and a paused schedule
-          // withholds its next fire here exactly as it does on its own route.
-          schedule: scheduleOf(script.id),
-          last_run: runs[0],
-          owned: true,
-        };
-      });
-    return HttpResponse.json({ data, total: data.length });
+      );
+
+    // Ordered in the "store", ahead of any cap, which is what the server does
+    // and what makes an ordering an ordering of the listing rather than of the
+    // page (#1795).
+    const sorted = sortScripts(matched, query.get("sort"), query.get("dir"));
+
+    const data = sorted.map((script) => {
+      const owned = script.owner_email === MOCK_CALLER_EMAIL;
+      const runs = mockScriptRuns[script.id] ?? [];
+      return {
+        script: owned ? script : { ...script, source: "" },
+        // The mutable map, not the fixture: a cadence saved or paused in this
+        // session has to be what the listing shows next, and a paused schedule
+        // withholds its next fire here exactly as it does on its own route.
+        schedule: scheduleOf(script.id),
+        last_run: owned ? runs[0] : undefined,
+        owned,
+      };
+    });
+    return HttpResponse.json({
+      data,
+      total: data.length,
+      scheduled: data.filter((row) => row.schedule).length,
+      failing: data.filter((row) => row.last_run?.status === "failed").length,
+    });
   }),
 
   // The caller's runs across every script they own (#1405). The mock caller is
