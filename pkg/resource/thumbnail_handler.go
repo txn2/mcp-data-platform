@@ -59,13 +59,16 @@ func readVariant(r *http.Request) string {
 	return ThumbnailVariantLight
 }
 
-// storedThumbnailKey is the object a variant is served from, or empty when none
+// StoredThumbnailKey is the object a variant is served from, or empty when none
 // has been captured.
 //
-// The dark variant falls back to the light one: a content type carrying its own
-// colors stores a single image and serves it in both modes, so its empty dark
-// key means "use the light one" rather than "no thumbnail".
-func storedThumbnailKey(r *Resource, variant string) string {
+// The dark variant falls back to the light one: a content type drawn as stored
+// -- SVG, a PDF page, a raster image -- keeps a single image and serves it in
+// both modes, so its empty dark key means "use the light one" rather than "no
+// thumbnail". It is the resource's counterpart of
+// portaldomain.Asset.StoredThumbnailKey, and is exported because the reference
+// route serves a referenced file's tile through the same rule (#1794).
+func StoredThumbnailKey(r *Resource, variant string) string {
 	if variant == ThumbnailVariantDark && r.ThumbnailDarkS3Key != "" {
 		return r.ThumbnailDarkS3Key
 	}
@@ -96,7 +99,7 @@ func (h *Handler) handleGetThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := storedThumbnailKey(res, readVariant(r))
+	key := StoredThumbnailKey(res, readVariant(r))
 	if key == "" {
 		writeError(w, http.StatusNotFound, "no thumbnail has been drawn for this resource")
 		return

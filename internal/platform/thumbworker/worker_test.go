@@ -752,3 +752,43 @@ func TestServeInProcess_IsNotCountedByTheViewerLimiter(t *testing.T) {
 		}
 	}
 }
+
+// A PDF reaches the page by URL, like a raster image, because its bytes are
+// not a JSON string; pdf.js is handed the URL and reads the file itself
+// (#1794). And it is drawn once: page one is the same picture in both schemes.
+func TestDrawAsset_APDFIsServedToThePageByURLAndDrawnOnce(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a20", "application/pdf", 1)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte("%PDF-1.4 bytes")
+	worker(d, assets, blobs).drawAsset(context.Background(), a)
+
+	if len(d.pages) != 1 || d.pages[0].Dark {
+		t.Fatalf("rendered %d pages, want one light tile", len(d.pages))
+	}
+	p := d.pages[0]
+	data := payload(t, p)
+	if fromURL, _ := data["serveFromURL"].(bool); !fromURL || data["content"] != nil {
+		t.Fatalf("a PDF must reach the page by URL, not inline: %v", data)
+	}
+	f, ok := p.Files(contentPath)
+	if !ok || string(f.Body) != "%PDF-1.4 bytes" || f.ContentType != "application/pdf" {
+		t.Fatalf("the page's content route served %v %q %q", ok, f.Body, f.ContentType)
+	}
+	if u := assets.updates["a20"]; u.ThumbnailS3Key == nil || u.ThumbnailDarkS3Key != nil {
+		t.Errorf("a PDF must record one tile and no dark one: %+v", u)
+	}
+}
+
+// A PDF is laid out on the tile's own surface, not at page size: the tile page
+// rasterizes page one onto a 400x300 canvas rather than letting the document
+// size the viewport, which is what HTML and JSX do.
+func TestDrawAsset_APDFIsDrawnAtTileGeometry(t *testing.T) {
+	d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+	a := asset("a21", "application/pdf", 1)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte("%PDF-1.4 bytes")
+	worker(d, assets, blobs).drawAsset(context.Background(), a)
+
+	if p := d.pages[0]; p.Width != tileWidth || p.Height != tileHeight {
+		t.Errorf("a PDF tile is %dx%d, want %dx%d", p.Width, p.Height, tileWidth, tileHeight)
+	}
+}

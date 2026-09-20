@@ -248,7 +248,7 @@ describe("what the page lets the reader do to the resource", () => {
   });
 
   it("withholds it for a type nothing rasterizes", async () => {
-    stubApi({ ...RESOURCE, mime_type: "application/pdf", filename: "report.pdf" });
+    stubApi({ ...RESOURCE, mime_type: "application/zip", filename: "archive.zip" });
     renderPage();
     await screen.findByTestId("resource-usage");
     expect(screen.queryByTestId("thumbnail-panel")).toBeNull();

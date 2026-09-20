@@ -24,6 +24,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 const pendingOwner = "550e8400-e29b-41d4-a716-446655440333"
@@ -110,19 +111,29 @@ func TestThumbnailClaim_RealDB_OffersOnlyWhatNeedsCapturing(t *testing.T) {
 	assert.ElementsMatch(t, []string{"asset_rewritten", "asset_never_captured"}, pendingIDs(t, store))
 }
 
-// TestThumbnailPending_RealDB_SkipsWhatNoBrowserWillCapture pins the two
-// exclusions. Offering either forever is what wedges a queue that hands work
-// out in batches.
+// TestThumbnailClaim_RealDB_SkipsWhatNoBrowserWillCapture pins the two
+// exclusions against a real PostgreSQL. Offering either forever is what wedges
+// a queue that hands work out in batches.
+//
+// The size half of it is a CASE over the content type since #1794, because a
+// PDF is held to a bound of its own: it is drawn from page one alone, and one
+// letter page scanned at 300dpi is already past the bound every other family
+// shares. This is where that expression meets a database.
 func TestThumbnailClaim_RealDB_SkipsWhatNoBrowserWillCapture(t *testing.T) {
 	db := testdb.New(t)
 	store := &postgresAssetStore{db: db}
 
-	seedPendingAsset(t, db, store, "asset_pdf", "application/pdf", 100, 1, thumbState{})
-	seedPendingAsset(t, db, store, "asset_huge", "text/html", maxThumbnailSourceBytes+1, 1, thumbState{})
-	seedPendingAsset(t, db, store, "asset_at_limit", "text/html", maxThumbnailSourceBytes, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_zip", "application/zip", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_huge", "text/html", thumbtypes.DefaultSourceLimit+1, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_at_limit", "text/html", thumbtypes.DefaultSourceLimit, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_pdf_mid", "application/pdf", thumbtypes.DefaultSourceLimit+1, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_pdf_at_limit", "application/pdf", thumbtypes.LargeSourceLimit, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_pdf_huge", "application/pdf", thumbtypes.LargeSourceLimit+1, 1, thumbState{})
 
-	assert.Equal(t, []string{"asset_at_limit"}, pendingIDs(t, store),
-		"the limit is inclusive: an asset exactly at it is still worth rendering")
+	assert.ElementsMatch(t,
+		[]string{"asset_at_limit", "asset_pdf_mid", "asset_pdf_at_limit"},
+		pendingIDs(t, store),
+		"both bounds are inclusive, and the raised one reaches the PDF family alone")
 }
 
 // TestThumbnailPending_RealDB_DarkVariant pins that the dark half of the

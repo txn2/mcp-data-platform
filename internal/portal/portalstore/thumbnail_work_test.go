@@ -3,14 +3,18 @@ package portalstore
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 // The statements themselves are held to PostgreSQL by the real-database suite
@@ -168,4 +172,34 @@ func TestRecordCollectionThumbnail(t *testing.T) {
 
 	assert.NotContains(t, recordCollectionThumbnailQuery, "updated_at")
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// The source bound is per family, and the raise reaches only the family that
+// earned it: a scanned PDF passes the default bound in a couple of pages, and
+// every other family is still laid out in full to be drawn (#1794).
+func TestBuildThumbnailClaim_BoundsTheSourceSizePerFamily(t *testing.T) {
+	stmt, args, err := buildThumbnailClaim(1, time.Minute, 4)
+	require.NoError(t, err)
+
+	// squirrel renumbers the "?" the expression is written with, so the
+	// statement is matched on the shape either side of the placeholder.
+	assert.Regexp(t,
+		`size_bytes <= CASE WHEN content_type ILIKE ANY\(\$\d+\) THEN 33554432::bigint ELSE 1048576::bigint END`,
+		stmt)
+
+	large, err := pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies)).Value()
+	require.NoError(t, err)
+	var bound bool
+	for _, a := range args {
+		v, ok := a.(driver.Valuer)
+		if !ok {
+			continue
+		}
+		got, verr := v.Value()
+		require.NoError(t, verr)
+		if got == large {
+			bound = true
+		}
+	}
+	assert.True(t, bound, "the large-source families are bound to the CASE's placeholder")
 }

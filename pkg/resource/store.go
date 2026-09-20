@@ -365,12 +365,6 @@ func buildUpdate(id string, u Update) (query string, args []any) {
 	return query, append(args, id)
 }
 
-// MaxThumbnailSourceBytes is the largest resource a tile is drawn from. A tile
-// is drawn by loading the whole file into the renderer beside the platform,
-// whose memory is sized for documents, not archives; it is the same cap the
-// asset claim applies (#1787).
-const MaxThumbnailSourceBytes = 1 << 20 // 1 MB
-
 // ThumbnailVariantLight and ThumbnailVariantDark name the two captures a
 // resource can carry. A content type that brings its own colors stores only
 // the light one and serves it in both modes.

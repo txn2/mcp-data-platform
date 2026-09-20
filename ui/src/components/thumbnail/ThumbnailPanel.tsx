@@ -12,7 +12,7 @@ import type { FailedPart, ThumbnailSubject } from "@/lib/thumbnailSubject";
 import {
   isThumbnailSupported,
   thumbnailSrc,
-  THUMBNAIL_SOURCE_LIMIT,
+  thumbnailSourceLimit,
   type ThumbnailTarget,
 } from "@/lib/thumbnailSupport";
 
@@ -207,7 +207,7 @@ function capturable(subject: ThumbnailSubject, canModify: boolean): boolean {
   return (
     canModify &&
     isThumbnailSupported(subject.contentType) &&
-    subject.sizeBytes <= THUMBNAIL_SOURCE_LIMIT
+    subject.sizeBytes <= thumbnailSourceLimit(subject.contentType)
   );
 }
 

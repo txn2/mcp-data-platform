@@ -15,6 +15,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
+import { isThumbnailSupported } from "@/lib/thumbnailSupport";
+import { useResolvedDark } from "@/stores/theme";
 import { RefPicker } from "./ReferencePicker";
 import { ScopeChip } from "./ResourceRefScopeChip";
 
@@ -284,22 +286,41 @@ function RefRow({
   );
 }
 
-// Thumbnail shows an image reference as itself. It loads through the
-// reference's own serving URL, which is the grant the asset already makes, so
-// it renders for a reader who has no direct access to the file.
+// Thumbnail shows a reference as a picture: an image as itself, and anything
+// else as the tile the platform drew for it.
+//
+// Both load through the reference's own serving URL, which is the grant the
+// asset already makes, so they render for a reader who has no direct access to
+// the file. Everything but an image used to show nothing at all, so a
+// referenced PDF was blank even once it had a tile (#1794).
+//
+// A target whose tile has not been drawn -- too large, still queued, or one the
+// renderer could not draw -- answers 404, and the row falls back to its icon
+// rather than showing a broken image.
 function Thumbnail({ refItem }: { refItem: AssetRef }) {
-  const isImage = (refItem.mime_type ?? "").startsWith("image/");
-  if (refItem.broken || !isImage || !refItem.content_url) {
-    return null;
-  }
+  const isDark = useResolvedDark();
+  const [tileFailed, setTileFailed] = useState(false);
+  const mime = refItem.mime_type ?? "";
+  const isImage = mime.startsWith("image/");
+  if (refItem.broken || !refItem.content_url) return null;
+  if (!isImage && (tileFailed || !isThumbnailSupported(mime))) return null;
   return (
     <img
-      src={refItem.content_url}
-      alt={refItem.display_name || refItem.filename || "referenced image"}
+      src={isImage ? refItem.content_url : refTileURL(refItem.content_url, isDark)}
+      alt={refItem.display_name || refItem.filename || "referenced file"}
       data-testid="asset-ref-thumb"
+      onError={() => setTileFailed(true)}
       className="size-10 shrink-0 rounded border bg-muted object-contain"
     />
   );
+}
+
+// refTileURL asks the reference route for the target's stored tile rather than
+// its bytes. The dark variant is always asked for; the route answers with the
+// light capture for a family that stores only one.
+function refTileURL(contentURL: string, isDark: boolean): string {
+  const separator = contentURL.includes("?") ? "&" : "?";
+  return `${contentURL}${separator}thumbnail=1${isDark ? "&variant=dark" : ""}`;
 }
 
 // TargetLabel names what the reference points at, linking to it where this

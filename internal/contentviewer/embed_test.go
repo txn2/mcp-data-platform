@@ -136,6 +136,9 @@ func TestServableName(t *testing.T) {
 		{"chunk-AAAA1111.js.map", true},
 		{"logo-AAAA1111.svg", true},
 		{"inter-AAAA1111.woff2", true},
+		// pdf.js's worker, which the PDF tile starts as a Worker and so is
+		// emitted as a file of its own (#1794).
+		{"pdf.worker.min-AAAA1111.mjs", true},
 		// The manifest describes the graph; it is not part of what a browser
 		// loads, and neither is anything else reached by traversal.
 		{".vite/manifest.json", false},
@@ -156,6 +159,7 @@ func TestServableName(t *testing.T) {
 func TestContentTypeFor(t *testing.T) {
 	tests := map[string]string{
 		"a-1.js":    "text/javascript; charset=utf-8",
+		"a-1.mjs":   "text/javascript; charset=utf-8",
 		"a-1.css":   "text/css; charset=utf-8",
 		"a-1.map":   "application/json; charset=utf-8",
 		"a-1.svg":   "image/svg+xml",

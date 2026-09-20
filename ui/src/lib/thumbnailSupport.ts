@@ -14,11 +14,23 @@ export const THUMB_WIDTH = 400;
 export const THUMB_HEIGHT = 300;
 
 /**
- * Largest document a thumbnail is drawn from, in bytes. The server applies the
- * same bound when it picks what to draw; above it a file keeps its content-type
- * icon.
+ * Largest document a thumbnail is drawn from, in bytes, for every family but
+ * one. The server applies the same bound when it picks what to draw; above it
+ * a file keeps its content-type icon.
  */
 export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
+
+/**
+ * The bound a PDF is held to instead.
+ *
+ * The default one would leave the feature looking broken on the documents it
+ * exists for: one letter page scanned at 300dpi measures about 2 MB, so most
+ * scanned PDFs would keep an icon (#1794). What the bound protects against is
+ * the renderer holding a whole document, and a PDF costs less of that than its
+ * size suggests -- only page one is decoded. The Go definition of both bounds
+ * is internal/thumbtypes.
+ */
+export const PDF_THUMBNAIL_SOURCE_LIMIT = 32 * 1024 * 1024; // 32 MB
 
 /**
  * How the tile page draws one family. Its dispatch (components/thumbnail/Tile)
@@ -26,9 +38,10 @@ export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
  * cannot be offered by a surface that nothing can draw (#1568).
  *
  * "iframe" is content that carries its own document (HTML, JSX); "image" is a
- * raster file scaled to cover the tile.
+ * raster file scaled to cover the tile; "pdf" is page one of a document, which
+ * the tile page rasterizes itself.
  */
-export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "text" | "image";
+export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "text" | "image" | "pdf";
 
 /**
  * What the tile page draws each renderer kind as, or why it draws none.
@@ -42,8 +55,8 @@ export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "te
  * a missing key here and does not compile, and the test beside it holds the
  * fragments below to what the registry resolves.
  *
- * The three kinds that are rendered and deliberately not drawn say why, here,
- * rather than being absent and leaving the reason to be guessed.
+ * The kinds that are rendered and deliberately not drawn say why, here, rather
+ * than being absent and leaving the reason to be guessed.
  */
 export type KindCapture = CaptureFamily | { drawn: false; because: string };
 
@@ -62,13 +75,11 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
   code: "text",
   text: "text",
   image: "image",
-  pdf: {
-    drawn: false,
-    because:
-      "the tile page draws documents through the viewer's renderers, and the " +
-      "viewer shows a PDF in the browser's own plugin, which a headless " +
-      "renderer does not paint",
-  },
+  // Not through the viewer's renderer, which hands a PDF to the browser's own
+  // plugin that headless-shell does not ship. Page one is a raster the tile
+  // page produces itself with pdf.js, which needs no plugin (#1794). The
+  // viewer still shows a reader the plugin's PDF; this is the tile only.
+  pdf: "pdf",
   audio: {
     drawn: false,
     because: "there is no page to draw, and a waveform would be a picture of a decoder, not of the file",
@@ -93,7 +104,8 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
  * are drawn with the renderer emulating the scheme, which is what their own
  * prefers-color-scheme rules answer to, as they do in the viewer's frame: a
  * dashboard with a dark stylesheet opened dark and had a white card (#1789).
- * SVG and a raster image are drawn as stored and serve one image in both modes.
+ * SVG, a PDF page and a raster image are drawn as stored and serve one image
+ * in both modes.
  */
 const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
   "iframe",
@@ -151,10 +163,11 @@ interface CapturableFamily {
  * no browser decodes: offering one is offering work that fails every time.
  */
 const CAPTURABLE_FAMILIES: CapturableFamily[] = [
-  // SVG first: it is the one family ahead of a themeable one that is not
-  // itself themeable, which is the shape the server's SQL form of the rule
-  // relies on (internal/thumbtypes, ThemeableShadows).
+  // SVG and PDF lead: they are the families ahead of a themeable one that are
+  // not themeable themselves, which is the shape the server's SQL form of the
+  // rule relies on (internal/thumbtypes, ThemeableShadows).
   { fragment: "svg", family: "svg" },
+  { fragment: "pdf", family: "pdf" },
   { fragment: "html", family: "iframe" },
   { fragment: "jsx", family: "iframe" },
   { fragment: "markdown", family: "markdown" },
@@ -184,6 +197,14 @@ const CAPTURABLE_FAMILIES: CapturableFamily[] = [
 /** The family a content type is drawn as, or null when nothing draws it. */
 export function captureFamily(contentType: string): CaptureFamily | null {
   return matchFamily(contentType)?.family ?? null;
+}
+
+/**
+ * The largest file of this content type a tile is drawn from. PDF has its own
+ * bound; every other family shares the default.
+ */
+export function thumbnailSourceLimit(contentType: string): number {
+  return captureFamily(contentType) === "pdf" ? PDF_THUMBNAIL_SOURCE_LIMIT : THUMBNAIL_SOURCE_LIMIT;
 }
 
 /** Returns true if the content type supports thumbnail generation. */

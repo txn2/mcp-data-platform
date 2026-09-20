@@ -338,7 +338,26 @@ describe("ThumbnailPanel", () => {
   });
 
   it("is absent for an asset nothing draws", () => {
-    const { container } = renderPanel({ ...ASSET, content_type: "application/pdf" } as Asset);
+    const { container } = renderPanel({ ...ASSET, content_type: "application/zip" } as Asset);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  // A PDF is drawn -- the tile page rasterizes page one itself (#1794) -- and
+  // is held to a bound of its own, so a document that is past the 1 MB every
+  // other family shares still has a panel.
+  it("is present for a PDF, and for one past the bound every other family has", () => {
+    const pdf = { ...ASSET, content_type: "application/pdf" } as Asset;
+    expect(renderPanel(pdf).container).not.toBeEmptyDOMElement();
+    cleanup();
+    expect(renderPanel({ ...pdf, size_bytes: 5 * 1024 * 1024 } as Asset).container).not.toBeEmptyDOMElement();
+  });
+
+  it("is absent for a PDF past the PDF bound", () => {
+    const { container } = renderPanel({
+      ...ASSET,
+      content_type: "application/pdf",
+      size_bytes: 40 * 1024 * 1024,
+    } as Asset);
     expect(container).toBeEmptyDOMElement();
   });
 

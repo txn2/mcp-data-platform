@@ -120,6 +120,11 @@ func (s *Server) assetsReady() bool {
 // A reference whose target has been deleted answers 404 and leaves the asset
 // rendering with one image or one data file missing, which is the rule prompt
 // attachments already follow for a deleted attachment.
+//
+// With ?thumbnail=1 it answers the target's stored tile instead of its bytes,
+// through the same token and so under the same grant: the asset's References
+// panel shows a referenced file as a picture, and a reader of a shared asset
+// may have no access to the target's own thumbnail route (#1794).
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		httpjson.WriteError(w, http.StatusMethodNotAllowed, msgMethodNotAllowed)
@@ -136,6 +141,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var opts blobserve.Options
+	if wantsThumbnail(r) {
+		opts, ok = s.thumbnailContent(w, r, ref)
+		if !ok {
+			return
+		}
+		blobserve.Serve(w, r, opts)
+		return
+	}
 	switch ref.TargetKind {
 	case TargetResource:
 		opts, ok = s.resourceContent(w, r, ref.TargetID)

@@ -48,14 +48,14 @@ func TestStoredThumbnailKeyFallsBackToLight(t *testing.T) {
 	// A type carrying its own colors stores one image and serves it in both
 	// modes, so an empty dark key means "use the light one".
 	r := &Resource{ThumbnailS3Key: "light.png"}
-	if got := storedThumbnailKey(r, ThumbnailVariantDark); got != "light.png" {
+	if got := StoredThumbnailKey(r, ThumbnailVariantDark); got != "light.png" {
 		t.Errorf("dark fell back to %q, want the light capture", got)
 	}
 	r.ThumbnailDarkS3Key = "dark.png"
-	if got := storedThumbnailKey(r, ThumbnailVariantDark); got != "dark.png" {
+	if got := StoredThumbnailKey(r, ThumbnailVariantDark); got != "dark.png" {
 		t.Errorf("dark = %q", got)
 	}
-	if got := storedThumbnailKey(&Resource{}, ThumbnailVariantLight); got != "" {
+	if got := StoredThumbnailKey(&Resource{}, ThumbnailVariantLight); got != "" {
 		t.Errorf("uncaptured = %q, want empty", got)
 	}
 }

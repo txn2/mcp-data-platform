@@ -25,22 +25,22 @@ var _ ThumbnailWork = (*postgresStore)(nil)
 // buildThumbnailClaim renders the statement ClaimThumbnailWork runs: it leases
 // up to limit resources the renderer owes a tile and returns them.
 //
-// Owed is: a type the renderer draws, small enough to take, not leased by
-// another replica, not failed on the file as it stands, and carrying a tile
-// that is missing, older than the file, or drawn by a renderer generation
-// older than renderer. The dark variant is asked only of the types that carry
-// one: an SVG or a raster image stores a single image and serves it in both
-// modes, and a type is judged by the first family it matches, so
-// image/svg+xml is an SVG and not the XML its name also contains. Scope is not
-// part of it -- the renderer is the platform, drawing every library's files,
-// not a person reading one.
+// Owed is: a type the renderer draws, within its family's source bound, not
+// leased by another replica, not failed on the file as it stands, and carrying
+// a tile that is missing, older than the file, or drawn by a renderer
+// generation older than renderer. The dark variant is asked only of the types
+// that carry one: an SVG, a PDF or a raster image stores a single image and
+// serves it in both modes, and a type is judged by the first family it
+// matches, so image/svg+xml is an SVG and not the XML its name also contains.
+// Scope is not part of it -- the renderer is the platform, drawing every
+// library's files, not a person reading one.
 func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query string, args []any) {
 	query = `
 		UPDATE resources SET thumbnail_claimed_until = now() + make_interval(secs => $1)
 		WHERE id IN (
 			SELECT id FROM resources
 			WHERE mime_type ILIKE ANY($2)
-			  AND size_bytes <= $3
+			  AND ` + thumbtypes.SourceLimitExpr("size_bytes", "mime_type", "$3") + `
 			  AND (thumbnail_claimed_until IS NULL OR thumbnail_claimed_until < now())
 			  AND (thumbnail_failed_at IS NULL OR thumbnail_failed_at < updated_at)
 			  AND (
@@ -66,7 +66,7 @@ func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query st
 	args = []any{
 		lease.Seconds(),
 		pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable)),
-		MaxThumbnailSourceBytes,
+		pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies)),
 		renderer,
 		pq.Array(thumbtypes.ILikePatterns(thumbtypes.Themeable)),
 		limit,
