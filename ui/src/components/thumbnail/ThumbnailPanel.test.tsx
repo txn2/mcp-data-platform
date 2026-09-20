@@ -342,23 +342,25 @@ describe("ThumbnailPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // A PDF is drawn -- the tile page rasterizes page one itself (#1794) -- and
-  // is held to a bound of its own, so a document that is past the 1 MB every
-  // other family shares still has a panel.
-  it("is present for a PDF, and for one past the bound every other family has", () => {
-    const pdf = { ...ASSET, content_type: "application/pdf" } as Asset;
-    expect(renderPanel(pdf).container).not.toBeEmptyDOMElement();
-    cleanup();
-    expect(renderPanel({ ...pdf, size_bytes: 5 * 1024 * 1024 } as Asset).container).not.toBeEmptyDOMElement();
+  // A PDF and a table are drawn from part of the file -- page one (#1794), the
+  // first rows (#1802) -- and are held to a bound of their own, so a document
+  // past the 1 MB every other family shares still has a panel.
+  it("is present for a PDF or a table past the bound every other family has", () => {
+    for (const ct of ["application/pdf", "text/csv", "text/tab-separated-values"]) {
+      const subject = { ...ASSET, content_type: ct } as Asset;
+      expect(renderPanel(subject).container).not.toBeEmptyDOMElement();
+      cleanup();
+      expect(renderPanel({ ...subject, size_bytes: 5 * 1024 * 1024 } as Asset).container).not.toBeEmptyDOMElement();
+      cleanup();
+    }
   });
 
-  it("is absent for a PDF past the PDF bound", () => {
-    const { container } = renderPanel({
-      ...ASSET,
-      content_type: "application/pdf",
-      size_bytes: 40 * 1024 * 1024,
-    } as Asset);
-    expect(container).toBeEmptyDOMElement();
+  it("is absent past the raised bound those families have", () => {
+    for (const ct of ["application/pdf", "text/csv"]) {
+      const { container } = renderPanel({ ...ASSET, content_type: ct, size_bytes: 40 * 1024 * 1024 } as Asset);
+      expect(container).toBeEmptyDOMElement();
+      cleanup();
+    }
   });
 
   it("is absent for a document too large to draw", () => {

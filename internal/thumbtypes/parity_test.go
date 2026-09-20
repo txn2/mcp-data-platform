@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
@@ -36,7 +38,20 @@ var familyRe = regexp.MustCompile(`\{\s*fragment:\s*"([^"]+)",\s*family:\s*"([^"
 var themeableRe = regexp.MustCompile(
 	`THEMEABLE_FAMILIES:\s*ReadonlySet<CaptureFamily>\s*=\s*new Set<CaptureFamily>\(\[([^\]]*)\]`)
 
-// quotedRe pulls the quoted members out of the themeable set's body.
+// largeRe matches the set of families held to the raised source bound, which
+// the browser states once as a property of the family as it does the themeable
+// set. The fragments this side raises the bound for are DERIVED from it and
+// the table above, so neither language restates the other's answer.
+var largeRe = regexp.MustCompile(
+	`LARGE_SOURCE_FAMILIES:\s*ReadonlySet<CaptureFamily>\s*=\s*new Set<CaptureFamily>\(\[([^\]]*)\]`)
+
+// limitRe matches one of the browser's source bounds, whose value is written
+// as a product of decimal factors ("32 * 1024 * 1024").
+func limitRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`export const ` + name + `\s*=\s*([0-9 *]+);`)
+}
+
+// quotedRe pulls the quoted members out of a family set's body.
 var quotedRe = regexp.MustCompile(`"([^"]+)"`)
 
 func repoRoot(t *testing.T) string {
@@ -49,52 +64,106 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-// browserFamilies is the TypeScript table, read as the fragments it names and
-// the subset of them whose family the browser captures twice.
-func browserFamilies(t *testing.T) (capturable, themeable []string) {
+// browserRel is the TypeScript definition, relative to the repository root.
+const browserRel = "ui/src/lib/thumbnailSupport.ts"
+
+// browserSource is the TypeScript definition's text.
+func browserSource(t *testing.T) string {
 	t.Helper()
-	rel := filepath.Join("ui", "src", "lib", "thumbnailSupport.ts")
-	body, err := os.ReadFile(filepath.Join(repoRoot(t), rel)) //nolint:gosec // test reads project sources
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(browserRel))) //nolint:gosec // test reads project sources
 	if err != nil {
-		t.Fatalf("reading %s: %v", rel, err)
+		t.Fatalf("reading %s: %v", browserRel, err)
 	}
-	themeableFamilies := browserThemeableFamilies(t, rel, string(body))
-	for _, m := range familyRe.FindAllStringSubmatch(string(body), -1) {
+	return string(body)
+}
+
+// browserFamilies is the TypeScript table, read as the fragments it names and
+// the subsets of them whose family the browser captures twice and holds to the
+// raised source bound.
+func browserFamilies(t *testing.T) (capturable, themeable, large []string) {
+	t.Helper()
+	body := browserSource(t)
+	themeableFamilies := browserFamilySet(t, "themeable", themeableRe, body)
+	largeFamilies := browserFamilySet(t, "large-source", largeRe, body)
+	for _, m := range familyRe.FindAllStringSubmatch(body, -1) {
 		capturable = append(capturable, m[1])
 		if themeableFamilies[m[2]] {
 			themeable = append(themeable, m[1])
 		}
+		if largeFamilies[m[2]] {
+			large = append(large, m[1])
+		}
 	}
 	if len(capturable) == 0 {
 		t.Fatalf("%s: no capturable families found; the table's shape has changed and this "+
-			"test can no longer read it", rel)
+			"test can no longer read it", browserRel)
 	}
-	return capturable, themeable
+	return capturable, themeable, large
 }
 
-// browserThemeableFamilies reads the set of families the browser captures once
-// per color scheme.
-func browserThemeableFamilies(t *testing.T, rel, body string) map[string]bool {
+// browserFamilySet reads one of the browser's family sets, each of which
+// states a property of the family rather than of each content type.
+func browserFamilySet(t *testing.T, what string, re *regexp.Regexp, body string) map[string]bool {
 	t.Helper()
-	set := themeableRe.FindStringSubmatch(body)
+	set := re.FindStringSubmatch(body)
 	if set == nil {
-		t.Fatalf("%s: the themeable family set cannot be read; its shape has changed", rel)
+		t.Fatalf("%s: the %s family set cannot be read; its shape has changed", browserRel, what)
 	}
 	families := map[string]bool{}
 	for _, m := range quotedRe.FindAllStringSubmatch(set[1], -1) {
 		families[m[1]] = true
 	}
 	if len(families) == 0 {
-		t.Fatalf("%s: the themeable family set is empty; its shape has changed", rel)
+		t.Fatalf("%s: the %s family set is empty; its shape has changed", browserRel, what)
 	}
 	return families
 }
 
 func TestGoAndBrowserAgreeOnWhatGetsAThumbnail(t *testing.T) {
-	capturable, themeable := browserFamilies(t)
+	capturable, themeable, large := browserFamilies(t)
 
 	assertSame(t, "capturable", thumbtypes.Capturable, capturable)
 	assertSame(t, "themeable", thumbtypes.Themeable, themeable)
+	assertSame(t, "large-source", thumbtypes.LargeSourceFamilies, large)
+}
+
+// TestGoAndBrowserAgreeOnHowLargeADocumentMayBe holds the two bounds to each
+// other. A family raised on one side alone is a card that offers a redraw the
+// server will never take, or a card that says a file is too large while the
+// server is drawing it; the values were written out twice from the day the
+// second bound existed (#1794).
+func TestGoAndBrowserAgreeOnHowLargeADocumentMayBe(t *testing.T) {
+	body := browserSource(t)
+	for _, tc := range []struct {
+		name string
+		want int64
+	}{
+		{"THUMBNAIL_SOURCE_LIMIT", thumbtypes.DefaultSourceLimit},
+		{"LARGE_THUMBNAIL_SOURCE_LIMIT", thumbtypes.LargeSourceLimit},
+	} {
+		m := limitRe(tc.name).FindStringSubmatch(body)
+		if m == nil {
+			t.Fatalf("%s: %s cannot be read; its shape has changed", browserRel, tc.name)
+		}
+		if got := product(t, m[1]); got != tc.want {
+			t.Errorf("%s = %d in %s, want %d", tc.name, got, browserRel, tc.want)
+		}
+	}
+}
+
+// product evaluates the browser's way of writing a size: decimal factors
+// multiplied together.
+func product(t *testing.T, expr string) int64 {
+	t.Helper()
+	out := int64(1)
+	for factor := range strings.SplitSeq(expr, "*") {
+		n, err := strconv.ParseInt(strings.TrimSpace(factor), 10, 64)
+		if err != nil {
+			t.Fatalf("%s: %q is not a product of decimal factors: %v", browserRel, expr, err)
+		}
+		out *= n
+	}
+	return out
 }
 
 // assertSame compares the two languages' lists element by element, in order:
