@@ -16,6 +16,7 @@
 package thumbtypes
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -37,8 +38,8 @@ import (
 // render it can draw a tile of it; they were absent, and each kept a
 // content-type icon forever (#1754). Order carries the two overlaps: "svg"
 // takes image/svg+xml before "xml" is reached, and "jsx" takes text/jsx before
-// "javascript" is. SVG is first because it is the one family ahead of a
-// themeable one that is not itself themeable; see ThemeableShadows.
+// "javascript" is. SVG and PDF lead because they are the families ahead of a
+// themeable one that are not themeable themselves; see ThemeableShadows.
 //
 // The raster families are named one by one rather than as "image/", which is
 // what a bare prefix would have cost: a capture DOWNSCALES a raster image by
@@ -49,10 +50,16 @@ import (
 // could actually complete -- the same failure the PDF exclusion exists to
 // prevent. These eight are the families every current browser decodes.
 //
-// Everything else -- PDF, spreadsheets, archives, binaries -- has no renderer,
+// PDF is drawn by the tile page itself rather than by a viewer renderer: the
+// viewer hands a PDF to the browser's own plugin, which headless-shell does
+// not ship, and page one is a raster the tile page produces with pdf.js
+// instead (#1794). It sits beside "svg" because it is not themeable and a
+// non-themeable fragment may not follow a themeable one; see ThemeableShadows.
+//
+// Everything else -- spreadsheets, archives, binaries -- has no renderer,
 // keeps its content-type icon, and is never offered for capture.
 var Capturable = []string{
-	"svg", "html", "jsx", "markdown", "csv", "tab-separated", "json",
+	"svg", "pdf", "html", "jsx", "markdown", "csv", "tab-separated", "json",
 	"yaml", "xml", "sql", "python", "javascript", "css", "text/plain",
 	"image/png", "image/jpeg", "image/gif", "image/webp",
 	"image/avif", "image/bmp", "image/x-icon", "image/vnd.microsoft.icon",
@@ -64,14 +71,68 @@ var Capturable = []string{
 // scheme's background. HTML and JSX are drawn with the renderer emulating the
 // scheme, which is what a document's own prefers-color-scheme rules answer to
 // and what the viewer's frame does for a reader in that scheme: a dashboard
-// with a dark stylesheet opened dark and had a white card (#1789). SVG and a
-// raster image are drawn as stored and serve the one image in both modes, so
-// reading their empty dark key as "pending" would offer them forever.
+// with a dark stylesheet opened dark and had a white card (#1789). SVG, PDF
+// and a raster image are drawn as stored and serve the one image in both
+// modes, so reading their empty dark key as "pending" would offer them
+// forever.
 //
 // In Capturable's order, which is what the parity test compares.
 var Themeable = []string{
 	"html", "jsx", "markdown", "csv", "tab-separated", "json",
 	"yaml", "xml", "sql", "python", "javascript", "css", "text/plain",
+}
+
+// DefaultSourceLimit is the largest document a tile is drawn from. A tile is
+// drawn by loading the whole document into the renderer beside the platform,
+// whose memory is sized for documents, not archives; above it a file keeps its
+// content-type icon (#1351).
+const DefaultSourceLimit = 1 << 20 // 1 MB
+
+// LargeSourceLimit is the bound the families in LargeSourceFamilies are held
+// to instead.
+const LargeSourceLimit = 32 << 20 // 32 MB
+
+// LargeSourceFamilies are the families whose source bound is LargeSourceLimit
+// rather than DefaultSourceLimit.
+//
+// PDF is here because the default bound would leave the feature looking broken
+// on the documents it exists for: one letter page scanned at 300dpi measures
+// about 2 MB, twice the default, so most scanned PDFs would keep an icon
+// (#1794). What the bound protects against is the renderer holding a whole
+// document, and a PDF costs less of that than its size suggests: the tile page
+// decodes page one and nothing else. A 26 MB, 12-page scan drew in 2.7s with
+// the renderer at 291 MiB.
+//
+// The bound rises for this family alone. Every other family is still held to
+// DefaultSourceLimit, because every other family is laid out in full to be
+// drawn.
+var LargeSourceFamilies = []string{"pdf"}
+
+// SourceLimit is the largest document of contentType's family a tile is drawn
+// from.
+//
+// The family is the FIRST Capturable fragment the type contains, as it is
+// everywhere else here, so a bound is raised for the family a type is actually
+// drawn as rather than for any fragment its name happens to hold.
+func SourceLimit(contentType string) int64 {
+	if slices.Contains(LargeSourceFamilies, family(contentType)) {
+		return LargeSourceLimit
+	}
+	return DefaultSourceLimit
+}
+
+// SourceLimitExpr is the same bound as a SQL predicate, over the column
+// holding a row's stored size and the column holding its content type.
+// familiesPlaceholder is where the caller binds LargeSourceFamilies' ILIKE
+// patterns, in the placeholder style its own statement is written in ("?" for
+// a builder that renumbers, "$3" for a hand-numbered statement).
+//
+// The two limits are written into the expression rather than bound, so the
+// whole rule is one fragment: a caller that had to append them as arguments
+// could append them in the wrong order and still compile.
+func SourceLimitExpr(sizeCol, typeCol, familiesPlaceholder string) string {
+	return fmt.Sprintf("%s <= CASE WHEN %s ILIKE ANY(%s) THEN %d::bigint ELSE %d::bigint END",
+		sizeCol, typeCol, familiesPlaceholder, LargeSourceLimit, DefaultSourceLimit)
 }
 
 // ILikePatterns wraps content-type fragments as SQL ILIKE patterns, which is

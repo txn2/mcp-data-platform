@@ -42,6 +42,7 @@ export function Tile({ data, dark, onDrawn }: { data: TileData; dark: boolean; o
   const family = captureFamily(data.contentType);
   if (family === "iframe") return <DocumentTile data={data} onDrawn={onDrawn} />;
   if (family === "image") return <ImageTile data={data} onDrawn={onDrawn} />;
+  if (family === "pdf") return <PdfTile data={data} onDrawn={onDrawn} />;
   const kind = domKind(data.contentType);
   if (kind) return <DomTile data={data} kind={kind} dark={dark} onDrawn={onDrawn} />;
   return <Unsupported contentType={data.contentType} onDrawn={onDrawn} />;
@@ -129,6 +130,41 @@ function ImageTile({ data, onDrawn }: { data: TileData; onDrawn: OnDrawn }) {
       style={{ display: "block", width: THUMB_WIDTH, height: THUMB_HEIGHT, objectFit: "cover" }}
       onLoad={() => void afterPaint().then(() => onDrawn(""))}
       onError={() => onDrawn("the image could not be decoded")}
+    />
+  );
+}
+
+/**
+ * Page one of a PDF, rasterized by the tile page itself.
+ *
+ * The viewer hands a PDF to the browser's plugin, which the headless renderer
+ * does not ship, so this is the one family drawn by something the viewer does
+ * not use (#1794). The document travels by URL, like a raster image: pdf.js is
+ * handed the URL and reads the bytes itself.
+ *
+ * The drawing code is a chunk of its own, reached by dynamic import, so only a
+ * PDF tile pays for pdf.js.
+ */
+function PdfTile({ data, onDrawn }: { data: TileData; onDrawn: OnDrawn }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    void import("@/lib/pdfPage").then(
+      ({ drawFirstPage, pdfFailureReason }) =>
+        drawFirstPage(el, data.contentURL).then(
+          () => afterPaint().then(() => onDrawn("")),
+          (err: unknown) => onDrawn(pdfFailureReason(err)),
+        ),
+      (err: unknown) => onDrawn(`the PDF renderer could not be loaded: ${String(err)}`),
+    );
+  }, [data.contentURL, onDrawn]);
+
+  return (
+    <canvas
+      ref={canvas}
+      style={{ display: "block", width: THUMB_WIDTH, height: THUMB_HEIGHT }}
     />
   );
 }

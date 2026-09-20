@@ -208,6 +208,18 @@ export default defineConfig(({ mode }) => {
           secure: false,
           xfwd: true,
         },
+        // The reference-serving route, which mockRefRoute above answers only
+        // for the tokens the fixtures hold. A token a real backend minted fell
+        // through to index.html, so a referenced file's picture was an HTML
+        // page in dev and a picture everywhere else -- the image thumbnail as
+        // much as the stored tile a referenced PDF now has (#1794). The plugin
+        // middleware runs ahead of the proxy, so the fixtures still win.
+        "/portal/refs": {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+          xfwd: true,
+        },
         // /portal/auth/* is the platform's browser_session OIDC flow
         // (login → IdP → callback → logout). Without this proxy, the
         // SPA dev server tries to resolve /portal/auth/login as a

@@ -1,6 +1,9 @@
 package thumbtypes
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestFamilyPredicates(t *testing.T) {
 	for _, tc := range []struct {
@@ -57,6 +60,52 @@ func TestThemeableShadowsAgreeWithFirstMatch(t *testing.T) {
 		sqlForm := containsAny(ct, Themeable) && !containsAny(ct, shadows)
 		if sqlForm != IsThemeable(ct) {
 			t.Errorf("%q: the SQL form says themeable=%v, first-match says %v", ct, sqlForm, IsThemeable(ct))
+		}
+	}
+}
+
+// TestSourceLimitRaisesOnlyForPDF. The bound exists because the renderer holds
+// the whole document; a PDF is the one family where that cost is not what its
+// size suggests, because only page one is decoded (#1794). Every other family
+// stays where it was, which is the half of the rule a change here would break
+// silently.
+func TestSourceLimitRaisesOnlyForPDF(t *testing.T) {
+	for _, ct := range []string{"application/pdf", "APPLICATION/PDF", "application/x-pdf"} {
+		if got := SourceLimit(ct); got != LargeSourceLimit {
+			t.Errorf("SourceLimit(%q) = %d, want %d", ct, got, LargeSourceLimit)
+		}
+	}
+	for _, ct := range []string{
+		"text/html", "image/png", "image/svg+xml", "text/markdown",
+		"application/json", "text/csv", "text/plain", "application/zip",
+	} {
+		if got := SourceLimit(ct); got != DefaultSourceLimit {
+			t.Errorf("SourceLimit(%q) = %d, want %d", ct, got, DefaultSourceLimit)
+		}
+	}
+}
+
+// TestSourceLimitExprNamesTheCallersColumnsAndPlaceholder. Two stores render
+// this into statements written in different placeholder styles, and each binds
+// the large families to its own number.
+func TestSourceLimitExprNamesTheCallersColumnsAndPlaceholder(t *testing.T) {
+	want := "size_bytes <= CASE WHEN mime_type ILIKE ANY($3) THEN 33554432::bigint ELSE 1048576::bigint END"
+	if got := SourceLimitExpr("size_bytes", "mime_type", "$3"); got != want {
+		t.Errorf("SourceLimitExpr = %q, want %q", got, want)
+	}
+	want = "size_bytes <= CASE WHEN content_type ILIKE ANY(?) THEN 33554432::bigint ELSE 1048576::bigint END"
+	if got := SourceLimitExpr("size_bytes", "content_type", "?"); got != want {
+		t.Errorf("SourceLimitExpr = %q, want %q", got, want)
+	}
+}
+
+// TestEveryLargeSourceFamilyIsCapturable. A family with its own bound that
+// nothing draws is a bound on nothing, and would read as a family that gets a
+// tile.
+func TestEveryLargeSourceFamilyIsCapturable(t *testing.T) {
+	for _, f := range LargeSourceFamilies {
+		if !slices.Contains(Capturable, f) {
+			t.Errorf("%q has its own source bound but is not capturable", f)
 		}
 	}
 }

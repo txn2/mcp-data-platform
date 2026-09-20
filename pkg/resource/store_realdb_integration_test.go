@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 func TestResourceStore_Insert_RealDB_NilTags(t *testing.T) {
@@ -151,10 +152,18 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	// and neither was ever offered the work.
 	insert("res_t_jsx", "text/jsx", 100)
 	insert("res_t_txt", "text/plain; charset=utf-8", 100)
-	// A type nothing can rasterize, and one past the source cap: neither is
-	// ever offered, so neither can crowd out the ones that would succeed.
+	// A PDF is drawn: the tile page rasterizes page one itself (#1794).
 	insert("res_t_pdf", "application/pdf", 100)
-	insert("res_t_big", "text/markdown", MaxThumbnailSourceBytes+1)
+	// The source bound is per family. A PDF is held to LargeSourceLimit and
+	// every other family to DefaultSourceLimit, so a document that is past the
+	// default and would be refused as markdown is drawn as a PDF -- which is
+	// the whole point, a single 300dpi scanned page already being past it.
+	insert("res_t_pdf_mid", "application/pdf", thumbtypes.DefaultSourceLimit+1)
+	insert("res_t_pdf_big", "application/pdf", thumbtypes.LargeSourceLimit+1)
+	// A type nothing can rasterize, and one past its own bound: neither is ever
+	// offered, so neither can crowd out the ones that would succeed.
+	insert("res_t_zip", "application/zip", 100)
+	insert("res_t_big", "text/markdown", thumbtypes.DefaultSourceLimit+1)
 
 	// Claims what the renderer is owed, then releases the leases, so the
 	// criterion can ask more than once.
@@ -175,8 +184,13 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	assert.True(t, ids["res_t_png"], "an image is captured too: the tile used to be the file")
 	assert.True(t, ids["res_t_jsx"], "the capturer renders JSX, so a JSX resource is offered")
 	assert.True(t, ids["res_t_txt"], "plain text is drawn with the capturer's prose CSS")
-	assert.False(t, ids["res_t_pdf"], "nothing can rasterize a PDF, so it is never offered")
-	assert.False(t, ids["res_t_big"], "past the source cap the renderer is never handed the file")
+	assert.True(t, ids["res_t_pdf"], "a PDF is drawn as its first page, so it is offered")
+	assert.True(t, ids["res_t_pdf_mid"],
+		"a PDF past the default bound is still within its own, which is why the bound was raised")
+	assert.False(t, ids["res_t_pdf_big"], "past the PDF bound the renderer is never handed the file")
+	assert.False(t, ids["res_t_zip"], "nothing rasterizes an archive, so it is never offered")
+	assert.False(t, ids["res_t_big"],
+		"past the default bound the renderer is never handed a file of any other family")
 
 	// Capturing the light variant is not enough for a themeable type: markdown
 	// renders on a forced background and needs the dark pass too.

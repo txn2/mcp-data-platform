@@ -84,7 +84,7 @@ The reference route is rate-limited per client (see [`portal.rate_limit`](config
 
 ## Managing references from the portal
 
-An asset's viewer sidebar carries a **References** panel listing what the asset depends on. A resource row names the file, its scope and its content type, with a thumbnail where it is an image; an asset row is marked as one and names the asset, its content type and its owner. A thumbnail loads through the reference's own URL rather than through the target's own route, so it renders for a reader who was only ever shown the asset.
+An asset's viewer sidebar carries a **References** panel listing what the asset depends on. A resource row names the file, its scope and its content type; an asset row is marked as one and names the asset, its content type and its owner. Every row shows a picture: an image as itself, and anything else as the tile the platform drew for it — a referenced PDF shows its first page. Both load through the reference's own URL rather than through the target's own route, so they render for a reader who was only ever shown the asset: the tile is asked for by adding `?thumbnail=1` to that URL, which is the same token and so the same grant, reading a 400×300 picture of a file the token already serves in full. A target with no tile drawn — too large, still queued, or one the renderer refused — answers 404 and the row falls back to its content-type icon. Before this the row showed a picture only when the type began with `image/`, so a referenced PDF was blank even once it had a tile.
 
 ![The References panel on an asset](../images/screenshots/light/user-asset-refs-light.webp#only-light)![The References panel on an asset](../images/screenshots/dark/user-asset-refs-dark.webp#only-dark)
 

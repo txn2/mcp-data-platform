@@ -1451,13 +1451,6 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 	return qb
 }
 
-// maxThumbnailSourceBytes is the largest asset body a tile is drawn from. A
-// tile is drawn by loading the whole document into the renderer beside the
-// platform, whose memory is sized for documents, not archives; above this the
-// asset keeps its content-type icon (#1351). The claim applies it so a document
-// the renderer will not take is never leased.
-const maxThumbnailSourceBytes = 1 << 20 // 1 MB
-
 // thumbnailOwedPredicate matches the assets the renderer owes a tile: one it
 // can draw, small enough to be worth drawing twice, and carrying a tile that
 // is missing, behind the current version, written under the pre-rename
@@ -1472,10 +1465,14 @@ const maxThumbnailSourceBytes = 1 << 20 // 1 MB
 // Light and dark are asked separately, and dark only of the types that carry
 // one: an HTML asset stores a single image and serves it in both modes, so
 // reading its empty dark key as "pending" would offer it forever.
+//
+// The size bound is per family (thumbtypes.SourceLimitExpr) and is applied
+// here so a document the renderer will not take is never leased.
 func thumbnailOwedPredicate(renderer int) sq.Sqlizer {
 	return sq.And{
 		sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable))),
-		sq.LtOrEq{"size_bytes": maxThumbnailSourceBytes},
+		sq.Expr(thumbtypes.SourceLimitExpr("size_bytes", "content_type", "?"),
+			pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies))),
 		sq.Or{
 			variantPendingPredicate(portaldomain.ThumbnailVariantLight),
 			sq.And{

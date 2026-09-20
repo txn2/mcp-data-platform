@@ -60,12 +60,16 @@ func handlerFor(fsys fs.FS) http.Handler {
 // the bundle does not contain is refused rather than read: the directory holds
 // only the emitted chunks and their assets, and vite's manifest under .vite/
 // describes the graph rather than being part of it.
+//
+// ".mjs" is here for pdf.js's worker, which the PDF tile starts as a Worker
+// and so is emitted as a file rather than folded into a chunk (#1794).
 func servableName(name string) bool {
 	if name == "" || strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") {
 		return false
 	}
 	switch {
-	case strings.HasSuffix(name, ".js"), strings.HasSuffix(name, ".css"),
+	case strings.HasSuffix(name, ".js"), strings.HasSuffix(name, ".mjs"),
+		strings.HasSuffix(name, ".css"),
 		strings.HasSuffix(name, ".map"), strings.HasSuffix(name, ".svg"),
 		strings.HasSuffix(name, ".woff2"):
 		return true
@@ -78,7 +82,7 @@ func servableName(name string) bool {
 // closed to what servableName admits, so there is no sniffing to fall back on.
 func contentTypeFor(name string) string {
 	switch {
-	case strings.HasSuffix(name, ".js"):
+	case strings.HasSuffix(name, ".js"), strings.HasSuffix(name, ".mjs"):
 		return "text/javascript; charset=utf-8"
 	case strings.HasSuffix(name, ".css"):
 		return "text/css; charset=utf-8"

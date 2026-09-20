@@ -267,6 +267,59 @@ describe("an asset's referenced files have a surface", () => {
     expect(screen.queryByTestId("asset-ref-thumb")).toBeNull();
   });
 
+  // A referenced PDF had no picture at all: the panel drew a reference only
+  // when its type began with image/, so it stayed blank even once the platform
+  // drew it a tile (#1794). It reads the stored tile through the reference's
+  // own URL, which is the same grant the bytes are served under -- the
+  // target's own thumbnail route would refuse a reader who was only ever shown
+  // the asset.
+  it("shows a referenced PDF as the tile the platform drew for it", async () => {
+    const refs = clone(WITH_LOGO);
+    refs.data[0]!.mime_type = "application/pdf";
+    refs.data[0]!.filename = "q3.pdf";
+    stubApi(refs);
+    renderPanel();
+
+    const thumb = (await screen.findByTestId("asset-ref-thumb")) as HTMLImageElement;
+    expect(thumb.getAttribute("src")).toBe(REF_URL + "?thumbnail=1");
+  });
+
+  // A file whose tile was never drawn -- too large, still queued, or one the
+  // renderer refused -- answers 404 on that URL, and the row falls back to its
+  // icon rather than showing a broken image.
+  it("drops back to the icon when the reference has no stored tile", async () => {
+    const refs = clone(WITH_LOGO);
+    refs.data[0]!.mime_type = "application/pdf";
+    stubApi(refs);
+    renderPanel();
+
+    const thumb = await screen.findByTestId("asset-ref-thumb");
+    fireEvent.error(thumb);
+    expect(screen.queryByTestId("asset-ref-thumb")).toBeNull();
+  });
+
+  // An image is still served as itself. Its own bytes are the picture, and
+  // routing it through the tile would show a 400x300 crop of a file the panel
+  // can render at full fidelity.
+  it("still shows an image reference as the file itself", async () => {
+    renderPanel();
+
+    const thumb = (await screen.findByTestId("asset-ref-thumb")) as HTMLImageElement;
+    expect(thumb.getAttribute("src")).toBe(REF_URL);
+  });
+
+  // A family nothing draws never gets a tile, so asking for one would be a
+  // 404 on every render of the panel.
+  it("asks for no tile for a type nothing draws", async () => {
+    const refs = clone(WITH_LOGO);
+    refs.data[0]!.mime_type = "application/zip";
+    stubApi(refs);
+    renderPanel();
+
+    expect(await screen.findByText("Company logo")).toBeTruthy();
+    expect(screen.queryByTestId("asset-ref-thumb")).toBeNull();
+  });
+
   it("says where the content writes the URI", async () => {
     renderPanel();
     expect(await screen.findByTestId("asset-ref-in-content")).toBeTruthy();
@@ -527,8 +580,12 @@ describe("an asset that references another asset", () => {
     expect(screen.getByTestId("asset-ref-kind-asset")).toBeTruthy();
     expect(screen.getByText("sam.chen@example.com")).toBeTruthy();
     expect(screen.getByText("mcp:asset:asset-data")).toBeTruthy();
-    // A CSV is not a picture, so no thumbnail is attempted for it.
-    expect(screen.queryByTestId("asset-ref-thumb")).toBeNull();
+    // A referenced asset is shown by the tile the platform drew for it, read
+    // through the reference's own URL like every other picture in this panel
+    // (#1794). A CSV used to show nothing here, because the panel drew only
+    // types beginning with image/.
+    const thumb = screen.getByTestId("asset-ref-thumb") as HTMLImageElement;
+    expect(thumb.getAttribute("src")).toBe("/portal/refs/asset-q4/tok-data?thumbnail=1");
   });
 
   it("opens the referenced asset where this reader can read it", async () => {

@@ -7,6 +7,9 @@ import {
   collectionItemThumbnailSrc,
   collectionMosaicSrc,
   isThemeable,
+  thumbnailSourceLimit,
+  PDF_THUMBNAIL_SOURCE_LIMIT,
+  THUMBNAIL_SOURCE_LIMIT,
   isThumbnailSupported,
   resourceThumbnailBehind,
   resourceThumbnailSrc,
@@ -109,7 +112,9 @@ describe("thumbnail support", () => {
     ]) {
       expect(isThumbnailSupported(ct)).toBe(true);
     }
-    expect(isThumbnailSupported("application/pdf")).toBe(false);
+    // A PDF is drawn by the tile page itself rather than through a viewer
+    // renderer, which is what the browser's missing plugin ruled out (#1794).
+    expect(isThumbnailSupported("application/pdf")).toBe(true);
     expect(isThumbnailSupported("application/zip")).toBe(false);
   });
 
@@ -138,6 +143,28 @@ describe("thumbnail support", () => {
     // A raster image is drawn as stored; capturing it twice would store the
     // same downscale under both keys.
     expect(isThemeable("image/png")).toBe(false);
+    // A PDF page is drawn as the document looks, so one capture serves both
+    // schemes (#1794).
+    expect(isThemeable("application/pdf")).toBe(false);
+  });
+});
+
+// The bound on how big a file a tile is drawn from. It rises for one family
+// and one family only: a scanned letter page measures about 2 MB, so holding a
+// PDF to the default would leave most real ones with an icon (#1794).
+describe("thumbnailSourceLimit", () => {
+  it("gives a PDF its own bound and leaves every other family on the default", () => {
+    expect(thumbnailSourceLimit("application/pdf")).toBe(PDF_THUMBNAIL_SOURCE_LIMIT);
+    expect(PDF_THUMBNAIL_SOURCE_LIMIT).toBeGreaterThan(THUMBNAIL_SOURCE_LIMIT);
+    for (const ct of ["text/html", "image/png", "image/svg+xml", "text/markdown", "text/csv"]) {
+      expect(thumbnailSourceLimit(ct)).toBe(THUMBNAIL_SOURCE_LIMIT);
+    }
+  });
+
+  // A type nothing draws has no tile to bound, and answering the raised bound
+  // for it would read as "this family is drawn, generously".
+  it("answers the default for a type that gets no tile at all", () => {
+    expect(thumbnailSourceLimit("application/zip")).toBe(THUMBNAIL_SOURCE_LIMIT);
   });
 });
 
@@ -152,7 +179,7 @@ describe("captureFamily", () => {
     expect(captureFamily("application/json")).toBe("json");
     expect(captureFamily("text/plain")).toBe("text");
     expect(captureFamily("image/png")).toBe("image");
-    expect(captureFamily("application/pdf")).toBeNull();
+    expect(captureFamily("application/pdf")).toBe("pdf");
   });
 
   // "image/svg+xml" contains both fragments, and SVG is drawn as markup rather
@@ -239,7 +266,7 @@ describe("what the viewer renders and what the capturer draws", () => {
     expect(CAPTURE_BY_RENDERER_KIND.image).toBe("image");
     expect(captureFamily("image/png")).toBe("image");
     expect(captureFamily("image/tiff")).toBeNull();
-    for (const kind of ["audio", "video", "pdf", "binary"] as const) {
+    for (const kind of ["audio", "video", "binary"] as const) {
       const declared = CAPTURE_BY_RENDERER_KIND[kind];
       expect(typeof declared).toBe("object");
     }

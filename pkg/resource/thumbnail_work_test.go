@@ -3,11 +3,16 @@ package resource
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 // The statements are held to PostgreSQL by the real-database suite and the SQL
@@ -126,5 +131,33 @@ func TestRecordThumbnailFailure(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Error(err)
+	}
+}
+
+// The source bound is per family: a scanned PDF passes the default bound in a
+// couple of pages, and holding it to that would leave most real PDFs with an
+// icon (#1794). The statement asks it as a CASE over the type, so one
+// predicate covers both bounds and the raise reaches only the family that
+// earned it.
+func TestBuildThumbnailClaim_BoundsTheSourceSizePerFamily(t *testing.T) {
+	stmt, args := buildThumbnailClaim(1, time.Minute, 4)
+	want := thumbtypes.SourceLimitExpr("size_bytes", "mime_type", "$3")
+	if !strings.Contains(stmt, want) {
+		t.Errorf("the claim does not carry the per-family bound %q:\n%s", want, stmt)
+	}
+	large, err := pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies)).Value()
+	if err != nil {
+		t.Fatal(err)
+	}
+	valuer, ok := args[2].(driver.Valuer)
+	if !ok {
+		t.Fatalf("$3 is %T, want the large-source family patterns", args[2])
+	}
+	got, err := valuer.Value()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != large {
+		t.Errorf("$3 binds %v, want the large-source families %v", got, large)
 	}
 }

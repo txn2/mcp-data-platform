@@ -69,9 +69,16 @@ type tileSource struct {
 }
 
 // isBinary reports whether a document reaches the tile page by URL rather than
-// inline: a raster image cannot travel as a JSON string.
+// inline: a raster image and a PDF cannot travel as a JSON string.
+//
+// A PDF is served this way for a second reason as well as that one: pdf.js is
+// handed the URL and reads the file itself, so the bytes are never copied
+// through a JavaScript string on the way (#1794).
 func isBinary(contentType string) bool {
 	ct := strings.ToLower(contentType)
+	if strings.Contains(ct, "pdf") {
+		return true
+	}
 	return strings.HasPrefix(ct, "image/") && !strings.Contains(ct, "svg")
 }
 

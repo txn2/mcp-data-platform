@@ -1,12 +1,22 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { Tile, type TileData } from "./Tile";
+import { drawFirstPage } from "@/lib/pdfPage";
 
 // The page the platform's renderer draws a tile from (#1787). What is asserted
 // here is the page's half of the contract: each family is laid out, and the
 // page says it is drawn -- or why it cannot be -- exactly when the renderer
 // should take its picture. The picture itself is the renderer's, and is held
 // by the Go integration and acceptance suites.
+
+// pdf.js rasterizes onto a real canvas with a real worker, neither of which
+// jsdom has. The module boundary is what this file asserts over: the page
+// hands it the canvas and the URL, and turns what it rejects with into the
+// reason the file has no tile.
+vi.mock("@/lib/pdfPage", () => ({
+  drawFirstPage: vi.fn(async () => {}),
+  pdfFailureReason: vi.fn(() => "the document is password-protected"),
+}));
 
 vi.mock("mermaid", () => ({
   default: {
@@ -147,7 +157,38 @@ describe("Tile", () => {
 
   it("says nothing draws a type outside every family", () => {
     const d = drawn();
-    render(<Tile data={data({ contentType: "application/pdf" })} dark={false} onDrawn={d.onDrawn} />);
-    expect(d.reasons).toEqual(["nothing draws application/pdf"]);
+    render(<Tile data={data({ contentType: "application/zip" })} dark={false} onDrawn={d.onDrawn} />);
+    expect(d.reasons).toEqual(["nothing draws application/zip"]);
+  });
+
+  // A PDF is drawn onto a canvas by pdf.js, which needs a real 2d context and
+  // a real worker: what the page owes is the canvas, the URL handed to the
+  // drawing code, and a reason when it cannot draw. The picture itself is held
+  // by the Go integration suite, in the renderer that takes it.
+  it("gives a PDF a canvas and draws it from the content URL", async () => {
+    const d = drawn();
+    const { container } = render(
+      <Tile data={data({ contentType: "application/pdf", contentURL: "/content", serveFromURL: true })} dark={false} onDrawn={d.onDrawn} />,
+    );
+    const canvas = container.querySelector("canvas");
+    expect(canvas).not.toBeNull();
+    await waitFor(() => expect(drawFirstPage).toHaveBeenCalledWith(canvas, "/content"));
+    await waitFor(() => expect(d.reasons).toEqual([""]));
+  });
+
+  it("records why a PDF could not be drawn instead of taking its picture", async () => {
+    vi.mocked(drawFirstPage).mockRejectedValueOnce(new Error("boom"));
+    const d = drawn();
+    render(<Tile data={data({ contentType: "application/pdf", serveFromURL: true })} dark={false} onDrawn={d.onDrawn} />);
+    await waitFor(() => expect(d.reasons).toEqual(["the document is password-protected"]));
+  });
+
+  // A PDF is drawn once. The tile page is opened in both schemes for a
+  // themeable family only, but nothing here should read `dark` and produce a
+  // different picture for it.
+  it("draws the same PDF whatever scheme the page was opened in", async () => {
+    const d = drawn();
+    render(<Tile data={data({ contentType: "application/pdf", serveFromURL: true })} dark onDrawn={d.onDrawn} />);
+    await waitFor(() => expect(d.reasons).toEqual([""]));
   });
 });
