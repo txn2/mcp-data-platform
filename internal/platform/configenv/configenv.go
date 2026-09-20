@@ -54,14 +54,33 @@ var unexpandedPattern = regexp.MustCompile(`\$\{[^\n"]{0,64}`)
 // registration. One line at startup naming the fragment is the difference
 // between reading that error and reading this one.
 func warnUnexpanded(expanded string) {
-	seen := make(map[string]bool)
-	for _, frag := range unexpandedPattern.FindAllString(expanded, -1) {
-		if seen[frag] {
-			continue
-		}
-		seen[frag] = true
+	for _, frag := range Unexpanded(expanded) {
 		slog.Warn("config: a ${...} placeholder was not expanded; "+
 			"the value will be used literally (note that ${A:-${B}} does not nest)",
 			"fragment", logsan.SanitizeForLog(frag))
 	}
+}
+
+// Unexpanded returns the distinct "${" fragments standing in s, in the order
+// they appear. An empty result means every placeholder was substituted, or
+// that there were none.
+//
+// Expansion is a configuration-FILE feature: a value that arrives any other way
+// is used exactly as it was written. So the same fragment this package warns
+// about in a file is, for a caller that stores a value directly, always a
+// mistake — a database-managed connection holding "${TRINO_USER}" as its
+// username is stored, listed and reported as created, and fails every call
+// afterwards at DSN construction (#1805). Exported so that caller can refuse it
+// at the point it is written rather than warn about it at startup.
+func Unexpanded(s string) []string {
+	var out []string
+	seen := make(map[string]bool)
+	for _, frag := range unexpandedPattern.FindAllString(s, -1) {
+		if seen[frag] {
+			continue
+		}
+		seen[frag] = true
+		out = append(out, frag)
+	}
+	return out
 }

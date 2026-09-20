@@ -124,6 +124,21 @@ type ResourceLanding struct {
 	Message      string   `json:"message"`
 }
 
+// ResourceLandingResultSentence is how every export tool describes where a
+// resource destination's result lands, so the three of them say one thing.
+//
+// It names the nesting rather than implying the fields are on the result,
+// because the fields are not on the result: an agent that read result.reference
+// after a resource export got an empty string, failed its own guard, and left a
+// real resource version behind (#1805). The asset destination's fields ARE on
+// the result, which is exactly what made the shorter wording readable as a
+// promise that these are too.
+const ResourceLandingResultSentence = "Returns asset metadata (id, URL, size, content type) at the TOP LEVEL for an " +
+	"asset destination; a resource destination returns its fields nested under `resource` instead — " +
+	"`resource.reference` (the mcp:resource:<id> to hand to the next call), `resource.uri`, `resource.version`, " +
+	"and `resource.table_changes`. One or the other is set, never both, and the data itself is NOT returned " +
+	"through this response."
+
 // ResourceLander writes an export's bytes into a managed resource at a path,
 // creating the file the first time and recording a new version of it every time
 // after.

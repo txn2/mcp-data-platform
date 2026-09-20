@@ -30,6 +30,7 @@ import {
 //   GET    /connection-instances/graphql/:name/schema   (schema state)
 //   POST   /connection-instances/graphql/:name/refresh-schema
 //   GET    /gateway/connections/:name/status
+//   POST   /connection-instances/:kind/:name/test         (unified test)
 //   POST   /gateway/connections/:name/test
 //   POST   /gateway/connections/:name/refresh
 //   POST   /gateway/connections/:name/reacquire-oauth
@@ -196,6 +197,32 @@ export const connectionInstanceHandlers = [
       healthy: false,
       auth_mode: "none",
       tools: [],
+    });
+  }),
+
+  // The unified connection test. A connection named so the fixture can show
+  // the failing half answers 503 with the upstream's own words, which is the
+  // state the panel exists to render.
+  http.post(`${ADMIN_BASE}/connection-instances/:kind/:name/test`, ({ params }) => {
+    const kind = String(params["kind"]);
+    const name = decodeURIComponent(String(params["name"]));
+    if (!findInstance(kind, name)) {
+      return HttpResponse.json(
+        {
+          kind,
+          name,
+          ok: false,
+          detail: `connection "${name}" could not be opened`,
+          error: `no ${kind} connection named ${name} is served by this process`,
+        },
+        { status: 503 },
+      );
+    }
+    return HttpResponse.json({
+      kind,
+      name,
+      ok: true,
+      detail: "the query engine answered SELECT 1",
     });
   }),
 

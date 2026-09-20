@@ -44,6 +44,25 @@ const knowledgeEnrichConcurrency = 8
 // (non-ConnectionLister) path.
 var dataKinds = map[string]bool{"trino": true, "datahub": true, "s3": true}
 
+// ToolDescription is what list_connections tells a caller it answers. It lives
+// with the view it describes rather than with the tool registration, so the
+// sentence about a field and the field itself are added in one place.
+const ToolDescription = "List all configured data connections across toolkits (Trino, DataHub, S3, etc.). " +
+	"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it. " +
+	"Where the kind has the notion, a connection also reports read_only: true means write-class calls are refused " +
+	"on it, so plan the write path BEFORE staging data rather than meeting the refusal partway through. " +
+	"read_only: false is not scoped to whatever catalog, schema or bucket the connection declares: those are the " +
+	"defaults a call uses when it names none, not a boundary, and a fully qualified statement reaches wherever " +
+	"the connection's upstream identity may reach."
+
+// readOnlyReporter is the optional capability of a toolkit that serves ONE
+// connection and so lists none: it answers for that connection's writability
+// directly. Declared here as an interface rather than reached by importing the
+// toolkit, which this package deliberately does not do.
+type readOnlyReporter interface {
+	IsReadOnly() bool
+}
+
 // KnowledgePage is a brief reference to a knowledge page documenting a connection.
 type KnowledgePage struct {
 	ID    string `json:"id"`
@@ -67,6 +86,9 @@ type Entry struct {
 	CatalogID         string                        `json:"catalog_id,omitempty"`
 	OperationCount    int                           `json:"operation_count,omitempty"`
 	Health            *toolkit.ConnectionHealthWire `json:"health,omitempty"`
+	// ReadOnly is true when this connection refuses write-class calls, and is
+	// omitted entirely on a kind with no such notion (#1805).
+	ReadOnly *bool `json:"read_only,omitempty"`
 	// KnowledgePageCount is the total number of knowledge pages that reference this
 	// connection; KnowledgePages carries a bounded sample of them (#634).
 	KnowledgePageCount int             `json:"knowledge_page_count,omitempty"`
@@ -116,6 +138,14 @@ type Stored struct {
 	Description    string
 	CatalogID      string
 	OperationCount int
+	// ReadOnly is the stored connection's writability, nil on a kind that has
+	// no such setting. It is carried here as well as on the live listing so
+	// the answer does not depend on which replica the caller reached: a
+	// connection added on another replica is a row here before it is anything
+	// this process serves (#1757), and a surface that reported its writability
+	// only when it happened to be local would report two different things
+	// about one connection (#1805).
+	ReadOnly *bool
 }
 
 // StoreLister lists every connection the store holds, across kinds. A
@@ -229,6 +259,7 @@ func appendStored(ctx context.Context, entries []Entry, seen map[string]int, dep
 			Description:    sc.Description,
 			CatalogID:      sc.CatalogID,
 			OperationCount: sc.OperationCount,
+			ReadOnly:       sc.ReadOnly,
 		}
 		if deps.Source != nil {
 			e.DataHubSourceName = deps.Source.DataHubSourceName(sc.Kind, sc.Name)
@@ -259,6 +290,7 @@ func appendFromLister(
 			CatalogID:      conn.CatalogID,
 			OperationCount: conn.OperationCount,
 			Health:         conn.Health.Wire(),
+			ReadOnly:       conn.ReadOnly,
 		}
 		if src != nil {
 			e.DataHubSourceName = src.DataHubSourceName(tk.Kind(), conn.Name)
@@ -294,6 +326,14 @@ func appendFallback(
 	e := Entry{
 		Kind: kind, Name: tk.Name(), Connection: string(c.Bound),
 		Reference: knowledgepage.ConnectionRef(kind, tk.Name()),
+	}
+	// A toolkit serving one connection reports its writability for the whole
+	// toolkit, which is what a per-connection listing reports per connection.
+	// Asking here keeps this path's answer the same as the stored path's for
+	// the same connection (#1805).
+	if reporter, ok := tk.(readOnlyReporter); ok {
+		readOnly := reporter.IsReadOnly()
+		e.ReadOnly = &readOnly
 	}
 	if src != nil {
 		e.DataHubSourceName = src.DataHubSourceName(kind, string(c.Bound))

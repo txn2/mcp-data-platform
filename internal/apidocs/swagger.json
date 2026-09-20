@@ -3962,6 +3962,142 @@
                 }
             }
         },
+        "/admin/connection-instances/{kind}/{name}/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Opens the connection and asks its upstream one harmless question \u2014 a trivial query, a bucket listing, an introspection, a tools/list, a GET at the base URL \u2014 and reports whether it answered. It is read-only and persists nothing. Until this existed a connection could be created, stored, listed and read back without anything ever having opened it, so an unusable connection was indistinguishable from a working one until a real call failed. 200 means the connection answered; 503 means it did not, with the upstream's own error.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Test a connection instance",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Toolkit kind (trino, s3, api, graphql, mcp)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Instance name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.testConnectionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/admin.testConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connection-kinds": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every kind a connection instance can be created under, each with the JSON Schema of its config object. A connection's config is a freeform object on the wire, so without this the only way to learn a key's name is to read the deployment's configuration file out of band.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "List connection kinds and their config schemas",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/admin.connectionKindDoc"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/connection-kinds/{kind}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the JSON Schema of one kind's config object, which is what the \"config\" field of PUT /admin/connection-instances/{kind}/{name} takes.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get one connection kind's config schema",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Toolkit kind (trino, s3, api, graphql, mcp)",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.connectionKindDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connections": {
             "get": {
                 "security": [
@@ -23089,6 +23225,22 @@
                 }
             }
         },
+        "admin.connectionKindDoc": {
+            "type": "object",
+            "properties": {
+                "config_schema": {
+                    "description": "ConfigSchema is the JSON Schema of the object sent as \"config\" on\nPUT /admin/connection-instances/{kind}/{name}.",
+                    "type": "object"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "note": {
+                    "description": "Note says how the schema is to be read, so nothing is inferred from its\nsilence.",
+                    "type": "string"
+                }
+            }
+        },
         "admin.connectionListResponse": {
             "type": "object",
             "properties": {
@@ -24007,6 +24159,26 @@
                 "version_url": {
                     "type": "string",
                     "example": "https://acme.example.com/changelog"
+                }
+            }
+        },
+        "admin.testConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "ok": {
+                    "type": "boolean"
                 }
             }
         },

@@ -21,6 +21,16 @@ type ConnectionDetail struct {
 	IsDefault      bool
 	CatalogID      string
 	OperationCount int
+	// ReadOnly reports whether this connection refuses write-class calls, and
+	// is nil on a kind that has no such notion. It is a pointer because the
+	// absence of the setting and a connection that accepts writes are
+	// different answers, and a surface that reported both as false would tell a
+	// caller a gateway connection accepts writes.
+	//
+	// It exists so writability is visible BEFORE a call rather than only in the
+	// refusal of one (#1805): a script that stages data and then discovers the
+	// warehouse connection is read-only has already staged the data.
+	ReadOnly *bool
 	// Health is optional per-connection reachability, populated by gateway
 	// kinds that hold a live upstream session (so an evicted or dead upstream
 	// is observable from list_connections instead of only when a downstream

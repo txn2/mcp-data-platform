@@ -267,7 +267,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"Address the operation either by operation_id (with any path template values in path_params) or by method+path directly, exactly like api_invoke_endpoint; supply one form, not both. " +
 			"Pass `paginate` to walk every page of a paginated collection in this one call: the merged array is streamed into the asset as pages arrive, and the result reports pages_fetched, items_merged, and stopped_by. " +
 			"Pass `resource` to land the response in a MANAGED RESOURCE at a path instead of a new asset: the same path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that reference it and the tables registered over it. That is the destination for a recurring pull of one source. " +
-			"Returns asset metadata (id, URL, size, content type), or the resource's reference, uri and version — the data is NOT returned through this response. " +
+			toolkit.ResourceLandingResultSentence + " " +
 			"NAMING: keep `name` short and portable, ASCII letters / digits / spaces / hyphens / dots only. " +
 			"The name doubles as the download filename.",
 		InputSchema: apiExportInputSchema,

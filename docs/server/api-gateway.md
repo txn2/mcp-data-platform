@@ -125,7 +125,31 @@ On the built-in `util` connection, a `POST /util/fetch` walk pages the document 
 }
 ```
 
-The result carries the file rather than an asset: its `mcp:resource:<id>` reference, its canonical `mcp://` URI, the `version` this call recorded, whether it was `created`, and one sentence per table registered over it saying whether the table followed onto the new version.
+The result carries the file rather than an asset, and it carries it NESTED under
+`resource`: `resource.reference` (the `mcp:resource:<id>` to hand to the next
+call), `resource.uri`, `resource.version`, `resource.created`, and
+`resource.table_changes`, one sentence per table registered over the file saying
+whether it followed onto the new version. An asset destination's fields sit at
+the top level instead; one or the other is set, never both.
+
+```json
+{
+  "message": "...",
+  "size_bytes": 51172,
+  "upstream_status": 200,
+  "content_type": "text/csv",
+  "resource": {
+    "reference": "mcp:resource:res_...",
+    "uri": "mcp://user/datasets/acme/orders.csv",
+    "version": 4,
+    "created": false
+  }
+}
+```
+
+Read `result.resource.reference`, not `result.reference`. The shorter reading
+returns an empty string, and a script that guards on it fails its run AFTER the
+export has already happened, leaving a real resource version behind.
 
 That is the destination for a recurring pull of one source. The file's id and URI do not move, so an asset that references it, a citation that names it, and a `manage_table` registration that follows it all keep resolving across every refresh, and nothing has to be re-pointed. The response streams from the upstream into the file's storage exactly as it streams into an asset's, so a 200 MB CSV is an ordinary call rather than something that has to be cut up to pass through a model or a script.
 

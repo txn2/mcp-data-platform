@@ -12,7 +12,7 @@ import (
 const PropertiesJSON = `{
   "edits": {
     "type": "array",
-    "description": "Ordered edits to apply (patch action). Each edit is anchored on text, never on a line number, and edits apply in order against the evolving body, so a later edit can anchor on text an earlier one introduced. If any edit fails to resolve, the whole call is refused and nothing is written.",
+    "description": "Ordered edits to apply (patch action). Each edit is anchored on text, never on a line number, and edits apply in order against the evolving body, so a later edit can anchor on text an earlier one introduced. If any edit fails to resolve, the whole call is refused and nothing is written. An edit carries its replacement text under 'replace' (op=replace) or 'text' (every other writing op); an edit that omits the key its op reads, or carries a key this grammar does not declare, is refused by name.",
     "maxItems": 100,
     "items": {
       "type": "object",
@@ -33,11 +33,11 @@ const PropertiesJSON = `{
         },
         "replace": {
           "type": "string",
-          "description": "Replacement for the matched span (op=replace). An empty string deletes the match."
+          "description": "Replacement for the matched span. Required by op=replace, which is also the default op: an edit that omits this key is refused rather than treated as empty, so a misspelled key cannot delete the anchor. An explicitly empty string deletes the match."
         },
         "text": {
           "type": "string",
-          "description": "Text to insert or to become the region's content (insert_before, insert_after, replace_section, replace_content, append, prepend)."
+          "description": "Text to insert or to become the region's content (insert_before, insert_after, replace_section, replace_content, append, prepend). Required by those operations: an edit that omits this key is refused rather than treated as empty. An explicitly empty string empties the target."
         },
         "section": {
           "type": "string",

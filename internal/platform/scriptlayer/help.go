@@ -263,6 +263,25 @@ THE LOOP
   is how a wrong watermark is corrected: clear it and let the next run start
   over.
 
+EDITING THE SOURCE
+  patch takes "edits", an ordered list of anchored edits. Each edit names the
+  text it acts on and carries the text it writes, under a key that depends on
+  the op:
+    {"op": "replace",       "find": "<exact text>", "replace": "<new text>"}
+    {"op": "insert_before", "find": "<exact text>", "text": "<new text>"}
+    {"op": "insert_after",  "find": "<exact text>", "text": "<new text>"}
+    {"op": "append",  "text": "<new text>"}
+    {"op": "prepend", "text": "<new text>"}
+  op defaults to replace. "pattern" anchors on a Go RE2 regex instead of
+  "find", and "occurrence" ("first", "last", "all", or a 1-based index) acts on
+  a repeated anchor. An edit that omits the key its op reads is REFUSED rather
+  than treated as empty, and so is one carrying a key this list does not name:
+  deleting the anchor is "replace": "" written out, never a key going
+  unrecognized. An anchor matching nothing or matching ambiguously refuses the
+  whole call and writes nothing, so a patch lands as sent or leaves the script
+  exactly as it was. dry_run returns the diff without saving, and base_version
+  refuses a patch composed against a version the script has since moved past.
+
 WHO OWNS IT AND WHO WROTE IT
   These are two facts, and two commands answer them. get reports owner_email,
   the person the script is filed under NOW; an administrator can move a script

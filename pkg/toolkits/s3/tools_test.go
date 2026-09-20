@@ -560,11 +560,13 @@ func TestNewMulti_BindsEveryInstance(t *testing.T) {
 	t.Cleanup(func() { _ = tk.Close() })
 
 	assert.Equal(t, "lake", tk.Connection())
+	readOnly, writable := true, false
 	assert.Equal(t, []toolkit.ConnectionDetail{
-		{Name: "archive", Description: "cold storage"},
-		{Name: "lake", IsDefault: true},
-		{Name: "reports"},
-	}, tk.ListConnections(), "an instance is bound by its connection_name, its instance name when it sets none")
+		{Name: "archive", Description: "cold storage", ReadOnly: &readOnly},
+		{Name: "lake", IsDefault: true, ReadOnly: &writable},
+		{Name: "reports", ReadOnly: &writable},
+	}, tk.ListConnections(), "an instance is bound by its connection_name, its instance name when it sets none; "+
+		"each reports whether it accepts writes (#1805)")
 	assert.True(t, tk.settings("archive").readOnly)
 	assert.False(t, tk.settings("").readOnly, "the default connection's settings are the empty name's")
 	assert.True(t, tk.HasConnection("reports"))

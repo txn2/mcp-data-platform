@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
-import type { ConnectionInstance } from "../types";
+import type { ConnectionInstance, ConnectionTestResult } from "../types";
 import { REFETCH_INTERVAL } from "./shared";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,26 @@ export function useDeleteConnectionInstance() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["connection-instances"] });
       void qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+}
+
+// useTestConnectionInstance opens a stored connection and reports whether its
+// upstream answered.
+//
+// It reads the body on both outcomes rather than letting a failure throw: a
+// connection that did not answer replies 503 carrying the reason, and that
+// reason is the entire point of the button. The gateway kind keeps its own
+// richer test, which can also probe a config that has not been saved yet.
+export function useTestConnectionInstance() {
+  return useMutation({
+    mutationFn: async ({ kind, name }: { kind: string; name: string }) => {
+      const res = await apiFetchRaw(`/connection-instances/${kind}/${name}/test`, { method: "POST" });
+      const body = (await res.json().catch(() => ({}))) as Partial<ConnectionTestResult> & { detail?: string };
+      if (res.status !== 200 && res.status !== 503) {
+        throw new Error(body.detail ?? `Test failed with status ${res.status}`);
+      }
+      return { kind, name, ok: body.ok === true, detail: body.detail, error: body.error } as ConnectionTestResult;
     },
   });
 }

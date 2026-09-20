@@ -641,10 +641,12 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	if t.manager == nil {
 		// Single-client mode: one connection, advertised under the name a call
 		// binds it by, which is what Connection() reports.
+		readOnly := t.config.ReadOnly
 		return []toolkit.ConnectionDetail{{
 			Name:        t.name,
 			Description: t.config.Description,
 			IsDefault:   true,
+			ReadOnly:    &readOnly,
 		}}
 	}
 
@@ -654,10 +656,20 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	t.connMu.RLock()
 	defer t.connMu.RUnlock()
 	for i, info := range infos {
+		// The interceptor is asked rather than the config re-read, so what a
+		// listing reports and what a write will meet are one answer (#1805).
+		// Multi-connection mode always holds one; a toolkit that somehow does
+		// not decides nothing per connection and reports nothing.
+		var readOnlyOf *bool
+		if t.readOnly != nil {
+			readOnly := !t.readOnly.AcceptsWrites(info.Name)
+			readOnlyOf = &readOnly
+		}
 		details[i] = toolkit.ConnectionDetail{
 			Name:        info.Name,
 			Description: t.connectionDescriptions[info.Name],
 			IsDefault:   info.IsDefault,
+			ReadOnly:    readOnlyOf,
 		}
 	}
 	return details

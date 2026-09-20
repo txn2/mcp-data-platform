@@ -1187,7 +1187,7 @@ A patch is an ordered list of edits applied to the current body in memory. Nothi
 
 Operations:
 
-- `replace` (the default when `op` is omitted): `find` is matched literally and swapped for `replace`. An empty `replace` deletes the matched text.
+- `replace` (the default when `op` is omitted): `find` is matched literally and swapped for `replace`. An explicitly empty `replace` deletes the matched text.
 - `insert_before` / `insert_after`: `text` is placed relative to the `find` anchor, leaving the anchor in place.
 - `replace_section`: names a region with `section` or `selector` (see below) and replaces its whole span with `text`.
 - `replace_content`: names an element with `selector` and replaces its interior with `text`, leaving the element's own tags exactly as written — the data-island operation. Selector-only; a void or self-closing element is refused because it has no interior.
@@ -1195,6 +1195,26 @@ Operations:
 - `append` / `prepend`: `text` at the end or start of the body. No anchor needed.
 
 `section` and `selector` are also accepted on `replace`, `insert_before`, and `insert_after` to scope the anchor search to one region, which is how a repeated phrase becomes unambiguous without quoting a long anchor.
+
+**The payload key is required, and it is the only one**
+
+An edit carries the text it writes under `replace` for `op: replace`, and under
+`text` for every other writing operation. An edit that omits the key its
+operation reads is REFUSED with `PATCH_BAD_EDIT` naming the edit's index; so is
+one carrying a key this grammar does not declare, which is named along with the
+accepted set.
+
+Deleting is therefore always something the caller asked for: `"replace": ""`
+written out. Omission used to be read as an empty replacement, so an edit whose
+text rode on a misspelled key — `text` on a `replace`, `replacement`, `with` —
+had its payload ignored, replaced the anchor with nothing, saved a new version
+and reported success. The damage was a deletion the caller never asked for, in a
+source that usually still parsed, so `validate` passed too and a scheduled run
+was the first thing to notice.
+
+Every tool that adopts this grammar splices the same schema fragment, so its
+edit items declare exactly these keys and are closed to the rest: an unknown key
+is refused by the argument validator before the handler runs.
 
 **Naming a region**
 

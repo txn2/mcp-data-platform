@@ -26,10 +26,9 @@ type listConnectionsInput struct{}
 // registerConnectionsTool registers the list_connections tool with the MCP server.
 func (p *Platform) registerConnectionsTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
-		Name:  toolListConns,
-		Title: "List Connections",
-		Description: "List all configured data connections across toolkits (Trino, DataHub, S3, etc.). " +
-			"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it.",
+		Name:         toolListConns,
+		Title:        "List Connections",
+		Description:  connview.ToolDescription,
 		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true},
 		OutputSchema: connectionsOutputSchema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listConnectionsInput) (*mcp.CallToolResult, any, error) {
@@ -100,6 +99,7 @@ func StoredConnections(p *Platform) connview.StoreLister {
 			return connstored.Row{
 				Kind: inst.Kind, Name: inst.Name, Description: inst.Description,
 				CatalogID: cfgmap.String(inst.Config, "catalog_id"),
+				ReadOnly:  connstored.ReadOnly(inst.Kind, inst.Config),
 			}
 		})
 }

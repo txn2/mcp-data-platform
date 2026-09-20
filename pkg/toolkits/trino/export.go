@@ -277,8 +277,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"Pass `resource` to land the result in a MANAGED RESOURCE at a path instead of a new asset: the same " +
 			"path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that " +
 			"reference it and the tables registered over it. That is the destination for a recurring export. " +
-			"Returns asset metadata (ID, URL, row count, size), or the resource's reference, uri and version; " +
-			"the data is NOT returned through this response. " +
+			toolkit.ResourceLandingResultSentence + " A row count is reported beside the asset metadata. " +
 			"NAMING: keep `name` short and portable, using only ASCII letters, digits, spaces, hyphens, and dots. " +
 			"Avoid em/en dashes, smart quotes, ellipses, and other Unicode punctuation; they will be normalized to ASCII. " +
 			"The name doubles as the download filename.",
