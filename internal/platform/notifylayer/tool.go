@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -97,6 +98,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		Name:        ToolName,
 		Title:       "Notify a Channel",
 		Description: toolDescription,
+		InputSchema: inputSchema(),
 		// A send leaves a message in somebody's chat client that nothing here
 		// can take back, which is a write in every sense that matters. It is
 		// not destructive: it removes nothing that was there.
@@ -104,6 +106,20 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input notifyInput) (*mcp.CallToolResult, any, error) {
 		return h.handle(ctx, input)
 	})
+}
+
+// inputSchema is the schema the SDK infers from notifyInput, with the action
+// verbs stated as an enum rather than only in prose (#1827): the write
+// barrier's verb gate reads the enum to prove each verb is classified, and a
+// caller reading the schema learns the set without parsing a sentence. It
+// panics on a reflection failure, a programming error covered by tests.
+func inputSchema() *jsonschema.Schema {
+	s, err := jsonschema.For[notifyInput](nil)
+	if err != nil {
+		panic("notify: derive the input schema: " + err.Error())
+	}
+	s.Properties["action"].Enum = []any{actionList, actionSend, actionPublish}
+	return s
 }
 
 // handle dispatches one call.

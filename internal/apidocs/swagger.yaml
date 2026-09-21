@@ -6827,6 +6827,9 @@ definitions:
       name:
         example: daily_sales
         type: string
+      reference:
+        example: mcp:resource:res_7c1e
+        type: string
       refresh:
         description: |-
           Refresh marks a platform.publish_data call: the run would have replaced
@@ -6837,6 +6840,19 @@ definitions:
       row_count:
         example: 1200
         type: integer
+      table:
+        description: |-
+          Table is the table a register= argument made over the written file,
+          the name a query selects from (#1820).
+        example: scratch.uploads.analyst_orders_stage
+        type: string
+      written:
+        description: |-
+          Written marks an output the draft wrote for real, which only a draft
+          run with allow_writes does (#1822). Reference names what it wrote: the
+          managed resource's reference, or the asset's.
+        example: false
+        type: boolean
     type: object
   script.Param:
     properties:
@@ -8621,6 +8637,14 @@ definitions:
           follow never fails the write that triggered it, so the listing has to be
           able to say what is behind and why without the log of that write.
         type: string
+      format:
+        description: |-
+          Format names the reader the table is declared with: "csv", or "jsonl"
+          for a JSON-lines file, whose values come back exactly (#1820). It is
+          decided by the file, not by the caller, and it is on the record because
+          the CREATE TABLE is written again at every follow and when a failed
+          follow puts a table back.
+        type: string
       id:
         type: string
       location:
@@ -8734,6 +8758,14 @@ definitions:
           empty while it is where the file is. It is kept on the record because a
           follow never fails the write that triggered it, so the listing has to be
           able to say what is behind and why without the log of that write.
+        type: string
+      format:
+        description: |-
+          Format names the reader the table is declared with: "csv", or "jsonl"
+          for a JSON-lines file, whose values come back exactly (#1820). It is
+          decided by the file, not by the caller, and it is on the record because
+          the CREATE TABLE is written again at every follow and when a failed
+          follow puts a table back.
         type: string
       id:
         type: string

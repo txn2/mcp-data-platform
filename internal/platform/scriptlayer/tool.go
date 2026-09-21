@@ -86,10 +86,11 @@ type manageScriptInput struct {
 	// declared params before the run starts.
 	Args map[string]any `json:"args,omitempty"`
 
-	// AllowWrites lets a run_draft persist through platform.call (#1664). A
-	// draft refuses write-class calls by default, which is what makes it a
-	// rehearsal; this is how an author exercises a pipeline whose next step
-	// reads what the last one created.
+	// AllowWrites lets a run_draft persist (#1664, #1822): through
+	// platform.call, and through platform.export, which then writes rather
+	// than previews. A draft refuses write-class calls by default, which is
+	// what makes it a rehearsal; this is how an author exercises a pipeline
+	// whose next step reads what the last one created.
 	AllowWrites bool `json:"allow_writes,omitempty"`
 
 	// Cron and Timezone carry the cadence for schedule_set. Args carries the
@@ -313,7 +314,9 @@ func manageScriptSchema() any {
 			keyDescription: "The Starlark source. Call 'help' for the dialect contract and worked examples. " +
 				"validate and run_draft act on this source when it is sent and on the script's saved " +
 				"version when it is not, which is how an edit is checked and executed before it becomes " +
-				"the version run_script and a schedule execute.",
+				"the version run_script and a schedule execute. run_draft also runs source sent under a " +
+				"name you have no saved script by, as the script it would be saved as: its args bind " +
+				"against the params sent with it, it reads empty state, and nothing is saved.",
 		},
 		"params": map[string]any{
 			keyType: valArray,
@@ -339,11 +342,16 @@ func manageScriptSchema() any {
 		},
 		"allow_writes": map[string]any{
 			keyType: valBoolean,
-			keyDescription: "For run_draft: let the draft persist through platform.call. A draft refuses " +
-				"write-class calls (manage_resource create, manage_table register, api_export, " +
-				"trino_execute and the rest) so a landing pipeline can be exercised without landing. " +
-				"Set it when the next step of the pipeline reads what the last one created; the run then " +
-				"writes for real and reports every write it made.",
+			keyDescription: "For run_draft: let the draft persist. A draft refuses write-class calls " +
+				"(manage_resource create, manage_table register, api_export, trino_execute and the rest) " +
+				"and previews every platform.export, so a landing pipeline can be exercised without " +
+				"landing. Set it when the next step of the pipeline reads what the last one created: " +
+				"the run then writes for real, platform.export included, so an export to resources " +
+				"hands back the reference to register and a register= argument makes the table, and " +
+				"the response lists every call under writes and every written output under exports " +
+				"with preview false. platform.save_state still reports the state rather than saving " +
+				"it. A draft of a script that is not saved yet cannot write to the portal destination, " +
+				"which is the saved script's own asset; it can write to resources and to a bucket.",
 		},
 		"cron": map[string]any{
 			keyType: valString,

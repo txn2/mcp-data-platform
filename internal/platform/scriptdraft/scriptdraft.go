@@ -13,8 +13,9 @@
 // limits than a platform run will, and by default it persists nothing: the
 // three named helpers preview, and every other write a script makes goes
 // through platform.call and is stopped by the engine's write barrier (#1664).
-// A caller who wants the writes asks for them, and the outcome then lists what
-// the run persisted.
+// A caller who wants the writes asks for them: the barrier lifts, platform.export
+// writes through the writer a platform run uses (#1822), and the outcome lists
+// what the run persisted.
 //
 // The package exists because there are two surfaces that ask for a draft run —
 // the manage_script tool an agent calls and the editor its owner works in
@@ -85,6 +86,11 @@ type Request struct {
 	Source string
 	// Name labels the script in tracebacks.
 	Name string
+	// Script is the record the draft runs as, which an export allowed to write
+	// files its outputs under: the saved script, or for a draft of one not yet
+	// saved, a record carrying only the name it will be saved under (#1822).
+	// Nil previews every export whatever AllowWrites says.
+	Script *script.Script
 	// Params is the already-bound parameter set. Binding is the domain's
 	// (script.BindParams) and happens before a Runner is involved, so a draft
 	// and a platform run bind by one rule.
@@ -121,6 +127,9 @@ type Outcome struct {
 	// Err is the script's own failure — a Starlark error, a refused host call,
 	// or a limit — and nil when it succeeded.
 	Err error
+	// AllowWrites is whether the draft was run with its writes allowed, which
+	// decides what Persisted says it did.
+	AllowWrites bool
 }
 
 // Failed reports whether the script itself failed.
@@ -142,6 +151,33 @@ type Runner struct {
 	// now pins the fire time handed to the script. It is a field so a test can
 	// assert on what a draft reads as run.fire_time.
 	now func() time.Time
+	// exports builds the writer a draft allowed to write exports through
+	// (#1822). Nil previews every export, which is what a deployment with no
+	// store for outputs can honestly do.
+	exports Exports
+}
+
+// Exports builds the writer one draft's outputs are persisted through when its
+// caller asked for the writes. The composition root supplies it, over the
+// same stores a platform run writes to.
+type Exports func(Target) scriptrun.Exporter
+
+// Target is the draft an Exports writer serves.
+type Target struct {
+	Script   *script.Script
+	RunID    string
+	Identity Identity
+	Caller   scriptrun.Caller
+}
+
+// WithExports returns the Runner with the writer a draft allowed to write
+// persists its outputs through. Both surfaces that reach a draft pass through
+// here, so whether an allowed draft writes its exports is one decision.
+func (r *Runner) WithExports(exports Exports) *Runner {
+	if r != nil {
+		r.exports = exports
+	}
+	return r
 }
 
 // New builds a Runner over the assembled server. destinations is the
@@ -221,8 +257,19 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// one per surface.
 		Writes:     barrierFor(req.AllowWrites),
 		Classifier: r.classifier,
+		Exporter:   r.exporterFor(req, runID, caller),
 	})
-	return &Outcome{RunID: runID, Result: result, Err: runErr}, nil
+	return &Outcome{RunID: runID, Result: result, Err: runErr, AllowWrites: req.AllowWrites}, nil
+}
+
+// exporterFor is the writer a draft's exports go through: none, so every export
+// previews, unless the caller asked for the writes and there is a writer and a
+// record to file the outputs under.
+func (r *Runner) exporterFor(req Request, runID string, caller scriptrun.Caller) scriptrun.Exporter {
+	if !req.AllowWrites || r.exports == nil || req.Script == nil {
+		return nil
+	}
+	return r.exports(Target{Script: req.Script, RunID: runID, Identity: req.Identity, Caller: caller})
 }
 
 // barrierFor is what a draft does about a write, from the one thing its caller

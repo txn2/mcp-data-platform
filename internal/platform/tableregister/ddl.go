@@ -18,8 +18,9 @@ func qualified(r Registration) string {
 // collision quietly take out somebody else's table, which is why the decision
 // is made before this is called rather than here.
 //
-// Every column is VARCHAR because Hive CSV admits nothing else; skipping the
-// header line is what keeps the column names out of the rows.
+// Every column is VARCHAR: Hive CSV admits nothing else, and a JSON-lines
+// table declares the same so the two formats read alike to a query. Skipping
+// the header line is what keeps a CSV's column names out of its rows.
 func BuildDDL(r Registration, replacing bool) []string {
 	stmts := make([]string, 0, 3)
 	stmts = append(stmts,
@@ -54,8 +55,21 @@ func createTableStatement(r Registration) string {
 	b.WriteString(strings.Join(cols, ", "))
 	b.WriteString(") WITH (external_location = ")
 	b.WriteString(QuoteLiteral(r.Location))
-	_, _ = b.WriteString(", format = 'CSV', skip_header_line_count = 1, csv_escape = " + noCSVEscape + ")")
+	_, _ = b.WriteString(", " + formatProperties(r.FormatOrDefault()) + ")")
 	return b.String()
+}
+
+// formatProperties renders the table properties that choose a registration's
+// reader.
+//
+// A JSON-lines table needs only the format: the JSON reader finds each value
+// by its key, so there is no header to skip and no escape to declare, and
+// every string arrives exactly as written (#1820).
+func formatProperties(format string) string {
+	if format == FormatJSONLines {
+		return "format = 'JSON'"
+	}
+	return "format = 'CSV', skip_header_line_count = 1, csv_escape = " + noCSVEscape
 }
 
 // noCSVEscape is the csv_escape a registration declares: NUL, which the Hive

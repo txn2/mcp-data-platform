@@ -549,3 +549,26 @@ func TestCarries_DescribesEveryKind(t *testing.T) {
 		}
 	}
 }
+
+// TestInputSchema_ActionEnum pins the verbs notify advertises as an enum
+// (#1827): the draft write barrier's verb gate reads them from the schema, and
+// a verb added to the handler without it is one the gate cannot see.
+func TestInputSchema_ActionEnum(t *testing.T) {
+	s := inputSchema()
+	action := s.Properties["action"]
+	if action == nil {
+		t.Fatal("the schema has no action property")
+	}
+	want := []any{actionList, actionSend, actionPublish}
+	if len(action.Enum) != len(want) {
+		t.Fatalf("action enum = %v, want %v", action.Enum, want)
+	}
+	for i := range want {
+		if action.Enum[i] != want[i] {
+			t.Fatalf("action enum = %v, want %v", action.Enum, want)
+		}
+	}
+	if _, ok := s.Properties["channel"]; !ok {
+		t.Error("the rest of the inferred schema should be kept")
+	}
+}

@@ -214,7 +214,9 @@ func orEmptyParams(v map[string]any) map[string]any {
 // keeps none. Nil reads as {} inside the run, which is the state a script that
 // has never saved any would read on the platform too.
 func (h *Handle) liveState(ctx context.Context, sc *script.Script) map[string]any {
-	if h.states == nil {
+	// A script that is not saved has never run, so it reads {} as one that has
+	// never saved any does.
+	if h.states == nil || sc.ID == "" {
 		return nil
 	}
 	st, err := h.states.GetState(ctx, sc.ID)

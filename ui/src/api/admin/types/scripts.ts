@@ -74,9 +74,10 @@ export interface ScriptFinding {
   hint?: string;
 }
 
-// ScriptDryRunOutput is one output a draft run would have written: the shape,
-// and nothing else. A preview has no asset id and no object key, because it
-// wrote neither.
+// ScriptDryRunOutput is one output of a draft run. A preview is the shape and
+// nothing else: it has no asset id and no object key, because it wrote
+// neither. A draft run with allow_writes writes its outputs (#1822), and then
+// says so and where.
 export interface ScriptDryRunOutput {
   name: string;
   destination?: string;
@@ -89,6 +90,12 @@ export interface ScriptDryRunOutput {
   // payload it would splice in.
   refresh?: boolean;
   bytes: number;
+  // written marks an output the draft wrote for real; reference names the
+  // resource or asset it wrote, and table the table a register= argument made
+  // over it (#1820).
+  written?: boolean;
+  reference?: string;
+  table?: string;
 }
 
 // ScriptDryRunAccount is the record of somebody having executed this exact

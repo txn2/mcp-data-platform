@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -173,4 +175,72 @@ func TestRun_ReleasesItsSlot(t *testing.T) {
 func TestErrBusy_IsASentinelASurfaceCanMatch(t *testing.T) {
 	assert.ErrorIs(t, ErrBusy, ErrBusy)
 	assert.Contains(t, ErrBusy.Error(), "try again")
+}
+
+// recordingExports is a composition root's writer factory, recording the
+// drafts it was asked to serve.
+type recordingExports struct {
+	targets []Target
+	written []scriptrun.ExportRequest
+}
+
+func (r *recordingExports) exports(t Target) scriptrun.Exporter {
+	r.targets = append(r.targets, t)
+	return r
+}
+
+func (r *recordingExports) Export(_ context.Context, req scriptrun.ExportRequest) (*scriptrun.ExportResult, error) {
+	r.written = append(r.written, req)
+	return &scriptrun.ExportResult{ResourceRef: "mcp:resource:r1", ResourceID: "r1", Bytes: 1}, nil
+}
+
+func (*recordingExports) PublishData(context.Context, scriptrun.PublishRequest) (*scriptrun.ExportResult, error) {
+	return &scriptrun.ExportResult{}, nil
+}
+
+// TestRun_ExportsThroughTheWriterOnlyWhenAllowed is #1822: a draft allowed to
+// write persists its exports through the writer the composition root gave the
+// runner, under the caller's identity and the draft's own run id, and a draft
+// that was not allowed, or that carries no script record, previews.
+func TestRun_ExportsThroughTheWriterOnlyWhenAllowed(t *testing.T) {
+	source := `out = platform.export(name="o", rows=[{"a": 1}], format="jsonl", destination="resources", key="s/o.jsonl")
+print("preview", out["preview"])
+`
+	sc := &script.Script{ID: "s1", Name: "staging"}
+	for _, tt := range []struct {
+		name        string
+		allow       bool
+		script      *script.Script
+		wantWritten bool
+	}{
+		{"allowed", true, sc, true},
+		{"not allowed", false, sc, false},
+		{"no script record", true, nil, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			writer := &recordingExports{}
+			outcome, err := New(server(t), nil).WithExports(writer.exports).Run(context.Background(), Request{
+				Source: source, Name: "staging", Script: tt.script, Identity: jane, AllowWrites: tt.allow,
+			})
+			require.NoError(t, err)
+			require.False(t, outcome.Failed(), "%v", outcome.Err)
+			assert.Equal(t, tt.allow, outcome.AllowWrites)
+			if !tt.wantWritten {
+				assert.Empty(t, writer.targets)
+				assert.Contains(t, outcome.Result.Log, "preview True")
+				return
+			}
+			require.Len(t, writer.targets, 1)
+			assert.Equal(t, sc, writer.targets[0].Script)
+			assert.Equal(t, outcome.RunID, writer.targets[0].RunID)
+			assert.Equal(t, jane, writer.targets[0].Identity)
+			require.Len(t, writer.written, 1)
+			assert.Contains(t, outcome.Result.Log, "preview False")
+		})
+	}
+}
+
+func TestWithExports_OnANilRunner(t *testing.T) {
+	var runner *Runner
+	assert.Nil(t, runner.WithExports(nil))
 }

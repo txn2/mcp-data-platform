@@ -404,10 +404,11 @@ function AllowWrites({
         <span className="font-medium">Write for real</span>
         <span className="mt-0.5 block text-muted-foreground">
           A dry run stops at a platform.call that persists — creating a
-          resource, registering a table, executing a statement — so a landing
-          pipeline can be rehearsed without landing. Tick this for one run when
-          a later step needs what an earlier one creates; the run then writes as
-          you, and reports every write it made.
+          resource, registering a table, executing a statement — and only
+          measures each platform.export, so a landing pipeline can be rehearsed
+          without landing. Tick this for one run when a later step needs what an
+          earlier one creates; the run then writes as you, exports included, and
+          reports every write it made.
         </span>
       </span>
     </Label>

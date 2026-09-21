@@ -48,15 +48,16 @@ func TestIntegrationTestsAreExecuted(t *testing.T) {
 	fset := token.NewFileSet()
 	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {
 		if fErr != nil {
-			// A pruned directory can vanish between its parent's ReadDir and
-			// its own lstat, which arrives here as an error on a path the walk
-			// was going to skip anyway. dist/ is the one that does it: `make
-			// verify` runs release-check concurrently with the Go lane, and
-			// goreleaser's --clean removes and recreates the project's dist/
-			// while it works. Pruning by name below cannot catch it, because
-			// there is no FileInfo to prune on.
-			if errors.Is(fErr, fs.ErrNotExist) && skipWalkDir(filepath.Base(path)) {
-				return filepath.SkipDir
+			// A path can vanish between its parent's ReadDir and its own lstat,
+			// because `make verify` runs its lanes concurrently: goreleaser's
+			// --clean removes and recreates dist/, and the UI lane rebuilds
+			// ui/dist-content-viewer, whose hashed chunk names change every
+			// build. Pruning by name cannot keep up with the build tools'
+			// output directories, and a file that no longer exists is not a
+			// test this guard has to find, so a vanished path is passed over
+			// whatever it was called.
+			if errors.Is(fErr, fs.ErrNotExist) {
+				return nil
 			}
 			return fErr
 		}
@@ -253,15 +254,16 @@ func TestIntegrationTestsUseTheSharedServer(t *testing.T) {
 	var offenders []string
 	walkErr := filepath.Walk(projectRoot, func(path string, info os.FileInfo, fErr error) error {
 		if fErr != nil {
-			// A pruned directory can vanish between its parent's ReadDir and
-			// its own lstat, which arrives here as an error on a path the walk
-			// was going to skip anyway. dist/ is the one that does it: `make
-			// verify` runs release-check concurrently with the Go lane, and
-			// goreleaser's --clean removes and recreates the project's dist/
-			// while it works. Pruning by name below cannot catch it, because
-			// there is no FileInfo to prune on.
-			if errors.Is(fErr, fs.ErrNotExist) && skipWalkDir(filepath.Base(path)) {
-				return filepath.SkipDir
+			// A path can vanish between its parent's ReadDir and its own lstat,
+			// because `make verify` runs its lanes concurrently: goreleaser's
+			// --clean removes and recreates dist/, and the UI lane rebuilds
+			// ui/dist-content-viewer, whose hashed chunk names change every
+			// build. Pruning by name cannot keep up with the build tools'
+			// output directories, and a file that no longer exists is not a
+			// test this guard has to find, so a vanished path is passed over
+			// whatever it was called.
+			if errors.Is(fErr, fs.ErrNotExist) {
+				return nil
 			}
 			return fErr
 		}

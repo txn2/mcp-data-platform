@@ -1,8 +1,9 @@
 # Registered Tables
 
-A file that reaches the platform - a CSV a person uploaded as a managed
-resource, or one `trino_export` wrote as a portal asset - can be registered as
-a table on a Trino connection and joined to warehouse tables from then on.
+A file that reaches the platform - a CSV or JSON-lines file a person uploaded
+as a managed resource, or one `trino_export` or a script wrote - can be
+registered as a table on a Trino connection and joined to warehouse tables
+from then on.
 
 Nothing is copied. The registration creates an external table over the
 directory the file already sits in, so the table reads whatever the object
@@ -101,7 +102,7 @@ not here.
 
 ## Registering
 
-**In the portal.** Open a CSV resource or a CSV asset. A *Query as a table*
+**In the portal.** Open a CSV or JSON-lines resource or asset. A *Query as a table*
 section offers the connections you can reach that can hold one, and shows what
 is already registered with the columns each table has.
 
@@ -305,6 +306,42 @@ the registrant's call or an administrator's.
 
 **Delete the file.** Deleting the resource or asset drops every table registered
 over it, whoever registered them, and forgets the registrations.
+
+## CSV or JSON lines
+
+A registration reads its file through the reader its format names, decided by
+the file's content type or, when that is generic, its extension (`.csv`;
+`.jsonl` or `.ndjson`). A `.jsonl` or `.ndjson` file typed `application/json`
+is JSON lines too: one record on one line is also a JSON document, and that is
+what detection calls it. The format is recorded on the registration and shown
+as `format` wherever the registration is listed.
+
+| | CSV | JSON lines |
+|---|---|---|
+| Columns | The header line, cleaned: a blank name is filled in, a comma dropped, a repeat suffixed | Every key any record carries, lowercased, in the order first seen |
+| A line break inside a value | Refused unless `repair` is set, and repair joins the value's lines with single spaces | Carried exactly |
+| A null | Reads back as an empty string | Reads back as NULL |
+| Every other character | Carried exactly | Carried exactly |
+| Correction (`repair`) | Offered for the defects listed below | Never; a defect is refused by line number |
+
+JSON lines is the format for values that must come back exactly: `trino_export`
+and a script's `platform.export` both write it as `format=jsonl`, and the export
+writes a list or dict value as its JSON text so that the reader can read it
+(`json_parse` reads it back). A script can register the file it writes in the
+same call; see
+[From rows to a table a query can read](../scripts/running.md#from-rows-to-a-table-a-query-can-read).
+
+The JSON reader cannot read some line shapes, and a file holding one is refused
+with its line number: a blank line anywhere but the end, a line that is not
+exactly one JSON object (a second object on the same line would be dropped
+without a word), a key repeated in a record (keys match columns without regard
+to case, so `id` and `ID` are one column), and a nested object or list as a
+value. A key must be ASCII, with no comma and no leading or trailing space,
+because the reader leaves a non-ASCII key's column empty and Hive refuses the
+others as column names. A file with no records declares no columns and is
+refused at registration; a later version of a following registration's file
+that holds no records moves the table and keeps the columns it had, so a day
+with nothing in it reads as zero rows.
 
 ## A CSV a query engine cannot read
 
@@ -675,7 +712,9 @@ registration honest either way.
 
 Every column of a registered table is `VARCHAR`. That is the Hive CSV storage
 format's rule, not a platform choice - declaring the table any other way is
-refused by Trino itself - so a join to a typed warehouse column needs a cast:
+refused by Trino itself - and a JSON-lines table declares the same, so the two
+formats read alike: a number or a boolean in a JSON-lines file reads as its
+text. A join to a typed warehouse column needs a cast:
 
 ```sql
 SELECT s.store_id, s.store_name, u.rebate_pct
@@ -723,8 +762,11 @@ file being registered. A table over a hidden object is created, recorded and
 queried without any error and returns nothing, so a source under such a name is
 refused and the reason is stated. Upload the file under another name.
 
-**A file that is not a CSV.** There is no header row to take column names
-from.
+**A file that is neither a CSV nor JSON lines.** There is nothing to take
+column names from.
+
+**A JSON-lines file the JSON reader cannot read.** See
+[CSV or JSON lines](#csv-or-json-lines).
 
 **A CSV a line-based reader cannot read.** Lines that end in a carriage return
 rather than a newline, a line break inside a cell, or bytes that are not

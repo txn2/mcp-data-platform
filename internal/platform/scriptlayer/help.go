@@ -21,7 +21,7 @@ const manageScriptDescription = "Author, validate, and dry-run managed scripts: 
 	"Call command=help before writing your first one: Starlark is Python-shaped but deliberately smaller, " +
 	"and help states exactly what is available. The loop is create or update, then validate (parses and " +
 	"reports what the script would reach, runs nothing), then run_draft (executes for real under YOUR " +
-	"identity and persona, with tighter limits, persisting nothing). " +
+	"identity and persona, with tighter limits, persisting nothing unless you pass allow_writes). " +
 	"A saved script runs: run_script executes its latest saved version as the script's own principal, " +
 	"presenting the roles you held when you saved it, and a schedule fires it the same way. " +
 	"command=versions reads the history of who wrote each version, which is not the same question as " +
@@ -48,16 +48,40 @@ WHAT IS AVAILABLE
       A SQL DECIMAL column arrives in the rows as a STRING, not a number, so
       pass it through float() before arithmetic:
       sum([float(r["total"]) for r in rows]).
-  platform.export(name, rows, format="csv", destination="portal", key=None)
+  platform.export(name, rows, format="csv", destination="portal", key=None,
+                  register=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
-      markdown page. Formats: csv, json, markdown, text, html, jsx. csv and
-      json require rows, so a data feed stays well-formed by construction;
-      html and jsx take only a string body; markdown and text accept either.
-      csv is RFC 4180 and holds every value exactly: a value starting with
-      "=", "+", "-" or "@" is written as it is, a quote is doubled, and a
-      backslash is an ordinary character.
+      markdown page. Formats: csv, json, jsonl, markdown, text, html, jsx.
+      csv, json and jsonl require rows, so a data feed stays well-formed by
+      construction; html and jsx take only a string body; markdown and text
+      accept either.
+      csv is RFC 4180 and writes every value as it is: a value starting with
+      "=", "+", "-" or "@" is not prefixed, a quote is doubled, and a
+      backslash is an ordinary character. A table registered over a CSV
+      cannot carry a line break inside a value (registration refuses the
+      file unless repair is set, and repair joins the value's lines with
+      spaces) and reads a null back as an empty string.
+      jsonl writes one JSON object per row, keys in column order, and is the
+      format to register when every value must come back exactly: line
+      breaks, backslashes, quotes and nulls all survive the table. A list or
+      dict value is written as its JSON text, a string, which json_parse
+      reads back in SQL. A string that is not valid UTF-8 fails the export
+      rather than being altered.
+      register={"connection": "...", "table_name": "...", "follow": True}
+      makes the written file a table in the same call: it is manage_table
+      register over the file the export wrote, by the reference the write
+      reported, on the connection you name. table_name defaults to a slug of
+      the file's name and is prefixed with your persona; follow defaults to
+      True, so the next run's export moves the table onto its new version.
+      It needs format "jsonl" or "csv" and the "portal" or "resources"
+      destination, is refused before anything is written otherwise, and the
+      record the call returns carries "table" with the query_table to select
+      from. A registration that fails fails the run, naming the output. Pass
+      register by name, as destination and key are. This is the path for
+      free text into SQL: trino_execute binds no parameters, and
+      INSERT ... SELECT from the registered table does.
       A document is produced two ways, and the choice is made here, not later.
       Compose the whole document in the script when each run is its own kept
       document (a dated archive series), when the structure varies with the
@@ -100,7 +124,11 @@ WHAT IS AVAILABLE
       In a draft run this writes nothing, wherever it was addressed, and
       reports the shape and size the output would have: the content is
       serialized in the declared format to measure it, so the size is the one
-      a real run writes.
+      a real run writes. A register= argument then reports the table it
+      would make, with preview True and no query_table. A draft started with
+      allow_writes writes the output for real and makes the table, as a
+      platform run would, except that a draft of a script not yet saved
+      cannot write to "portal", which is the saved script's own asset.
   platform.publish_data(name, data)
       Refresh the data region of an existing dashboard without touching its
       markup. name is the same output identity platform.export uses, and must
@@ -281,7 +309,10 @@ THE LOOP
   create -> validate -> run_draft -> patch -> validate -> run_draft. validate
   parses and reports the capabilities, the tools platform.call names, the
   connections, and the destinations the script's OUTPUTS go to; run_draft
-  executes it under your own identity with nothing persisted.
+  executes it under your own identity with nothing persisted unless you pass
+  allow_writes. run_draft also runs source that is not saved yet: send it
+  with the name it will have, the params it declares and the args to bind,
+  and it runs as that script with empty state, saving nothing.
   Both act on the source you send with the call, and on the saved version when
   you send none: a save is immediately the version run_script executes and a
   schedule fires, so sending the edit is how you try it without making it live.

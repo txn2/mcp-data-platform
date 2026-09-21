@@ -47,6 +47,7 @@ import (
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
@@ -316,6 +317,10 @@ type ExportRequest struct {
 	// Key is the object key the script asked for beneath the destination's
 	// configured prefix, empty when it named none and never set for the portal.
 	Key string
+	// Register is the table the script asked to register over the written
+	// file (#1820), nil when it asked for none. The host binding makes the
+	// registration once the Exporter has written the file; a writer ignores it.
+	Register *exporttable.Spec
 }
 
 // ExportResult is where one output landed. A portal output reports the asset
@@ -387,6 +392,9 @@ type ExportRecord struct {
 	// It is a change report, not the `tables` a fetched reference carries,
 	// and is named apart from them for that reason (#1666).
 	TableChanges []string `json:"table_changes,omitempty"`
+	// Table is the registration the export's register= argument made over
+	// the written file (#1820), or the one a draft would have made.
+	Table *exporttable.Table `json:"table,omitempty"`
 }
 
 // Result reports one completed execution.

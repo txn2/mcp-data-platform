@@ -419,11 +419,20 @@ func TestS3Object_Actions(t *testing.T) {
 		assert.Contains(t, errText, "invalid method: DELETE")
 	})
 
-	t.Run("get of a missing key and an unknown action are refused in the tool's words", func(t *testing.T) {
+	t.Run("get of a missing key is refused in the tool's words, and an unknown action by the schema", func(t *testing.T) {
 		_, errText := rt.call("s3_object", map[string]any{"action": "get", "bucket": "acme-lake", "key": "nope"})
 		assert.Contains(t, errText, "failed to get object metadata: NoSuchKey")
+		// The action enum (#1827) refuses an unknown verb before the handler
+		// runs, and the refusal lists the verbs there are.
 		_, errText = rt.call("s3_object", map[string]any{"action": "rename", "bucket": "acme-lake", "key": "x"})
-		assert.Contains(t, errText, `unknown action "rename"`)
+		assert.Contains(t, errText, "rename does not equal any of: [get metadata put copy delete presign]")
+		// The handler's own refusal stays for a caller that reaches it without
+		// the SDK's validation.
+		res, _ := dispatchObject(context.Background(), nil, connSettings{}, objectInput{Action: "rename"})
+		require.True(t, res.IsError)
+		text, ok := res.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		assert.Contains(t, text.Text, `unknown action "rename"`)
 	})
 
 	t.Run("bucket and key are required, and an unknown connection is named", func(t *testing.T) {
@@ -614,4 +623,13 @@ func TestNewMulti_TwoInstancesShareOneRegistration(t *testing.T) {
 	out, errText = rt.call("s3_list", map[string]any{"connection": "lake", "bucket": "acme-lake"})
 	require.Empty(t, errText)
 	assert.EqualValues(t, 2, out["count"])
+}
+
+// TestObjectInputSchema_ActionEnum pins the verbs s3_object advertises as an
+// enum (#1827), which the draft write barrier's verb gate reads.
+func TestObjectInputSchema_ActionEnum(t *testing.T) {
+	s := objectInputSchema()
+	require.NotNil(t, s.Properties["action"])
+	assert.Equal(t, []any{"get", "metadata", "put", "copy", "delete", "presign"}, s.Properties["action"].Enum)
+	assert.Contains(t, s.Properties, "bucket", "the rest of the inferred schema is kept")
 }

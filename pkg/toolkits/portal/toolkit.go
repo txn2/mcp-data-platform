@@ -444,8 +444,8 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"Human feedback on assets is handled by the separate manage_feedback tool."
 
 // manageTableToolDescription is the advertised description of manage_table.
-const manageTableToolDescription = "Makes a stored CSV file queryable as a table, so trino_query can join it to " +
-	"warehouse tables. Actions: register, list, unregister. " +
+const manageTableToolDescription = "Makes a stored CSV or JSON-lines file queryable as a table, so trino_query " +
+	"can join it to warehouse tables. Actions: register, list, unregister. " +
 	"Name the file with the 'reference' a search hit or fetch document carries -- mcp:resource:<id> for " +
 	"reference material somebody uploaded, mcp:asset:<id> for a saved asset. One action serves both: what " +
 	"kind of file it is travels inside the reference. " +
@@ -454,6 +454,16 @@ const manageTableToolDescription = "Makes a stored CSV file queryable as a table
 	"you can reach). Every column comes back as VARCHAR, which is the storage format's rule and not a " +
 	"platform choice, so a join to a typed warehouse column needs a CAST -- the response carries a sample " +
 	"statement showing it. " +
+	"The two formats differ in what comes back. A JSON-lines file (.jsonl, one object per line, keys as " +
+	"columns) returns every string exactly, line breaks and backslashes included, and a null as NULL; it " +
+	"is the format to use when values must survive, and platform.export and trino_export write it as " +
+	"format=jsonl. It is refused, naming the line, when a line is blank, holds anything but one object, " +
+	"repeats a key (keys match columns without regard to case), or holds a nested object or list; a key " +
+	"must be ASCII, with no comma and no leading or trailing space. A CSV returns a null as an empty " +
+	"string and cannot carry a line break inside a value: such a file is refused unless repair is set, " +
+	"and repair rewrites such a value onto one line, joining its lines with single spaces after trimming " +
+	"each and dropping blank ones. Every other character, a leading =, +, - " +
+	"or @ and a backslash included, comes back as written. " +
 	"A new revision or version of the file leaves the table serving the content that was current when it " +
 	"was registered; that is reported as stale, and registering again moves the table to the current " +
 	"content. Overwriting the same file in place needs no re-registration. " +

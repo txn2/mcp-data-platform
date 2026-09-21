@@ -328,7 +328,7 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 
 // Relocate models the store half of a follow: the row moves and any earlier
 // failure is cleared, or the id is not there.
-func (m *memStore) Relocate(_ context.Context, id, location string, columns []Column) error {
+func (m *memStore) Relocate(_ context.Context, id, location, format string, columns []Column) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.relocateErr != nil {
@@ -338,7 +338,7 @@ func (m *memStore) Relocate(_ context.Context, id, location string, columns []Co
 	if !ok {
 		return ErrNotFound
 	}
-	r.Location, r.Columns, r.FollowError = location, columns, ""
+	r.Location, r.Format, r.Columns, r.FollowError = location, format, columns, ""
 	m.rows[id] = r
 	return nil
 }
@@ -700,7 +700,7 @@ func TestRegister_NonCSVRefuses(t *testing.T) {
 	h.objects.entries = []ObjectEntry{{Key: src.HeadKey}}
 
 	_, err := h.reg.Register(context.Background(), testCaller(), src, Request{Connection: "scratch"})
-	assert.ErrorIs(t, err, ErrNotCSV)
+	assert.ErrorIs(t, err, ErrNotTabular)
 }
 
 // TestRegister_NameHeldBySomeoneElseRefuses pins the shared-schema rule: the

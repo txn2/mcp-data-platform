@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -539,7 +540,7 @@ func TestPortalDryRunSource_DoesNotAskForWritesByDefault(t *testing.T) {
 func TestPortalDryRunSource_CarriesTheAuthorsAllowWrites(t *testing.T) {
 	deps, runner, _ := draftDeps(portalStore(), carol)
 	runner.outcome = &scriptdraft.Outcome{
-		RunID: "run_draft_3",
+		RunID: "run_draft_3", AllowWrites: true,
 		Result: &scriptrun.Result{
 			Log: "done",
 			Writes: []scriptrun.WriteRecord{
@@ -558,8 +559,8 @@ func TestPortalDryRunSource_CarriesTheAuthorsAllowWrites(t *testing.T) {
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Writes, 1)
 	assert.Equal(t, "manage_resource action=create", body.Writes[0].Call)
-	assert.Contains(t, body.Message, "allowed to write")
-	assert.Contains(t, body.Message, "1 call listed under writes persisted for real")
+	assert.Contains(t, body.Message, "This dry run was run with allow_writes")
+	assert.Contains(t, body.Message, "The 1 call listed under writes persisted for real")
 	assert.NotContains(t, body.Message, "Nothing was persisted")
 }
 
@@ -595,7 +596,7 @@ func TestPortalDryRunSource_NamesTheCallThatEndedTheRun(t *testing.T) {
 func TestPortalDryRunSource_PluralWriteMessage(t *testing.T) {
 	deps, runner, _ := draftDeps(portalStore(), carol)
 	runner.outcome = &scriptdraft.Outcome{
-		RunID: "run_draft_5",
+		RunID: "run_draft_5", AllowWrites: true,
 		Result: &scriptrun.Result{Writes: []scriptrun.WriteRecord{
 			{Tool: "manage_resource", Call: "manage_resource action=create"},
 			{Tool: "manage_table", Call: "manage_table action=register"},
@@ -608,5 +609,32 @@ func TestPortalDryRunSource_PluralWriteMessage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body dryRunResponse
 	decodeInto(t, rec, &body)
-	assert.Contains(t, body.Message, "2 calls listed under writes persisted for real")
+	assert.Contains(t, body.Message, "The 2 calls listed under writes persisted for real")
+}
+
+// TestDraftOutputs_SaysWhatWasWrittenAndWhere is the editor's half of #1822: an
+// output a dry run allowed to write wrote is marked written and names the
+// resource or asset it wrote and the table registered over it, while a preview
+// names neither.
+func TestDraftOutputs_SaysWhatWasWrittenAndWhere(t *testing.T) {
+	out := draftOutputs(&scriptdraft.Outcome{Result: &scriptrun.Result{Exports: []scriptrun.ExportRecord{
+		{
+			Name: "staging", Destination: "resources", Format: "jsonl", RowCount: 3, ResourceRef: "mcp:resource:r1",
+			Table: &exporttable.Table{QueryTable: "scratch.uploads.analyst_staging"},
+		},
+		{Name: "daily", Destination: "portal", Format: "csv", AssetID: "a1"},
+		{
+			Name: "preview", Destination: "portal", Format: "csv", Preview: true,
+			Table: &exporttable.Table{Preview: true},
+		},
+	}}})
+	require.Len(t, out, 3)
+	assert.True(t, out[0].Written)
+	assert.Equal(t, "mcp:resource:r1", out[0].Reference)
+	assert.Equal(t, "scratch.uploads.analyst_staging", out[0].Table)
+	assert.True(t, out[1].Written)
+	assert.Equal(t, "mcp:asset:a1", out[1].Reference)
+	assert.False(t, out[2].Written)
+	assert.Empty(t, out[2].Reference)
+	assert.Empty(t, out[2].Table, "a preview registered nothing, so it names no table")
 }

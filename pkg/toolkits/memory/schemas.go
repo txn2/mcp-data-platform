@@ -11,6 +11,7 @@ var memoryManageSchema = json.RawMessage(`{
   "properties": {
     "command": {
       "type": "string",
+      "enum": ["update", "forget", "list", "review_stale", "review_duplicates", "consolidate"],
       "description": "Operation: update, forget, list, review_stale, review_duplicates, consolidate. Call without a command to see available commands. To CREATE memory or knowledge, use memory_capture."
     },
     "content": {

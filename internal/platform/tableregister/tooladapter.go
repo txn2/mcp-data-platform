@@ -257,6 +257,7 @@ func toolView(reg Registration, src Source) portaltoolkit.TableRegistration {
 		Follow:         reg.Follow,
 		FollowError:    reg.FollowError,
 		Repair:         reg.Repair,
+		Format:         reg.FormatOrDefault(),
 	}
 }
 

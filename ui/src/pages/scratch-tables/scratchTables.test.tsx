@@ -198,6 +198,15 @@ describe("one registration at an address of its own", () => {
     expect(screen.getByText("s3://portal-assets/assets/ast-008/")).toBeTruthy();
   });
 
+  it("says what the file is read as", () => {
+    open();
+    expect(screen.getByText("Read as")).toBeTruthy();
+    expect(screen.getByText("CSV")).toBeTruthy();
+    cleanup();
+    open({ format: "jsonl" });
+    expect(screen.getByText("JSON lines")).toBeTruthy();
+  });
+
   it("links to the file the table reads", () => {
     const onNavigate = vi.fn();
     vi.mocked(useScratchTable).mockReturnValue({

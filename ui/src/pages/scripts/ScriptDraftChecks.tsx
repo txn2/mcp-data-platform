@@ -224,17 +224,30 @@ function PersistedWrites({ result }: { result: ScriptDryRun }) {
   );
 }
 
-// DryRunOutputs is the shape of what the run would have written. Every entry is
-// a preview, so it names a size and a row count and no location: nothing was
-// written anywhere to link to.
+// DryRunOutputs is what the run wrote, or would have. A preview names a size
+// and a row count and no location, since nothing was written anywhere to link
+// to; an output a run allowed to write wrote for real says so, names what it
+// wrote, and names the table registered over it (#1822).
 function DryRunOutputs({ result }: { result: ScriptDryRun }) {
   if (result.outputs.length === 0) return null;
   return (
     <ul className="space-y-1 text-xs">
       {result.outputs.map((o) => (
         <li key={`${o.name}-${o.destination ?? ""}`}>
-          <span className="font-mono">{o.name}</span> would write{" "}
-          {dryRunOutputPhrase(o)}.
+          <span className="font-mono">{o.name}</span>{" "}
+          {o.written ? "wrote" : "would write"} {dryRunOutputPhrase(o)}
+          {o.written && o.reference ? (
+            <>
+              {" "}
+              as <span className="font-mono">{o.reference}</span>
+            </>
+          ) : null}
+          {o.table ? (
+            <>
+              , registered as <span className="font-mono">{o.table}</span>
+            </>
+          ) : null}
+          .
         </li>
       ))}
     </ul>

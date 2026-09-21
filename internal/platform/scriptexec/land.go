@@ -51,7 +51,7 @@ func (w *outputWriter) writeResource(
 		DisplayName:   req.Name,
 		Description:   fmt.Sprintf("Output of the managed script %s. Each run records a new version.", w.script.Name),
 		Tags:          []string{"script", w.script.Name},
-		ChangeSummary: fmt.Sprintf("%s v%d, run %s", w.script.Name, w.run.Version, w.run.ID),
+		ChangeSummary: w.changeSummary(""),
 	}, bytes.NewReader(data), identity.ContentType, w.claims)
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q to the library: %w", req.Name, err)

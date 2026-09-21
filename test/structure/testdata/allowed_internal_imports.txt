@@ -172,6 +172,7 @@ internal/httpserver/notifywire -> pkg/toolkits/apigateway
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp -> internal/logsan
+internal/httpserver/scripthttp -> internal/platform/exporttable
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> internal/producedview
@@ -286,6 +287,7 @@ internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
 internal/platform/exportadapters -> pkg/toolkits/graphql
 internal/platform/exportadapters -> pkg/toolkits/trino
+internal/platform/exporttable -> pkg/portal/knowledgepage
 internal/platform/graphqlcatalog -> pkg/toolkits/apigateway/catalog
 internal/platform/graphqlcatalog -> pkg/toolkits/graphql
 internal/platform/graphqlindex -> pkg/indexjobs
@@ -495,6 +497,7 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptlayer -> pkg/toolkit
+internal/platform/scriptrun -> internal/platform/exporttable
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> internal/scriptdate
@@ -508,8 +511,10 @@ internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
 internal/platform/scriptwiring -> internal/platform/resourcewrite
+internal/platform/scriptwiring -> internal/platform/scriptdraft
 internal/platform/scriptwiring -> internal/platform/scriptexec
 internal/platform/scriptwiring -> internal/platform/scriptlayer
+internal/platform/scriptwiring -> internal/platform/scriptrun
 internal/platform/scriptwiring -> pkg/middleware
 internal/platform/scriptwiring -> pkg/observability
 internal/platform/scriptwiring -> pkg/portal
@@ -542,8 +547,10 @@ internal/platform/sessionview -> pkg/toolkits/knowledge
 internal/platform/subjects -> internal/logsan
 internal/platform/subjects -> pkg/middleware
 internal/platform/subjects -> pkg/resource
+internal/platform/tablejsonl -> internal/platform/tablecsv
 internal/platform/tableregister -> internal/logsan
 internal/platform/tableregister -> internal/platform/tablecsv
+internal/platform/tableregister -> internal/platform/tablejsonl
 internal/platform/tableregister -> pkg/audit
 internal/platform/tableregister -> pkg/contenttype
 internal/platform/tableregister -> pkg/knowledge
@@ -836,6 +843,7 @@ pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/resourcetemplates
 pkg/platform -> internal/platform/resourcewrite
 pkg/platform -> internal/platform/routepolicy
+pkg/platform -> internal/platform/scriptdraft
 pkg/platform -> internal/platform/scriptexec
 pkg/platform -> internal/platform/scriptlayer
 pkg/platform -> internal/platform/scriptstore

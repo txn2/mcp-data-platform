@@ -491,7 +491,7 @@ func statusFor(err error) int {
 		return http.StatusServiceUnavailable
 	case errors.Is(err, tableregister.ErrNoScratchTarget),
 		errors.Is(err, tableregister.ErrConnectionReadOnly),
-		errors.Is(err, tableregister.ErrNotCSV),
+		errors.Is(err, tableregister.ErrNotTabular),
 		errors.Is(err, tableregister.ErrEmptyHeader):
 		return http.StatusBadRequest
 	case errors.Is(err, tableregister.ErrNameTaken), errors.Is(err, tableregister.ErrRefused):

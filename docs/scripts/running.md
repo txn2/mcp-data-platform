@@ -514,8 +514,24 @@ created cannot be rehearsed without the create, so both surfaces take
 `allow_writes`: `manage_script command=run_draft allow_writes=true`, and the
 editor's "Write for real" control beside the Dry run button. The run then
 writes as the caller — the authority it already had — and the response lists
-every write it made under `writes`. The control clears itself after each run,
-because writing for real is a decision about one run.
+every call that persisted under `writes`. `platform.export` writes too, through
+the same writer a platform run uses (#1822): the record comes back with
+`preview` false and the reference, uri and version of what it wrote, and a
+`register=` argument makes its table, so an export-then-register-then-query
+pipeline runs end to end in a draft. A library output lands in the caller's
+library, and a portal output becomes a version of the script's own asset, with
+the version's change summary naming it a draft. `platform.save_state` still
+reports the state rather than saving it. The control clears itself after each
+run, because writing for real is a decision about one run.
+
+**A script that is not saved yet.** `manage_script command=run_draft` also
+runs source sent under a name the caller has no script by, as the script it
+would be saved as: `params` declares its contract, `args` binds values against
+it, it reads the empty state a script that has never run reads, and nothing is
+saved. The response carries `saved: false`. With `allow_writes` it can write to
+`resources` and to a bucket destination; a `portal` output belongs to a saved
+script's own asset, so it is refused until the script is saved. The editor's
+dry run always runs a saved script, because the editor edits one.
 
 Which calls count is decided by a declared table (`internal/toolwrite`), and it
 is deny-by-default: a tool no rule names is treated as one that persists.
@@ -529,7 +545,10 @@ A verb whose class depends on a second argument is classified by both:
 `manage_script command=state` reads unless its `state_action` is `set` or
 `clear`, so a watchdog that reports another script's state can be dry-run
 without `allow_writes` (#1821), and `manage_resource` `get` and `list` read
-while its `create`, `replace_content` and `delete` write.
+while its `create`, `replace_content` and `delete` write. Every verb an action
+tool's schema admits is named as a read or a write, and a structural test fails
+on one that is named as neither (#1827), so a verb added to a tool cannot be
+refused in a draft without somebody deciding that it writes.
 
 Both surfaces execute the source sent with the call, which is the whole point:
 a save is immediately the version `run_script` executes and a schedule fires,
@@ -759,9 +778,9 @@ that left a pinned table behind says so in its history. See
 `rows` carries the output's content in one of two shapes, and the declared
 format decides which are valid:
 
-- **A list of dicts**, serialized in the declared format. `csv` and `json`
-  accept only this shape, so a data feed another system parses stays well-formed
-  by construction.
+- **A list of dicts**, serialized in the declared format. `csv`, `json` and
+  `jsonl` accept only this shape, so a data feed another system parses stays
+  well-formed by construction.
 - **A string body, written verbatim**, so a script can compose a document: an
   HTML or JSX dashboard, a prose report, a hand-assembled markdown page. `html`
   and `jsx` accept only this shape — they have no tabular serialization — and
@@ -957,7 +976,56 @@ print(out["reference"], out["uri"], out["version"])
 - What the write did to the tables registered over the file is printed into the
   run log, one line per table, whether or not the script prints the result.
 - A draft run previews it like every other output: the content is serialized to
-  measure it and nothing is written.
+  measure it and nothing is written. A draft run with `allow_writes` writes it,
+  into the caller's library.
+
+### From rows to a table a query can read
+
+A script that loads API results into a warehouse table writes the rows to a
+file, registers the file as a table, and runs `INSERT ... SELECT` from it.
+`trino_execute` binds no parameters, so this is also the only safe way to put
+free text into SQL. One call does the first two steps:
+
+```python
+out = platform.export(
+    name="ACME tickets staging",
+    rows=tickets,
+    format="jsonl",
+    destination="resources",
+    key="staging/acme/tickets.jsonl",
+    register={"connection": "warehouse", "table_name": "acme_tickets_stage"},
+)
+platform.call("trino_execute", {
+    "connection": "warehouse",
+    "sql": "INSERT INTO lake.support.tickets SELECT id, subject, body FROM "
+           + out["table"]["query_table"],
+})
+```
+
+- `format="jsonl"` is the format to register when values must come back
+  exactly. Every string survives the table as it was written, including line
+  breaks (LF, CR and CRLF), backslashes, quotes, a leading `=`, `+`, `-` or
+  `@`, tabs, emoji and private-use characters, and a null reads back as NULL
+  rather than an empty string. A list or dict value is written as its JSON text,
+  which `json_parse` reads back in SQL. A string that is not valid UTF-8 fails
+  the export rather than being altered.
+- `format="csv"` also registers, with two losses: a value holding a line break
+  is refused unless the registration repairs the file, and repair joins the
+  value's lines with single spaces; a null reads back as an empty string. No
+  other character is altered.
+- `register` takes `connection` (required), `table_name` (defaults to a slug of
+  the file's name; either way the persona prefix is added) and `follow`
+  (defaults to true, so the next run's export moves the table onto its new
+  version). It needs `jsonl` or `csv` and the `resources` or `portal`
+  destination, and is refused before anything is written otherwise.
+- It is `manage_table register` over the file the export just wrote, made over
+  the run's own session, so it is authorized and audited as that call is and
+  `validate` reports `manage_table` and the connection it names. The record the
+  export returns carries `table`, with the `query_table` to select from and its
+  columns. A registration that fails fails the run, naming the output, because
+  the next step would query a table that is not there.
+- In a draft without `allow_writes` nothing is written, so `table` reports the
+  registration it would make, with `preview` true and no `query_table`.
 
 Each run records what it did — status, timings, interpreter steps, the queries
 it issued, the outputs it wrote, and the log the script printed — and that

@@ -79,6 +79,36 @@ type Registration struct {
 	// follow never fails the write that triggered it, so the listing has to be
 	// able to say what is behind and why without the log of that write.
 	FollowError string `json:"follow_error,omitempty"`
+	// Format names the reader the table is declared with: "csv", or "jsonl"
+	// for a JSON-lines file, whose values come back exactly (#1820). It is
+	// decided by the file, not by the caller, and it is on the record because
+	// the CREATE TABLE is written again at every follow and when a failed
+	// follow puts a table back.
+	Format string `json:"format"`
+}
+
+// The formats a registration reads a file in.
+const (
+	// FormatCSV is Trino's Hive CSV reader: line-based, so a line break
+	// inside a value cannot survive it, and a null reads as an empty string.
+	FormatCSV = "csv"
+	// FormatJSONLines is Trino's Hive JSON reader over one object per line,
+	// which carries every string exactly and keeps a null a null.
+	FormatJSONLines = "jsonl"
+)
+
+// FormatOrDefault is the registration's format, reading a record written
+// before formats existed as the CSV it was.
+func (r Registration) FormatOrDefault() string {
+	return formatOrDefault(r.Format)
+}
+
+// formatOrDefault reads an unset format as FormatCSV.
+func formatOrDefault(format string) string {
+	if format == "" {
+		return FormatCSV
+	}
+	return format
 }
 
 // Result is one completed registration: the record, the source it was built
@@ -224,11 +254,11 @@ type Store interface {
 	// before it: the scratch schema is shared, so a reader could query a table
 	// through Trino that no surface would list (#1472).
 	List(ctx context.Context, f Filter) ([]Registration, int, error)
-	// Relocate moves a registration onto a new directory with the columns the
-	// file there declares, and clears the failure of any earlier follow. It
-	// is the store half of a follow (#1536): the table was already moved by
-	// the DDL, and the row has to say what the table now reads.
-	Relocate(ctx context.Context, id, location string, columns []Column) error
+	// Relocate moves a registration onto a new directory with the format and
+	// columns the file there declares, and clears the failure of any earlier
+	// follow. It is the store half of a follow (#1536): the table was already
+	// moved by the DDL, and the row has to say what the table now reads.
+	Relocate(ctx context.Context, id, location, format string, columns []Column) error
 	// RecordFollowFailure keeps why a follow did not move a registration, so
 	// a listing reports it behind the file with the reason.
 	RecordFollowFailure(ctx context.Context, id, reason string) error
@@ -307,9 +337,9 @@ var (
 	// connection. It is the same boundary a tool call meets.
 	ErrConnectionDenied = errors.New("your persona is not granted this connection")
 
-	// ErrNotCSV means the source object is not a CSV, which is the only format
-	// a registration can be built from.
-	ErrNotCSV = errors.New("only a CSV file can be registered as a table")
+	// ErrNotTabular means the source object is neither a CSV nor a JSON-lines
+	// file, the two formats a registration can be built from.
+	ErrNotTabular = errors.New("only a CSV or a JSON-lines file can be registered as a table")
 
 	// ErrEmptyHeader means the object had no header row to take columns from.
 	ErrEmptyHeader = tablecsv.ErrEmptyHeader

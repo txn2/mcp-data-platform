@@ -96,6 +96,7 @@ func hitTable(reg Registration, subject knowledge.TableSubject) knowledge.HitTab
 		Follow:         reg.Follow,
 		Repair:         reg.Repair,
 		FollowError:    reg.FollowError,
+		Format:         reg.FormatOrDefault(),
 	}
 }
 

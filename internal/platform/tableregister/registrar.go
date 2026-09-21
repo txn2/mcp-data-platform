@@ -275,15 +275,22 @@ func (r *Registrar) plan(ctx context.Context, caller Caller, src Source, req Req
 	if err := r.claim(ctx, caller, req, p); err != nil {
 		return p, err
 	}
-	body, err := r.contentFor(ctx, p.src)
+	body, format, err := r.contentFor(ctx, p.src)
 	if err != nil {
 		return p, err
 	}
-	body, err = r.correct(ctx, caller, req, body, p)
-	if err != nil {
-		return p, err
+	p.reg.Format = format
+	// Only a CSV is corrected. A JSON-lines file carries every value exactly,
+	// so what can be wrong with one is the shape of a line, which describe
+	// refuses by line number; there is nothing to rewrite on its owner's
+	// behalf that they would not rather write themselves.
+	if format == FormatCSV {
+		body, err = r.correct(ctx, caller, req, body, p)
+		if err != nil {
+			return p, err
+		}
 	}
-	return p, r.describe(ctx, p.src, body, &p.reg)
+	return p, r.describe(ctx, p.src, format, body, &p.reg)
 }
 
 // claim settles where the registration lands and what it is called, refusing a
@@ -403,12 +410,12 @@ func (r *Registrar) saveCorrected(
 
 // describe fills in what only the file decides: the directory the table reads
 // and the columns it declares.
-func (r *Registrar) describe(ctx context.Context, src Source, body []byte, reg *Registration) error {
+func (r *Registrar) describe(ctx context.Context, src Source, format string, body []byte, reg *Registration) error {
 	location, err := r.locationFor(ctx, src)
 	if err != nil {
 		return err
 	}
-	columns, err := ReadHeaderColumns(body)
+	columns, err := readColumns(format, body)
 	if err != nil {
 		return err
 	}
@@ -555,42 +562,70 @@ func hiddenToHive(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-// contentFor reads the whole object a registration is built over.
+// contentFor reads the whole object a registration is built over, and the
+// format it is read in.
 //
-// The whole body, not the first line: the header row is taken from it, and so
-// is the answer to whether a line-based reader can read the file at all, which
-// is a question only the rest of the bytes settle (#1441).
-func (r *Registrar) contentFor(ctx context.Context, src Source) ([]byte, error) {
-	if !isCSV(src.ContentType, src.HeadKey) {
-		return nil, ErrNotCSV
+// The whole body, not the first line: the columns are taken from it, and so
+// is the answer to whether the reader can read the file at all, which is a
+// question only the rest of the bytes settle (#1441).
+func (r *Registrar) contentFor(ctx context.Context, src Source) (body []byte, format string, err error) {
+	format = formatOf(src.ContentType, src.HeadKey)
+	if format == "" {
+		return nil, "", ErrNotTabular
 	}
 	objects := r.objectsFor(src.Kind)
 	if objects == nil {
-		return nil, ErrUnavailable
+		return nil, "", ErrUnavailable
 	}
-	body, _, err := objects.GetObject(ctx, src.Bucket, src.HeadKey)
+	body, _, err = objects.GetObject(ctx, src.Bucket, src.HeadKey)
 	if err != nil {
-		return nil, failedf("reading the file", err)
+		return nil, "", failedf("reading the file", err)
 	}
 	if int64(len(body)) > r.deps.MaxBytes {
-		return nil, refusedf("the file is larger than the %d MB a registration reads", r.deps.MaxBytes>>20)
+		return nil, "", refusedf("the file is larger than the %d MB a registration reads", r.deps.MaxBytes>>20)
 	}
-	return body, nil
+	return body, format, nil
 }
 
-// isCSV reports whether the source is a CSV. The stored content type decides
-// it; the key's extension is the fallback for a record written before
-// detection, or one whose type was never set.
-func isCSV(declared, key string) bool {
-	if ct := strings.ToLower(strings.TrimSpace(declared)); ct != "" {
-		if base, _, found := strings.Cut(ct, ";"); found {
-			ct = strings.TrimSpace(base)
-		}
-		if ct != "" && ct != contenttype.OctetStream && ct != "text/plain" {
-			return strings.Contains(ct, "csv")
-		}
+// formatOf reports the format a source is registered in, or "" when it is
+// neither. The stored content type decides it; the key's extension is the
+// fallback for a record written before detection, or one whose type was never
+// set, or set only to something generic.
+//
+// One exception runs the other way. A JSON-lines file holding one record is
+// one JSON object on one line, and detection names that application/json;
+// under a .jsonl or .ndjson name it is the JSON-lines file its name says, and
+// the day a scheduled export has one row is not the day its table stops
+// registering (#1820).
+func formatOf(declared, key string) string {
+	named := formatNamed(key)
+	ct := strings.ToLower(strings.TrimSpace(declared))
+	if base, _, found := strings.Cut(ct, ";"); found {
+		ct = strings.TrimSpace(base)
 	}
-	return strings.HasSuffix(strings.ToLower(key), ".csv")
+	switch {
+	case ct == "" || ct == contenttype.OctetStream || ct == "text/plain":
+		return named
+	case strings.Contains(ct, "csv"):
+		return FormatCSV
+	case contenttype.Normalize(ct) == contenttype.NDJSON:
+		return FormatJSONLines
+	case contenttype.Normalize(ct) == contenttype.JSON && named == FormatJSONLines:
+		return FormatJSONLines
+	}
+	return ""
+}
+
+// formatNamed reports the format a key's extension names, or "" for none.
+func formatNamed(key string) string {
+	lower := strings.ToLower(key)
+	switch {
+	case strings.HasSuffix(lower, ".csv"):
+		return FormatCSV
+	case strings.HasSuffix(lower, ".jsonl"), strings.HasSuffix(lower, ".ndjson"):
+		return FormatJSONLines
+	}
+	return ""
 }
 
 // tableNameFor derives the name the table takes.

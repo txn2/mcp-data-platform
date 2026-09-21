@@ -1,6 +1,7 @@
 package tableregister
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -302,7 +303,12 @@ const missingPrefix = "The table no longer exists: "
 // over it, read once per write rather than once per registration.
 type followHead struct {
 	location string
+	format   string
 	columns  []Column
+	// keepColumns means the head declares no columns of its own: a JSON-lines
+	// version holding no records names none, and a table keeps the columns it
+	// had rather than failing to follow a day with nothing in it (#1820).
+	keepColumns bool
 	// version is what a followed table now reads: the version the write
 	// produced, or the corrected version saved above it.
 	version int
@@ -345,8 +351,11 @@ func (r *Registrar) followOne(
 		return r.followFailed(ctx, reg, outcome, (*head).err), false
 	}
 	target := **head
+	if target.keepColumns {
+		target.columns = reg.Columns
+	}
 	outcome.ColumnsChanged = !sameColumns(reg.Columns, target.columns)
-	if reg.Location == target.location && !outcome.ColumnsChanged {
+	if reg.Location == target.location && !outcome.ColumnsChanged && reg.FormatOrDefault() == target.format {
 		return r.alreadyThere(ctx, reg, outcome), false
 	}
 	return r.moveTable(ctx, reg, target, outcome)
@@ -366,24 +375,30 @@ func (r *Registrar) followOne(
 // dropped the correction on its way out would leave the person whose file
 // changed with a reason and no mention of the change.
 func (r *Registrar) readHead(ctx context.Context, src Source, version int, repairFor *Registration) *followHead {
-	body, err := r.contentFor(ctx, src)
+	body, format, err := r.contentFor(ctx, src)
 	if err != nil {
 		return &followHead{version: version, err: err}
 	}
-	body, repair, err := r.repairHead(ctx, &src, body, repairFor)
-	head := &followHead{version: version, repair: repair}
-	if repair != nil {
-		head.version = repair.Version
-	}
-	if err != nil {
-		head.err = err
-		return head
+	head := &followHead{version: version, format: format}
+	if format == FormatCSV {
+		body, head.repair, err = r.repairHead(ctx, &src, body, repairFor)
+		if head.repair != nil {
+			head.version = head.repair.Version
+		}
+		if err != nil {
+			head.err = err
+			return head
+		}
 	}
 	if head.location, err = r.locationFor(ctx, src); err != nil {
 		head.err = err
 		return head
 	}
-	if head.columns, err = ReadHeaderColumns(body); err != nil {
+	if format == FormatJSONLines && len(bytes.TrimSpace(tablecsv.TrimBOM(body))) == 0 {
+		head.keepColumns = true
+		return head
+	}
+	if head.columns, err = readColumns(format, body); err != nil {
 		head.err = err
 	}
 	return head
@@ -450,7 +465,7 @@ func registrantCaller(reg Registration) Caller {
 // cleared, because the registration is where the file is.
 func (r *Registrar) alreadyThere(ctx context.Context, reg Registration, outcome FollowOutcome) FollowOutcome {
 	if reg.FollowError != "" {
-		if err := r.deps.Store.Relocate(ctx, reg.ID, reg.Location, reg.Columns); err != nil {
+		if err := r.deps.Store.Relocate(ctx, reg.ID, reg.Location, reg.FormatOrDefault(), reg.Columns); err != nil {
 			return r.followFailed(ctx, reg, outcome, fmt.Errorf("updating the registration: %w", err))
 		}
 	}
@@ -472,7 +487,7 @@ func (r *Registrar) moveTable(
 	ctx context.Context, reg Registration, target followHead, outcome FollowOutcome,
 ) (FollowOutcome, bool) {
 	moved := reg
-	moved.Location, moved.Columns = target.location, target.columns
+	moved.Location, moved.Columns, moved.Format = target.location, target.columns, target.format
 	ddl := BuildDDL(moved, true)
 	ran, execErr := r.runDDL(ctx, reg.Connection, ddl)
 	r.auditFollow(ctx, followRecord{from: reg, to: moved, ddl: ran, version: outcome.Version, err: execErr})
@@ -480,7 +495,7 @@ func (r *Registrar) moveTable(
 		r.restoreDroppedTable(ctx, reg, ran, execErr)
 		return r.followFailed(ctx, reg, outcome, execErr), false
 	}
-	if err := r.deps.Store.Relocate(ctx, reg.ID, moved.Location, moved.Columns); err != nil {
+	if err := r.deps.Store.Relocate(ctx, reg.ID, moved.Location, moved.Format, moved.Columns); err != nil {
 		return r.followFailed(ctx, reg, outcome,
 			fmt.Errorf("the table was moved but its record could not be updated: %w", err)), false
 	}

@@ -197,5 +197,5 @@ The **Register** control stays available after the first registration, because o
 
 The trash control beside a table unregisters it. That drops the table and leaves the asset completely alone: the file is not deleted, not moved, and not changed. Deleting the asset itself is what drops every table over it.
 
-The panel is absent unless the asset is a CSV and an administrator has given a Trino connection a scratch catalog and schema. Registering is the owner's call: it puts the file's contents in a schema everyone with that connection can read. An agent can do it for you without the portal step, with `manage_table`. See [Registered Tables](../server/registered-tables.md).
+The panel is absent unless the asset is a CSV or a JSON-lines file and an administrator has given a Trino connection a scratch catalog and schema. Registering is the owner's call: it puts the file's contents in a schema everyone with that connection can read. An agent can do it for you without the portal step, with `manage_table`. See [Registered Tables](../server/registered-tables.md).
 

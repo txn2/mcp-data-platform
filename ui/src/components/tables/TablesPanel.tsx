@@ -17,7 +17,7 @@ import {
   useUnregisterTable,
   TableApiError,
 } from "@/api/tables/hooks";
-import { CSV_NEEDS_REPAIR } from "@/api/tables/types";
+import { CSV_NEEDS_REPAIR, isRegistrableType } from "@/api/tables/types";
 import type { TableRegistration, TableSourceKind } from "@/api/tables/types";
 import { RefusalDialog } from "./RefusalDialog";
 import { SectionCard } from "@/components/patterns/SectionCard";
@@ -60,7 +60,7 @@ export function TablesPanel({
 }: {
   kind: TableSourceKind;
   id: string;
-  /** contentType decides whether the panel appears: only a CSV can be a table. */
+  /** contentType decides whether the panel appears: only a CSV or JSON lines can be a table. */
   contentType: string;
   /** filename seeds the suggested table name. */
   filename?: string;
@@ -71,6 +71,7 @@ export function TablesPanel({
     kind,
     id,
     contentType,
+    filename ?? "",
     canModify,
   );
   const [adding, setAdding] = useState(false);
@@ -135,7 +136,7 @@ export function TablesPanel({
 // usePanelData reads what the panel needs and decides whether it appears at
 // all.
 //
-// A file that is not a CSV cannot be a table, a reader who cannot act on the
+// A file that is neither a CSV nor JSON lines cannot be a table, a reader who cannot act on the
 // file is answered by the routes as if it had none, and a deployment where no
 // connection carries a scratch catalog and schema has nowhere to put one. In
 // all three cases the panel is absent rather than empty: an explanation of an
@@ -147,10 +148,10 @@ function usePanelData(
   kind: TableSourceKind,
   id: string,
   contentType: string,
+  filename: string,
   canModify: boolean,
 ) {
-  const isCSV = contentType.toLowerCase().includes("csv");
-  const eligible = isCSV && canModify;
+  const eligible = isRegistrableType(contentType, filename) && canModify;
   const connectionQuery = useTableConnections(eligible);
   const registrationQuery = useTableRegistrations(
     kind,

@@ -16,8 +16,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -81,10 +83,28 @@ func Wire(deps Deps) *scriptexec.Handle {
 		// api_invoke_endpoint call sends and what a proxied tool's upstream
 		// declares, rather than refusing both (#1664).
 		Toolkits: deps.Toolkits,
+		// A draft allowed to write persists its exports through the writer a
+		// platform run uses, over the same stores (#1822).
+		DraftExports: draftExports(scripts),
 	})
 	layer.RegisterTool(deps.Server)
 	deps.Bind(layer)
 	return scripts
+}
+
+// draftExports adapts the execution handle's draft writer to the draft
+// runner's hook. A deployment with nowhere to keep runs has no handle, and its
+// drafts preview every export.
+func draftExports(scripts *scriptexec.Handle) scriptdraft.Exports {
+	if scripts == nil {
+		return nil
+	}
+	return func(t scriptdraft.Target) scriptrun.Exporter {
+		return scripts.DraftExporter(scriptexec.Draft{
+			Script: t.Script, RunID: t.RunID, Caller: t.Caller,
+			Email: t.Identity.Email, Subject: t.Identity.UserID, Roles: t.Identity.Roles,
+		})
+	}
 }
 
 // Deps are what the facade hands over: values it already holds, and one

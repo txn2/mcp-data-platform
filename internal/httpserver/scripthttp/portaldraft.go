@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -206,7 +206,7 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	outcome, err := h.deps.Drafts.Run(r.Context(), scriptdraft.Request{
-		Source: source, Name: sc.Name, Params: params,
+		Source: source, Name: sc.Name, Script: sc, Params: params,
 		// The live state, so the draft reads what a platform run created now
 		// would read; what it would have saved is reported, never written.
 		State: h.liveState(r.Context(), sc),
@@ -278,9 +278,7 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 		RunID: outcome.RunID, Status: script.RunStatusSucceeded,
 		Outputs: draftOutputs(outcome),
 		Writes:  []scriptrun.WriteRecord{},
-		Message: "Nothing was persisted. platform.export reported the shape of each output " +
-			"rather than writing it, and a write-class platform.call would have been refused " +
-			"rather than made.",
+		Message: outcome.Persisted("dry run"),
 	}
 	if outcome.Result != nil {
 		out.Log = outcome.Result.Log
@@ -289,11 +287,9 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 		out.RefusedWrite = outcome.Result.RefusedWrite
 		if len(outcome.Result.Writes) > 0 {
 			out.Writes = outcome.Result.Writes
-			out.Message = wroteForRealMessage(len(out.Writes))
 		}
 		if outcome.Result.State != nil {
 			out.State = orEmptyObject(outcome.Result.State.Value)
-			out.Message += " platform.save_state reported the state a platform run would have saved and did not save it."
 		}
 	}
 	if outcome.Failed() {
@@ -302,19 +298,6 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 		out.Message = dryRunFailureMessage(out.RefusedWrite)
 	}
 	return out
-}
-
-// wroteForRealMessage states that a dry run with the barrier lifted persisted,
-// because "nothing was persisted" on a run that created a resource is the
-// sentence a reader would act on wrongly.
-func wroteForRealMessage(n int) string {
-	calls := "calls"
-	if n == 1 {
-		calls = "call"
-	}
-	return fmt.Sprintf(
-		"This dry run was allowed to write, and the %d %s listed under writes persisted for real. "+
-			"platform.export still reported the shape of each output rather than writing it.", n, calls)
 }
 
 // dryRunFailureMessage separates the two failures an author acts on
@@ -351,10 +334,18 @@ func draftOutputs(outcome *scriptdraft.Outcome) []script.DryRunOutput {
 		return out
 	}
 	for _, e := range outcome.Result.Exports {
-		out = append(out, script.DryRunOutput{
+		o := script.DryRunOutput{
 			Name: e.Name, Destination: e.Destination, Format: e.Format,
 			RowCount: e.RowCount, Document: e.Document, Refresh: e.Refresh, Bytes: e.Bytes,
-		})
+			Written: !e.Preview,
+		}
+		if o.Written {
+			o.Reference = exporttable.Reference(e.ResourceRef, e.AssetID)
+		}
+		if e.Table != nil {
+			o.Table = e.Table.QueryTable
+		}
+		out = append(out, o)
 	}
 	return out
 }

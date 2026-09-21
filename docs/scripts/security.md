@@ -692,7 +692,13 @@ table rather than an inference, so what a draft will and will not do is readable
 in one file, and it is deny-by-default: a tool no rule names is treated as one
 that persists. `TestEveryRegisteredToolIsClassified` (`test/structure`) refuses a
 tool the platform registers with no rule, so the table cannot go stale behind a
-new toolkit.
+new toolkit. Within an action tool the same staleness hid one level down: a read
+verb a rule did not name was refused as a write, which happened twice before it
+was gated. Each action tool's rule now names every verb as a read or a write,
+and `TestEveryActionVerbIsClassified` registers those tools, reads each verb out
+of the input schema a client sees, and fails on a verb named in neither set
+(#1827). Every action tool's verb argument is an `enum` in its schema for that
+reason; a verb described only in prose could not be checked.
 
 Two forms are decided from the call rather than the name. An
 `api_invoke_endpoint` call is classified by the HTTP method it sends, resolving

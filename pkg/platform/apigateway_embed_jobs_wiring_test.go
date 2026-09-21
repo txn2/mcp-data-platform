@@ -47,16 +47,16 @@ func TestResolveEmbedJobsTuning(t *testing.T) {
 // flows through, and a negative value passes through to signal "disabled".
 func TestResolveRetentionDays(t *testing.T) {
 	t.Parallel()
-	p := &Platform{config: &Config{}}
-	if got := p.resolveRetentionDays(); got != indexjobs.DefaultRetentionDays {
+	var c APIGatewayEmbedJobsConfig
+	if got := c.retentionDays(); got != indexjobs.DefaultRetentionDays {
 		t.Errorf("unset retention_days = %d; want default %d", got, indexjobs.DefaultRetentionDays)
 	}
-	p.config.APIGateway.EmbedJobs.RetentionDays = 30
-	if got := p.resolveRetentionDays(); got != 30 {
+	c.RetentionDays = 30
+	if got := c.retentionDays(); got != 30 {
 		t.Errorf("explicit retention_days = %d; want 30", got)
 	}
-	p.config.APIGateway.EmbedJobs.RetentionDays = -1
-	if got := p.resolveRetentionDays(); got != -1 {
+	c.RetentionDays = -1
+	if got := c.retentionDays(); got != -1 {
 		t.Errorf("negative retention_days = %d; want -1 (disabled)", got)
 	}
 }

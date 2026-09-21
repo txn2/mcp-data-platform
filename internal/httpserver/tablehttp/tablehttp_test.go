@@ -225,14 +225,14 @@ func (m *memStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *memStore) Relocate(_ context.Context, id, location string, columns []tableregister.Column) error {
+func (m *memStore) Relocate(_ context.Context, id, location, format string, columns []tableregister.Column) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.rows[id]
 	if !ok {
 		return tableregister.ErrNotFound
 	}
-	r.Location, r.Columns, r.FollowError = location, columns, ""
+	r.Location, r.Format, r.Columns, r.FollowError = location, format, columns, ""
 	m.rows[id] = r
 	return nil
 }
@@ -664,7 +664,7 @@ func TestStatusFor(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, statusFor(tableregister.ErrNoIdentity))
 	assert.Equal(t, http.StatusNotFound, statusFor(tableregister.ErrNotFound))
 	assert.Equal(t, http.StatusServiceUnavailable, statusFor(tableregister.ErrUnavailable))
-	assert.Equal(t, http.StatusBadRequest, statusFor(tableregister.ErrNotCSV))
+	assert.Equal(t, http.StatusBadRequest, statusFor(tableregister.ErrNotTabular))
 	assert.Equal(t, http.StatusBadRequest, statusFor(tableregister.ErrEmptyHeader))
 	assert.Equal(t, http.StatusBadRequest, statusFor(tableregister.ErrNoScratchTarget))
 	assert.Equal(t, http.StatusConflict, statusFor(tableregister.ErrNameTaken))
@@ -676,8 +676,8 @@ func TestDetailFor(t *testing.T) {
 	// An error the registrar did not stage-wrap still reads as it did.
 	assert.Equal(t, "the registration could not be completed",
 		detailFor(errors.New("pq: relation does not exist"), http.StatusInternalServerError))
-	assert.Equal(t, tableregister.ErrNotCSV.Error(),
-		detailFor(tableregister.ErrNotCSV, http.StatusBadRequest))
+	assert.Equal(t, tableregister.ErrNotTabular.Error(),
+		detailFor(tableregister.ErrNotTabular, http.StatusBadRequest))
 }
 
 // TestUnregisterRoute_UnknownRegistration: an id that is not there is a

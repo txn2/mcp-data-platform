@@ -74,7 +74,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		LeaseDuration:     lease,
 		BatchSize:         batch,
 		Workers:           p.config.APIGateway.EmbedJobs.Workers,
-		RetentionDays:     p.resolveRetentionDays(),
+		RetentionDays:     p.config.APIGateway.EmbedJobs.retentionDays(),
 		DSN:               p.config.Database.DSN,
 		CatalogStore:      p.APIGatewayCatalogStore(),
 		ToolkitRegistry:   p.toolkitRegistry,
@@ -150,13 +150,13 @@ func (p *Platform) resolveEmbedJobsTuning() (lease time.Duration, batch int) {
 	return lease, batch
 }
 
-// resolveRetentionDays returns the index_jobs history retention window in
+// retentionDays returns the index_jobs history retention window in
 // days. Unset (zero) config falls back to indexjobs.DefaultRetentionDays;
 // a negative value passes through unchanged and signals "retention
 // disabled" to the owner (which then never wires a retainer). An
 // explicit positive value flows through verbatim.
-func (p *Platform) resolveRetentionDays() int {
-	days := p.config.APIGateway.EmbedJobs.RetentionDays
+func (c APIGatewayEmbedJobsConfig) retentionDays() int {
+	days := c.RetentionDays
 	if days == 0 {
 		return indexjobs.DefaultRetentionDays
 	}
