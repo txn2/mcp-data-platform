@@ -507,7 +507,7 @@ func TestRegister_BuildsTheExactDDL(t *testing.T) {
 		`CREATE TABLE "scratch"."uploads"."analyst_content" ` +
 			`("store_id" VARCHAR, "vendor_code" VARCHAR, "rebate_pct" VARCHAR) ` +
 			`WITH (external_location = 's3://portal-assets/artifacts/u1/asset_1/', ` +
-			`format = 'CSV', skip_header_line_count = 1)`,
+			`format = 'CSV', skip_header_line_count = 1, csv_escape = U&'\0000')`,
 	}, h.trino.statements)
 
 	assert.Equal(t, "scratch.uploads.analyst_content", reg.QualifiedName())

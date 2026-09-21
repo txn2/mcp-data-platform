@@ -469,3 +469,42 @@ func TestValidate_NoRefreshMeansAnEmptyList(t *testing.T) {
 	assert.Empty(t, report.RefreshTargets)
 	assert.False(t, report.DynamicRefreshTargets)
 }
+
+// TestValidate_ReservedWordAsANameIsNamed holds #1823: a reserved word used as
+// a name is reported by the word, on its line, with the rename and the list.
+func TestValidate_ReservedWordAsANameIsNamed(t *testing.T) {
+	cases := []struct {
+		name, source, word string
+		line               int
+	}{
+		{"function", "rows = []\n\ndef load(table, ids):\n    return ids\n", "load", 3},
+		{"parameter", "def f(x, pass):\n    return x\n", "pass", 1},
+		{"read as a value", "x = load\n", "load", 1},
+		{"assignment", "load = 1\n", "load", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			report := Validate(tc.source)
+			assert.False(t, report.OK)
+			f := findingFor(t, report, "reserved word")
+			assert.Equal(t, "`"+tc.word+"` is a reserved word in Starlark and cannot be used as a name", f.Message)
+			assert.Equal(t, tc.line, f.Line)
+			assert.Equal(t, SeverityError, f.Severity)
+			assert.Contains(t, f.Hint, "`"+tc.word+"_rows`")
+			assert.Contains(t, f.Hint, "lambda, load, nonlocal")
+		})
+	}
+}
+
+// TestValidate_ReservedWordStatementsKeepTheirCorrection holds the boundary:
+// a Python statement the dialect lacks is not a reserved word misused as a
+// name, and keeps the correction that says what to write instead.
+func TestValidate_ReservedWordStatementsKeepTheirCorrection(t *testing.T) {
+	for _, src := range []string{"class Foo:\n    pass\n", "raise Exception()\n"} {
+		for _, f := range Validate(src).Findings {
+			assert.NotContains(t, f.Message, "reserved word", src)
+		}
+	}
+	f := findingFor(t, Validate("class Foo:\n    pass\n"), "got class")
+	assert.Contains(t, f.Hint, "no classes")
+}

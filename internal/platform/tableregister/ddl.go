@@ -54,9 +54,22 @@ func createTableStatement(r Registration) string {
 	b.WriteString(strings.Join(cols, ", "))
 	b.WriteString(") WITH (external_location = ")
 	b.WriteString(QuoteLiteral(r.Location))
-	b.WriteString(", format = 'CSV', skip_header_line_count = 1)")
+	_, _ = b.WriteString(", format = 'CSV', skip_header_line_count = 1, csv_escape = " + noCSVEscape + ")")
 	return b.String()
 }
+
+// noCSVEscape is the csv_escape a registration declares: NUL, which the Hive
+// CSV reader takes as "no escape character" (#1819).
+//
+// Left unset, the reader escapes with a backslash, a dialect no writer of these
+// files uses: every CSV the platform writes, and RFC 4180, double a quote and
+// treat a backslash as an ordinary character. Under the default, "back\slash"
+// read as "backslash", and a quoted field holding a backslash beside a quote
+// read as an empty string, with the row and column counts intact. Setting the
+// escape to the quote character does not help; NUL is the value that turns
+// escaping off, and it cannot collide with a value: internal/platform/tablecsv
+// refuses a file with a NUL byte in it before a table is registered over it.
+const noCSVEscape = `U&'\0000'`
 
 // SampleJoinSQL renders a statement showing how the registered table is used:
 // a SELECT over it, with the CAST that joining it to a typed warehouse column

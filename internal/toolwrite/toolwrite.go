@@ -175,17 +175,32 @@ type actionRule struct {
 	// including an absent, empty or non-string one — writes, which is the
 	// deny-by-default rule applied within a tool.
 	reads map[string]bool
+	// split names the verbs that read or write by a second argument, and the
+	// rule that argument is classified by (#1821). manage_script command=state
+	// reads the state or sets it depending on state_action, so the command
+	// alone cannot answer. A verb listed here is classified by its rule
+	// instead of by reads.
+	split map[string]actionRule
 }
 
 // classify applies one action rule.
 func (r actionRule) classify(tool string, args map[string]any) Decision {
-	action, _ := args[r.arg].(string)
-	action = strings.TrimSpace(action)
+	action := argValue(args, r.arg)
 	call := tool
 	if action != "" {
 		call = tool + " " + r.arg + "=" + action
 	}
+	if sub, ok := r.split[action]; ok {
+		return sub.classify(call, args)
+	}
 	return Decision{Writes: !r.reads[action], Call: call, Declared: true}
+}
+
+// argValue reads one argument as the trimmed string a rule matches on; a
+// missing or non-string argument is the empty string.
+func argValue(args map[string]any, arg string) string {
+	v, _ := args[arg].(string)
+	return strings.TrimSpace(v)
 }
 
 // actionTools is the platform's action-based surface: one tool name covering a
@@ -206,10 +221,9 @@ var actionTools = map[string]actionRule{
 	)},
 	// manage_table: the tables registered over a managed file.
 	"manage_table": {arg: "action", reads: set("list")},
-	// manage_resource: both its actions write. It is listed rather than left to
-	// the fallback so the refusal names the action, and so the day a read
-	// action is added the rule is already here to hold it.
-	"manage_resource": {arg: "action", reads: nil},
+	// manage_resource: create, replace_content and delete write. get reads
+	// what is filed at an address and list reports a folder.
+	"manage_resource": {arg: "action", reads: set("get", "list")},
 	// manage_feedback: reply, resolve and the two validation verbs write.
 	"manage_feedback": {arg: "action", reads: set("list", "get")},
 	// memory_manage: update, forget and consolidate write; the three listings
@@ -222,14 +236,18 @@ var actionTools = map[string]actionRule{
 	"manage_prompt": {arg: "command", reads: set(
 		"list", "get", "use", "locate", "get_content", "outline", "stats", "diff",
 	)},
-	// manage_script: authoring, scheduling and the state verb write. run_draft
-	// is absent because a run may not start another run at all, which
-	// scriptlayer refuses on its own before this rule is consulted.
+	// manage_script: authoring and scheduling write. state reads unless its
+	// state_action sets or clears, and an absent state_action is a get, as
+	// scriptlayer treats it. run_draft is absent because a run may not start
+	// another run at all, which scriptlayer refuses on its own before this rule
+	// is consulted.
 	"manage_script": {arg: "command", reads: set(
 		"get", "list", "validate", "help",
 		"locate", "get_content", "outline", "stats", "diff",
 		"versions", "runs", "get_run", "schedule_list",
-	)},
+	), split: map[string]actionRule{
+		"state": {arg: "state_action", reads: set("", "get")},
+	}},
 	// s3_object: put, copy and delete write. presign mints a URL against the
 	// object store and stores nothing.
 	"s3_object": {arg: "action", reads: set("get", "metadata", "presign")},

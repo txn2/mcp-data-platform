@@ -525,6 +525,12 @@ operation that will execute is a mutation; and a tool the platform did not
 define, such as anything an MCP gateway connection proxies, by the upstream's
 own `readOnlyHint`.
 
+A verb whose class depends on a second argument is classified by both:
+`manage_script command=state` reads unless its `state_action` is `set` or
+`clear`, so a watchdog that reports another script's state can be dry-run
+without `allow_writes` (#1821), and `manage_resource` `get` and `list` read
+while its `create`, `replace_content` and `delete` write.
+
 Both surfaces execute the source sent with the call, which is the whole point:
 a save is immediately the version `run_script` executes and a schedule fires,
 so a dry run is the only way to try a change without making it live. Sending no

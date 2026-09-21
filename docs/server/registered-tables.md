@@ -348,6 +348,17 @@ parses as an unquoted field carrying a bare quote. Every export that quotes its
 strings writes that shape, so a file leading with a mark registers like any
 other, and the first column is named what the header calls it.
 
+A backslash is an ordinary character. A registered table reads the file as
+RFC 4180 CSV, the dialect every CSV the platform writes is in: a quote inside a
+quoted cell is doubled, and nothing else is escaped. The Hive CSV reader's own
+default escapes with a backslash, under which `back\slash` reads as `backslash`
+and a quoted cell holding a backslash beside a quote reads as an empty string,
+with the row and column counts intact. Registration therefore declares
+`csv_escape = U&'\0000'`, which is how that reader is told to escape nothing
+(#1819). A table registered before this carries the reader's default until its
+file gets a new version it follows, or until it is registered again under the
+same name.
+
 A record that ends before the header does is not a defect. Its trailing columns
 are absent rather than wrong, and every reader of a CSV supplies them: Go's
 `encoding/csv` and Python's `csv` return the short record, PapaParse fills the
