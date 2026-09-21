@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
 import { ConnectionAlertCard } from "./ConnectionAlertCard";
+import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { SettingsCard } from "./panels";
 import {
@@ -322,6 +323,7 @@ export function AdminSettingsPage() {
         isReadOnly={isReadOnly}
       />
       <ConnectionAlertCard isReadOnly={isReadOnly} />
+      <NotificationChannelsCard isReadOnly={isReadOnly} />
     </div>
   );
 }

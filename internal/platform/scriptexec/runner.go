@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,6 +44,10 @@ type runner struct {
 	audit        middleware.AuditLogger
 	destinations []script.Destination
 	subjects     SubjectResolver
+	// portalURL is the deployment's public address, from which a run's own
+	// page is built: the link a platform.notify post carries when the script
+	// names none (#1723).
+	portalURL string
 }
 
 // newRunner builds the executor the worker drives.
@@ -50,6 +55,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 	return &runner{
 		runs: runs, server: cfg.Server, export: cfg.Export,
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
+		portalURL: cfg.PortalURL,
 	}
 }
 
@@ -92,6 +98,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.State = run.StateRead
 	opts.Caller = caller
 	opts.Destinations = r.destinations
+	opts.RunURL = r.runURL(sc.ID, run.ID)
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
 
 	result, runErr := scriptrun.Run(ctx, opts)
@@ -244,4 +251,14 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 	if err := r.audit.Log(ctx, event); err != nil {
 		slog.Warn("scripts: recording the run audit event failed", logKeyRunID, run.ID, logKeyError, err)
 	}
+}
+
+// runURL is the page of one run, or nothing when the deployment does not know
+// its own public address. A link the reader cannot follow is worse than no
+// link, so an unconfigured portal address omits it rather than guessing one.
+func (r *runner) runURL(scriptID, runID string) string {
+	if r.portalURL == "" {
+		return ""
+	}
+	return strings.TrimRight(r.portalURL, "/") + "/portal/scripts/" + scriptID + "/runs/" + runID
 }

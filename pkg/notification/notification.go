@@ -71,6 +71,16 @@ const (
 	// day, which is exactly why that person will not be watching the status
 	// card that already reports it.
 	CategoryConnectionAuth = "connection_auth"
+	// CategoryChannel covers a document sent to an operator-configured
+	// channel (#1720): a script's monitor post, a published report, a
+	// message a person asked the agent to send. Like the three above it
+	// carries no per-user toggle, and for a third reason: its recipient is
+	// usually not a person at all but a chat channel, and where it IS a
+	// person — an address on an email channel's list — the operator named
+	// them, so removing the address is the way to stop sending. ModeOff,
+	// including through the unsubscribe link, remains that person's own
+	// opt-out.
+	CategoryChannel = "channel"
 )
 
 // Delivery modes for user preferences.
@@ -120,6 +130,10 @@ const (
 	// (#1694). Its payload carries a ConnectionAuth describing the revocation
 	// instead of an item reference.
 	KindConnectionAuth = "connection_auth"
+	// KindChannel marks a document addressed to a channel (#1720). Its
+	// payload carries a Document instead of an item reference, and the row's
+	// Channel names the destination.
+	KindChannel = "channel"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification
@@ -218,13 +232,25 @@ type Payload struct {
 	// Connection carries the revocation a KindConnectionAuth alert reports and
 	// is nil for every other kind.
 	Connection *ConnectionAuth `json:"connection,omitempty"`
+	// Document carries what a KindChannel row delivers and is nil for every
+	// other kind. It holds the message rather than a reference to one
+	// because a channel document has no platform record behind it to re-read
+	// at send time: the sender composed it, and what was composed is what
+	// must arrive.
+	Document *Document `json:"document,omitempty"`
 }
 
 // Notification is one queued delivery.
 type Notification struct {
-	ID           int64      `json:"id"`
-	Recipient    string     `json:"recipient"`
-	Category     string     `json:"category"`
+	ID        int64  `json:"id"`
+	Recipient string `json:"recipient"`
+	Category  string `json:"category"`
+	// Channel names the destination a KindChannel row was sent to, and is
+	// empty for every row addressed to a person alone. It is a column rather
+	// than a payload field because the worker claims on it (a chat row is
+	// deliverable with no mail server configured) and the admin history
+	// filters on it.
+	Channel      string     `json:"channel,omitempty"`
 	Payload      Payload    `json:"payload"`
 	Digest       bool       `json:"digest"`
 	Status       string     `json:"status"`

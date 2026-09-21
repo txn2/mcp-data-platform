@@ -176,6 +176,11 @@ type Options struct {
 	// syntax-only execution wants.
 	Caller Caller
 
+	// RunURL is this run's own page, the link a platform.notify post carries
+	// when the script names none (#1723). Empty omits the link, which is what
+	// a deployment that does not know its public address can honestly say.
+	RunURL string
+
 	// Destinations is the deployment's configured bucket destinations, the set
 	// a platform.export destination name resolves against at run time. The
 	// portal is built in and never listed here. A draft run and a platform run
@@ -296,7 +301,7 @@ type ExportRequest struct {
 	Format string
 	// Columns is the column order the script wrote, read from the rows before
 	// they became order-free Go maps. A tabular format writes its columns in
-	// this order; see columnOrder.
+	// this order; see starlarkconv.ColumnOrder.
 	Columns []string
 	// Rows is the list of row dicts to write. Nil when the script passed a
 	// string body instead, which Body then carries.
@@ -568,6 +573,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.publishData),
 				"call":         starlark.NewBuiltin(CapabilityCall, host.call),
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.saveState),
+				"notify":       starlark.NewBuiltin(CapabilityNotify, host.notify),
+				"publish":      starlark.NewBuiltin(CapabilityPublish, host.publish),
 			},
 		},
 		"json":         json.Module,

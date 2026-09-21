@@ -344,6 +344,35 @@ services:
       - "host.docker.internal:host-gateway"
     shm_size: "256m"
 
+  # mailpit: the SMTP server the dev stack's mail goes to, and the HTTP API
+  # the acceptance run reads it back from (#1720). Nothing here forwards
+  # anywhere: a deployment's real mail server is configured by an
+  # administrator at run time, and a dev stack that could reach one would
+  # eventually send a test message to a real person.
+  mailpit:
+    image: axllent/mailpit@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    container_name: acme-dev-mailpit
+    ports:
+      # 1025 is SMTP in, 8025 is the web UI and the JSON API out.
+      - "127.0.0.1:${DEV_MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${DEV_MAILPIT_HTTP_PORT:-8025}:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+
+  # mattermost: the chat upstream a notification channel of the mattermost
+  # kind posts to (#1720). The preview image bundles its own database, so it
+  # shares nothing with the platform's and can be reset on its own.
+  #
+  # It is seeded by dev/seed-mattermost.sh, which creates the first user (who
+  # becomes the system administrator), a team and a channel, and writes the
+  # token and channel id the acceptance run reads.
+  mattermost:
+    image: mattermost/mattermost-preview@sha256:8a16d7d7fb50cfdb59cdec644eeb8c67c6b714033a8b432c3fbe404108883d1c
+    container_name: acme-dev-mattermost
+    ports:
+      - "127.0.0.1:${DEV_MATTERMOST_PORT:-8065}:8065"
+
 volumes:
   acme_postgres_data:
   acme_seaweed_data:

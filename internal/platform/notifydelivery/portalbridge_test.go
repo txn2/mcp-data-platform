@@ -38,11 +38,11 @@ func (q *recordQueue) Enqueue(_ context.Context, n notification.Notification) er
 	return nil
 }
 
-func (*recordQueue) ClaimImmediate(context.Context, time.Duration) (*notification.Notification, error) {
+func (*recordQueue) ClaimImmediate(context.Context, time.Duration, notification.TransportFilter) (*notification.Notification, error) {
 	return nil, notification.ErrNoWork
 }
 
-func (*recordQueue) ClaimDigest(context.Context, time.Duration) ([]notification.Notification, error) {
+func (*recordQueue) ClaimDigest(context.Context, time.Duration, notification.TransportFilter) ([]notification.Notification, error) {
 	return nil, notification.ErrNoWork
 }
 

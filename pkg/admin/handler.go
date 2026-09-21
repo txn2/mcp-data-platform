@@ -267,6 +267,17 @@ type Deps struct {
 	// window and recipients (#1694). nil disables the
 	// /api/v1/admin/settings/connection-alert routes.
 	ConnectionAlert connalert.SettingsStore
+	// NotificationChannels persists the destinations a document is
+	// delivered to (#1720). nil disables the
+	// /api/v1/admin/notification-channels routes.
+	NotificationChannels notification.ChannelStore
+	// SendChannelTest delivers a test message through one channel's own
+	// transport. nil disables the channel test route.
+	SendChannelTest func(ctx context.Context, name string) error
+	// APIConnectionExists reports whether a live api toolkit serves a
+	// connection, so a channel naming one that is gone is reported as
+	// undeliverable rather than as configured. nil omits that warning.
+	APIConnectionExists func(ctx context.Context, name string) bool
 	// ConnectionRevocations forgets a connection's open revocation when the
 	// OAuth callback authorizes it again (#1694). nil forgets nothing.
 	ConnectionRevocations connoauthapi.RevocationClearer

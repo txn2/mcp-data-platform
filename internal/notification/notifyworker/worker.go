@@ -1,10 +1,11 @@
 // Package notifyworker drains the notification queue: it claims due rows under
-// a lease, renders them, delivers them over SMTP, and resolves each batch to
-// sent, retried, or failed.
+// a lease, renders them, delivers them over SMTP or a channel's own transport,
+// and resolves each batch to sent, retried, or failed.
 //
-// It owns the delivery policy — the deliverability gate, the retry budget and
-// its backoff, and the retention purge that bounds the table — and holds the
-// rendering and transport layers behind the two collaborators in Config.
+// It owns the delivery policy — which transports can deliver right now, the
+// retry budget and its backoff, and the retention purge that bounds the table
+// — and holds the rendering and transport layers behind the collaborators in
+// Config.
 package notifyworker
 
 import (
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifysend"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -56,6 +59,17 @@ type Config struct {
 	Settings smtp.SettingsStore
 	Renderer *notifyrender.Renderer
 	Sender   notifysend.Sender
+	// Channels reads the destination a channel row names. nil disables
+	// channel delivery: those rows stay pending, as email rows do on a
+	// deployment with no mail server.
+	Channels notification.ChannelStore
+	// ChannelSenders delivers to the three HTTP channel kinds. nil disables
+	// channel delivery with Channels.
+	//
+	// It is an interface rather than *notifypost.Senders so the worker's
+	// own behavior -- which transport a row goes to, and how a failure
+	// resolves -- is testable without standing up an upstream for each kind.
+	ChannelSenders ChannelSender
 	// PollEvery, Lease, and MaxAttempts default to the package constants
 	// when zero.
 	PollEvery   time.Duration
@@ -63,11 +77,19 @@ type Config struct {
 	MaxAttempts int
 }
 
-// Worker drains the notification queue: it claims due rows, renders branded
-// emails, and delivers them over SMTP. It follows the indexjobs worker shape
-// (poll ticker + LISTEN/NOTIFY wakeup, lease-based claiming, retry with
-// exponential backoff). When SMTP is unconfigured or disabled the worker
-// leaves rows pending without burning delivery attempts.
+// ChannelSender posts one document to one channel, dispatching on its kind.
+// notifypost.Senders implements it.
+type ChannelSender interface {
+	Send(ctx context.Context, ch notification.Channel, doc notification.Document) error
+}
+
+// Worker drains the notification queue: it claims due rows, renders them, and
+// delivers each over the transport its destination names. It follows the
+// indexjobs worker shape (poll ticker + LISTEN/NOTIFY wakeup, lease-based
+// claiming, retry with exponential backoff). A transport that cannot deliver
+// right now — SMTP unconfigured, or no channel senders wired — is excluded
+// from the claim, so its rows stay pending without burning delivery attempts
+// while the other transport keeps draining.
 type Worker struct {
 	cfg      Config
 	wakeup   chan struct{}
@@ -146,7 +168,11 @@ func (w *Worker) drain() {
 	// bounded even on deployments that never configure SMTP.
 	w.maybePurge(ctx)
 	settings := w.deliverableSettings(ctx)
-	if settings == nil {
+	filter := notification.TransportFilter{
+		Email:   settings != nil,
+		Channel: w.cfg.Channels != nil && w.cfg.ChannelSenders != nil,
+	}
+	if !filter.Deliverable() {
 		return
 	}
 	for {
@@ -155,7 +181,7 @@ func (w *Worker) drain() {
 			return
 		default:
 		}
-		if !w.processNext(ctx, settings) {
+		if !w.processNext(ctx, settings, filter) {
 			return
 		}
 	}
@@ -196,8 +222,8 @@ func (w *Worker) deliverableSettings(ctx context.Context) *smtp.Settings {
 
 // processNext claims and delivers one unit of work (one immediate row or one
 // recipient's digest batch). It reports whether more work may remain.
-func (w *Worker) processNext(ctx context.Context, settings *smtp.Settings) bool {
-	batch, err := w.claimNext(ctx)
+func (w *Worker) processNext(ctx context.Context, settings *smtp.Settings, filter notification.TransportFilter) bool {
+	batch, err := w.claimNext(ctx, filter)
 	if errors.Is(err, notification.ErrNoWork) {
 		return false
 	}
@@ -211,34 +237,38 @@ func (w *Worker) processNext(ctx context.Context, settings *smtp.Settings) bool 
 
 // claimNext prefers immediate rows, then falls back to digest batches.
 // notification.ErrNoWork wraps through so processNext can match it with errors.Is.
-func (w *Worker) claimNext(ctx context.Context) ([]notification.Notification, error) {
-	n, err := w.cfg.Queue.ClaimImmediate(ctx, w.cfg.Lease)
+func (w *Worker) claimNext(ctx context.Context, filter notification.TransportFilter) ([]notification.Notification, error) {
+	n, err := w.cfg.Queue.ClaimImmediate(ctx, w.cfg.Lease, filter)
 	if err == nil {
 		return []notification.Notification{*n}, nil
 	}
 	if !errors.Is(err, notification.ErrNoWork) {
 		return nil, fmt.Errorf("claiming immediate notification: %w", err)
 	}
-	batch, err := w.cfg.Queue.ClaimDigest(ctx, w.cfg.Lease)
+	batch, err := w.cfg.Queue.ClaimDigest(ctx, w.cfg.Lease, filter)
 	if err != nil {
 		return nil, fmt.Errorf("claiming digest batch: %w", err)
 	}
 	return batch, nil
 }
 
-// deliver renders and sends one claimed batch, then resolves its rows.
+// deliver sends one claimed batch over the transport its destination names,
+// then resolves its rows.
 func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []notification.Notification) {
 	if len(batch) == 0 {
 		return
 	}
-	email, err := w.cfg.Renderer.Render(batch)
-	if err != nil {
-		// A render failure is deterministic; retrying cannot fix it.
-		w.resolve(ctx, batch, err, true)
-		return
+	var (
+		terminal bool
+		err      error
+	)
+	if name, addressed := notification.ChannelName(batch[0].Recipient); addressed {
+		terminal, err = w.deliverToChannel(ctx, name, batch)
+	} else {
+		terminal, err = w.deliverByEmail(ctx, settings, batch)
 	}
-	if err := w.cfg.Sender.Send(ctx, *settings, *email); err != nil {
-		w.resolve(ctx, batch, err, false)
+	if err != nil {
+		w.resolve(ctx, batch, err, terminal)
 		return
 	}
 	if err := w.cfg.Queue.MarkSent(ctx, ids(batch)); err != nil {
@@ -246,6 +276,51 @@ func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []n
 		return
 	}
 	slog.Info("notification: sent", "recipient", batch[0].Recipient, "count", len(batch))
+}
+
+// deliverByEmail renders the batch as one branded email and sends it over
+// SMTP, reporting whether a failure is terminal. A render failure is
+// deterministic, so retrying cannot fix it.
+func (w *Worker) deliverByEmail(ctx context.Context, settings *smtp.Settings, batch []notification.Notification) (terminal bool, err error) {
+	email, err := w.cfg.Renderer.Render(batch)
+	if err != nil {
+		return true, err //nolint:wrapcheck // the renderer's message is what the history records
+	}
+	if err := w.cfg.Sender.Send(ctx, *settings, *email); err != nil {
+		return false, err //nolint:wrapcheck // the mail server's own words are the operator's answer
+	}
+	return false, nil
+}
+
+// deliverToChannel posts the batch to the destination it names, reporting the
+// failure and whether it is terminal.
+//
+// A batch is one document per row. A digest batch for one channel is posted as
+// one message per document rather than as a bulletin: composing the bulletin
+// is the rendering stage's work, and until it exists a reader gets each
+// document whole instead of a summary that drops what it could not fit.
+func (w *Worker) deliverToChannel(ctx context.Context, name string, batch []notification.Notification) (terminal bool, err error) {
+	ch, err := w.cfg.Channels.Get(ctx, name)
+	if err != nil {
+		// A row naming a channel the operator has since deleted can never be
+		// delivered, so it fails rather than retrying five times first.
+		if errors.Is(err, notifychannel.ErrChannelNotFound) {
+			return true, fmt.Errorf("channel %q no longer exists", name)
+		}
+		return false, fmt.Errorf("reading channel %q: %w", name, err)
+	}
+	if !ch.Enabled {
+		return true, fmt.Errorf("channel %q is disabled", name)
+	}
+	for _, n := range batch {
+		if n.Payload.Document == nil {
+			return true, fmt.Errorf("notification %d carries no document to post to channel %q", n.ID, name)
+		}
+		if err := w.cfg.ChannelSenders.Send(ctx, *ch, *n.Payload.Document); err != nil {
+			return errors.Is(err, notifypost.ErrTerminal), err
+		}
+	}
+	return false, nil
 }
 
 // resolve routes a failed batch to retry or permanent failure.

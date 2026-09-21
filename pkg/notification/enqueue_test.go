@@ -56,7 +56,7 @@ func (f *fakeQueueStore) Enqueue(_ context.Context, n Notification) error {
 	return nil
 }
 
-func (f *fakeQueueStore) ClaimImmediate(_ context.Context, _ time.Duration) (*Notification, error) {
+func (f *fakeQueueStore) ClaimImmediate(_ context.Context, _ time.Duration, _ TransportFilter) (*Notification, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.claimErr != nil {
@@ -73,7 +73,7 @@ func (f *fakeQueueStore) ClaimImmediate(_ context.Context, _ time.Duration) (*No
 	return &batch[0], nil
 }
 
-func (f *fakeQueueStore) ClaimDigest(_ context.Context, _ time.Duration) ([]Notification, error) {
+func (f *fakeQueueStore) ClaimDigest(_ context.Context, _ time.Duration, _ TransportFilter) ([]Notification, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.claimErr != nil {

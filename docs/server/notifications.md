@@ -1,4 +1,9 @@
-# Email Notifications
+# Notifications
+
+The platform tells people when something needs their attention. Most of what
+follows is email; the last surface, [notification
+channels](#notification-channels), is the same pipeline delivering to a
+Mattermost channel, an incoming webhook, or an operator-named mailing list.
 
 The platform emails users when something needs their attention: a teammate
 shares an asset, collection, or prompt with them, comments on something they
@@ -303,6 +308,112 @@ toggle. Its first recipient is addressed by responsibility rather than by
 interest, and its second was named by the operator. A recipient still opts out
 for themselves with delivery mode `off`, including through the unsubscribe
 link the email carries like any other.
+
+## Notification channels
+
+A **channel** is an operator-configured destination that is not one person: a
+Mattermost channel, an incoming webhook, or a named list of email addresses. A managed script posts what it found to one, a person in a
+session asks the agent to send to one, and the portal offers the same action
+on an asset.
+
+Channels are configured in the portal under **Admin > Settings > Notification
+Channels**, or through the REST routes below. Nothing about a channel lives in
+YAML.
+
+### Kinds
+
+| Kind | Delivers through | Needs | Carries |
+| --- | --- | --- | --- |
+| `mattermost` | `POST /api/v4/posts` | an api connection holding the bot token, and the target channel id | a title, a markdown body and a link |
+| `webhook` | one `{"text": ...}` POST to the connection's base URL | an api connection whose base URL is the incoming-webhook URL | a title and a text body; the link is appended |
+| `email` | the deployment's mail server | one to 20 recipient addresses | a subject, a body and a link button, in the branded template |
+
+### A channel holds no credential
+
+The two HTTP kinds name an **api connection** rather than storing a token.
+That is the whole security model of a channel:
+
+- The bot token is the connection's `credential`, encrypted at rest by the
+  platform's field encryptor like every other upstream credential, and rotated
+  in one place.
+- The outbound client is the connection's, with its TLS material, its timeouts
+  and the platform's User-Agent.
+- **Who may send to a channel is whoever may reach its connection.** A persona
+  denied the connection is denied the channel: it is not listed to them and
+  cannot be sent to. Restricting a channel to fewer people means giving it its
+  own connection. No new persona dimension was added.
+
+An `email` channel names no connection, so there is no upstream authorization
+to inherit, and it is reachable by anyone who can send at all - as the
+built-in portal destination is reachable by every script.
+
+### What is sent
+
+A **document**: a title, a markdown body, and an optional link back to
+whatever produced it. Each kind shows as much of it as it can and falls back
+to an excerpt plus the link past its own cap, so a long report always arrives
+as a summary and a pointer rather than as a wall or a truncation.
+
+Every send is an ordinary row in the same queue every email uses: claimed by
+the same worker, retried on the same backoff, purged on the same retention,
+and visible in the same delivery history. There is no synchronous send path,
+so an upstream outage is a retry rather than a failed script.
+
+An `email` channel fans out at enqueue to **one row per recipient**, so a
+person on an operator's list keeps everything a person has: their own delivery
+mode, their own digest window, and the unsubscribe link in the footer. One
+person opting out silences nothing for anybody else.
+
+A failure that retrying cannot fix - a deleted channel, a revoked bot token, a
+chat channel the bot was never invited to - fails the row at once rather than
+five times, and the upstream's own words are recorded on it.
+
+### Sending
+
+| Surface | How |
+| --- | --- |
+| A person in a session | the `notify` tool: `action=list`, then `action=send` or `action=publish` |
+| A managed script | `platform.notify(channel, title, body)` and `platform.publish(channel, name)` |
+| An administrator | **Send test** on the channel's editor, which delivers immediately and reports what the upstream said |
+
+`notify` is an ordinary tool, so persona allow lists, the per-session rate
+limit and audit apply to it unchanged. A script's send is the run's principal,
+holding the roles its version author held, and is refused in a draft run
+without `allow_writes` - a message in somebody else's chat client is not
+something a rehearsal may leave behind. A script's post links back to the run
+that produced it unless the script names its own link.
+
+### REST
+
+| Route | Does |
+| --- | --- |
+| `GET /api/v1/admin/notification-channels` | list every channel, and the kinds this deployment delivers to |
+| `GET /api/v1/admin/notification-channels/{name}` | read one |
+| `PUT /api/v1/admin/notification-channels/{name}` | create or replace one |
+| `DELETE /api/v1/admin/notification-channels/{name}` | remove one |
+| `POST /api/v1/admin/notification-channels/{name}/test` | deliver a test through the channel's own transport |
+
+Every route is admin-only and audited. The write routes answer 405 in file
+config mode, as every other admin configuration surface does.
+
+### Kinds not yet here
+
+Slack is not a kind yet (#1824). Its transport is a small variation on the
+Mattermost one — a bot token on an api connection, `POST /chat.postMessage`,
+and an application-level `ok: false` to read — but it has no local upstream to
+be exercised against, so it ships when there is a workspace to prove it in
+rather than on the strength of a test double.
+
+### Local development
+
+`make dev` runs both upstreams a channel can be exercised against:
+
+- **mailpit** on `http://localhost:8025` - every email the dev stack sends
+  lands there, and the stack points SMTP at it automatically.
+- **mattermost** on `http://localhost:8065` (`admin@example.com` /
+  `Dev-Password-1`) - seeded with a team, an `ops-alerts` channel and a token,
+  and registered as the `mattermost-dev` api connection with an `ops-alerts`
+  channel over it. An `ops-email` channel is registered too.
 
 ## User notification preferences
 

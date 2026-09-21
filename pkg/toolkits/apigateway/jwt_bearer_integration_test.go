@@ -158,11 +158,11 @@ func (q *mailQueue) all() []notification.Notification {
 	return append([]notification.Notification(nil), q.rows...)
 }
 
-func (*mailQueue) ClaimImmediate(context.Context, time.Duration) (*notification.Notification, error) {
+func (*mailQueue) ClaimImmediate(context.Context, time.Duration, notification.TransportFilter) (*notification.Notification, error) {
 	return nil, notification.ErrNoWork
 }
 
-func (*mailQueue) ClaimDigest(context.Context, time.Duration) ([]notification.Notification, error) {
+func (*mailQueue) ClaimDigest(context.Context, time.Duration, notification.TransportFilter) ([]notification.Notification, error) {
 	return nil, notification.ErrNoWork
 }
 func (*mailQueue) MarkSent(context.Context, []int64) error                     { return nil }

@@ -60,10 +60,18 @@ func (s *PostgresStore) Enqueue(ctx context.Context, n notification.Notification
 	if !n.ScheduledFor.IsZero() {
 		scheduled = n.ScheduledFor
 	}
+	// An empty channel is stored as NULL rather than as '': the claim's
+	// transport predicate and the partial index both read "addressed to a
+	// channel" as "channel IS NOT NULL", and an empty string would be a
+	// third state neither of them means.
+	var channel any
+	if n.Channel != "" {
+		channel = n.Channel
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO notifications (recipient, category, payload, digest, scheduled_for)
-		 VALUES ($1, $2, $3, $4, COALESCE($5, NOW()))`,
-		n.Recipient, n.Category, payload, n.Digest, scheduled)
+		`INSERT INTO notifications (recipient, category, payload, digest, scheduled_for, channel)
+		 VALUES ($1, $2, $3, $4, COALESCE($5, NOW()), $6)`,
+		n.Recipient, n.Category, payload, n.Digest, scheduled, channel)
 	if err != nil {
 		return fmt.Errorf("enqueueing notification: %w", err)
 	}
@@ -74,17 +82,46 @@ func (s *PostgresStore) Enqueue(ctx context.Context, n notification.Notification
 
 // notificationColumns is the scan list shared by the claim queries.
 const notificationColumns = `id, recipient, category, payload, digest, status,
-	attempts, last_error, scheduled_for, sent_at, created_at`
+	attempts, last_error, scheduled_for, sent_at, created_at, channel`
+
+// channelRowClause matches a row addressed to a channel destination rather
+// than to a person: the recipient carries the channel prefix. An email
+// channel's fanned-out rows name a channel too, but are addressed to people
+// and delivered over SMTP, which is why the test is the recipient and not the
+// channel column.
+const channelRowClause = `recipient LIKE 'channel:%'`
+
+// transportClause narrows a claim to what filter admits. A filter admitting
+// both transports adds no predicate at all, which is every deployment that
+// has a mail server and a working gateway.
+func transportClause(filter notification.TransportFilter) string {
+	switch {
+	case filter.Email && filter.Channel:
+		return ""
+	case filter.Channel:
+		return ` AND ` + channelRowClause
+	case filter.Email:
+		return ` AND NOT (` + channelRowClause + `)`
+	default:
+		// Unreachable: the worker checks Deliverable before claiming. The
+		// predicate is written anyway so a future caller that does not
+		// cannot claim rows it has no transport for.
+		return ` AND FALSE`
+	}
+}
 
 // ClaimImmediate claims the next due non-digest row.
-func (s *PostgresStore) ClaimImmediate(ctx context.Context, lease time.Duration) (*notification.Notification, error) {
+func (s *PostgresStore) ClaimImmediate(ctx context.Context, lease time.Duration, filter notification.TransportFilter) (*notification.Notification, error) {
+	if !filter.Deliverable() {
+		return nil, notification.ErrNoWork
+	}
 	rows, err := s.claim(ctx, lease,
 		`UPDATE notifications
 		   SET status = 'sending', attempts = attempts + 1,
 		       locked_until = NOW() + ($1 || ' seconds')::INTERVAL
 		 WHERE id = (
 		     SELECT id FROM notifications
-		      WHERE digest = FALSE AND `+dueClause+`
+		      WHERE digest = FALSE AND `+dueClause+transportClause(filter)+`
 		      ORDER BY scheduled_for, id
 		      LIMIT 1
 		      FOR UPDATE SKIP LOCKED)
@@ -98,15 +135,19 @@ func (s *PostgresStore) ClaimImmediate(ctx context.Context, lease time.Duration)
 // ClaimDigest claims all due digest rows for the recipient with the oldest
 // due digest row. Concurrent workers racing for the same recipient are safe:
 // the loser's UPDATE matches zero rows and reports notification.ErrNoWork.
-func (s *PostgresStore) ClaimDigest(ctx context.Context, lease time.Duration) ([]notification.Notification, error) {
+func (s *PostgresStore) ClaimDigest(ctx context.Context, lease time.Duration, filter notification.TransportFilter) ([]notification.Notification, error) {
+	if !filter.Deliverable() {
+		return nil, notification.ErrNoWork
+	}
+	transport := transportClause(filter)
 	return s.claim(ctx, lease,
 		`UPDATE notifications
 		   SET status = 'sending', attempts = attempts + 1,
 		       locked_until = NOW() + ($1 || ' seconds')::INTERVAL
-		 WHERE digest = TRUE AND `+dueClause+`
+		 WHERE digest = TRUE AND `+dueClause+transport+`
 		   AND recipient = (
 		     SELECT recipient FROM notifications
-		      WHERE digest = TRUE AND `+dueClause+`
+		      WHERE digest = TRUE AND `+dueClause+transport+`
 		      ORDER BY scheduled_for, id
 		      LIMIT 1)
 		 RETURNING `+notificationColumns)
@@ -197,8 +238,9 @@ func scanNotification(row interface{ Scan(dest ...any) error }) (*notification.N
 	var n notification.Notification
 	var payload []byte
 	var sentAt sql.NullTime
+	var channel sql.NullString
 	if err := row.Scan(&n.ID, &n.Recipient, &n.Category, &payload, &n.Digest,
-		&n.Status, &n.Attempts, &n.LastError, &n.ScheduledFor, &sentAt, &n.CreatedAt); err != nil {
+		&n.Status, &n.Attempts, &n.LastError, &n.ScheduledFor, &sentAt, &n.CreatedAt, &channel); err != nil {
 		return nil, err //nolint:wrapcheck // callers add context per call site
 	}
 	if err := json.Unmarshal(payload, &n.Payload); err != nil {
@@ -207,6 +249,7 @@ func scanNotification(row interface{ Scan(dest ...any) error }) (*notification.N
 	if sentAt.Valid {
 		n.SentAt = &sentAt.Time
 	}
+	n.Channel = channel.String
 	return &n, nil
 }
 

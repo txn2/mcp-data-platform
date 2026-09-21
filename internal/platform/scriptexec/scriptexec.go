@@ -92,6 +92,10 @@ type Config struct {
 	// each affected run reports.
 	Export ExportDeps
 
+	// PortalURL is the deployment's public portal address, from which a run's
+	// own page is built: the link a platform.notify post carries when the
+	// script names none (#1723). Empty omits the link.
+	PortalURL string
 	// Destinations is the deployment's configured bucket destinations, which a
 	// run resolves platform.export names against at run time.
 	Destinations []script.Destination

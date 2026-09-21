@@ -3,6 +3,8 @@ package scriptrun
 import (
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.starlark.net/starlark"
@@ -20,7 +22,7 @@ func params(t *testing.T, bindings ...binding) *starlark.Dict {
 	t.Helper()
 	d := starlark.NewDict(len(bindings))
 	for _, b := range bindings {
-		v, err := toStarlark(b.value)
+		v, err := starlarkconv.ToStarlark(b.value)
 		require.NoError(t, err)
 		require.NoError(t, d.SetKey(starlark.String(b.name), v))
 	}

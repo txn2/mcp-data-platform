@@ -179,8 +179,9 @@ func BuildNotifications(p *platform.Platform, brand Brand) *notifydelivery.Handl
 			ReplyTo:         emailReplyTo(p.Config().Portal.ReplyTo),
 			LogoPNG:         emailLogo(p.Config().Portal.LogoEmail),
 		},
-		DigestHourUTC:  p.Config().Notifications.DigestHour(),
-		UnsubscribeURL: brand.UnsubscribeURL,
+		DigestHourUTC:   p.Config().Notifications.DigestHour(),
+		UnsubscribeURL:  brand.UnsubscribeURL,
+		ChannelUpstream: ChannelUpstream(p.ToolkitRegistry()),
 	})
 	if err != nil {
 		// A renderer build failure means broken embedded templates — a build

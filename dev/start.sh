@@ -718,6 +718,10 @@ ok "Asset references declared"
 # only to a loopback DataHub and refuses a remote one by name, so pointing dev at
 # a shared catalog never injects fixtures into it.
 bash dev/seed-datahub.sh
+# The chat fixture a notification channel posts to (#1720). It is seeded after
+# the platform's own data because it shares nothing with it: its own server,
+# its own database, and a skip rather than a failure when it is not running.
+bash dev/seed-mattermost.sh
 
 # Register the dev-mock MCP gateway connection through the admin API.
 # Going through the admin API (rather than just an INSERT in seed.sql)
@@ -1180,6 +1184,84 @@ echo -e "  mcp-test (MCP):   ${CYAN}http://localhost:9281/${NC}  portal: ${CYAN}
 echo -e "                    ${CYAN}API key: $MCPTEST_DEV_KEY_VAL${NC}"
 echo -e "  api-test (HTTP):  ${CYAN}http://localhost:9282/v1${NC}  portal: ${CYAN}http://localhost:9282/portal/${NC}"
 echo -e "                    ${CYAN}API key: $APITEST_DEV_KEY_VAL${NC}"
+echo -e "  mailpit (SMTP):   ${CYAN}http://localhost:${DEV_MAILPIT_HTTP_PORT:-8025}${NC} — every email the platform sends lands here"
+echo -e "  mattermost:       ${CYAN}http://localhost:${DEV_MATTERMOST_PORT:-8065}${NC} — admin@example.com / Dev-Password-1"
+
+# Point the deployment's mail server at mailpit, and register the api
+# connection a mattermost notification channel delivers through (#1720).
+#
+# Both go through the admin API rather than an INSERT: the SMTP password is
+# encrypted at rest by the platform's FieldEncryptor, and a connection's
+# credential the same way, so a row written behind the platform's back is a row
+# it cannot decrypt.
+info "Configuring notifications (mailpit SMTP + mattermost channel upstream)..."
+SMTP_BODY=$(printf '{"enabled":true,"host":"127.0.0.1","port":%s,"from":"platform@example.com","from_name":"ACME Data Platform","tls_mode":"none"}' "${DEV_MAILPIT_SMTP_PORT:-1025}")
+SMTP_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$SMTP_BODY" \
+  http://localhost:$DEV_API_PORT/api/v1/admin/settings/smtp || echo "000")
+if [ "$SMTP_HTTP" = "200" ]; then
+  ok "SMTP points at mailpit (read it at http://localhost:${DEV_MAILPIT_HTTP_PORT:-8025})"
+else
+  echo -e "  ${YELLOW}⚠${NC} SMTP settings returned HTTP $SMTP_HTTP — admin API may not be ready"
+fi
+
+# The mattermost fixture's token, written by dev/seed-mattermost.sh. Absent
+# when that server is not running, in which case the chat channel is skipped
+# and the email one still works.
+if [ -f dev/.mattermost-env ]; then
+  # shellcheck source=/dev/null
+  . dev/.mattermost-env
+  MM_CONN_BODY=$(MM_URL="$MATTERMOST_URL" MM_TOKEN="$MATTERMOST_TOKEN" python3 -c '
+import json, os
+print(json.dumps({
+    "config": {
+        "base_url": os.environ["MM_URL"],
+        "auth_mode": "bearer",
+        "credential": os.environ["MM_TOKEN"],
+        "connection_name": "mattermost-dev",
+        "connect_timeout": "5s",
+        "call_timeout": "10s",
+    },
+    "description": "Dev fixture: the Mattermost a notification channel posts to (#1720)",
+}))')
+  MM_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+    -H "X-API-Key: acme-dev-key-2024" \
+    -H "Content-Type: application/json" \
+    -d "$MM_CONN_BODY" \
+    http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/mattermost-dev || echo "000")
+  if [ "$MM_HTTP" = "200" ] || [ "$MM_HTTP" = "201" ]; then
+    CH_BODY=$(MM_CHANNEL="$MATTERMOST_CHANNEL_ID" python3 -c '
+import json, os
+print(json.dumps({
+    "kind": "mattermost",
+    "description": "Dev fixture: the ops-alerts channel on the dev Mattermost",
+    "enabled": True,
+    "connection": "mattermost-dev",
+    "target": os.environ["MM_CHANNEL"],
+    "mode": "immediate",
+}))')
+    curl -s -o /dev/null -X PUT \
+      -H "X-API-Key: acme-dev-key-2024" \
+      -H "Content-Type: application/json" \
+      -d "$CH_BODY" \
+      http://localhost:$DEV_API_PORT/api/v1/admin/notification-channels/ops-alerts || true
+    ok "mattermost-dev connection + 'ops-alerts' channel registered"
+  else
+    echo -e "  ${YELLOW}⚠${NC} mattermost-dev connection register returned HTTP $MM_HTTP"
+  fi
+fi
+
+# An email channel needs no connection, so it exists wherever SMTP does.
+EMAIL_CH_BODY='{"kind":"email","description":"Dev fixture: the operations mailing list","enabled":true,"recipients":["ops@example.com"],"mode":"immediate"}'
+curl -s -o /dev/null -X PUT \
+  -H "X-API-Key: acme-dev-key-2024" \
+  -H "Content-Type: application/json" \
+  -d "$EMAIL_CH_BODY" \
+  http://localhost:$DEV_API_PORT/api/v1/admin/notification-channels/ops-email || true
+ok "'ops-email' notification channel registered"
+
 echo ""
 echo -e "  ${BOLD}Pre-wired OAuth authorization_code fixtures${NC}"
 echo -e "  ${CYAN}Portal → Settings → Connections${NC} — click ${BOLD}Connect${NC} on either to test the browser flow:"

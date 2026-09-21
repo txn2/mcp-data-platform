@@ -23,6 +23,8 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
@@ -52,6 +54,16 @@ type Config struct {
 	// UnsubscribeURL builds the no-login unsubscribe link for a recipient
 	// address (#1001). nil omits the footer link from notification emails.
 	UnsubscribeURL func(email string) string
+	// ChannelUpstream resolves the api connection a chat or webhook channel
+	// delivers through to its authorized transport (#1720). nil leaves the
+	// three HTTP channel kinds undeliverable -- their rows stay pending, as
+	// email rows do with no mail server -- while email channels, which need
+	// no connection, keep working.
+	//
+	// It is a function rather than a toolkit because this package must not
+	// import the api gateway: the composition root, which already walks the
+	// live toolkit registry, resolves the name.
+	ChannelUpstream notifypost.UpstreamFunc
 }
 
 // listenerControl narrows the LISTEN adapter to the two calls the handle
@@ -75,6 +87,11 @@ type Handle struct {
 	sender   notifysend.Sender
 	worker   *notifyworker.Worker
 	listener listenerControl
+	// channels holds the operator's channel records; channelSenders is the
+	// transport for the three HTTP kinds, nil when no upstream resolver was
+	// supplied.
+	channels       notification.ChannelStore
+	channelSenders *notifypost.Senders
 }
 
 // New composes the substrate. Returns nil when cfg.DB is nil (no database:
@@ -99,12 +116,18 @@ func New(cfg Config) (*Handle, error) {
 		renderer: renderer,
 		sender:   notifysend.NewSMTPSender(),
 	}
+	h.channels = notifychannel.NewPostgresStore(cfg.DB)
+	if cfg.ChannelUpstream != nil {
+		h.channelSenders = notifypost.NewSenders(cfg.ChannelUpstream)
+	}
 	h.enqueuer = notification.NewEnqueuer(h.prefs, h.queue, cfg.DigestHourUTC)
 	h.worker = notifyworker.New(notifyworker.Config{
-		Queue:    h.queue,
-		Settings: h.settings,
-		Renderer: renderer,
-		Sender:   h.sender,
+		Queue:          h.queue,
+		Settings:       h.settings,
+		Renderer:       renderer,
+		Sender:         h.sender,
+		Channels:       h.channels,
+		ChannelSenders: h.channelSenders,
 	})
 	if cfg.DSN != "" {
 		h.listener = notifyqueue.NewListener(cfg.DSN, h.worker)

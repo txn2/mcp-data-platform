@@ -1,7 +1,8 @@
 // Package settingsapi serves the /api/v1/admin/settings surface: the stored
 // SMTP configuration (#631), the send-test action, the test recipient's
 // notification opt-out status (#1022), the knowledge review-queue alert
-// threshold (#803), and the connection-revocation alert's escalation (#1694). It is a decomposition seam of pkg/admin (which sits at the
+// threshold (#803), the connection-revocation alert's escalation (#1694), and
+// the notification channels a document is delivered to (#1720). It is a decomposition seam of pkg/admin (which sits at the
 // package size budget): the parent registers it on the admin mux and injects
 // the request-scoped helpers it shares with the other admin routes.
 package settingsapi
@@ -43,6 +44,16 @@ type Config struct {
 	// window and recipients (#1694). nil disables the connection-alert
 	// routes.
 	ConnectionAlert connalert.SettingsStore
+	// Channels persists the operator's notification channels (#1720). nil
+	// disables the channel routes.
+	Channels notification.ChannelStore
+	// SendChannelTest delivers a test message through one channel's own
+	// transport. nil disables the channel test route.
+	SendChannelTest func(ctx context.Context, name string) error
+	// ConnectionExists reports whether a live api toolkit serves a
+	// connection, so a channel naming one that is gone is shown as
+	// undeliverable rather than as configured. nil omits that warning.
+	ConnectionExists func(ctx context.Context, name string) bool
 	// Mutable reports database config mode; false swaps the write routes for
 	// ReadOnly.
 	Mutable bool
@@ -68,6 +79,7 @@ func Register(mux *http.ServeMux, cfg Config) {
 	h := &handler{cfg: cfg}
 	registerReviewAlert(mux, h)
 	registerConnAlert(mux, h)
+	registerChannels(mux, h)
 	if cfg.Settings == nil {
 		return
 	}

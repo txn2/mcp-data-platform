@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
@@ -55,6 +57,15 @@ const (
 	// the platform when the run succeeds, in the write that marks it so, with
 	// a compare-and-set on the revision the run read.
 	CapabilitySaveState = "platform.save_state"
+	// CapabilityNotify posts a message to a channel an administrator
+	// configured (#1723). It is a named helper over one notify action, kept
+	// because a monitor that posts what it found is what most scripts that
+	// post are, and because the link back to the run is supplied here rather
+	// than composed by every script that wants one.
+	CapabilityNotify = "platform.notify"
+	// CapabilityPublish posts a portal asset this script wrote to a channel,
+	// naming the asset the way platform.export named it.
+	CapabilityPublish = "platform.publish"
 )
 
 // Capabilities is the full member set of the platform module, in the order help
@@ -64,7 +75,7 @@ const (
 // member" refusal. It is not a boundary: platform.call reaches every tool the
 // run's persona authorizes, and what a script reaches is read from the source
 // by Validate, which reports the tool names it names.
-var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState}
+var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState, CapabilityNotify, CapabilityPublish}
 
 // The formats platform.export accepts, split by what serializes them. A format
 // may appear in both sets: markdown and text are sometimes a table computed
@@ -206,7 +217,7 @@ func stateObject(value *starlark.Dict) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("state keys must be strings, got %s", item[0].Type())
 		}
-		converted, err := fromStarlark(item[1])
+		converted, err := starlarkconv.FromStarlark(item[1])
 		if err != nil {
 			return nil, fmt.Errorf("state key %q: %w", string(key), err)
 		}
@@ -274,8 +285,8 @@ func destinationNames(destinations []script.Destination) []string {
 // later to explain what it said.
 func (h *hostState) runValue() starlark.Value {
 	params := starlark.NewDict(len(h.opts.Params))
-	for _, name := range sortedKeys(h.opts.Params) {
-		v, err := toStarlark(h.opts.Params[name])
+	for _, name := range starlarkconv.SortedKeys(h.opts.Params) {
+		v, err := starlarkconv.ToStarlark(h.opts.Params[name])
 		if err != nil {
 			// Params are bound and type-checked by script.BindParams before a run
 			// exists, so an unconvertible value here is a defect in the caller,
@@ -286,8 +297,8 @@ func (h *hostState) runValue() starlark.Value {
 		_ = params.SetKey(starlark.String(name), v)
 	}
 	state := starlark.NewDict(len(h.opts.State))
-	for _, name := range sortedKeys(h.opts.State) {
-		v, err := toStarlark(h.opts.State[name])
+	for _, name := range starlarkconv.SortedKeys(h.opts.State) {
+		v, err := starlarkconv.ToStarlark(h.opts.State[name])
 		if err != nil {
 			// State was validated as JSON-representable when it was saved, so
 			// an unconvertible value here is a defect in the store, not author
@@ -399,7 +410,7 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 		return nil, fmt.Errorf("result of %s(%q) is %d bytes, over the %d-byte cap; narrow what the tool is asked for",
 			b.Name(), tool, n, h.opts.MaxResultBytes)
 	}
-	value, err := toStarlark(out)
+	value, err := starlarkconv.ToStarlark(out)
 	if err != nil {
 		return nil, fmt.Errorf("converting the result of %s(%q): %w", b.Name(), tool, err)
 	}
@@ -528,13 +539,13 @@ func callArguments(args *starlark.Dict) (map[string]any, error) {
 	if args == nil {
 		return map[string]any{}, nil
 	}
-	converted, err := dictFromStarlark(args, 0)
+	converted, err := starlarkconv.DictFromStarlark(args, 0)
 	if err != nil {
 		return nil, err
 	}
 	out, ok := converted.(map[string]any)
 	if !ok {
-		// dictFromStarlark returns a map[string]any or an error, so this is
+		// starlarkconv.DictFromStarlark returns a map[string]any or an error, so this is
 		// unreachable; it is here so a future change to that contract fails
 		// loudly rather than panicking inside a script.
 		return nil, fmt.Errorf("args converted to %T rather than to an argument set", converted)
@@ -574,7 +585,7 @@ func (h *hostState) queryResult(name string, out map[string]any) (starlark.Value
 	}
 	result := starlark.NewDict(queryResultFields)
 	for _, key := range []string{"columns", "rows"} {
-		v, err := toStarlark(out[key])
+		v, err := starlarkconv.ToStarlark(out[key])
 		if err != nil {
 			return nil, fmt.Errorf("converting the %s field of the %s result: %w", key, name, err)
 		}
@@ -682,7 +693,7 @@ func (h *hostState) publishData(_ *starlark.Thread, b *starlark.Builtin, args st
 // dashboard renders from, and a bare string or number there is a mistake worth
 // naming rather than a one-character island.
 func publishPayload(b *starlark.Builtin, data starlark.Value) (any, error) {
-	goData, err := fromStarlark(data)
+	goData, err := starlarkconv.FromStarlark(data)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -755,6 +766,23 @@ func (h *hostState) noteTables(subject string, changes []string) {
 	}
 }
 
+// noteChannel prints what a post went to into the run log, so a scheduled
+// run's history says where its message landed whether or not the script
+// printed the result it was handed (#1723). It follows noteTables, and for
+// the same reason: the run log is the run's history.
+func (h *hostState) noteChannel(payload, out map[string]any) {
+	channel, _ := payload["channel"].(string)
+	if channel == "" {
+		return
+	}
+	action, _ := payload["action"].(string)
+	if detail, ok := out["detail"].(string); ok {
+		h.log.write("notify: " + action + " to " + channel + ": " + detail)
+		return
+	}
+	h.log.write("notify: " + action + " to " + channel)
+}
+
 // PublishRowCount reports the honest row count of a payload: the length of a
 // list, and zero for a dict, whose size is not a row count.
 func PublishRowCount(data any) int {
@@ -793,7 +821,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		format = defaultExportFormat
 	}
 	if !exportFormats[format] {
-		return ExportRequest{}, fmt.Errorf("in %s: format %q is not one of %s", b.Name(), format, sortedSet(exportFormats))
+		return ExportRequest{}, fmt.Errorf("in %s: format %q is not one of %s", b.Name(), format, starlarkconv.SortedSet(exportFormats))
 	}
 	// Trimmed here rather than checked here: the name is the output's identity
 	// across runs, so "daily" and "daily " must not become two assets.
@@ -817,7 +845,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		return ExportRequest{}, err
 	}
 	return ExportRequest{
-		Name: name, Format: format, Columns: columnOrder(rows), Rows: list, Body: body,
+		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Rows: list, Body: body,
 		Destination: resolved, Key: key,
 	}, nil
 }
@@ -874,7 +902,7 @@ func exportContent(b *starlark.Builtin, format string, rows starlark.Value) (bod
 	if s, ok := rows.(starlark.String); ok {
 		if !documentFormats[format] {
 			return nil, nil, fmt.Errorf("in %s: format %q is serialized from rows, a list of dicts; a string body is written verbatim and is valid for the document formats %s",
-				b.Name(), format, sortedSet(documentFormats))
+				b.Name(), format, starlarkconv.SortedSet(documentFormats))
 		}
 		content := string(s)
 		// A blank document is refused rather than published: a body assembled
@@ -901,14 +929,14 @@ func exportContent(b *starlark.Builtin, format string, rows starlark.Value) (bod
 // exportRows converts the rows argument to the list of dicts a tabular output
 // format is written from.
 func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
-	goRows, err := fromStarlark(rows)
+	goRows, err := starlarkconv.FromStarlark(rows)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
 	list, ok := goRows.([]any)
 	if !ok {
 		return nil, fmt.Errorf("in %s: rows must be a list of dicts, or a string body for a document format (%s), got %s",
-			b.Name(), strings.Join(sortedSet(documentFormats), ", "), rows.Type())
+			b.Name(), strings.Join(starlarkconv.SortedSet(documentFormats), ", "), rows.Type())
 	}
 	return list, nil
 }
@@ -1138,7 +1166,7 @@ var documentTypes = map[string]string{
 func formatDocument(req ExportRequest) ([]byte, OutputIdentity, error) {
 	if !documentFormats[req.Format] {
 		return nil, OutputIdentity{}, fmt.Errorf("output %q: format %q is serialized from rows, a list of dicts; a string body is valid for the document formats %s",
-			req.Name, req.Format, sortedSet(documentFormats))
+			req.Name, req.Format, starlarkconv.SortedSet(documentFormats))
 	}
 	if len(*req.Body) > MaxOutputBytes {
 		return nil, OutputIdentity{}, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; write a smaller document",
