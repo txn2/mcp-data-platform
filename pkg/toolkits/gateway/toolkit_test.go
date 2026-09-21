@@ -1515,11 +1515,16 @@ func TestDiscover_ListToolsTimeout(t *testing.T) {
 		func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			return &mcp.CallToolResult{}, nil, nil
 		})
+	release := make(chan struct{})
 	srv.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method == "tools/list" {
-				<-ctx.Done()
-				return nil, ctx.Err()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-release:
+					return nil, errors.New("upstream released at cleanup")
+				}
 			}
 			return next(ctx, method, req)
 		}
@@ -1527,6 +1532,15 @@ func TestDiscover_ListToolsTimeout(t *testing.T) {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
+	// httptest.Server.Close blocks until outstanding requests finish, and this
+	// handler is deliberately one that never finishes on its own. The client
+	// abandoning the call is not enough to end it: go-sdk sends the
+	// cancellation notification asynchronously and best-effort
+	// (mcp/transport.go call), so a client that closes its session as soon as
+	// the call times out - which discoverFor does - may never deliver it.
+	// Release the handler here instead. Cleanups run last-registered-first, so
+	// this runs before ts.Close.
+	t.Cleanup(func() { close(release) })
 
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
