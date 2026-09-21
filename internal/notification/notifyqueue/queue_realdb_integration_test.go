@@ -29,7 +29,7 @@ func TestQueueStoreRealDB(t *testing.T) {
 		Recipient: "a@example.com", Category: notification.CategoryShare,
 		Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "Report", Actor: "o@example.com"},
 	}))
-	claimed, err := store.ClaimImmediate(ctx, lease)
+	claimed, err := store.ClaimImmediate(ctx, lease, allTransports)
 	require.NoError(t, err)
 	require.Equal(t, "a@example.com", claimed.Recipient)
 	require.Equal(t, notification.StatusSending, claimed.Status)
@@ -37,7 +37,7 @@ func TestQueueStoreRealDB(t *testing.T) {
 	require.Equal(t, "Report", claimed.Payload.ItemTitle)
 
 	// A second claim finds nothing (the row is leased).
-	_, err = store.ClaimImmediate(ctx, lease)
+	_, err = store.ClaimImmediate(ctx, lease, allTransports)
 	require.ErrorIs(t, err, notification.ErrNoWork)
 
 	require.NoError(t, store.MarkSent(ctx, []int64{claimed.ID}))
@@ -64,18 +64,18 @@ func TestQueueStoreRealDB(t *testing.T) {
 		ScheduledFor: future, Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "Later"},
 	}))
 
-	batch, err := store.ClaimDigest(ctx, lease)
+	batch, err := store.ClaimDigest(ctx, lease, allTransports)
 	require.NoError(t, err)
 	require.Len(t, batch, 2)
 	for _, n := range batch {
 		require.Equal(t, "d@example.com", n.Recipient)
 	}
-	_, err = store.ClaimDigest(ctx, lease)
+	_, err = store.ClaimDigest(ctx, lease, allTransports)
 	require.ErrorIs(t, err, notification.ErrNoWork, "future-scheduled digest must not be claimable")
 
 	// Retry returns the batch to pending with a future schedule.
 	require.NoError(t, store.Retry(ctx, []int64{batch[0].ID, batch[1].ID}, "smtp down", time.Hour))
-	_, err = store.ClaimDigest(ctx, lease)
+	_, err = store.ClaimDigest(ctx, lease, allTransports)
 	require.ErrorIs(t, err, notification.ErrNoWork, "retried rows are scheduled in the future")
 
 	// Fail marks rows permanently failed with the error recorded.
@@ -93,12 +93,12 @@ func TestQueueStoreRealDB(t *testing.T) {
 		Recipient: "crash@example.com", Category: notification.CategoryShare,
 		Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "Orphan"},
 	}))
-	orphan, err := store.ClaimImmediate(ctx, lease)
+	orphan, err := store.ClaimImmediate(ctx, lease, allTransports)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx,
 		`UPDATE notifications SET locked_until = NOW() - INTERVAL '1 second' WHERE id = $1`, orphan.ID)
 	require.NoError(t, err)
-	reclaimed, err := store.ClaimImmediate(ctx, lease)
+	reclaimed, err := store.ClaimImmediate(ctx, lease, allTransports)
 	require.NoError(t, err)
 	require.Equal(t, orphan.ID, reclaimed.ID)
 	require.Equal(t, 2, reclaimed.Attempts)

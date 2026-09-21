@@ -16,6 +16,13 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetReviewAlert: vi.fn(),
   useConnectionAlert: vi.fn(),
   useSetConnectionAlert: vi.fn(),
+  // The channels card is composed into the page too. It is covered by its own
+  // file; here it only has to mount, so these answer with an empty, settled
+  // listing rather than being asserted on.
+  useNotificationChannels: () => ({ data: { channels: [], kinds: [] }, isLoading: false, error: null }),
+  useSetNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
+  useTestNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import {

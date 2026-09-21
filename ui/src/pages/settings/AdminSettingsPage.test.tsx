@@ -26,6 +26,10 @@ vi.mock("./ConnectionAlertCard", () => ({
   ConnectionAlertCard: () => null,
 }));
 
+vi.mock("./NotificationChannelsCard", () => ({
+  NotificationChannelsCard: () => null,
+}));
+
 import {
   useSystemInfo,
   useSMTPSettings,

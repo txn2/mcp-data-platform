@@ -776,6 +776,14 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.NotificationRetention = notifydelivery.HistoryRetention
 	deps.ReviewQueueAlert = notifywire.ReviewAlertSettings(p, reviewalert.KnowledgeTarget())
 	deps.ConnectionAlert = notifywire.ConnAlertSettings(p)
+	// Notification channels: the records, the test send, and the check that
+	// tells an operator their channel names a connection nothing serves
+	// (#1720).
+	if channels := notify.Channels(); channels != nil {
+		deps.NotificationChannels = channels
+	}
+	deps.SendChannelTest = notify.SendChannelTest
+	deps.APIConnectionExists = notifywire.APIConnectionExists(p.ToolkitRegistry())
 	// The OAuth callback forgets a connection's open revocation as it
 	// authorizes it again (#1694). Assigned through the same nil-guarded
 	// builder so a typed nil never reaches the interface.

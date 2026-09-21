@@ -12,6 +12,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
+// allTransports is the filter a deployment with both a mail server and a
+// working gateway claims under: the one that adds no predicate, so a test
+// using it exercises the query every healthy deployment issues.
+var allTransports = notification.TransportFilter{Email: true, Channel: true}
+
 func newMockQueueStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
@@ -26,14 +31,21 @@ func notificationRows(t *testing.T, ns ...notification.Notification) *sqlmock.Ro
 	rows := sqlmock.NewRows([]string{
 		"id", "recipient", "category", "payload", "digest",
 		"status", "attempts", "last_error", "scheduled_for", "sent_at", "created_at",
+		"channel",
 	})
 	for _, n := range ns {
 		payload, err := json.Marshal(n.Payload)
 		if err != nil {
 			t.Fatal(err)
 		}
+		// A row with no channel comes back NULL, which is how every row the
+		// feature does not touch is stored.
+		var channel any
+		if n.Channel != "" {
+			channel = n.Channel
+		}
 		rows.AddRow(n.ID, n.Recipient, n.Category, payload, n.Digest,
-			n.Status, n.Attempts, n.LastError, n.ScheduledFor, nil, n.CreatedAt)
+			n.Status, n.Attempts, n.LastError, n.ScheduledFor, nil, n.CreatedAt, channel)
 	}
 	return rows
 }
@@ -45,7 +57,7 @@ func notificationRows(t *testing.T, ns ...notification.Notification) *sqlmock.Ro
 // insert real Postgres rejects. TestQueueStoreRealDB is the backstop that
 // catches what no mock can.
 var enqueueInsert = regexp.QuoteMeta(
-	`INSERT INTO notifications (recipient, category, payload, digest, scheduled_for)`)
+	`INSERT INTO notifications (recipient, category, payload, digest, scheduled_for, channel)`)
 
 func TestQueueStore_Enqueue(t *testing.T) {
 	t.Run("unscheduled notification defers to the database clock", func(t *testing.T) {
@@ -60,7 +72,7 @@ func TestQueueStore_Enqueue(t *testing.T) {
 		// stamp the row with the database clock. Passing a Go-side timestamp
 		// here would reintroduce the host/DB clock skew the nil exists to avoid.
 		mock.ExpectExec(enqueueInsert).
-			WithArgs("a@b.io", notification.CategoryShare, payload, false, nil).
+			WithArgs("a@b.io", notification.CategoryShare, payload, false, nil, nil).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectExec("SELECT pg_notify").
 			WithArgs(NotifyChannel).
@@ -87,7 +99,7 @@ func TestQueueStore_Enqueue(t *testing.T) {
 			t.Fatal(err)
 		}
 		mock.ExpectExec(enqueueInsert).
-			WithArgs("a@b.io", notification.CategoryShare, payload, true, when).
+			WithArgs("a@b.io", notification.CategoryShare, payload, true, when, nil).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectExec("SELECT pg_notify").
 			WithArgs(NotifyChannel).
@@ -145,7 +157,7 @@ func TestQueueStore_ClaimImmediate(t *testing.T) {
 		WithArgs(120).
 		WillReturnRows(notificationRows(t, n))
 
-	got, err := store.ClaimImmediate(context.Background(), 2*time.Minute)
+	got, err := store.ClaimImmediate(context.Background(), 2*time.Minute, allTransports)
 	if err != nil {
 		t.Fatalf("ClaimImmediate: %v", err)
 	}
@@ -161,7 +173,7 @@ func TestQueueStore_ClaimImmediate_NoWork(t *testing.T) {
 	mock.ExpectQuery("UPDATE notifications").
 		WillReturnRows(notificationRows(t))
 
-	if _, err := store.ClaimImmediate(context.Background(), time.Minute); !errors.Is(err, notification.ErrNoWork) {
+	if _, err := store.ClaimImmediate(context.Background(), time.Minute, allTransports); !errors.Is(err, notification.ErrNoWork) {
 		t.Fatalf("expected notification.ErrNoWork, got %v", err)
 	}
 }
@@ -176,7 +188,7 @@ func TestQueueStore_ClaimDigest(t *testing.T) {
 		WithArgs(60).
 		WillReturnRows(notificationRows(t, a, b))
 
-	got, err := store.ClaimDigest(context.Background(), time.Minute)
+	got, err := store.ClaimDigest(context.Background(), time.Minute, allTransports)
 	if err != nil {
 		t.Fatalf("ClaimDigest: %v", err)
 	}
@@ -191,7 +203,7 @@ func TestQueueStore_Claim_QueryError(t *testing.T) {
 
 	mock.ExpectQuery("UPDATE notifications").WillReturnError(errors.New("boom"))
 
-	if _, err := store.ClaimDigest(context.Background(), time.Minute); err == nil {
+	if _, err := store.ClaimDigest(context.Background(), time.Minute, allTransports); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -203,12 +215,13 @@ func TestQueueStore_Claim_BadPayload(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "recipient", "category", "payload", "digest",
 		"status", "attempts", "last_error", "scheduled_for", "sent_at", "created_at",
+		"channel",
 	}).
 		AddRow(1, "a@b.io", notification.CategoryShare, []byte("{bad"), false,
-			notification.StatusSending, 1, "", time.Now(), nil, time.Now())
+			notification.StatusSending, 1, "", time.Now(), nil, time.Now(), nil)
 	mock.ExpectQuery("UPDATE notifications").WillReturnRows(rows)
 
-	if _, err := store.ClaimImmediate(context.Background(), time.Minute); err == nil {
+	if _, err := store.ClaimImmediate(context.Background(), time.Minute, allTransports); err == nil {
 		t.Fatal("expected payload decode error")
 	}
 }

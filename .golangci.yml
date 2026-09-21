@@ -536,6 +536,9 @@ linters:
       - path: pkg/platform/(find_tools|info|connections)_tool\.go
         linters:
           - nilerr
+      - path: internal/platform/notifylayer/
+        linters:
+          - nilerr
 
       # pkg/portal/domain.go is nothing but aliases and one-line forwarders
       # onto internal/portal/portaldomain, which exist to keep the portal's

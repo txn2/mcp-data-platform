@@ -1,0 +1,7 @@
+# Written by dev/seed-mattermost.sh. Read by the acceptance suite and by
+# anything that wants to post to the dev chat fixture. Not a secret: it is a
+# loopback dev server seeded with a fixed password.
+export MATTERMOST_URL="http://127.0.0.1:8065"
+export MATTERMOST_TOKEN="oy87ao8o5prfmb6a1hknd7qmao"
+export MATTERMOST_CHANNEL_ID="y84thyjedt8fdn6hk4g4bf5ddc"
+export MATTERMOST_TEAM_ID="4c4xsbrt5i8oxnp364cim7j8qc"

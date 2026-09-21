@@ -184,6 +184,25 @@ WHAT IS AVAILABLE
       where the last successful run stopped and needs no backfill.
       In a draft run this writes nothing and reports the state a platform run
       would have saved.
+  platform.notify(channel, title, body="", link="")  Post a message to a
+      notification channel an administrator configured: a Mattermost channel,
+      an incoming webhook, or a named email list. Call
+      platform.call("notify", {"action": "list"}) to see which channels this
+      script reaches; a channel is reachable when the run's persona reaches
+      the api connection behind it, and an email channel is reachable by any
+      script. body is markdown, shown as far as the destination can show it.
+      link defaults to this run's own page, so a post leads back to the run
+      that produced it. Delivery is queued: the call returns when the message
+      is accepted, not when it appears.
+  platform.publish(channel, name, message="")  Post a portal asset to a
+      channel: the asset's name, an excerpt of its content and a link to it.
+      name is the name platform.export saved the asset under, so a script
+      that builds a report and posts it says the name twice rather than
+      carrying an id between the two calls. message is a line printed above
+      it.
+      In a draft run both are refused unless the draft was started with
+      allow_writes, like every other call that persists: a message in
+      somebody else's chat client is not something a dry run may leave behind.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"], run.state  The frozen run
       record. run.state is the script's state as it stood when the run was

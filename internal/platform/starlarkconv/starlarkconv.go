@@ -1,4 +1,13 @@
-package scriptrun
+// Package starlarkconv converts between decoded-JSON Go values and Starlark
+// values, in both directions, with a depth bound and a deterministic key
+// order.
+//
+// It is the seam between a managed script's language and everything the
+// platform hands it: a tool result going in, a script's own value coming out.
+// It knows nothing about runs, hosts or tools, which is what lets a test
+// exercise the conversion rules directly -- and what makes it a package rather
+// than a file in the engine.
+package starlarkconv
 
 import (
 	"fmt"
@@ -17,16 +26,16 @@ const maxConvertDepth = 32
 // every integer exactly, so a whole-looking number above it stays a float.
 const exactIntFloatLimit = 1 << 53
 
-// toStarlark converts a decoded-JSON Go value into a Starlark value.
+// ToStarlark converts a decoded-JSON Go value into a Starlark value.
 //
 // Map keys are visited in SORTED order, which is load-bearing rather than
 // cosmetic: Go map iteration is randomized, Starlark dicts preserve insertion
 // order, and json.encode follows that order — so unsorted conversion would make
 // a script's own output vary run to run, breaking the determinism contract at
 // the one place the platform fully controls.
-func toStarlark(v any) (starlark.Value, error) { return convertToStarlark(v, 0) }
+func ToStarlark(v any) (starlark.Value, error) { return convertToStarlark(v, 0) }
 
-// convertToStarlark is toStarlark's depth-tracking implementation.
+// convertToStarlark is ToStarlark's depth-tracking implementation.
 func convertToStarlark(v any, depth int) (starlark.Value, error) {
 	if depth > maxConvertDepth {
 		return nil, fmt.Errorf("value nests deeper than %d levels", maxConvertDepth)
@@ -83,7 +92,7 @@ func convertList(items []any, depth int) (starlark.Value, error) {
 // convertDict converts a JSON object with its keys in sorted order.
 func convertDict(m map[string]any, depth int) (starlark.Value, error) {
 	d := starlark.NewDict(len(m))
-	for _, k := range sortedKeys(m) {
+	for _, k := range SortedKeys(m) {
 		v, err := convertToStarlark(m[k], depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("key %q: %w", k, err)
@@ -95,8 +104,8 @@ func convertDict(m map[string]any, depth int) (starlark.Value, error) {
 	return d, nil
 }
 
-// sortedKeys returns a map's keys in sorted order.
-func sortedKeys(m map[string]any) []string {
+// SortedKeys returns a map's keys in sorted order.
+func SortedKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -105,9 +114,9 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-// sortedSet renders a set's members in sorted order, for error messages that
+// SortedSet renders a set's members in sorted order, for error messages that
 // must read the same every time.
-func sortedSet(m map[string]bool) []string {
+func SortedSet(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -116,12 +125,12 @@ func sortedSet(m map[string]bool) []string {
 	return keys
 }
 
-// fromStarlark converts a Starlark value back to a Go value the platform can
+// FromStarlark converts a Starlark value back to a Go value the platform can
 // serialize. Dict iteration keeps the script's own insertion order, which is
 // deterministic in Starlark and is the order the author wrote.
-func fromStarlark(v starlark.Value) (any, error) { return convertFromStarlark(v, 0) }
+func FromStarlark(v starlark.Value) (any, error) { return convertFromStarlark(v, 0) }
 
-// convertFromStarlark is fromStarlark's depth-tracking implementation.
+// convertFromStarlark is FromStarlark's depth-tracking implementation.
 func convertFromStarlark(v starlark.Value, depth int) (any, error) {
 	if depth > maxConvertDepth {
 		return nil, fmt.Errorf("value nests deeper than %d levels", maxConvertDepth)
@@ -130,7 +139,7 @@ func convertFromStarlark(v starlark.Value, depth int) (any, error) {
 	case *starlark.List:
 		return listFromStarlark(t, depth)
 	case *starlark.Dict:
-		return dictFromStarlark(t, depth)
+		return DictFromStarlark(t, depth)
 	default:
 		return convertScalarFromStarlark(v)
 	}
@@ -174,7 +183,7 @@ func listFromStarlark(l *starlark.List, depth int) (any, error) {
 	return out, nil
 }
 
-// columnOrder reads the column order out of a Starlark list of row dicts: the
+// ColumnOrder reads the column order out of a Starlark list of row dicts: the
 // keys of the first row in the order the script wrote them, then any key a
 // later row introduces, in its own order.
 //
@@ -186,7 +195,7 @@ func listFromStarlark(l *starlark.List, depth int) (any, error) {
 // every run of that script the same one.
 //
 // Non-dict entries contribute no columns; the exporter reports them.
-func columnOrder(rows starlark.Value) []string {
+func ColumnOrder(rows starlark.Value) []string {
 	list, ok := rows.(*starlark.List)
 	if !ok {
 		return nil
@@ -210,9 +219,9 @@ func columnOrder(rows starlark.Value) []string {
 	return columns
 }
 
-// dictFromStarlark converts a Starlark dict, refusing non-string keys: the
+// DictFromStarlark converts a Starlark dict, refusing non-string keys: the
 // result is destined for JSON, where an object key is a string.
-func dictFromStarlark(d *starlark.Dict, depth int) (any, error) {
+func DictFromStarlark(d *starlark.Dict, depth int) (any, error) {
 	out := make(map[string]any, d.Len())
 	for _, item := range d.Items() {
 		key, ok := starlark.AsString(item[0])

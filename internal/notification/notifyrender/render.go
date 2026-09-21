@@ -293,6 +293,12 @@ func buildItem(n notification.Notification) emailItem {
 	case notification.KindConnectionAuth:
 		item.Body = connAuthBody(n.Payload.Connection)
 		item.LinkText = connAuthLinkTextFor(n.Payload.Connection)
+	case notification.KindChannel:
+		item.Body = channelBody(n.Payload)
+		item.Message = ""
+		if item.Link != "" {
+			item.LinkText = channelLinkText
+		}
 	}
 	return item
 }
@@ -321,6 +327,8 @@ func subjectFor(n notification.Notification) string {
 		return scriptRunSubject(n.Payload)
 	case notification.KindConnectionAuth:
 		return connAuthSubject(n.Payload.Connection)
+	case notification.KindChannel:
+		return channelSubject(n.Payload)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}

@@ -186,3 +186,106 @@ export function useSetConnectionAlert() {
     },
   });
 }
+
+// --- Notification channels (#1720) ---
+
+// NotificationChannel is one operator-configured destination. It carries no
+// credential: the three HTTP kinds name an api connection, and what
+// authorizes a post is that connection's credential, held and encrypted
+// there.
+export interface NotificationChannel {
+  name: string;
+  kind: string;
+  description?: string;
+  enabled: boolean;
+  connection?: string;
+  target?: string;
+  recipients?: string[];
+  mode: string;
+  repeat_after: string;
+  max_per_hour: number;
+  created_by?: string;
+  updated_at?: string;
+  // Warnings report a channel that saves cleanly but cannot deliver, such as
+  // one naming a connection nothing serves.
+  warnings?: string[];
+}
+
+// NotificationChannelInput is the PUT body. The name is the path, not a
+// field, so a body cannot rename the channel it is addressed to.
+export interface NotificationChannelInput {
+  kind: string;
+  description?: string;
+  enabled?: boolean;
+  connection?: string;
+  target?: string;
+  recipients?: string[];
+  mode?: string;
+  repeat_after?: string;
+  max_per_hour?: number;
+}
+
+// NotificationChannelList is the collection response: the channels, and the
+// kinds this deployment can deliver to.
+export interface NotificationChannelList {
+  channels: NotificationChannel[];
+  kinds: string[];
+}
+
+// NotificationChannelTestResult is what the channel's upstream answered.
+export interface NotificationChannelTestResult {
+  delivered: boolean;
+  detail: string;
+}
+
+const channelsKey = ["settings", "notification-channels"];
+
+export function useNotificationChannels() {
+  return useQuery({
+    queryKey: channelsKey,
+    queryFn: () => apiFetch<NotificationChannelList>("/notification-channels"),
+  });
+}
+
+export function useSetNotificationChannel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, input }: { name: string; input: NotificationChannelInput }) =>
+      apiFetch<NotificationChannel>(`/notification-channels/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    // The listing is refetched rather than patched: the PUT answers with one
+    // channel, and a create has to appear in name order among the others.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: channelsKey });
+    },
+  });
+}
+
+export function useDeleteNotificationChannel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<void>(`/notification-channels/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: channelsKey });
+    },
+  });
+}
+
+// useTestNotificationChannel posts a test message through the channel's own
+// transport. It is not a mutation of anything stored, so nothing is
+// invalidated: what comes back is the upstream's answer, which the editor
+// shows as it was given.
+export function useTestNotificationChannel() {
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<NotificationChannelTestResult>(
+        `/notification-channels/${encodeURIComponent(name)}/test`,
+        { method: "POST" },
+      ),
+  });
+}

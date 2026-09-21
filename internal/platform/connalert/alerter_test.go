@@ -85,11 +85,11 @@ func (q *recordingQueue) all() []queued {
 }
 
 // Unused QueueStore methods: the enqueue path is the only half under test.
-func (*recordingQueue) ClaimImmediate(context.Context, time.Duration) (*notification.Notification, error) {
+func (*recordingQueue) ClaimImmediate(context.Context, time.Duration, notification.TransportFilter) (*notification.Notification, error) {
 	return nil, notification.ErrNoWork
 }
 
-func (*recordingQueue) ClaimDigest(context.Context, time.Duration) ([]notification.Notification, error) {
+func (*recordingQueue) ClaimDigest(context.Context, time.Duration, notification.TransportFilter) ([]notification.Notification, error) {
 	return nil, notification.ErrNoWork
 }
 func (*recordingQueue) MarkSent(context.Context, []int64) error { return nil }

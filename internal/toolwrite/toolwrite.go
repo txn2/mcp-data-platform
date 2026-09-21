@@ -233,6 +233,10 @@ var actionTools = map[string]actionRule{
 	// s3_object: put, copy and delete write. presign mints a URL against the
 	// object store and stores nothing.
 	"s3_object": {arg: "action", reads: set("get", "metadata", "presign")},
+	// notify: list reads. send and publish leave a message in somebody else's
+	// chat client or inbox, which nothing can take back -- the most literal
+	// write on this list, whatever it does to the platform's own tables.
+	"notify": {arg: "action", reads: set("list")},
 }
 
 // readMethods are the HTTP methods that read. PROPFIND is WebDAV's read, and

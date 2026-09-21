@@ -5833,6 +5833,208 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/notification-channels": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every configured notification channel. A channel holds no credential; the three HTTP kinds name the api connection whose credential delivers for them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "List notification channels",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.ChannelListView"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/notification-channels/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one notification channel by name.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get a notification channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.ChannelView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts a notification channel. The three HTTP kinds require an api connection and refuse a recipient list; the email kind requires recipients and refuses a connection.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Create or update a notification channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Channel",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.ChannelInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.ChannelView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes a notification channel. Rows already queued for it fail on their next delivery attempt rather than being sent elsewhere.",
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Delete a notification channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "deleted"
+                    }
+                }
+            }
+        },
+        "/admin/notification-channels/{name}/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delivers a test message through the channel's own transport and reports what the upstream answered. The send bypasses the queue so the answer is the transport's, not a confirmation that a row was written.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Send a test message to a notification channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.ChannelTestResult"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/notifications": {
             "get": {
                 "security": [
@@ -33022,6 +33224,130 @@ const docTemplate = `{
                 "toolkit_kind": {
                     "type": "string",
                     "example": "trino"
+                }
+            }
+        },
+        "settingsapi.ChannelInput": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string",
+                    "example": "mattermost-bot"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Operations alerts"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "mattermost"
+                },
+                "max_per_hour": {
+                    "type": "integer",
+                    "example": 60
+                },
+                "mode": {
+                    "type": "string",
+                    "example": "immediate"
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "repeat_after": {
+                    "description": "RepeatAfter is a duration string (\"1h\", \"30m\"). Empty applies the\nplatform default.",
+                    "type": "string",
+                    "example": "1h"
+                },
+                "target": {
+                    "type": "string",
+                    "example": "C0123456789"
+                }
+            }
+        },
+        "settingsapi.ChannelListView": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/settingsapi.ChannelView"
+                    }
+                },
+                "kinds": {
+                    "description": "Kinds names the kinds this deployment can deliver to, so the admin form\noffers what will work rather than what compiles.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "settingsapi.ChannelTestResult": {
+            "type": "object",
+            "properties": {
+                "delivered": {
+                    "type": "boolean"
+                },
+                "detail": {
+                    "type": "string"
+                }
+            }
+        },
+        "settingsapi.ChannelView": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "max_per_hour": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "repeat_after": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "description": "Warnings report a channel that saves cleanly but cannot deliver -- a\nconnection no live toolkit serves. They are warnings rather than\nrefusals so an operator can create the channel and the connection in\neither order.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

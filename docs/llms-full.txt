@@ -4887,3 +4887,72 @@ organization's own definitions rather than raw database columns.
 - DataHub: https://datahubproject.io/
 - MCP Specification: https://modelcontextprotocol.io/
 - Security Article: https://imti.co/mcp-defense/
+
+# Notification channels (#1720, #1723)
+
+A notification channel is an operator-configured destination that is not one
+person: a Mattermost channel, an incoming webhook, or a named list of email
+addresses. Channels are configured under Admin > Settings >
+Notification Channels, stored in the database, and never in YAML.
+
+Kinds and what each carries:
+
+- mattermost: posts through POST /api/v4/posts. Needs an api connection
+  holding the bot token and the site URL, and the target channel id. Carries a
+  title, a markdown body and a link.
+- webhook: posts one {"text": ...} body to the connection's base URL, the
+  shape Slack and Mattermost both accept. Carries a title and a text body,
+  with the link appended.
+- email: delivers to one to 20 operator-named addresses through the
+  deployment's mail server, in the branded template.
+
+A channel holds no credential. The three HTTP kinds name an existing api
+connection, so the bot token is that connection's credential -- encrypted at
+rest, rotated in one place -- and the outbound client is the connection's,
+with its TLS material and timeouts. Authorization follows from that: whoever
+may reach the connection may send to the channel, and a persona denied the
+connection is neither shown the channel nor allowed to send to it. Restricting
+a channel to fewer people means giving it its own connection; no new persona
+dimension exists. An email channel names no connection and is reachable by
+anyone who can send at all.
+
+What is sent is a document: a title, a markdown body, and an optional link.
+Each kind shows what it can and falls back to an excerpt plus the link past
+its own cap. Every send is an ordinary row in the existing notification queue,
+claimed by the existing worker, retried on the existing backoff, purged on the
+existing retention, and visible in the existing delivery history; there is no
+synchronous send path, so an upstream outage is a retry rather than a failed
+script. The claim is narrowed by transport, so a deployment with channels and
+no mail server still delivers to chat, and one whose gateway is not wired
+still delivers email. An email channel fans out at enqueue to one row per
+recipient, so each person keeps their own delivery mode, digest window and
+unsubscribe link.
+
+A failure retrying cannot fix -- a deleted channel, a revoked bot token, a
+chat channel the bot was never invited to, any 4xx that is not a rate limit --
+fails the row at once rather than five times, recording the upstream's own
+words.
+
+Sending surfaces: the notify tool (action=list, action=send, action=publish),
+and platform.notify(channel, title, body, link) and platform.publish(channel,
+name, message) in a managed script. notify is an ordinary tool, so persona
+allow lists, the per-session rate limit and audit apply unchanged; a script's
+send is the run's principal holding its version author's roles, is refused in
+a draft run without allow_writes, and links back to the run that produced it
+unless the script names its own link. An administrator tests a channel from
+its editor, which delivers immediately through the channel's own transport and
+reports what the upstream said.
+
+Admin REST: GET/PUT/DELETE /api/v1/admin/notification-channels[/{name}] and
+POST /api/v1/admin/notification-channels/{name}/test. All admin-only and
+audited; the write routes answer 405 in file config mode.
+
+Local development: make dev runs mailpit (http://localhost:8025) for every
+email the stack sends, and Mattermost (http://localhost:8065) seeded with a
+team, an ops-alerts channel and a token, registered as the mattermost-dev api
+connection.
+
+Slack is not a kind yet (#1824). Its transport is a small variation on the
+Mattermost one, but it has no local upstream to be exercised against, so it
+ships when there is a workspace to prove it in rather than on the strength of a
+test double.

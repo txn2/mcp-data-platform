@@ -186,7 +186,8 @@ func TestHistoryList(t *testing.T) {
 		rows := sqlmock.NewRows([]string{
 			"id", "recipient", "category", "payload", "digest",
 			"status", "attempts", "last_error", "scheduled_for", "sent_at", "created_at",
-		}).AddRow(1, "a@b.io", "share", []byte("{"), false, "sent", 1, "", time.Now(), nil, time.Now())
+			"channel",
+		}).AddRow(1, "a@b.io", "share", []byte("{"), false, "sent", 1, "", time.Now(), nil, time.Now(), nil)
 		mock.ExpectQuery("FROM notifications").WillReturnRows(rows)
 		if _, err := store.List(context.Background(), notification.HistoryFilter{}); err == nil {
 			t.Error("expected a decode error")

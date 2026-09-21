@@ -8381,6 +8381,99 @@ definitions:
         example: trino
         type: string
     type: object
+  settingsapi.ChannelInput:
+    properties:
+      connection:
+        example: mattermost-bot
+        type: string
+      description:
+        example: Operations alerts
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      kind:
+        example: mattermost
+        type: string
+      max_per_hour:
+        example: 60
+        type: integer
+      mode:
+        example: immediate
+        type: string
+      recipients:
+        items:
+          type: string
+        type: array
+      repeat_after:
+        description: |-
+          RepeatAfter is a duration string ("1h", "30m"). Empty applies the
+          platform default.
+        example: 1h
+        type: string
+      target:
+        example: C0123456789
+        type: string
+    type: object
+  settingsapi.ChannelListView:
+    properties:
+      channels:
+        items:
+          $ref: '#/definitions/settingsapi.ChannelView'
+        type: array
+      kinds:
+        description: |-
+          Kinds names the kinds this deployment can deliver to, so the admin form
+          offers what will work rather than what compiles.
+        items:
+          type: string
+        type: array
+    type: object
+  settingsapi.ChannelTestResult:
+    properties:
+      delivered:
+        type: boolean
+      detail:
+        type: string
+    type: object
+  settingsapi.ChannelView:
+    properties:
+      connection:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      kind:
+        type: string
+      max_per_hour:
+        type: integer
+      mode:
+        type: string
+      name:
+        type: string
+      recipients:
+        items:
+          type: string
+        type: array
+      repeat_after:
+        type: string
+      target:
+        type: string
+      updated_at:
+        type: string
+      warnings:
+        description: |-
+          Warnings report a channel that saves cleanly but cannot deliver -- a
+          connection no live toolkit serves. They are warnings rather than
+          refusals so an operator can create the channel and the connection in
+          either order.
+        items:
+          type: string
+        type: array
+    type: object
   settingsapi.problemDetail:
     properties:
       detail:
@@ -12842,6 +12935,135 @@ paths:
       summary: Get insight stats
       tags:
       - Knowledge
+  /admin/notification-channels:
+    get:
+      description: Returns every configured notification channel. A channel holds
+        no credential; the three HTTP kinds name the api connection whose credential
+        delivers for them.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settingsapi.ChannelListView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List notification channels
+      tags:
+      - Settings
+  /admin/notification-channels/{name}:
+    delete:
+      description: Removes a notification channel. Rows already queued for it fail
+        on their next delivery attempt rather than being sent elsewhere.
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: deleted
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a notification channel
+      tags:
+      - Settings
+    get:
+      description: Returns one notification channel by name.
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settingsapi.ChannelView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a notification channel
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Upserts a notification channel. The three HTTP kinds require an
+        api connection and refuse a recipient list; the email kind requires recipients
+        and refuses a connection.
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Channel
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/settingsapi.ChannelInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settingsapi.ChannelView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create or update a notification channel
+      tags:
+      - Settings
+  /admin/notification-channels/{name}/test:
+    post:
+      description: Delivers a test message through the channel's own transport and
+        reports what the upstream answered. The send bypasses the queue so the answer
+        is the transport's, not a confirmation that a row was written.
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settingsapi.ChannelTestResult'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Send a test message to a notification channel
+      tags:
+      - Settings
   /admin/notifications:
     get:
       description: Returns paginated notification queue rows, newest first, with delivery

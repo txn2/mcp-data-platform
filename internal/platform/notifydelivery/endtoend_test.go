@@ -39,7 +39,7 @@ func (q *memQueue) Enqueue(_ context.Context, n notification.Notification) error
 	return nil
 }
 
-func (q *memQueue) ClaimImmediate(_ context.Context, _ time.Duration) (*notification.Notification, error) {
+func (q *memQueue) ClaimImmediate(_ context.Context, _ time.Duration, _ notification.TransportFilter) (*notification.Notification, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for i := range q.rows {
@@ -54,7 +54,7 @@ func (q *memQueue) ClaimImmediate(_ context.Context, _ time.Duration) (*notifica
 	return nil, notification.ErrNoWork
 }
 
-func (q *memQueue) ClaimDigest(_ context.Context, _ time.Duration) ([]notification.Notification, error) {
+func (q *memQueue) ClaimDigest(_ context.Context, _ time.Duration, _ notification.TransportFilter) ([]notification.Notification, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var recipient string

@@ -43,6 +43,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/mcpapps"
 	"github.com/txn2/mcp-data-platform/internal/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
@@ -55,6 +57,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
@@ -2941,8 +2944,34 @@ func (p *Platform) Start(ctx context.Context) error {
 	// run_script and enqueues onto that same queue. The lifecycle holds the
 	// worker, so the platform keeps no field for it; the tool layer is kept
 	// because the index queue binds its write-path producer (#1370).
-	scriptRuns := wireScripts(p)
+	scriptRuns := scriptwiring.Wire(scriptwiring.Deps{
+		DB: p.db, DSN: p.config.Database.DSN, Server: p.mcpServer,
+		Assets: p.portalStore.AssetStore(), Versions: p.portalStore.VersionStore(),
+		S3: p.portalStore.S3Client(), Bucket: p.config.Portal.S3Bucket,
+		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
+		Lander: p.portalStore.ResourceLanding(), Audit: p.audit.Logger(),
+		Subjects: p.users.Subjects(), Metrics: p.obs.Metrics(),
+		Destinations:         p.config.Scripts.ScriptDestinations(),
+		RunRetention:         p.config.Scripts.RunRetention(),
+		WorkerEnabled:        p.config.Scripts.IsWorkerEnabled(),
+		NotificationsEnabled: p.config.Notifications.IsEnabled(),
+		DigestHourUTC:        p.config.Notifications.DigestHour(),
+		PortalURL:            p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
+		Toolkits: p.toolkitRegistry,
+		Bind:     func(h *scriptlayer.Handle) { p.scripts = h },
+	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
+
+	// The notify tool: the one route a session, a script and the portal all
+	// reach an operator's channels through (#1723).
+	notifywiring.Wire(notifywiring.Deps{
+		DB: p.db, Server: p.mcpServer, Enabled: p.config.Notifications.IsEnabled(),
+		Personas: p.personaRegistry, Assets: p.portalStore.AssetStore(),
+		Blobs: p.portalStore.S3Client(), Shares: p.portalStore.ShareStore(),
+		Collections: p.portalStore.CollectionStore(),
+		PortalURL:   p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
+		DigestHourUTC: p.config.Notifications.DigestHour(),
+	})
 
 	// Register platform-level prompts from config
 	p.prompts.RegisterPlatformPrompts(p.mcpServer)
@@ -3284,6 +3313,14 @@ func (p *Platform) PlatformTools() []ToolInfo {
 			ToolInfo{Name: scriptlayer.ToolNameManageScript, Kind: kindPlatform},
 			ToolInfo{Name: scriptlayer.ToolNameRunScript, Kind: kindPlatform},
 			ToolInfo{Name: scriptlayer.ToolNameShowScripts, Kind: kindPlatform})
+	}
+	// notify is registered wherever there is a database and notifications are
+	// enabled, which is the same condition wireNotify registers it under. A
+	// deployment with no channels configured still registers it, and its list
+	// action says so: a tool that appeared only once a channel existed could
+	// not tell anybody how to get one.
+	if p.db != nil && p.config.Notifications.IsEnabled() {
+		tools = append(tools, ToolInfo{Name: notifylayer.ToolName, Kind: kindPlatform})
 	}
 	return tools
 }

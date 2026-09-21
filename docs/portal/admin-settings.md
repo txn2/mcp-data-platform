@@ -53,6 +53,26 @@ list empty is the default, and the section says so in a banner rather than
 implying a gap. See [connection revocation
 alerts](../server/notifications.md#connection-revocation-alerts).
 
+A **Notification Channels** section comes last: the destinations a report or
+an alert is sent to that are not one person — a Mattermost channel,
+an incoming webhook, or a named list of addresses. Each row opens its editor
+on click, showing only the fields its kind can use: the chat kinds ask for an
+api connection and a target channel id, a webhook asks for the connection
+alone (its URL is where the message lands), and an email list asks for
+recipients and no connection.
+
+A channel holds no credential. What authorizes a post is the named
+connection's, held and encrypted there, which also decides who may send:
+anyone whose persona reaches that connection. A channel naming a connection no
+live toolkit serves is flagged in the list rather than looking configured and
+failing when something is sent to it.
+
+**Send test** delivers a message immediately through the channel's own
+transport and reports what the upstream answered — a refusal reaches the
+screen as it was given, since that is what tells you what to fix. A disabled channel can still be tested, so nothing has
+to be enabled untested. See [notification
+channels](../server/notifications.md#notification-channels).
+
 ## Change Log
 
 The Change Log page provides an audit trail of all configuration changes made via the admin UI.

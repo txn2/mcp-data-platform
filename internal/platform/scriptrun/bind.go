@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+
 	"go.starlark.net/starlark"
 )
 
@@ -95,7 +97,7 @@ func bindValues(params *starlark.Dict) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("params keys must be strings, got %s", item[0].Type())
 		}
-		v, err := fromStarlark(item[1])
+		v, err := starlarkconv.FromStarlark(item[1])
 		if err != nil {
 			return nil, fmt.Errorf("params[%q]: %w", key, err)
 		}
