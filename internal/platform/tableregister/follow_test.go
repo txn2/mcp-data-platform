@@ -289,7 +289,7 @@ func TestFollowSource_RefusesWhatARegistrationWouldRefuse(t *testing.T) {
 				s.ContentType, s.HeadKey = "application/json", "artifacts/u1/asset_1/v2/content.json"
 				return s
 			},
-			reason: ErrNotCSV.Error(),
+			reason: ErrNotTabular.Error(),
 		},
 	}
 	for _, tc := range cases {
@@ -1056,4 +1056,114 @@ func TestRepairRegistrant_PicksTheStandingChoice(t *testing.T) {
 			assert.Equal(t, tc.want, got.ID)
 		})
 	}
+}
+
+// jsonlSource is a managed JSON-lines file, the lossless format a script
+// writes rows in (#1820).
+func jsonlSource() Source {
+	src := testSource()
+	src.HeadKey = "artifacts/u1/asset_1/rows.jsonl"
+	src.ContentType = "application/x-ndjson"
+	return src
+}
+
+// jsonlHarness serves body as the JSON-lines file jsonlSource names.
+func jsonlHarness(t *testing.T, body string) *harness {
+	t.Helper()
+	return newHarness(t, func(h *harness) {
+		h.objects = &fakeObjects{
+			body: []byte(body), bodyCT: "application/x-ndjson",
+			entries: []ObjectEntry{{Key: jsonlSource().HeadKey}},
+		}
+	})
+}
+
+// TestRegister_JSONLinesIsReadByTheJSONReader: a JSON-lines file registers
+// over the JSON reader, with the keys as its columns, and the format is kept
+// on the record so every later CREATE TABLE names it too.
+func TestRegister_JSONLinesIsReadByTheJSONReader(t *testing.T) {
+	h := jsonlHarness(t, "{\"id\":1,\"Note\":\"a\\nb\"}\n{\"id\":2,\"extra\":null}\n")
+
+	reg, err := h.reg.Register(context.Background(), testCaller(), jsonlSource(),
+		Request{Connection: "scratch", Source: "mcp", Follow: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, FormatJSONLines, reg.Format)
+	assert.Equal(t, []string{
+		`CREATE SCHEMA IF NOT EXISTS "scratch"."uploads"`,
+		`CREATE TABLE "scratch"."uploads"."analyst_rows" ("id" VARCHAR, "note" VARCHAR, "extra" VARCHAR) ` +
+			`WITH (external_location = 's3://portal-assets/artifacts/u1/asset_1/', format = 'JSON')`,
+	}, h.trino.statements)
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, FormatJSONLines, stored.Format)
+}
+
+// TestRegister_JSONLinesRefusesByLineAndOffersNoRepair: a line the reader
+// cannot read is refused with its line number, whether or not repair was
+// asked for, and nothing is written.
+func TestRegister_JSONLinesRefusesByLineAndOffersNoRepair(t *testing.T) {
+	h := jsonlHarness(t, "{\"id\":1}\n{\"id\":{\"nested\":true}}\n")
+
+	_, err := h.reg.Register(context.Background(), testCaller(), jsonlSource(),
+		Request{Connection: "scratch", Source: "mcp", Repair: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "line 2")
+	assert.Contains(t, err.Error(), "nested object or list")
+	assert.Empty(t, h.trino.statements, "a refusal runs no statement")
+	assert.Empty(t, h.reviser.saved, "a JSON-lines file is never rewritten")
+}
+
+// TestFollowSource_AnEmptyJSONLinesVersionKeepsTheColumns: a day with no rows
+// writes a file with no records, which names no columns. The table follows it
+// with the columns it had, and reads zero rows, rather than failing to follow.
+func TestFollowSource_AnEmptyJSONLinesVersionKeepsTheColumns(t *testing.T) {
+	h := jsonlHarness(t, "{\"id\":1,\"note\":\"a\"}\n")
+	reg, err := h.reg.Register(context.Background(), testCaller(), jsonlSource(),
+		Request{Connection: "scratch", Source: "mcp", Follow: true})
+	require.NoError(t, err)
+
+	src := jsonlSource()
+	src.HeadKey = "artifacts/u1/asset_1/v2/rows.jsonl"
+	h.objects.entries = append(h.objects.entries, ObjectEntry{Key: src.HeadKey})
+	h.objects.body = nil
+	h.trino.statements = nil
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Followed, out[0].Reason)
+	assert.False(t, out[0].ColumnsChanged)
+	require.Len(t, h.trino.statements, 3)
+	assert.Contains(t, h.trino.statements[2], `("id" VARCHAR, "note" VARCHAR)`)
+	assert.Contains(t, h.trino.statements[2], "asset_1/v2/', format = 'JSON')")
+
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reg.Columns, stored.Columns)
+	assert.Equal(t, FormatJSONLines, stored.Format)
+}
+
+// TestFollowSource_AFormatChangeIsFollowed: a file whose new version is JSON
+// lines where it was a CSV moves its table onto the JSON reader, and the
+// record says so.
+func TestFollowSource_AFormatChangeIsFollowed(t *testing.T) {
+	h := newHarness(t)
+	reg := registerFollowing(t, h, true)
+	require.Equal(t, FormatCSV, reg.Format)
+
+	src := revisedSource()
+	src.HeadKey = "artifacts/u1/asset_1/v2/content.jsonl"
+	src.ContentType = "application/x-ndjson"
+	body := "{\"store_id\":\"101\",\"vendor_code\":\"A\",\"rebate_pct\":\"1\"}\n"
+	h.objects.entries = append(h.objects.entries, ObjectEntry{Key: src.HeadKey})
+	h.objects.body = []byte(body)
+	h.trino.statements = nil
+
+	out := h.reg.FollowSource(context.Background(), src, 2)
+	require.Len(t, out, 1)
+	assert.True(t, out[0].Followed, out[0].Reason)
+	assert.Contains(t, h.trino.statements[2], "format = 'JSON'")
+	stored, err := h.store.Get(context.Background(), reg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, FormatJSONLines, stored.Format)
 }

@@ -98,6 +98,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
         'SELECT * FROM scratch.uploads.analyst_regional_sales_summary\n-- every column is VARCHAR, so a join to a typed column casts:\n-- JOIN scratch.uploads.analyst_regional_sales_summary t ON w.id = CAST(t."region" AS BIGINT)',
       stale: false,
       follow: true,
+      format: "csv",
       // Registered with the correction on, so this table corrects its file:
       // the state the panel renders a second badge for (#1577).
       repair: true,
@@ -123,6 +124,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       sample_sql: "SELECT * FROM scratch.uploads.analyst_glossary",
       stale: true,
       follow: false,
+      format: "csv",
       repair: false,
     },
   ],
@@ -151,6 +153,7 @@ export const mockTableRegistrations: Record<string, TableRegistration[]> = {
       sample_sql: "SELECT * FROM scratch.uploads.analyst_seasonal_factors",
       stale: true,
       follow: true,
+      format: "csv",
       repair: false,
       follow_error:
         "registering the table: the coordinator refused the statement (Access Denied: Cannot create table scratch.uploads.analyst_seasonal_factors)",
@@ -254,6 +257,7 @@ export async function mockRegisterTable(
     stale: false,
     // Following is the default; the form sends follow only to turn it off.
     follow: body.follow !== false,
+    format: "csv",
     // The correction is a standing choice, kept on the registration: the
     // second submission of the form is what asks for it (#1577).
     repair: body.repair === true,
@@ -333,6 +337,7 @@ const longNamedRegistration: TableRegistration = {
     "SELECT * FROM scratch.uploads.analyst_store_list_western_region_locations_addresses_opening_dates_by_store_code",
   stale: false,
   follow: true,
+  format: "csv",
   repair: false,
 };
 
@@ -358,6 +363,7 @@ const orphanedRegistration: TableRegistration = {
   query_table: "scratch.uploads.analyst_q1_promo_codes",
   stale: true,
   follow: false,
+  format: "csv",
   repair: false,
 };
 

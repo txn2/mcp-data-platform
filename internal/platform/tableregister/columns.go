@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
+	"github.com/txn2/mcp-data-platform/internal/platform/tablejsonl"
 )
 
 // maxColumns caps how wide a registered table can be. A header longer than
@@ -60,6 +61,19 @@ func ReadHeaderColumns(content []byte) ([]Column, error) {
 		return nil, ErrEmptyHeader
 	}
 	return tablecsv.ColumnsFrom(record), nil
+}
+
+// readColumns reads the columns a table over a file declares, by the format
+// the file is read in.
+func readColumns(format string, body []byte) ([]Column, error) {
+	if format != FormatJSONLines {
+		return ReadHeaderColumns(body)
+	}
+	columns, err := tablejsonl.Columns(body)
+	if err != nil {
+		return nil, refusedf("%s", err.Error())
+	}
+	return columns, nil
 }
 
 // allBlank reports whether every field of the header was empty, which is a

@@ -90,14 +90,14 @@ func (*followStore) List(context.Context, tableregister.Filter) ([]tableregister
 	return nil, 0, nil
 }
 
-func (s *followStore) Relocate(_ context.Context, id, location string, columns []tableregister.Column) error {
+func (s *followStore) Relocate(_ context.Context, id, location, format string, columns []tableregister.Column) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.rows[id]
 	if !ok {
 		return tableregister.ErrNotFound
 	}
-	r.Location, r.Columns, r.FollowError = location, columns, ""
+	r.Location, r.Format, r.Columns, r.FollowError = location, format, columns, ""
 	s.rows[id] = r
 	return nil
 }

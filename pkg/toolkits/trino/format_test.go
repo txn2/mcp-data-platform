@@ -3,6 +3,7 @@ package trino
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -21,6 +22,7 @@ func TestNewFormatter(t *testing.T) {
 		{"json", false, "application/json", ".json"},
 		{"markdown", false, "text/markdown", ".md"},
 		{"text", false, "text/plain", ".txt"},
+		{"jsonl", false, "application/x-ndjson", ".jsonl"},
 		{"xml", true, "", ""},
 		{"", true, "", ""},
 	}
@@ -231,4 +233,59 @@ func TestFormatterShortRow(t *testing.T) {
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	assert.Equal(t, "only-one,,", lines[1])
+}
+
+// hostileStrings is the corpus #1820 names: every string a lossless path has to
+// carry exactly, whichever reader it ends at.
+var hostileStrings = []string{
+	`plain`, `say "hi"`, `""`, `back\slash`, `trailing\`, "cr\rhere", "lf\nhere", "crlf\r\nhere",
+	"-1+1", "=SUM(A1)", "+44", "@user", "tab\there", "emoji \U0001F600", "pua \ue000\U000F0000",
+	"ls\u2028ps\u2029", "<a>&amp;", "", " lead and trail ", "nul\x00byte", `{"json":"inside"}`, "a,b,c",
+}
+
+func TestJSONLFormatter_EveryStringRoundTripsExactly(t *testing.T) {
+	rows := make([][]any, 0, len(hostileStrings))
+	for i, s := range hostileStrings {
+		rows = append(rows, []any{int64(i), s})
+	}
+	out, err := (&jsonlFormatter{}).Format([]string{"id", "text"}, rows)
+	require.NoError(t, err)
+
+	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	require.Len(t, lines, len(hostileStrings), "one line per row, whatever the values hold")
+	for i, line := range lines {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec), "line %d", i+1)
+		assert.Equal(t, hostileStrings[i], rec["text"], "row %d", i+1)
+	}
+}
+
+func TestJSONLFormatter_KeepsColumnOrderNullsAndNesting(t *testing.T) {
+	out, err := (&jsonlFormatter{}).Format(
+		[]string{"z", "a", "nested", "missing"},
+		[][]any{{"1", nil, map[string]any{"k": []any{1, "<x>"}}}},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, `{"z":"1","a":null,"nested":"{\"k\":[1,\"<x>\"]}","missing":null}`+"\n", string(out),
+		"columns keep their order, a nil stays null, a nested value is its JSON text, and a short row fills with null")
+}
+
+func TestJSONLFormatter_RefusesInvalidUTF8(t *testing.T) {
+	_, err := (&jsonlFormatter{}).Format([]string{"v"}, [][]any{{"ok"}, {"bad\xffbyte"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "row 2")
+	assert.Contains(t, err.Error(), `column "v"`)
+	assert.Contains(t, err.Error(), "not valid UTF-8")
+
+	_, err = (&jsonlFormatter{}).Format([]string{"v"}, [][]any{{[]any{map[string]any{"k\xff": 1}}}})
+	require.Error(t, err, "a bad key inside a nested value is refused too")
+
+	_, err = (&jsonlFormatter{}).Format([]string{"bad\xffname"}, [][]any{{1}})
+	require.Error(t, err, "a column name is written as a key and is held to the same rule")
+}
+
+func TestJSONLFormatter_NoRowsIsEmpty(t *testing.T) {
+	out, err := (&jsonlFormatter{}).Format([]string{"a"}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, out)
 }

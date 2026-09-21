@@ -285,3 +285,79 @@ func TestReadOnly(t *testing.T) {
 		t.Error("ReadOnly should trim its argument, as Classify does")
 	}
 }
+
+func TestActionTools_SortedAndComplete(t *testing.T) {
+	got := ActionTools()
+	assert.IsIncreasing(t, got)
+	assert.Len(t, got, len(actionTools))
+	assert.Contains(t, got, "manage_script")
+	assert.Contains(t, got, "notify")
+}
+
+// enums builds the enumOf a gate reads from a schema, from a literal table.
+func enums(table map[string][]string) func(string) ([]string, bool) {
+	return func(arg string) ([]string, bool) {
+		values, ok := table[arg]
+		return values, ok
+	}
+}
+
+func TestUnclassifiedVerbs(t *testing.T) {
+	t.Run("every verb named", func(t *testing.T) {
+		got := UnclassifiedVerbs("manage_table", enums(map[string][]string{
+			"action": {"register", "list", "unregister"},
+		}))
+		assert.Empty(t, got)
+	})
+
+	t.Run("a verb named nowhere", func(t *testing.T) {
+		got := UnclassifiedVerbs("manage_table", enums(map[string][]string{
+			"action": {"register", "list", "unregister", "inspect"},
+		}))
+		require.Len(t, got, 1)
+		assert.Equal(t, `manage_table: action="inspect" is named in neither its reads nor its writes`, got[0])
+	})
+
+	t.Run("no enum on the verb argument", func(t *testing.T) {
+		got := UnclassifiedVerbs("notify", enums(nil))
+		require.Len(t, got, 1)
+		assert.Contains(t, got[0], "gives action no enum")
+	})
+
+	t.Run("split verb checks its second argument", func(t *testing.T) {
+		got := UnclassifiedVerbs("manage_script", enums(map[string][]string{
+			"command":      {"get", "state", "create"},
+			"state_action": {"get", "set", "clear", "merge"},
+		}))
+		require.Len(t, got, 1)
+		assert.Equal(t, `manage_script command=state: state_action="merge" is named in neither its reads nor its writes`, got[0])
+	})
+
+	t.Run("split verb whose argument has no enum", func(t *testing.T) {
+		got := UnclassifiedVerbs("manage_script", enums(map[string][]string{"command": {"state"}}))
+		require.Len(t, got, 1)
+		assert.Contains(t, got[0], "manage_script command=state: the schema gives state_action no enum")
+	})
+
+	t.Run("a tool with no action rule", func(t *testing.T) {
+		got := UnclassifiedVerbs("search", enums(nil))
+		assert.Equal(t, []string{"search has no action rule in internal/toolwrite"}, got)
+	})
+}
+
+// TestActionRules_WritesDoNotChangeClassification pins that naming a verb as a
+// write is documentation plus a gate input: a verb in neither set still writes.
+func TestActionRules_WritesDoNotChangeClassification(t *testing.T) {
+	for tool, rule := range actionTools {
+		for verb := range rule.writes {
+			got := classify(tool, map[string]any{rule.arg: verb})
+			assert.True(t, got.Writes, "%s %s=%s", tool, rule.arg, verb)
+		}
+		for verb := range rule.reads {
+			assert.False(t, rule.writes[verb], "%s names %q as both a read and a write", tool, verb)
+		}
+	}
+	got := classify("manage_table", map[string]any{"action": "never_heard_of_it"})
+	assert.True(t, got.Writes)
+	assert.True(t, got.Declared)
+}

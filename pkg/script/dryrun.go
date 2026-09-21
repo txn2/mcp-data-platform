@@ -19,9 +19,10 @@ import (
 // version to attach it to yet, and the digest links it to whichever version
 // later carries that exact source — and to no other.
 
-// DryRunOutput is one output a draft run would have written. It carries the
-// shape and nothing else: a preview has no asset id and no object key, because
-// it wrote neither.
+// DryRunOutput is one output of a draft run. A preview carries the shape and
+// nothing else: it has no asset id and no object key, because it wrote
+// neither. A draft run with allow_writes writes its outputs (#1822), and then
+// says so and where.
 type DryRunOutput struct {
 	Name        string `json:"name" example:"daily_sales"`
 	Destination string `json:"destination,omitempty" example:"portal"`
@@ -38,6 +39,14 @@ type DryRunOutput struct {
 	// serializes to measure rather than estimating, so it is the size a real
 	// run of the same rows would write.
 	Bytes int `json:"bytes" example:"48213"`
+	// Written marks an output the draft wrote for real, which only a draft
+	// run with allow_writes does (#1822). Reference names what it wrote: the
+	// managed resource's reference, or the asset's.
+	Written   bool   `json:"written,omitempty" example:"false"`
+	Reference string `json:"reference,omitempty" example:"mcp:resource:res_7c1e"`
+	// Table is the table a register= argument made over the written file,
+	// the name a query selects from (#1820).
+	Table string `json:"table,omitempty" example:"scratch.uploads.analyst_orders_stage"`
 }
 
 // DryRun is one recorded draft execution.

@@ -21,7 +21,7 @@ func registrationRows(rows ...[]driver.Value) *sqlmock.Rows {
 	out := sqlmock.NewRows([]string{
 		"id", "source_kind", "source_id", "connection_name", "catalog_name",
 		"schema_name", "table_name", "location", "columns", "registered_by", "registered_at",
-		"follow", "repair", "follow_error",
+		"follow", "repair", "follow_error", "format",
 	})
 	for _, r := range rows {
 		out.AddRow(r...)
@@ -34,7 +34,7 @@ func assetRow(id, sourceID, table string) []driver.Value {
 		id, KindAsset, sourceID, "scratch", "scratch", "uploads", table,
 		"s3://portal-assets/artifacts/u1/" + sourceID + "/",
 		[]byte(`[{"name":"store_id","type":"VARCHAR"}]`),
-		"alice@example.com", registeredAt, false, false, "",
+		"alice@example.com", registeredAt, false, false, "", FormatCSV,
 	}
 }
 
@@ -47,7 +47,7 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs("reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads",
 			"analyst_keys", "s3://b/d/", []byte(`[{"name":"id","type":"VARCHAR"}]`),
-			"alice@example.com", true, true).
+			"alice@example.com", true, true, FormatJSONLines).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, store.Insert(context.Background(), Registration{
@@ -58,6 +58,7 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 		RegisteredBy: "alice@example.com",
 		Follow:       true,
 		Repair:       true,
+		Format:       FormatJSONLines,
 	}))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -73,10 +74,11 @@ func TestPostgresStore_InsertEncodesNoColumnsAsAnArray(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			[]byte(`[]`), sqlmock.AnyArg(), false, false).
+			[]byte(`[]`), sqlmock.AnyArg(), false, false, FormatCSV).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	require.NoError(t, NewPostgresStore(db).Insert(context.Background(), Registration{ID: "reg_1"}))
+	require.NoError(t, NewPostgresStore(db).Insert(context.Background(), Registration{ID: "reg_1"}),
+		"a registration with no format is written as the CSV every registration was before #1820")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -88,23 +90,23 @@ func TestPostgresStore_Relocate(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	mock.ExpectExec("UPDATE table_registrations SET location = \\$2, columns = \\$3, follow_error = ''").
-		WithArgs("reg_1", "s3://b/v2/", []byte(`[{"name":"id","type":"VARCHAR"}]`)).
+	mock.ExpectExec("UPDATE table_registrations SET location = \\$2, columns = \\$3, format = \\$4, follow_error = ''").
+		WithArgs("reg_1", "s3://b/v2/", []byte(`[{"name":"id","type":"VARCHAR"}]`), FormatJSONLines).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE table_registrations SET location").
-		WithArgs("gone", "s3://b/v2/", []byte(`[]`)).
+		WithArgs("gone", "s3://b/v2/", []byte(`[]`), FormatCSV).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	mock.ExpectExec("UPDATE table_registrations SET location").
-		WithArgs("reg_1", "s3://b/v3/", []byte(`[]`)).
+		WithArgs("reg_1", "s3://b/v3/", []byte(`[]`), FormatCSV).
 		WillReturnError(errors.New("connection reset"))
 
 	store := NewPostgresStore(db)
-	require.NoError(t, store.Relocate(context.Background(), "reg_1", "s3://b/v2/",
+	require.NoError(t, store.Relocate(context.Background(), "reg_1", "s3://b/v2/", FormatJSONLines,
 		[]Column{{Name: "id", Type: "VARCHAR"}}))
-	assert.ErrorIs(t, store.Relocate(context.Background(), "gone", "s3://b/v2/", nil), ErrNotFound,
+	assert.ErrorIs(t, store.Relocate(context.Background(), "gone", "s3://b/v2/", "", nil), ErrNotFound,
 		"a move of a registration that is not there is reported, not swallowed")
-	assert.ErrorContains(t, store.Relocate(context.Background(), "reg_1", "s3://b/v3/", nil), "relocating registration")
+	assert.ErrorContains(t, store.Relocate(context.Background(), "reg_1", "s3://b/v3/", FormatCSV, nil), "relocating registration")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -436,7 +438,7 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 		mock.ExpectQuery("SELECT .* FROM table_registrations").
 			WillReturnRows(registrationRows([]driver.Value{
 				"reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads", "t",
-				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, false, "",
+				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, false, "", FormatCSV,
 			}))
 
 		_, _, err = NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})

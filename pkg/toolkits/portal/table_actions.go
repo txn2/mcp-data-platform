@@ -33,6 +33,10 @@ type TableRegistration struct {
 	// corrected, as the file's next version, and the table is moved onto that
 	// version (#1577). It is the choice made when the table was registered.
 	Repair bool `json:"repair"`
+	// Format is the reader the table is declared with: csv, whose values come
+	// back as the CSV reader reads them, or jsonl, whose values come back
+	// exactly (#1820).
+	Format string `json:"format,omitempty"`
 	// Repaired says what a correction of the file changed before it could be
 	// registered, and is empty when none was needed (#1441). The file itself
 	// changed, so the person who asked for the registration is told so.

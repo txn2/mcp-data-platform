@@ -113,6 +113,11 @@ describe("registering a stored file as a table", () => {
     });
   });
 
+  it("is offered on a JSON-lines file, which a table reads exactly", async () => {
+    renderPanel({ contentType: "application/x-ndjson", filename: "tickets.jsonl" });
+    expect(await screen.findByText("Query as a table")).toBeInTheDocument();
+  });
+
   it("is absent when no connection can hold a table", async () => {
     stubFetch({ connections: [] }, { table_registrations: [] });
     renderPanel();

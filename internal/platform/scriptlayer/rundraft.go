@@ -74,12 +74,18 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 // By default it persists nothing. platform.export previews, platform.save_state
 // reports, and the engine's write barrier refuses every write-class call the
 // source makes through platform.call (#1664). allow_writes lifts the barrier
-// for one run, and the response then lists what the run wrote.
+// for one run and lets platform.export write for real (#1822), and the response
+// then lists what the run wrote.
+//
+// A script need not be saved to be drafted (#1822). Source sent under a name no
+// saved script of the caller's holds runs as that prospective script: its
+// params bind against the params sent with it, and it reads the empty state a
+// script that has never run reads.
 func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	if errResult := refuseReentrantRun(ctx, ToolNameManageScript+" "+cmdRunDraft); errResult != nil {
 		return errResult, nil, nil
 	}
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.draftScript(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -100,8 +106,9 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	if pc == nil {
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
-	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).Run(ctx, scriptdraft.Request{
-		Source: source, Name: sc.Name, Params: params,
+	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
+		WithExports(h.draftExports).Run(ctx, scriptdraft.Request{
+		Source: source, Name: sc.Name, Script: sc, Params: params,
 		// The live state, so the draft reads what a platform run created now
 		// would read. Nothing is written back: what the draft would have saved
 		// is reported beside the outputs it would have written.
@@ -116,6 +123,34 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 		return errorResult(err.Error()), nil, nil
 	}
 	return jsonResult(draftResult(sc, outcome))
+}
+
+// draftScript resolves the script a draft runs as: the saved one the name
+// addresses, or, when source was sent under a name the caller has no saved
+// script by, the script that source would be saved as.
+func (h *Handle) draftScript(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
+	// A prospective script is the caller's own: one addressed under another
+	// owner is only ever a saved one.
+	if input.Name == "" || input.Source == "" || input.OwnerEmail != "" {
+		return h.readable(ctx, input)
+	}
+	saved, err := h.resolveScript(ctx, input.Name, input.OwnerEmail)
+	if err != nil {
+		return nil, errorResult(err.Error())
+	}
+	if saved != nil {
+		return h.readable(ctx, input)
+	}
+	prospective := &script.Script{
+		Name: input.Name, OwnerEmail: resolveEmail(ctx), Params: input.Params, Enabled: true,
+	}
+	if err := script.ValidateName(prospective.Name); err != nil {
+		return nil, errorResult(err.Error())
+	}
+	if err := script.ValidateParams(prospective.Params); err != nil {
+		return nil, errorResult(err.Error())
+	}
+	return prospective, nil
 }
 
 // draftSource resolves the source a validate acts on: the edit when one was
@@ -190,32 +225,14 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 			out["refused_write"] = refused
 		}
 	} else {
-		out["message"] = draftPersistedNothing(result)
+		out["message"] = outcome.Persisted("draft")
+	}
+	// A draft of a script that is not saved says so, because nothing names it
+	// yet: no schedule fires it and no run_script reaches it until it is.
+	if sc.ID == "" {
+		out["saved"] = false
 	}
 	return out
-}
-
-// draftPersistedNothing states what the draft did and did not persist, naming
-// the state when the source saved some: a reader who sees a state object in the
-// response has to be told it did not land.
-//
-// A draft that was allowed to write says so first. "Nothing was persisted" on a
-// run that created a resource is the sentence a reader would act on wrongly,
-// and the writes list is the only place the response records that it did.
-func draftPersistedNothing(result *scriptrun.Result) string {
-	if n := len(writesOf(result)); n > 0 {
-		return fmt.Sprintf(
-			"This draft was run with allow_writes, and %s listed under writes persisted for real. "+
-				"platform.export still reported the shape of each output rather than writing it, and "+
-				"platform.save_state still reported the state rather than saving it.",
-			pluralCalls(n))
-	}
-	msg := "Nothing was persisted. platform.export reported the shape of each output rather than writing it, " +
-		"and a write-class platform.call would have been refused rather than made."
-	if result != nil && result.State != nil {
-		msg += " platform.save_state reported the state a platform run would have saved (state) and did not save it."
-	}
-	return msg
 }
 
 // draftFailureMessage states why the draft ended, separating the two failures
@@ -236,14 +253,6 @@ func refusedWriteOf(result *scriptrun.Result) *scriptrun.WriteRecord {
 		return nil
 	}
 	return result.RefusedWrite
-}
-
-// pluralCalls renders a call count with its noun.
-func pluralCalls(n int) string {
-	if n == 1 {
-		return "the 1 call"
-	}
-	return fmt.Sprintf("the %d calls", n)
 }
 
 // writesOf reads the persisting calls off a result, tolerating the nil result a

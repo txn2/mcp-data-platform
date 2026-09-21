@@ -12,6 +12,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -590,6 +591,20 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 		return
 	}
 	collectExportDestination(call, ins.destinations, &ins.dynamicDestinations)
+	// register= is a manage_table call on the connection it names (#1820), and
+	// the reader of this report is owed it as surely as a platform.call's.
+	for _, arg := range call.Args {
+		if bin, ok := arg.(*syntax.BinaryExpr); ok && bin.Op == syntax.EQ {
+			if key, ok := bin.X.(*syntax.Ident); ok && key.Name == "register" {
+				ins.tools[exporttable.Tool] = true
+				if dict, ok := bin.Y.(*syntax.DictExpr); ok {
+					collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
+				} else {
+					ins.dynamicConnections = true
+				}
+			}
+		}
+	}
 }
 
 // visitCall records the tool one platform.call invokes and, when its argument

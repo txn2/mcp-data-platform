@@ -244,7 +244,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		return
 	}
 	mcp.AddTool(s, t.tool(toolList, listTitle, listDescription, listAnnotations, listOutputSchema), t.handleList)
-	mcp.AddTool(s, t.tool(toolObject, objectTitle, objectDescription, objectAnnotations, objectOutputSchema), t.handleObject)
+	object := t.tool(toolObject, objectTitle, objectDescription, objectAnnotations, objectOutputSchema)
+	object.InputSchema = objectInputSchema()
+	mcp.AddTool(s, object, t.handleObject)
 }
 
 // tool builds one registration, applying the instance's title, description and

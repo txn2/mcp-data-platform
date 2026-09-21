@@ -1,4 +1,5 @@
-// Table registrations make a stored CSV readable as a query-engine table
+// Table registrations make a stored CSV or JSON-lines file readable as a
+// query-engine table
 // (#1327). One shape serves both kinds a file arrives as -- a managed resource
 // and a portal asset -- because the registration says the same thing about
 // either.
@@ -9,6 +10,36 @@
 export interface TableColumn {
   name: string;
   type: string;
+}
+
+// TableFormat is the reader a registered table is declared with.
+export type TableFormat = "csv" | "jsonl";
+
+// isRegistrableType reports whether a stored file is one a table can be
+// registered over: a CSV, or JSON lines (#1820). It decides as the server
+// does: by the content type, and by the name where the type is generic or is
+// the application/json detection gives a JSON-lines file holding one record.
+export function isRegistrableType(contentType: string, filename = ""): boolean {
+  const ct = contentType.toLowerCase();
+  const name = filename.toLowerCase();
+  const namedJSONLines = name.endsWith(".jsonl") || name.endsWith(".ndjson");
+  if (ct.includes("csv")) return true;
+  if (
+    ["application/x-ndjson", "application/ndjson", "application/jsonl", "text/x-ndjson"].some((t) =>
+      ct.startsWith(t),
+    )
+  ) {
+    return true;
+  }
+  if (ct === "" || ct.startsWith("application/octet-stream") || ct.startsWith("text/plain")) {
+    return namedJSONLines || name.endsWith(".csv");
+  }
+  return ct.startsWith("application/json") && namedJSONLines;
+}
+
+// formatLabel names a registration's format the way a reader says it.
+export function formatLabel(format: TableFormat | undefined): string {
+  return format === "jsonl" ? "JSON lines" : "CSV";
 }
 
 export interface TableRegistration {
@@ -42,6 +73,10 @@ export interface TableRegistration {
   // that version (#1577). It is the choice made when the table was registered,
   // and it only does anything for a table that follows its file.
   repair: boolean;
+  // format is the reader the table is declared with (#1820): csv, or jsonl
+  // for a JSON-lines file, whose values come back exactly -- line breaks and
+  // nulls included, which a CSV table cannot carry.
+  format?: TableFormat;
   // repaired says what a correction of the file changed before it could be
   // registered (#1441). It is set only on the registration that made the
   // correction: it describes what just happened, not a property of the record.

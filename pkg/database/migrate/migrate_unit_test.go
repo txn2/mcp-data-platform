@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 300
+	migrateTestFileCount    = 302
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -113,8 +113,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		// The newest pair, so the spot-check covers the end of the
 		// sequence as well as its start: a migration added without its
 		// down file fails here rather than only at the count.
-		"000146_api_catalog_specs_spec_format.up.sql",
-		"000146_api_catalog_specs_spec_format.down.sql",
+		"000151_table_registration_format.up.sql",
+		"000151_table_registration_format.down.sql",
 	}
 
 	fileNames := make(map[string]bool)

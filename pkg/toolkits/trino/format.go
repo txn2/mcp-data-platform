@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -17,13 +19,16 @@ const (
 	formatJSON     = "json"
 	formatMarkdown = "markdown"
 	formatText     = "text"
+	formatJSONL    = "jsonl"
 
 	// File extensions and content types per format.
 	extCSV      = ".csv"
 	extJSON     = ".json"
 	extMarkdown = ".md"
+	extJSONL    = ".jsonl"
 
-	contentTypeCSV = "text/csv"
+	contentTypeCSV   = "text/csv"
+	contentTypeJSONL = "application/x-ndjson"
 )
 
 // Formatter converts query results into a specific output format.
@@ -37,7 +42,7 @@ type Formatter interface {
 }
 
 // NewFormatter returns a Formatter for the given format name.
-// Supported formats: csv, json, markdown, text.
+// Supported formats: csv, json, jsonl, markdown, text.
 //
 // It is exported because trino_export is not the only writer of these formats:
 // a managed script's platform.export writes the same four from rows it computed
@@ -59,8 +64,10 @@ func newFormatter(format string) (Formatter, error) {
 		return &markdownFormatter{}, nil
 	case formatText:
 		return &textFormatter{}, nil
+	case formatJSONL:
+		return &jsonlFormatter{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported format: %q (must be csv, json, markdown, or text)", format)
+		return nil, fmt.Errorf("unsupported format: %q (must be csv, json, jsonl, markdown, or text)", format)
 	}
 }
 
@@ -138,6 +145,144 @@ func (*jsonFormatter) Format(columns []string, rows [][]any) ([]byte, error) { /
 		return nil, fmt.Errorf("marshaling JSON: %w", err)
 	}
 	return b, nil
+}
+
+// --- JSON Lines Formatter ---
+
+// jsonlFormatter writes one JSON object per line, keyed by column, in column
+// order (#1820). It is the format a table registered over a stored file reads
+// back exactly: every string survives, including the line breaks a CSV cell
+// cannot carry past Trino's line-based CSV reader, and a null stays a null
+// rather than becoming an empty string.
+//
+// A nested value (a list, a map, a Trino ARRAY or ROW) is written as its JSON
+// text, a string. Trino's JSON reader fails every query on a table whose file
+// holds a nested value in a column declared VARCHAR, and every registered
+// column is VARCHAR; as text the value survives and json_parse reads it back.
+//
+// A string that is not valid UTF-8 is refused rather than written. encoding/json
+// would replace its bad bytes with U+FFFD and report nothing, which is the
+// silent change of data this format exists to rule out.
+type jsonlFormatter struct{}
+
+func (*jsonlFormatter) ContentType() string   { return contentTypeJSONL } //nolint:revive // implements Formatter
+func (*jsonlFormatter) FileExtension() string { return extJSONL }         //nolint:revive // implements Formatter
+
+func (*jsonlFormatter) Format(columns []string, rows [][]any) ([]byte, error) { //nolint:revive // implements Formatter
+	var buf bytes.Buffer
+	for i, row := range rows {
+		if err := writeJSONLRecord(&buf, columns, row); err != nil {
+			return nil, fmt.Errorf("row %d: %w", i+1, err)
+		}
+	}
+	return buf.Bytes(), nil
+}
+
+// writeJSONLRecord writes one row as one line. The object is assembled by hand
+// rather than marshaled from a map so the keys keep the column order the
+// writer was given, which is what a person reading the file expects.
+func writeJSONLRecord(buf *bytes.Buffer, columns []string, row []any) error {
+	_ = buf.WriteByte('{')
+	for j, col := range columns {
+		if j > 0 {
+			_ = buf.WriteByte(',')
+		}
+		var cell any
+		if j < len(row) {
+			cell = row[j]
+		}
+		if err := writeJSONLValue(buf, col); err != nil {
+			return fmt.Errorf("column name %q: %w", col, err)
+		}
+		_ = buf.WriteByte(':')
+		value, err := jsonlCell(cell)
+		if err != nil {
+			return fmt.Errorf("column %q: %w", col, err)
+		}
+		if err := writeJSONLValue(buf, value); err != nil {
+			return fmt.Errorf("column %q: %w", col, err)
+		}
+	}
+	_, _ = buf.WriteString("}\n")
+	return nil
+}
+
+// jsonlCell returns the value a cell is written as: a scalar as itself, a
+// nested value as its JSON text.
+func jsonlCell(v any) (any, error) {
+	switch v.(type) {
+	case nil, string, bool, float32, float64, int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64, json.Number:
+		return v, nil
+	}
+	text, err := marshalJSONL(v)
+	if err != nil {
+		return nil, err
+	}
+	return strings.TrimSuffix(string(text), "\n"), nil
+}
+
+// writeJSONLValue writes one JSON value without a trailing newline.
+func writeJSONLValue(buf *bytes.Buffer, v any) error {
+	text, err := marshalJSONL(v)
+	if err != nil {
+		return err
+	}
+	_, _ = buf.Write(bytes.TrimSuffix(text, []byte("\n")))
+	return nil
+}
+
+// marshalJSONL encodes a value with HTML escaping off, so a file holding "<"
+// reads as "<" to a person as well as to Trino, after refusing any string in
+// it that is not valid UTF-8.
+func marshalJSONL(v any) ([]byte, error) {
+	if err := checkUTF8(v); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("encoding as JSON: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// errNotUTF8 refuses a string JSON could carry only by replacing its bytes.
+var errNotUTF8 = errors.New("the value is not valid UTF-8 text, and JSON can only carry it by replacing bytes; " +
+	"write it as hex or base64 instead")
+
+// checkUTF8 refuses a value holding a string, or a map key, that is not valid
+// UTF-8.
+func checkUTF8(v any) error {
+	switch val := v.(type) {
+	case string:
+		if !utf8.ValidString(val) {
+			return errNotUTF8
+		}
+	case []any:
+		return checkUTF8Each(val)
+	case map[string]any:
+		for key, item := range val {
+			if !utf8.ValidString(key) {
+				return errNotUTF8
+			}
+			if err := checkUTF8(item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkUTF8Each checks every item of a list.
+func checkUTF8Each(items []any) error {
+	for _, item := range items {
+		if err := checkUTF8(item); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // --- Markdown Formatter ---

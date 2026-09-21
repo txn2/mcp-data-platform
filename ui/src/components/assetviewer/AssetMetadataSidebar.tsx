@@ -182,8 +182,8 @@ export function AssetMetadataSidebar({
             Registering an asset's file as a table puts its contents in a
             schema everyone with the connection can read, so it is the owner's
             call and an editor share does not carry it (#1327). The panel is
-            absent entirely unless the asset is a CSV and somewhere can hold
-            the table.
+            absent entirely unless the asset is a CSV or JSON lines and
+            somewhere can hold the table.
           */}
           <TablesPanel
             kind="asset"

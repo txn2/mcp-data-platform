@@ -638,6 +638,39 @@ describe("ScriptSourceEditor: writing for real", () => {
     );
   });
 
+  it("says which outputs a run allowed to write wrote, and where", () => {
+    renderEditor();
+    fireEvent.click(screen.getByLabelText(/Write for real/));
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+
+    act(() =>
+      dryRun.mock.calls[0]![1].onSuccess({
+        run_id: "run_w",
+        status: "succeeded",
+        log: "",
+        metrics: { steps: 40, duration_ms: 250, queries: 1, exports: 1 },
+        outputs: [
+          {
+            name: "staging",
+            destination: "resources",
+            format: "jsonl",
+            row_count: 3,
+            bytes: 90,
+            written: true,
+            reference: "mcp:resource:res_1",
+            table: "scratch.uploads.analyst_staging",
+          },
+        ],
+        writes: [{ tool: "manage_table", call: "manage_table action=register" }],
+        message: "This dry run was run with allow_writes.",
+      }),
+    );
+    expect(screen.getByText(/wrote 3 rows as jsonl/)).toBeInTheDocument();
+    expect(screen.queryByText(/would write 3 rows/)).not.toBeInTheDocument();
+    expect(screen.getByText("mcp:resource:res_1")).toBeInTheDocument();
+    expect(screen.getByText("scratch.uploads.analyst_staging")).toBeInTheDocument();
+  });
+
   it("clears the control after the run, so the next dry run is a rehearsal again", () => {
     renderEditor();
     const control = screen.getByLabelText(/Write for real/) as HTMLInputElement;

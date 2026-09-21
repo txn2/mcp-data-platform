@@ -187,8 +187,24 @@ func (w *outputWriter) priorAttempt(name, destination string) *scriptrun.ExportR
 	}
 }
 
-// record notes one written output on the run row and on this attempt.
+// changeSummary is the line a version this run writes carries in its
+// history: the script and version that wrote it and the run, or, for a draft
+// that was allowed to write, that a draft did (#1822).
+func (w *outputWriter) changeSummary(prefix string) string {
+	if w.runs == nil {
+		return fmt.Sprintf("%s%s draft, run %s", prefix, w.script.Name, w.run.ID)
+	}
+	return fmt.Sprintf("%s%s v%d, run %s", prefix, w.script.Name, w.run.Version, w.run.ID)
+}
+
+// record notes one written output on the run row and on this attempt. A
+// draft has no run row, and records only on the attempt.
 func (w *outputWriter) record(ctx context.Context, out script.RunOutput) {
+	if w.runs == nil {
+		w.run.Outputs = append(w.run.Outputs, out)
+		w.written[outputKey(out.Name, out.Destination)] = true
+		return
+	}
 	if err := w.runs.RecordOutput(ctx, w.run.Lease(), out); err != nil {
 		// The output exists and is correct; only the run's record of it failed.
 		// Failing the run here would report a write that did happen as a write
@@ -224,7 +240,7 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 	if err != nil {
 		return nil, script.RunOutput{}, err
 	}
-	summary := fmt.Sprintf("%s v%d, run %s", w.script.Name, w.run.Version, w.run.ID)
+	summary := w.changeSummary("")
 	version, changes, err := w.storeVersion(ctx, asset.ID, identity, data, summary)
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q: %w", req.Name, err)

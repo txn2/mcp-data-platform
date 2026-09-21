@@ -35,7 +35,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
-| Portal | `manage_table` | Make a stored CSV queryable as a table and manage what is registered over it (register, list, unregister). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
+| Portal | `manage_table` | Make a stored CSV or JSON-lines file queryable as a table and manage what is registered over it (register, list, unregister). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
 | Portal | `manage_resource` | Manage a file in the managed resource library (create, replace_content, get, list, delete): the files a saved asset references. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved; `create` with `if_exists=replace` makes landing one rolling file idempotent, and a delete is refused while anything still points at the file |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
@@ -198,7 +198,7 @@ Requires portal to be enabled with S3 storage configured. Requires explicit pers
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `sql` | string | Yes | - | SQL query to execute (read-only enforced) |
-| `format` | string | Yes | - | Output format: `csv`, `json`, `markdown`, or `text` |
+| `format` | string | Yes | - | Output format: `csv`, `json`, `jsonl`, `markdown`, or `text`. `jsonl` is one JSON object per row and is the format to register as a table when values must come back exactly: line breaks, backslashes and nulls survive it |
 | `name` | string | Yes | - | Display name for the exported asset (max 255 chars) |
 | `connection` | string | No | default | Trino connection name |
 | `description` | string | No | - | Description of the exported asset (max 2000 chars) |
@@ -1048,7 +1048,7 @@ A patch writes an ordinary new version, so `list_versions` and `revert` keep wor
 
 ### manage_table
 
-Make a stored CSV readable as a query-engine table, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested: the table is an external table over the directory the file already sits in.
+Make a stored CSV or JSON-lines file readable as a query-engine table, so `trino_query` can join it to warehouse tables. A JSON-lines table returns every value exactly; a CSV table cannot carry a line break inside a value and reads a null as an empty string (see [Registered Tables](registered-tables.md#csv-or-json-lines)). Nothing is copied or ingested: the table is an external table over the directory the file already sits in.
 
 The file is named by its `reference` — the string a `search` hit and a `fetch` document carry — so one action serves every kind of stored file and there is no argument saying which kind it is. That is what closes the gap a person otherwise walks around: they upload a vendor CSV, and the agent that found it can register it in the same turn instead of sending them to the portal.
 
@@ -1468,7 +1468,7 @@ A script is its owner's, so a reference to one resolves for that owner and for n
 | Binding | What it does |
 |---|---|
 | `platform.query(sql, connection, params)` | Read-only SQL. Returns `{columns, rows, row_count}`, rows as dicts keyed by column name, under hard row and byte caps |
-| `platform.export(name, rows, format)` | Declares an output: rows as a list of dicts serialized in the declared format, or a string body written verbatim for a document. Formats: `csv`, `json`, `markdown`, `text`, `html`, `jsx` — `csv` and `json` require rows, `html` and `jsx` take only a string body, `markdown` and `text` accept either. In a draft run this reports the shape and size the output would have and writes nothing |
+| `platform.export(name, rows, format)` | Declares an output: rows as a list of dicts serialized in the declared format, or a string body written verbatim for a document. Formats: `csv`, `json`, `jsonl`, `markdown`, `text`, `html`, `jsx` — `csv`, `json` and `jsonl` require rows, `html` and `jsx` take only a string body, `markdown` and `text` accept either. `register={"connection": ...}` makes the written file a table in the same call. In a draft run this reports the shape and size the output would have and writes nothing, unless the draft was run with `allow_writes` |
 | `platform.publish_data(name, data)` | Refreshes the data region of an existing dashboard without touching its markup: `name` is the same output identity `platform.export` uses and must already be an `html`, `jsx`, or `markdown` document of this script's; `data` (a dict or list) is serialized as JSON and structurally spliced into the one element matching `#data`. A document without the marked region fails the run. In a draft run this reports the payload size and writes nothing. See [Refreshing a dashboard's data region](../scripts/running.md#refreshing-a-dashboards-data-region) |
 | `print(...)` | The run log, bounded; anything larger belongs in an export |
 | `platform.save_state(state)` | Replaces the one JSON object the script carries from run to run, bounded at 64 KiB. Applied when the run succeeds, in the write that marks it so, with a compare-and-set on the revision the run read: a failed run leaves the state alone, and a second run that read the same revision fails at its write naming the first. A draft reports what it would have saved |

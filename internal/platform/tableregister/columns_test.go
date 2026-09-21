@@ -174,18 +174,45 @@ func TestSampleJoinSQL(t *testing.T) {
 	assert.Empty(t, SampleJoinSQL(Registration{}), "a table with no columns has no join to show")
 }
 
-// TestIsCSV covers the fallback: the stored content type decides, and a
+// TestFormatOf covers the fallback: the stored content type decides, and a
 // generic or absent one falls back to the key's extension, which is what a
-// record written before detection carries.
-func TestIsCSV(t *testing.T) {
-	assert.True(t, isCSV("text/csv", "x.bin"))
-	assert.True(t, isCSV("text/csv; charset=utf-8", "x.bin"))
-	assert.True(t, isCSV("application/csv", "x.bin"))
-	assert.False(t, isCSV("text/html", "x.csv"), "a declared specific type is believed")
-	assert.True(t, isCSV("application/octet-stream", "x.csv"))
-	assert.True(t, isCSV("text/plain", "x.CSV"))
-	assert.True(t, isCSV("", "x.csv"))
-	assert.False(t, isCSV("", "x.txt"))
+// record written before detection carries (#1820 added JSON lines).
+func TestFormatOf(t *testing.T) {
+	tests := []struct {
+		declared, key, want string
+	}{
+		{"text/csv", "x.bin", FormatCSV},
+		{"text/csv; charset=utf-8", "x.bin", FormatCSV},
+		{"application/csv", "x.bin", FormatCSV},
+		{"text/html", "x.csv", ""},
+		{"application/octet-stream", "x.csv", FormatCSV},
+		{"text/plain", "x.CSV", FormatCSV},
+		{"", "x.csv", FormatCSV},
+		{"", "x.txt", ""},
+		{"application/x-ndjson", "x.bin", FormatJSONLines},
+		{"application/jsonl", "x.bin", FormatJSONLines},
+		{"application/json", "x.json", ""},
+		{"application/json", "x.jsonl", FormatJSONLines},
+		{"application/json; charset=utf-8", "rows.NDJSON", FormatJSONLines},
+		{"text/html", "x.jsonl", ""},
+		{"text/plain", "x.jsonl", FormatJSONLines},
+		{"", "x.NDJSON", FormatJSONLines},
+		{"application/octet-stream", "rows.jsonl", FormatJSONLines},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, formatOf(tt.declared, tt.key), "%q %q", tt.declared, tt.key)
+	}
+}
+
+// TestBuildDDL_JSONLines: a JSON-lines table is read by the JSON reader, with
+// no header to skip and no escape to declare (#1820).
+func TestBuildDDL_JSONLines(t *testing.T) {
+	reg := Registration{
+		Catalog: "scratch", Schema: "uploads", Table: "analyst_rows", Location: "s3://b/d/",
+		Format: FormatJSONLines, Columns: []Column{{Name: "id", Type: "VARCHAR"}, {Name: "note", Type: "VARCHAR"}},
+	}
+	assert.Equal(t, `CREATE TABLE "scratch"."uploads"."analyst_rows" ("id" VARCHAR, "note" VARCHAR) `+
+		`WITH (external_location = 's3://b/d/', format = 'JSON')`, BuildDDL(reg, false)[1])
 }
 
 func TestJoinAnd(t *testing.T) {

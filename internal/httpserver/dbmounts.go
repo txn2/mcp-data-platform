@@ -249,7 +249,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	})
 	deps.Connections = scriptConnectionEnumerator(lister)
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
-		WithToolkits(p.ToolkitRegistry())
+		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports())
 	scripthttp.New(deps).RegisterPortal(mux, wrap)
 }
 

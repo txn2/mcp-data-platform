@@ -283,6 +283,9 @@ type HitTable struct {
 	Follow      bool     `json:"follow"`
 	Repair      bool     `json:"repair"`
 	FollowError string   `json:"follow_error,omitempty"`
+	// Format is the reader the table is declared with: csv, or jsonl for a
+	// JSON-lines file, whose values come back exactly (#1820).
+	Format string `json:"format,omitempty"`
 }
 
 // HitLink is the client-attachable file behind a Hit: the canonical resource URI

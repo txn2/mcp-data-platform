@@ -884,8 +884,11 @@ func exportInputSchema() map[string]any {
 			},
 			propFormat: map[string]any{
 				schemaKeyType: schemaTypeString,
-				"enum":        []string{formatCSV, formatJSON, formatMarkdown, formatText},
-				schemaKeyDesc: "Output format for the exported data.",
+				"enum":        []string{formatCSV, formatJSON, formatJSONL, formatMarkdown, formatText},
+				schemaKeyDesc: "Output format for the exported data. jsonl writes one JSON object per row and is the " +
+					"format to register as a table when values must come back exactly: a line break, a backslash or " +
+					"a null inside a value survives it, where csv cannot carry a line break inside a cell and reads " +
+					"a null back as an empty string.",
 			},
 			propName: map[string]any{
 				schemaKeyType: schemaTypeString,

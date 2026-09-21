@@ -222,7 +222,7 @@ var templateLiteralEscaper = strings.NewReplacer("\\", "\\\\", "`", "\\`", "${",
 // per-run object and a version row whose summary names the script version and
 // run that produced it.
 func (w *outputWriter) writeRefreshedVersion(ctx context.Context, asset *portal.Asset, body string) (version int, tables []string, err error) {
-	summary := fmt.Sprintf("data refresh: %s v%d, run %s", w.script.Name, w.run.Version, w.run.ID)
+	summary := w.changeSummary("data refresh: ")
 	version, tables, err = w.storeVersion(ctx, asset.ID, scriptrun.OutputIdentity{
 		ContentType: asset.ContentType,
 		Extension:   contenttype.Extension(asset.ContentType),

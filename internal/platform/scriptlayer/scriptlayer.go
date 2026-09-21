@@ -60,6 +60,9 @@ type Config struct {
 	// declarations through (#1664). Nil leaves the barrier classifying from
 	// its declared table alone, which refuses both of those forms.
 	Toolkits scriptdraft.ToolkitLister
+	// DraftExports builds the writer a draft run with allow_writes persists
+	// its exports through (#1822). Nil leaves every draft export a preview.
+	DraftExports scriptdraft.Exports
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -92,6 +95,8 @@ type Handle struct {
 	// toolkits is the live toolkit registry a draft's write barrier reads the
 	// connection-dependent half of its classification through.
 	toolkits scriptdraft.ToolkitLister
+	// draftExports builds the writer a draft allowed to write exports through.
+	draftExports scriptdraft.Exports
 	// indexProducer is the write-path index-job producer the Postgres script
 	// store was built with, so a created or re-described script enters ranked
 	// search without waiting for the reconciler (#1370). Nil when the layer was
@@ -105,7 +110,7 @@ func New(cfg Config) *Handle {
 	h := &Handle{
 		store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona,
 		portalURL: cfg.PortalURL, destinations: cfg.Destinations,
-		toolkits: cfg.Toolkits,
+		toolkits: cfg.Toolkits, draftExports: cfg.DraftExports,
 	}
 	if h.store == nil && cfg.DB != nil {
 		h.indexProducer = indexjobs.NewProducer(scriptindex.SourceKind)
@@ -256,6 +261,16 @@ func refuseScriptAuthoring(ctx context.Context, what string) *mcp.CallToolResult
 func insideRun(ctx context.Context) bool {
 	pc := middleware.GetPlatformContext(ctx)
 	return pc != nil && pc.Source == middleware.SourceScript
+}
+
+// DraftExports is the writer a draft allowed to write persists its exports
+// through, for the other surface that runs drafts (the portal editor) to run
+// them the way manage_script does (#1822). Nil on a nil Handle.
+func (h *Handle) DraftExports() scriptdraft.Exports {
+	if h == nil {
+		return nil
+	}
+	return h.draftExports
 }
 
 // readable resolves the script a read command names and checks the caller may

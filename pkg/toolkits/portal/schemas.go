@@ -89,6 +89,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
+      "enum": ["list", "get", "update", "delete", "list_versions", "revert", "search", "provenance", "patch", "locate", "get_content", "outline", "stats", "diff", "share", "list_shares", "revoke_share", "create_collection", "list_collections", "get_collection", "update_collection", "delete_collection", "set_sections"],
       "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search, provenance. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
@@ -229,6 +230,7 @@ var manageFeedbackSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
+      "enum": ["list", "get", "reply", "resolve", "request_validation", "respond_validation"],
       "description": "Action to perform. list (with NO target = your pending feedback across the assets and collections you own or can edit AND the general channel, newest first, excluding your own threads, plus threads awaiting your validation; with a target = threads on that one asset/collection/prompt or the standalone channel). get (one thread + its timeline). reply (post a comment). resolve (mark resolved). request_validation (route a validation request to the thread author). respond_validation (the thread author records validated/disputed via validation_result)."
     },
     "asset_id": {
@@ -323,7 +325,7 @@ var manageTableSchema = json.RawMessage(`{
     },
     "repair": {
       "type": "boolean",
-      "description": "For register: save a corrected version of the file and register that, when the file cannot be read as a table the way it is stored. A CSV whose lines end in a carriage return rather than a newline, one with a line break inside a cell, or one whose bytes are a legacy code page rather than UTF-8, is refused without this and the refusal says what is wrong with it. With it, a corrected version is written through the file's own version history -- the uploaded bytes stay as the version before it and the correction is revertible -- and the result says what changed. The choice is kept on the registration: a later version of the file carrying the same defect is corrected the same way and the table is moved onto the corrected version, which is what a source that repeats one defect on a schedule needs. A file in a wide encoding (UTF-16, UTF-32) is refused whether or not this is set: it has to be re-exported as UTF-8 CSV."
+      "description": "For register: save a corrected version of the file and register that, when the file cannot be read as a table the way it is stored. A CSV whose lines end in a carriage return rather than a newline, one with a line break inside a cell, or one whose bytes are a legacy code page rather than UTF-8, is refused without this and the refusal says what is wrong with it. With it, a corrected version is written through the file's own version history -- the uploaded bytes stay as the version before it and the correction is revertible -- and the result says what changed. The choice is kept on the registration: a later version of the file carrying the same defect is corrected the same way and the table is moved onto the corrected version, which is what a source that repeats one defect on a schedule needs. A file in a wide encoding (UTF-16, UTF-32) is refused whether or not this is set: it has to be re-exported as UTF-8 CSV. A JSON-lines file is never corrected, because its values already come back exactly; a line the reader cannot read is refused by its line number whether or not this is set."
     }
   }
 }`)

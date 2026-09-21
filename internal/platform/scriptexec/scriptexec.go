@@ -231,7 +231,10 @@ type listenerControl interface {
 // the worker, because waking a replica that will not claim buys nothing but a
 // database connection.
 type Handle struct {
-	runs      script.RunStore
+	runs script.RunStore
+	// export is what a draft allowed to write persists its outputs through
+	// (#1822), the same dependencies a platform run's writer is built over.
+	export    ExportDeps
 	worker    *worker
 	scheduler *scheduler
 	listener  listenerControl
@@ -248,7 +251,7 @@ func New(cfg Config) *Handle {
 	if stores.runs == nil {
 		return nil
 	}
-	h := &Handle{runs: stores.runs}
+	h := &Handle{runs: stores.runs, export: cfg.Export}
 	if cfg.WorkerDisabled {
 		slog.Info("scripts: the run worker is off on this replica; queued runs wait for a worker deployment")
 		return h

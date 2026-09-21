@@ -55,6 +55,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptwiring"
@@ -3240,6 +3241,10 @@ func (p *Platform) PortalKnowledgePageStore() knowledgepage.Store {
 func (p *Platform) PortalS3Client() portal.S3Client {
 	return p.portalStore.S3Client()
 }
+
+// ScriptDraftExports returns the writer a script draft allowed to write
+// persists its exports through (#1822), nil where scripts cannot be kept.
+func (p *Platform) ScriptDraftExports() scriptdraft.Exports { return p.scripts.DraftExports() }
 
 // KnowledgeRouter returns the unified search federation, or nil when no
 // searchable source is configured. The portal's GET /api/v1/portal/search REST

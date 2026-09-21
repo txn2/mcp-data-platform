@@ -181,7 +181,7 @@ The response goes from the upstream into storage without being held anywhere who
 
 ## Querying a CSV resource as a table
 
-A CSV resource carries the same **Query as a table** panel the asset viewer does. Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.
+A CSV or JSON-lines resource carries the same **Query as a table** panel the asset viewer does. A JSON-lines file brings every value back exactly, including the line breaks a CSV cell cannot carry; see [CSV or JSON lines](../server/registered-tables.md#csv-or-json-lines). Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.
 
 ![Registering a resource as a table](../images/screenshots/light/admin-resource-table-register-light.webp#only-light)![Registering a resource as a table](../images/screenshots/dark/admin-resource-table-register-dark.webp#only-dark)
 

@@ -25,7 +25,7 @@ func NewPostgresStore(db *sql.DB) Store {
 // selectColumns is the column list every read shares, in the order scanRow
 // expects them.
 const selectColumns = `id, source_kind, source_id, connection_name, catalog_name,
-	schema_name, table_name, location, columns, registered_by, registered_at, follow, repair, follow_error`
+	schema_name, table_name, location, columns, registered_by, registered_at, follow, repair, follow_error, format`
 
 // ErrNameTaken is returned when the unique index on the table name rejects an
 // insert. The registrar checks for a holder before it writes; this is the race
@@ -44,11 +44,11 @@ func (s *postgresStore) Insert(ctx context.Context, r Registration) error {
 	}
 	const q = `INSERT INTO table_registrations
 		(id, source_kind, source_id, connection_name, catalog_name, schema_name,
-		 table_name, location, columns, registered_by, registered_at, follow, repair)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12)`
+		 table_name, location, columns, registered_by, registered_at, follow, repair, format)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12, $13)`
 	_, err = s.db.ExecContext(ctx, q,
 		r.ID, r.SourceKind, r.SourceID, r.Connection, r.Catalog, r.Schema,
-		r.Table, r.Location, cols, r.RegisteredBy, r.Follow, r.Repair)
+		r.Table, r.Location, cols, r.RegisteredBy, r.Follow, r.Repair, r.FormatOrDefault())
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == uniqueViolation {
@@ -153,16 +153,16 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 }
 
 // Relocate moves a registration onto the directory a follow pointed its table
-// at, with the columns read from the file there, and clears the record of any
-// earlier follow that failed.
-func (s *postgresStore) Relocate(ctx context.Context, id, location string, columns []Column) error {
+// at, with the columns and the format read from the file there, and clears the
+// record of any earlier follow that failed.
+func (s *postgresStore) Relocate(ctx context.Context, id, location, format string, columns []Column) error {
 	cols, err := json.Marshal(nonNilColumns(columns))
 	if err != nil {
 		return fmt.Errorf("encoding registration columns: %w", err)
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE table_registrations SET location = $2, columns = $3, follow_error = '' WHERE id = $1`,
-		id, location, cols)
+		`UPDATE table_registrations SET location = $2, columns = $3, format = $4, follow_error = '' WHERE id = $1`,
+		id, location, cols, formatOrDefault(format))
 	if err != nil {
 		return fmt.Errorf("relocating registration: %w", err)
 	}
@@ -203,7 +203,7 @@ func scanRow(sc rowScanner) (*Registration, error) {
 	)
 	if err := sc.Scan(&reg.ID, &reg.SourceKind, &reg.SourceID, &reg.Connection,
 		&reg.Catalog, &reg.Schema, &reg.Table, &reg.Location, &cols,
-		&reg.RegisteredBy, &reg.RegisteredAt, &reg.Follow, &reg.Repair, &reg.FollowError); err != nil {
+		&reg.RegisteredBy, &reg.RegisteredAt, &reg.Follow, &reg.Repair, &reg.FollowError, &reg.Format); err != nil {
 		return nil, err //nolint:wrapcheck // callers distinguish sql.ErrNoRows
 	}
 	if len(cols) > 0 {

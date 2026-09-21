@@ -1157,7 +1157,7 @@ Registering an asset as a queryable table is the separate [`manage_table`](#mana
 
 ### manage_table
 
-Make a stored CSV readable as a query-engine table over the directory the file already sits in, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested.
+Make a stored CSV or JSON-lines file readable as a query-engine table over the directory the file already sits in, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested.
 
 The file is named by its `reference`, the string a `search` hit and a `fetch` document carry, so one action serves every kind of stored file and no argument names the kind.
 

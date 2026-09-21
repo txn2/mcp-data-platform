@@ -13,6 +13,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -83,9 +84,9 @@ var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublish
 var (
 	// rowFormats serialize a list of row dicts, matched to the formats
 	// trino_export already writes so the contract does not change when preview
-	// becomes persistence. csv and json are ONLY here: a data feed another
+	// becomes persistence. csv, json and jsonl are ONLY here: a data feed another
 	// system parses stays well-formed by construction.
-	rowFormats = map[string]bool{"csv": true, "json": true, "markdown": true, "text": true}
+	rowFormats = map[string]bool{"csv": true, "json": true, "jsonl": true, "markdown": true, "text": true}
 	// documentFormats accept a string body written verbatim. html and jsx are
 	// ONLY here: they have no tabular serialization, and they map to the
 	// content types the portal already stores and renders for saved assets, so
@@ -125,7 +126,7 @@ const callArgsPosition = 2
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
-	exportRecordFields = 17
+	exportRecordFields = 18
 )
 
 // TextResultKey is the single field a tool result arrives under when the tool
@@ -623,8 +624,37 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if err != nil {
 		return nil, err
 	}
+	if req.Register != nil {
+		if record.Table, err = h.registerOutput(b, req.Register, record); err != nil {
+			return nil, err
+		}
+	}
 	h.exports = append(h.exports, record)
 	return exportValue(record), nil
+}
+
+// registerOutput makes the table an export's register= argument asked for,
+// over the file the export just wrote (#1820). It is manage_table register,
+// issued over the run's own session, so it is authorized and audited as that
+// call is; a draft that wrote nothing has no file, and reports the table it
+// would have registered.
+//
+// A registration that fails fails the run, naming the output: the file was
+// written, and a pipeline whose next step queries the table must stop here
+// rather than at a query against a table that is not there.
+func (h *hostState) registerOutput(b *starlark.Builtin, spec *exporttable.Spec, record ExportRecord) (*exporttable.Table, error) {
+	if record.Preview {
+		return spec.Preview(), nil
+	}
+	out, err := h.callTool(exporttable.Tool, spec.Args(exporttable.Reference(record.ResourceRef, record.AssetID)))
+	if err != nil {
+		return nil, fmt.Errorf("in %s: output %q was written, and registering it as a table failed: %w",
+			b.Name(), record.Name, err)
+	}
+	if h.opts.Writes == WritesReported {
+		h.writes = append(h.writes, WriteRecord{Tool: exporttable.Tool, Call: exporttable.Tool + " action=" + exporttable.Action})
+	}
+	return exporttable.FromResult(out), nil
 }
 
 // admitOutput enforces the two rules every output-producing binding shares:
@@ -802,6 +832,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		destination string
 		key         string
 		rows        starlark.Value
+		register    starlark.Value
 	)
 	// destination and key must be NAMED. The static validator reads keyword
 	// arguments, so a destination passed by position would be invisible to it —
@@ -814,7 +845,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	}
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"name", &name, "rows", &rows, "format?", &format,
-		"destination?", &destination, "key?", &key); err != nil {
+		"destination?", &destination, "key?", &key, "register?", &register); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	if format == "" {
@@ -844,10 +875,34 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err != nil {
 		return ExportRequest{}, err
 	}
+	spec, err := registerSpec(b, register, format, resolved)
+	if err != nil {
+		return ExportRequest{}, err
+	}
 	return ExportRequest{
 		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Rows: list, Body: body,
-		Destination: resolved, Key: key,
+		Destination: resolved, Key: key, Register: spec,
 	}, nil
+}
+
+// registerSpec reads an export's register= argument and refuses one the
+// output cannot carry, before anything is written.
+func registerSpec(b *starlark.Builtin, v starlark.Value, format string, destination script.Destination) (*exporttable.Spec, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil //nolint:nilnil // no argument asks for no table
+	}
+	goValue, err := starlarkconv.FromStarlark(v)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	spec, err := exporttable.Parse(goValue)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	if err := spec.Check(format, destination.IsPortal() || destination.IsResource()); err != nil {
+		return nil, argErr(b, err)
+	}
+	return spec, nil
 }
 
 // checkExportKey validates the key a script asks for, and refuses one where it
@@ -989,6 +1044,11 @@ func exportValue(record ExportRecord) starlark.Value {
 		_ = out.SetKey(starlark.String("reference"), starlark.String(record.ResourceRef))
 		_ = out.SetKey(starlark.String("uri"), starlark.String(record.ResourceURI))
 		_ = out.SetKey(starlark.String("version"), starlark.MakeInt(record.ResourceVersion))
+	}
+	if record.Table != nil {
+		if table, err := starlarkconv.ToStarlark(record.Table.Map()); err == nil {
+			_ = out.SetKey(starlark.String("table"), table)
+		}
 	}
 	if len(record.TableChanges) > 0 {
 		changes := make([]starlark.Value, 0, len(record.TableChanges))

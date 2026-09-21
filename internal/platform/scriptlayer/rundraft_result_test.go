@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -16,7 +15,7 @@ import (
 // reached the interpreter: the response still has to describe itself, and every
 // reader of it is walking a nil result.
 func TestDraftResult_WithoutAnEngineResult(t *testing.T) {
-	sc := &script.Script{Name: "ingest"}
+	sc := &script.Script{ID: "sc_1", Name: "ingest"}
 
 	failed := draftResult(sc, &scriptdraft.Outcome{RunID: "r1", Err: errors.New("boom")})
 	assert.Equal(t, "failed", failed[fieldStatus])
@@ -29,28 +28,26 @@ func TestDraftResult_WithoutAnEngineResult(t *testing.T) {
 	assert.Contains(t, succeeded["message"], "Nothing was persisted")
 	assert.Equal(t, []scriptrun.WriteRecord{}, succeeded["writes"],
 		"an empty answer is an empty list, not null")
+	assert.NotContains(t, succeeded, "saved", "a draft of a saved script says nothing about saving")
+
+	unsaved := draftResult(&script.Script{Name: "new"}, &scriptdraft.Outcome{RunID: "r3"})
+	assert.Equal(t, false, unsaved["saved"], "a draft of a script not saved yet says so")
 }
 
-// TestDraftPersistedNothing_NamesOneWriteInTheSingular keeps the sentence a
-// reader acts on grammatical for the common case of a draft that landed one
-// thing.
-func TestDraftPersistedNothing_NamesOneWriteInTheSingular(t *testing.T) {
-	one := draftPersistedNothing(&scriptrun.Result{
-		Writes: []scriptrun.WriteRecord{{Tool: "manage_resource", Call: "manage_resource action=create"}},
-	})
-	assert.Contains(t, one, "the 1 call listed under writes persisted for real")
+// TestHandle_DraftExports hands the portal editor the same writer the tool's
+// drafts use (#1822), and a nil Handle none.
+func TestHandle_DraftExports(t *testing.T) {
+	var none *Handle
+	assert.Nil(t, none.DraftExports())
 
-	two := draftPersistedNothing(&scriptrun.Result{
-		Writes: []scriptrun.WriteRecord{{Tool: "a"}, {Tool: "b"}},
-	})
-	assert.Contains(t, two, "the 2 calls listed under writes persisted for real")
-}
-
-// TestDraftPersistedNothing_NamesAnUnsavedState pins that a reader who sees a
-// state object is told it did not land, on both the barred and the allowed
-// path.
-func TestDraftPersistedNothing_NamesAnUnsavedState(t *testing.T) {
-	msg := draftPersistedNothing(&scriptrun.Result{State: &script.StateWrite{Value: map[string]any{"c": 1}}})
-	require.Contains(t, msg, "Nothing was persisted")
-	assert.Contains(t, msg, "did not save it")
+	called := false
+	h := New(Config{DraftExports: func(scriptdraft.Target) scriptrun.Exporter {
+		called = true
+		return nil
+	}})
+	exports := h.DraftExports()
+	if assert.NotNil(t, exports) {
+		exports(scriptdraft.Target{})
+	}
+	assert.True(t, called, "the writer handed out is the one the layer was given")
 }

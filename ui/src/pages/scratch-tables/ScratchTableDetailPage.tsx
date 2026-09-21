@@ -8,7 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useScratchTable, useUnregisterTable, TableApiError } from "@/api/tables/hooks";
-import type { ScratchTable } from "@/api/tables/types";
+import { formatLabel, type ScratchTable } from "@/api/tables/types";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { CopyButton } from "@/components/provenance/parts";
@@ -94,7 +94,7 @@ function Registration({
 
       <SectionCard title="Query it">
         <p className="text-xs text-muted-foreground">
-          Every column comes back as text, which is the CSV connector&rsquo;s rule rather than a
+          Every column comes back as text, which is the storage format&rsquo;s rule rather than a
           choice, so a join to a typed warehouse column needs a cast.
         </p>
         {/* A registration that recorded columns always carries a sample, since
@@ -128,6 +128,13 @@ function Registration({
             <dd className="mt-0.5">
               <SourceValue row={row} onNavigate={onNavigate} />
             </dd>
+          </div>
+          <div>
+            {/* What the file is read as decides what comes back: a JSON-lines
+                table returns every value exactly, a CSV table cannot carry a
+                line break inside a value (#1820). */}
+            <dt className="text-muted-foreground">Read as</dt>
+            <dd className="mt-0.5">{formatLabel(row.format)}</dd>
           </div>
           <div>
             {/* An operator's fact, and labelled as one: a reader needs it only

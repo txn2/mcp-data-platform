@@ -31383,6 +31383,10 @@
                     "type": "string",
                     "example": "daily_sales"
                 },
+                "reference": {
+                    "type": "string",
+                    "example": "mcp:resource:res_7c1e"
+                },
                 "refresh": {
                     "description": "Refresh marks a platform.publish_data call: the run would have replaced\nthe data region of an existing asset, and Bytes is the payload it would\nhave spliced in.",
                     "type": "boolean",
@@ -31391,6 +31395,16 @@
                 "row_count": {
                     "type": "integer",
                     "example": 1200
+                },
+                "table": {
+                    "description": "Table is the table a register= argument made over the written file,\nthe name a query selects from (#1820).",
+                    "type": "string",
+                    "example": "scratch.uploads.analyst_orders_stage"
+                },
+                "written": {
+                    "description": "Written marks an output the draft wrote for real, which only a draft\nrun with allow_writes does (#1822). Reference names what it wrote: the\nmanaged resource's reference, or the asset's.",
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -33523,6 +33537,10 @@
                     "description": "FollowError is why the last follow did not move the registration, and is\nempty while it is where the file is. It is kept on the record because a\nfollow never fails the write that triggered it, so the listing has to be\nable to say what is behind and why without the log of that write.",
                     "type": "string"
                 },
+                "format": {
+                    "description": "Format names the reader the table is declared with: \"csv\", or \"jsonl\"\nfor a JSON-lines file, whose values come back exactly (#1820). It is\ndecided by the file, not by the caller, and it is on the record because\nthe CREATE TABLE is written again at every follow and when a failed\nfollow puts a table back.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -33633,6 +33651,10 @@
                 },
                 "follow_error": {
                     "description": "FollowError is why the last follow did not move the registration, and is\nempty while it is where the file is. It is kept on the record because a\nfollow never fails the write that triggered it, so the listing has to be\nable to say what is behind and why without the log of that write.",
+                    "type": "string"
+                },
+                "format": {
+                    "description": "Format names the reader the table is declared with: \"csv\", or \"jsonl\"\nfor a JSON-lines file, whose values come back exactly (#1820). It is\ndecided by the file, not by the caller, and it is on the record because\nthe CREATE TABLE is written again at every follow and when a failed\nfollow puts a table back.",
                     "type": "string"
                 },
                 "id": {

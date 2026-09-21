@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 	s3tools "github.com/txn2/mcp-s3/pkg/tools"
@@ -250,6 +251,20 @@ func dispatchObject(ctx context.Context, client s3tools.S3Client, settings connS
 	default:
 		return s3tools.ErrorResultf("unknown action %q: use get, metadata, put, copy, delete or presign", in.Action), nil
 	}
+}
+
+// objectInputSchema is the schema the SDK infers from objectInput, with the
+// action verbs stated as an enum rather than only in prose (#1827): the draft
+// write barrier's verb gate reads the enum to prove each verb is classified,
+// and a caller reading the schema learns the set without parsing a sentence.
+// It panics on a reflection failure, a programming error covered by tests.
+func objectInputSchema() *jsonschema.Schema {
+	s, err := jsonschema.For[objectInput](nil)
+	if err != nil {
+		panic("s3: derive the s3_object input schema: " + err.Error())
+	}
+	s.Properties["action"].Enum = []any{actionGet, actionMetadata, actionPut, actionCopy, actionDelete, actionPresign}
+	return s
 }
 
 func isWriteAction(action string) bool {
