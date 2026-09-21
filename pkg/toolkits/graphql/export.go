@@ -237,8 +237,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"path next time is the NEXT VERSION of that one file, keeping its id, its mcp:// URI, the assets that " +
 			"reference it and the tables registered over it. That is the destination for a document run on a " +
 			"schedule. " +
-			"Returns asset metadata (id, URL, size), or the resource's reference, uri and version — the " +
-			"data is NOT in this response. NAMING: keep `name` short and portable, ASCII letters, digits, spaces, " +
+			toolkit.ResourceLandingResultSentence + " NAMING: keep `name` short and portable, ASCII letters, digits, spaces, " +
 			"hyphens and dots only; it doubles as the download filename, and is the display name when a resource " +
 			"destination names the filename itself.",
 		InputSchema: exportSchema,

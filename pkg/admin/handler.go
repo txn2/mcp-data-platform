@@ -434,6 +434,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAssetRoutes()
 	h.registerCollectionRoutes()
 	h.registerConnectionRoutes()
+	h.registerConnectionKindRoutes()
 	h.registerCatalogRoutes()
 	h.registerGatewayRoutes()
 	h.registerConnectionOAuthRoutes()

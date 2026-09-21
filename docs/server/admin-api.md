@@ -1584,6 +1584,77 @@ describing a state nothing was running.
 }
 ```
 
+#### Values are stored literally
+
+A config sent here is stored exactly as it arrives. `${VAR}` expansion is a
+feature of the platform's configuration FILE, which is expanded before it is
+parsed; nothing expands a value written through this API. A config carrying an
+unexpanded placeholder is therefore refused with `400 Bad Request` naming every
+key it sits on:
+
+```json
+{
+  "detail": "invalid connection config: password=\"${TRINO_PASSWORD}\", user=\"${TRINO_USER}\": a ${...} placeholder is stored literally on a database-managed connection, which the platform expands only in its configuration file, so this connection would be created and then fail every call. Send the resolved value, or declare this connection in the platform configuration file where ${VAR} is expanded"
+}
+```
+
+Before that refusal existed, such a connection was created, listed and read back
+looking correct, and every query against it failed at DSN construction with
+`net/url: invalid userinfo`. Nested values are checked too, so a placeholder in
+an api connection's `static_headers` is named as `static_headers.X-Subscription`.
+
+### Test a Connection Instance
+
+```
+POST /api/v1/admin/connection-instances/{kind}/{name}/test
+```
+
+Opens the connection and asks its upstream one harmless question, then reports
+what came back. It persists nothing and changes nothing.
+
+What each kind asks:
+
+| Kind | The question |
+|------|--------------|
+| `trino` | `SELECT 1` against the coordinator |
+| `s3` | a bucket listing |
+| `graphql` | an introspection query at the endpoint |
+| `api` | `GET /` at the base URL, through the connection's own client and credential |
+| `mcp` | a `tools/list` over the live upstream session |
+
+**Response** (`200 OK`) — the connection answered:
+
+```json
+{
+  "kind": "trino",
+  "name": "prod",
+  "ok": true,
+  "detail": "the query engine answered SELECT 1"
+}
+```
+
+**Response** (`503 Service Unavailable`) — it did not:
+
+```json
+{
+  "kind": "trino",
+  "name": "prod",
+  "ok": false,
+  "detail": "connection \"prod\" could not be opened",
+  "error": "invalid DSN: parse \"https://user:pass@trino.example.com:443/hive/public\": net/url: invalid userinfo"
+}
+```
+
+`detail` says what answered on a success and what was attempted on a failure;
+`error` carries the upstream's own words. A success is deliberately specific,
+because a bare `ok: true` against the wrong credential reads the same as one
+against the right credential.
+
+`409 Conflict` is a third answer, and a different one: no toolkit of that kind
+runs in this process, so there is nothing here to open the connection with. The
+connection may well be serving on another replica, where the same call will
+answer for it.
+
 ### Delete Connection Instance
 
 ```
@@ -1605,6 +1676,44 @@ credential-free `connection_instances` row for every file-configured connection
 so that `mcp:connection:(kind,name)` knowledge-page references resolve, which
 means a file connection and a database connection both have one. The list
 endpoint below reports the distinction as `file_declared`.
+
+### List Connection Kinds
+
+```
+GET /api/v1/admin/connection-kinds
+GET /api/v1/admin/connection-kinds/{kind}
+```
+
+Returns each kind a connection can be created under, with the JSON Schema of
+the `config` object `PUT /connection-instances/{kind}/{name}` takes. A
+connection's config is a freeform object on the wire, so without this the only
+way to learn a key's name is to read the deployment's own configuration file,
+which an operator or an agent without cluster access cannot do.
+
+**Response:**
+
+```json
+[
+  {
+    "kind": "trino",
+    "config_schema": {
+      "type": "object",
+      "required": ["host"],
+      "properties": {
+        "host": {"type": "string", "description": "Trino coordinator hostname. Required."},
+        "read_only": {"type": "boolean", "description": "Refuse write-class statements on this connection. ..."}
+      }
+    },
+    "note": "These are the keys this kind reads. A key not named here is stored and ignored, ..."
+  }
+]
+```
+
+Read the `note` as part of the answer. The schema names the keys a kind reads,
+and nothing more: a key it does not name is stored and ignored rather than
+refused, a value is stored literally, and a config the schema admits is not
+thereby a connection that works. The test endpoint above is what answers that
+last question.
 
 ### List Effective Connections
 

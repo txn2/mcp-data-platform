@@ -30,6 +30,11 @@ type ConnectionInfo struct {
 	// connection an operator granted is hidden by the platform preferring the
 	// other name.
 	Bound string
+	// ReadOnly reports whether the connection refuses write-class calls, nil
+	// where the kind has no such notion. It rides on the fetched document so a
+	// caller planning work against a connection reads its writability from the
+	// same place it reads what the connection is (#1805).
+	ReadOnly *bool
 }
 
 // gateable reports whether this entry carries the identity the persona rules

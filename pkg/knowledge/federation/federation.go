@@ -139,6 +139,7 @@ func (l ConnectionLister) Connections() []knowledge.ConnectionInfo {
 					Kind:        tk.Kind(),
 					Description: conn.Description,
 					Bound:       conn.Name,
+					ReadOnly:    conn.ReadOnly,
 				})
 			}
 			continue

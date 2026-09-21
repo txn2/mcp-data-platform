@@ -391,26 +391,14 @@ func manageScriptSchema() any {
 	}
 }
 
-// textpatchProperties publishes the shared content-editing grammar. It is kept
-// separate so the manage_script schema and the input struct stay in step with
-// pkg/textpatch rather than with a hand-copied list.
+// textpatchProperties publishes the shared content-editing grammar.
+//
+// It is the grammar verbatim, not a paraphrase of it: pkg/textpatch owns the
+// property set, its wording and its strictness, and manage_script splices the
+// same fragment manage_asset and manage_prompt splice. The hand-written copy
+// this replaced declared the edit items as a bare object, so the nested keys
+// an edit carries were validated nowhere and a misspelled replacement key was
+// accepted and applied as an empty one (#1804).
 func textpatchProperties() map[string]any {
-	return map[string]any{
-		"edits": map[string]any{
-			keyType: valArray, keyItems: map[string]any{keyType: valObject},
-			keyDescription: "Anchored edits for patch. " + textpatch.VerbsDescription,
-		},
-		"base_version":  map[string]any{keyType: valInteger, keyDescription: "Version the edits were written against; the patch is refused if the script moved on."},
-		"dry_run":       map[string]any{keyType: valBoolean, keyDescription: "Report what patch would do without saving it."},
-		"find":          map[string]any{keyType: valString, keyDescription: "Literal anchor for locate."},
-		"pattern":       map[string]any{keyType: valString, keyDescription: "Regular-expression anchor for locate."},
-		"section":       map[string]any{keyType: valString, keyDescription: "Section to scope a content verb to."},
-		"selector":      map[string]any{keyType: valString, keyDescription: "Structural selector to scope a content verb to."},
-		"occurrence":    map[string]any{keyType: valString, keyDescription: "Which match to act on when a selector matches more than once."},
-		"line_start":    map[string]any{keyType: valInteger, keyDescription: "First line for get_content."},
-		"line_end":      map[string]any{keyType: valInteger, keyDescription: "Last line for get_content."},
-		"context_bytes": map[string]any{keyType: valInteger, keyDescription: "Bytes of surrounding context to return with each locate match."},
-		"from_version":  map[string]any{keyType: valInteger, keyDescription: "Older version for diff."},
-		"to_version":    map[string]any{keyType: valInteger, keyDescription: "Newer version for diff."},
-	}
+	return textpatch.PropertiesMap()
 }

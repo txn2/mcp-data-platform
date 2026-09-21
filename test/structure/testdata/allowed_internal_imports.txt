@@ -266,6 +266,7 @@ internal/platform/connscope -> pkg/persona
 internal/platform/connsource -> pkg/connid
 internal/platform/connsource -> pkg/registry
 internal/platform/connstored -> internal/logsan
+internal/platform/connstored -> internal/platform/cfgmap
 internal/platform/connstored -> pkg/connview
 internal/platform/connstored -> pkg/toolkits/apigateway/catalog
 internal/platform/datasetindex -> pkg/indexjobs
@@ -630,9 +631,11 @@ pkg/admin -> internal/agentinstructions
 pkg/admin -> internal/apidocs
 pkg/admin -> internal/apikeyissue
 pkg/admin -> internal/buildinfo
+pkg/admin -> internal/connprobe
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
+pkg/admin -> internal/platform/configenv
 pkg/admin -> internal/platform/connalert
 pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
@@ -943,6 +946,7 @@ pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/apigwmetrics
 pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/conncatchup
+pkg/toolkits/apigateway -> internal/connprobe
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
@@ -968,6 +972,7 @@ pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog
 pkg/toolkits/datahub -> pkg/query
 pkg/toolkits/datahub -> pkg/semantic
 pkg/toolkits/datahub -> pkg/toolkit
+pkg/toolkits/gateway -> internal/connprobe
 pkg/toolkits/gateway -> internal/logsan
 pkg/toolkits/gateway -> pkg/authevents
 pkg/toolkits/gateway -> pkg/connoauth
@@ -979,6 +984,7 @@ pkg/toolkits/gateway/enrichment -> internal/logsan
 pkg/toolkits/graphql -> internal/apigwmetrics
 pkg/toolkits/graphql -> internal/cfgmap
 pkg/toolkits/graphql -> internal/conncatchup
+pkg/toolkits/graphql -> internal/connprobe
 pkg/toolkits/graphql -> internal/gqlschema
 pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget
@@ -1032,6 +1038,7 @@ pkg/toolkits/portal -> pkg/textpatch
 pkg/toolkits/portal -> pkg/textpatch/patchmcp
 pkg/toolkits/portal -> pkg/toolkit
 pkg/toolkits/portal -> pkg/user
+pkg/toolkits/s3 -> internal/connprobe
 pkg/toolkits/s3 -> pkg/observability
 pkg/toolkits/s3 -> pkg/query
 pkg/toolkits/s3 -> pkg/semantic
@@ -1043,6 +1050,7 @@ pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
+pkg/toolkits/trino -> internal/connprobe
 pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> pkg/mcpcontext

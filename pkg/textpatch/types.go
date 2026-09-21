@@ -116,6 +116,16 @@ type Edit struct {
 	Before     string `json:"before,omitempty"`
 	After      string `json:"after,omitempty"`
 	Position   string `json:"position,omitempty"`
+
+	// replaceOmitted, textOmitted and unknownKeys record what a JSON caller
+	// sent, which the decoded values cannot express: an absent payload key and
+	// an empty one are the same string. They are set only by UnmarshalJSON, so
+	// an Edit composed in Go is taken at its word — the zero value is "the key
+	// was sent", which is what a caller writing Replace: "" in Go means. See
+	// decode.go.
+	replaceOmitted bool
+	textOmitted    bool
+	unknownKeys    []string
 }
 
 // region returns the section/selector/occurrence an edit names as a region.

@@ -114,6 +114,11 @@ func (h *Handler) registerConnectionRoutes() {
 		h.mux.HandleFunc("PUT /api/v1/admin/connection-instances/{kind}/{name}", h.setConnectionInstance)
 		h.mux.HandleFunc("DELETE /api/v1/admin/connection-instances/{kind}/{name}", h.deleteConnectionInstance)
 	}
+	// Testing a connection reads it and writes nothing, and it answers for
+	// what this PROCESS serves rather than for what the store holds, so it
+	// needs neither database config mode nor a connection store: a
+	// file-declared connection is as testable as a saved one (#1805).
+	h.mux.HandleFunc("POST /api/v1/admin/connection-instances/{kind}/{name}/test", h.testConnectionInstance)
 }
 
 // listConnectionInstances handles GET /api/v1/admin/connection-instances.
@@ -278,6 +283,13 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := registry.ValidateConnectionConfig(kind, req.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
+
+	// Checked after the redaction merge, so a "[REDACTED]" placeholder that
+	// resolves to a stored value is judged on the value it resolves to.
+	if err := checkNoPlaceholders(req.Config); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
 		return
 	}

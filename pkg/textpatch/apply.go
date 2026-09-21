@@ -71,6 +71,9 @@ func checkResultSize(body string, opts Options) error {
 
 // applyOne dispatches a single edit and reports what it did.
 func applyOne(body string, e Edit, index int, opts Options) (string, EditResult, error) {
+	if err := e.checkEdit(index); err != nil {
+		return "", EditResult{}, err
+	}
 	switch e.op() {
 	case OpAppend:
 		return body + e.Text, EditResult{Index: index, Op: OpAppend, Matches: 1, Line: CountLines(body) + 1}, nil

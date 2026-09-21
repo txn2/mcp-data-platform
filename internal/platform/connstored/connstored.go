@@ -25,6 +25,7 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/connview"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
@@ -45,6 +46,9 @@ type Row struct {
 	Name        string
 	Description string
 	CatalogID   string
+	// ReadOnly is the connection's writability as the stored config declares
+	// it, nil where the kind has no such setting (#1805).
+	ReadOnly *bool
 }
 
 // New adapts the platform's connection store to the inventory an enumeration
@@ -90,6 +94,7 @@ func (i inventory[R]) ListStoredConnections(ctx context.Context) ([]connview.Sto
 			Description:    r.Description,
 			CatalogID:      r.CatalogID,
 			OperationCount: operations(ctx, catalogs, r.CatalogID, counts),
+			ReadOnly:       r.ReadOnly,
 		})
 	}
 	return out, nil
@@ -123,4 +128,25 @@ func operations(ctx context.Context, catalogs apicatalog.Store, catalogID string
 	}
 	counts[catalogID] = total
 	return total
+}
+
+// readOnlyKinds are the connection kinds whose config declares writability.
+// A kind outside this set has no such notion and reports nothing rather than
+// reporting false, which would read as "this connection accepts writes".
+var readOnlyKinds = map[string]bool{
+	"trino": true, "s3": true, "datahub": true, "graphql": true,
+}
+
+// ReadOnly reads a stored connection's writability out of its config, for the
+// kinds that have one (#1805).
+//
+// It lives beside the row rather than with the platform that assembles one
+// because it is a fact about a stored connection, and the enumeration reads it
+// for connections this process does not serve.
+func ReadOnly(kind string, config map[string]any) *bool {
+	if !readOnlyKinds[kind] {
+		return nil
+	}
+	readOnly := cfgmap.Bool(config, "read_only")
+	return &readOnly
 }

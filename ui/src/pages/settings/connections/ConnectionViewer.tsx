@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
+import { ConnectionTestButton, canTestConnection } from "./ConnectionTestButton";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
 import { shadowedOAuthKeys, storedOAuthGrant } from "./oauthVocabulary";
@@ -182,6 +183,20 @@ export function ConnectionViewer({
           </div>
         )}
       </div>
+
+      {/* Every other kind's connection test. The mcp kind keeps the richer
+          GatewayActionBar below, whose test can also probe a config that has
+          not been saved yet. */}
+      {canTestConnection(connection.kind) && !isReadOnly && (
+        // Keyed by the connection, so selecting another one starts with no
+        // result rather than showing the previous connection's answer under
+        // this connection's name.
+        <ConnectionTestButton
+          key={`${connection.kind}/${connection.name}`}
+          kind={connection.kind}
+          name={connection.name}
+        />
+      )}
 
       {/* Gateway-specific actions: test, refresh, rules */}
       {connection.kind === "mcp" && !isReadOnly && (

@@ -121,6 +121,18 @@ export interface AgentInstructionsBaseline {
 // Connection Instances (DB-managed)
 // ---------------------------------------------------------------------------
 
+// ConnectionTestResult is what POST /connection-instances/{kind}/{name}/test
+// reports: the platform opened the connection and asked its upstream one
+// harmless question. `detail` describes what answered on success and what was
+// attempted on failure; `error` carries the upstream's own words.
+export interface ConnectionTestResult {
+  kind: string;
+  name: string;
+  ok: boolean;
+  detail?: string;
+  error?: string;
+}
+
 export interface ConnectionInstance {
   kind: string;
   name: string;

@@ -296,6 +296,12 @@ func (t *Toolkit) Config() Config {
 	return t.config
 }
 
+// IsReadOnly reports whether this connection refuses write operations, for the
+// enumeration that reports writability beside a connection (#1805). This
+// toolkit serves one connection and lists none, so the fact is asked of the
+// toolkit rather than read off a per-connection listing.
+func (t *Toolkit) IsReadOnly() bool { return t.config.ReadOnly }
+
 // Verify interface compliance.
 var _ interface {
 	Kind() string

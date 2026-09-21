@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"fmt"
 
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -121,6 +122,32 @@ func GraphQLAggregateFactory(defaultName string, instances map[string]map[string
 		return nil, fmt.Errorf("parsing graphql multi config: %w", err)
 	}
 	return graphqlkit.NewMulti(cfg), nil
+}
+
+// ConnectionConfigSchema returns the JSON Schema of a kind's connection config,
+// or nil for a kind that declares none.
+//
+// It sits beside ValidateConnectionConfig deliberately: the same switch that
+// says which parser judges a kind's config says where that kind's config is
+// documented, so a kind cannot be validated by one package and described by
+// another. A connection is a freeform object on the wire, and until these
+// schemas existed the only way to learn a key's name was to read a deployment's
+// configuration file out of band (#1805).
+func ConnectionConfigSchema(kind string) json.RawMessage {
+	switch kind {
+	case "trino":
+		return json.RawMessage(trinokit.ConfigSchemaJSON)
+	case "s3":
+		return json.RawMessage(s3kit.ConfigSchemaJSON)
+	case gatewaykit.Kind:
+		return json.RawMessage(gatewaykit.ConfigSchemaJSON)
+	case apigatewaykit.Kind:
+		return json.RawMessage(apigatewaykit.ConfigSchemaJSON)
+	case graphqlkit.Kind:
+		return json.RawMessage(graphqlkit.ConfigSchemaJSON)
+	default:
+		return nil
+	}
 }
 
 // ValidateConnectionConfig validates a connection config map against

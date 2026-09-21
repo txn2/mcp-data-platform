@@ -336,7 +336,12 @@ The same reverse lookup surfaces in two more agent-facing places:
 - **`search(entity_urns=[...])`** returns the knowledge pages that reference each
   entity (datasets and connections), merged with the text-relevance results.
 - **`list_connections`** carries, per connection, a `knowledge_page_count` and a
-  bounded sample of the pages that document it.
+  bounded sample of the pages that document it. Where the kind has the notion it
+  also carries `read_only`, answered identically for a connection this replica
+  serves and one another replica saved, so writability is visible before a call
+  rather than only in the refusal of one. `read_only: false` is not scoped to
+  the connection's declared catalog, schema or bucket: those are defaults, not
+  boundaries. See [Authorization](../concepts/authorization.md#what-the-boundary-enforces).
 
 ---
 

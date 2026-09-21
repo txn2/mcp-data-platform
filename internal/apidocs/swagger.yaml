@@ -521,6 +521,21 @@ definitions:
           type: string
         type: array
     type: object
+  admin.connectionKindDoc:
+    properties:
+      config_schema:
+        description: |-
+          ConfigSchema is the JSON Schema of the object sent as "config" on
+          PUT /admin/connection-instances/{kind}/{name}.
+        type: object
+      kind:
+        type: string
+      note:
+        description: |-
+          Note says how the schema is to be read, so nothing is inferred from its
+          silence.
+        type: string
+    type: object
   admin.connectionListResponse:
     properties:
       connections:
@@ -1232,6 +1247,19 @@ definitions:
       version_url:
         example: https://acme.example.com/changelog
         type: string
+    type: object
+  admin.testConnectionResponse:
+    properties:
+      detail:
+        type: string
+      error:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      ok:
+        type: boolean
     type: object
   admin.testGatewayConnectionRequest:
     properties:
@@ -11519,6 +11547,51 @@ paths:
       summary: Create or update connection instance
       tags:
       - Connections
+  /admin/connection-instances/{kind}/{name}/test:
+    post:
+      description: Opens the connection and asks its upstream one harmless question
+        — a trivial query, a bucket listing, an introspection, a tools/list, a GET
+        at the base URL — and reports whether it answered. It is read-only and persists
+        nothing. Until this existed a connection could be created, stored, listed
+        and read back without anything ever having opened it, so an unusable connection
+        was indistinguishable from a working one until a real call failed. 200 means
+        the connection answered; 503 means it did not, with the upstream's own error.
+      parameters:
+      - description: Toolkit kind (trino, s3, api, graphql, mcp)
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Instance name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.testConnectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.testConnectionResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Test a connection instance
+      tags:
+      - Connections
   /admin/connection-instances/effective:
     get:
       description: Returns the merged view of file-configured (live) and database-managed
@@ -11602,6 +11675,54 @@ paths:
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
       summary: Read a GraphQL connection's schema state
+      tags:
+      - Connections
+  /admin/connection-kinds:
+    get:
+      description: Returns every kind a connection instance can be created under,
+        each with the JSON Schema of its config object. A connection's config is a
+        freeform object on the wire, so without this the only way to learn a key's
+        name is to read the deployment's configuration file out of band.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/admin.connectionKindDoc'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List connection kinds and their config schemas
+      tags:
+      - Connections
+  /admin/connection-kinds/{kind}:
+    get:
+      description: Returns the JSON Schema of one kind's config object, which is what
+        the "config" field of PUT /admin/connection-instances/{kind}/{name} takes.
+      parameters:
+      - description: Toolkit kind (trino, s3, api, graphql, mcp)
+        in: path
+        name: kind
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.connectionKindDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one connection kind's config schema
       tags:
       - Connections
   /admin/connections:

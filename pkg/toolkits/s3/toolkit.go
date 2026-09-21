@@ -228,7 +228,10 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	names := slices.Sorted(maps.Keys(t.connections))
 	out := make([]toolkit.ConnectionDetail, 0, len(names))
 	for _, name := range names {
-		out = append(out, toolkit.ConnectionDetail{Name: name, Description: t.descriptions[name], IsDefault: name == t.name})
+		readOnly := t.connections[name].readOnly
+		out = append(out, toolkit.ConnectionDetail{
+			Name: name, Description: t.descriptions[name], IsDefault: name == t.name, ReadOnly: &readOnly,
+		})
 	}
 	return out
 }
