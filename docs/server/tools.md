@@ -221,7 +221,7 @@ The response is one JSON object, returned as the tool's structured result and as
 **Security features:**
 
 - SQL runs through the same read-only interceptor as `trino_query`
-- CSV formula injection escaping enabled by default (cells starting with `=`, `+`, `-`, `@` are escaped)
+- CSV cells hold each value exactly as the query returned it. A value starting with `=`, `+`, `-` or `@` is not rewritten, because a stored CSV is a data file that tables are registered over and scripts read
 - Sensitivity tags inherited from source datasets (PII, confidential, etc.) are automatically applied as `_sys-classification:*` tags
 - Hard row and byte caps enforced per deployment
 - No asset record created unless the S3 write fully succeeds

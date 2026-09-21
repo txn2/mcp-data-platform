@@ -55,6 +55,9 @@ WHAT IS AVAILABLE
       markdown page. Formats: csv, json, markdown, text, html, jsx. csv and
       json require rows, so a data feed stays well-formed by construction;
       html and jsx take only a string body; markdown and text accept either.
+      csv is RFC 4180 and holds every value exactly: a value starting with
+      "=", "+", "-" or "@" is written as it is, a quote is doubled, and a
+      backslash is an ordinary character.
       A document is produced two ways, and the choice is made here, not later.
       Compose the whole document in the script when each run is its own kept
       document (a dated archive series), when the structure varies with the
@@ -259,6 +262,13 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
                       platform.call("api_invoke_endpoint", {...}).
   credentials         Never in the source. Name a connection; the platform holds
                       its credentials and authorizes the call.
+  a reserved word     These cannot name a function, a parameter, a variable or
+  as a name           an attribute: and, as, async, await, break, class,
+                      continue, def, del, elif, else, except, finally, for,
+                      from, global, if, import, in, is, lambda, load, nonlocal,
+                      not, or, pass, raise, return, try, while, with, yield.
+                      load is the one an ETL script reaches for: def load(...)
+                      does not parse. Name the step load_rows or write_rows.
 
 WHAT DETERMINISTIC MEANS HERE
   Same script version + same parameters + same state read + same underlying

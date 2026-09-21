@@ -12,6 +12,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -157,7 +158,7 @@ func Validate(source string) Report {
 
 	file, parseErr := fileOptions.Parse("script", source, 0)
 	if parseErr != nil {
-		findings = append(findings, translate(parseFindings(parseErr))...)
+		findings = append(findings, translate(parseFindings(source, parseErr))...)
 		sortFindings(findings)
 		report.Findings = findings
 		return report
@@ -200,12 +201,35 @@ func sortFindings(findings []Finding) {
 // parseFindings turns a parse failure into a finding. The Starlark parser stops
 // at the first syntax error, so there is exactly one to report; the slice return
 // keeps the shape uniform with resolveFindings, which genuinely reports many.
-func parseFindings(err error) []Finding {
+// A reserved word used as a name is reported by the word, since the parser's
+// message names neither the word nor the mistake (#1823).
+func parseFindings(source string, err error) []Finding {
 	var list syntax.Error
 	if errors.As(err, &list) {
+		if word, ok := scriptreserved.Misused(source, list); ok && !hasDialectCorrection(list.Msg) {
+			return []Finding{reservedNameFinding(word, int(list.Pos.Line))}
+		}
 		return []Finding{{Severity: SeverityError, Line: int(list.Pos.Line), Message: list.Msg}}
 	}
 	return []Finding{{Severity: SeverityError, Message: err.Error()}}
+}
+
+// reservedNameFinding names a reserved word used as a name, with the rename and
+// the whole list, since the author may be about to pick another one.
+func reservedNameFinding(word string, line int) Finding {
+	return Finding{
+		Severity: SeverityError, Line: line,
+		Message: fmt.Sprintf("`%s` is a reserved word in Starlark and cannot be used as a name", word),
+		Hint: fmt.Sprintf("Rename it, for example to `%s_rows`. No function, parameter, variable or attribute can be named %s.",
+			word, strings.Join(scriptreserved.Words(), ", ")),
+	}
+}
+
+// hasDialectCorrection reports whether a message already has a correction of
+// its own: "got class, want primary expression" is a class statement far more
+// often than a variable named class, and its hint says what to write instead.
+func hasDialectCorrection(msg string) bool {
+	return slices.ContainsFunc(dialectPattern, func(re *regexp.Regexp) bool { return re.MatchString(msg) })
 }
 
 // resolveFindings turns a resolver failure into findings. The resolver is where

@@ -152,7 +152,7 @@ func TestBuildDDL(t *testing.T) {
 	assert.Equal(t, []string{
 		`CREATE SCHEMA IF NOT EXISTS "scratch"."uploads"`,
 		`CREATE TABLE "scratch"."uploads"."analyst_keys" ("id" VARCHAR) ` +
-			`WITH (external_location = 's3://b/d/', format = 'CSV', skip_header_line_count = 1)`,
+			`WITH (external_location = 's3://b/d/', format = 'CSV', skip_header_line_count = 1, csv_escape = U&'\0000')`,
 	}, BuildDDL(reg, false))
 
 	replacing := BuildDDL(reg, true)

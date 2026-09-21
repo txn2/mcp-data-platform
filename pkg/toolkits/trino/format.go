@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 const (
@@ -67,6 +66,12 @@ func newFormatter(format string) (Formatter, error) {
 
 // --- CSV Formatter ---
 
+// csvFormatter writes RFC 4180 CSV holding each value exactly as the query
+// returned it (#1818). A stored CSV is a data file: a table is registered over
+// it, a script reads it, another system loads it. Rewriting a value that starts
+// with '=', '+', '-' or '@' for the benefit of a spreadsheet changed an
+// identifier like "-AbC" into "'-AbC" for every one of those readers, and
+// nothing reported the change.
 type csvFormatter struct{}
 
 func (*csvFormatter) ContentType() string   { return contentTypeCSV } //nolint:revive // implements Formatter
@@ -84,7 +89,7 @@ func (*csvFormatter) Format(columns []string, rows [][]any) ([]byte, error) { //
 	for _, row := range rows {
 		for i := range record {
 			if i < len(row) {
-				record[i] = escapeCSVCell(formatValue(row[i]))
+				record[i] = formatValue(row[i])
 			} else {
 				record[i] = ""
 			}
@@ -99,20 +104,6 @@ func (*csvFormatter) Format(columns []string, rows [][]any) ([]byte, error) { //
 		return nil, fmt.Errorf("flushing CSV: %w", err)
 	}
 	return buf.Bytes(), nil
-}
-
-// escapeCSVCell prevents formula injection by prefixing cells that start
-// with characters Excel interprets as formula indicators.
-func escapeCSVCell(s string) string {
-	if s == "" {
-		return s
-	}
-	r, _ := utf8.DecodeRuneInString(s)
-	switch r {
-	case '=', '+', '-', '@', '\t', '\r':
-		return "'" + s
-	}
-	return s
 }
 
 // --- JSON Formatter ---

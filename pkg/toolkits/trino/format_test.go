@@ -1,6 +1,8 @@
 package trino
 
 import (
+	"bytes"
+	"encoding/csv"
 	"strings"
 	"testing"
 
@@ -54,26 +56,30 @@ func TestCSVFormatter(t *testing.T) {
 	assert.Equal(t, "Bob,25,London", lines[2])
 }
 
-func TestCSVFormatterFormulaEscaping(t *testing.T) {
-	f := &csvFormatter{}
-	columns := []string{"value"}
-	rows := [][]any{
-		{"=SUM(A1:A10)"},
-		{"+cmd|' /C calc'!A0"},
-		{"-1+1"},
-		{"@import('evil')"},
-		{"safe value"},
+// TestCSVFormatterRoundTripsEveryValue holds #1818: the bytes a CSV export
+// stores parse back to exactly the values the query returned. The corpus is the
+// values a formula guard rewrote (a leading '=', '+', '-', '@', tab, CR) beside
+// the ones RFC 4180 quoting must carry: quotes, separators, line breaks,
+// backslashes and non-ASCII text.
+func TestCSVFormatterRoundTripsEveryValue(t *testing.T) {
+	values := []string{
+		"=SUM(A1:A10)", "+cmd|' /C calc'!A0", "-AbCdEfGhIj", "-5", "@import",
+		"\tleading tab", "\rleading cr", `say "hi"`, `""`, "a,b", "line\nbreak",
+		`back\slash`, `trailing \`, `q"\`, "caf\u00e9 \U0001F600 \uE000", "safe value", "",
 	}
-
-	data, err := f.Format(columns, rows)
+	rows := make([][]any, len(values))
+	for i, v := range values {
+		rows[i] = []any{i, v}
+	}
+	data, err := (&csvFormatter{}).Format([]string{"id", "value"}, rows)
 	require.NoError(t, err)
 
-	output := string(data)
-	assert.Contains(t, output, "'=SUM")
-	assert.Contains(t, output, "'+cmd")
-	assert.Contains(t, output, "'-1+1")
-	assert.Contains(t, output, "'@import")
-	assert.Contains(t, output, "safe value")
+	records, err := csv.NewReader(bytes.NewReader(data)).ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, len(values)+1)
+	for i, v := range values {
+		assert.Equal(t, v, records[i+1][1], "row %d", i)
+	}
 }
 
 func TestCSVFormatterNullHandling(t *testing.T) {
@@ -203,27 +209,6 @@ func TestTextFormatterAlignment(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	// The header columns should be padded to their respective widths
 	assert.Equal(t, "short  longcolumnname", lines[0])
-}
-
-func TestEscapeCSVCell(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"normal", "normal"},
-		{"=formula", "'=formula"},
-		{"+cmd", "'+cmd"},
-		{"-1", "'-1"},
-		{"@import", "'@import"},
-		{"\ttab", "'\ttab"},
-		{"\rcr", "'\rcr"},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, escapeCSVCell(tt.input))
-		})
-	}
 }
 
 func TestFormatValue(t *testing.T) {

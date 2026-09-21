@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	starlarkjson "go.starlark.net/lib/json"
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
@@ -167,4 +168,26 @@ func memberSet(members starlark.StringDict) map[string]bool {
 		out[name] = true
 	}
 	return out
+}
+
+// TestDialectContract_ListsEveryReservedWord pins the reserved-word entry of
+// WHAT IS NOT to the scanner (#1823): every keyword and reserved Python word the
+// parser refuses as a name is in the list the help prints, and the list names
+// no word the parser accepts.
+func TestDialectContract_ListsEveryReservedWord(t *testing.T) {
+	start := strings.Index(DialectContract, "a reserved word")
+	end := strings.Index(DialectContract, "WHAT DETERMINISTIC MEANS HERE")
+	require.Positive(t, start)
+	require.Greater(t, end, start)
+	entry := strings.Join(strings.Fields(DialectContract[start:end]), " ")
+	listed := regexp.MustCompile(`an attribute: ([a-z, ]+)\.`).FindStringSubmatch(entry)
+	require.Len(t, listed, 2, entry)
+
+	var want []string
+	for tok := syntax.AND; tok <= syntax.YIELD; tok++ {
+		if w := tok.String(); !strings.Contains(w, " ") {
+			want = append(want, w)
+		}
+	}
+	assert.ElementsMatch(t, want, strings.Split(listed[1], ", "))
 }
