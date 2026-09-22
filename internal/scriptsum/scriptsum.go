@@ -1,4 +1,9 @@
-package scriptrun
+// Package scriptsum is the sum builtin a managed script is given.
+//
+// It is separate from the engine for the reason internal/scriptdate is: it is
+// a pure fold over values the script already holds, with no run, no caller and
+// no state, and the engine's only use of it is to predeclare it.
+package scriptsum
 
 import (
 	"fmt"
@@ -7,12 +12,12 @@ import (
 	"go.starlark.net/syntax"
 )
 
-// sumBuiltinName is the global `sum` is bound to. It is spelled once so the
-// binding, the resolver's view of the environment, and the error messages
-// cannot disagree.
-const sumBuiltinName = "sum"
+// Name is the global `sum` is bound to. It is spelled once so the binding,
+// the resolver's view of the environment, and the error messages cannot
+// disagree.
+const Name = "sum"
 
-// sumBuiltin adds an iterable of numbers.
+// Builtin adds an iterable of numbers.
 //
 // Starlark's universe has no sum: min, max, any and all are there, and the one
 // reduction a reporting script performs on every run is not. Totalling a
@@ -24,14 +29,14 @@ const sumBuiltinName = "sum"
 // start=0), left to right, an int result when every addend is an int. The
 // values it is pointed at are usually float(r["total"]) over a DECIMAL column,
 // which arrives from SQL as a string.
-var sumBuiltin = starlark.NewBuiltin(sumBuiltinName, sumFn)
+var Builtin = starlark.NewBuiltin(Name, sumFn)
 
 // sumFn implements sum(iterable, start=0).
 func sumFn(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var iterable starlark.Iterable
 	var start starlark.Value = starlark.MakeInt(0)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "iterable", &iterable, "start?", &start); err != nil {
-		return nil, argErr(b, err)
+		return nil, fmt.Errorf("in %s: %w", b.Name(), err)
 	}
 	if err := requireNumber(b, start); err != nil {
 		return nil, err
@@ -54,7 +59,7 @@ func sumOver(b *starlark.Builtin, iterable starlark.Iterable, total starlark.Val
 		}
 		sum, err := starlark.Binary(syntax.PLUS, total, elem)
 		if err != nil {
-			return nil, argErr(b, err)
+			return nil, fmt.Errorf("in %s: %w", b.Name(), err)
 		}
 		total = sum
 	}

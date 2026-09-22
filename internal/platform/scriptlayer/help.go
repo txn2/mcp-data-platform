@@ -49,7 +49,7 @@ WHAT IS AVAILABLE
       pass it through float() before arithmetic:
       sum([float(r["total"]) for r in rows]).
   platform.export(name, rows, format="csv", destination="portal", key=None,
-                  register=None)
+                  register=None, references=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
@@ -82,6 +82,21 @@ WHAT IS AVAILABLE
       register by name, as destination and key are. This is the path for
       free text into SQL: trino_execute binds no parameters, and
       INSERT ... SELECT from the registered table does.
+      references=["mcp://global/brand/logo.svg", "mcp:asset:<id>"] declares
+      what a portal document names, so the page renders the file: write the
+      reference itself in the markup (<img src="mcp://global/brand/logo.svg">)
+      and list it here. It is manage_asset update on the asset the export
+      wrote, so only something the script's author can read may be declared,
+      and declaring it lets everyone the asset is shared with load it,
+      including anyone holding a public link. An empty list removes the
+      asset's references; leaving the argument out leaves them alone. It
+      takes a string body in html, jsx, markdown or text written to
+      "portal", and is refused before anything is written otherwise. A
+      refusal fails the run, naming the output. Whether or not you pass it,
+      the record carries "undeclared_references": every mcp:// URI and
+      mcp:asset: reference the body names that references did not list,
+      each served exactly as written and resolving to nothing, and the run
+      log names them too.
       A document is produced two ways, and the choice is made here, not later.
       Compose the whole document in the script when each run is its own kept
       document (a dated archive series), when the structure varies with the

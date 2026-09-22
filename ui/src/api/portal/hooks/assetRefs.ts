@@ -120,6 +120,18 @@ export interface ReferencingAssetsResponse {
 const refsKey = (assetId: string) => ["portal", "asset-refs", assetId];
 const usedByKey = (kind: RefTargetKind, id: string) => ["portal", "used-by", kind, id];
 
+// invalidateServedContent refetches the asset's content and every version of
+// it the viewer holds. The server rewrites declared references into working
+// URLs as it serves, so a reference added or removed changes those bodies
+// without changing the asset's content or its version (#1835).
+const invalidateServedContent = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  assetId: string,
+) => {
+  void queryClient.invalidateQueries({ queryKey: ["asset-content", assetId] });
+  void queryClient.invalidateQueries({ queryKey: ["version-content", assetId] });
+};
+
 // usedByPath is the route that answers "what is holding this up?" for either
 // kind. One path shape for both keeps the two sections asking the same
 // question.
@@ -149,6 +161,7 @@ export function useAddAssetRef(assetId: string) {
       }),
     onSuccess: (_data, target) => {
       void queryClient.invalidateQueries({ queryKey: refsKey(assetId) });
+      invalidateServedContent(queryClient, assetId);
       // The target's own "used by" list has just gained this asset.
       void queryClient.invalidateQueries({ queryKey: usedByKey(target.kind, target.id) });
     },
@@ -165,6 +178,7 @@ export function useRemoveAssetRef(assetId: string) {
       ),
     onSuccess: (_data, target) => {
       void queryClient.invalidateQueries({ queryKey: refsKey(assetId) });
+      invalidateServedContent(queryClient, assetId);
       void queryClient.invalidateQueries({ queryKey: usedByKey(target.kind, target.id) });
     },
   });

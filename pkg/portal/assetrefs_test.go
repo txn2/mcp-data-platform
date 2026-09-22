@@ -628,3 +628,66 @@ func TestCopyCarriesNoAssetReferenceWhenTheAssetReadFails(t *testing.T) {
 
 	assert.NotContains(t, refs.replaced, "copy1")
 }
+
+// TestContentRevalidatesAcrossAReferencesChange is #1835 through every portal
+// route that rewrites: the body carries an ETag over what was served and
+// no-cache, so a browser holding the pre-declaration copy is told it changed
+// when a reference is declared, though the asset's content and version did not.
+func TestContentRevalidatesAcrossAReferencesChange(t *testing.T) {
+	for _, path := range []string{"/api/v1/portal/assets/a1/content", "/api/v1/portal/assets/a1/versions/1/content"} {
+		t.Run(path, func(t *testing.T) {
+			f := newRefFixture(t, &User{UserID: "u1"}, false)
+			f.handler.deps.VersionStore = &mockVersionStore{getVersion: &AssetVersion{
+				AssetID: "a1", Version: 1, S3Bucket: "test-bucket", S3Key: "v1", ContentType: "text/html",
+			}}
+
+			before := f.get(t, path)
+			require.Equal(t, http.StatusOK, before.Code)
+			assert.Equal(t, "private, no-cache", before.Header().Get("Cache-Control"))
+			assert.Empty(t, before.Header().Get("Last-Modified"))
+			tag := before.Header().Get("ETag")
+			require.NotEmpty(t, tag)
+
+			// Unchanged, the held copy is confirmed with nothing transferred.
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+			req.Header.Set("If-None-Match", tag)
+			f.handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusNotModified, rec.Code)
+
+			f.refs.byAsset["a1"] = []assetrefs.Ref{{
+				AssetID: "a1", TargetKind: assetrefs.TargetResource, TargetID: "res-logo", URI: refLogoURI, RefToken: refLogoToken,
+			}}
+			rec = httptest.NewRecorder()
+			req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+			req.Header.Set("If-None-Match", tag)
+			f.handler.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code, "a references change invalidates the held copy")
+			assert.NotEqual(t, tag, rec.Header().Get("ETag"))
+			assert.Contains(t, rec.Body.String(), "/portal/refs/a1/"+refLogoToken)
+		})
+	}
+}
+
+// TestPublicContentRevalidates covers the share routes' raw content, which the
+// same rewrite serves.
+func TestPublicContentRevalidates(t *testing.T) {
+	rec := publicGet(t, publicRefFixture(t), "/portal/view/tok1/content")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "private, no-cache", rec.Header().Get("Cache-Control"))
+	assert.NotEmpty(t, rec.Header().Get("ETag"))
+}
+
+// TestBinaryContentKeepsTheDefaultCache: a binary body is never rewritten, so
+// it is not revalidated either, and a seek through a video does not hash it.
+func TestBinaryContentKeepsTheDefaultCache(t *testing.T) {
+	f := newRefFixture(t, &User{UserID: "u1"}, true)
+	f.asset.ContentType = "video/mp4"
+	f.s3.getCT = "video/mp4"
+
+	rec := f.get(t, "/api/v1/portal/assets/a1/content")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "private", rec.Header().Get("Cache-Control"))
+	assert.Empty(t, rec.Header().Get("ETag"))
+}

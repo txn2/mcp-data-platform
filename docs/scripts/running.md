@@ -1027,6 +1027,40 @@ platform.call("trino_execute", {
 - In a draft without `allow_writes` nothing is written, so `table` reports the
   registration it would make, with `preview` true and no `query_table`.
 
+### A report that shows a logo
+
+A document names a managed resource or another asset by its reference, and the
+viewing surfaces rewrite a reference into a working URL only when the asset
+declares it ([Asset References](../server/asset-references.md)). The export
+that writes the document declares it:
+
+```python
+LOGO = "mcp://global/brand/logo.svg"
+
+html = "<html><body><img src='" + LOGO + "' alt='ACME'><h1>Weekly sales</h1>...</body></html>"
+out = platform.export(name="weekly-sales", rows=html, format="html", references=[LOGO])
+```
+
+- `references` takes each managed resource's `mcp://` URI and each asset's
+  `mcp:asset:<id>` reference. It is `manage_asset update` on the asset the
+  export wrote, made over the run's own session, so only something the
+  script's author can read may be declared, and declaring it lets everyone the
+  asset is shared with load it, including anyone holding a public link.
+  `validate` reports `manage_asset` in `tools`.
+- An empty list removes the asset's references, and leaving the argument out
+  leaves whatever the asset already declares alone.
+- It takes a string body in `html`, `jsx`, `markdown` or `text` written to
+  `portal`, and is refused before anything is written otherwise. A refusal of
+  the declaration itself (a URI naming nothing, or a file the author cannot
+  read) fails the run naming the output; the version was already written.
+- Every export of a portal document reports the references its body names that
+  `references` did not list, as `undeclared_references` on the record and as an
+  `undeclared_references:` line in the run log, whether or not `references` was
+  passed. `validate` warns about each literal reference string in the source
+  that no export declares. Both read the default `mcp` resource scheme only.
+- In a draft without `allow_writes` nothing is written, so the record reports
+  `references` as the declaration it would make, unchecked.
+
 Each run records what it did — status, timings, interpreter steps, the queries
 it issued, the outputs it wrote, and the log the script printed — and that
 record is readable through the tool:

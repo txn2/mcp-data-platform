@@ -458,6 +458,7 @@ func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
 		ContentType: asset.ContentType,
 		ModTime:     asset.UpdatedAt,
 		Data:        data,
+		Revalidate:  contenttype.IsTextual(asset.ContentType),
 	})
 }
 
@@ -694,6 +695,7 @@ func (h *Handler) publicCollectionItemContent(w http.ResponseWriter, r *http.Req
 		ContentType: asset.ContentType,
 		ModTime:     asset.UpdatedAt,
 		Data:        data,
+		Revalidate:  contenttype.IsTextual(asset.ContentType),
 	})
 }
 

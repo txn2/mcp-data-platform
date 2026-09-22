@@ -138,3 +138,20 @@ func TestAdminServeRefsIgnoresAnEmptyAssetID(t *testing.T) {
 	assert.Equal(t, []byte(adminRefBody),
 		h.serveRefs(req, "", "text/html", []byte(adminRefBody)))
 }
+
+// TestAdminContentRevalidates is #1835 for the console's two content reads,
+// which rewrite through the same references.
+func TestAdminContentRevalidates(t *testing.T) {
+	versions := &mockAdminVersionStore{getVersion: &portal.AssetVersion{
+		AssetID: "a1", Version: 1, S3Bucket: "b", S3Key: "v1", ContentType: "text/html",
+	}}
+	for _, path := range []string{"/api/v1/admin/assets/a1/content", "/api/v1/admin/assets/a1/versions/1/content"} {
+		t.Run(path, func(t *testing.T) {
+			rec := adminGet(t, adminRefHandler(declaredRefs(), versions), path)
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "private, no-cache", rec.Header().Get("Cache-Control"))
+			assert.NotEmpty(t, rec.Header().Get("ETag"))
+			assert.Empty(t, rec.Header().Get("Last-Modified"))
+		})
+	}
+}
