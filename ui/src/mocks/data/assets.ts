@@ -420,6 +420,36 @@ export const mockAssets: Asset[] = [
     created_at: daysAgo(4),
     updated_at: daysAgo(4),
   },
+  {
+    // An HTML report saved the way agents usually save one: the whole document
+    // on a single line, inline <style> and <script> included (#1839). Its
+    // Source view opens wrapped and offers Format; the interactive suite
+    // formats it, saves it, and compares the preview before and after.
+    id: "ast-oneline",
+    owner_id: "user-alice",
+    owner_email: "alice@example.com",
+    name: "Q3 Regional Sales Review",
+    description: "Single-line HTML report: revenue KPIs, a bar per region, and the query behind them.",
+    content_type: "text/html",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-oneline.html",
+    thumbnail_s3_key: "thumbnails/ast-oneline.png",
+    size_bytes: 4_234,
+    tags: ["report", "sales", "q3-2026"],
+    provenance: {
+      session_id: "sess-jjj",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "save_asset", timestamp: daysAgo(2), parameters: { name: "Q3 Regional Sales Review" } },
+      ],
+    },
+    session_id: "sess-jjj",
+    current_version: 1,
+    thumbnail_version: 1,
+    thumbnail_dark_version: 0,
+    created_at: daysAgo(2),
+    updated_at: daysAgo(2),
+  },
 ];
 
 /**

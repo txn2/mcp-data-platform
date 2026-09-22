@@ -58,6 +58,7 @@
     "mermaid": "^11.16.1",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^6.3.289",
+    "prettier": "3.9.8",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

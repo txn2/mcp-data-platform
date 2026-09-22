@@ -182,6 +182,21 @@ content type renders identically wherever it is opened.
 Media types are never edited: the platform stores audio, video and images, it
 does not transcode them.
 
+The source editor has a **Wrap** toggle, on from the start when the longest line
+is wider than the editor, and **Format** for HTML, JSON, JSX and JavaScript,
+YAML and Markdown (JSON Lines has none: reindenting it would no longer be one
+record per line). Format runs Prettier in the browser. Its core and plugins are
+chunks fetched on the first click, so they add nothing to the portal bundle or
+to the editor's own chunk. The result replaces the buffer as an unsaved edit,
+and nothing is stored until Save. HTML is formatted under Prettier's CSS
+whitespace rules, so `<pre>` and `<textarea>` bodies and touching inline runs
+are kept as written. Prettier cannot see a page's own stylesheet, though, so
+before the result is accepted, both versions are laid out in an offscreen frame
+with scripts disabled and their rendered text compared. When the text differs,
+as it does for an element styled `white-space: pre`, Format refuses and leaves
+the buffer as it was. Input that does not parse is refused the same way, with
+the parser's message and position.
+
 The formats a report is usually written in, as the asset viewer renders them.
 Markdown, HTML and JSX are one family in the table above -- Markup -- and each
 gets its own renderer within it. Markdown, with mermaid, GFM tables and

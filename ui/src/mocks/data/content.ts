@@ -1,10 +1,14 @@
 import { jsxDashboardContent } from "./jsx-dashboard-content";
+import singleLineReport from "@/test/fixtures/source-format/agent-report.html?raw";
 
 /**
  * Mock content for each asset, keyed by asset ID.
  * These are returned by GET /assets/:id/content.
  */
 export const mockContent: Record<string, string> = {
+  // The single-line HTML report the source editor's Format is exercised on
+  // (#1839); the unit tests format the same file.
+  "ast-oneline": singleLineReport,
   // A slide deck on the reveal.js runtime the portal serves (#1767). In dev the
   // vite config answers /portal/vendor/reveal/ from node_modules, so this
   // renders as slides under MSW too.
