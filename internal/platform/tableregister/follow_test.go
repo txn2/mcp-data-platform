@@ -63,10 +63,11 @@ func TestFollowSource_MovesAFollowingRegistrationOntoTheNewHead(t *testing.T) {
 	require.Len(t, out, 1)
 	assert.Equal(t, FollowOutcome{
 		RegistrationID: reg.ID, Table: "scratch.uploads.analyst_content", Connection: "scratch",
-		Followed: true, Version: 2, ColumnsChanged: true,
+		Followed: true, Version: 2, ColumnsChanged: true, ColumnChanges: "added region VARCHAR",
 	}, out[0])
 	assert.Equal(t,
-		"scratch.uploads.analyst_content on scratch now reads version 2. Its columns changed with the file.",
+		"scratch.uploads.analyst_content on scratch now reads version 2. Its columns changed with the file: "+
+			"added region VARCHAR.",
 		out[0].Sentence())
 
 	// The same DDL a re-registration runs, at the new location, with the
@@ -1079,8 +1080,9 @@ func jsonlHarness(t *testing.T, body string) *harness {
 }
 
 // TestRegister_JSONLinesIsReadByTheJSONReader: a JSON-lines file registers
-// over the JSON reader, with the keys as its columns, and the format is kept
-// on the record so every later CREATE TABLE names it too.
+// over the JSON reader, with the keys as its columns typed from their values
+// (#1833), and the format is kept on the record so every later CREATE TABLE
+// names it too.
 func TestRegister_JSONLinesIsReadByTheJSONReader(t *testing.T) {
 	h := jsonlHarness(t, "{\"id\":1,\"Note\":\"a\\nb\"}\n{\"id\":2,\"extra\":null}\n")
 
@@ -1091,12 +1093,13 @@ func TestRegister_JSONLinesIsReadByTheJSONReader(t *testing.T) {
 	assert.Equal(t, FormatJSONLines, reg.Format)
 	assert.Equal(t, []string{
 		`CREATE SCHEMA IF NOT EXISTS "scratch"."uploads"`,
-		`CREATE TABLE "scratch"."uploads"."analyst_rows" ("id" VARCHAR, "note" VARCHAR, "extra" VARCHAR) ` +
+		`CREATE TABLE "scratch"."uploads"."analyst_rows" ("id" BIGINT, "note" VARCHAR, "extra" VARCHAR) ` +
 			`WITH (external_location = 's3://portal-assets/artifacts/u1/asset_1/', format = 'JSON')`,
 	}, h.trino.statements)
 	stored, err := h.store.Get(context.Background(), reg.ID)
 	require.NoError(t, err)
 	assert.Equal(t, FormatJSONLines, stored.Format)
+	assert.False(t, stored.AllVarchar, "a registration made now is typed")
 }
 
 // TestRegister_JSONLinesRefusesByLineAndOffersNoRepair: a line the reader
@@ -1109,7 +1112,7 @@ func TestRegister_JSONLinesRefusesByLineAndOffersNoRepair(t *testing.T) {
 		Request{Connection: "scratch", Source: "mcp", Repair: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "line 2")
-	assert.Contains(t, err.Error(), "nested object or list")
+	assert.Contains(t, err.Error(), `the value of "id" is an object here and was a scalar`)
 	assert.Empty(t, h.trino.statements, "a refusal runs no statement")
 	assert.Empty(t, h.reviser.saved, "a JSON-lines file is never rewritten")
 }
@@ -1134,7 +1137,7 @@ func TestFollowSource_AnEmptyJSONLinesVersionKeepsTheColumns(t *testing.T) {
 	assert.True(t, out[0].Followed, out[0].Reason)
 	assert.False(t, out[0].ColumnsChanged)
 	require.Len(t, h.trino.statements, 3)
-	assert.Contains(t, h.trino.statements[2], `("id" VARCHAR, "note" VARCHAR)`)
+	assert.Contains(t, h.trino.statements[2], `("id" BIGINT, "note" VARCHAR)`)
 	assert.Contains(t, h.trino.statements[2], "asset_1/v2/', format = 'JSON')")
 
 	stored, err := h.store.Get(context.Background(), reg.ID)

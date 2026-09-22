@@ -450,6 +450,35 @@ export const mockAssets: Asset[] = [
     created_at: daysAgo(2),
     updated_at: daysAgo(2),
   },
+  {
+    // A JSON-lines file that is a table, the way every trino_export and
+    // platform.export in format jsonl writes one: the same keys on every line,
+    // one of them a small object (#1833). The viewer opens it on its Table
+    // view; ast-010's event log, whose lines differ in shape, opens on Records.
+    id: "ast-jsonl-table",
+    owner_id: "user-alice",
+    owner_email: "alice@example.com",
+    name: "Store Totals (JSON lines)",
+    description: "Daily store totals exported as JSON lines: one record per store, a nested manager record on each.",
+    content_type: "application/x-ndjson",
+    s3_bucket: "portal-assets",
+    s3_key: "assets/ast-jsonl-table.ndjson",
+    size_bytes: 612,
+    tags: ["stores", "jsonl"],
+    provenance: {
+      session_id: "sess-jjj",
+      user_id: "user-alice",
+      tool_calls: [
+        { tool_name: "trino_export", timestamp: daysAgo(1), parameters: { format: "jsonl" } },
+      ],
+    },
+    session_id: "sess-jjj",
+    current_version: 1,
+    thumbnail_version: 0,
+    thumbnail_dark_version: 0,
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+  },
 ];
 
 /**

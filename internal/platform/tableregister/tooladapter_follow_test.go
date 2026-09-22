@@ -62,7 +62,7 @@ func TestToolAdapter_FollowAssetTablesMovesTheTableAndReports(t *testing.T) {
 	lines := adapter.FollowAssetTables(context.Background(), "asset_1", 2)
 
 	require.Len(t, lines, 1)
-	assert.Equal(t, "scratch.uploads.analyst_content on scratch now reads version 2. Its columns changed with the file.",
+	assert.Equal(t, "scratch.uploads.analyst_content on scratch now reads version 2. Its columns changed with the file: added region VARCHAR.",
 		lines[0])
 	assert.Contains(t, h.trino.statements[2], "/v2/")
 }

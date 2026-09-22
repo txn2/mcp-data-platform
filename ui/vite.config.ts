@@ -183,9 +183,15 @@ export default defineConfig(({ mode }) => {
     // shipped dayjs.min.js is UMD. Explicitly `include` dayjs so vite
     // still pre-bundles it with the interop wrapper. Same for any
     // other UMD/CJS-only deps mermaid pulls in.
+    // hyparquet and its decompressors are imported only by the Parquet
+    // viewer, which a session reaches by opening a Parquet file rather than by
+    // loading the app. Left to discovery, the dev server pre-bundles them on
+    // that first open and reloads the page mid-render, which fails the dynamic
+    // import of whichever page was loading (#1833). Naming them here bundles
+    // them at startup, where nothing is waiting on them.
     optimizeDeps: {
       exclude: ["mermaid"],
-      include: ["dayjs", "@braintree/sanitize-url"],
+      include: ["dayjs", "@braintree/sanitize-url", "hyparquet", "hyparquet-compressors"],
     },
     server: {
       proxy: {

@@ -8619,6 +8619,14 @@ definitions:
     type: object
   tablehttp.registrationView:
     properties:
+      all_varchar:
+        description: |-
+          AllVarchar marks a JSON-lines registration made before its columns were
+          typed (#1833), when every column was declared VARCHAR. A follow keeps
+          the rule, so a query written against the table keeps working whatever
+          the next version of the file holds; registering the file again under
+          the same name makes a typed registration in its place.
+        type: boolean
       catalog:
         type: string
       columns:
@@ -8646,11 +8654,11 @@ definitions:
         type: string
       format:
         description: |-
-          Format names the reader the table is declared with: "csv", or "jsonl"
-          for a JSON-lines file, whose values come back exactly (#1820). It is
-          decided by the file, not by the caller, and it is on the record because
-          the CREATE TABLE is written again at every follow and when a failed
-          follow puts a table back.
+          Format names the reader the table is declared with: "csv", "jsonl" for
+          a JSON-lines file, whose values come back exactly (#1820), or "parquet"
+          (#1833). It is decided by the file, not by the caller, and it is on the
+          record because the CREATE TABLE is written again at every follow and
+          when a failed follow puts a table back.
         type: string
       id:
         type: string
@@ -8735,6 +8743,14 @@ definitions:
     type: object
   tablehttp.scratchTableView:
     properties:
+      all_varchar:
+        description: |-
+          AllVarchar marks a JSON-lines registration made before its columns were
+          typed (#1833), when every column was declared VARCHAR. A follow keeps
+          the rule, so a query written against the table keeps working whatever
+          the next version of the file holds; registering the file again under
+          the same name makes a typed registration in its place.
+        type: boolean
       can_unregister:
         description: |-
           CanUnregister is whether this caller is offered the action, by the rule
@@ -8768,11 +8784,11 @@ definitions:
         type: string
       format:
         description: |-
-          Format names the reader the table is declared with: "csv", or "jsonl"
-          for a JSON-lines file, whose values come back exactly (#1820). It is
-          decided by the file, not by the caller, and it is on the record because
-          the CREATE TABLE is written again at every follow and when a failed
-          follow puts a table back.
+          Format names the reader the table is declared with: "csv", "jsonl" for
+          a JSON-lines file, whose values come back exactly (#1820), or "parquet"
+          (#1833). It is decided by the file, not by the caller, and it is on the
+          record because the CREATE TABLE is written again at every follow and
+          when a failed follow puts a table back.
         type: string
       id:
         type: string

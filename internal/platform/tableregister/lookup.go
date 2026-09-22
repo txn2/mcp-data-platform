@@ -83,14 +83,17 @@ func indexSubjects(
 // write the query without a second call (#1666).
 func hitTable(reg Registration, subject knowledge.TableSubject) knowledge.HitTable {
 	names := make([]string, 0, len(reg.Columns))
+	typed := make([]knowledge.HitColumn, 0, len(reg.Columns))
 	for _, c := range reg.Columns {
 		names = append(names, c.Name)
+		typed = append(typed, knowledge.HitColumn{Name: c.Name, Type: c.Type})
 	}
 	return knowledge.HitTable{
 		RegistrationID: reg.ID,
 		Connection:     reg.Connection,
 		Table:          reg.QualifiedName(),
 		Columns:        names,
+		ColumnTypes:    typed,
 		Sample:         SampleJoinSQL(reg),
 		Stale:          reg.IsStale(subject.Bucket, subject.HeadKey),
 		Follow:         reg.Follow,

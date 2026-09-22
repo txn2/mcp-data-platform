@@ -19,6 +19,8 @@ const VideoRenderer = lazy(() => import("./MediaRenderer").then((m) => ({ defaul
 // Its own chunk, not MediaRenderer's: the PDF viewer carries pdf.js and its
 // worker, which an audio or video preview must not pay for.
 const PdfRenderer = lazy(() => import("./PdfRenderer").then((m) => ({ default: m.PdfRenderer })));
+// Its own chunk too: the Parquet viewer carries hyparquet and its decompressors.
+const ParquetRenderer = lazy(() => import("./ParquetRenderer").then((m) => ({ default: m.ParquetRenderer })));
 const JsxRenderer = lazy(() => import("./JsxRenderer").then((m) => ({ default: m.JsxRenderer })));
 const HtmlRenderer = lazy(() => import("./HtmlRenderer").then((m) => ({ default: m.HtmlRenderer })));
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer").then((m) => ({ default: m.MarkdownRenderer })));
@@ -97,6 +99,7 @@ function renderFromURL(entry: Resolution, { fileName, contentUrl, sizeBytes }: U
     audio: <AudioRenderer {...common} contentType={entry.contentType} />,
     video: <VideoRenderer {...common} contentType={entry.contentType} />,
     pdf: <PdfRenderer {...common} />,
+    parquet: <ParquetRenderer {...common} />,
   };
 
   return <Suspense fallback={<Loading />}>{media[entry.kind] ?? card}</Suspense>;

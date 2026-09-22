@@ -50,10 +50,15 @@ Detection runs on every write path that accepts outside content:
   family a browser renders as a document (`.html`, `.js`, `.svg`, `.xml`) is
   still refused, for the same reason content may not talk itself into executing.
 - **Binary families come from magic bytes.** Images, audio, video, PDF and
-  archives are recognized from the first 512 bytes.
+  archives are recognized from the first 512 bytes, and Parquet from the `PAR1`
+  its file begins with. Where the whole payload is in hand, a Parquet file is
+  held to its full signature, `PAR1` at the end as well as the start; a caller
+  holding only the head of a stream -- the resource upload, which never
+  assembles the file -- has the start alone and trusts it.
 - **Structured text is layered on top.** JSON, NDJSON, XML, YAML, CSV and TSV
   all look like plain text to a byte sniffer, so each has its own heuristic over
-  a bounded prefix (8 KB).
+  a bounded prefix (8 KB). They are tried before the Parquet magic, so a CSV
+  whose first header is literally `PAR1` is the text it looks like.
 - **Detection reads a prefix, never the whole payload.** A streaming export
   stays streaming: the prefix is replayed ahead of the untouched remainder.
 - **Aliases are normalized.** `text/json` and `application/json` both store as
@@ -167,12 +172,13 @@ content type renders identically wherever it is opened.
 | Family | Types | Viewer | Editor |
 |---|---|---|---|
 | JSON | `application/json` | Collapsible tree with search across keys and values, match count and jump-to-match, JSONPath breadcrumb with copy-path and copy-value, type-aware values, and raw/formatted/tree views. Virtualized. | CodeMirror with JSON mode and a parse-error gutter |
-| JSON Lines | `application/x-ndjson` | One expandable row per record, each opening into the JSON viewer | CodeMirror |
+| JSON Lines | `application/x-ndjson` | A **Table \| Records** toggle. Table reads the file as the table an export is: the union of the records' keys as columns, in the order first seen, sortable and searchable, a nested value shown as one-line JSON and read in full in the row dialog. Records is one expandable row per record, each opening into the JSON viewer, for an event log whose records differ in shape. The file opens on Table when every line is an object of scalars or flat values and the records carry most of the columns, and on Records otherwise | CodeMirror |
 | Tabular | `text/csv`, `text/tab-separated-values` | Sortable, searchable table; a row opens its record in a dialog | CodeMirror |
 | Images | `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif`, ... | Zoom and pan, checkerboard backing for transparency, dimensions and size readout, fit/actual-size toggle | None |
 | SVG | `image/svg+xml` | Sanitized inline render | Source editor |
 | Audio | `audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac` | Native player with seek | None |
 | Video | `video/mp4`, `video/webm`, `video/ogg` | Native player with seek | None |
+| Parquet | `application/vnd.apache.parquet` | Read by byte range from the content URL, never whole (#1833) -- and the platform answers each of those ranges by reading that range from the store, not the object: a schema panel naming each column's Parquet type, whether it is nullable and the Trino type a registration declares it as (or why a registration refuses it); the file's row count, row groups, size, compression and writer; and the rows of one row group at a time, in the table the CSV viewer draws, with the download beside it | None |
 | PDF | `application/pdf` | PDF.js viewer over the content URL — page navigation, zoom, find and text selection — with a download fallback. NOT the browser's plugin: that honoured the document's `/OpenAction`, so a file exported with "print on open" raised the print dialog at its reader (#1783) | None |
 | Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers; an HTML asset is framed as `srcdoc`, filling the page under the control row, with Present (fullscreen), Overview (a deck's grid of every slide, asked of the runtime by message) and Export PDF (a second, print-stepped copy of the document under a modals grant, printed one slide per page and always rendered light, #1772) on that row, which is how a slide deck on the served reveal.js runtime is presented (#1767, #1769) | Source editor |
 | Structured text | `application/xml`, `application/yaml` | CodeMirror, read-only, with folding and a wrap toggle | CodeMirror |

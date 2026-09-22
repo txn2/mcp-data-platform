@@ -112,6 +112,7 @@ func (f *fakeTrino) TableExists(_ context.Context, _, catalog, schema, table str
 
 // fakeObjects serves one directory of objects.
 type fakeObjects struct {
+	ranged    int
 	body      []byte
 	bodyCT    string
 	getErr    error
@@ -125,6 +126,23 @@ func (f *fakeObjects) GetObject(_ context.Context, _, _ string) (body []byte, co
 		return nil, "", f.getErr
 	}
 	return f.body, f.bodyCT, nil
+}
+
+// GetObjectRange serves a slice of the body and its whole length, the way the
+// S3 adapter's ranged read does. reads counts the calls, so a test can pin that
+// a Parquet file is registered from its footer rather than read whole.
+func (f *fakeObjects) GetObjectRange(
+	_ context.Context, _, _ string, offset, length int64,
+) (body []byte, size int64, err error) {
+	f.ranged++
+	if f.getErr != nil {
+		return nil, 0, f.getErr
+	}
+	if offset >= int64(len(f.body)) {
+		return nil, 0, errors.New("InvalidRange: the range starts past the end of the object")
+	}
+	end := min(offset+length, int64(len(f.body)))
+	return f.body[offset:end], int64(len(f.body)), nil
 }
 
 // ListDirectory answers for the prefix it was asked about, the way the S3

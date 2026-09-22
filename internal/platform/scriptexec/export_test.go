@@ -441,7 +441,7 @@ func TestOutputWriter_Failures(t *testing.T) {
 	}{
 		{
 			"unknown format", func(writerHarness) {},
-			scriptrun.ExportRequest{Name: "daily", Format: "parquet"},
+			scriptrun.ExportRequest{Name: "daily", Format: "avro"},
 			"unsupported format",
 		},
 		{

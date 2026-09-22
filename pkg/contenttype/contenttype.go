@@ -16,7 +16,8 @@
 //     what those two agree on. A .csv uploaded from a machine that declared
 //     application/vnd.ms-excel is stored as a CSV.
 //   - Binary families come from http.DetectContentType, which recognizes
-//     images, audio, video, PDF and archives from their magic bytes.
+//     images, audio, video, PDF and archives from their magic bytes, and from
+//     the Parquet magic, which it does not know.
 //   - Structured text (JSON, NDJSON, XML, YAML, CSV, TSV) is layered on top,
 //     because http.DetectContentType reports every one of them as text/plain.
 //   - Detection reads a bounded prefix, never the whole payload, so streaming
@@ -42,6 +43,7 @@
 package contenttype
 
 import (
+	"bytes"
 	"mime"
 	"net/http"
 	"regexp"
@@ -81,6 +83,8 @@ const (
 	JavaScript = "text/javascript"
 	// PDF is the canonical type for PDF documents.
 	PDF = "application/pdf"
+	// Parquet is the canonical type for Apache Parquet files (#1833).
+	Parquet = "application/vnd.apache.parquet"
 	// OctetStream is the type for content of unknown or unrecognized shape.
 	OctetStream = "application/octet-stream"
 
@@ -123,6 +127,8 @@ var aliases = map[string]string{
 	"application/ndjson":           NDJSON,
 	"text/x-ndjson":                NDJSON,
 	"application/jsonl":            NDJSON,
+	"application/x-parquet":        Parquet,
+	"application/parquet":          Parquet,
 	"text/xml":                     XML,
 	"application/x-xml":            XML,
 	"text/yaml":                    YAML,
@@ -337,10 +343,22 @@ func Detect(declared string, prefix []byte) string {
 // name.
 //
 // A filename of "" makes this identical to Detect.
+//
+// prefix may be the head of a stream: the Parquet magic at the start of it is
+// taken at its word, because the magic at the end of the file is not there to
+// read. A caller holding the whole payload calls DetectFileBytes, which holds
+// Parquet to both.
 func DetectFile(declared, filename string, prefix []byte) string {
+	return detectAllowing(declared, filename, prefix, true)
+}
+
+// detectAllowing is DetectFile with the one decision its two entry points
+// differ on: whether the Parquet magic at the start of the bytes may name
+// them Parquet.
+func detectAllowing(declared, filename string, prefix []byte, parquet bool) string {
 	norm := Normalize(declared)
 	if norm != "" && !IsGeneric(norm) {
-		return declaredOrNamed(norm, filename, prefix)
+		return declaredOrNamed(norm, filename, prefix, parquet)
 	}
 	if len(prefix) == 0 {
 		return fallback(norm)
@@ -352,7 +370,7 @@ func DetectFile(declared, filename string, prefix []byte) string {
 		// writer declared nothing. The content is textual either way.
 		return textFallback(norm)
 	}
-	if content := specificContentType(sniffed, prefix); content != "" {
+	if content := specificContentType(sniffed, prefix, parquet); content != "" {
 		return content
 	}
 	if sniffed == PlainText {
@@ -393,7 +411,7 @@ func namedTextType(filename string) string {
 // declaredOrNamed resolves a specific declaration against the filename and the
 // content, returning the type the last two agree on when it contradicts the
 // declaration, and the declaration otherwise.
-func declaredOrNamed(norm, filename string, prefix []byte) string {
+func declaredOrNamed(norm, filename string, prefix []byte, parquet bool) string {
 	named := TypeForFilename(filename)
 	if named == "" || named == norm || len(prefix) == 0 {
 		return norm
@@ -405,7 +423,7 @@ func declaredOrNamed(norm, filename string, prefix []byte) string {
 	if Extension(norm) == Extension(named) {
 		return norm
 	}
-	if named != sniffType(prefix) {
+	if named != sniffType(prefix, parquet) {
 		return norm
 	}
 	return named
@@ -415,17 +433,22 @@ func declaredOrNamed(norm, filename string, prefix []byte) string {
 // string when they identify none -- unstructured text and unrecognized binary
 // both land there, as does content that sniffs active, which detection may
 // never name from content alone.
-func sniffType(prefix []byte) string {
+func sniffType(prefix []byte, parquet bool) string {
 	sniffed := Normalize(http.DetectContentType(prefix))
 	if IsActive(sniffed) {
 		return ""
 	}
-	return specificContentType(sniffed, prefix)
+	return specificContentType(sniffed, prefix, parquet)
 }
 
 // specificContentType returns the family the content identifies, given what
 // the binary sniffer already made of it, or "" when it identifies none.
-func specificContentType(sniffed string, prefix []byte) string {
+//
+// parquet is whether the Parquet magic may name the content. A caller holding
+// only a prefix cannot see the magic at the end of the file and trusts the
+// one at the start; a caller holding the whole payload has already checked
+// both, and passes false when they do not match.
+func specificContentType(sniffed string, prefix []byte, parquet bool) string {
 	if sniffed != PlainText && !IsGeneric(sniffed) {
 		// A recognized binary family (image, audio, video, PDF, archive) or a
 		// passive text family the sniffer names outright, such as XML.
@@ -433,7 +456,18 @@ func specificContentType(sniffed string, prefix []byte) string {
 	}
 	// http.DetectContentType reports JSON, NDJSON, XML, YAML, CSV and TSV all
 	// as text/plain, so the structured heuristics run over the wider prefix.
-	return detectStructuredText(prefix)
+	// They run before the Parquet magic because a Parquet file's bytes are
+	// binary and none of them matches, while a CSV whose first header is
+	// literally PAR1 is the text it looks like.
+	if structured := detectStructuredText(prefix); structured != "" {
+		return structured
+	}
+	// http.DetectContentType does not know Parquet, and a Parquet file's first
+	// bytes are its magic.
+	if parquet && bytes.HasPrefix(prefix, parquetMagic) {
+		return Parquet
+	}
+	return ""
 }
 
 // DetectBytes is Detect over a complete payload, truncating to the sniff window.
@@ -443,11 +477,29 @@ func DetectBytes(declared string, data []byte) string {
 
 // DetectFileBytes is DetectFile over a complete payload, truncating to the
 // sniff window.
+//
+// With the whole payload in hand, Parquet is held to its full signature: the
+// magic at the start AND at the end. A prefix can only see the start, so a
+// stream is named Parquet from its first four bytes; bytes that begin like a
+// Parquet file and do not end like one are detected here as though the magic
+// were not there, which leaves the declaration, the filename and the content's
+// own shape to name them, rather than being dropped to the declaration alone.
 func DetectFileBytes(declared, filename string, data []byte) string {
+	parquet := IsParquet(data) || Normalize(declared) == Parquet
 	if len(data) > StructuredSniffLen {
 		data = data[:StructuredSniffLen]
 	}
-	return DetectFile(declared, filename, data)
+	return detectAllowing(declared, filename, data, parquet)
+}
+
+// parquetMagic is the four bytes a Parquet file begins and ends with.
+var parquetMagic = []byte("PAR1")
+
+// IsParquet reports whether a whole payload is shaped as a Parquet file: the
+// magic at both ends, with room for the footer length between.
+func IsParquet(data []byte) bool {
+	const minParquet = 12 // two magics and a four-byte footer length
+	return len(data) >= minParquet && bytes.HasPrefix(data, parquetMagic) && bytes.HasSuffix(data, parquetMagic)
 }
 
 // fallback picks the type to report when detection produced nothing usable.

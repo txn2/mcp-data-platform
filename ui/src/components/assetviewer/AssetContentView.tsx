@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
-import { exceedsInlineLimit, rendersFromURL } from "@/components/renderers/registry";
+import { exceedsInlineLimit, readsByRange, rendersFromURL } from "@/components/renderers/registry";
 import { useContentUrl } from "@/lib/useContentUrl";
 import { SaveControls, TooLarge, VersionControls, ViewModeToggle } from "./contentControls";
 import type { MutationLike, ViewMode } from "./types";
@@ -192,7 +192,9 @@ function CurrentContent({
   // Binary families never load content into the page: their renderers point an
   // element at the content endpoint, so there is nothing to wait for.
   const fromURL = rendersFromURL(asset.content_type, asset.name);
-  const media = useContentUrl(contentUrl, fromURL);
+  // A family that reads the endpoint by range is handed the endpoint: fetching
+  // the whole object into a blob first is what reading by range avoids.
+  const media = useContentUrl(contentUrl, fromURL && !readsByRange(asset.content_type, asset.name));
 
   const pending = pendingState({ asset, content, fromURL, mediaLoading: media.loading });
   if (pending === "too-large") {

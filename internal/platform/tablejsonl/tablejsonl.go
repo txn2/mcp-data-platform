@@ -11,18 +11,23 @@
 // but leaves a registration nobody can use. One is silent: a second object on
 // the same line is dropped. Each was observed on Trino 453, and each is refused
 // here, by line, before the DDL runs.
+//
+// The columns are typed from the values (#1833): the JSON reader returns a
+// number in a BIGINT or DOUBLE column, a boolean in a BOOLEAN one, and a nested
+// object or list in a ROW or an ARRAY, so declaring every column VARCHAR -- the
+// rule of the CSV reader, which admits nothing else -- threw away what the file
+// already said and made every aggregate cast.
 package tablejsonl
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
+	"github.com/txn2/mcp-data-platform/internal/tabletype"
 )
 
 // maxColumns caps how wide a registered table can be, matching the bound a
@@ -41,170 +46,109 @@ var bom = []byte("\ufeff")
 
 // Columns reads a JSON-lines file and returns the columns a table over it
 // declares: every key any record carries, lowercased, in the order they are
-// first seen. It refuses a file the reader would fail on or read wrongly,
-// naming the line.
+// first seen, each with the type its values infer to (tabletype.Inferrer). It
+// refuses a file the reader would fail on or read wrongly, naming the line.
 //
 // The names are the keys, lowercased and otherwise untouched, because the
 // reader finds a value by matching its key to a column name without regard to
 // case. A CSV column can be renamed (tablecsv.ColumnsFrom fills a blank one and
 // drops a comma) because a CSV is read by position; a key renamed here would be
 // a column the reader never fills.
+//
+// Every record is read, not a sample. A nested object or list is declared as
+// a ROW or an ARRAY (#1833); a key that holds an object on one line and a list
+// or a scalar on another is refused, because no declaration reads both.
 func Columns(body []byte) ([]tablecsv.Column, error) {
 	if !utf8.Valid(body) {
 		return nil, errors.New("the file is not valid UTF-8, which is the only encoding a JSON-lines table is read in")
 	}
 	body = bytes.TrimPrefix(body, bom)
 
-	cols := &columnSet{seen: map[string]bool{}}
+	infer := tabletype.NewInferrer()
 	lines := bytes.Split(body, []byte("\n"))
 	for i, line := range lines {
-		keys, err := lineKeys(bytes.TrimSuffix(line, []byte("\r")), i+1, i == len(lines)-1)
-		if err != nil {
-			return nil, err
-		}
-		if err := cols.add(keys); err != nil {
+		if err := readLine(infer, bytes.TrimSuffix(line, []byte("\r")), i+1, i == len(lines)-1); err != nil {
 			return nil, err
 		}
 	}
-	if len(cols.columns) == 0 {
+	if infer.Len() == 0 {
 		return nil, ErrNoRecords
 	}
-	return cols.columns, nil
+	inferred, err := infer.Columns()
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the inference's sentence is the refusal
+	}
+	columns := make([]tablecsv.Column, 0, len(inferred))
+	for _, c := range inferred {
+		columns = append(columns, tablecsv.Column{Name: c.Name, Type: c.Type.SQL()})
+	}
+	return columns, nil
 }
 
-// lineKeys reads one line's keys. The reader fails on a blank line anywhere
-// but the end: the newline that terminates the last record leaves one empty
-// fragment after it, and that one is not a line.
-func lineKeys(line []byte, number int, last bool) ([]string, error) {
+// readLine reads one line into the inference. The reader fails on a blank
+// line anywhere but the end: the newline that terminates the last record
+// leaves one empty fragment after it, and that one is not a line.
+func readLine(infer *tabletype.Inferrer, line []byte, number int, last bool) error {
 	if len(bytes.TrimSpace(line)) == 0 {
 		if last {
-			return nil, nil
+			return nil
 		}
-		return nil, fmt.Errorf("line %d is blank, and a JSON-lines table fails every query on a file with "+
+		return fmt.Errorf("line %d is blank, and a JSON-lines table fails every query on a file with "+
 			"a blank line in it; remove it", number)
 	}
-	keys, err := recordKeys(line)
+	keys, values, err := record(line)
+	if err == nil {
+		err = infer.Observe(keys, values)
+	}
+	if err == nil && infer.Len() > maxColumns {
+		err = fmt.Errorf("the records carry more than the %d keys a registered table may declare", maxColumns)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("line %d: %w", number, err)
-	}
-	return keys, nil
-}
-
-// columnSet is the union of the keys the records carry, in first-seen order.
-type columnSet struct {
-	columns []tablecsv.Column
-	seen    map[string]bool
-}
-
-// add takes one record's keys into the set.
-func (c *columnSet) add(keys []string) error {
-	for _, key := range keys {
-		if c.seen[key] {
-			continue
-		}
-		c.seen[key] = true
-		c.columns = append(c.columns, tablecsv.Column{Name: key, Type: tablecsv.ColumnType})
-	}
-	if len(c.columns) > maxColumns {
-		return fmt.Errorf("the records carry more than the %d keys a registered table may declare", maxColumns)
+		return fmt.Errorf("line %d: %w", number, err)
 	}
 	return nil
 }
 
-// recordKeys reads one line as one record and returns its keys, lowercased,
-// in the order written.
-func recordKeys(line []byte) ([]string, error) {
-	dec := json.NewDecoder(bytes.NewReader(line))
-	dec.UseNumber()
-	var record map[string]json.RawMessage
-	if err := dec.Decode(&record); err != nil {
-		return nil, notAnObject(err)
-	}
-	if record == nil {
-		return nil, errors.New("the line is null rather than an object; each line has to be one JSON object")
-	}
-	// Anything after the object is a second value on the same line, which
-	// the reader drops without a word: the one defect here that returns
-	// wrong rows rather than failing.
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("the line holds more than one JSON value, and the reader keeps only the first; " +
+// record reads one line as one record and returns its keys, lowercased, in the
+// order written, with the value under each.
+func record(line []byte) (keys []string, values []any, err error) {
+	v, err := tabletype.DecodeJSON(line)
+	switch {
+	case tabletype.IsTrailing(err):
+		// Anything after the object is a second value on the same line, which
+		// the reader drops without a word: the one defect here that returns
+		// wrong rows rather than failing.
+		return nil, nil, errors.New("the line holds more than one JSON value, and the reader keeps only the first; " +
 			"put each record on its own line")
+	case errors.Is(err, tabletype.ErrTooDeep):
+		return nil, nil, err //nolint:wrapcheck // the sentence names the limit
+	case err != nil:
+		return nil, nil, notAnObject(err)
+	case v == nil:
+		return nil, nil, errors.New("the line is null rather than an object; each line has to be one JSON object")
 	}
-	ordered, err := keysInOrder(line)
-	if err != nil {
-		return nil, notAnObject(err)
+	obj, ok := v.(*tabletype.Object)
+	if !ok {
+		return nil, nil, notAnObject(errors.New("it is not an object"))
 	}
-	folded := make(map[string]string, len(ordered))
-	keys := make([]string, 0, len(ordered))
-	for _, key := range ordered {
-		if err := checkKey(key); err != nil {
-			return nil, err
+	folded := make(map[string]string, len(obj.Keys))
+	keys = make([]string, 0, len(obj.Keys))
+	for _, key := range obj.Keys {
+		if err := tabletype.CheckName(key); err != nil {
+			return nil, nil, err //nolint:wrapcheck // the sentence names the key
 		}
 		lower := strings.ToLower(key)
 		if prior, dup := folded[lower]; dup {
-			return nil, fmt.Errorf("the keys %q and %q are one column to the reader, which matches a key to "+
+			return nil, nil, fmt.Errorf("the keys %q and %q are one column to the reader, which matches a key to "+
 				"its column without regard to case, and it fails on the repeat; give each its own name", prior, key)
 		}
 		folded[lower] = key
-		if nested(record[key]) {
-			return nil, fmt.Errorf("the value of %q is a nested object or list, and the reader fails every query "+
-				"on a file holding one; write it as a string of its JSON text", key)
-		}
 		keys = append(keys, lower)
 	}
-	return keys, nil
+	return keys, obj.Values, nil
 }
 
 // notAnObject words a line that did not decode as one JSON object.
 func notAnObject(err error) error {
 	return fmt.Errorf("the line is not one JSON object (%s); each line has to be exactly one", err.Error())
-}
-
-// keysInOrder returns an object's keys in the order they are written,
-// including a repeat, which decoding into a map would fold away. The line has
-// already decoded as an object, so this walks tokens it knows are there.
-func keysInOrder(line []byte) ([]string, error) {
-	dec := json.NewDecoder(bytes.NewReader(line))
-	if _, err := dec.Token(); err != nil { // the opening brace
-		return nil, err //nolint:wrapcheck // worded by notAnObject
-	}
-	var keys []string
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err //nolint:wrapcheck // worded by notAnObject
-		}
-		key, _ := tok.(string)
-		keys = append(keys, key)
-		var skip json.RawMessage
-		if err := dec.Decode(&skip); err != nil {
-			return nil, err //nolint:wrapcheck // worded by notAnObject
-		}
-	}
-	return keys, nil
-}
-
-// checkKey refuses a key that cannot be a column the reader fills.
-func checkKey(key string) error {
-	switch {
-	case key == "":
-		return errors.New("a key is empty, and a column needs a name")
-	case strings.TrimSpace(key) != key:
-		return fmt.Errorf("the key %q begins or ends with whitespace, which a Hive column name may not", key)
-	case strings.Contains(key, ","):
-		return fmt.Errorf("the key %q holds a comma, which a Hive column name may not", key)
-	}
-	for _, r := range key {
-		if r > utf8.RuneSelf-1 {
-			return fmt.Errorf("the key %q holds a character outside ASCII, and the reader leaves such a column "+
-				"empty on every row; rename it using ASCII", key)
-		}
-	}
-	return nil
-}
-
-// nested reports whether a raw value is an object or a list.
-func nested(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
 }

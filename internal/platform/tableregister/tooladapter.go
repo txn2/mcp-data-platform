@@ -243,14 +243,17 @@ func sourceFrom(kind string, rec Record) Source {
 // toolView renders a registration the way the tool reports it.
 func toolView(reg Registration, src Source) portaltoolkit.TableRegistration {
 	names := make([]string, 0, len(reg.Columns))
+	typed := make([]portaltoolkit.TableColumn, 0, len(reg.Columns))
 	for _, c := range reg.Columns {
 		names = append(names, c.Name)
+		typed = append(typed, portaltoolkit.TableColumn{Name: c.Name, Type: c.Type})
 	}
 	return portaltoolkit.TableRegistration{
 		RegistrationID: reg.ID,
 		Connection:     reg.Connection,
 		QueryTable:     reg.QualifiedName(),
 		Columns:        names,
+		ColumnTypes:    typed,
 		SampleSQL:      SampleJoinSQL(reg),
 		RegisteredBy:   reg.RegisteredBy,
 		Stale:          reg.IsStale(src.Bucket, src.HeadKey),

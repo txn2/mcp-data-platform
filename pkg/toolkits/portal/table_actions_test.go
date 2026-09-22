@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -473,4 +474,19 @@ func TestRegisterTable_WithoutTheRepairAsk(t *testing.T) {
 	require.False(t, res.IsError, resultText(t, res))
 	assert.False(t, reg.lastRepair)
 	assert.NotContains(t, decodeResult(t, res), "repaired")
+}
+
+// TestTypesNote says what the columns were declared as, by the format that
+// decided it (#1833).
+func TestTypesNote(t *testing.T) {
+	for format, want := range map[string]string{
+		"":        "Every column of a CSV is VARCHAR",
+		"csv":     "Every column of a CSV is VARCHAR",
+		"jsonl":   "typed from its values",
+		"parquet": "the type the file declares",
+	} {
+		if got := typesNote(format); !strings.Contains(got, want) {
+			t.Errorf("typesNote(%q) = %q; want it to say %q", format, got, want)
+		}
+	}
 }

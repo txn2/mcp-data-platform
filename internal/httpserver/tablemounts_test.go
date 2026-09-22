@@ -48,6 +48,16 @@ func (f *fakeBlobs) GetObject(context.Context, string, string) (body []byte, con
 	return f.body, "text/csv", nil
 }
 
+func (f *fakeBlobs) GetObjectRange(
+	_ context.Context, _, _ string, offset, length int64,
+) (body []byte, size int64, err error) {
+	if f.err != nil {
+		return nil, 0, f.err
+	}
+	end := min(offset+length, int64(len(f.body)))
+	return f.body[offset:end], int64(len(f.body)), nil
+}
+
 func (f *fakeBlobs) ListDirectory(
 	context.Context, string, string,
 ) (entries []s3adapter.ObjectEntry, truncated bool, err error) {

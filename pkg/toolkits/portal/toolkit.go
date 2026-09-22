@@ -444,38 +444,48 @@ const manageToolDescription = "Manages saved assets and collections. " +
 	"Human feedback on assets is handled by the separate manage_feedback tool."
 
 // manageTableToolDescription is the advertised description of manage_table.
-const manageTableToolDescription = "Makes a stored CSV or JSON-lines file queryable as a table, so trino_query " +
-	"can join it to warehouse tables. Actions: register, list, unregister. " +
+const manageTableToolDescription = "Makes a stored CSV, JSON-lines or Parquet file queryable as a table, so " +
+	"trino_query can join it to warehouse tables. Actions: register, list, unregister. " +
 	"Name the file with the 'reference' a search hit or fetch document carries -- mcp:resource:<id> for " +
 	"reference material somebody uploaded, mcp:asset:<id> for a saved asset. One action serves both: what " +
 	"kind of file it is travels inside the reference. " +
 	"Nothing is copied or ingested: 'register' creates an external table over the file where it already " +
 	"sits, on the scratch schema of the Trino connection you name (call list_connections to see which ones " +
-	"you can reach). Every column comes back as VARCHAR, which is the storage format's rule and not a " +
-	"platform choice, so a join to a typed warehouse column needs a CAST -- the response carries a sample " +
-	"statement showing it. " +
-	"The two formats differ in what comes back. A JSON-lines file (.jsonl, one object per line, keys as " +
-	"columns) returns every string exactly, line breaks and backslashes included, and a null as NULL; it " +
+	"you can reach). The format is decided by the file, and it decides the column types. " +
+	"A CSV's columns all come back as VARCHAR, which is the Hive CSV reader's rule, so a join to a typed " +
+	"warehouse column needs a CAST -- the response carries a sample statement showing it. A CSV returns a " +
+	"null as an empty string and cannot carry a line break inside a value: such a file is refused unless " +
+	"repair is set, and repair rewrites such a value onto one line, joining its lines with single spaces " +
+	"after trimming each and dropping blank ones. Every other character, a leading =, +, - or @ and a " +
+	"backslash included, comes back as written. " +
+	"A JSON-lines file (.jsonl, one object per line, keys as columns) is typed from every record: all " +
+	"booleans BOOLEAN, all integers BIGINT, any number with a fraction or exponent DOUBLE, anything else " +
+	"(strings, a mix of kinds, all nulls) VARCHAR, an object a ROW over the union of its keys, a list an " +
+	"ARRAY. It returns every string exactly, line breaks and backslashes included, and a null as NULL; it " +
 	"is the format to use when values must survive, and platform.export and trino_export write it as " +
 	"format=jsonl. It is refused, naming the line, when a line is blank, holds anything but one object, " +
-	"repeats a key (keys match columns without regard to case), or holds a nested object or list; a key " +
-	"must be ASCII, with no comma and no leading or trailing space. A CSV returns a null as an empty " +
-	"string and cannot carry a line break inside a value: such a file is refused unless repair is set, " +
-	"and repair rewrites such a value onto one line, joining its lines with single spaces after trimming " +
-	"each and dropping blank ones. Every other character, a leading =, +, - " +
-	"or @ and a backslash included, comes back as written. " +
-	"A new revision or version of the file leaves the table serving the content that was current when it " +
-	"was registered; that is reported as stale, and registering again moves the table to the current " +
-	"content. Overwriting the same file in place needs no re-registration. " +
+	"repeats a key (keys match columns without regard to case), or holds two of an object, a list and a " +
+	"scalar in different lines under the same key; a key must be ASCII, with no comma and no leading or " +
+	"trailing space, and a key inside an object only letters, digits, '_', '.', '$' and spaces. " +
+	"A Parquet file (.parquet) declares its own columns and types, which are read from its footer alone, so " +
+	"a file of any size registers; a column of a type no declaration reads back exactly (TIME, UUID, " +
+	"FLOAT16, INTERVAL, an unsigned 32- or 64-bit integer) or two columns one apart by case are refused, " +
+	"naming them. trino_export and " +
+	"platform.export write it as format=parquet. repair has nothing to correct in a JSON-lines or Parquet " +
+	"file and does nothing there. " +
+	"A table follows its file by default: each revision or version written moves it onto the new contents, " +
+	"and a change to the columns is reported in the write's table_changes. Register with follow=false for a " +
+	"table pinned to one version, which is reported as stale once the file moves on. Overwriting the same " +
+	"file in place needs no re-registration. " +
 	"Registering the same name on the same connection replaces that registration, which is how a stale " +
 	"one is moved forward; a different name, or another connection, adds a second table over the same " +
 	"file rather than replacing anything. " +
 	"'list' answers with 'table_registrations': one row per registration over the file, carrying the " +
-	"registration_id 'unregister' takes, the query_table, its columns, the sample statement, and the " +
-	"follow, repair and follow_error state. Check for an existing registration there rather than " +
-	"registering blind, because registering the same name again replaces the row and changes its id. The " +
-	"same registrations appear as 'tables' on a search hit and a fetched document, projected for the " +
-	"caller who only wants to write the query. " +
+	"registration_id 'unregister' takes, the query_table, its columns and their declared column_types, the " +
+	"sample statement, and the follow, repair and follow_error state. Check for an existing registration " +
+	"there rather than registering blind, because registering the same name again replaces the row and " +
+	"changes its id. The same registrations appear as 'tables' on a search hit and a fetched document, " +
+	"projected for the caller who only wants to write the query. " +
 	"'unregister' drops the table and leaves the file untouched. " +
 	"Registering is the authority to change the file, not the authority to read it: an asset's owner or an " +
 	"administrator, a resource's uploader or an administrator of its scope. The scratch schema is shared, " +

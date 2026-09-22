@@ -29,6 +29,7 @@ export const CT = {
   sql: "application/sql",
   python: "text/x-python",
   pdf: "application/pdf",
+  parquet: "application/vnd.apache.parquet",
   octet: "application/octet-stream",
 } as const;
 
@@ -74,6 +75,8 @@ const ALIASES: Record<string, string> = {
   "audio/x-m4a": "audio/mp4",
   "video/x-m4v": "video/mp4",
   "application/x-zip-compressed": "application/zip",
+  "application/x-parquet": CT.parquet,
+  "application/parquet": CT.parquet,
 };
 
 const ACTIVE = new Set<string>([CT.html, CT.jsx, CT.svg, CT.javascript]);
@@ -135,6 +138,7 @@ const BY_EXTENSION: Record<string, string> = {
   jsx: CT.jsx,
   svg: CT.svg,
   pdf: CT.pdf,
+  parquet: CT.parquet,
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",

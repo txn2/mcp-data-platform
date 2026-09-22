@@ -85,9 +85,13 @@ var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublish
 var (
 	// rowFormats serialize a list of row dicts, matched to the formats
 	// trino_export already writes so the contract does not change when preview
-	// becomes persistence. csv, json and jsonl are ONLY here: a data feed another
-	// system parses stays well-formed by construction.
-	rowFormats = map[string]bool{"csv": true, "json": true, "jsonl": true, "markdown": true, "text": true}
+	// becomes persistence. csv, json, jsonl and parquet are ONLY here: a data
+	// feed another system parses stays well-formed by construction. parquet
+	// types each column from its values by the rules a JSON-lines table is
+	// typed by (#1833).
+	rowFormats = map[string]bool{
+		"csv": true, "json": true, "jsonl": true, "markdown": true, "parquet": true, "text": true,
+	}
 	// documentFormats accept a string body written verbatim. html and jsx are
 	// ONLY here: they have no tabular serialization, and they map to the
 	// content types the portal already stores and renders for saved assets, so

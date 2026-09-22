@@ -99,7 +99,7 @@ func preferredTable(tables []HitTable) *HitTable {
 	for i := range tables {
 		if tables[i].FollowError == "" {
 			chosen := tables[i]
-			chosen.Columns = nil
+			chosen.Columns, chosen.ColumnTypes = nil, nil
 			return &chosen
 		}
 	}

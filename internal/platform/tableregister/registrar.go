@@ -275,22 +275,24 @@ func (r *Registrar) plan(ctx context.Context, caller Caller, src Source, req Req
 	if err := r.claim(ctx, caller, req, p); err != nil {
 		return p, err
 	}
-	body, format, err := r.contentFor(ctx, p.src)
+	c, err := r.contentFor(ctx, p.src)
 	if err != nil {
 		return p, err
 	}
-	p.reg.Format = format
+	p.reg.Format = c.format
 	// Only a CSV is corrected. A JSON-lines file carries every value exactly,
 	// so what can be wrong with one is the shape of a line, which describe
 	// refuses by line number; there is nothing to rewrite on its owner's
-	// behalf that they would not rather write themselves.
-	if format == FormatCSV {
-		body, err = r.correct(ctx, caller, req, body, p)
+	// behalf that they would not rather write themselves. A Parquet file
+	// declares its own columns and types, and has nothing to correct either:
+	// repair asked of either is accepted and does nothing.
+	if c.format == FormatCSV {
+		c.body, err = r.correct(ctx, caller, req, c.body, p)
 		if err != nil {
 			return p, err
 		}
 	}
-	return p, r.describe(ctx, p.src, format, body, &p.reg)
+	return p, r.describe(ctx, p.src, c, &p.reg)
 }
 
 // claim settles where the registration lands and what it is called, refusing a
@@ -410,12 +412,12 @@ func (r *Registrar) saveCorrected(
 
 // describe fills in what only the file decides: the directory the table reads
 // and the columns it declares.
-func (r *Registrar) describe(ctx context.Context, src Source, format string, body []byte, reg *Registration) error {
+func (r *Registrar) describe(ctx context.Context, src Source, c content, reg *Registration) error {
 	location, err := r.locationFor(ctx, src)
 	if err != nil {
 		return err
 	}
-	columns, err := readColumns(format, body)
+	columns, err := c.columnsOf()
 	if err != nil {
 		return err
 	}
@@ -562,29 +564,52 @@ func hiddenToHive(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-// contentFor reads the whole object a registration is built over, and the
-// format it is read in.
+// content is what a registration reads of its file: the format it is read
+// in, and either the whole body -- a CSV or a JSON-lines file, whose columns
+// and readability only the rest of the bytes settle (#1441) -- or, for a
+// Parquet file, the columns its footer declares, which is all of it that is
+// read.
+type content struct {
+	format  string
+	body    []byte
+	columns []Column
+}
+
+// columnsOf returns the columns the content declares.
+func (c content) columnsOf() ([]Column, error) {
+	if c.format == FormatParquet {
+		return c.columns, nil
+	}
+	return readColumns(c.format, c.body)
+}
+
+// contentFor reads what a registration is built over, in the format the file
+// is read in.
 //
-// The whole body, not the first line: the columns are taken from it, and so
-// is the answer to whether the reader can read the file at all, which is a
-// question only the rest of the bytes settle (#1441).
-func (r *Registrar) contentFor(ctx context.Context, src Source) (body []byte, format string, err error) {
-	format = formatOf(src.ContentType, src.HeadKey)
+// A CSV or JSON-lines file is read whole, within the deployment's read cap. A
+// Parquet file is not: its footer is read by range, so it registers at any
+// size (#1833).
+func (r *Registrar) contentFor(ctx context.Context, src Source) (content, error) {
+	format := formatOf(src.ContentType, src.HeadKey)
 	if format == "" {
-		return nil, "", ErrNotTabular
+		return content{}, ErrNotTabular
 	}
 	objects := r.objectsFor(src.Kind)
 	if objects == nil {
-		return nil, "", ErrUnavailable
+		return content{}, ErrUnavailable
 	}
-	body, _, err = objects.GetObject(ctx, src.Bucket, src.HeadKey)
+	if format == FormatParquet {
+		cols, err := parquetColumns(ctx, objects, src)
+		return content{format: format, columns: cols}, err
+	}
+	body, _, err := objects.GetObject(ctx, src.Bucket, src.HeadKey)
 	if err != nil {
-		return nil, "", failedf("reading the file", err)
+		return content{}, failedf("reading the file", err)
 	}
 	if int64(len(body)) > r.deps.MaxBytes {
-		return nil, "", refusedf("the file is larger than the %d MB a registration reads", r.deps.MaxBytes>>20)
+		return content{}, refusedf("the file is larger than the %d MB a registration reads", r.deps.MaxBytes>>20)
 	}
-	return body, format, nil
+	return content{format: format, body: body}, nil
 }
 
 // formatOf reports the format a source is registered in, or "" when it is
@@ -612,6 +637,8 @@ func formatOf(declared, key string) string {
 		return FormatJSONLines
 	case contenttype.Normalize(ct) == contenttype.JSON && named == FormatJSONLines:
 		return FormatJSONLines
+	case contenttype.Normalize(ct) == contenttype.Parquet:
+		return FormatParquet
 	}
 	return ""
 }
@@ -624,6 +651,8 @@ func formatNamed(key string) string {
 		return FormatCSV
 	case strings.HasSuffix(lower, ".jsonl"), strings.HasSuffix(lower, ".ndjson"):
 		return FormatJSONLines
+	case strings.HasSuffix(lower, ".parquet"):
+		return FormatParquet
 	}
 	return ""
 }

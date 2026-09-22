@@ -34,8 +34,15 @@ type Executor interface {
 }
 
 // ObjectReader reads the source object and lists what sits beside it.
+//
+// GetObjectRange reads length bytes from offset and reports the object's whole
+// size. It is how a Parquet file is registered without being read (#1833): its
+// columns are in a footer at the end, so a file of any size costs a few small
+// reads, and one larger than the cap a CSV is read whole under still
+// registers.
 type ObjectReader interface {
 	GetObject(ctx context.Context, bucket, key string) (body []byte, contentType string, err error)
+	GetObjectRange(ctx context.Context, bucket, key string, offset, length int64) (body []byte, size int64, err error)
 	ListDirectory(ctx context.Context, bucket, prefix string) (entries []ObjectEntry, truncated bool, err error)
 }
 

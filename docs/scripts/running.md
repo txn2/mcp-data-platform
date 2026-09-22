@@ -778,9 +778,9 @@ that left a pinned table behind says so in its history. See
 `rows` carries the output's content in one of two shapes, and the declared
 format decides which are valid:
 
-- **A list of dicts**, serialized in the declared format. `csv`, `json` and
-  `jsonl` accept only this shape, so a data feed another system parses stays
-  well-formed by construction.
+- **A list of dicts**, serialized in the declared format. `csv`, `json`,
+  `jsonl` and `parquet` accept only this shape, so a data feed another system
+  parses stays well-formed by construction.
 - **A string body, written verbatim**, so a script can compose a document: an
   HTML or JSX dashboard, a prose report, a hand-assembled markdown page. `html`
   and `jsx` accept only this shape — they have no tabular serialization — and
@@ -1002,13 +1002,20 @@ platform.call("trino_execute", {
 })
 ```
 
-- `format="jsonl"` is the format to register when values must come back
-  exactly. Every string survives the table as it was written, including line
-  breaks (LF, CR and CRLF), backslashes, quotes, a leading `=`, `+`, `-` or
-  `@`, tabs, emoji and private-use characters, and a null reads back as NULL
-  rather than an empty string. A list or dict value is written as its JSON text,
-  which `json_parse` reads back in SQL. A string that is not valid UTF-8 fails
-  the export rather than being altered.
+- `format="jsonl"` brings values back exactly. Every string survives the table
+  as it was written, including line breaks (LF, CR and CRLF), backslashes,
+  quotes, a leading `=`, `+`, `-` or `@`, tabs, emoji and private-use
+  characters, and a null reads back as NULL rather than an empty string. The
+  table types each column from its values: all integers `BIGINT`, any number
+  with a fraction `DOUBLE`, all booleans `BOOLEAN`, anything else `VARCHAR`
+  ([the rules](../server/registered-tables.md#json-lines)). A list or dict
+  value is written as its JSON text, which `json_parse` reads back in SQL. A
+  string that is not valid UTF-8 fails the export rather than being altered.
+- `format="parquet"` writes a typed, compressed Parquet file, each column's
+  type inferred from its values by the same rules, with a dict written as a
+  `ROW` and a list as an `ARRAY`, so the registered table reads every value
+  back as its type with no `CAST`. A key holding a dict in one row and a list
+  or a number in another fails the export, naming the key.
 - `format="csv"` also registers, with two losses: a value holding a line break
   is refused unless the registration repairs the file, and repair joins the
   value's lines with single spaces; a null reads back as an empty string. No
@@ -1016,14 +1023,17 @@ platform.call("trino_execute", {
 - `register` takes `connection` (required), `table_name` (defaults to a slug of
   the file's name; either way the persona prefix is added) and `follow`
   (defaults to true, so the next run's export moves the table onto its new
-  version). It needs `jsonl` or `csv` and the `resources` or `portal`
+  version). It needs `jsonl`, `parquet` or `csv` and the `resources` or `portal`
   destination, and is refused before anything is written otherwise.
 - It is `manage_table register` over the file the export just wrote, made over
   the run's own session, so it is authorized and audited as that call is and
   `validate` reports `manage_table` and the connection it names. The record the
-  export returns carries `table`, with the `query_table` to select from and its
-  columns. A registration that fails fails the run, naming the output, because
-  the next step would query a table that is not there.
+  export returns carries `table`, with the `query_table` to select from, its
+  `columns`, and each column's declared type in `column_types`, a list of
+  `{"name": ..., "type": ...}` entries -- the same shape `manage_table`, a
+  search hit and a fetched document carry under that key. A registration that
+  fails fails the run, naming the output, because the next step would query a
+  table that is not there.
 - In a draft without `allow_writes` nothing is written, so `table` reports the
   registration it would make, with `preview` true and no `query_table`.
 

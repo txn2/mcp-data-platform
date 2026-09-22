@@ -20,6 +20,7 @@ type API interface {
 	PutObject(ctx context.Context, input *s3client.PutObjectInput) (*s3client.PutObjectOutput, error)
 	PutObjectStream(ctx context.Context, input *s3client.PutObjectStreamInput) (*s3client.PutObjectOutput, error)
 	GetObject(ctx context.Context, bucket, key string) (*s3client.ObjectContent, error)
+	GetObjectRange(ctx context.Context, bucket, key string, offset, length int64) (*s3client.ObjectContent, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 	ListObjects(
 		ctx context.Context, bucket, prefix, delimiter string, maxKeys int32, continueToken string,
@@ -101,6 +102,19 @@ func (a *ClientAdapter) GetObject(ctx context.Context, bucket, key string) (body
 		return nil, "", fmt.Errorf("s3 get: %w", err)
 	}
 	return obj.Body, obj.ContentType, nil
+}
+
+// GetObjectRange reads length bytes of an object from offset, and reports the
+// object's whole size. A Parquet file's columns are in a footer at its end, so
+// a registration reads a few kilobytes of a file of any size (#1833).
+func (a *ClientAdapter) GetObjectRange(
+	ctx context.Context, bucket, key string, offset, length int64,
+) (body []byte, size int64, err error) {
+	obj, err := a.client.GetObjectRange(ctx, bucket, key, offset, length)
+	if err != nil {
+		return nil, 0, fmt.Errorf("s3 get range: %w", err)
+	}
+	return obj.Body, obj.Size, nil
 }
 
 // maxDirectoryEntries caps a directory listing. A registration only needs to

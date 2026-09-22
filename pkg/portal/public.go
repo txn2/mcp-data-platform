@@ -447,6 +447,9 @@ func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.serveAssetRange(w, r, share.AssetID) {
+		return
+	}
 	asset, data, fetchErr := h.fetchAssetContent(r, share.AssetID)
 	if fetchErr != nil {
 		writePublicError(w, fetchErr)
@@ -459,6 +462,31 @@ func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
 		ModTime:     asset.UpdatedAt,
 		Data:        data,
 		Revalidate:  contenttype.IsTextual(asset.ContentType),
+	})
+}
+
+// serveAssetRange answers a byte-range request for an asset by reading only
+// the bytes asked for, and reports whether it answered.
+//
+// A viewer that reads one file many times by range -- the Parquet viewer reads
+// the footer, then a row group at a time (#1833) -- would otherwise pull the
+// whole object from the store once per request. It applies to binary content
+// only: textual content is rewritten at serve time and carries an ETag over
+// the result, both of which need the whole payload.
+func (h *Handler) serveAssetRange(w http.ResponseWriter, r *http.Request, assetID string) bool {
+	if r.Header.Get("Range") == "" || h.deps.S3Client == nil {
+		return false
+	}
+	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
+	if err != nil || asset.DeletedAt != nil || contenttype.IsTextual(asset.ContentType) {
+		return false
+	}
+	return blobserve.ServeRanged(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: asset.ContentType,
+		ModTime:     asset.UpdatedAt,
+	}, blobserve.Object{
+		Store: h.deps.S3Client, Bucket: asset.S3Bucket, Key: asset.S3Key, Size: asset.SizeBytes,
 	})
 }
 
@@ -514,8 +542,11 @@ func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAsset
 		return publicAssetData{}, &publicAssetError{Message: "Content storage not configured.", Status: http.StatusServiceUnavailable}
 	}
 
-	// Skip content fetch for large assets — they'll show a download prompt instead.
-	if asset.SizeBytes > largeAssetPreviewThreshold {
+	// Skip content fetch for large assets — they'll show a download prompt
+	// instead. A Parquet file is exempt: its viewer reads the footer and one
+	// row group at a time by byte range, so the file's size is not what the
+	// page holds (#1833).
+	if asset.SizeBytes > largeAssetPreviewThreshold && contenttype.Normalize(asset.ContentType) != contenttype.Parquet {
 		return publicAssetData{Asset: asset, TooLarge: true}, nil
 	}
 

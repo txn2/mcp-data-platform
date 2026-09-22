@@ -17,7 +17,12 @@ import {
   useUnregisterTable,
   TableApiError,
 } from "@/api/tables/hooks";
-import { CSV_NEEDS_REPAIR, isRegistrableType } from "@/api/tables/types";
+import {
+  CSV_NEEDS_REPAIR,
+  columnTypesText,
+  isRegistrableType,
+  registrableFormat,
+} from "@/api/tables/types";
 import type { TableRegistration, TableSourceKind } from "@/api/tables/types";
 import { RefusalDialog } from "./RefusalDialog";
 import { SectionCard } from "@/components/patterns/SectionCard";
@@ -60,7 +65,7 @@ export function TablesPanel({
 }: {
   kind: TableSourceKind;
   id: string;
-  /** contentType decides whether the panel appears: only a CSV or JSON lines can be a table. */
+  /** contentType decides whether the panel appears: only a CSV, JSON lines or Parquet can be a table. */
   contentType: string;
   /** filename seeds the suggested table name. */
   filename?: string;
@@ -99,7 +104,7 @@ export function TablesPanel({
       <p className="text-xs text-muted-foreground">
         Registering points a query engine at this file where it already sits.
         Nothing is copied, and a table that follows the file moves onto each new
-        version as it is written. Every column comes back as text.
+        version as it is written. {columnTypesText(registrableFormat(contentType, filename))}
       </p>
 
       {adding && (
@@ -136,7 +141,7 @@ export function TablesPanel({
 // usePanelData reads what the panel needs and decides whether it appears at
 // all.
 //
-// A file that is neither a CSV nor JSON lines cannot be a table, a reader who cannot act on the
+// A file that is not a CSV, JSON lines or Parquet cannot be a table, a reader who cannot act on the
 // file is answered by the routes as if it had none, and a deployment where no
 // connection carries a scratch catalog and schema has nowhere to put one. In
 // all three cases the panel is absent rather than empty: an explanation of an
@@ -309,6 +314,11 @@ function RegistrationRow({
               className="rounded px-1.5 font-mono"
             >
               {c.name}
+              {/* A typed table's column carries its type; a CSV's are all
+                  VARCHAR, which the panel's sentence already says (#1833). */}
+              {reg.format === "csv" || !reg.format ? null : (
+                <span className="ml-1 opacity-70">{c.type}</span>
+              )}
             </Badge>
           ))}
         </div>

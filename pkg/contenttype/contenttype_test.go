@@ -684,3 +684,41 @@ func TestDetectFileMatchesDetectWithoutAName(t *testing.T) {
 		}
 	}
 }
+
+// TestParquet names a Parquet file from its magic, holding the whole payload
+// to the magic at both ends (#1833).
+func TestParquet(t *testing.T) {
+	whole := append(append([]byte("PAR1"), make([]byte, 16)...), []byte("\x05\x00\x00\x00PAR1")...)
+	if !contenttype.IsParquet(whole) {
+		t.Error("a payload with the magic at both ends is Parquet")
+	}
+	for name, b := range map[string][]byte{
+		"no tail": append([]byte("PAR1"), make([]byte, 16)...), "too short": []byte("PAR1PAR1"), "empty": nil,
+	} {
+		if contenttype.IsParquet(b) {
+			t.Errorf("%s: not Parquet", name)
+		}
+	}
+	if got := contenttype.Detect("", whole[:8]); got != contenttype.Parquet {
+		t.Errorf("a prefix beginning with the magic detects as %q; want Parquet", got)
+	}
+	if got := contenttype.DetectFileBytes("", "orders.parquet", whole); got != contenttype.Parquet {
+		t.Errorf("the whole file detects as %q; want Parquet", got)
+	}
+	headOnly := append([]byte("PAR1"), bytes.Repeat([]byte{1}, 32)...)
+	if got := contenttype.DetectFileBytes("", "", headOnly); got == contenttype.Parquet {
+		t.Error("bytes that begin like Parquet and do not end like it are not named Parquet")
+	}
+	if got := contenttype.DetectFileBytes(contenttype.Parquet, "", headOnly); got != contenttype.Parquet {
+		t.Errorf("a declared Parquet type is kept: got %q", got)
+	}
+	if got := contenttype.Normalize("application/x-parquet"); got != contenttype.Parquet {
+		t.Errorf("the alias normalizes to %q", got)
+	}
+	if got := contenttype.Extension(contenttype.Parquet); got != ".parquet" {
+		t.Errorf("the extension is %q", got)
+	}
+	if got := contenttype.TypeForFilename("x.parquet"); got != contenttype.Parquet {
+		t.Errorf("a .parquet name is %q", got)
+	}
+}

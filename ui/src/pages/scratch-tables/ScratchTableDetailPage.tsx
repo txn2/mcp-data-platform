@@ -151,11 +151,11 @@ function Registration({
 // ColumnsSection lists the column names, and says the type once when every
 // column shares it.
 //
-// Every column of a registered table is VARCHAR -- the CSV connector's rule,
-// already stated in the section above this one -- so a badge per column
-// repeating it printed the same word thirty-five times and buried the names
-// the section exists to help a reader find (#1796). A table whose columns do
-// differ still gets the type on each one, because then it discriminates.
+// Every column of a CSV table is VARCHAR -- the CSV connector's rule -- so a
+// badge per column repeating it printed the same word thirty-five times and
+// buried the names the section exists to help a reader find (#1796). A table
+// whose columns differ, which a JSON-lines or Parquet table's usually do
+// (#1833), gets the type on each one, because then it discriminates.
 function ColumnsSection({ row }: { row: ScratchTable }) {
   const types = new Set(row.columns.map((c) => c.type));
   const uniform = types.size === 1 ? [...types][0] : null;
@@ -168,6 +168,13 @@ function ColumnsSection({ row }: { row: ScratchTable }) {
           {uniform ? (
             <p className="mb-2 text-xs text-muted-foreground">
               Every column is <span className="font-mono">{uniform}</span>.
+            </p>
+          ) : null}
+          {row.all_varchar ? (
+            <p className="mb-2 text-xs text-muted-foreground" data-testid="all-varchar-note">
+              This JSON-lines table was registered before a JSON-lines table&apos;s columns were typed, and keeps
+              every column VARCHAR as its file changes so the queries written against it keep working. Register the
+              file again under the same name to declare each column&apos;s type.
             </p>
           ) : null}
           <div className="flex flex-wrap gap-1.5">

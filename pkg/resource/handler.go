@@ -401,7 +401,12 @@ func openUploadStream(part *multipart.Part, rest *multipart.Reader, limit int64)
 	// type is not a CSV to the portal's table panel, to a thumbnail, or to
 	// manage_table. Detection prefers the name only where the content agrees
 	// with it (#1438).
-	mimeType := contenttype.DetectFileBytes(declared, filename, prefix)
+	// The prefix form: this is the head of a stream, not the whole file, so
+	// the Parquet magic at the start of it is all there is to read. Handing a
+	// prefix to the whole-payload form named every Parquet upload over 8 KiB
+	// -- which is every real one -- application/octet-stream, and the viewer,
+	// the badge and the tile are all keyed on the stored type (#1833).
+	mimeType := contenttype.DetectFile(declared, filename, prefix)
 	if err := ValidateMIMEType(mimeType); err != nil {
 		return nil, err
 	}
@@ -805,6 +810,23 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, "blob storage not configured")
 		return
+	}
+
+	// A byte range of a stored file is read by range rather than by reading
+	// the whole object: the Parquet viewer reads the footer and then a row
+	// group at a time, which would otherwise pull the file once per request
+	// (#1833).
+	if r.Header.Get("Range") != "" {
+		h.recordRead(r.Context(), res, claims, contentSurface(r), 0)
+		if blobserve.ServeRanged(w, r, blobserve.Options{
+			Name:        res.Filename,
+			ContentType: res.MIMEType,
+			ModTime:     res.UpdatedAt,
+		}, blobserve.Object{
+			Store: h.deps.S3Client, Bucket: h.deps.S3Bucket, Key: res.S3Key, Size: res.SizeBytes,
+		}) {
+			return
+		}
 	}
 
 	body, contentType, err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, res.S3Key)

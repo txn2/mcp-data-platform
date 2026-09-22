@@ -1,8 +1,8 @@
 # Registered Tables
 
-A file that reaches the platform - a CSV or JSON-lines file a person uploaded
-as a managed resource, or one `trino_export` or a script wrote - can be
-registered as a table on a Trino connection and joined to warehouse tables
+A file that reaches the platform - a CSV, JSON-lines or Parquet file a person
+uploaded as a managed resource, or one `trino_export` or a script wrote - can
+be registered as a table on a Trino connection and joined to warehouse tables
 from then on.
 
 Nothing is copied. The registration creates an external table over the
@@ -88,6 +88,7 @@ connector.name=hive
 hive.metastore=file
 hive.metastore.catalog.dir=s3://<bucket>/trino-metastore/
 hive.recursive-directories=false
+hive.timestamp-precision=MICROSECONDS
 fs.native-s3.enabled=true
 s3.endpoint=<your object store endpoint>
 s3.path-style-access=true
@@ -100,9 +101,18 @@ Trino needs its own credentials to the bucket. They are separate from the
 platform's S3 connection credentials and are configured on the Trino cluster,
 not here.
 
+`hive.timestamp-precision=MICROSECONDS` is what a Parquet file's timestamps
+read back exactly at. The connector's default, `MILLISECONDS`, truncates a
+microsecond timestamp on every read, and it refuses a column declared at any
+precision but the catalog's: a registration declares every timestamp column
+`TIMESTAMP(6)`, so on a catalog left at the default the `CREATE TABLE` for a
+Parquet file with a timestamp column fails with *"Incorrect timestamp
+precision for timestamp(6); the configured precision is MILLISECONDS"*. CSV
+and JSON-lines registrations declare no timestamp columns and are not affected.
+
 ## Registering
 
-**In the portal.** Open a CSV or JSON-lines resource or asset. A *Query as a table*
+**In the portal.** Open a CSV, JSON-lines or Parquet resource or asset. A *Query as a table*
 section offers the connections you can reach that can hold one, and shows what
 is already registered with the columns each table has.
 
@@ -307,41 +317,122 @@ the registrant's call or an administrator's.
 **Delete the file.** Deleting the resource or asset drops every table registered
 over it, whoever registered them, and forgets the registrations.
 
-## CSV or JSON lines
+## CSV, JSON lines or Parquet
 
 A registration reads its file through the reader its format names, decided by
 the file's content type or, when that is generic, its extension (`.csv`;
-`.jsonl` or `.ndjson`). A `.jsonl` or `.ndjson` file typed `application/json`
-is JSON lines too: one record on one line is also a JSON document, and that is
-what detection calls it. The format is recorded on the registration and shown
-as `format` wherever the registration is listed.
+`.jsonl` or `.ndjson`; `.parquet`). A `.jsonl` or `.ndjson` file typed
+`application/json` is JSON lines too: one record on one line is also a JSON
+document, and that is what detection calls it. The format is recorded on the
+registration and shown as `format` wherever the registration is listed.
 
-| | CSV | JSON lines |
-|---|---|---|
-| Columns | The header line, cleaned: a blank name is filled in, a comma dropped, a repeat suffixed | Every key any record carries, lowercased, in the order first seen |
-| A line break inside a value | Refused unless `repair` is set, and repair joins the value's lines with single spaces | Carried exactly |
-| A null | Reads back as an empty string | Reads back as NULL |
-| Every other character | Carried exactly | Carried exactly |
-| Correction (`repair`) | Offered for the defects listed below | Never; a defect is refused by line number |
+| | CSV | JSON lines | Parquet |
+|---|---|---|---|
+| Columns | The header line, cleaned: a blank name is filled in, a comma dropped, a repeat suffixed | Every key any record carries, lowercased, in the order first seen | The columns the file's footer declares, lowercased, in file order |
+| Column types | Every column `VARCHAR` | Inferred from every record (below) | The file's own (below) |
+| A line break inside a value | Refused unless `repair` is set, and repair joins the value's lines with single spaces | Carried exactly | Carried exactly |
+| A null | Reads back as an empty string | Reads back as NULL | Reads back as NULL |
+| What is read to register it | The whole file, within the read cap | The whole file, within the read cap | The footer only, by range, at any size |
+| Correction (`repair`) | Offered for the defects listed below | Never; a defect is refused by line number. `repair` is accepted and does nothing | Never; nothing to correct. `repair` is accepted and does nothing |
 
-JSON lines is the format for values that must come back exactly: `trino_export`
-and a script's `platform.export` both write it as `format=jsonl`, and the export
-writes a list or dict value as its JSON text so that the reader can read it
-(`json_parse` reads it back). A script can register the file it writes in the
-same call; see
+JSON lines and Parquet are the formats for values that must come back exactly:
+`trino_export` and a script's `platform.export` both write them as
+`format=jsonl` and `format=parquet`. A script can register the file it writes
+in the same call; see
 [From rows to a table a query can read](../scripts/running.md#from-rows-to-a-table-a-query-can-read).
+
+### JSON lines
+
+Every record is read, not a sample, and each key's type is inferred from all
+of its values, ignoring nulls and records that do not carry the key:
+
+| The key's values | Declared as |
+|---|---|
+| All JSON booleans | `BOOLEAN` |
+| All integers within the range of a 64-bit integer | `BIGINT` |
+| Any number with a fraction or an exponent, alone or among integers | `DOUBLE` |
+| All strings | `VARCHAR` |
+| A mix of scalar kinds (a number and a string), an integer too large for `BIGINT`, or nothing but nulls | `VARCHAR`: the reader returns the text of a number or a boolean in a `VARCHAR` column |
+| Objects | `ROW` over the union of their keys, each inferred the same way |
+| Lists | `ARRAY` of what their elements infer to |
+
+A fraction is a `DOUBLE`, not a `DECIMAL`: a JSON number carries no declared
+scale, and one wide value would force a wide type on the whole column. No date
+or timestamp is inferred from a string.
 
 The JSON reader cannot read some line shapes, and a file holding one is refused
 with its line number: a blank line anywhere but the end, a line that is not
 exactly one JSON object (a second object on the same line would be dropped
-without a word), a key repeated in a record (keys match columns without regard
-to case, so `id` and `ID` are one column), and a nested object or list as a
-value. A key must be ASCII, with no comma and no leading or trailing space,
-because the reader leaves a non-ASCII key's column empty and Hive refuses the
-others as column names. A file with no records declares no columns and is
+without a word), and a key repeated in a record (keys match columns without
+regard to case, so `id` and `ID` are one column). A key whose values cannot be
+one type - an object on one line and a list or a scalar on another, or two
+kinds of nested value inside one list - is refused naming the key and the line,
+because no declaration reads both. A key must be ASCII, with no comma and no
+leading or trailing space, because the reader leaves a non-ASCII key's column
+empty and Hive refuses the others as column names. A key inside an object may
+hold only letters, digits, `_`, `.`, `$` and spaces: the metastore keeps a
+nested type as Hive type text, whose parser admits nothing else, and a table
+declared with any other nested name is created and then fails every statement
+on it, its `DROP` included. A file with no records declares no columns and is
 refused at registration; a later version of a following registration's file
 that holds no records moves the table and keeps the columns it had, so a day
 with nothing in it reads as zero rows.
+
+A JSON-lines registration made before its columns were typed kept every column
+`VARCHAR`, and keeps that rule when it follows its file, so the queries written
+against it keep working (the registration row records it as `all_varchar`). A
+new version with a nested value is refused for such a table, as it always was.
+Registering the file again under the same name replaces it with a typed
+registration.
+
+### Parquet
+
+A Parquet file declares its own columns and types in its footer, at the end of
+the file, and a registration reads nothing else: the last bytes give the
+footer's length, one ranged read fetches it. A Parquet file larger than the
+cap a CSV is read whole under therefore registers. The file has to be one file
+in its own directory, as every registration's does; a directory of part files
+is not a table here.
+
+| Parquet (physical / logical) | Declared as |
+|---|---|
+| `BOOLEAN` | `BOOLEAN` |
+| `INT32` (no annotation, or `INT(32,signed)`) | `INTEGER` |
+| `INT32` `INT(8,signed)` / `INT(16,signed)` | `TINYINT` / `SMALLINT` |
+| `INT64` (no annotation, or `INT(64,signed)`) | `BIGINT` |
+| `INT32` `INT(8,unsigned)` / `INT(16,unsigned)` | `SMALLINT` / `INTEGER` |
+| `FLOAT` / `DOUBLE` | `REAL` / `DOUBLE` |
+| `DECIMAL(p,s)` on `INT32`, `INT64`, `FIXED_LEN_BYTE_ARRAY` or `BYTE_ARRAY` | `DECIMAL(p,s)` |
+| `BYTE_ARRAY` `STRING` / `ENUM` / `JSON` | `VARCHAR` |
+| `BYTE_ARRAY` with no annotation | `VARBINARY` |
+| `INT32` `DATE` | `DATE` |
+| `INT64` `TIMESTAMP` (millis, micros or nanos), `INT96` | `TIMESTAMP(6)` |
+| `LIST` | `ARRAY(element)` |
+| `MAP` | `MAP(key, value)` |
+| a group | `ROW(fields)` |
+
+A file written with only the older converted-type annotations (`UTF8`,
+`INT_8`, `TIMESTAMP_MILLIS`, `DECIMAL`, ...) maps the same way. Anything else -
+`TIME`, `UUID`, `FLOAT16`, `INTERVAL`, a plain `FIXED_LEN_BYTE_ARRAY`, a
+repeated field outside a `LIST` or `MAP`, a `DECIMAL` wider than 38 digits - is
+refused naming the column and its Parquet type, and no table is created: there
+is no partial registration. So is an unsigned 32- or 64-bit integer, which has
+no declaration that reads back exactly: a `UINT32` of 4294967295 declared
+`BIGINT` reads as -1, because the reader takes the physical `INT32` as signed
+whatever the column says, and a `UINT64` declared `DECIMAL(20,0)`, the only
+type wide enough, is refused by the connector. So are two columns one apart by case (`Id` and
+`id`), because the reader matches a Parquet column by name without regard to
+case, and a field inside a group whose name the metastore cannot store (see
+[JSON lines](#json-lines)). A timestamp is read at the catalog's precision,
+which is why the catalog sets `hive.timestamp-precision=MICROSECONDS`; a
+nanosecond timestamp reads back at microseconds.
+
+When a new version of a following Parquet file arrives, its footer is read
+again and the table is declared again from it. An added, removed or retyped
+column is reported in the write's `table_changes`, so a query that breaks on a
+schema change is explained where the write reports what it did. A new version
+that is not Parquet, or that holds a type the mapping refuses, sets
+`follow_error` and leaves the table on the version it was on.
 
 ## A CSV a query engine cannot read
 
@@ -710,11 +801,9 @@ registration honest either way.
 
 ## Querying what you registered
 
-Every column of a registered table is `VARCHAR`. That is the Hive CSV storage
-format's rule, not a platform choice - declaring the table any other way is
-refused by Trino itself - and a JSON-lines table declares the same, so the two
-formats read alike: a number or a boolean in a JSON-lines file reads as its
-text. A join to a typed warehouse column needs a cast:
+A CSV table's columns are all `VARCHAR`. That is the Hive CSV storage format's
+rule, not a platform choice - declaring the table any other way is refused by
+Trino itself - so a join to a typed warehouse column needs a cast:
 
 ```sql
 SELECT s.store_id, s.store_name, u.rebate_pct
@@ -723,10 +812,15 @@ JOIN scratch.uploads.analyst_vendor_keys u
   ON s.store_id = CAST(u.store_id AS integer)
 ```
 
+A JSON-lines or Parquet table's columns carry their types, so the same join
+needs none, and a `SUM` over a `BIGINT` column is a `SUM`. The `sample_sql` a
+registration reports follows the format: the cast and the sentence explaining
+it for a CSV, the plain join for the others.
+
 `search` carries a table reference on a hit for a registered file, and `fetch`
 carries a `tables` list on the record: one entry per registration over the
-file, newest first, each with the column names, a sample statement showing the
-cast, and the same `registration_id`, `follow`, `repair` and `follow_error`
+file, newest first, each with the column names, their declared types as
+`column_types`, a sample statement, and the same `registration_id`, `follow`, `repair` and `follow_error`
 `manage_table action=list` reports under `table_registrations`. That is enough
 to write the query without a second call. A file registered twice - on two connections, or registered again
 after a header change - is two entries, and the document names both.
@@ -762,11 +856,15 @@ file being registered. A table over a hidden object is created, recorded and
 queried without any error and returns nothing, so a source under such a name is
 refused and the reason is stated. Upload the file under another name.
 
-**A file that is neither a CSV nor JSON lines.** There is nothing to take
+**A file that is not a CSV, JSON lines or Parquet.** There is nothing to take
 column names from.
 
-**A JSON-lines file the JSON reader cannot read.** See
-[CSV or JSON lines](#csv-or-json-lines).
+**A JSON-lines file the JSON reader cannot read, or whose keys cannot each be
+one type.** See [JSON lines](#json-lines).
+
+**A file named or typed as Parquet whose bytes are not Parquet**, one whose
+footer does not parse, and a Parquet file with a column no declaration reads
+back exactly. See [Parquet](#parquet).
 
 **A CSV a line-based reader cannot read.** Lines that end in a carriage return
 rather than a newline, a line break inside a cell, or bytes that are not

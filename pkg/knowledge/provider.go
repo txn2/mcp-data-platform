@@ -277,15 +277,27 @@ type HitTable struct {
 	// caller that fetched the record can write the SELECT without describing
 	// the table first (#1666); every one is VARCHAR when the file is a CSV,
 	// which is what Sample shows the CAST for.
-	Columns     []string `json:"columns,omitempty"`
-	Sample      string   `json:"sample_sql,omitempty"`
-	Stale       bool     `json:"stale,omitempty"`
-	Follow      bool     `json:"follow"`
-	Repair      bool     `json:"repair"`
-	FollowError string   `json:"follow_error,omitempty"`
-	// Format is the reader the table is declared with: csv, or jsonl for a
-	// JSON-lines file, whose values come back exactly (#1820).
+	Columns []string `json:"columns,omitempty"`
+	// ColumnTypes pairs each column with the type the table declares (#1833):
+	// VARCHAR throughout for a CSV, the inferred or declared type for a
+	// JSON-lines or Parquet file. A JSON-lines registration made before
+	// typing existed is also VARCHAR throughout, and stays so until it is
+	// registered again.
+	ColumnTypes []HitColumn `json:"column_types,omitempty"`
+	Sample      string      `json:"sample_sql,omitempty"`
+	Stale       bool        `json:"stale,omitempty"`
+	Follow      bool        `json:"follow"`
+	Repair      bool        `json:"repair"`
+	FollowError string      `json:"follow_error,omitempty"`
+	// Format is the reader the table is declared with: csv, jsonl for a
+	// JSON-lines file, whose values come back exactly (#1820), or parquet.
 	Format string `json:"format,omitempty"`
+}
+
+// HitColumn is one column of a registered table, with its declared type.
+type HitColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 // HitLink is the client-attachable file behind a Hit: the canonical resource URI

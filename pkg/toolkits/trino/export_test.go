@@ -570,7 +570,7 @@ func TestResolveExportLimits(t *testing.T) {
 	assert.Equal(t, 500, limit)
 }
 
-func TestConvertQueryResult(t *testing.T) {
+func TestQueryRows(t *testing.T) {
 	result := &trinoclient.QueryResult{
 		Columns: []trinoclient.ColumnInfo{
 			{Name: "id", Type: "integer"},
@@ -582,8 +582,7 @@ func TestConvertQueryResult(t *testing.T) {
 		},
 	}
 
-	columns, rows := convertQueryResult(result)
-	assert.Equal(t, []string{"id", "name"}, columns)
+	rows := queryRows(result)
 	require.Len(t, rows, 2)
 	assert.Equal(t, 1, rows[0][0])
 	assert.Equal(t, "Alice", rows[0][1])
@@ -725,7 +724,7 @@ func TestRegisterExportTool(t *testing.T) {
 
 func TestExecuteExportQuery_NoClient(t *testing.T) {
 	tk := &Toolkit{} // no client, no manager
-	_, err := tk.executeExportQuery(context.Background(), "SELECT 1", "", 100)
+	_, err := tk.executeExportQuery(context.Background(), "SELECT 1", "", trinoclient.QueryOptions{Limit: 100})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no Trino client")
 }

@@ -70,6 +70,18 @@ func (o *reviseObjects) GetObject(
 	return body, "text/csv", nil
 }
 
+// GetObjectRange serves a slice of a stored object and its whole length.
+func (o *reviseObjects) GetObjectRange(
+	_ context.Context, bucket, key string, offset, length int64,
+) (body []byte, size int64, err error) {
+	data, ok := o.put[bucket+"/"+key]
+	if !ok || offset >= int64(len(data)) {
+		return nil, 0, errors.New("no such range")
+	}
+	end := min(offset+length, int64(len(data)))
+	return data[offset:end], int64(len(data)), nil
+}
+
 func (o *reviseObjects) DeleteObject(_ context.Context, bucket, key string) error {
 	o.deleted = append(o.deleted, bucket+"/"+key)
 	return nil

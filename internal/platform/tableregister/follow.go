@@ -48,6 +48,10 @@ type FollowOutcome struct {
 	// ColumnsChanged means the new version's header differs from the one the
 	// table declared, so the table was rebuilt with the new columns.
 	ColumnsChanged bool `json:"columns_changed,omitempty"`
+	// ColumnChanges says how: the columns the new version added, the ones it
+	// removed, and the ones whose type changed (#1833). A query that breaks on
+	// a follow is explained by it.
+	ColumnChanges string `json:"column_changes,omitempty"`
 	// Missing means the table this registration names no longer exists on
 	// its connection: a write that ran DROP TABLE on the connection found it
 	// gone afterwards (#1546). Reason says which write. The registration is
@@ -80,7 +84,10 @@ func (o FollowOutcome) tableSentence() string {
 	switch {
 	case o.Followed:
 		s := name + " now reads version " + strconv.Itoa(o.Version) + "."
-		if o.ColumnsChanged {
+		switch {
+		case o.ColumnChanges != "":
+			s += " Its columns changed with the file: " + o.ColumnChanges + "."
+		case o.ColumnsChanged:
 			s += " Its columns changed with the file."
 		}
 		return s
@@ -354,7 +361,15 @@ func (r *Registrar) followOne(
 	if target.keepColumns {
 		target.columns = reg.Columns
 	}
+	if reg.AllVarchar && target.format == FormatJSONLines {
+		columns, err := varcharColumns(target.columns)
+		if err != nil {
+			return r.followFailed(ctx, reg, outcome, err), false
+		}
+		target.columns = columns
+	}
 	outcome.ColumnsChanged = !sameColumns(reg.Columns, target.columns)
+	outcome.ColumnChanges = ColumnChanges(reg.Columns, target.columns)
 	if reg.Location == target.location && !outcome.ColumnsChanged && reg.FormatOrDefault() == target.format {
 		return r.alreadyThere(ctx, reg, outcome), false
 	}
@@ -375,13 +390,13 @@ func (r *Registrar) followOne(
 // dropped the correction on its way out would leave the person whose file
 // changed with a reason and no mention of the change.
 func (r *Registrar) readHead(ctx context.Context, src Source, version int, repairFor *Registration) *followHead {
-	body, format, err := r.contentFor(ctx, src)
+	c, err := r.contentFor(ctx, src)
 	if err != nil {
 		return &followHead{version: version, err: err}
 	}
-	head := &followHead{version: version, format: format}
-	if format == FormatCSV {
-		body, head.repair, err = r.repairHead(ctx, &src, body, repairFor)
+	head := &followHead{version: version, format: c.format}
+	if c.format == FormatCSV {
+		c.body, head.repair, err = r.repairHead(ctx, &src, c.body, repairFor)
 		if head.repair != nil {
 			head.version = head.repair.Version
 		}
@@ -394,11 +409,11 @@ func (r *Registrar) readHead(ctx context.Context, src Source, version int, repai
 		head.err = err
 		return head
 	}
-	if format == FormatJSONLines && len(bytes.TrimSpace(tablecsv.TrimBOM(body))) == 0 {
+	if c.format == FormatJSONLines && len(bytes.TrimSpace(tablecsv.TrimBOM(c.body))) == 0 {
 		head.keepColumns = true
 		return head
 	}
-	if head.columns, err = readColumns(format, body); err != nil {
+	if head.columns, err = c.columnsOf(); err != nil {
 		head.err = err
 	}
 	return head
@@ -603,4 +618,61 @@ func columnNames(cols []Column) []string {
 		names = append(names, c.Name)
 	}
 	return names
+}
+
+// ColumnChanges says how one declaration of a table's columns differs from the
+// next: the columns added, the columns removed, and the columns whose type
+// changed, each with its type, in the order the new declaration lists them.
+// It is empty when the two declare the same columns, and when they differ only
+// in order.
+func ColumnChanges(before, after []Column) string {
+	was := make(map[string]string, len(before))
+	for _, c := range before {
+		was[c.Name] = c.Type
+	}
+	now := make(map[string]bool, len(after))
+	var added, retyped, removed []string
+	for _, c := range after {
+		now[c.Name] = true
+		prior, ok := was[c.Name]
+		switch {
+		case !ok:
+			added = append(added, c.Name+" "+c.Type)
+		case prior != c.Type:
+			retyped = append(retyped, c.Name+" is now "+c.Type+" (was "+prior+")")
+		}
+	}
+	for _, c := range before {
+		if !now[c.Name] {
+			removed = append(removed, c.Name)
+		}
+	}
+	var parts []string
+	if len(added) > 0 {
+		parts = append(parts, "added "+strings.Join(added, ", "))
+	}
+	if len(removed) > 0 {
+		parts = append(parts, "removed "+strings.Join(removed, ", "))
+	}
+	parts = append(parts, retyped...)
+	return strings.Join(parts, "; ")
+}
+
+// varcharColumns declares a JSON-lines head under the rule a registration made
+// before typed columns keeps (#1833): every column VARCHAR. A nested value was
+// refused under that rule, because the reader fails a query on an object or a
+// list in a VARCHAR column, and it still is; registering the file again gives
+// a typed registration that declares it.
+func varcharColumns(columns []Column) ([]Column, error) {
+	out := make([]Column, 0, len(columns))
+	for _, c := range columns {
+		if strings.HasPrefix(c.Type, "ROW(") || strings.HasPrefix(c.Type, "ARRAY(") ||
+			strings.HasPrefix(c.Type, "MAP(") {
+			return nil, refusedf("the value of %q is a nested object or list, and this table declares every column "+
+				"VARCHAR, which the reader fails every query on for such a value; register the file again under the "+
+				"same name and its columns are declared with their types", c.Name)
+		}
+		out = append(out, Column{Name: c.Name, Type: tablecsv.ColumnType})
+	}
+	return out, nil
 }

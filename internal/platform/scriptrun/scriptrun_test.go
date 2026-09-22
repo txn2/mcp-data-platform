@@ -349,7 +349,7 @@ print(json.encode(out))
 		source  string
 		wantErr string
 	}{
-		{"unknown format", `platform.export(name="d", rows=[], format="parquet")`, "is not one of"},
+		{"unknown format", `platform.export(name="d", rows=[], format="avro")`, "is not one of"},
 		{"blank name", `platform.export(name="  ", rows=[])`, "name is required"},
 		{"string body under a rows-only format", `platform.export(name="d", rows="a,b", format="csv")`, "is serialized from rows"},
 		{"rows under a document-only format", `platform.export(name="d", rows=[{"a": 1}], format="html")`, "written verbatim from a string body"},
@@ -447,7 +447,7 @@ func TestFormatOutput_DocumentBody(t *testing.T) {
 // carries the output it happened to, since a run may write several and the
 // author needs to know which one to fix.
 func TestFormatOutput_RefusalsNameTheOutput(t *testing.T) {
-	_, _, err := FormatOutput(ExportRequest{Name: "daily", Format: "parquet"})
+	_, _, err := FormatOutput(ExportRequest{Name: "daily", Format: "avro"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `output "daily"`)
 	assert.Contains(t, err.Error(), "unsupported format")

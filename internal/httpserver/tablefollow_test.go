@@ -258,7 +258,7 @@ func TestResourceRevision_MovesAFollowingTableBeforeTheRouteAnswers(t *testing.T
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "res_1", body["id"], "the response is still the resource")
 	assert.Equal(t, []any{
-		"scratch.uploads.analyst_stores on scratch now reads version 2. Its columns changed with the file.",
+		"scratch.uploads.analyst_stores on scratch now reads version 2. Its columns changed with the file: added region VARCHAR.",
 	}, body["table_changes"])
 
 	// The revision's directory is the one the route wrote the object into.

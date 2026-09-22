@@ -98,6 +98,16 @@ func (f *fakeS3API) GetObject(_ context.Context, _, _ string) (*s3client.ObjectC
 	return &s3client.ObjectContent{Body: f.getBody, ContentType: f.getCT}, nil
 }
 
+// GetObjectRange serves a slice of the fake object's body, reporting the whole
+// body's length as the object's size the way the real client does.
+func (f *fakeS3API) GetObjectRange(_ context.Context, _, _ string, offset, length int64) (*s3client.ObjectContent, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	end := min(offset+length, int64(len(f.getBody)))
+	return &s3client.ObjectContent{Body: f.getBody[offset:end], Size: int64(len(f.getBody))}, nil
+}
+
 //nolint:revive // argument-limit: the signature mirrors the mcp-s3 client's
 func (f *fakeS3API) ListObjects(
 	_ context.Context, _, prefix, delimiter string, maxKeys int32, _ string,
@@ -302,5 +312,23 @@ func TestS3ClientAdapter_ListDirectory_Error(t *testing.T) {
 	if _, _, err := adapter.ListDirectory(context.Background(), "bucket", "d/"); err == nil ||
 		!strings.Contains(err.Error(), "s3 list") {
 		t.Errorf("error = %v; want it wrapped with 's3 list'", err)
+	}
+}
+
+// TestGetObjectRange passes the range through and reports the object's whole
+// size, so a registration reads a Parquet footer without the file (#1833).
+func TestGetObjectRange(t *testing.T) {
+	fake := &fakeS3API{getBody: []byte("0123456789")}
+	a := &ClientAdapter{client: fake}
+	body, size, err := a.GetObjectRange(context.Background(), "b", "k", 6, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "6789" || size != 10 {
+		t.Errorf("got %q of %d; want \"6789\" of 10", body, size)
+	}
+	fake.getErr = errors.New("boom")
+	if _, _, err := a.GetObjectRange(context.Background(), "b", "k", 0, 1); err == nil {
+		t.Error("a store error is returned")
 	}
 }
