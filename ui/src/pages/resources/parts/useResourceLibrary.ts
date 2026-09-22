@@ -214,12 +214,16 @@ function viewShape(view: LibraryView): { searching: boolean; flat: boolean; list
 /**
  * listingFor is the request one view makes.
  *
- * The folder narrows the listing; a search replaces it, because a hit elsewhere
- * in the library is the point of searching from inside a folder.
+ * A folder lists its own files and none of its subfolders': the subfolders are
+ * drawn from the facets, which count every depth, so fetching their files too
+ * would page through rows the level never shows and report a total it does not
+ * hold (#1837). A search replaces the folder, because a hit elsewhere in the
+ * library is the point of searching from inside one.
  */
 function listingFor(view: LibraryView, activeTab: string, searching: boolean) {
   return {
     path: searching ? undefined : view.path || undefined,
+    direct: !searching,
     tag: view.tag || undefined,
     q: view.q || undefined,
     sort: view.sort,

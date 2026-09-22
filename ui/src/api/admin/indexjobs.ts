@@ -55,6 +55,9 @@ export interface IndexKindSummary {
   // unit is re-queued, so it counts under both pending and failed while
   // its retry waits.
   failed: number;
+  // retrying is the pending jobs waiting out a retry backoff, counted over
+  // the whole table: a subset of pending.
+  retrying: number;
   last_activity?: string;
   coverage?: IndexCoverage;
 }
@@ -121,17 +124,22 @@ export interface IndexJobsFilter {
   kind?: string;
   status?: string;
   source_id?: string;
+  // retrying narrows to pending jobs with at least one attempt behind them.
+  retrying?: boolean;
   limit?: number;
 }
 
-// useIndexJobs polls the job list / drill-down. The dashboard fetches a
-// generous page once and derives its throughput, latency, in-flight,
-// retry, and failure panels from it client-side.
+// useIndexJobs polls one filtered page of the job table, newest first. The
+// dashboard asks three questions of it: every running job (In flight), the
+// jobs in retry backoff (Retry backoff), and the newest rows of any state
+// (the drill-down). Throughput and latency are not read from it: a page
+// of a backlog holds no completions (#1837).
 export function useIndexJobs(filter: IndexJobsFilter = {}) {
   const qs = new URLSearchParams();
   if (filter.kind) qs.set("kind", filter.kind);
   if (filter.status) qs.set("status", filter.status);
   if (filter.source_id) qs.set("source_id", filter.source_id);
+  if (filter.retrying) qs.set("retrying", "true");
   qs.set("limit", String(filter.limit ?? 500));
   const query = qs.toString();
   return useQuery({

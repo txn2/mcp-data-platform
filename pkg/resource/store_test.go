@@ -202,3 +202,30 @@ func TestDefaultListLimit(t *testing.T) {
 		t.Errorf("DefaultListLimit = %d, want 100", DefaultListLimit)
 	}
 }
+
+// TestBuildScopeWhere_DirectPath is a folder view's own level (#1837): one
+// equality and no subtree pattern, so the placeholders after it number from one
+// binding later than the prefix form's two.
+func TestBuildScopeWhere_DirectPath(t *testing.T) {
+	where, args := buildScopeWhere(Filter{
+		Scopes: []ScopeFilter{{Scope: ScopeGlobal}},
+		Path:   "brand",
+		Direct: true,
+		Tag:    "print",
+	})
+	if !strings.Contains(where, "AND path = $2 AND $3 = ANY(tags)") {
+		t.Fatalf("where does not read the folder's own level: %s", where)
+	}
+	if strings.Contains(where, "LIKE") {
+		t.Errorf("a direct listing must not match the subtree: %s", where)
+	}
+	if len(args) != 3 || args[1] != "brand" || args[2] != "print" {
+		t.Errorf("args = %v, want [scope brand print]", args)
+	}
+
+	// Direct with no path is the whole library, as before.
+	where, _ = buildScopeWhere(Filter{Scopes: []ScopeFilter{{Scope: ScopeGlobal}}, Direct: true})
+	if strings.Contains(where, "path") {
+		t.Errorf("direct without a path narrowed the listing: %s", where)
+	}
+}

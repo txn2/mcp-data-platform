@@ -105,6 +105,21 @@ query them; the tab is the at-a-glance read.
 | `script_run_duration_seconds` | histogram | `script` |
 | `script_runs_running` | gauge | (none) |
 | `script_missed_fires_total` | counter | `script` |
+| `indexjob_enqueued_total` | counter | `kind`, `trigger`, `result` |
+| `indexjob_jobs_total` | counter | `kind`, `trigger`, `outcome` |
+| `indexjob_duration_seconds` | histogram | `kind`, `outcome` |
+| `indexjob_running` | gauge | `kind` |
+| `indexjob_items_total` | counter | `kind`, `result` |
+| `indexjob_embed_calls_total` | counter | `kind`, `status` |
+| `indexjob_embed_texts_total` | counter | `kind` |
+| `indexjob_embed_call_duration_seconds` | histogram | `kind` |
+| `indexjob_leases_released_total` | counter | (none) |
+| `indexjob_units_deferred_total` | counter | `kind` |
+| `indexjob_queue_jobs` | gauge | `kind`, `state` |
+| `indexjob_failed_units` | gauge | `kind` |
+| `indexjob_oldest_runnable_wait_seconds` | gauge | `kind` |
+| `indexjob_vectors_indexed` | gauge | `kind` |
+| `indexjob_vectors_expected` | gauge | `kind` |
 | `oauth_token_issuance_total` | counter | `grant_type`, `status` |
 | `oauth_token_refresh_total` | counter | `status` |
 | `oauth_token_refresh_duration_seconds` | histogram | (none) |
@@ -234,6 +249,67 @@ the HTTP handler). For API-key callers this is a cheap lookup; for OIDC
 it re-verifies the JWT per request. On very high-volume inbound traffic a
 per-token identity cache is the planned optimization; until then the
 extra verification is the cost of the `identity` label.
+
+### Background indexing
+
+The background embedding queue (`pkg/indexjobs`) is measured as each job
+settles, so its figures cover the whole queue however large a backlog is. The
+job table holds the same history, but a page of it is its newest rows, and
+during a backlog those are all pending.
+
+- `indexjob_jobs_total` counts every claimed job once, by the `outcome` its
+  settling write recorded: `succeeded`, `retried` (a retryable error,
+  rescheduled with backoff), `failed` (attempts exhausted or not retryable),
+  `source_gone` (the unit was deleted and resolved), `lease_lost` (another
+  worker owned the lease by the time the result was written), or
+  `store_error` (that write failed). `indexjob_duration_seconds` observes the
+  same span, claim to settling write, on buckets that run to an hour, since a
+  large API spec on a CPU-only embedder takes minutes.
+- `indexjob_running` is the jobs executing on each replica; sum it.
+- `indexjob_enqueued_total` counts every enqueue by `trigger` (`write`,
+  `reconciler`, `manual_retry`) and `result`: `created`, or `folded` into a
+  pending or running job for the same unit.
+- `indexjob_items_total` splits each pass's items into `embedded` and
+  `reused` (text unchanged, the persisted vector kept).
+  `indexjob_embed_calls_total` counts provider calls by `status` (`ok`,
+  `timeout`, `error`); a timed-out batch is halved and sent again, which is
+  why `indexjob_embed_texts_total` can exceed the embedded items.
+- `indexjob_leases_released_total` is the running jobs the reaper took back
+  from a worker that stopped renewing its lease, and
+  `indexjob_units_deferred_total` the gaps the reconciler left unqueued because
+  their unit keeps failing and is parked.
+
+The last five are read from the database when Prometheus scrapes, from one
+statement over the open rows plus each kind's coverage, cached for 30 seconds:
+`indexjob_queue_jobs{state}` (`pending`, `running`, `retrying`, where
+`retrying` is the pending jobs waiting out a backoff), `indexjob_failed_units`,
+`indexjob_oldest_runnable_wait_seconds` (how long the longest-waiting runnable
+job has waited for a worker; a job in backoff is not waiting), and
+`indexjob_vectors_indexed` / `indexjob_vectors_expected`. Every replica reports
+them with the same value, so read them with `max by (kind)`, never `sum`.
+
+```promql
+# jobs completed per 15 minutes, all kinds
+sum(increase(indexjob_jobs_total{outcome="succeeded"}[15m]))
+
+# p95 pass duration per kind over the last day
+histogram_quantile(0.95, sum by (kind, le) (rate(indexjob_duration_seconds_bucket{outcome="succeeded"}[24h])))
+
+# the backlog, and how long its oldest runnable job has waited
+max by (kind) (indexjob_queue_jobs{state="pending"})
+max by (kind) (indexjob_oldest_runnable_wait_seconds)
+
+# vectors still missing per kind
+max by (kind) (indexjob_vectors_expected) - max by (kind) (indexjob_vectors_indexed)
+
+# embedder timeouts as a share of calls
+sum(rate(indexjob_embed_calls_total{status="timeout"}[1h])) / sum(rate(indexjob_embed_calls_total[1h]))
+```
+
+The admin Indexing dashboard draws its Throughput and Embed latency panels from
+the first two; see [Admin dashboard](../portal/admin-dashboard.md#indexing).
+`kind` is the set of registered consumers (about a dozen) and every other label
+is a closed set, so the queue adds a few hundred series at most.
 
 ### Label semantics
 

@@ -626,6 +626,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 // @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)
 // @Param        scope_id query  string  false  "Filter by scope ID (persona name or user sub)"
 // @Param        path     query  string  false  "Filter by folder path; returns that folder and everything beneath it"
+// @Param        direct   query  bool    false  "With path, only the resources filed directly at it, none beneath it"
 // @Param        tag      query  string  false  "Filter by tag"
 // @Param        q        query  string  false  "Search display_name and description"
 // @Param        sort     query  string  false  "Ordering (default updated)"  Enums(updated, last_read)
@@ -666,6 +667,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		Scopes:    scopes,
 		AllScopes: allScopes,
 		Path:      r.URL.Query().Get("path"),
+		Direct:    r.URL.Query().Get("direct") == "true",
 		Tag:       r.URL.Query().Get("tag"),
 		Query:     r.URL.Query().Get("q"),
 		Sort:      Sort(r.URL.Query().Get("sort")),

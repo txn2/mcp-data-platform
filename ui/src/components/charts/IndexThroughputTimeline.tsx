@@ -4,15 +4,20 @@ import { area as d3area, line as d3line, curveMonotoneX } from "d3-shape";
 import { max as d3max } from "d3-array";
 
 // IndexThroughputTimeline draws completed index jobs over time as a d3
-// area, so an operator can see indexing keeping up or stalling. It buckets
-// the supplied completion timestamps into a fixed number of equal-width
-// bins across the observed window; d3 computes the path geometry and React
-// renders the SVG. An empty window renders an informative placeholder
+// area, so an operator can see indexing keeping up or stalling. It takes
+// one point per time step, already counted server-side (the index-job
+// metrics, #1837); d3 computes the path geometry and React renders the
+// SVG. A window with no completion renders an informative placeholder
 // rather than a flat zero line.
+
+/** ThroughputPoint is the jobs completed in one step ending at t (ms). */
+export interface ThroughputPoint {
+  t: number;
+  count: number;
+}
+
 interface IndexThroughputTimelineProps {
-  // Completion timestamps (ISO strings) of succeeded jobs.
-  completedAt: string[];
-  bins?: number;
+  points: ThroughputPoint[];
   height?: number;
 }
 
@@ -40,28 +45,22 @@ function fmtTick(ms: number): string {
 }
 
 export function IndexThroughputTimeline({
-  completedAt,
-  bins = 24,
+  points,
   height = 140,
 }: IndexThroughputTimelineProps) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
 
   const model = useMemo(() => {
-    const times = completedAt
-      .map((s) => new Date(s).getTime())
-      .filter((t) => Number.isFinite(t))
-      .sort((a, b) => a - b);
-    if (times.length === 0) return null;
-    const lo = times[0]!;
-    const hi = times[times.length - 1]!;
-    const span = Math.max(1, hi - lo);
-    const counts = new Array(bins).fill(0);
-    for (const t of times) {
-      const idx = Math.min(bins - 1, Math.floor(((t - lo) / span) * bins));
-      counts[idx] += 1;
-    }
-    return { counts, lo, hi, total: times.length };
-  }, [completedAt, bins]);
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    const total = sorted.reduce((sum, p) => sum + p.count, 0);
+    if (sorted.length === 0 || total <= 0) return null;
+    return {
+      counts: sorted.map((p) => p.count),
+      lo: sorted[0]!.t,
+      hi: sorted[sorted.length - 1]!.t,
+      total,
+    };
+  }, [points]);
 
   if (!model) {
     return (
@@ -70,13 +69,15 @@ export function IndexThroughputTimeline({
         className="flex items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground"
         style={{ height }}
       >
-        No completed jobs in this window yet.
+        No jobs completed in this window.
       </div>
     );
   }
 
   const innerH = height - AXIS - PAD_TOP;
-  const x = scaleLinear().domain([0, bins - 1]).range([PAD_X, Math.max(PAD_X, width - PAD_X)]);
+  const x = scaleLinear()
+    .domain([0, Math.max(1, model.counts.length - 1)])
+    .range([PAD_X, Math.max(PAD_X, width - PAD_X)]);
   const y = scaleLinear()
     .domain([0, d3max(model.counts) || 1])
     .range([PAD_TOP + innerH, PAD_TOP]);

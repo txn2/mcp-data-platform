@@ -375,13 +375,26 @@ function listing(resources: Resource[]) {
     isLoading: false,
   } as unknown as ReturnType<typeof useFacets>);
 
-  vi.mocked(useInfiniteResources).mockReturnValue({
-    data: { data: resources, total: resources.length },
-    isLoading: false,
-    hasNextPage: false,
-    isFetchingNextPage: false,
-    fetchNextPage: vi.fn(),
-  } as unknown as ReturnType<typeof useInfiniteResources>);
+  // The listing answers the way the server does for a folder: with direct,
+  // the folder's own files; without it, the folder and everything beneath.
+  vi.mocked(useInfiniteResources).mockImplementation(((params?: {
+    path?: string;
+    direct?: boolean;
+  }) => {
+    const path = params?.path;
+    const rows = resources.filter((r) => {
+      if (!path) return true;
+      if (params?.direct) return r.path === path;
+      return r.path === path || r.path.startsWith(`${path}/`);
+    });
+    return {
+      data: { data: rows, total: rows.length },
+      isLoading: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    };
+  }) as unknown as typeof useInfiniteResources);
 }
 
 afterEach(() => listing([]));
@@ -1162,5 +1175,66 @@ describe("renaming a folder names one library", () => {
     renderPage({ start: "/resources/lib/user" });
 
     expect(screen.getByLabelText("Rename or move data")).toBeTruthy();
+  });
+});
+
+// A folder level's count and Load more describe the files on it (#1837). The
+// case this came from: a folder holding four subfolders, one of them 2,514
+// posters deep, showed no files, a Load more, and "Showing 146 of 2541".
+describe("a folder level counts the files on it", () => {
+  function tileCount(): number {
+    return (
+      screen.queryAllByTestId(/^resource-row-res-/).length +
+      screen.queryAllByTestId(/^resource-tile-res-/).length
+    );
+  }
+
+  it("asks the listing for the folder's own level", () => {
+    listing([at("brand"), at("brand/posters")]);
+    renderPage({ start: "/resources/lib/global/brand" });
+    expect(useInfiniteResources).toHaveBeenLastCalledWith(
+      expect.objectContaining({ path: "brand", direct: true }),
+      true,
+    );
+  });
+
+  it("shows no Load more and no count on a level with no files of its own", () => {
+    listing([
+      ...Array.from({ length: 40 }, (_, i) => at("brand/posters", { id: `p-${i}` })),
+      at("brand/logos", { id: "l-1" }),
+    ]);
+    renderPage({ start: "/resources/lib/global/brand" });
+
+    expect(screen.getByTestId("folder-row-brand/posters")).toBeTruthy();
+    expect(tileCount()).toBe(0);
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(screen.queryByText(/^Showing /)).toBeNull();
+  });
+
+  it("shows every file on the level on first load when they fit one page", () => {
+    listing([
+      at("brand", { id: "res-a" }),
+      at("brand", { id: "res-b" }),
+      at("brand/posters", { id: "res-deep" }),
+    ]);
+    renderPage({ start: "/resources/lib/global/brand" });
+
+    expect(tileCount()).toBe(2);
+    expect(screen.queryByText(/^Showing /)).toBeNull();
+  });
+
+  it("counts the files on screen against the level's own total", () => {
+    const page = [at("brand", { id: "res-a" }), at("brand", { id: "res-b" })];
+    vi.mocked(useInfiniteResources).mockReturnValue({
+      data: { data: page, total: 5 },
+      isLoading: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof useInfiniteResources>);
+    renderPage({ start: "/resources/lib/global/brand" });
+
+    expect(tileCount()).toBe(2);
+    expect(screen.getByText("Showing 2 of 5 resources")).toBeTruthy();
   });
 });

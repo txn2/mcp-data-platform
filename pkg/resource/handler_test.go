@@ -85,16 +85,25 @@ func (m *mockStore) List(_ context.Context, filter Filter) ([]Resource, int, err
 		// only understood the scope set would report an unrestricted listing as
 		// empty.
 		if filter.AllScopes {
-			if PathUnder(r.Path, filter.Path) {
+			if inFolder(r.Path, filter) {
 				result = append(result, *r)
 			}
 			continue
 		}
-		if visibleTo(filter.Scopes, r) && PathUnder(r.Path, filter.Path) {
+		if visibleTo(filter.Scopes, r) && inFolder(r.Path, filter) {
 			result = append(result, *r)
 		}
 	}
 	return result, len(result), nil
+}
+
+// inFolder is the store's path predicate: the folder and everything beneath
+// it, or with Direct only the folder's own files (#1837).
+func inFolder(path string, filter Filter) bool {
+	if filter.Direct && filter.Path != "" {
+		return path == filter.Path
+	}
+	return PathUnder(path, filter.Path)
 }
 
 // Folders derives the ancestor chain of every visible resource's path and
@@ -2274,5 +2283,50 @@ func TestHandleFacets_EmptyLibraryAnswersWithArrays(t *testing.T) {
 	}
 	if _, ok := body["tags"].([]any); !ok {
 		t.Errorf("tags = %v, want an array", body["tags"])
+	}
+}
+
+// TestHandleList_DirectFolder is the folder view's request (#1837): with
+// direct=true a folder lists its own files and none of its subfolders', and
+// the total counts only those, so the portal's "Showing N of M" and its Load
+// more describe the level on screen. Without it the subtree is listed as
+// before.
+func TestHandleList_DirectFolder(t *testing.T) {
+	store := newMockStore()
+	h := newTestHandler(store, nil, okExtractor)
+	seedResource(store, nil, "top", ScopeGlobal, "", "user-123").Path = "brand"
+	seedResource(store, nil, "p1", ScopeGlobal, "", "user-123").Path = "brand/posters"
+	seedResource(store, nil, "p2", ScopeGlobal, "", "user-123").Path = "brand/posters"
+
+	list := func(query string) map[string]any {
+		t.Helper()
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources"+query, http.NoBody)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d: %s", query, rec.Code, rec.Body.String())
+		}
+		return decodeJSON(t, rec.Body)
+	}
+
+	direct := list("?path=brand&direct=true")
+	if !store.lastListFilter.Direct || store.lastListFilter.Path != "brand" {
+		t.Errorf("filter = %+v, want Direct on brand", store.lastListFilter)
+	}
+	if direct["total"] != float64(1) {
+		t.Errorf("direct total = %v, want 1 (the folder's own file)", direct["total"])
+	}
+
+	subtree := list("?path=brand")
+	if store.lastListFilter.Direct {
+		t.Error("direct must be off unless asked for")
+	}
+	if subtree["total"] != float64(3) {
+		t.Errorf("subtree total = %v, want 3", subtree["total"])
+	}
+
+	empty := list("?path=brand/posters/none&direct=true")
+	if rows, ok := empty["resources"].([]any); !ok || len(rows) != 0 {
+		t.Errorf("an empty level must list [] not null: %v", empty["resources"])
 	}
 }

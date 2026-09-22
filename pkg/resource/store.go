@@ -826,7 +826,13 @@ func likePrefix(v string) string {
 func buildScopeWhere(filter Filter) (where string, args []any) {
 	where, args, idx := listVisibilityWhere(filter)
 
-	if filter.Path != "" {
+	switch {
+	case filter.Path != "" && filter.Direct:
+		// The folder's own files, and none of its subfolders'.
+		where += fmt.Sprintf(" AND path = $%d", idx)
+		args = append(args, filter.Path)
+		idx++
+	case filter.Path != "":
 		// The folder itself and everything beneath it. Two bindings rather than
 		// one so the LIKE pattern is built here instead of by the caller, and so
 		// the equality arm can use the index on path without the planner having

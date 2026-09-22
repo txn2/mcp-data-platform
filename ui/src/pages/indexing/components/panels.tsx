@@ -4,6 +4,9 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { leaseRemaining, fmtClock } from "./helpers";
 
+// InFlightPanel lists every running job. The page asks the server for exactly
+// those (status=running), which is bounded by the workers' concurrency, so the
+// list is whole however large the pending backlog behind it is (#1837).
 export function InFlightPanel({ jobs }: { jobs: IndexJob[] }) {
   const running = jobs.filter((j) => j.status === "running");
   if (running.length === 0) {
@@ -30,24 +33,34 @@ export function InFlightPanel({ jobs }: { jobs: IndexJob[] }) {
   );
 }
 
-export function RetryBackoffPanel({ jobs }: { jobs: IndexJob[] }) {
+// RetryBackoffPanel lists the first page of the jobs waiting out a retry
+// backoff (retrying=true) under the whole table's count of them, so a backlog
+// larger than the page says how much larger it is.
+export function RetryBackoffPanel({ jobs, total }: { jobs: IndexJob[]; total: number }) {
   const waiting = jobs.filter((j) => j.status === "pending" && j.attempts > 0);
   if (waiting.length === 0) {
     return <EmptyState className="py-6">No jobs in retry backoff.</EmptyState>;
   }
   return (
-    <ul className="space-y-2">
-      {waiting.map((j) => (
-        <li key={j.id} className="flex items-center justify-between gap-2 text-sm">
-          <span className="truncate font-mono text-xs">
-            {j.source_kind}/{j.source_id}
-          </span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            attempt {j.attempts} · next run {fmtClock(j.next_run_at)}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-2">
+      {total > waiting.length && (
+        <p className="text-xs text-muted-foreground">
+          Showing the newest {waiting.length.toLocaleString()} of {total.toLocaleString()}.
+        </p>
+      )}
+      <ul className="space-y-2">
+        {waiting.map((j) => (
+          <li key={j.id} className="flex items-center justify-between gap-2 text-sm">
+            <span className="truncate font-mono text-xs">
+              {j.source_kind}/{j.source_id}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              attempt {j.attempts} · next run {fmtClock(j.next_run_at)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

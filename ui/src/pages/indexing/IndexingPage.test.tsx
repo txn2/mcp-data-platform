@@ -3,8 +3,14 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import type {
   IndexJobsSummary,
   IndexJob,
+  IndexJobsFilter,
   IndexFailedUnit,
 } from "@/api/admin/indexjobs";
+import { ApiError } from "@/api/admin/client";
+import type {
+  PromMatrixResponse,
+  PromVectorResponse,
+} from "@/api/observability/types";
 
 // Mock the index-jobs hooks so the page renders against canned state,
 // exercising the verdict / coverage / triage branches and the
@@ -18,9 +24,49 @@ let failuresState: {
   isError?: boolean;
 };
 
+// jobsFor answers useIndexJobs the way the server does: jobsState is the whole
+// table, and a request gets its filter applied, newest first, cut at its
+// limit. That is what lets a test put a backlog in front of the rows a panel
+// needs and see whether the panel still finds them (#1837).
+function jobsFor(filter: IndexJobsFilter = {}) {
+  if (!jobsState.data) return jobsState;
+  const rows = jobsState.data.jobs
+    .filter((j) => !filter.status || j.status === filter.status)
+    .filter(
+      (j) => !filter.retrying || (j.status === "pending" && j.attempts > 0),
+    )
+    .sort((a, b) => b.id - a.id)
+    .slice(0, filter.limit ?? 500);
+  return { ...jobsState, data: { jobs: rows } };
+}
+
+// The metrics backend, answered per query string. promUnconfigured makes every
+// query fail the way the proxy does with no Prometheus behind it.
+let promUnconfigured = false;
+let promInstant: (q: string) => PromVectorResponse | undefined = () =>
+  undefined;
+let promRange: (q: string) => PromMatrixResponse | undefined = () => undefined;
+function promResult<T>(data: T | undefined) {
+  if (promUnconfigured) {
+    return {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError(503, "metrics backend not configured"),
+    };
+  }
+  return { data, isLoading: false, isError: false, error: null };
+}
+vi.mock("@/api/observability/hooks", () => ({
+  isBackendUnconfigured: (err: unknown) =>
+    err instanceof ApiError && err.status === 503,
+  useObservabilityQuery: (q: string) => promResult(promInstant(q)),
+  useObservabilityQueryRange: (q: string) => promResult(promRange(q)),
+}));
+
 vi.mock("@/api/admin/indexjobs", () => ({
   useIndexJobsSummary: () => summaryState,
-  useIndexJobs: () => jobsState,
+  useIndexJobs: (filter?: IndexJobsFilter) => jobsFor(filter),
   useIndexJobFailures: () => failuresState,
   useReindex: () => ({
     mutate: reindexMutate,
@@ -53,6 +99,7 @@ const summary: IndexJobsSummary = {
       running: 0,
       succeeded: 6,
       failed: 2,
+      retrying: 0,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 142, expected: 168, expected_known: true },
     },
@@ -63,6 +110,7 @@ const summary: IndexJobsSummary = {
       running: 1,
       succeeded: 1,
       failed: 0,
+      retrying: 0,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 87, expected: 87, expected_known: true },
     },
@@ -75,6 +123,7 @@ const summary: IndexJobsSummary = {
       running: 0,
       succeeded: 0,
       failed: 9,
+      retrying: 0,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 0, expected: 12, expected_known: true },
     },
@@ -133,6 +182,9 @@ const failures: IndexFailedUnit[] = [
 ];
 
 beforeEach(() => {
+  promUnconfigured = false;
+  promInstant = () => undefined;
+  promRange = () => undefined;
   reindexMutate.mockReset();
   dismissMutate.mockReset();
   summaryState = { data: summary, isLoading: false };
@@ -231,6 +283,7 @@ describe("IndexingPage", () => {
             running: 0,
             succeeded: 0,
             failed: 57,
+            retrying: 0,
             last_activity: new Date().toISOString(),
             coverage: { indexed: 0, expected: 68, expected_known: true },
           },
@@ -256,6 +309,7 @@ describe("IndexingPage", () => {
             running: 0,
             succeeded: 0,
             failed: 0,
+            retrying: 0,
             coverage: { indexed: 34, expected: 34, expected_known: true },
           },
         ],
@@ -289,6 +343,7 @@ describe("IndexingPage", () => {
             running: 0,
             succeeded: 0,
             failed: 0,
+            retrying: 0,
             coverage: { indexed: 0, expected: 0, expected_known: true },
           },
         ],
@@ -414,5 +469,208 @@ describe("IndexingPage", () => {
     expect(screen.getByText(/26–30 of 30/)).toBeInTheDocument();
     expect(screen.getByText("unit-29")).toBeInTheDocument();
     expect(screen.queryByText("unit-0")).not.toBeInTheDocument();
+  });
+});
+
+// kindSummary is one kind card's payload, zeros unless the test says otherwise.
+function kindSummary(
+  kind: string,
+  over: Partial<IndexJobsSummary["kinds"][number]> = {},
+): IndexJobsSummary["kinds"][number] {
+  return {
+    kind,
+    verdict: "indexing",
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    retrying: 0,
+    ...over,
+  };
+}
+
+function job(id: number, over: Partial<IndexJob>): IndexJob {
+  return {
+    id,
+    source_kind: "resources",
+    source_id: `r-${id}`,
+    trigger: "write",
+    status: "pending",
+    attempts: 0,
+    items_done: 0,
+    ...over,
+  };
+}
+
+function vec(rows: [string, number][]): PromVectorResponse {
+  return {
+    status: "success",
+    data: {
+      resultType: "vector",
+      result: rows.map(([kind, v]) => ({
+        metric: { kind },
+        value: [0, String(v)],
+      })),
+    },
+  };
+}
+
+// The four panels during a backlog (#1837): more than 500 pending jobs
+// enqueued after the running, retried and succeeded ones, so the newest page
+// of the job table holds none of them. Every panel must still show them.
+describe("IndexingPage during a backlog larger than one page", () => {
+  beforeEach(() => {
+    summaryState = {
+      isLoading: false,
+      data: {
+        provider: summary.provider,
+        kinds: [
+          kindSummary("resources", { running: 2, pending: 1992, retrying: 1 }),
+          kindSummary("calls", { running: 0, pending: 2558 }),
+        ],
+      },
+    };
+    const backlog = Array.from({ length: 600 }, (_, i) =>
+      job(1000 + i, { source_kind: "calls", source_id: `c-${i}` }),
+    );
+    jobsState = {
+      data: {
+        jobs: [
+          job(1, {
+            status: "running",
+            source_id: "running-a",
+            worker_id: "w1",
+          }),
+          job(2, {
+            status: "running",
+            source_id: "running-b",
+            worker_id: "w2",
+          }),
+          job(3, { status: "pending", attempts: 2, source_id: "backing-off" }),
+          job(4, { status: "succeeded", attempts: 1, source_id: "done" }),
+          ...backlog,
+        ],
+      },
+    };
+    failuresState = { data: { failures: [] } };
+    promRange = (q) =>
+      q.includes("indexjob_jobs_total")
+        ? {
+            status: "success",
+            data: {
+              resultType: "matrix",
+              result: [
+                {
+                  metric: {},
+                  values: [
+                    [1_000, "3"],
+                    [1_900, "7"],
+                  ],
+                },
+              ],
+            },
+          }
+        : undefined;
+    promInstant = (q) => {
+      if (q.includes("_count")) return vec([["resources", 922]]);
+      if (q.includes("0.99")) return vec([["resources", 9]]);
+      if (q.includes("0.95")) return vec([["resources", 4]]);
+      if (q.includes("0.5")) return vec([["resources", 1.5]]);
+      return undefined;
+    };
+  });
+
+  it("lists every running job, as many as the kind cards count", () => {
+    render(<IndexingPage />);
+    expect(screen.getByText("resources/running-a")).toBeInTheDocument();
+    expect(screen.getByText("resources/running-b")).toBeInTheDocument();
+    // The kind cards' running sum is 2; the panel says the same.
+    expect(screen.getByText("2 running now")).toBeInTheDocument();
+    expect(screen.queryByText("No jobs in flight.")).not.toBeInTheDocument();
+  });
+
+  it("lists the jobs in retry backoff under the whole table's count", () => {
+    render(<IndexingPage />);
+    expect(screen.getByText("resources/backing-off")).toBeInTheDocument();
+    expect(screen.getByText("1 pending after a failure")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No jobs in retry backoff."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("draws throughput and latency from the index-job metrics", () => {
+    render(<IndexingPage />);
+    expect(
+      screen.getByText(/jobs completed per 15 min · last 24h/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No jobs completed in this window."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/p50 1\.5s · p95 4\.0s · p99 9\.0s/),
+    ).toBeInTheDocument();
+  });
+
+  it("says once that there is no metrics backend, and keeps the table-backed panels", () => {
+    promUnconfigured = true;
+    render(<IndexingPage />);
+    expect(
+      screen.getByText(/no metrics backend configured/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Throughput")).not.toBeInTheDocument();
+    expect(screen.getByText("resources/running-a")).toBeInTheDocument();
+  });
+
+  it("says how many backoff jobs the list leaves out", () => {
+    summaryState = {
+      isLoading: false,
+      data: {
+        provider: summary.provider,
+        kinds: [kindSummary("calls", { pending: 120, retrying: 120 })],
+      },
+    };
+    jobsState = {
+      data: {
+        jobs: Array.from({ length: 120 }, (_, i) =>
+          job(i + 1, { source_kind: "calls", attempts: 1 }),
+        ),
+      },
+    };
+    render(<IndexingPage />);
+    expect(
+      screen.getByText("Showing the newest 50 of 120."),
+    ).toBeInTheDocument();
+  });
+});
+
+// Coverage never reads complete while a vector is missing (#1837).
+describe("IndexingPage coverage figure", () => {
+  function withCoverage(indexed: number, expected: number) {
+    summaryState = {
+      isLoading: false,
+      data: {
+        provider: summary.provider,
+        kinds: [
+          kindSummary("calls", {
+            pending: 2558,
+            coverage: { indexed, expected, expected_known: true },
+          }),
+        ],
+      },
+    };
+  }
+
+  it("reads below 100% in the in-progress color while short", () => {
+    withCoverage(833_090, 835_775);
+    render(<IndexingPage />);
+    const figure = screen.getByText("99.6%");
+    expect(figure).not.toHaveClass("text-emerald-500");
+    expect(screen.queryByText("100%")).not.toBeInTheDocument();
+  });
+
+  it("reads 100% in green once every vector is indexed", () => {
+    withCoverage(835_775, 835_775);
+    render(<IndexingPage />);
+    expect(screen.getByText("100%")).toHaveClass("text-emerald-500");
   });
 });

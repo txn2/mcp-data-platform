@@ -45,6 +45,10 @@ func SQLSamples() map[string]string {
 	everyLibrary := filter
 	everyLibrary.Scopes = nil
 	everyLibrary.AllScopes = true
+	// A folder's own files (#1837): the path arm is an equality, so every
+	// placeholder after it shifts down by one.
+	direct := filter
+	direct.Direct = true
 
 	name, desc := "Q4 report", "the quarterly numbers"
 	update := Update{
@@ -59,6 +63,7 @@ func SQLSamples() map[string]string {
 	count, page, _ := buildList(filter)
 	_, lastReadPage, _ := buildList(lastRead)
 	everyCount, everyPage, _ := buildList(everyLibrary)
+	directCount, directPage, _ := buildList(direct)
 	// The folder rollup (#1555): a lateral expansion over each path's segments,
 	// which is the one statement here whose shape the planner has to accept
 	// rather than just its predicate.
@@ -78,6 +83,8 @@ func SQLSamples() map[string]string {
 		"buildList/page.lastRead": lastReadPage,
 		"buildList/count.all":     everyCount,
 		"buildList/page.all":      everyPage,
+		"buildList/count.direct":  directCount,
+		"buildList/page.direct":   directPage,
 		"buildFolders":            folders,
 		"buildThumbnailClaim":     claim,
 		"setThumbnailLight":       setThumbnailQuery(ThumbnailVariantLight),

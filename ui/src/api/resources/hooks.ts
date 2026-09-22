@@ -22,6 +22,10 @@ interface ResourceQuery {
   // the whole library, which is what the root of a tree shows and what a search
   // spans.
   path?: string;
+  // direct narrows path to its own level: only the files filed at exactly that
+  // path, none beneath it. A folder view lists this way, so its page, its total
+  // and its Load more all describe the files it shows (#1837).
+  direct?: boolean;
   tag?: string;
   q?: string;
   // sort orders the list; "last_read" puts the most recently read first and
@@ -38,6 +42,7 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
   if (params?.scope) sp.set("scope", params.scope);
   if (params?.scope_id) sp.set("scope_id", params.scope_id);
   if (params?.path) sp.set("path", params.path);
+  if (params?.path && params.direct) sp.set("direct", "true");
   if (params?.tag) sp.set("tag", params.tag);
   if (params?.q) sp.set("q", params.q);
   if (params?.sort) sp.set("sort", params.sort);

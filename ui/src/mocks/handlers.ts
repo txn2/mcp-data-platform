@@ -1607,6 +1607,9 @@ export const handlers = [
     let jobs = mockIndexJobs;
     if (kind) jobs = jobs.filter((j) => j.source_kind === kind);
     if (status) jobs = jobs.filter((j) => j.status === status);
+    if (url.searchParams.get("retrying") === "true") {
+      jobs = jobs.filter((j) => j.status === "pending" && j.attempts > 0);
+    }
     return HttpResponse.json({ jobs });
   }),
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
@@ -50,6 +51,15 @@ type embedRequest struct {
 	// that chunk's rows so the worker can persist progress
 	// incrementally. nil disables.
 	persistBatch func(rows []Vector) error
+
+	// observePlan receives the pass's plan once it is made: how many items
+	// go to the embedder and how many reuse a persisted vector. nil
+	// disables.
+	observePlan func(embedded, reused int)
+
+	// observeCall receives every EmbedBatch call: how many texts it sent,
+	// what it returned, and how long it took. nil disables.
+	observeCall func(texts int, err error, d time.Duration)
 }
 
 // embedItems plans one Vector per item, reusing a persisted vector
@@ -70,6 +80,9 @@ func embedItems(ctx context.Context, req embedRequest) ([]Vector, error) {
 	dim := req.embedder.Dimension()
 	rows, toEmbedIdx, toEmbedTexts := planVectors(req.items, req.existing, model, dim)
 	reused := len(rows) - len(toEmbedIdx)
+	if req.observePlan != nil {
+		req.observePlan(len(toEmbedIdx), reused)
+	}
 	// Publish the reused count up front so a reindex of a fully
 	// cached unit ticks straight to its item count without waiting
 	// for an embedding pass that has nothing to do.
@@ -85,6 +98,7 @@ func embedItems(ctx context.Context, req embedRequest) ([]Vector, error) {
 		batchSize:    req.batchSize,
 		progress:     req.progress,
 		persistBatch: req.persistBatch,
+		observeCall:  req.observeCall,
 	}); err != nil {
 		return nil, err
 	}
@@ -131,6 +145,7 @@ type fillRequest struct {
 	batchSize    int
 	progress     func(completed int)
 	persistBatch func(rows []Vector) error
+	observeCall  func(texts int, err error, d time.Duration)
 }
 
 // fillFresh calls the embedder for the deltas only, writes each
@@ -145,8 +160,12 @@ func fillFresh(ctx context.Context, req fillRequest) error {
 	if batchSize <= 0 {
 		batchSize = len(req.toEmbedTexts)
 	}
-	err := embedInBatches(ctx, req.embedder, req.toEmbedTexts, batchSize,
-		func(start, end int, vectors [][]float32) error {
+	err := embedInBatches(ctx, batchRun{
+		embedder:    req.embedder,
+		texts:       req.toEmbedTexts,
+		batchSize:   batchSize,
+		observeCall: req.observeCall,
+		onChunk: func(start, end int, vectors [][]float32) error {
 			chunkIdx := req.toEmbedIdx[start:end]
 			batch := make([]Vector, 0, len(chunkIdx))
 			for j, idx := range chunkIdx {
@@ -162,11 +181,23 @@ func fillFresh(ctx context.Context, req fillRequest) error {
 				req.progress(req.reusedBase + end)
 			}
 			return nil
-		})
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("embed item batch: %w", err)
 	}
 	return nil
+}
+
+// batchRun is one embedInBatches pass: the provider, the texts, the
+// starting chunk size, the per-chunk callback, and the optional
+// per-call observer.
+type batchRun struct {
+	embedder    embedding.Provider
+	texts       []string
+	batchSize   int
+	onChunk     func(start, end int, vectors [][]float32) error
+	observeCall func(texts int, err error, d time.Duration)
 }
 
 // embedInBatches walks texts in chunks of at most the current size,
@@ -189,14 +220,19 @@ func fillFresh(ctx context.Context, req fillRequest) error {
 // non-timeout provider error (5xx, malformed response) fails fast
 // without shrinking, and a single text that still times out surfaces
 // the error cleanly at the floor.
-func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, onChunk func(start, end int, vectors [][]float32) error) error {
+func embedInBatches(ctx context.Context, run batchRun) error {
+	texts, batchSize, onChunk := run.texts, run.batchSize, run.onChunk
 	if batchSize <= 0 {
 		batchSize = len(texts)
 	}
 	size := batchSize
 	for start := 0; start < len(texts); {
 		end := min(start+size, len(texts))
-		vectors, err := embedder.EmbedBatch(ctx, texts[start:end])
+		began := time.Now()
+		vectors, err := run.embedder.EmbedBatch(ctx, texts[start:end])
+		if run.observeCall != nil {
+			run.observeCall(end-start, err, time.Since(began))
+		}
 		if err != nil {
 			// Only shrink when the failing call itself timed out AND the
 			// pass's own context is still live. embed_timeout is a

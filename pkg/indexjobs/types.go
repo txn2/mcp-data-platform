@@ -258,7 +258,12 @@ type ListFilter struct {
 	SourceIDPrefix string
 	Trigger        Trigger
 	Status         Status
-	Limit          int
+	// Retrying narrows to jobs waiting out a retry backoff: pending
+	// with at least one attempt behind them. It composes with the
+	// other fields; combined with a Status other than pending it
+	// matches nothing.
+	Retrying bool
+	Limit    int
 }
 
 // Job is one row in index_jobs. The struct mirrors the SQL columns
@@ -314,12 +319,31 @@ type KindCounts struct {
 	// queued, which is the truth an operator needs: work is queued, and
 	// it is queued because it failed.
 	Failed int
+	// Retrying is the number of pending jobs with at least one attempt
+	// behind them: units waiting out a retry backoff. They are a
+	// subset of Pending.
+	Retrying int
 	// LastActivity is the most recent moment any job for this kind
 	// transitioned: MAX over the kind's rows of the greatest of
 	// completed_at, started_at, and created_at. Nil when the kind has
 	// no jobs. Computed as a true aggregate (not the newest-by-id row)
 	// so an out-of-order completion of an older job is not missed.
 	LastActivity *time.Time
+}
+
+// QueueDepth is one kind's open work, read in one statement across
+// kinds for a metrics scrape (PostgresStore.QueueDepth).
+type QueueDepth struct {
+	SourceKind  string
+	Pending     int
+	Running     int
+	Retrying    int // pending with attempts > 0, a subset of Pending
+	FailedUnits int // units with an open failure, as KindCounts.Failed
+	// OldestRunnableWait is how long the longest-waiting job whose
+	// next_run_at has passed has been runnable without a worker taking
+	// it. Zero when no pending job is runnable. A job in backoff is
+	// not waiting on a worker, so it does not count.
+	OldestRunnableWait time.Duration
 }
 
 // FailedUnit is one unit (source_kind, source_id) whose index attempts

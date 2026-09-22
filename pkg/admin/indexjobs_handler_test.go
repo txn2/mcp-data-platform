@@ -598,3 +598,29 @@ func TestListIndexJobsFailures_ReportsTheParkWindow(t *testing.T) {
 		t.Errorf("an elapsed park window must be omitted; got %q", *f[2].ParkedUntil)
 	}
 }
+
+// TestListIndexJobs_Retrying is the Retry backoff panel's question (#1837):
+// retrying=true reaches the store as the Retrying filter, and anything else
+// leaves it off, so the drill-down's unfiltered page stays unfiltered.
+func TestListIndexJobs_Retrying(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		query string
+		want  bool
+	}{
+		{"?retrying=true&limit=50", true},
+		{"?retrying=false", false},
+		{"?retrying=1", false},
+		{"", false},
+	} {
+		svc := &fakeIndexJobs{}
+		h := indexJobsTestHandler(svc, nil)
+		res := doJSON(t, h, http.MethodGet, "/api/v1/admin/index-jobs/jobs"+tc.query, nil)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%q: status = %d; body %s", tc.query, res.Code, res.Body.String())
+		}
+		if svc.lastFilter.Retrying != tc.want {
+			t.Errorf("%q: Retrying = %v; want %v", tc.query, svc.lastFilter.Retrying, tc.want)
+		}
+	}
+}
