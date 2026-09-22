@@ -310,6 +310,9 @@ type Metrics struct {
 	oauthRefreshTotal    metric.Int64Counter
 	oauthRefreshDuration metric.Float64Histogram
 
+	// Background embedding queue instruments (#1837), metrics_indexjobs.go.
+	index indexJobInstruments
+
 	// DB connection-pool instruments, observed at scrape time from each
 	// registered pool's (*sql.DB).Stats(). The five instruments and the
 	// callback are registered exactly once at New(); RegisterDBPool only
@@ -394,18 +397,27 @@ func New(cfg Config) (*Metrics, error) {
 }
 
 // durationHistogramView applies the platform's bucket boundaries to
-// every histogram named "*_duration_seconds" so apigateway and
-// tool-call histograms share one resolution without per-instrument
-// option duplication.
+// every histogram so apigateway and tool-call histograms share one
+// resolution without per-instrument option duplication. The index-job
+// histograms take their own, longer set (indexJobDurationBuckets): one
+// view decides both, because two views matching one instrument would
+// export it twice.
 func durationHistogramView() sdkmetric.View {
-	return sdkmetric.NewView(
-		sdkmetric.Instrument{Kind: sdkmetric.InstrumentKindHistogram},
-		sdkmetric.Stream{
-			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: defaultDurationBuckets,
-			},
-		},
-	)
+	return func(inst sdkmetric.Instrument) (sdkmetric.Stream, bool) {
+		if inst.Kind != sdkmetric.InstrumentKindHistogram {
+			return sdkmetric.Stream{}, false
+		}
+		bounds := defaultDurationBuckets
+		if isIndexJobHistogram(inst.Name) {
+			bounds = indexJobDurationBuckets
+		}
+		return sdkmetric.Stream{
+			Name:        inst.Name,
+			Description: inst.Description,
+			Unit:        inst.Unit,
+			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{Boundaries: bounds},
+		}, true
+	}
 }
 
 // instErrFmt is the wrapping format used for every instrument
@@ -514,6 +526,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return fmt.Errorf(instErrFmt, instRateLimitQueued, err)
 	}
 	if err := m.registerToolkitInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerIndexJobInstruments(meter); err != nil {
 		return err
 	}
 	return m.registerDBPoolInstruments(meter)

@@ -106,7 +106,14 @@ type Filter struct {
 	// is the whole library. It is a prefix rather than an equality so opening a
 	// folder reports what the folder holds, subfolders included, which is what
 	// makes a count under a folder mean anything.
-	Path   string
+	Path string
+	// Direct narrows Path to the one level it names: only the resources
+	// filed at exactly that path, none beneath it. A folder view lists its
+	// own files this way, so the page it fetches, the count it reports
+	// and whether there is more to load all describe what is on screen;
+	// the subfolders are drawn from the facets, which count every depth
+	// (#1837). Ignored when Path is empty.
+	Direct bool
 	Tag    string // optional tag filter
 	Query  string // optional text search in display_name/description
 	Sort   Sort   // ordering; empty selects SortUpdated

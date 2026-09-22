@@ -320,14 +320,14 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
     {
       "kind": "api_catalog",
       "verdict": "degraded",
-      "pending": 0, "running": 0, "succeeded": 6, "failed": 2,
+      "pending": 0, "running": 0, "succeeded": 6, "failed": 2, "retrying": 0,
       "last_activity": "2026-05-30T12:00:00Z",
       "coverage": { "indexed": 142, "expected": 168, "expected_known": true }
     },
     {
       "kind": "tools",
       "verdict": "indexing",
-      "pending": 0, "running": 1, "succeeded": 1, "failed": 0,
+      "pending": 0, "running": 1, "succeeded": 1, "failed": 0, "retrying": 0,
       "last_activity": "2026-05-30T12:02:00Z",
       "coverage": { "indexed": 87, "expected": 0, "expected_known": false }
     }
@@ -339,17 +339,19 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
 
 `indexing` requires queued work that is getting somewhere. A failed unit is re-queued, so a kind failing every unit the same way always carries a pending count, and the pending count alone would report a permanent total failure as a pass in flight. Two signals can argue that a kind is progressing, and either one is enough: more units resting on a success than carrying an open failure, or more persisted vectors than broken units (this second one survives a full re-enqueue, where an embedding-model swap makes every unit a gap at once and no unit rests on a success). Only when neither holds does queued work read `degraded`.
 
-`pending`/`running`/`succeeded` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `failed` is different in kind: it is the number of distinct units carrying an open failed job (`status='failed'` and not yet resolved), the same population `GET /api/v1/admin/index-jobs/failures` enumerates (that endpoint bounds how many it returns), so the count and the failure list can never disagree about what is open. A unit under retry is counted under both `pending` and `failed`; `failed` drops to zero once every failure is superseded by a later success or dismissed.
+`pending`/`running`/`succeeded` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `failed` is different in kind: it is the number of distinct units carrying an open failed job (`status='failed'` and not yet resolved), the same population `GET /api/v1/admin/index-jobs/failures` enumerates (that endpoint bounds how many it returns), so the count and the failure list can never disagree about what is open. A unit under retry is counted under both `pending` and `failed`; `failed` drops to zero once every failure is superseded by a later success or dismissed. `retrying` is the pending jobs waiting out a retry backoff (at least one attempt behind them), a subset of `pending`, counted over the whole table; the dashboard's Retry backoff panel shows it beside the first page of those jobs.
 
 `coverage.expected_known` is `true` for the current kinds, so all render a real indexed/expected ratio. api-catalog's expected comes from its stamped `operation_count`; the tools kind writes its complete registered set atomically on each index, so its indexed vector count is also its expected count (reported as both halves of the ratio). A kind reports `false` only when it has no expected total to show, in which case the dashboard shows an indexed-only state.
 
 ### Index Jobs List
 
 ```
-GET /api/v1/admin/index-jobs/jobs?kind=&status=&source_id=&limit=
+GET /api/v1/admin/index-jobs/jobs?kind=&status=&source_id=&retrying=&limit=
 ```
 
-Returns `index_jobs` rows newest first. All filters are optional; an omitted `kind` lists across every kind. `status` must be one of `pending`, `running`, `succeeded`, `failed`. `limit` defaults to 50 and is capped at 500.
+Returns `index_jobs` rows newest first. All filters are optional; an omitted `kind` lists across every kind. `status` must be one of `pending`, `running`, `succeeded`, `failed`. `retrying=true` narrows to pending jobs with at least one attempt behind them, the jobs waiting out a retry backoff. `limit` defaults to 50 and is capped at 500.
+
+A page of this list is the newest rows, so during a backlog it holds only pending jobs. The dashboard therefore asks it narrow questions (`status=running` for In flight, `retrying=true` for Retry backoff) and reads throughput and latency from the `indexjob_*` metrics (see [Observability](observability.md#background-indexing)), not from a page of rows.
 
 `trigger` reports what produced the row: `write` (the consumer's own write path enqueued it when the source row was created or its indexed text changed), `reconciler` (the periodic gap sweep), or `manual_retry` (the re-index escape hatch, which skips the worker's text-hash dedup).
 

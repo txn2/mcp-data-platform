@@ -76,6 +76,10 @@ type WorkerConfig struct {
 	// EmbedBatch call. Zero or negative falls back to
 	// DefaultEmbedBatchSize.
 	BatchSize int
+
+	// Observer receives each job's start, outcome, duration, item plan and
+	// embed calls. Nil records nothing.
+	Observer Observer
 }
 
 // Worker drains the job queue. One Worker instance per pod is the
@@ -83,6 +87,7 @@ type WorkerConfig struct {
 // supported and race for jobs the same way workers across pods do.
 type Worker struct {
 	cfg      WorkerConfig
+	obs      observe
 	wakeup   chan struct{} // buffer 1; LISTEN/NOTIFY adapter signals this
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -111,6 +116,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 	}
 	return &Worker{
 		cfg:    cfg,
+		obs:    observe{o: cfg.Observer},
 		wakeup: make(chan struct{}, 1),
 		stopCh: make(chan struct{}),
 	}
@@ -202,11 +208,22 @@ func (w *Worker) drainQueue() {
 	}
 }
 
-// process runs the embedding pass for one job. The outcome flows
-// through one of Complete / Retry / Fail. Provider errors are
-// retryable up to MaxAttempts; an unregistered kind or a missing
-// source row is terminal (retrying won't help).
+// process runs one claimed job and reports it to the observer: started
+// when claimed, finished with the outcome execute settled it on and the time
+// the pass took.
 func (w *Worker) process(ctx context.Context, job *Job) {
+	w.obs.started(ctx, job)
+	began := time.Now()
+	outcome := w.execute(ctx, job)
+	w.obs.finished(ctx, job, outcome, time.Since(began))
+}
+
+// execute is the embedding pass for one job. The outcome flows through one
+// of Complete / Retry / Fail, and is returned as the Outcome* value the
+// observer reports. Provider errors are retryable up to MaxAttempts; an
+// unregistered kind or a missing source row is terminal (retrying won't
+// help).
+func (w *Worker) execute(ctx context.Context, job *Job) string {
 	slog.Info("indexjobs: starting job",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "trigger", string(job.Trigger),
@@ -216,8 +233,7 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 	if !ok {
 		// A job for a kind no consumer registered (a leftover row
 		// from a removed consumer). Terminal: nothing can run it.
-		w.terminate(ctx, job, fmt.Sprintf("no consumer registered for source_kind %q", job.SourceKind))
-		return
+		return w.terminate(ctx, job, fmt.Sprintf("no consumer registered for source_kind %q", job.SourceKind))
 	}
 
 	items, err := source.LoadItems(ctx, job.SourceID)
@@ -225,15 +241,13 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 		// The source row was deleted on purpose. Resolve the unit
 		// instead of recording an open failure no later success could
 		// ever supersede (#998).
-		w.resolveGone(ctx, job, sink, err)
-		return
+		return w.resolveGone(ctx, job, sink, err)
 	}
 	if err != nil {
 		// The source is unreadable. Not retryable: LoadItems reads
 		// the consumer's own store, and the next reconciler sweep
 		// re-enqueues the unit if a gap remains.
-		w.terminate(ctx, job, fmt.Sprintf("load items failed: %v", err))
-		return
+		return w.terminate(ctx, job, fmt.Sprintf("load items failed: %v", err))
 	}
 
 	key := Key{SourceKind: job.SourceKind, SourceID: job.SourceID}
@@ -247,8 +261,7 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 		existing, err = sink.ListExisting(ctx, key)
 		if err != nil {
 			// A read failure from our own DB is retryable.
-			w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("list existing failed: %v", err))
-			return
+			return w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("list existing failed: %v", err))
 		}
 	}
 
@@ -263,15 +276,19 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 		batchSize:    w.cfg.BatchSize,
 		progress:     w.progressFn(ctx, job),
 		persistBatch: w.persistBatchFn(ctx, key, sink),
+		observePlan: func(embedded, reused int) {
+			w.obs.items(ctx, job.SourceKind, embedded, reused)
+		},
+		observeCall: func(texts int, err error, d time.Duration) {
+			w.obs.embedCall(ctx, job.SourceKind, texts, err, d)
+		},
 	})
 	if err != nil {
-		w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("embed failed: %v", err))
-		return
+		return w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("embed failed: %v", err))
 	}
 
 	if err := sink.Upsert(ctx, key, rows); err != nil {
-		w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("persist failed: %v", err))
-		return
+		return w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("persist failed: %v", err))
 	}
 
 	// Stamp the expected item count so the reconciler's gap
@@ -284,20 +301,28 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 			logKeySourceID, job.SourceID, "rows", len(rows), logKeyError, err)
 	}
 
+	return w.complete(ctx, job, source, len(rows))
+}
+
+// complete settles a successful pass: the job is completed, and only when
+// that write lands does the source hear of the success. A lease that rotated
+// first means another worker owns the unit now, so the result is dropped.
+func (w *Worker) complete(ctx context.Context, job *Job, source Source, rows int) string {
 	if err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			slog.Warn("indexjobs: complete after lease rotation",
 				logKeyJobID, job.ID, logKeyWorkerID, w.cfg.WorkerID)
-			return
+		} else {
+			slog.Error("indexjobs: complete failed", logKeyJobID, job.ID, logKeyError, err)
 		}
-		slog.Error("indexjobs: complete failed", logKeyJobID, job.ID, logKeyError, err)
-		return
+		return settleOutcome(err, OutcomeSucceeded)
 	}
 
 	source.OnSucceeded(job.SourceID)
 	slog.Info("indexjobs: job complete",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
-		logKeySourceID, job.SourceID, "rows", len(rows))
+		logKeySourceID, job.SourceID, "rows", rows)
+	return OutcomeSucceeded
 }
 
 // progressFn returns the best-effort chunk-boundary progress
@@ -368,21 +393,21 @@ func (w *Worker) heartbeat(ctx context.Context, job *Job) {
 // A gone probe routes to resolveGone instead; earlier attempts need
 // no probe because their retry re-enters LoadItems, which surfaces
 // ErrSourceGone itself.
-func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink Sink, errMsg string) {
+func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink Sink, errMsg string) string {
 	slog.Warn("indexjobs: job error",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "attempts", job.Attempts, logKeyError, errMsg)
 	if job.Attempts >= MaxAttempts {
 		if _, probeErr := source.LoadItems(ctx, job.SourceID); errors.Is(probeErr, ErrSourceGone) {
-			w.resolveGone(ctx, job, sink, probeErr)
-			return
+			return w.resolveGone(ctx, job, sink, probeErr)
 		}
-		w.terminate(ctx, job, errMsg)
-		return
+		return w.terminate(ctx, job, errMsg)
 	}
 	if err := w.cfg.Store.Retry(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
 		slog.Error("indexjobs: retry release failed", logKeyJobID, job.ID, logKeyError, err)
+		return settleOutcome(err, OutcomeRetried)
 	}
+	return OutcomeRetried
 }
 
 // resolveGone settles a job whose source unit no longer exists: the
@@ -392,7 +417,7 @@ func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink 
 // earlier attempt that ran before the source was deleted. No
 // StampExpected (the expected-count row belongs to the deleted
 // source) and no OnSucceeded (there is nothing left to reload).
-func (w *Worker) resolveGone(ctx context.Context, job *Job, sink Sink, cause error) {
+func (w *Worker) resolveGone(ctx context.Context, job *Job, sink Sink, cause error) string {
 	slog.Info("indexjobs: source gone; resolving unit",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, logKeyError, cause)
@@ -402,20 +427,24 @@ func (w *Worker) resolveGone(ctx context.Context, job *Job, sink Sink, cause err
 			logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 			logKeySourceID, job.SourceID, logKeyError, err)
 	}
-	if err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID); err != nil && !errors.Is(err, ErrNotFound) {
+	err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		slog.Error("indexjobs: complete for gone source failed",
 			logKeyJobID, job.ID, logKeyError, err)
 	}
+	return settleOutcome(err, OutcomeSourceGone)
 }
 
 // terminate marks a job permanently failed.
-func (w *Worker) terminate(ctx context.Context, job *Job, errMsg string) {
+func (w *Worker) terminate(ctx context.Context, job *Job, errMsg string) string {
 	slog.Warn("indexjobs: job failed terminally",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "attempts", job.Attempts, logKeyError, errMsg)
 	if err := w.cfg.Store.Fail(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
 		slog.Error("indexjobs: fail-state write failed", logKeyJobID, job.ID, logKeyError, err)
+		return settleOutcome(err, OutcomeFailed)
 	}
+	return OutcomeFailed
 }
 
 // generateWorkerID composes "host-randhex" for log/audit

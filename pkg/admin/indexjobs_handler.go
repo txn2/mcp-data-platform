@@ -60,6 +60,11 @@ type indexKindSummary struct {
 	// failing unit is re-queued and its latest status is pending; a
 	// unit is counted under both while its retry is queued.
 	Failed int `json:"failed"`
+	// Retrying is the number of pending jobs waiting out a retry
+	// backoff (attempts > 0), a subset of Pending. It is counted over
+	// the whole table, so the dashboard's Retry backoff panel can say
+	// how many there are while listing only the first page of them.
+	Retrying int `json:"retrying"`
 	// LastActivity is the most recent job's activity timestamp
 	// (completed, else started, else created), RFC3339, omitted when
 	// the kind has no jobs yet (e.g. vectors seeded outside the queue).
@@ -148,6 +153,9 @@ type reindexRequest struct {
 // gracefully when no queue is wired (deps.IndexJobs nil) so the
 // dashboard can render an informative empty state; the re-index write
 // is only meaningful with a live queue.
+// queryTrue is the one spelling a boolean query parameter is switched on by.
+const queryTrue = "true"
+
 func (h *Handler) registerIndexJobsRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/index-jobs", h.getIndexJobsSummary)
 	h.mux.HandleFunc("GET /api/v1/admin/index-jobs/jobs", h.listIndexJobs)
@@ -201,6 +209,7 @@ func kindSummary(ctx context.Context, svc IndexJobsService, kind string) (indexK
 		Running:   counts.Running,
 		Succeeded: counts.Succeeded,
 		Failed:    counts.Failed,
+		Retrying:  counts.Retrying,
 	}
 	if counts.LastActivity != nil && !counts.LastActivity.IsZero() {
 		s := counts.LastActivity.UTC().Format(time.RFC3339)
@@ -226,12 +235,13 @@ func kindSummary(ctx context.Context, svc IndexJobsService, kind string) (indexK
 // listIndexJobs handles GET /api/v1/admin/index-jobs/jobs.
 //
 // @Summary      Index-jobs drill-down list
-// @Description  Returns index_jobs rows newest first, filterable by kind, status, and source_id. Used by the dashboard's in-flight, retry/backoff, and failure-triage views.
+// @Description  Returns index_jobs rows newest first, filterable by kind, status, source_id, and retrying (pending jobs waiting out a retry backoff). The dashboard's In flight panel lists status=running and its Retry backoff panel lists retrying=true; the drill-down lists the newest rows of any state.
 // @Tags         System
 // @Produce      json
 // @Param        kind       query  string  false  "Filter by source kind"
 // @Param        status     query  string  false  "Filter by status (pending|running|succeeded|failed)"
 // @Param        source_id  query  string  false  "Filter by exact source id"
+// @Param        retrying   query  bool    false  "Only pending jobs with at least one attempt behind them"
 // @Param        limit      query  int     false  "Max rows (default 50, max 500)"
 // @Success      200  {object}  map[string][]indexJobResponse
 // @Failure      400  {object}  problemDetail
@@ -248,6 +258,7 @@ func (h *Handler) listIndexJobs(w http.ResponseWriter, r *http.Request) {
 		SourceKind: r.URL.Query().Get("kind"),
 		SourceID:   r.URL.Query().Get("source_id"),
 		Limit:      parseIndexJobsLimit(r.URL.Query().Get("limit")),
+		Retrying:   r.URL.Query().Get("retrying") == queryTrue,
 	}
 	if s := r.URL.Query().Get("status"); s != "" {
 		if !validJobStatus(s) {

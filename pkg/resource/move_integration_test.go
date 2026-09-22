@@ -109,7 +109,11 @@ func (m *memResources) List(_ context.Context, filter resource.Filter) ([]resour
 			if sf.Scope != r.Scope || (sf.Scope != resource.ScopeGlobal && sf.ScopeID != r.ScopeID) {
 				continue
 			}
-			if resource.PathUnder(r.Path, filter.Path) {
+			inFolder := resource.PathUnder(r.Path, filter.Path)
+			if filter.Direct && filter.Path != "" {
+				inFolder = r.Path == filter.Path
+			}
+			if inFolder {
 				out = append(out, *r)
 			}
 			break

@@ -2,7 +2,7 @@ import { RefreshCw } from "lucide-react";
 import { type IndexKindSummary, type IndexCoverage } from "@/api/admin/indexjobs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { STATUS_COLORS, relTime } from "./helpers";
+import { STATUS_COLORS, coverageFigure, relTime } from "./helpers";
 import { VerdictBadge } from "./badges";
 
 // coverageEmpty reports whether a kind genuinely has nothing to index: a
@@ -52,7 +52,7 @@ function CoverageLine({ summary }: { summary: IndexKindSummary }) {
     );
   }
   // expected_known with expected > 0 (the empty case is handled above).
-  const pct = cov.expected > 0 ? Math.round((cov.indexed / cov.expected) * 100) : 100;
+  const { complete, text, width } = coverageFigure(cov.indexed, cov.expected);
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
@@ -60,14 +60,14 @@ function CoverageLine({ summary }: { summary: IndexKindSummary }) {
           <span className="text-muted-foreground">Vectors: </span>
           {cov.indexed.toLocaleString()} / {cov.expected.toLocaleString()} indexed
         </span>
-        <span className={pct >= 100 ? "text-emerald-500" : "text-muted-foreground"}>{pct}%</span>
+        <span className={complete ? "text-emerald-500" : "text-muted-foreground"}>{text}</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full"
           style={{
-            width: `${Math.min(100, pct)}%`,
-            backgroundColor: pct >= 100 ? STATUS_COLORS.succeeded : STATUS_COLORS.running,
+            width: `${width}%`,
+            backgroundColor: complete ? STATUS_COLORS.succeeded : STATUS_COLORS.running,
           }}
         />
       </div>

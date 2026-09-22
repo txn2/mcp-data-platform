@@ -5173,7 +5173,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns index_jobs rows newest first, filterable by kind, status, and source_id. Used by the dashboard's in-flight, retry/backoff, and failure-triage views.",
+                "description": "Returns index_jobs rows newest first, filterable by kind, status, source_id, and retrying (pending jobs waiting out a retry backoff). The dashboard's In flight panel lists status=running and its Retry backoff panel lists retrying=true; the drill-down lists the newest rows of any state.",
                 "produces": [
                     "application/json"
                 ],
@@ -5198,6 +5198,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by exact source id",
                         "name": "source_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only pending jobs with at least one attempt behind them",
+                        "name": "retrying",
                         "in": "query"
                     },
                     {
@@ -21388,6 +21394,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "With path, only the resources filed directly at it, none beneath it",
+                        "name": "direct",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Filter by tag",
                         "name": "tag",
@@ -23789,6 +23801,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "pending": {
+                    "type": "integer"
+                },
+                "retrying": {
+                    "description": "Retrying is the number of pending jobs waiting out a retry\nbackoff (attempts \u003e 0), a subset of Pending. It is counted over\nthe whole table, so the dashboard's Retry backoff panel can say\nhow many there are while listing only the first page of them.",
                     "type": "integer"
                 },
                 "running": {

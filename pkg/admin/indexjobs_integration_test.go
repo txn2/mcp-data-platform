@@ -60,13 +60,13 @@ func TestIndexJobsSummary_RealAssembly(t *testing.T) {
 	reporter := indexjobs.NewReporter(store, reg)
 
 	// Counts query for the single registered kind (3 latest-status
-	// counts, the MAX last-activity aggregate, and the open-failure
-	// unit count).
+	// counts, the MAX last-activity aggregate, the open-failure unit
+	// count, and the pending jobs in retry backoff).
 	activity := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("WITH last AS").
 		WithArgs(catalogindex.SourceKind).
-		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "last_activity", "failed"}).
-			AddRow(1, 0, 3, activity, 2))
+		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "last_activity", "failed", "retrying"}).
+			AddRow(1, 0, 3, activity, 2, 1))
 
 	h := NewHandler(Deps{
 		IndexJobs: reporter,
@@ -91,8 +91,8 @@ func TestIndexJobsSummary_RealAssembly(t *testing.T) {
 	if k.Kind != catalogindex.SourceKind {
 		t.Errorf("kind = %q; want %q", k.Kind, catalogindex.SourceKind)
 	}
-	if k.Pending != 1 || k.Succeeded != 3 || k.Failed != 2 {
-		t.Errorf("counts = %+v; want pending 1 succeeded 3 failed 2", k)
+	if k.Pending != 1 || k.Succeeded != 3 || k.Failed != 2 || k.Retrying != 1 {
+		t.Errorf("counts = %+v; want pending 1 succeeded 3 failed 2 retrying 1", k)
 	}
 	// pending > 0 alongside indexed coverage means a pass is in flight
 	// and producing vectors, which takes priority over the failures it

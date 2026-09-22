@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { untilTime } from "./helpers";
+import { coverageFigure, untilTime } from "./helpers";
 
 describe("untilTime", () => {
   // Restored here rather than at the end of the frozen-clock test: a failed
@@ -40,5 +40,39 @@ describe("untilTime", () => {
   it("renders nothing for a missing or unparseable value", () => {
     expect(untilTime(undefined)).toBe("");
     expect(untilTime("not a date")).toBe("");
+  });
+});
+
+describe("coverageFigure", () => {
+  it("never reads 100% while a vector is missing", () => {
+    expect(coverageFigure(833_090, 835_775)).toEqual({
+      complete: false,
+      text: "99.6%",
+      width: 99.6,
+    });
+    expect(coverageFigure(835_774, 835_775)).toEqual({
+      complete: false,
+      text: "99.9%",
+      width: 99.9,
+    });
+    expect(coverageFigure(1, 3)).toEqual({
+      complete: false,
+      text: "33.3%",
+      width: 33.3,
+    });
+    expect(coverageFigure(0, 10)).toEqual({
+      complete: false,
+      text: "0.0%",
+      width: 0,
+    });
+  });
+
+  it("is complete only when indexed reaches expected", () => {
+    expect(coverageFigure(835_775, 835_775)).toEqual({
+      complete: true,
+      text: "100%",
+      width: 100,
+    });
+    expect(coverageFigure(12, 10).complete).toBe(true);
   });
 });

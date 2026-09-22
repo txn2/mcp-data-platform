@@ -32,24 +32,40 @@ type Reconciler struct {
 	store    Store
 	registry *Registry
 	interval time.Duration
+	obs      observe
 	stopCh   chan struct{}
 	stopOnce sync.Once
 	wg       sync.WaitGroup
 	started  atomic.Bool
 }
 
+// ReconcilerOption configures a Reconciler at construction time.
+type ReconcilerOption func(*Reconciler)
+
+// WithReconcilerObserver reports, per sweep and kind, the gaps left unqueued
+// because their unit is parked.
+func WithReconcilerObserver(o Observer) ReconcilerOption {
+	return func(r *Reconciler) {
+		r.obs = observe{o: o}
+	}
+}
+
 // NewReconciler constructs a Reconciler. interval=0 selects
 // ReconcilerInterval.
-func NewReconciler(store Store, registry *Registry, interval time.Duration) *Reconciler {
+func NewReconciler(store Store, registry *Registry, interval time.Duration, opts ...ReconcilerOption) *Reconciler {
 	if interval <= 0 {
 		interval = ReconcilerInterval
 	}
-	return &Reconciler{
+	r := &Reconciler{
 		store:    store,
 		registry: registry,
 		interval: interval,
 		stopCh:   make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Start begins the periodic reconciliation loop. The first sweep
@@ -93,6 +109,7 @@ func (r *Reconciler) reconcileOnce() {
 	defer cancel()
 	parked := r.parkedUnits(ctx)
 	var total, deferred int
+	deferredByKind := map[string]int{}
 	for _, sink := range r.registry.Sinks() {
 		ids, err := sink.FindGaps(ctx)
 		if err != nil {
@@ -104,6 +121,7 @@ func (r *Reconciler) reconcileOnce() {
 			key := Key{SourceKind: sink.Kind(), SourceID: id}
 			if _, ok := parked[key]; ok {
 				deferred++
+				deferredByKind[key.SourceKind]++
 				continue
 			}
 			created, err := r.store.Enqueue(ctx, key, TriggerReconciler)
@@ -123,6 +141,7 @@ func (r *Reconciler) reconcileOnce() {
 	if deferred > 0 {
 		slog.Info("indexjobs: reconciler deferred parked units", "count", deferred)
 	}
+	r.obs.deferred(ctx, deferredByKind)
 }
 
 // parkedUnits returns the units this sweep must not re-queue, keyed for

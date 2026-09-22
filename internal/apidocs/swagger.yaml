@@ -813,6 +813,13 @@ definitions:
         type: string
       pending:
         type: integer
+      retrying:
+        description: |-
+          Retrying is the number of pending jobs waiting out a retry
+          backoff (attempts > 0), a subset of Pending. It is counted over
+          the whole table, so the dashboard's Retry backoff panel can say
+          how many there are while listing only the first page of them.
+        type: integer
       running:
         type: integer
       succeeded:
@@ -12540,8 +12547,9 @@ paths:
   /admin/index-jobs/jobs:
     get:
       description: Returns index_jobs rows newest first, filterable by kind, status,
-        and source_id. Used by the dashboard's in-flight, retry/backoff, and failure-triage
-        views.
+        source_id, and retrying (pending jobs waiting out a retry backoff). The dashboard's
+        In flight panel lists status=running and its Retry backoff panel lists retrying=true;
+        the drill-down lists the newest rows of any state.
       parameters:
       - description: Filter by source kind
         in: query
@@ -12555,6 +12563,10 @@ paths:
         in: query
         name: source_id
         type: string
+      - description: Only pending jobs with at least one attempt behind them
+        in: query
+        name: retrying
+        type: boolean
       - description: Max rows (default 50, max 500)
         in: query
         name: limit
@@ -23157,6 +23169,11 @@ paths:
         in: query
         name: path
         type: string
+      - description: With path, only the resources filed directly at it, none beneath
+          it
+        in: query
+        name: direct
+        type: boolean
       - description: Filter by tag
         in: query
         name: tag

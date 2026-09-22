@@ -40,6 +40,7 @@ const jobColumns = `id, source_kind, source_id, trigger_kind, status, attempts,
 type PostgresStore struct {
 	db            *sql.DB
 	leaseDuration time.Duration
+	obs           observe
 }
 
 // PostgresStoreOption configures a PostgresStore at construction
@@ -60,6 +61,16 @@ func WithLeaseDuration(d time.Duration) PostgresStoreOption {
 		if d > 0 {
 			s.leaseDuration = d
 		}
+	}
+}
+
+// WithObserver reports every Enqueue (created or folded into an open job)
+// and every lease the reaper's sweep releases to o. Enqueue is where the
+// write path, the reconciler and an operator's re-index all meet, so
+// observing it here counts all three.
+func WithObserver(o Observer) PostgresStoreOption {
+	return func(s *PostgresStore) {
+		s.obs = observe{o: o}
 	}
 }
 
@@ -111,10 +122,12 @@ func (s *PostgresStore) Enqueue(ctx context.Context, key Key, trigger Trigger) (
 		// ON CONFLICT DO NOTHING returned no row; an open job for
 		// this key already exists. That is the desired idempotent
 		// behavior.
+		s.obs.enqueued(ctx, key, trigger, false)
 		return false, nil
 	case err != nil:
 		return false, fmt.Errorf("indexjobs: enqueue: %w", err)
 	}
+	s.obs.enqueued(ctx, key, trigger, true)
 	s.notify(ctx)
 	return true, nil
 }
@@ -398,6 +411,7 @@ func (s *PostgresStore) ReleaseExpiredLeases(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("indexjobs: release expired leases rows-affected: %w", err)
 	}
+	s.obs.leasesReleased(ctx, int(n))
 	return int(n), nil
 }
 
@@ -567,20 +581,72 @@ func (s *PostgresStore) Counts(ctx context.Context, sourceKind string) (*KindCou
 		       (SELECT COUNT(DISTINCT source_id)
 		          FROM index_jobs
 		         WHERE source_kind = $1
-		           AND status = 'failed' AND resolved_at IS NULL)
+		           AND status = 'failed' AND resolved_at IS NULL),
+		       (SELECT COUNT(*)
+		          FROM index_jobs
+		         WHERE source_kind = $1
+		           AND status = 'pending' AND attempts > 0)
 		  FROM last
 	`
 	c := &KindCounts{SourceKind: sourceKind}
 	var lastActivity sql.NullTime
 	if err := s.db.QueryRowContext(ctx, q, sourceKind).Scan(
 		&c.Pending, &c.Running, &c.Succeeded, &lastActivity,
-		&c.Failed); err != nil {
+		&c.Failed, &c.Retrying); err != nil {
 		return nil, fmt.Errorf("indexjobs: counts: %w", err)
 	}
 	if lastActivity.Valid {
 		c.LastActivity = &lastActivity.Time
 	}
 	return c, nil
+}
+
+// QueueDepth reports the open work of every kind that has any, in one
+// statement: pending, running and retrying jobs, units with an open failure,
+// and how long the longest-waiting runnable job has waited. It reads only
+// the open rows (the partial indexes behind Claim, the reaper and failure
+// triage), never the succeeded history, so it is cheap enough to run on a
+// metrics scrape. A kind with no open work returns no row.
+//
+// Pending and running are job counts, which equal unit counts: the partial
+// unique index admits one open job per unit.
+func (s *PostgresStore) QueueDepth(ctx context.Context) ([]QueueDepth, error) {
+	const q = `
+		SELECT source_kind,
+		       COUNT(*) FILTER (WHERE status = 'pending'),
+		       COUNT(*) FILTER (WHERE status = 'running'),
+		       COUNT(*) FILTER (WHERE status = 'pending' AND attempts > 0),
+		       COUNT(DISTINCT source_id) FILTER (WHERE status = 'failed'),
+		       COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(next_run_at)
+		           FILTER (WHERE status = 'pending' AND next_run_at <= NOW())), 0)::float8
+		  FROM index_jobs
+		 WHERE status IN ('pending', 'running')
+		    OR (status = 'failed' AND resolved_at IS NULL)
+		 GROUP BY source_kind
+		 ORDER BY source_kind
+	`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("indexjobs: queue depth: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
+	out := make([]QueueDepth, 0)
+	for rows.Next() {
+		var (
+			d       QueueDepth
+			waitSec float64
+		)
+		if err := rows.Scan(&d.SourceKind, &d.Pending, &d.Running, &d.Retrying,
+			&d.FailedUnits, &waitSec); err != nil {
+			return nil, fmt.Errorf("indexjobs: queue depth scan: %w", err)
+		}
+		d.OldestRunnableWait = time.Duration(waitSec * float64(time.Second))
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("indexjobs: queue depth rows: %w", err)
+	}
+	return out, nil
 }
 
 // ActiveFailures returns the units whose index attempts left an open
@@ -791,6 +857,9 @@ func buildListPredicates(f ListFilter) (where string, args []any) {
 	}
 	if f.Trigger != "" {
 		add("trigger_kind = $", string(f.Trigger))
+	}
+	if f.Retrying {
+		conds = append(conds, "status = 'pending' AND attempts > 0")
 	}
 	if len(conds) == 0 {
 		return "", args

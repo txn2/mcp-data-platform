@@ -1,15 +1,16 @@
 import { scaleLinear } from "d3-scale";
 import { max as d3max } from "d3-array";
 
-// IndexLatencyTrack renders per-kind embed-pass duration (started ->
-// completed) as horizontal bars on a shared scale, with a p95 tick marker,
+// IndexLatencyTrack renders per-kind embed-pass duration (claim ->
+// settled) as horizontal bars on a shared scale, with a p95 tick marker,
 // surfacing slow passes (the CPU-only embedder case) that a single average
-// would hide. d3 owns the scale; React renders the SVG bars.
+// would hide. The scale runs to the slowest kind's p99. d3 owns the scale;
+// React renders the SVG bars.
 export interface KindLatency {
   kind: string;
   p50Ms: number;
   p95Ms: number;
-  maxMs: number;
+  p99Ms: number;
   count: number;
 }
 
@@ -32,11 +33,11 @@ export function IndexLatencyTrack({ rows }: IndexLatencyTrackProps) {
   if (rows.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-md border border-dashed py-6 text-sm text-muted-foreground">
-        No completed passes to measure yet.
+        No successful passes in this window.
       </div>
     );
   }
-  const domainMax = d3max(rows, (r) => r.maxMs) || 1;
+  const domainMax = d3max(rows, (r) => r.p99Ms) || 1;
   const x = scaleLinear().domain([0, domainMax]).range([0, 100]);
 
   return (
@@ -71,8 +72,9 @@ export function IndexLatencyTrack({ rows }: IndexLatencyTrackProps) {
               </line>
             </svg>
           </div>
-          <span className="w-28 shrink-0 text-right tabular-nums text-muted-foreground">
-            p50 {fmtDuration(r.p50Ms)} · p95 {fmtDuration(r.p95Ms)}
+          <span className="w-44 shrink-0 text-right tabular-nums text-muted-foreground">
+            p50 {fmtDuration(r.p50Ms)} · p95 {fmtDuration(r.p95Ms)} · p99{" "}
+            {fmtDuration(r.p99Ms)}
           </span>
         </div>
       ))}

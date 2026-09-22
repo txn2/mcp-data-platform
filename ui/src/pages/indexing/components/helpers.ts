@@ -97,3 +97,26 @@ export function errorSignature(err: string): string {
 export function failureKey(kind: string, sourceID: string): string {
   return `${kind}::${sourceID}`;
 }
+
+/**
+ * coverageFigure is what the coverage line reads and how full its bar is.
+ *
+ * Complete is decided on the counts, never on a rounded percentage: rounding
+ * 833,090 / 835,775 (99.68%) to the nearest whole number read "100%" in green
+ * on a kind still 2,685 vectors short (#1837). A short kind is floored to one
+ * decimal and capped at 99.9%, so the figure can only say 100 when nothing is
+ * missing.
+ */
+export function coverageFigure(
+  indexed: number,
+  expected: number,
+): { complete: boolean; text: string; width: number } {
+  if (expected <= 0 || indexed >= expected) {
+    return { complete: true, text: "100%", width: 100 };
+  }
+  const pct = Math.min(
+    99.9,
+    Math.floor((Math.max(0, indexed) / expected) * 1000) / 10,
+  );
+  return { complete: false, text: `${pct.toFixed(1)}%`, width: pct };
+}

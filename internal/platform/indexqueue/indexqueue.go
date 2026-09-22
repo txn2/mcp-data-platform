@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
@@ -146,6 +147,11 @@ type Config struct {
 	// the text of a PDF or an Office document, not only of a plain-text file
 	// (#1657). Nil falls back to a reader with no PDF extractor bound.
 	ResourceDocs *docread.Reader
+
+	// Metrics records the queue's jobs, passes and embed calls as they
+	// happen, and serves its open work and coverage as scrape-time gauges
+	// (#1837). Nil (metrics disabled) records nothing.
+	Metrics *observability.Metrics
 }
 
 // Handle owns the assembled queue and its runtime goroutines. All components
@@ -186,7 +192,12 @@ type listenerControl interface {
 // responsible for the db-present and configured-embedder preconditions (#429);
 // New trusts them.
 func New(cfg Config) *Handle {
-	store := indexjobs.NewPostgresStore(cfg.DB, indexjobs.WithLeaseDuration(cfg.LeaseDuration))
+	var obs indexjobs.Observer
+	if cfg.Metrics.Enabled() {
+		obs = cfg.Metrics
+	}
+	store := indexjobs.NewPostgresStore(cfg.DB,
+		indexjobs.WithLeaseDuration(cfg.LeaseDuration), indexjobs.WithObserver(obs))
 	reg := indexjobs.NewRegistry()
 	h := &Handle{store: store, registry: reg}
 
@@ -204,9 +215,11 @@ func New(cfg Config) *Handle {
 		Concurrency:   cfg.Workers,
 		LeaseDuration: cfg.LeaseDuration,
 		BatchSize:     cfg.BatchSize,
+		Observer:      obs,
 	})
 	h.reaper = indexjobs.NewReaper(store, 0)
-	h.reconciler = indexjobs.NewReconciler(store, reg, 0)
+	h.reconciler = indexjobs.NewReconciler(store, reg, 0, indexjobs.WithReconcilerObserver(obs))
+	cfg.Metrics.RegisterIndexQueue(newQueueSampler(store, indexjobs.NewReporter(store, reg)).Sample)
 
 	// Retention sweep: bound finished history so the reconciler's per-unit
 	// success rows do not accumulate unbounded (#523). A non-positive window

@@ -59,7 +59,30 @@ function scriptVector(values: number[]): PromVectorResponse {
   );
 }
 
+// INDEX_KINDS are the fixture's index-job consumers, with a per-kind p50 pass
+// in seconds: one call is quick, a spec with hundreds of operations is not.
+const INDEX_KINDS: [string, number][] = [
+  ["api_catalog", 42],
+  ["calls", 0.6],
+  ["tools", 3.2],
+];
+
+// indexLatency answers the Indexing dashboard's latency queries (#1837).
+function indexLatency(query: string): PromVectorResponse {
+  const scale = query.includes("0.99") ? 3.1 : query.includes("0.95") ? 2.2 : 1;
+  const counted = query.includes("_count");
+  return vector(
+    INDEX_KINDS.map(([kind, p50], i) => ({
+      metric: { kind },
+      value: counted ? [18, 2410, 96][i]! : p50 * scale,
+    })),
+  );
+}
+
 export function promInstantFor(query: string): PromVectorResponse {
+  if (query.includes("indexjob_duration_seconds")) {
+    return indexLatency(query);
+  }
   // --- Managed scripts (#1307) ---
   // Matched before the generic aggregates below: these name their own metric,
   // and the answers are what the Runs tab's tiles and breakdowns read.

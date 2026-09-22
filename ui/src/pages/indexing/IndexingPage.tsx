@@ -7,13 +7,12 @@ import {
   useReindex,
   useDismissFailure,
 } from "@/api/admin/indexjobs";
-import { IndexThroughputTimeline } from "@/components/charts/IndexThroughputTimeline";
-import { IndexLatencyTrack, type KindLatency } from "@/components/charts/IndexLatencyTrack";
 import { EmptyState } from "@/components/patterns/EmptyState";
-import { percentile, failureKey } from "./components/helpers";
+import { failureKey } from "./components/helpers";
 import { IndexingBanners } from "./components/banners";
 import { KindCard } from "./components/kindcard";
 import { InFlightPanel, RetryBackoffPanel, Section } from "./components/panels";
+import { QueueMetricPanels } from "./components/metricpanels";
 import { FailureTriage } from "./components/triage";
 import { JobsSection } from "./components/JobsSection";
 
@@ -23,12 +22,24 @@ import { JobsSection } from "./components/JobsSection";
 // glance, then exposes throughput, latency, in-flight progress, retry
 // backoff, and a self-resolving failure triage. The two metric families
 // are kept visually distinct: vector coverage (how much is indexed) and
-// per-unit job state (each unit's most recent run). All data is real
-// index_jobs / vector state from the admin index-jobs endpoints.
+// per-unit job state (each unit's most recent run).
+//
+// Each panel reads the source that can answer it whole (#1837): the kind
+// cards and the counts come from the summary, which aggregates the table;
+// In flight and Retry backoff ask the job list for exactly the rows they
+// show; Throughput and Embed latency come from the index-job metrics in
+// Prometheus. Only the drill-down reads the newest page of rows, because
+// that is what it is.
+
+// RETRY_LIST_LIMIT is how many backoff rows the panel lists; the summary
+// counts the rest.
+const RETRY_LIST_LIMIT = 50;
 
 export function IndexingPage() {
   const summaryQ = useIndexJobsSummary();
   const jobsQ = useIndexJobs({ limit: 500 });
+  const runningQ = useIndexJobs({ status: "running", limit: 500 });
+  const retryingQ = useIndexJobs({ retrying: true, limit: RETRY_LIST_LIMIT });
   const failuresQ = useIndexJobFailures();
   const reindex = useReindex();
   const dismiss = useDismissFailure();
@@ -65,32 +76,8 @@ export function IndexingPage() {
   const jobs = useMemo(() => jobsQ.data?.jobs ?? [], [jobsQ.data]);
   const failures = useMemo(() => failuresQ.data?.failures ?? [], [failuresQ.data]);
 
-  const latency = useMemo<KindLatency[]>(() => {
-    const byKind = new Map<string, number[]>();
-    for (const j of jobs) {
-      if (j.status !== "succeeded" || !j.started_at || !j.completed_at) continue;
-      const ms = new Date(j.completed_at).getTime() - new Date(j.started_at).getTime();
-      if (!Number.isFinite(ms) || ms < 0) continue;
-      const arr = byKind.get(j.source_kind) ?? [];
-      arr.push(ms);
-      byKind.set(j.source_kind, arr);
-    }
-    return [...byKind.entries()].map(([kind, durations]) => {
-      const sorted = durations.sort((a, b) => a - b);
-      return {
-        kind,
-        p50Ms: percentile(sorted, 50),
-        p95Ms: percentile(sorted, 95),
-        maxMs: sorted[sorted.length - 1] ?? 0,
-        count: sorted.length,
-      };
-    });
-  }, [jobs]);
-
-  const completedAt = useMemo(
-    () => jobs.filter((j) => j.status === "succeeded" && j.completed_at).map((j) => j.completed_at!),
-    [jobs],
-  );
+  const running = useMemo(() => runningQ.data?.jobs ?? [], [runningQ.data]);
+  const retrying = useMemo(() => retryingQ.data?.jobs ?? [], [retryingQ.data]);
 
   if (summaryQ.isLoading) {
     return (
@@ -102,13 +89,14 @@ export function IndexingPage() {
 
   const provider = summary?.provider;
   const kinds = summary?.kinds ?? [];
+  const retryingTotal = kinds.reduce((sum, k) => sum + k.retrying, 0);
 
   return (
     <div className="space-y-4">
       <IndexingBanners
         provider={provider}
         actionErrors={[reindex.error, dismiss.error].filter(Boolean)}
-        jobsFailed={jobsQ.isError ?? false}
+        jobsFailed={[jobsQ, runningQ, retryingQ].some((q) => q.isError)}
       />
 
       {kinds.length === 0 ? (
@@ -133,21 +121,17 @@ export function IndexingPage() {
             ))}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Section title="Throughput" hint="jobs completed over time">
-              <IndexThroughputTimeline completedAt={completedAt} />
-            </Section>
-            <Section title="Embed latency" hint="started → completed per kind">
-              <IndexLatencyTrack rows={latency} />
-            </Section>
-          </div>
+          <QueueMetricPanels />
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Section title="In flight" hint="running passes">
-              <InFlightPanel jobs={jobs} />
+            <Section title="In flight" hint={`${running.length.toLocaleString()} running now`}>
+              <InFlightPanel jobs={running} />
             </Section>
-            <Section title="Retry backoff" hint="pending after a failure">
-              <RetryBackoffPanel jobs={jobs} />
+            <Section
+              title="Retry backoff"
+              hint={`${retryingTotal.toLocaleString()} pending after a failure`}
+            >
+              <RetryBackoffPanel jobs={retrying} total={retryingTotal} />
             </Section>
           </div>
 

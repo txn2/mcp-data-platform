@@ -95,11 +95,9 @@ export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
         ? { folders: [], files: library.resources }
         : {
             folders: childFolders(library.folders, library.path),
-            // The files directly here. The listing is narrowed to this folder
-            // AND everything beneath it -- which is what makes a subfolder's
-            // count mean something -- so the ones filed deeper belong to those
-            // subfolders rather than to this level.
-            files: library.resources.filter((r) => r.path === library.path),
+            // The files directly here: the listing asks for this level alone
+            // (#1837), and a subfolder's count comes from the facets.
+            files: library.resources,
           },
     [library.folders, library.resources, library.path, library.flat],
   );

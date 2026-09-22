@@ -322,6 +322,7 @@ internal/platform/indexqueue -> internal/platform/resourceindex
 internal/platform/indexqueue -> internal/platform/scriptindex
 internal/platform/indexqueue -> pkg/embedding
 internal/platform/indexqueue -> pkg/indexjobs
+internal/platform/indexqueue -> pkg/observability
 internal/platform/indexqueue -> pkg/registry
 internal/platform/indexqueue -> pkg/toolkits/apigateway
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
