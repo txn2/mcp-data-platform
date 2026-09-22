@@ -37,6 +37,7 @@ Click any asset to open the full-screen viewer. The viewer renders content nativ
 The viewer provides:
 
 - **Preview / Source toggle** — Switch between rendered output and raw source code
+- **Wrap and Format in Source** — Source has a **Wrap** toggle, and it is already on when the document's longest line is wider than the editor, so an HTML asset an agent saved on a single line opens readable. Wrapping changes only the display. HTML, JSON, JSX and JavaScript, YAML and Markdown also get **Format**, which reindents the buffer: one element per line with nested indentation, and an HTML document's `<style>` and `<script>` bodies formatted as CSS and JavaScript. Format is an ordinary edit. The document is marked changed, undo takes it back, and nothing is stored until you click **Save**, which writes a new version the usual way. Opening Source, switching views and reading an old version never change the stored content. Format leaves the buffer as it was, and says why, when the source does not parse, or when the reindented HTML would display different text (an element the page's own stylesheet sets to `white-space: pre` keeps every space and line break on screen). The same editor, with the same two controls, is used for managed resources and scripts; a script is Starlark and has Wrap only.
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
 - **Metadata sidebar** — Type, size, created and updated timestamps, tags, version history, and the calls this asset was built from

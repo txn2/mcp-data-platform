@@ -590,6 +590,15 @@ function serveThumbnail(id: string, variant: string | null): HttpResponse<BodyIn
 }
 
 const STATIC_THUMBNAILS: Record<string, string> = {
+  // ast-oneline is the single-line HTML report (#1839), settled at version 1.
+  "ast-oneline": `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+<rect width="400" height="300" fill="#ffffff"/>
+<text x="20" y="40" font-family="system-ui" font-size="18" font-weight="600" fill="#1f2933">Q3 Regional Sales Review</text>
+<rect x="20" y="70" width="80" height="48" rx="6" fill="#f5f7fa"/><rect x="112" y="70" width="80" height="48" rx="6" fill="#f5f7fa"/>
+<rect x="204" y="70" width="80" height="48" rx="6" fill="#f5f7fa"/><rect x="296" y="70" width="80" height="48" rx="6" fill="#f5f7fa"/>
+<rect x="30" y="160" width="70" height="110" rx="3" fill="#2563eb"/><rect x="120" y="190" width="70" height="80" rx="3" fill="#2563eb"/>
+<rect x="210" y="200" width="70" height="70" rx="3" fill="#2563eb"/><rect x="300" y="225" width="70" height="45" rx="3" fill="#2563eb"/>
+</svg>`,
   // ast-002 is the SVG pipeline chart. Without an entry here its thumbnail
   // request 404s, so every collection containing it composited one tile short
   // and the queue had a failing fetch in the middle of its run.
