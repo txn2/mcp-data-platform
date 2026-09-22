@@ -350,3 +350,63 @@ func TestCachePrivate(t *testing.T) {
 		})
 	}
 }
+
+// TestServeRevalidate is #1835: a body derived at serve time carries a
+// validator over the bytes served and must be revalidated before reuse, so a
+// references change reaches a browser that already holds the page.
+func TestServeRevalidate(t *testing.T) {
+	t.Parallel()
+	opts := blobserve.Options{
+		Name: "report.html", ContentType: "text/html", Data: []byte("<img src='/portal/refs/a/t1'>"),
+		ModTime: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Revalidate: true,
+	}
+	do := func(t *testing.T, o blobserve.Options, header, value string) *http.Response {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/content", http.NoBody)
+		if header != "" {
+			req.Header.Set(header, value)
+		}
+		rec := httptest.NewRecorder()
+		blobserve.Serve(rec, req, o)
+		return rec.Result()
+	}
+
+	first := do(t, opts, "", "")
+	defer func() { _ = first.Body.Close() }()
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	require.Equal(t, "private, no-cache", first.Header.Get("Cache-Control"))
+	require.Equal(t, "Cookie", first.Header.Get("Vary"))
+	require.Empty(t, first.Header.Get("Last-Modified"), "the object's time cannot see a references change")
+	tag := first.Header.Get("ETag")
+	require.Regexp(t, `^"[0-9a-f]{32}"$`, tag)
+
+	t.Run("an unchanged body revalidates to 304", func(t *testing.T) {
+		t.Parallel()
+		res := do(t, opts, "If-None-Match", tag)
+		defer func() { _ = res.Body.Close() }()
+		require.Equal(t, http.StatusNotModified, res.StatusCode)
+	})
+	t.Run("a changed body answers in full under a new tag", func(t *testing.T) {
+		t.Parallel()
+		changed := opts
+		changed.Data = []byte("<img src='/portal/refs/a/t2'>")
+		res := do(t, changed, "If-None-Match", tag)
+		defer func() { _ = res.Body.Close() }()
+		require.Equal(t, http.StatusOK, res.StatusCode)
+		require.NotEqual(t, tag, res.Header.Get("ETag"))
+	})
+	t.Run("a date-only validator is not trusted", func(t *testing.T) {
+		t.Parallel()
+		res := do(t, opts, "If-Modified-Since", opts.ModTime.Add(time.Hour).Format(http.TimeFormat))
+		defer func() { _ = res.Body.Close() }()
+		require.Equal(t, http.StatusOK, res.StatusCode)
+	})
+	t.Run("it overrides a looser directive the caller set", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/content", http.NoBody)
+		rec := httptest.NewRecorder()
+		rec.Header().Set("Cache-Control", "private")
+		blobserve.Serve(rec, req, opts)
+		require.Equal(t, "private, no-cache", rec.Result().Header.Get("Cache-Control"))
+	})
+}

@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -883,6 +884,7 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 		ContentType: served,
 		ModTime:     asset.UpdatedAt,
 		Data:        h.serveRefs(r, id, served, data),
+		Revalidate:  contenttype.IsTextual(served),
 	})
 }
 
@@ -1502,6 +1504,7 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		ContentType: served,
 		ModTime:     ver.CreatedAt,
 		Data:        h.serveRefs(r, id, served, data),
+		Revalidate:  contenttype.IsTextual(served),
 	})
 }
 

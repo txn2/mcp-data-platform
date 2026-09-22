@@ -287,6 +287,8 @@ internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
 internal/platform/exportadapters -> pkg/toolkits/graphql
 internal/platform/exportadapters -> pkg/toolkits/trino
+internal/platform/exportrefs -> pkg/portal/knowledgepage
+internal/platform/exportrefs -> pkg/resource
 internal/platform/exporttable -> pkg/portal/knowledgepage
 internal/platform/graphqlcatalog -> pkg/toolkits/apigateway/catalog
 internal/platform/graphqlcatalog -> pkg/toolkits/graphql
@@ -497,11 +499,13 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptlayer -> pkg/toolkit
+internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> internal/scriptdate
 internal/platform/scriptrun -> internal/scriptreserved
+internal/platform/scriptrun -> internal/scriptsum
 internal/platform/scriptrun -> internal/scriptxml
 internal/platform/scriptrun -> internal/toolwrite
 internal/platform/scriptrun -> pkg/contenttype
@@ -693,6 +697,7 @@ pkg/admin -> pkg/configstore
 pkg/admin -> pkg/connid
 pkg/admin -> pkg/connoauth
 pkg/admin -> pkg/connreconcile
+pkg/admin -> pkg/contenttype
 pkg/admin -> pkg/embedding
 pkg/admin -> pkg/indexjobs
 pkg/admin -> pkg/middleware

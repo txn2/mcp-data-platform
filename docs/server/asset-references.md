@@ -50,6 +50,12 @@ On `manage_asset`, `references` replaces whatever the asset referenced before:
 
 At most **20** references per asset, of both kinds together. A save above the cap is refused and the refusal states the number.
 
+### From a managed script
+
+A [managed script](../scripts/running.md) that publishes a document declares its references in the same call that writes it: `platform.export(name, html, format="html", references=["mcp://global/brand/logo.png"])`. The declaration is `manage_asset update` on the asset the export wrote, issued over the run's own session, so the author-can-read check, the table above and the grant notice are the ones an agent's save gets. Because it lives in the script's source, a new script's first run renders the logo, and a renamed script's new output asset carries it too.
+
+An export also reports every `mcp://` URI and `mcp:asset:` reference its body names that `references=` did not list, on the export record as `undeclared_references` and in the run log, and `validate` warns about each literal one the source writes. The detector reads the default `mcp` resource scheme only; on a deployment that sets `resources.managed.uri_scheme`, declaration works and the warnings stay quiet.
+
 ## What declaring one gives away
 
 A declaration is checked once, against the author, at the moment of the save: they must be able to reach the target, and a save naming one they cannot is refused with the reference named and nothing created. The refusal names only the URI the author wrote, and nothing about the target behind it.
@@ -143,6 +149,8 @@ That is what makes a referencing asset's data half refreshable by the platform r
 **The asset is copied.** A copy carries only the references its new owner can read for themselves, each under a fresh token — the two assets are separate grants from that point on. A resource is re-checked against the copier's own claims and an asset against their own view of it. A reference the copier cannot read is dropped rather than refusing the copy, so they get the report with that one thing missing. A copy never carries a grant its new owner did not earn.
 
 **A version is read.** Version history is rewritten against the asset's **current** references, because the references belong to the asset rather than to any one version. An old version naming a resource the asset no longer references renders that image missing.
+
+**A reference is declared or removed on an asset a reader already has open.** The body every viewing surface serves depends on the references as well as the stored content, and a references change moves neither the content nor its version. Every route that serves rewritten content therefore answers `Cache-Control: private, no-cache` with an `ETag` taken over the bytes it served and no `Last-Modified`, so a browser asks before reusing its copy: an unchanged body revalidates to a `304` with nothing transferred, and a changed one comes back in full. The portal's own reference controls refetch the open content and version bodies when they change a reference.
 
 ## Deployment
 

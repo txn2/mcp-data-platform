@@ -238,7 +238,9 @@ func wantCacheControl(path string, mode ShareAccessMode, signedIn bool) string {
 		}
 		return "private, max-age=3600"
 	case "/portal/view/tok1/content", "/portal/view/tok1/items/a1/content":
-		return "private"
+		// Content is rewritten against the asset's references at serve time,
+		// so it is revalidated before reuse (#1835): private, and asked for.
+		return "private, no-cache"
 	default:
 		if publicShare {
 			return ""

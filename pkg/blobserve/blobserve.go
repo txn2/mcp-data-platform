@@ -21,11 +21,15 @@
 //   - Byte-range support, so an audio or video element can seek without
 //     downloading the whole object first.
 //   - A Cache-Control default of `private`, so an endpoint that authorizes its
-//     caller does not hand its bytes to a shared cache by saying nothing.
+//     caller does not hand its bytes to a shared cache by saying nothing, and
+//     `private, no-cache` with an ETag for a body derived at serve time
+//     (Options.Revalidate).
 package blobserve
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"net/http"
@@ -115,6 +119,36 @@ type Options struct {
 	// ForceAttachment serves the blob as a download regardless of family. Set
 	// it on endpoints that exist to download, not to preview.
 	ForceAttachment bool
+
+	// Revalidate marks a body computed at serve time from more than the stored
+	// object, so a browser must ask before reusing its copy. The response
+	// carries `private, no-cache` and a strong ETag over Data, and no
+	// Last-Modified: ModTime is ignored.
+	//
+	// It exists for textual asset content, which the serving rewrite derives from the
+	// stored bytes AND the asset's references (#1835). A references change
+	// alters the body without touching the object or its time, so a copy the
+	// browser held under heuristic freshness kept rendering the raw mcp:// URIs
+	// until a hard refresh. The ETag is taken over the bytes actually served,
+	// so every input the body depends on, the rewrite's base URL included,
+	// invalidates it, and an unchanged body still revalidates to a 304 with
+	// nothing transferred. Last-Modified is withheld because a browser holding
+	// only that validator would send If-Modified-Since alone, and the object's
+	// time cannot see a references change. Binary content is never rewritten,
+	// and is left to the default so a seek does not hash the whole object.
+	Revalidate bool
+}
+
+// revalidateCacheControl lets the authorized browser keep a Revalidate body and
+// never reuse it unasked. The pairing with Vary is CachePrivate's, for the
+// reason given there.
+const revalidateCacheControl = "private, no-cache"
+
+// etag is a strong entity tag over the bytes served, the one validator a
+// Revalidate response carries.
+func etag(data []byte) string {
+	sum := sha256.Sum256(data)
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
 }
 
 // Headers returns the headers that decide how a browser treats untrusted
@@ -146,14 +180,21 @@ func Headers(opts Options) http.Header {
 func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
 	maps.Copy(w.Header(), Headers(opts))
 	w.Header().Set("Accept-Ranges", "bytes")
+	modTime := opts.ModTime
+	if opts.Revalidate {
+		w.Header().Set("Cache-Control", revalidateCacheControl)
+		w.Header().Set("Vary", "Cookie")
+		w.Header().Set("ETag", etag(opts.Data))
+		modTime = time.Time{}
+	}
 	if w.Header().Get("Cache-Control") == "" {
 		w.Header().Set("Cache-Control", DefaultCacheControl)
 	}
 
-	// http.ServeContent supplies Range, If-Range, If-Modified-Since,
-	// Content-Length and the 206/416 responses. It only sniffs a Content-Type
-	// when the header is unset, and it is set above.
-	http.ServeContent(w, r, opts.Name, opts.ModTime, bytes.NewReader(opts.Data))
+	// http.ServeContent supplies Range, If-Range, If-None-Match,
+	// If-Modified-Since, Content-Length and the 206/304/416 responses. It only
+	// sniffs a Content-Type when the header is unset, and it is set above.
+	http.ServeContent(w, r, opts.Name, modTime, bytes.NewReader(opts.Data))
 }
 
 // disposition builds the Content-Disposition header. Scriptable document types

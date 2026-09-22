@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -254,6 +255,7 @@ func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 		ContentType: served,
 		ModTime:     asset.UpdatedAt,
 		Data:        h.serveRefs(r, id, served, data),
+		Revalidate:  contenttype.IsTextual(served),
 	})
 }
 
@@ -597,6 +599,7 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 		ContentType: served,
 		ModTime:     ver.CreatedAt,
 		Data:        h.serveRefs(r, id, served, data),
+		Revalidate:  contenttype.IsTextual(served),
 	})
 }
 

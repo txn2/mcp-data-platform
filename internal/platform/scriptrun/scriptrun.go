@@ -49,6 +49,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/scriptsum"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -321,6 +322,9 @@ type ExportRequest struct {
 	// file (#1820), nil when it asked for none. The host binding makes the
 	// registration once the Exporter has written the file; a writer ignores it.
 	Register *exporttable.Spec
+	// References is references= (#1834): nil leaves the asset's alone, [] clears
+	// them. The host declares them after the write; a writer ignores it.
+	References []string
 }
 
 // ExportResult is where one output landed. A portal output reports the asset
@@ -395,6 +399,11 @@ type ExportRecord struct {
 	// Table is the registration the export's register= argument made over
 	// the written file (#1820), or the one a draft would have made.
 	Table *exporttable.Table `json:"table,omitempty"`
+	// References is what references= declared, or a draft would have, and [] a
+	// clearing (omitzero keeps it apart from absent). UndeclaredReferences is
+	// each reference a portal document names that it did not list (#1834).
+	References           []string `json:"references,omitzero"`
+	UndeclaredReferences []string `json:"undeclared_references,omitempty"`
 }
 
 // Result reports one completed execution.
@@ -564,7 +573,7 @@ func classifyExecError(ctx context.Context, err error, overStep bool, maxSteps u
 // one and absent from the other is the defect that let the contract advertise
 // a built-in the environment did not have (#1414): validation would resolve a
 // name the run cannot bind, or refuse one it can.
-var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", sumBuiltinName}
+var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", scriptsum.Name}
 
 // predeclared builds the global environment a script sees. Everything absent
 // from this dict is absent from the language: no imports, no filesystem, no
@@ -589,6 +598,6 @@ func predeclared(host *hostState) starlark.StringDict {
 		"xml":          scriptxml.Module,
 		"date":         scriptdate.Module,
 		"run":          host.runValue(),
-		sumBuiltinName: sumBuiltin,
+		scriptsum.Name: scriptsum.Builtin,
 	}
 }

@@ -206,8 +206,9 @@ func TestGuestJourney(t *testing.T) {
 	require.Equal(t, http.StatusOK, wd.Code)
 	assert.Equal(t, "file content", wd.Body.String())
 	// The guest cookie is the whole credential here, so these bytes may not be
-	// stored anywhere a second caller can reach (#1070).
-	assert.Equal(t, "private", wd.Header().Get("Cache-Control"))
+	// stored anywhere a second caller can reach (#1070), and are revalidated
+	// before reuse because references are rewritten into them (#1835).
+	assert.Equal(t, "private, no-cache", wd.Header().Get("Cache-Control"))
 	assert.Equal(t, "Cookie", wd.Header().Get("Vary"))
 
 	// 6. Replaying the claimed link fails and lands back on the landing

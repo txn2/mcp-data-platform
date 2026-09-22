@@ -289,7 +289,11 @@ caller asks the upstream for one), and an upstream that states its own
   cache in front of the platform would then answer later requests for the same
   URL from one authorized fetch. This one is a default rather than an override —
   a fully public share's thumbnail is genuinely anonymous and sets `public,
-  max-age=3600` deliberately.
+  max-age=3600` deliberately. Asset content that
+  [asset references](asset-references.md#when-things-change) are rewritten into
+  is served `private, no-cache` with an `ETag` over the served bytes and no
+  `Last-Modified`, because a references change alters that body without
+  touching the stored object or its time.
 
 The scriptable set is wider than the set of types the sniffer refuses to
 promote. XML is safe to name from content, and a viewer shows it as inert text,

@@ -12,6 +12,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -167,6 +168,9 @@ func Validate(source string) Report {
 
 	found := inspect(file)
 	findings = append(findings, found.findings...)
+	for _, lit := range exportrefs.InSource(file, strings.TrimPrefix(CapabilityExport, "platform."), strings.TrimPrefix(CapabilityCall, "platform.")) {
+		findings = append(findings, Finding{Severity: SeverityWarning, Line: lit.Line, Message: lit.Message(), Hint: lit.Hint()})
+	}
 	report.Capabilities, report.Connections = sortedNames(found.capabilities), sortedNames(found.connections)
 	report.Tools = sortedNames(found.tools)
 	report.Destinations = sortedNames(found.destinations)
@@ -591,6 +595,9 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 		return
 	}
 	collectExportDestination(call, ins.destinations, &ins.dynamicDestinations)
+	if exportrefs.Declares(call) { // a manage_asset call, as register= below is manage_table (#1834)
+		ins.tools[exportrefs.Tool] = true
+	}
 	// register= is a manage_table call on the connection it names (#1820), and
 	// the reader of this report is owed it as surely as a platform.call's.
 	for _, arg := range call.Args {

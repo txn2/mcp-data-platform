@@ -13,6 +13,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
@@ -126,7 +127,7 @@ const callArgsPosition = 2
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
 	queryResultFields  = 3
-	exportRecordFields = 18
+	exportRecordFields = 20
 )
 
 // TextResultKey is the single field a tool result arrives under when the tool
@@ -624,6 +625,9 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if err != nil {
 		return nil, err
 	}
+	if err := h.declareReferences(b, req, &record); err != nil {
+		return nil, err
+	}
 	if req.Register != nil {
 		if record.Table, err = h.registerOutput(b, req.Register, record); err != nil {
 			return nil, err
@@ -655,6 +659,29 @@ func (h *hostState) registerOutput(b *starlark.Builtin, spec *exporttable.Spec, 
 		h.writes = append(h.writes, WriteRecord{Tool: exporttable.Tool, Call: exporttable.Tool + " action=" + exporttable.Action})
 	}
 	return exporttable.FromResult(out), nil
+}
+
+// declareReferences notes what a portal document names undeclared, then
+// declares its references= through manage_asset over the run's own session,
+// which owns the asset the export wrote (#1834). A preview wrote no asset and
+// reports the declaration unchecked; a refusal fails the run naming the output.
+func (h *hostState) declareReferences(b *starlark.Builtin, req ExportRequest, record *ExportRecord) error {
+	if req.Body == nil || !req.Destination.IsPortal() {
+		return nil
+	}
+	if record.UndeclaredReferences = exportrefs.Undeclared(*req.Body, req.References); len(record.UndeclaredReferences) > 0 {
+		h.log.write(exportrefs.LogLine(record.Name, record.UndeclaredReferences))
+	}
+	if record.References = req.References; req.References == nil || record.Preview {
+		return nil
+	}
+	if _, err := h.callTool(exportrefs.Tool, exportrefs.Args(record.AssetID, req.References)); err != nil {
+		return fmt.Errorf("in %s: output %q was written, and declaring its references failed: %w", b.Name(), record.Name, err)
+	}
+	if h.opts.Writes == WritesReported {
+		h.writes = append(h.writes, WriteRecord{Tool: exportrefs.Tool, Call: exportrefs.Call})
+	}
+	return nil
 }
 
 // admitOutput enforces the two rules every output-producing binding shares:
@@ -833,6 +860,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		key         string
 		rows        starlark.Value
 		register    starlark.Value
+		references  starlark.Value
 	)
 	// destination and key must be NAMED. The static validator reads keyword
 	// arguments, so a destination passed by position would be invisible to it —
@@ -845,7 +873,8 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	}
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"name", &name, "rows", &rows, "format?", &format,
-		"destination?", &destination, "key?", &key, "register?", &register); err != nil {
+		"destination?", &destination, "key?", &key, "register?", &register,
+		"references?", &references); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	if format == "" {
@@ -879,10 +908,34 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err != nil {
 		return ExportRequest{}, err
 	}
+	refs, err := referenceList(b, references, body != nil, resolved)
+	if err != nil {
+		return ExportRequest{}, err
+	}
 	return ExportRequest{
 		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Rows: list, Body: body,
-		Destination: resolved, Key: key, Register: spec,
+		Destination: resolved, Key: key, Register: spec, References: refs,
 	}, nil
+}
+
+// referenceList reads references=: nil when absent, refused on anything but a
+// portal document before a write (#1834).
+func referenceList(b *starlark.Builtin, v starlark.Value, document bool, destination script.Destination) ([]string, error) {
+	if v == nil || v == starlark.None {
+		return nil, nil
+	}
+	if !document || !destination.IsPortal() {
+		return nil, argErr(b, exportrefs.ErrNotADocument)
+	}
+	goValue, err := starlarkconv.FromStarlark(v)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	refs, err := exportrefs.Parse(goValue)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	return refs, nil
 }
 
 // registerSpec reads an export's register= argument and refuses one the
@@ -1051,13 +1104,24 @@ func exportValue(record ExportRecord) starlark.Value {
 		}
 	}
 	if len(record.TableChanges) > 0 {
-		changes := make([]starlark.Value, 0, len(record.TableChanges))
-		for _, line := range record.TableChanges {
-			changes = append(changes, starlark.String(line))
-		}
-		_ = out.SetKey(starlark.String("table_changes"), starlark.NewList(changes))
+		_ = out.SetKey(starlark.String("table_changes"), stringList(record.TableChanges))
+	}
+	if record.References != nil { // [] cleared them, which absence did not
+		_ = out.SetKey(starlark.String("references"), stringList(record.References))
+	}
+	if len(record.UndeclaredReferences) > 0 {
+		_ = out.SetKey(starlark.String("undeclared_references"), stringList(record.UndeclaredReferences))
 	}
 	return out
+}
+
+// stringList converts a list of strings to a Starlark list.
+func stringList(values []string) *starlark.List {
+	list := make([]starlark.Value, 0, len(values))
+	for _, v := range values {
+		list = append(list, starlark.String(v))
+	}
+	return starlark.NewList(list)
 }
 
 // truncated reports whether the query tool says it stopped short of the full
