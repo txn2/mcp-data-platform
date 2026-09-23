@@ -34,6 +34,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -130,6 +132,17 @@ type Config struct {
 
 	// RunRetention overrides DefaultRunRetention.
 	RunRetention time.Duration
+
+	// Limits are a platform run's ceilings: its wall-clock timeout, its
+	// interpreter steps, and the rows one platform.query may return. Zero
+	// fields take scriptrun's defaults. The claim lease is derived from the
+	// timeout (LeaseFor), so a longer run is never claimed a second time
+	// while it is still executing (#1843).
+	Limits scriptrun.PlatformLimits
+
+	// Admission is how many runs this replica executes at once: adaptive to
+	// its memory and CPU by default, or a fixed number (#1843).
+	Admission scriptadmit.Admission
 
 	// WorkerDisabled leaves this replica serving without ever claiming from the
 	// run queue. run_script still enqueues and still waits on the result, which
@@ -268,6 +281,8 @@ func New(cfg Config) *Handle {
 		retention: orDefaultRetention(cfg.RunRetention),
 		notifier:  notifier,
 		metrics:   cfg.Metrics,
+		lease:     LeaseFor(cfg.Limits.WithDefaults().Timeout),
+		admission: cfg.Admission,
 	})
 	// Materializing where the worker runs, for the same reason the listener
 	// does: a replica that will not claim gains nothing by producing rows for

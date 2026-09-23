@@ -37,6 +37,11 @@ type stubRuns struct {
 	latest    map[string]script.Run
 	latestFor []string
 	latestErr error
+	// canceled records CancelRun calls; cancelPrior and cancelErr answer
+	// them (#1847).
+	canceled    []string
+	cancelPrior string
+	cancelErr   error
 }
 
 func (s *stubRuns) ListRuns(_ context.Context, f script.RunFilter) ([]script.Run, error) {
@@ -69,6 +74,15 @@ func (*stubRuns) RecordOutput(context.Context, script.RunLease, script.RunOutput
 func (*stubRuns) Finish(context.Context, script.RunLease, script.RunResult) error       { return nil }
 func (*stubRuns) Retry(context.Context, script.RunLease, string, time.Duration) error   { return nil }
 func (*stubRuns) PurgeRuns(context.Context, time.Duration) (int64, error)               { return 0, nil }
+func (*stubRuns) RecordProgress(context.Context, script.RunLease, script.RunLive) (requested bool, by string, err error) {
+	return false, "", nil
+}
+
+// CancelRun records the request and answers with the configured outcome.
+func (s *stubRuns) CancelRun(_ context.Context, id, by string) (string, error) {
+	s.canceled = append(s.canceled, id+" by "+by)
+	return s.cancelPrior, s.cancelErr
+}
 
 // stubContracts serves the detail route's contract document.
 type stubContracts struct {

@@ -37,6 +37,7 @@ package scriptrun
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -48,6 +49,7 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/scriptsum"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
@@ -88,9 +90,11 @@ const (
 	RunMaxSteps = 20_000_000
 
 	// RunTimeout caps wall-clock time for one platform run, including the
-	// time spent inside host calls. It matches the ceiling trino_export already
-	// applies to a synchronous export.
-	RunTimeout = 10 * time.Minute
+	// time spent inside host calls, unless the deployment sets
+	// scripts.worker.run_timeout (#1843). A tool a run calls keeps its own
+	// ceiling: a trino_export or api_export inside a run is bounded by that
+	// tool's timeout as well as by this one.
+	RunTimeout = 15 * time.Minute
 
 	// RunMaxRows caps the rows one platform.query may return.
 	RunMaxRows = 20_000
@@ -99,14 +103,44 @@ const (
 	RunMaxResultBytes = 32 << 20
 )
 
+// PlatformLimits are the ceilings of a platform run a deployment may set
+// (scripts.worker.run_timeout, max_steps, max_query_rows, #1843). A zero or
+// negative field takes the default: RunTimeout, RunMaxSteps, RunMaxRows.
+type PlatformLimits struct {
+	Timeout  time.Duration
+	MaxSteps uint64
+	MaxRows  int
+	// ResultMaxBytes caps the value platform.result hands back (#1845);
+	// zero is scriptlive.DefaultMaxResultBytes.
+	ResultMaxBytes int
+}
+
+// WithDefaults fills every unset limit.
+func (l PlatformLimits) WithDefaults() PlatformLimits {
+	if l.Timeout <= 0 {
+		l.Timeout = RunTimeout
+	}
+	if l.MaxSteps == 0 {
+		l.MaxSteps = RunMaxSteps
+	}
+	if l.MaxRows <= 0 {
+		l.MaxRows = RunMaxRows
+	}
+	if l.ResultMaxBytes <= 0 {
+		l.ResultMaxBytes = scriptlive.DefaultMaxResultBytes
+	}
+	return l
+}
+
 // RunLimits returns the limit set a platform run executes under, so a caller
 // configures them by naming the policy rather than by copying four numbers it
 // would then have to keep in step.
-func RunLimits() Options {
+func RunLimits(l PlatformLimits) Options {
+	l = l.WithDefaults()
 	return Options{
-		MaxSteps:       RunMaxSteps,
-		Timeout:        RunTimeout,
-		MaxRows:        RunMaxRows,
+		MaxSteps:       l.MaxSteps,
+		Timeout:        l.Timeout,
+		MaxRows:        l.MaxRows,
 		MaxResultBytes: RunMaxResultBytes,
 		MaxLogBytes:    MaxLogBytes,
 	}
@@ -182,6 +216,10 @@ type Options struct {
 	// when the script names none (#1723). Empty omits the link, which is what
 	// a deployment that does not know its public address can honestly say.
 	RunURL string
+	// Live receives what the run prints and reports while it executes, and
+	// the value it returns (#1845, #1847). Nil gives the run its own, which
+	// is all a draft needs; a platform run passes one its worker snapshots.
+	Live *scriptlive.Live
 
 	// Destinations is the deployment's configured bucket destinations, the set
 	// a platform.export destination name resolves against at run time. The
@@ -435,6 +473,10 @@ type Result struct {
 	// none. There is at most one because the refusal fails the run: the author
 	// reads which call ended it without parsing the traceback for it.
 	RefusedWrite *WriteRecord `json:"refused_write,omitempty"`
+	// Return is the value platform.result handed back and Progress the last
+	// platform.progress report, each absent when the script made none.
+	Return   stdjson.RawMessage  `json:"result,omitempty"`
+	Progress *script.RunProgress `json:"progress,omitempty"`
 }
 
 // WriteRecord is one persisting platform.call a run made.
@@ -486,13 +528,16 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	log := &logBuffer{limit: opts.MaxLogBytes}
+	log := opts.Live
+	if log == nil {
+		log = scriptlive.New(opts.MaxLogBytes, 0)
+	}
 	host := &hostState{opts: opts, ctx: runCtx, log: log}
 	var overStep atomic.Bool
 
 	thread := &starlark.Thread{
 		Name:  opts.Name,
-		Print: func(_ *starlark.Thread, msg string) { log.write(msg) },
+		Print: func(_ *starlark.Thread, msg string) { log.Print(msg) },
 	}
 	thread.SetMaxExecutionSteps(opts.MaxSteps)
 	// starlark-go signals both the step limit and an external stop through the
@@ -513,9 +558,12 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	started := time.Now()
 	_, execErr := starlark.ExecFileOptions(fileOptions, thread, opts.Name, opts.Source, predeclared(host))
+	logText, logTruncated := log.Log()
 	result := &Result{
-		Log:          log.string(),
-		LogTruncated: log.truncated,
+		Log:          logText,
+		LogTruncated: logTruncated,
+		Return:       log.Result(),
+		Progress:     log.Progress(),
 		Steps:        thread.ExecutionSteps(),
 		Duration:     time.Since(started),
 		Queries:      host.queries,
@@ -592,6 +640,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.saveState),
 				"notify":       starlark.NewBuiltin(CapabilityNotify, host.notify),
 				"publish":      starlark.NewBuiltin(CapabilityPublish, host.publish),
+				"progress":     host.log.Bindings()["progress"],
+				"result":       host.log.Bindings()["result"],
 			},
 		},
 		"json":         json.Module,

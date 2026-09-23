@@ -65,6 +65,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -1858,6 +1859,8 @@ func (p *Platform) wireTrinoExport() {
 					UserID:    pc.UserID,
 					UserEmail: pc.UserEmail,
 					SessionID: pc.SessionID,
+					// A named export inside a script run versions one asset (#1854).
+					RunOutputKey: producedby.RunOutputKey(ctx),
 				}
 			},
 		})
@@ -2954,6 +2957,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Subjects: p.users.Subjects(), Metrics: p.obs.Metrics(),
 		Destinations:         p.config.Scripts.ScriptDestinations(),
 		RunRetention:         p.config.Scripts.RunRetention(),
+		Worker:               p.config.Scripts.Worker.Config,
 		WorkerEnabled:        p.config.Scripts.IsWorkerEnabled(),
 		NotificationsEnabled: p.config.Notifications.IsEnabled(),
 		DigestHourUTC:        p.config.Notifications.DigestHour(),
@@ -3703,9 +3707,10 @@ func (p *Platform) wireAPIGatewayExport() {
 					return nil
 				}
 				return &apigatewaykit.ExportUserContext{
-					UserID:    pc.UserID,
-					UserEmail: pc.UserEmail,
-					SessionID: pc.SessionID,
+					UserID:       pc.UserID,
+					UserEmail:    pc.UserEmail,
+					SessionID:    pc.SessionID,
+					RunOutputKey: producedby.RunOutputKey(ctx),
 				}
 			},
 		})

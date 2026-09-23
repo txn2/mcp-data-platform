@@ -101,7 +101,7 @@ func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, 
 		// Written after the wait, so the line records what was actually spent:
 		// a deadline that arrives mid-wait fails the run with the reason above
 		// rather than logging a wait that did not complete.
-		h.log.write(fmt.Sprintf("rate limit: %s was refused; waited %s and retried", tool, wait))
+		h.log.Print(fmt.Sprintf("rate limit: %s was refused; waited %s and retried", tool, wait))
 	}
 }
 

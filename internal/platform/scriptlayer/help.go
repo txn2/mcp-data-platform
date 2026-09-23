@@ -36,7 +36,8 @@ const DialectContract = `Managed scripts are written in Starlark: Python-shaped 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
-      column name. It is the read tool, so a statement that modifies state —
+      column name, in the SELECT's column order, so rows exported as they
+      came keep the query's columns where it put them. It is the read tool, so a statement that modifies state —
       INSERT, UPDATE, DELETE, CREATE, DROP — is refused by it, and the write
       tool is reached with platform.call("trino_execute", {...}).
       Use :name placeholders and pass the values in params; the platform
@@ -202,8 +203,13 @@ WHAT IS AVAILABLE
       Prefer the three helpers where they apply. They are not a restriction
       you are working around: platform.query pushes the row cap down into the
       query and FAILS a truncated result, which a raw trino_query call hands
-      you to notice yourself, and platform.export records what it wrote on the
-      run, which a write made by tool call does not appear in.
+      you to notice yourself, and platform.export keeps one asset per output
+      name, a new version each run. A trino_export, api_export or
+      graphql_export called here with a name does the same: the first run
+      creates the script's asset for that name and every later run writes its
+      next version, listed on the run's outputs marked with the tool. Pass
+      resource= to keep a managed file instead; any other write made by tool
+      call is in the audit log only.
       The result byte cap applies to every call.
       A tool that answers with plain text rather than a structured object
       arrives as {"text": "..."}; decode it yourself if it is JSON.
@@ -216,9 +222,9 @@ WHAT IS AVAILABLE
       reported as a gap in the tool list, and a computed args dict as a gap
       in the connection list.
       run_script and manage_script run_draft are refused from inside a run.
-      A run executes one at a time, so a script waiting on a run it started
-      would wait on the worker running it. Give the second script its own
-      schedule.
+      A run waiting on a run it started holds a worker slot while it waits,
+      and runs waiting on each other can hold every slot there is. Give the
+      second script its own schedule.
   platform.save_state(state)  Replace the script's state: one JSON object the
       platform keeps for the script and hands the next run as run.state. Keys
       mean whatever you say they mean; a watermark is
@@ -238,6 +244,18 @@ WHAT IS AVAILABLE
       where the last successful run stopped and needs no backfill.
       In a draft run this writes nothing and reports the state a platform run
       would have saved.
+  platform.result(value)  Hand one JSON value back to whoever ran the script:
+      run_script, get_run and the portal's run route return it as "result".
+      Use it for a small answer -- the numbers a tile needs, the ids that
+      failed a check -- that nobody needs kept as a file; anything larger is
+      an output (platform.export). Set it once; a second call, a value that
+      cannot be JSON, or one over the cap (limits.run_result_bytes) fails the
+      run. (It is result, not return: return is a keyword.)
+  platform.progress(message, done=None, total=None)  Report how far the run
+      has got, e.g. platform.progress("entities", done=120, total=500). The
+      latest report is shown on the running run within a few seconds, beside
+      the log printed so far; call it as often as you like, since only the
+      latest is written, every few seconds.
   platform.notify(channel, title, body="", link="")  Post a message to a
       notification channel an administrator configured: a Mattermost channel,
       an incoming webhook, or a named email list. Call
@@ -580,7 +598,7 @@ var KnowledgePages = []KnowledgePage{
 // handleHelp returns the dialect contract, the capability surface, the example
 // names, and the built-in pages that carry the reasoning the contract states
 // only in outline.
-func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallToolResult, any, error) {
 	names := make([]map[string]any, 0, len(examples))
 	for _, ex := range examples {
 		names = append(names, map[string]any{fieldName: ex.name, "description": ex.description})
@@ -592,10 +610,16 @@ func (*Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTool
 			"draft_max_steps":  scriptrun.DraftMaxSteps,
 			"draft_timeout":    scriptrun.DraftTimeout.String(),
 			"draft_max_rows":   scriptrun.DraftMaxRows,
+			"run_max_steps":    h.runLimits.MaxSteps,
+			"run_timeout":      h.runLimits.Timeout.String(),
+			"run_max_rows":     h.runLimits.MaxRows,
+			"run_result_bytes": h.runLimits.ResultMaxBytes,
 			"log_bytes":        scriptrun.MaxLogBytes,
 			"max_source_bytes": script.MaxSourceBytes,
 			"state_bytes":      script.MaxStateBytes,
-			"note": "A draft run is bounded more tightly than a platform run will be. " +
+			"note": "A draft run is bounded more tightly than a platform run; the run_ limits are the ones a " +
+				"saved script meets on this deployment. A tool a run calls keeps its own ceiling as well: " +
+				"a trino_export or api_export inside a run is bounded by that tool's timeout. " +
 				"A script error is deterministic, so it is never retried. A rate-limit refusal of a " +
 				"call is not a script error: the host waits the refusal's interval within the run's " +
 				"deadline and issues the call again, and the wait is written to the run's log.",

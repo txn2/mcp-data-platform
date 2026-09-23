@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 func TestProducerValid(t *testing.T) {
@@ -54,4 +56,22 @@ func TestWithRefusesInvalid(t *testing.T) {
 	assert.Equal(t, "script-1", got.ID, "the invalid stamp must not shadow the script")
 
 	assert.False(t, Has(With(context.Background(), Producer{})))
+}
+
+// TestRunOutputKey is set for a script run's call alone, and keys the name the
+// way platform.export does (#1854).
+func TestRunOutputKey(t *testing.T) {
+	ctx := With(context.Background(), Producer{Kind: KindScript, ID: "s1", Label: "daily"})
+	key := RunOutputKey(ctx)
+	if key == nil || key("report") != script.OutputIdentityKey("s1", "report") {
+		t.Fatal("RunOutputKey for a script run is not the platform.export identity")
+	}
+	for _, ctx := range []context.Context{
+		context.Background(),
+		With(context.Background(), Producer{Kind: KindSession, ID: "sess"}),
+	} {
+		if RunOutputKey(ctx) != nil {
+			t.Error("a call no script run made has no run output key")
+		}
+	}
 }

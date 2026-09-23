@@ -222,10 +222,18 @@ Starlark. What cannot be read is reported as `dynamic_tools` or
 
 Two things a generic call does not get, which is why the helpers are still the
 way to do the three things they do. A query issued by tool call is not counted in the run's query
-total, and a write made by tool call is not one of the run's OUTPUTS: the run row's output list and the per-run output cap cover
+total, and most writes made by tool call are not one of the run's OUTPUTS: the run row's output list and the per-run output cap cover
 `platform.export` and `platform.publish_data`, so an object written by
 `platform.call("s3_object", {"action": "put", ...})` appears in the audit log rather than on
-the run detail page. And a query issued by tool call is handed the tool's own
+the run detail page. The exception is the export tools, the right tools once a result is past the row cap (#1854):
+a file `trino_export`, `api_export` or `graphql_export` writes inside a run is listed under the
+run's outputs with its name, asset (or managed resource) and version, format, rows and bytes,
+marked with the tool that wrote it. A named export inside a run takes `platform.export`'s
+identity: the first run creates the script's asset for that name, and every later run writes
+its next version, so a nightly export is one asset with a version history rather than a new
+asset each night. Passing `resource` writes the next version of one managed file instead, and
+passing your own `idempotency_key` keeps that key's meaning (the same key returns the asset it
+first wrote). Outside a run each export tool call still creates a new asset. And a query issued by tool call is handed the tool's own
 result, truncation flag included, without the row cap `platform.query` pushes
 down into the statement.
 
@@ -248,9 +256,9 @@ its author's library.
 
 Two calls are refused from inside a run: `run_script` and `manage_script
 run_draft`. That is a runaway-work guard rather than an authorization rule — a
-worker executes one run at a time per replica, so a script waiting on a run it
-started would be waiting on the worker running it. Give the second script its
-own schedule.
+run waiting on a run it started holds a worker slot while it waits, and runs
+waiting on each other can hold every slot a replica admits, leaving nothing to
+execute the runs they wait on. Give the second script its own schedule.
 
 ### Where output may go
 
@@ -341,8 +349,9 @@ agent are the same run in every respect except the label recording who asked.
 
 The run appears in the history below the form and updates as it progresses: the
 history re-reads itself while anything is pending or running and stops once
-nothing is. The response carries no result — a run may take ten minutes, and
-the history is where a run is followed.
+nothing is, and an open run shows its latest progress and the log it has
+printed so far. The page does not wait for the run; the history is where it is
+followed.
 
 ![A script's own page: contract, run form, and run history](../images/screenshots/light/user-script-detail-light.webp#only-light)![A script's own page: contract, run form, and run history](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
 
@@ -358,6 +367,76 @@ Two things it cannot do:
 A run's trigger records which of the three producers created it: `tool` for
 `run_script`, `schedule` for a fire, and `portal` for one an owner asked for on
 the page. They execute identically.
+
+### Handing an answer back
+
+A script that computes a small answer (the numbers a dashboard tile needs, the
+ids that failed a check) hands it back with `platform.result(value)` instead of
+writing a file nobody needs kept (#1845):
+
+```python
+rows = platform.query(connection="warehouse", sql="SELECT region, SUM(net) AS net FROM sales GROUP BY region")["rows"]
+platform.result({"total": sum([r["net"] for r in rows]), "regions": len(rows)})
+```
+
+The value is any JSON value, set once per run, and capped at
+`scripts.worker.result_max_bytes` (1 MiB by default). A second call, a value
+JSON cannot hold, or one over the cap fails the run with the reason rather than
+being cut short. It is kept on the run record and nowhere else, so it follows
+run retention and is never an asset; anything larger, or anything worth keeping,
+is an output. The binding is `result`, not `return`: `return` is a Starlark
+keyword and `platform.return(...)` does not parse.
+
+`run_script`, `manage_script command=get_run`, a draft, and the portal's run
+routes all carry it as `result`. Over HTTP the run route can wait for it:
+
+```
+POST /api/v1/portal/scripts/{id}/runs?wait=30
+{"params": {"day": "2026-09-22"}}
+```
+
+A run that finishes within the wait answers `200` with the run itself: its
+`status`, `result`, `outputs` and `error`. One still going when the wait ends,
+and every request without `wait`, answers `202` with the run id, followed with
+`GET /api/v1/portal/scripts/{id}/runs/{runID}`. The wait is capped at 300
+seconds, the same cap `run_script` applies to `wait_seconds`. A proxy in front
+of the platform with a shorter read timeout ends the request first, so a caller
+behind one waits no longer than it allows.
+
+### Following a run while it executes
+
+`platform.progress(message, done=None, total=None)` reports how far a run has
+got (#1847):
+
+```python
+for i, entity in enumerate(entities):
+    platform.progress("entities", done=i, total=len(entities))
+    # ... work on entity ...
+```
+
+Only the latest report is kept, and the worker writes it to the run every two
+seconds together with the log printed so far, so a script can report on every
+iteration without costing a write each time. A running run then shows
+`120 of 500 · entities` and its log in `get_run`, on
+`GET /api/v1/portal/scripts/{id}/runs/{runID}`, and on the run's page, instead
+of only `running`. The last report stays on the run after it ends.
+
+### Stopping a run
+
+`manage_script command=cancel_run run_id=…` and
+`POST /api/v1/portal/scripts/{id}/runs/{runID}/cancel` stop a run (#1847), and
+the page offers the same as a Cancel or Stop control on a run still in flight:
+
+- A queued run is canceled outright and never starts.
+- A running run ends `canceled` within seconds: its worker reads the request
+  when it next writes the run's progress, stops the interpreter at its next
+  step, and records the run with the outputs it had already written. A run that
+  reported success as the request landed stays succeeded.
+- A finished run is left as it is, and the answer says so.
+
+Whoever may read a run may stop it: the script's owner, an administrator, and
+whoever requested that run. A canceled run is not a failure: it is not
+retried, and a scheduled one does not mail its owner.
 
 ## Running one on a schedule
 
@@ -703,8 +782,7 @@ interpreter has no hard memory cap (see the [security model](security.md)), so
 a pathological script pushes on the memory of whatever pod runs it;
 keeping that pod out of the serving path means the worst case is a restarted
 worker rather than a degraded agent session. It also lets the two scale on their
-own axes — serving on connections, execution on queue depth — since a replica
-executes one run at a time and concurrency comes from replica count.
+own axes — serving on connections, execution on queue depth.
 
 The two deployments are the same image and the same configuration bar that one
 key; the [deployment guide](../server/deployment.md#split-deployment-portal-and-script-workers)
@@ -716,6 +794,70 @@ not finish back onto the queue rather than failing it — a shutdown decides
 nothing about a run. A released run is claimable immediately, so a rolling
 deploy costs a run at most the time it had already spent, not a wait for its
 lease to expire.
+
+### How many runs a replica executes at once
+
+A run spends most of its life waiting on a query engine or an upstream API, so
+what limits a replica is its free memory and CPU rather than a count. By
+default the worker is **adaptive** (#1843): before each claim it reads the
+process's memory against the container's memory limit (or `GOMEMLIMIT`) and
+its CPU time over the last second against the container's CPU quota, and it
+claims another run only while both are under their thresholds. When either is
+over, it stops claiming. Nothing is refused and nothing fails: the runs stay
+queued, and this replica or another one claims them when there is headroom.
+The worker checks again when a run finishes and at every poll.
+
+Two bounds keep that honest. It always admits at least `min_concurrency` runs,
+whatever the load, so a replica never stops making progress, and never more
+than `max_concurrency`, whatever headroom it reports. A measurement the
+platform cannot take never refuses: with no container memory limit and no
+`GOMEMLIMIT`, memory is not measured, and on Windows CPU is not measured, so
+the ceiling is the only bound there.
+
+Admission only decides new claims. A run admitted when memory was low can grow
+afterwards, and the interpreter cannot attribute heap to one run. The gap
+between `max_memory_percent` and `shed_memory_percent` is the headroom for
+that. Past `shed_memory_percent`, the worker stops the most recently started
+run (it has the least work to lose) and puts it back on the queue with "the
+worker was under memory pressure". That is a platform fault, not a script
+failure, so it spends the platform's retry budget, never the script's, and the
+worker never stops its last run.
+
+```yaml
+scripts:
+  worker:
+    concurrency: adaptive     # the default; a whole number fixes it, and 1 is one run at a time
+    max_concurrency: 16       # adaptive: never more than this
+    min_concurrency: 1        # adaptive: always at least this many, whatever the load
+    max_memory_percent: 70    # of the container memory limit; no new claims above it
+    max_cpu_percent: 75       # of the container CPU quota; no new claims above it
+    shed_memory_percent: 90   # stop and requeue the newest run above it
+    run_timeout: 15m          # wall-clock cap for one platform run
+    max_steps: 20000000       # interpreter steps for one platform run
+    max_query_rows: 20000     # rows one platform.query may return
+```
+
+Every value is optional; zero or a negative number takes the default, and a
+`concurrency` that is neither `adaptive` nor a whole number fails at startup.
+A fixed number claims exactly that many at once and ignores the load; `1` is
+the one-run-at-a-time worker of earlier releases, for an operator who wants
+that memory guarantee.
+
+`run_timeout`, `max_steps` and `max_query_rows` are a platform run's ceilings,
+and `manage_script help` reports the values in force under `limits`. Drafts
+keep their own tighter limits. A tool a run calls keeps its own ceiling as
+well: a `trino_export` or `api_export` inside a run is bounded by that tool's
+timeout, so a larger result than `max_query_rows` allows goes through
+`trino_export`. The claim lease is derived from the timeout (`run_timeout` plus
+five minutes), so a longer run is never claimed a second time while it is still
+executing.
+
+Three series show whether capacity or load is what holds work back:
+`script_runs_running` (runs executing on each replica),
+`script_run_admission_refusals_total` by `reason` (`ceiling`, `memory`, `cpu`,
+counted when the queue held work the replica declined), and
+`script_run_queue_wait_seconds` (how long a run waited between becoming due and
+being claimed).
 
 ## What a run produces
 
@@ -1217,7 +1359,9 @@ last run went.
 
 ![Scripts: every script you can see](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts: every script you can see](../images/screenshots/dark/user-scripts-dark.webp#only-dark) Opening one shows its contract, and — for a script you own — its version
 history with each version's author and the roles a run of it presents, and its
-run history with each run's trigger, duration, outputs, and the log it printed.
+run history with each run's trigger, duration, outputs, the result it handed
+back, and the log it printed, and, for a run still in flight, how far it has got
+and a control to stop it.
 See the [portal guide](../portal/scripts.md).
 
 A run is the owner's and the administrator's to read, plus whoever requested

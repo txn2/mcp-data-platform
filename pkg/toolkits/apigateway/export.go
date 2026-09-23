@@ -169,6 +169,11 @@ type ExportUserContext struct {
 	UserID    string
 	UserEmail string
 	SessionID string
+	// RunOutputKey, set when a managed-script run made the call, turns the
+	// export's name into the script's output identity, so a named export
+	// inside a run writes the next version of one asset (#1854). Nil
+	// otherwise.
+	RunOutputKey func(name string) string
 }
 
 // ExportDeps holds platform-side dependencies injected into the
@@ -233,12 +238,15 @@ type exportInput struct {
 // exportOutput is the response returned to the model. Mirrors
 // trino_export's output: asset metadata, no body bytes.
 type exportOutput struct {
-	AssetID     string `json:"asset_id,omitempty"`
-	PortalURL   string `json:"portal_url,omitempty"`
-	ShareURL    string `json:"share_url,omitempty"`
-	ContentType string `json:"content_type,omitempty"`
-	Status      int    `json:"upstream_status"`
-	SizeBytes   int64  `json:"size_bytes"`
+	AssetID string `json:"asset_id,omitempty"`
+	// AssetVersion is the version this export wrote: 1 for a new asset, the
+	// next one for a named export a script run repeats (#1854).
+	AssetVersion int    `json:"asset_version,omitempty"`
+	PortalURL    string `json:"portal_url,omitempty"`
+	ShareURL     string `json:"share_url,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
+	Status       int    `json:"upstream_status"`
+	SizeBytes    int64  `json:"size_bytes"`
 	// Resource is where a resource destination landed the response (#1663):
 	// the reference and uri to hand to the next call, the version written, and
 	// what the write did to the tables registered over the file. Set instead of
@@ -487,25 +495,27 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	// Stream the upstream body straight to S3 (no full-body buffer). Bound
 	// the read by the export timeout via resp.Body, which is tied to
 	// exportCtx.
-	assetID, size, err := persistExportAsset(ctx, persistExportArgs{
+	obj, err := persistExportAsset(ctx, persistExportArgs{
 		deps: deps, uc: uc, in: in, body: body, maxBytes: deps.Config.MaxBytes,
 		contentType: contentType, declaredType: declaredType, status: resp.StatusCode,
 	})
 	if err != nil {
 		return nil, err
 	}
+	assetID, size := obj.assetID, obj.size
 
 	shareURL := maybeCreateExportShare(ctx, deps, in, assetID, uc.UserEmail)
 
 	method, _ := validateMethod(in.Method)
 	return &exportOutput{
-		AssetID:     assetID,
-		PortalURL:   buildExportPortalURL(deps.BaseURL, assetID),
-		ShareURL:    shareURL,
-		ContentType: contentType,
-		Status:      resp.StatusCode,
-		SizeBytes:   size,
-		Message:     fmt.Sprintf("Exported %d bytes from %s %s.", size, method, in.Path),
+		AssetID:      assetID,
+		AssetVersion: obj.version,
+		PortalURL:    buildExportPortalURL(deps.BaseURL, assetID),
+		ShareURL:     shareURL,
+		ContentType:  contentType,
+		Status:       resp.StatusCode,
+		SizeBytes:    size,
+		Message:      fmt.Sprintf("Exported %d bytes from %s %s.", size, method, in.Path),
 	}, nil
 }
 
@@ -546,19 +556,20 @@ type persistExportArgs struct {
 }
 
 // persistExportAsset streams the response body to S3 and inserts the
-// asset row + version row. Returns the asset id and the number of bytes
-// written on success. Version-row failure is non-fatal — the asset row
+// asset row + version row. Returns what was stored: the asset id, the
+// version written, and the number of bytes. Version-row failure is non-fatal — the asset row
 // is already in place and the model has an id; failing the whole call
 // would orphan the S3 object. An over-cap stream aborts the multipart
 // upload (no orphaned parts, no asset row) and returns the all-or-nothing
 // rejection error.
-func persistExportAsset(ctx context.Context, p persistExportArgs) (assetID string, size int64, err error) {
+func persistExportAsset(ctx context.Context, p persistExportArgs) (exportObject, error) {
 	obj, err := putExportObject(ctx, p)
 	if err != nil {
-		return "", 0, err
+		return exportObject{}, err
 	}
 	prov := buildExportProvenance(p.uc, p.in, p.status, replacedDeclaration(p.declaredType, p.contentType))
-	return obj.assetID, obj.size, recordExportAsset(ctx, p, obj, prov)
+	obj.assetID, obj.version, err = recordExportAsset(ctx, p, obj, prov)
+	return obj, err
 }
 
 // exportObject is what putExportObject stored: the asset id it minted,
@@ -568,6 +579,8 @@ type exportObject struct {
 	s3Key       string
 	size        int64
 	contentType string
+	// version is the asset version the record wrote (#1854).
+	version int
 }
 
 // putExportObject streams p.body to storage under a fresh asset id. Bound
@@ -595,10 +608,13 @@ func putExportObject(ctx context.Context, p persistExportArgs) (exportObject, er
 }
 
 // recordExportAsset inserts the asset row and the version row for a
-// stored object.
-func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObject, prov ExportProvenance) error {
+// stored object, and reports the asset and version it recorded. A named
+// export a script run made is recorded under the script's output identity
+// instead: the next version of one asset (#1854).
+func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObject, prov ExportProvenance) (assetID string, version int, err error) {
 	deps, uc, in := p.deps, p.uc, p.in
-	assetID, s3Key, size, contentType := obj.assetID, obj.s3Key, obj.size, obj.contentType
+	assetID = obj.assetID
+	s3Key, size, contentType := obj.s3Key, obj.size, obj.contentType
 	asset := ExportAsset{
 		ID:             assetID,
 		OwnerID:        uc.UserID,
@@ -614,8 +630,11 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 		SessionID:      uc.SessionID,
 		IdempotencyKey: in.IdempotencyKey,
 	}
+	if key := runOutputKey(uc, in); key != "" {
+		return recordRunVersion(ctx, deps, asset, key, uc.UserEmail)
+	}
 	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
-		return fmt.Errorf("insert asset row: %w", err)
+		return "", 0, fmt.Errorf("insert asset row: %w", err)
 	}
 	versionID, vidErr := generateExportAssetID()
 	if vidErr != nil {
@@ -624,7 +643,7 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 		// and return the asset id so the model has a usable handle.
 		slog.Warn("api_export: generating version id failed",
 			"asset_id", assetID, "error", vidErr)
-		return nil
+		return assetID, 1, nil
 	}
 	if _, vErr := deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
 		ID:            versionID,
@@ -644,7 +663,51 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 		slog.Warn("api_export: failed to create version record",
 			"asset_id", assetID, "error", vErr)
 	}
-	return nil
+	return assetID, 1, nil
+}
+
+// recordRunVersion records a named export a script run made under the
+// script's output identity: the next version of the asset the key names, or
+// the new asset carrying it (#1854).
+func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, key, createdBy string) (assetID string, version int, err error) {
+	assetID, version, err = toolkit.PersistRunAsset(ctx, key, asset.ID, toolkit.RunAssetWrite{
+		Lookup: func(ctx context.Context, key string) (string, bool) {
+			ref, err := deps.AssetStore.GetByIdempotencyKey(ctx, asset.OwnerID, key)
+			if err != nil || ref == nil {
+				return "", false
+			}
+			return ref.ID, true
+		},
+		Insert: func(ctx context.Context, key string) error {
+			asset.IdempotencyKey = key
+			return deps.AssetStore.InsertExportAsset(ctx, asset)
+		},
+		Version: func(ctx context.Context, assetID string) (int, error) {
+			versionID, err := generateExportAssetID()
+			if err != nil {
+				return 0, err
+			}
+			return deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
+				ID: versionID, AssetID: assetID, S3Key: asset.S3Key, S3Bucket: asset.S3Bucket,
+				ContentType: asset.ContentType, SizeBytes: asset.SizeBytes,
+				CreatedBy: createdBy, ChangeSummary: "Exported from API endpoint",
+			})
+		},
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("api_export: %w", err)
+	}
+	return assetID, version, nil
+}
+
+// runOutputKey is the script output identity a named export made inside a run
+// writes under, or "" when the call is not a run's, names nothing, or carries
+// its own idempotency key, which keeps its own meaning.
+func runOutputKey(uc *ExportUserContext, in exportInput) string {
+	if uc.RunOutputKey == nil || in.Name == "" || in.IdempotencyKey != "" {
+		return ""
+	}
+	return uc.RunOutputKey(in.Name)
 }
 
 // runExportWalk is api_export as a page walk (issue #1535). The walk
@@ -729,20 +792,22 @@ func finishWalkAsset(ctx context.Context, persist persistExportArgs, walk *pagew
 	prov.ToolCalls[0].Parameters["items_merged"] = walk.Stats.ItemsMerged
 	prov.ToolCalls[0].Parameters["stopped_by"] = walk.Stats.StoppedBy
 	prov.ToolCalls[0].Parameters["final_cursor"] = pagewalk.FinalCursor(walk.Lead)
-	if err := recordExportAsset(ctx, persist, obj, prov); err != nil {
+	var err error
+	if obj.assetID, obj.version, err = recordExportAsset(ctx, persist, obj, prov); err != nil {
 		return nil, err
 	}
 	shareURL := maybeCreateExportShare(ctx, deps, in, obj.assetID, uc.UserEmail)
 	method, _ := validateMethod(in.Method)
 	return &exportOutput{
-		AssetID:     obj.assetID,
-		PortalURL:   buildExportPortalURL(deps.BaseURL, obj.assetID),
-		ShareURL:    shareURL,
-		ContentType: applicationJSON,
-		Status:      walk.Last.Status,
-		SizeBytes:   obj.size,
-		Message:     fmt.Sprintf("Exported %d items from %d pages of %s %s (%d bytes).", walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, obj.size),
-		WalkStats:   &walk.Stats,
+		AssetID:      obj.assetID,
+		AssetVersion: obj.version,
+		PortalURL:    buildExportPortalURL(deps.BaseURL, obj.assetID),
+		ShareURL:     shareURL,
+		ContentType:  applicationJSON,
+		Status:       walk.Last.Status,
+		SizeBytes:    obj.size,
+		Message:      fmt.Sprintf("Exported %d items from %d pages of %s %s (%d bytes).", walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, obj.size),
+		WalkStats:    &walk.Stats,
 	}, nil
 }
 

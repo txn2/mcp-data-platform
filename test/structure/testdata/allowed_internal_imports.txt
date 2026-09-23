@@ -171,8 +171,10 @@ internal/httpserver/notifywire -> pkg/registry
 internal/httpserver/notifywire -> pkg/toolkits/apigateway
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
+internal/httpserver/scripthttp -> internal/httpserver/scripthttp/transferwords
 internal/httpserver/scripthttp -> internal/logsan
 internal/httpserver/scripthttp -> internal/platform/exporttable
+internal/httpserver/scripthttp -> internal/platform/runcontrol
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> internal/producedview
@@ -180,6 +182,7 @@ internal/httpserver/scripthttp -> pkg/audit
 internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/scripthttp/scriptlist -> pkg/script
+internal/httpserver/scripthttp/transferwords -> internal/producedview
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/tablehttp -> internal/httpjson
 internal/httpserver/tablehttp -> internal/logsan
@@ -463,6 +466,8 @@ internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/runcontrol -> pkg/script
+internal/platform/scriptadmit -> internal/procload
 internal/platform/scriptdraft -> internal/platform/scriptrun
 internal/platform/scriptdraft -> internal/toolwrite
 internal/platform/scriptdraft -> pkg/middleware
@@ -473,6 +478,8 @@ internal/platform/scriptexec -> internal/logsan
 internal/platform/scriptexec -> internal/notification/notifyprefs
 internal/platform/scriptexec -> internal/notification/notifyqueue
 internal/platform/scriptexec -> internal/pglisten
+internal/platform/scriptexec -> internal/platform/scriptadmit
+internal/platform/scriptexec -> internal/platform/scriptlive
 internal/platform/scriptexec -> internal/platform/scriptrun
 internal/platform/scriptexec -> internal/platform/scriptstore
 internal/platform/scriptexec -> internal/producedby
@@ -489,6 +496,7 @@ internal/platform/scriptexec -> pkg/textpatch
 internal/platform/scriptexec -> pkg/toolkit
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
+internal/platform/scriptlayer -> internal/platform/runcontrol
 internal/platform/scriptlayer -> internal/platform/scriptdraft
 internal/platform/scriptlayer -> internal/platform/scriptindex
 internal/platform/scriptlayer -> internal/platform/scriptrun
@@ -500,8 +508,12 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptlayer -> pkg/toolkit
+internal/platform/scriptlive -> internal/platform/starlarkconv
+internal/platform/scriptlive -> pkg/script
 internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
+internal/platform/scriptrun -> internal/platform/scriptlex
+internal/platform/scriptrun -> internal/platform/scriptlive
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> internal/scriptdate
@@ -516,6 +528,7 @@ internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
 internal/platform/scriptwiring -> internal/platform/resourcewrite
+internal/platform/scriptwiring -> internal/platform/scriptadmit
 internal/platform/scriptwiring -> internal/platform/scriptdraft
 internal/platform/scriptwiring -> internal/platform/scriptexec
 internal/platform/scriptwiring -> internal/platform/scriptlayer
@@ -648,6 +661,7 @@ internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
 internal/portal/viewerlimit -> pkg/ratelimit
 internal/producedby -> internal/logsan
+internal/producedby -> pkg/script
 internal/producedview -> internal/portal/portaldomain
 internal/producedview -> internal/producedby
 internal/producedview -> pkg/resource
@@ -853,6 +867,7 @@ pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/resourcetemplates
 pkg/platform -> internal/platform/resourcewrite
 pkg/platform -> internal/platform/routepolicy
+pkg/platform -> internal/platform/scriptadmit
 pkg/platform -> internal/platform/scriptdraft
 pkg/platform -> internal/platform/scriptexec
 pkg/platform -> internal/platform/scriptlayer
@@ -869,6 +884,7 @@ pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
+pkg/platform -> internal/producedby
 pkg/platform -> internal/toolnames
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents

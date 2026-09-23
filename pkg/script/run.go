@@ -2,6 +2,7 @@ package script
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -18,12 +19,16 @@ import (
 //     policy is to skip. It is recorded as a run rather than logged because a
 //     report that stopped producing is precisely what a schedule's history has
 //     to show; a skip is not an outage, but it is not a run either.
+//   - canceled: terminal. Somebody asked for the run to stop (#1847): a
+//     pending run is never claimed, and a running one stopped at its next
+//     interpreter step, keeping the outputs it had already written.
 const (
 	RunStatusPending        = "pending"
 	RunStatusRunning        = "running"
 	RunStatusSucceeded      = "succeeded"
 	RunStatusFailed         = "failed"
 	RunStatusSkippedOverlap = "skipped_overlap"
+	RunStatusCanceled       = "canceled"
 )
 
 // Run triggers: what produced the run row.
@@ -80,6 +85,10 @@ type RunMetrics struct {
 // alone.
 type RunOutput struct {
 	Name string `json:"name"`
+	// Tool names the tool that wrote this output when a platform.call of an
+	// export tool (trino_export, api_export) did, rather than platform.export
+	// (#1854). Empty for platform.export and platform.publish_data.
+	Tool string `json:"tool,omitempty"`
 	// Destination is the named destination's name. It is empty on rows
 	// written before destinations existed, which Destination() reads as the
 	// portal.
@@ -187,6 +196,19 @@ type Run struct {
 	Metrics      RunMetrics  `json:"metrics"`
 	Outputs      []RunOutput `json:"outputs,omitempty"`
 
+	// Result is the JSON value the run handed back with platform.result
+	// (#1845): a small answer for its caller, kept on the run and nowhere
+	// else. Absent when the script set none.
+	Result json.RawMessage `json:"result,omitempty" swaggertype:"object"`
+	// Progress is the latest platform.progress report (#1847), written while
+	// the run executes; Log carries what it has printed so far until the run
+	// finishes and records the whole.
+	Progress *RunProgress `json:"progress,omitempty"`
+	// CancelRequestedAt and CancelRequestedBy record a request to stop a
+	// running run, which its worker acts on at its next report.
+	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+	CancelRequestedBy string     `json:"cancel_requested_by,omitempty"`
+
 	// StateRevision and StateRead are the script's state as it stood when the
 	// run was created (#1537): the revision, and the object handed to the
 	// script as run.state. Both are pinned at creation exactly as Params are,
@@ -210,7 +232,7 @@ type Run struct {
 // so nothing is ever going to move it.
 func (r *Run) Terminal() bool {
 	return r.Status == RunStatusSucceeded || r.Status == RunStatusFailed ||
-		r.Status == RunStatusSkippedOverlap
+		r.Status == RunStatusSkippedOverlap || r.Status == RunStatusCanceled
 }
 
 // Output returns the recorded output this run wrote under one name to one
@@ -248,7 +270,7 @@ type RunLease struct {
 
 // RunResult is the terminal outcome of one attempt, as the worker reports it.
 type RunResult struct {
-	// Status is RunStatusSucceeded or RunStatusFailed.
+	// Status is RunStatusSucceeded, RunStatusFailed or RunStatusCanceled.
 	Status string
 	// Error is the failure message, carrying the Starlark backtrace when the
 	// script itself failed.
@@ -261,6 +283,10 @@ type RunResult struct {
 	// compare-and-set on the revision the run read, in the transaction that
 	// records the status.
 	State *StateWrite
+	// Result is the value the run handed back with platform.result, nil when
+	// it set none (#1845), and Progress its last platform.progress report.
+	Result   json.RawMessage
+	Progress *RunProgress
 }
 
 // RefuseRun reports why the platform must not execute this script, or nil when
@@ -374,4 +400,16 @@ type RunStore interface {
 	// PurgeRuns deletes terminal runs older than retention, returning the
 	// number removed.
 	PurgeRuns(ctx context.Context, retention time.Duration) (int64, error)
+
+	// RecordProgress writes what the claimed run has reported so far -- its
+	// latest progress and the log it has printed -- and answers whether a
+	// cancel has been requested for it, and by whom (#1847).
+	RecordProgress(ctx context.Context, lease RunLease, live RunLive) (cancelRequested bool, by string, err error)
+
+	// CancelRun stops a run on behalf of by: a pending run becomes canceled
+	// and is never claimed, a running one is marked for its worker to stop,
+	// and a finished one is left as it is. It returns the status the run had
+	// when the request arrived, which is what says which of the three
+	// happened, or ErrRunNotFound for an unknown id.
+	CancelRun(ctx context.Context, id, by string) (prior string, err error)
 }

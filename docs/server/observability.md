@@ -105,6 +105,8 @@ query them; the tab is the at-a-glance read.
 | `script_run_duration_seconds` | histogram | `script` |
 | `script_runs_running` | gauge | (none) |
 | `script_missed_fires_total` | counter | `script` |
+| `script_run_admission_refusals_total` | counter | `reason` (`ceiling`, `memory`, `cpu`) |
+| `script_run_queue_wait_seconds` | histogram | (none) |
 | `indexjob_enqueued_total` | counter | `kind`, `trigger`, `result` |
 | `indexjob_jobs_total` | counter | `kind`, `trigger`, `outcome` |
 | `indexjob_duration_seconds` | histogram | `kind`, `outcome` |
@@ -152,7 +154,13 @@ around the execution rather than incremented at the end: a run that never
 finishes never records a terminal observation, and a worker wedged on one is
 what the gauge exists to show. `script_missed_fires_total` counts the fires the
 misfire policy stepped over, which is the one thing the run table cannot show,
-because a missed fire is precisely a run that does not exist:
+because a missed fire is precisely a run that does not exist.
+`script_run_admission_refusals_total` counts the times a replica's worker
+declined to claim another run while the queue held work, by the reason its
+admission gave (#1843): `ceiling` is the configured maximum binding, `memory`
+and `cpu` are the replica out of headroom. `script_run_queue_wait_seconds` is
+how long a run waited between becoming due and being claimed; together they
+tell capacity from load as what holds work back:
 
 ```promql
 # automations that are failing

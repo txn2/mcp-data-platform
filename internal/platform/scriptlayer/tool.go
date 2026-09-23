@@ -36,6 +36,7 @@ const (
 	cmdVersions   = "versions"
 	cmdRuns       = "runs"
 	cmdGetRun     = "get_run"
+	cmdCancelRun  = "cancel_run"
 	cmdState      = "state"
 
 	cmdScheduleSet     = "schedule_set"
@@ -182,6 +183,7 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdVersions:   h.handleVersions,
 		cmdRuns:       h.handleRuns,
 		cmdGetRun:     h.handleGetRun,
+		cmdCancelRun:  h.handleCancelRun,
 		cmdState:      h.handleState,
 
 		cmdScheduleSet:     h.handleScheduleSet,
@@ -214,6 +216,7 @@ func (h *Handle) commands() map[string]commandHandler {
 var scriptWritingCommands = map[string]bool{
 	cmdCreate: true, cmdUpdate: true, cmdPatch: true, cmdDelete: true,
 	cmdScheduleSet: true, cmdScheduleEnable: true, cmdScheduleDisable: true,
+	cmdCancelRun: true,
 }
 
 // handleManageScript dispatches manage_script commands.
@@ -280,7 +283,7 @@ func manageScriptSchema() any {
 			keyEnum: []string{
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
-				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdState,
+				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdCancelRun, cmdState,
 				cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
 			},
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
@@ -365,13 +368,14 @@ func manageScriptSchema() any {
 		},
 		"run_id": map[string]any{
 			keyType:        valString,
-			keyDescription: "Identifies one run for get_run; run_script and the runs listing report it.",
+			keyDescription: "Identifies one run for get_run and cancel_run; run_script and the runs listing report it.",
 		},
 		"run_status": map[string]any{
 			keyType: valString,
 			keyEnum: []string{
 				script.RunStatusPending, script.RunStatusRunning,
 				script.RunStatusSucceeded, script.RunStatusFailed,
+				script.RunStatusSkippedOverlap, script.RunStatusCanceled,
 			},
 			keyDescription: "Filters the runs listing to one run status.",
 		},

@@ -216,6 +216,20 @@ func (w *outputWriter) record(ctx context.Context, out script.RunOutput) {
 	w.written[outputKey(out.Name, out.Destination)] = true
 }
 
+// RecordToolOutput records an output an export tool wrote on this run's
+// behalf (#1854). It is recorded on the run and listed with its outputs, but
+// not claimed as a platform.export write: the tool created its own asset, and
+// a later platform.export of the same name is a different write, not a repeat.
+func (w *outputWriter) RecordToolOutput(ctx context.Context, out script.RunOutput) {
+	if w.runs != nil {
+		if err := w.runs.RecordOutput(ctx, w.run.Lease(), out); err != nil {
+			slog.Error("scripts: recording a tool's output on the run failed",
+				logKeyRunID, w.run.ID, "tool", out.Tool, logKeyError, err)
+		}
+	}
+	w.run.Outputs = append(w.run.Outputs, out)
+}
+
 // outputKey identifies one write: an output name at one destination.
 func outputKey(name, destination string) string {
 	return name + "\x00" + destination
@@ -228,7 +242,7 @@ func outputKey(name, destination string) string {
 // data-region refresh resolve through it, which is what "the same identity
 // rule" means: the asset a refresh finds is the asset the export wrote.
 func (w *outputWriter) outputIdentityKey(name string) string {
-	return "script:" + w.script.ID + ":" + name
+	return script.OutputIdentityKey(w.script.ID, name)
 }
 
 // writePortal stores one output as a new version of the script's asset.

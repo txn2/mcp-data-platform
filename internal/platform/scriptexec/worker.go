@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -22,12 +24,21 @@ const (
 	// it costs is one indexed lookup that returns nothing.
 	defaultPollEvery = 5 * time.Second
 
-	// defaultLease bounds one attempt. It must exceed the longest a run can
-	// take (scriptrun.RunTimeout) or a still-running run would look
-	// abandoned and be claimed a second time while the first is mid-flight; the
-	// margin above that ceiling is what a crashed worker's run waits before
-	// another replica reclaims it.
-	defaultLease = 15 * time.Minute
+	// leaseMargin is how far a claim's lease outlives the run timeout. The
+	// lease must exceed the longest a run can take or a still-running run
+	// would look abandoned and be claimed a second time while the first is
+	// mid-flight; the margin is what a crashed worker's run waits before
+	// another replica reclaims it. The lease is derived from the configured
+	// timeout (LeaseFor) rather than set beside it, so raising one cannot
+	// leave the other behind (#1843).
+	leaseMargin = 5 * time.Minute
+
+	// shedEvery is how often adaptive admission reads memory to decide whether
+	// to stop a run. Memory can climb faster than the queue poll.
+	shedEvery = time.Second
+
+	// shedReason is what a run stopped to relieve memory is requeued with.
+	shedReason = "the worker was under memory pressure; the run was stopped and requeued for a replica with headroom"
 
 	// defaultMaxAttempts bounds infrastructure retries per run. Script failures
 	// never retry at all, so this budget only ever spends itself on the
@@ -116,14 +127,28 @@ type workerConfig struct {
 	pollEvery   time.Duration
 	lease       time.Duration
 	maxAttempts int
+	// admission decides whether another run may be claimed (#1843); load is
+	// what adaptive admission reads, procload when nil.
+	admission scriptadmit.Admission
+	load      scriptadmit.LoadSource
 }
 
-// worker claims due runs and executes them, one at a time.
+// LeaseFor is the claim lease for a run timeout: the timeout plus the margin a
+// crashed worker's run waits before it is reclaimed.
+func LeaseFor(runTimeout time.Duration) time.Duration {
+	return runTimeout + leaseMargin
+}
+
+// worker claims due runs and executes each on its own goroutine, as many at
+// once as its admission allows (#1843).
 //
-// One at a time is deliberate. A run holds a Starlark heap the interpreter
-// cannot cap, so the number of concurrent runs per replica is the one lever
-// that bounds the memory a pathological script can reach; SKIP LOCKED spreads
-// load across replicas rather than across goroutines here.
+// A run holds a Starlark heap the interpreter cannot cap, so how many execute
+// at once is the lever that bounds the memory a replica reaches. Adaptive
+// admission, the default, pulls it from the replica's measured memory and CPU
+// rather than from a number an operator must size for the worst script: a
+// replica full of runs waiting on a query engine keeps claiming, and one near
+// its limits stops, leaving the rest queued for itself or another replica
+// through SKIP LOCKED. Nothing is refused, so nothing fails for want of room.
 type worker struct {
 	cfg    workerConfig
 	id     string
@@ -136,12 +161,30 @@ type worker struct {
 	stopOnce  sync.Once
 	wg        sync.WaitGroup
 	started   atomic.Bool
-	// inFlight is set while a claimed run is executing. A shutdown waits only
-	// for that: time the loop spends in the queue's own calls is not work worth
+	// inFlight counts the claimed runs executing. A shutdown waits only for
+	// them: time the loop spends in the queue's own calls is not work worth
 	// saving, and waiting it out would delay the cancel that unblocks them.
-	inFlight atomic.Bool
-	// lastPurge throttles the retention sweep. Only the run goroutine reads it.
+	inFlight atomic.Int32
+	admit    scriptadmit.Admitter
+	// slots holds each executing run's cancel, keyed by run id, which is how a
+	// run is stopped to relieve memory without stopping the others.
+	slotsMu sync.Mutex
+	slots   map[string]*slot
+	// lastPurge throttles the retention sweep. Only the loop goroutine reads
+	// it.
 	lastPurge time.Time
+	// queueHadWork records whether the last claim found a run, so a refusal
+	// is counted only when there was work to refuse.
+	queueHadWork bool
+}
+
+// slot is one executing run.
+type slot struct {
+	cancel  context.CancelFunc
+	started time.Time
+	// shed is set when the worker stopped the run to relieve memory, which
+	// turns its outcome into a requeue rather than a failure.
+	shed atomic.Bool
 }
 
 // newWorker creates a run worker, applying defaults for zero config values.
@@ -150,7 +193,7 @@ func newWorker(cfg workerConfig) *worker {
 		cfg.pollEvery = defaultPollEvery
 	}
 	if cfg.lease <= 0 {
-		cfg.lease = defaultLease
+		cfg.lease = LeaseFor(scriptrun.RunTimeout)
 	}
 	if cfg.maxAttempts <= 0 {
 		cfg.maxAttempts = defaultMaxAttempts
@@ -166,6 +209,8 @@ func newWorker(cfg workerConfig) *worker {
 		stopCh:    make(chan struct{}),
 		runCtx:    runCtx,
 		cancelRun: cancelRun,
+		admit:     scriptadmit.NewAdmitter(cfg.admission, cfg.load),
+		slots:     map[string]*slot{},
 	}
 }
 
@@ -222,8 +267,8 @@ func (w *worker) Start(_ context.Context) {
 // bounded by shutdownWrite.
 func (w *worker) Stop(ctx context.Context) {
 	w.stopOnce.Do(func() { close(w.stopCh) })
-	if w.inFlight.Load() && !w.awaitIdle(drainWindow(ctx)) {
-		slog.Info("scripts: the drain window is spent; canceling and releasing the run still executing")
+	if w.inFlight.Load() > 0 && !w.awaitIdle(drainWindow(ctx)) {
+		slog.Info("scripts: the drain window is spent; canceling and releasing the runs still executing")
 	}
 	w.cancelRun()
 	w.wg.Wait()
@@ -277,11 +322,15 @@ func drainWindow(ctx context.Context) time.Duration {
 	return min(remaining/drainBudgetShare, remaining-releaseReserve, drainWindowCap)
 }
 
-// run is the poll/wakeup loop.
+// run is the poll/wakeup loop. A run finishing wakes it, since a freed slot
+// may admit the next one; adaptive admission also reads memory every
+// shedEvery, to stop a run before the container is killed with all of them.
 func (w *worker) run() {
 	defer w.wg.Done()
 	ticker := time.NewTicker(w.cfg.pollEvery)
 	defer ticker.Stop()
+	shed := time.NewTicker(shedEvery)
+	defer shed.Stop()
 	for {
 		w.drain()
 		select {
@@ -289,11 +338,14 @@ func (w *worker) run() {
 			return
 		case <-w.wakeup:
 		case <-ticker.C:
+		case <-shed.C:
+			w.maybeShed()
 		}
 	}
 }
 
-// drain executes due runs until none remain or the worker stops.
+// drain claims due runs while admission allows, until none remain or the
+// worker stops. Each claimed run executes on its own goroutine.
 func (w *worker) drain() {
 	ctx := w.runCtx
 	w.maybePurge(ctx)
@@ -302,6 +354,12 @@ func (w *worker) drain() {
 		case <-w.stopCh:
 			return
 		default:
+		}
+		if ok, reason := w.admit.Admit(int(w.inFlight.Load())); !ok {
+			if w.queueHadWork {
+				w.cfg.metrics.RecordScriptAdmissionRefused(ctx, reason)
+			}
+			return
 		}
 		if !w.processNext(ctx) {
 			return
@@ -328,6 +386,7 @@ func (w *worker) maybePurge(ctx context.Context) {
 // processNext claims and executes one run, reporting whether more may remain.
 func (w *worker) processNext(ctx context.Context) bool {
 	run, err := w.cfg.runs.Claim(ctx, w.id, w.cfg.lease)
+	w.queueHadWork = err == nil
 	if errors.Is(err, script.ErrNoWork) {
 		return false
 	}
@@ -351,15 +410,79 @@ func (w *worker) processNext(ctx context.Context) bool {
 		return false
 	default:
 	}
-	w.processRun(ctx, run)
+	w.cfg.metrics.RecordScriptQueueWait(ctx, queueWait(run))
+	w.launch(run)
 	return true
 }
 
+// queueWait is how long a claimed run waited after it became due.
+func queueWait(run *script.Run) time.Duration {
+	if run.ScheduledFor.IsZero() {
+		return 0
+	}
+	claimed := time.Now()
+	if run.StartedAt != nil {
+		claimed = *run.StartedAt
+	}
+	return claimed.Sub(run.ScheduledFor)
+}
+
+// launch executes a claimed run on its own goroutine under a context of its
+// own, derived from the worker's so a shutdown still reaches it.
+func (w *worker) launch(run *script.Run) {
+	ctx, cancel := context.WithCancel(w.runCtx)
+	s := &slot{cancel: cancel, started: time.Now()}
+	w.slotsMu.Lock()
+	w.slots[run.ID] = s
+	w.slotsMu.Unlock()
+	w.inFlight.Add(1)
+	w.wg.Go(func() {
+		defer w.Notify()
+		defer func() {
+			w.slotsMu.Lock()
+			delete(w.slots, run.ID)
+			w.slotsMu.Unlock()
+			cancel()
+			w.inFlight.Add(-1)
+		}()
+		w.processRun(ctx, run, s)
+	})
+}
+
+// maybeShed stops the most recently started run when memory is past the shed
+// threshold, one per call, so memory has a reading to fall before the next.
+// The newest run is chosen because it has the least work to lose.
+//
+// A run already stopped is not counted: it is on its way out, and counting it
+// would shed the last run still executing.
+func (w *worker) maybeShed() {
+	w.slotsMu.Lock()
+	defer w.slotsMu.Unlock()
+	var (
+		newest   *slot
+		newestID string
+		live     int
+	)
+	for id, s := range w.slots {
+		if s.shed.Load() {
+			continue
+		}
+		live++
+		if newest == nil || s.started.After(newest.started) {
+			newest, newestID = s, id
+		}
+	}
+	if newest == nil || !w.admit.Shed(live) {
+		return
+	}
+	slog.Warn("scripts: stopping a run to relieve memory", logKeyRunID, newestID)
+	newest.shed.Store(true)
+	newest.cancel()
+}
+
 // processRun loads what the claimed run needs and executes it, then resolves
-// the run to a terminal state or back onto the queue.
-func (w *worker) processRun(ctx context.Context, run *script.Run) {
-	w.inFlight.Store(true)
-	defer w.inFlight.Store(false)
+// the run to a terminal state or back onto the queue. ctx is the run's own.
+func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) {
 	// Bracketing the execution rather than counting it at the end: a run that
 	// never finishes never records a terminal observation, and a worker wedged
 	// on one is exactly what this gauge exists to show.
@@ -370,16 +493,29 @@ func (w *worker) processRun(ctx context.Context, run *script.Run) {
 		"script_id", logsan.SanitizeForLog(run.ScriptID), "version", run.Version, "attempt", run.Attempt)
 	sc, v, loadErr := w.load(ctx, run)
 	var outcome attempt
-	if loadErr != nil {
+	switch {
+	case loadErr != nil:
 		outcome = *loadErr
-	} else {
+	case run.CancelRequestedAt != nil:
+		// A cancel requested before this claim -- the worker that held the
+		// run stopped before acting on it -- ends the run here, unexecuted.
+		outcome = attempt{result: script.RunResult{
+			Status: script.RunStatusCanceled, Error: cancelledError(run.CancelRequestedBy),
+		}}
+	default:
 		outcome = w.cfg.runner.execute(ctx, run, sc, v)
+	}
+	// A run stopped to relieve memory has not failed: it goes back on the
+	// queue, spending the platform's retry budget rather than the script's.
+	// One that reported success as the cancel landed finished.
+	if s.shed.Load() && outcome.result.Status != script.RunStatusSucceeded {
+		outcome = *retryable(shedReason)
 	}
 	// The alert is raised only for a run that was actually recorded as failed.
 	// A run released by a shutdown, or one returned to the queue for a retry,
 	// has not failed — mailing about either would report an outcome the run has
 	// not reached.
-	if w.resolve(ctx, run, outcome) {
+	if w.resolve(run, outcome) {
 		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
 			Script: scriptName(sc, run), Trigger: run.Trigger, Status: outcome.result.Status,
 		}, time.Since(started))
@@ -452,11 +588,11 @@ func retryable(reason string) *attempt {
 // entitles the caller to tell somebody about the outcome. A released or retried
 // run has not finished, and a Finish whose lease was lost was decided by
 // another worker, which will report it.
-func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) bool {
-	ctx := context.WithoutCancel(runCtx)
-	if runCtx.Err() != nil {
+func (w *worker) resolve(run *script.Run, a attempt) bool {
+	ctx := context.WithoutCancel(w.runCtx)
+	if w.runCtx.Err() != nil {
 		var cancel context.CancelFunc
-		ctx, cancel = shutdownWrite(runCtx)
+		ctx, cancel = shutdownWrite(w.runCtx)
 		defer cancel()
 		if a.result.Status != script.RunStatusSucceeded {
 			w.release(ctx, run)

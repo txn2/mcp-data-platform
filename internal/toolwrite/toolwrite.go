@@ -263,7 +263,7 @@ var actionTools = map[string]actionRule{
 		"locate", "get_content", "outline", "stats", "diff",
 		"versions", "runs", "get_run", "schedule_list",
 	), writes: set(
-		"create", "update", "delete", "patch", "run_draft",
+		"create", "update", "delete", "patch", "run_draft", "cancel_run",
 		"schedule_set", "schedule_enable", "schedule_disable",
 	), split: map[string]actionRule{
 		"state": {arg: "state_action", reads: set("", "get"), writes: set("set", "clear")},

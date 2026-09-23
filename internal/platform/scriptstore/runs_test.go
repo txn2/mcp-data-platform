@@ -22,7 +22,8 @@ var runSelectColumns = []string{
 	"params", "fire_time", "requested_by", "scheduled_for", "started_at", "finished_at", "attempt",
 	"locked_until", "locked_by", "error", "log_text", "log_truncated", "metrics", "outputs",
 	"schedule_id", "state_revision", "state_read", "state_written", "state_revision_written",
-	"created_at", "updated_at",
+	"result", "progress_message", "progress_done", "progress_total", "progress_at",
+	"cancel_requested_at", "cancel_requested_by", "created_at", "updated_at",
 }
 
 // runRow returns one full run row in runColumns order.
@@ -34,7 +35,8 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		"dpx_1", "script_1", "sver_1", 3, script.TriggerTool, status,
 		[]byte(`{"day":"2026-08-12"}`), rowTime, "jane@example.com", rowTime, nil, nil, attempt,
 		nil, "worker-a", "", "", false, []byte(`{"steps":10}`), outputs,
-		"", int64(0), []byte("{}"), nil, nil, rowTime, rowTime,
+		"", int64(0), []byte("{}"), nil, nil,
+		nil, "", nil, nil, nil, nil, "", rowTime, rowTime,
 	}
 }
 
@@ -326,7 +328,8 @@ func TestRecordOutput_AppendsInSQL(t *testing.T) {
 func TestFinish_WritesTheResultAndWakesWaiters(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
-		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "log line", false, sqlmock.AnyArg(), nil, nil).
+		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "log line", false, sqlmock.AnyArg(), nil, nil,
+			nil, "", nil, nil, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
 		WithArgs(NotifyChannel, "dpx_1").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -343,7 +346,7 @@ func TestFinish_WritesTheResultAndWakesWaiters(t *testing.T) {
 // out on the same clock as the runs that did execute.
 func TestPurgeRuns_OnlySweepsTerminalRows(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectExec(regexp.QuoteMeta("WHERE status IN ('succeeded', 'failed', 'skipped_overlap')")).
+	mock.ExpectExec(regexp.QuoteMeta("WHERE status IN ('succeeded', 'failed', 'skipped_overlap', 'canceled')")).
 		WithArgs(86400).WillReturnResult(sqlmock.NewResult(0, 7))
 
 	n, err := s.PurgeRuns(context.Background(), 24*time.Hour)

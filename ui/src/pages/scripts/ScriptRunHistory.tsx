@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
-import { RUN_PAGE_SIZE, useScriptRun, useScriptRuns } from "@/api/portal/hooks/scripts";
+import {
+  RUN_PAGE_SIZE,
+  isRunInFlight,
+  useCancelScriptRun,
+  useScriptRun,
+  useScriptRuns,
+} from "@/api/portal/hooks/scripts";
 import type { ScriptRun, ScriptRunDetail } from "@/api/portal/hooks/scripts";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -15,6 +22,7 @@ import { formatDuration } from "@/lib/formatDuration";
 import {
   formatWhen,
   outputLink,
+  progressText,
   runStatusLabel,
   runStatusVariant,
   runWhen,
@@ -190,6 +198,7 @@ function RunRows({
           <div className="text-xs text-muted-foreground">
             {run.trigger} · v{run.version}
           </div>
+          <RunProgressLine run={run} />
         </TableCell>
         <TableCell className="text-xs whitespace-nowrap tabular-nums">
           {run.duration_ms > 0 ? formatDuration(run.duration_ms) : "—"}
@@ -241,6 +250,7 @@ function RunSummaryLine({ runs }: { runs: ScriptRun[] }) {
         </span>
       )}
       {summary.skipped > 0 && <span>{summary.skipped} skipped</span>}
+      {summary.canceled > 0 && <span>{summary.canceled} canceled</span>}
       {summary.medianMs > 0 && <span>median {formatDuration(summary.medianMs)}</span>}
     </span>
   );
@@ -265,14 +275,81 @@ function RunDetail({
   }
   return (
     <div className="space-y-3">
+      <RunControl scriptId={scriptId} run={run} />
       <RunFacts run={run} />
       {run.error && (
         <pre className="overflow-x-auto rounded-md border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-700 dark:text-red-300">
           {run.error}
         </pre>
       )}
+      <RunResult run={run} />
       <RunOutputs run={run} onNavigate={onNavigate} />
       <RunLog run={run} />
+    </div>
+  );
+}
+
+// RunProgressLine is how far a run still in flight has got, from its latest
+// platform.progress report (#1847), and whether somebody has asked it to stop.
+// A finished run's last report stays in its detail rather than on the row:
+// its status already says how it ended.
+function RunProgressLine({ run }: { run: ScriptRun }) {
+  if (!isRunInFlight(run)) return null;
+  const text = progressText(run.progress);
+  if (!text && !run.cancel_requested) return null;
+  return (
+    <div className="text-xs break-words whitespace-normal text-muted-foreground">
+      {run.cancel_requested ? "Stopping" + (text ? ` · ${text}` : "") : text}
+    </div>
+  );
+}
+
+// RunControl is what can still be done to a run: stop it while it is queued or
+// executing (#1847). A queued run never starts; an executing one ends
+// canceled within seconds, keeping what it already wrote. Once asked, the
+// control says so instead of offering to ask again.
+function RunControl({ scriptId, run }: { scriptId: string; run: ScriptRunDetail }) {
+  const cancel = useCancelScriptRun(scriptId);
+  if (!isRunInFlight(run)) return null;
+  const progress = progressText(run.progress);
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs">
+      {progress && <span className="text-foreground">{progress}</span>}
+      {run.cancel_requested || cancel.isSuccess ? (
+        <span className="text-muted-foreground">
+          Stopping{run.cancel_requested_by ? `, as ${run.cancel_requested_by} asked` : ""}. The run
+          ends canceled within seconds and keeps what it already wrote.
+        </span>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={cancel.isPending}
+          onClick={(e) => {
+            e.stopPropagation();
+            cancel.mutate(run.id);
+          }}
+        >
+          {run.status === "pending" ? "Cancel run" : "Stop run"}
+        </Button>
+      )}
+      {cancel.isError && (
+        <span className="text-red-700 dark:text-red-300">The run could not be stopped.</span>
+      )}
+    </div>
+  );
+}
+
+// RunResult is the value the run handed back with platform.result (#1845):
+// the answer a caller running the script for data came for.
+function RunResult({ run }: { run: ScriptRunDetail }) {
+  if (run.result === undefined) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">Result</p>
+      <pre className="max-h-60 overflow-auto rounded-md border bg-background p-3 font-mono text-xs whitespace-pre-wrap">
+        {JSON.stringify(run.result, null, 2)}
+      </pre>
     </div>
   );
 }
@@ -382,7 +459,11 @@ function outputCount(n: number): string {
 
 function RunLog({ run }: { run: ScriptRunDetail }) {
   if (!run.log) {
-    return <p className="text-xs text-muted-foreground">This run printed nothing.</p>;
+    return (
+      <p className="text-xs text-muted-foreground">
+        {isRunInFlight(run) ? "Nothing printed yet." : "This run printed nothing."}
+      </p>
+    );
   }
   return (
     <div className="space-y-1">

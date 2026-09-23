@@ -191,6 +191,11 @@ type ExportUserContext struct {
 	UserID    string
 	UserEmail string
 	SessionID string
+	// RunOutputKey, set when a managed-script run made the call, turns the
+	// export's name into the script's output identity, so a named export
+	// inside a run writes the next version of one asset (#1854). Nil
+	// otherwise.
+	RunOutputKey func(name string) string
 }
 
 // ExportProvenanceCall represents a tool call in the provenance chain.
@@ -240,12 +245,15 @@ type exportInput struct {
 
 // exportOutput is the response returned to the agent.
 type exportOutput struct {
-	AssetID   string `json:"asset_id,omitempty"`
-	PortalURL string `json:"portal_url,omitempty"`
-	ShareURL  string `json:"share_url,omitempty"`
-	Format    string `json:"format"`
-	RowCount  int    `json:"row_count"`
-	SizeBytes int64  `json:"size_bytes"`
+	AssetID string `json:"asset_id,omitempty"`
+	// AssetVersion is the version this export wrote: 1 for a new asset, the
+	// next one for a named export a script run repeats (#1854).
+	AssetVersion int    `json:"asset_version,omitempty"`
+	PortalURL    string `json:"portal_url,omitempty"`
+	ShareURL     string `json:"share_url,omitempty"`
+	Format       string `json:"format"`
+	RowCount     int    `json:"row_count"`
+	SizeBytes    int64  `json:"size_bytes"`
 	// Resource is where a resource destination landed the result (#1663): the
 	// reference and uri to hand to the next call, the version written, and what
 	// the write did to the tables registered over the file. Set instead of
@@ -443,29 +451,85 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		IdempotencyKey: input.IdempotencyKey,
 	}
 
-	if hit, errResult := t.insertAssetWithRace(ctx, deps, asset, input, uc); hit != nil || errResult != nil {
+	recorded, hit, errResult := t.storeAsset(ctx, deps, asset, input, uc)
+	if hit != nil || errResult != nil {
 		return hit, errResult
 	}
-
-	t.createExportVersion(ctx, deps, ExportVersion{
-		AssetID:     assetID,
-		S3Key:       s3Key,
-		ContentType: formatter.ContentType(),
-		SizeBytes:   int64(len(formatted)),
-		CreatedBy:   uc.UserEmail,
-	})
+	assetID, version := recorded.assetID, recorded.version
 
 	shareURL := t.maybeCreateShare(ctx, deps, input, assetID, uc.UserEmail)
 
 	return &exportOutput{
-		AssetID:   assetID,
-		PortalURL: buildPortalURL(deps.BaseURL, assetID),
-		ShareURL:  shareURL,
-		Format:    input.Format,
-		RowCount:  len(rows),
-		SizeBytes: int64(len(formatted)),
-		Message:   strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format), note), " "),
+		AssetID:      assetID,
+		AssetVersion: version,
+		PortalURL:    buildPortalURL(deps.BaseURL, assetID),
+		ShareURL:     shareURL,
+		Format:       input.Format,
+		RowCount:     len(rows),
+		SizeBytes:    int64(len(formatted)),
+		Message:      strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format), note), " "),
 	}, nil
+}
+
+// storeAsset records the uploaded export: under the script's output identity
+// when a run made a named export (the next version of one asset, #1854), and
+// otherwise as a new asset and its first version, as trino_export always has.
+func (t *Toolkit) storeAsset(ctx context.Context, deps *ExportDeps, asset ExportAsset, input exportInput, uc *ExportUserContext) (
+	recorded storedAsset, hit *exportOutput, errResult *mcp.CallToolResult,
+) {
+	version0 := ExportVersion{
+		S3Key: asset.S3Key, ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, CreatedBy: uc.UserEmail,
+	}
+	if key := runOutputKey(uc, input); key != "" {
+		id, version, err := toolkit.PersistRunAsset(ctx, key, asset.ID, toolkit.RunAssetWrite{
+			Lookup: func(ctx context.Context, key string) (string, bool) {
+				ref, err := deps.AssetStore.GetByIdempotencyKey(ctx, asset.OwnerID, key)
+				if err != nil || ref == nil {
+					return "", false
+				}
+				return ref.ID, true
+			},
+			Insert: func(ctx context.Context, key string) error {
+				asset.IdempotencyKey = key
+				return deps.AssetStore.InsertExportAsset(ctx, asset)
+			},
+			Version: func(ctx context.Context, id string) (int, error) {
+				ver := version0
+				ver.AssetID, ver.S3Bucket, ver.ChangeSummary = id, deps.S3Bucket, "Exported from Trino query"
+				var err error
+				if ver.ID, err = generateExportID(); err != nil {
+					return 0, err
+				}
+				return deps.VersionStore.CreateExportVersion(ctx, ver)
+			},
+		})
+		if err != nil {
+			return storedAsset{}, nil, exportError(err.Error())
+		}
+		return storedAsset{assetID: id, version: version}, nil, nil
+	}
+	if hit, errResult := t.insertAssetWithRace(ctx, deps, asset, input, uc); hit != nil || errResult != nil {
+		return storedAsset{}, hit, errResult
+	}
+	version0.AssetID = asset.ID
+	t.createExportVersion(ctx, deps, version0)
+	return storedAsset{assetID: asset.ID, version: 1}, nil, nil
+}
+
+// storedAsset is the asset and version an export recorded.
+type storedAsset struct {
+	assetID string
+	version int
+}
+
+// runOutputKey is the script output identity a named export made inside a run
+// writes under, or "" when the call is not a run's, names nothing, or carries
+// its own idempotency key, which keeps its own meaning.
+func runOutputKey(uc *ExportUserContext, input exportInput) string {
+	if uc.RunOutputKey == nil || input.Name == "" || input.IdempotencyKey != "" {
+		return ""
+	}
+	return uc.RunOutputKey(input.Name)
 }
 
 // insertAssetWithRace inserts the asset record. When the insert loses an

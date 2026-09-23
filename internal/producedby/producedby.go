@@ -31,6 +31,8 @@ package producedby
 import (
 	"context"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // Target kinds. Asset, resource and collection ids are separate id spaces, so
@@ -173,4 +175,17 @@ func From(ctx context.Context) (Producer, bool) {
 func Has(ctx context.Context) bool {
 	_, ok := From(ctx)
 	return ok
+}
+
+// RunOutputKey returns, for a call a managed-script run made, the function
+// that turns an export's name into that script's output identity
+// (script.OutputIdentityKey), and nil for any other call. The export tools
+// use it so a named export inside a run writes the next version of the
+// script's asset for that name rather than a new asset each run (#1854).
+func RunOutputKey(ctx context.Context) func(name string) string {
+	p, ok := From(ctx)
+	if !ok || p.Kind != KindScript || p.ID == "" {
+		return nil
+	}
+	return func(name string) string { return script.OutputIdentityKey(p.ID, name) }
 }

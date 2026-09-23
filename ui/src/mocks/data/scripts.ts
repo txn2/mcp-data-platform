@@ -446,6 +446,8 @@ export const mockScriptRunDetails: Record<string, ScriptRunDetail> = {
     state_read: { synced_through: "2026-08-12", rows: 1_388 },
     state_written: { synced_through: "2026-08-13", rows: 1_420 },
     state_revision_written: 41,
+    // The answer the run handed back with platform.result (#1845).
+    result: { rows: 1_420, net_sales: "98304.50", report_date: "2026-08-13" },
     outputs: [
       {
         name: "daily-sales",

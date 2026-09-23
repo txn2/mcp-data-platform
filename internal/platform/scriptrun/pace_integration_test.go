@@ -77,7 +77,7 @@ const pacedLoop = "for i in range(4):\n    print(platform.call(\"echo\", {\"n\":
 // deterministically and each wait is the limiter's own one-second interval.
 func TestIntegration_ADraftRunOutpacingTheLimiterCompletes(t *testing.T) {
 	caller, served := limitedServer(t, middleware.AuthTypeOIDC, 60, 2)
-	result, err := Run(context.Background(), RunLimits().withCaller(caller))
+	result, err := Run(context.Background(), RunLimits(PlatformLimits{}).withCaller(caller))
 	require.NoError(t, err)
 
 	assert.Equal(t, 4, *served, "every call the script made was served exactly once")
@@ -87,7 +87,7 @@ func TestIntegration_ADraftRunOutpacingTheLimiterCompletes(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(result.Log, "rate limit:"))
 
 	unlimited, _ := limitedServer(t, middleware.AuthTypeOIDC, 60, 100)
-	free, err := Run(context.Background(), RunLimits().withCaller(unlimited))
+	free, err := Run(context.Background(), RunLimits(PlatformLimits{}).withCaller(unlimited))
 	require.NoError(t, err)
 	assert.Equal(t, free.Steps, result.Steps, "pacing changes wall-clock time and nothing else")
 }
@@ -102,7 +102,7 @@ func TestIntegration_ADraftRunOutpacingTheLimiterCompletes(t *testing.T) {
 func TestIntegration_APlatformRunOutpacingTheLimiterIsQueued(t *testing.T) {
 	caller, served := limitedServer(t, middleware.AuthTypeScript, 600, 2)
 	start := time.Now()
-	result, err := Run(context.Background(), RunLimits().withCaller(caller))
+	result, err := Run(context.Background(), RunLimits(PlatformLimits{}).withCaller(caller))
 	require.NoError(t, err)
 
 	assert.Equal(t, 4, *served, "every call the script made was served exactly once")
@@ -110,7 +110,7 @@ func TestIntegration_APlatformRunOutpacingTheLimiterIsQueued(t *testing.T) {
 	assert.GreaterOrEqual(t, time.Since(start), 150*time.Millisecond, "the sustained rate governs the run")
 
 	unlimited, _ := limitedServer(t, middleware.AuthTypeScript, 600, 100)
-	free, err := Run(context.Background(), RunLimits().withCaller(unlimited))
+	free, err := Run(context.Background(), RunLimits(PlatformLimits{}).withCaller(unlimited))
 	require.NoError(t, err)
 	assert.Equal(t, free.Steps, result.Steps, "queueing changes wall-clock time and nothing else")
 }
@@ -125,7 +125,7 @@ func TestIntegration_ALimiterTheDeadlineCannotWaitOutFailsAsATimeout(t *testing.
 	for _, authType := range []string{middleware.AuthTypeOIDC, middleware.AuthTypeScript} {
 		t.Run(authType, func(t *testing.T) {
 			caller, served := limitedServer(t, authType, 6, 1)
-			opts := RunLimits().withCaller(caller)
+			opts := RunLimits(PlatformLimits{}).withCaller(caller)
 			opts.Timeout = 200 * time.Millisecond
 			start := time.Now()
 			_, err := Run(context.Background(), opts)

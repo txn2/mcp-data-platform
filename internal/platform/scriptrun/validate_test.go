@@ -108,6 +108,46 @@ func TestValidate_PythonIsmsGetACorrection(t *testing.T) {
 	}
 }
 
+// TestValidate_PythonIsmsInsideAStringOrCommentAreNotFindings is #1853: the
+// author-facing checks read code, so a string literal whose content is `f`, a
+// SQL column named datetime, or a comment mentioning open() is not a Python-ism.
+func TestValidate_PythonIsmsInsideAStringOrCommentAreNotFindings(t *testing.T) {
+	cases := map[string]string{
+		"string literal f":       "q = {\"script\": {\"params\": {\"f\": \"field.name\"}}}\n",
+		"subscript by f":         "r = {\"f\": 1}\nx = r[\"f\"]\ny = r['f']\n",
+		"column named datetime":  "sql = \"SELECT datetime, random.x FROM t\"\n",
+		"triple-quoted sql":      "sql = \"\"\"\nimport x\ntry:\n  open(t)\n\"\"\"\n",
+		"escaped quote":          "s = \"a \\\" f\" + 'b'\n",
+		"comment":                "# open('x') with datetime and os.path\nx = 1\n",
+		"raw string":             "p = r\"\\d f\"\n",
+		"quote inside a comment": "# it's a f\"\nx = 1\n",
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			report := Validate(source)
+			assert.Empty(t, report.Findings, "source:\n%s", source)
+		})
+	}
+}
+
+// TestValidate_AnFStringAfterAStringIsStillFound pins the other half of #1853:
+// masking strings does not hide the prefix that makes one, and the finding's
+// line still counts the lines a triple-quoted string spans.
+func TestValidate_AnFStringAfterAStringIsStillFound(t *testing.T) {
+	report := Validate("sql = \"\"\"\nSELECT 1\n\"\"\"\nx = \"f\" + f\"{sql}\"\n")
+	f := findingFor(t, report, "f-strings are not supported")
+	assert.Equal(t, 4, f.Line)
+}
+
+// TestValidate_ACredentialInAStringIsStillAnError keeps the secret checks on
+// the raw source: a pasted key is inside a string literal, which is exactly
+// what the author-facing checks now skip.
+func TestValidate_ACredentialInAStringIsStillAnError(t *testing.T) {
+	report := Validate("key = \"AKIAABCDEFGHIJKLMNOP\"\n")
+	assert.False(t, report.OK)
+	findingFor(t, report, "AWS access key id")
+}
+
 // TestValidate_DialectRestrictionsAreTranslated covers the messages the
 // interpreter itself produces, which is where a bare error is least actionable.
 func TestValidate_DialectRestrictionsAreTranslated(t *testing.T) {
@@ -383,11 +423,11 @@ func TestValidate_ParseErrorSkipsInspection(t *testing.T) {
 	assert.Empty(t, report.Tools)
 }
 
-// TestValidate_WarningsDoNotBlock separates advice from refusal: an f-string is
-// a warning about a shape that will not do what the author meant, while the
-// script may still be perfectly runnable.
+// TestValidate_WarningsDoNotBlock separates advice from refusal: a call to a
+// function named now() is a warning about a clock the script does not have,
+// while this script, which defines its own, is perfectly runnable.
 func TestValidate_WarningsDoNotBlock(t *testing.T) {
-	report := Validate("x = \"a\"\ny = x\n# datetime is only mentioned in a comment\n")
+	report := Validate("def now():\n    return 1\n\nx = now()\n")
 	require.NotEmpty(t, report.Findings)
 	f := findingFor(t, report, "no clock in a script")
 	assert.Equal(t, SeverityWarning, f.Severity)

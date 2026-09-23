@@ -212,6 +212,14 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out["queries"] = result.Queries
 		out["exports"] = orEmptyExports(result.Exports)
 		out["writes"] = orEmptyWrites(result.Writes)
+		// A draft reports what a platform run would hand back and its last
+		// progress report, the same fields get_run carries (#1845, #1847).
+		if result.Return != nil {
+			out["result"] = result.Return
+		}
+		if result.Progress != nil {
+			out["progress"] = result.Progress
+		}
 		if result.State != nil {
 			out["state"] = orEmptyParams(result.State.Value)
 		}

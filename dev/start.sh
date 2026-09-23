@@ -131,14 +131,19 @@ ok "UI dependencies ready"
 # the CURRENT USER: a root-owned one -- Docker Desktop binds services on the lo0
 # aliases it adds, 127.1.27.x -- read as free, nothing relocated, and the stack
 # discovered the truth sixty seconds later when the platform died with "address
-# already in use". SO_REUSEADDR is deliberately not set, so the probe fails
-# exactly where the real bind does. python3 is a hard prerequisite checked above.
+# already in use". It sets SO_REUSEADDR because every listener the stack starts
+# does (Go's net.Listen, Docker Desktop's port forwarder, Vite), and the probe
+# must fail exactly where the real bind does: without it a port whose only
+# sockets are in TIME_WAIT after `make dev-stop` reads as busy for about thirty
+# seconds, and a specific-address holder reads as taking the wildcard (#1841).
+# python3 is a hard prerequisite checked above.
 probe_bind() {
   python3 - "$1" "$2" > /dev/null 2>&1 <<'PROBE'
 import socket
 import sys
 
 sock = socket.socket()
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
     sock.bind((sys.argv[1], int(sys.argv[2])))
 finally:
@@ -152,12 +157,14 @@ PROBE
 port_free() { probe_bind 127.0.0.1 "$1"; }
 
 # api_port_free asks it for the API port, which the Go server takes on the
-# WILDCARD (dev/platform.yaml server.address ":${DEV_API_PORT}"). That is a
-# higher bar than the others clear: on BSD a wildcard bind fails when ANY
-# address already holds the port, so a listener on 127.1.27.1:8080 takes :8080
-# away from the platform while leaving 127.0.0.1:8080 bindable. Holding every
-# port to this bar would relocate -- or hard-fail on a fixed port like
-# Keycloak's 9090 -- over an address that port's holder never binds.
+# WILDCARD (dev/platform.yaml server.address ":${DEV_API_PORT}"). The two
+# probes answer different questions: a holder on 0.0.0.0:8080 takes :8080 away
+# from the platform while a SO_REUSEADDR bind of 127.0.0.1:8080 still succeeds,
+# and a holder on 127.0.0.1:8080 is refused by the first probe alone. A holder
+# on another loopback address (127.1.27.1:8080) takes neither, as the Go
+# server's own bind agrees. Holding every port to the wildcard bar would
+# relocate -- or hard-fail on a fixed port like Keycloak's 9090 -- over a
+# holder that port's listener never collides with.
 api_port_free() { probe_bind 127.0.0.1 "$1" && probe_bind "" "$1"; }
 
 # DEV_REPLICAS is how many platform processes the stack runs: 2 by default, 1

@@ -143,7 +143,7 @@ func TestFinish_AppliesStagedStateInTheSuccessTransaction(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(int64(3)))
 	mock.ExpectExec(regexp.QuoteMeta("state_written = $9, state_revision_written = $10")).
 		WithArgs("dpx_1", "worker-a", 1, script.RunStatusSucceeded, "", "", false, sqlmock.AnyArg(),
-			[]byte(`{"synced_through":"2026-08-28"}`), int64(3)).
+			[]byte(`{"synced_through":"2026-08-28"}`), int64(3), nil, "", nil, nil, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
@@ -171,7 +171,8 @@ func TestFinish_ARefusedStateWriteFailsTheRunNamingTheWriter(t *testing.T) {
 		WithArgs("script_1").
 		WillReturnRows(sqlmock.NewRows(stateSelectColumns).AddRow(stateRow(3)...))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
-		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, sqlmock.AnyArg(), "", false, sqlmock.AnyArg(), nil, nil).
+		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, sqlmock.AnyArg(), "", false, sqlmock.AnyArg(), nil, nil,
+			nil, "", nil, nil, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -189,7 +190,8 @@ func TestFinish_ARefusedStateWriteFailsTheRunNamingTheWriter(t *testing.T) {
 func TestFinish_AFailedRunNeverTouchesTheState(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
-		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "", false, sqlmock.AnyArg(), nil, nil).
+		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "", false, sqlmock.AnyArg(), nil, nil,
+			nil, "", nil, nil, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
 

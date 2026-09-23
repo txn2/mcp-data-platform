@@ -3,11 +3,15 @@ package scripthttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -37,9 +41,9 @@ type runRequest struct {
 	Params map[string]any `json:"params,omitempty"`
 }
 
-// runResponse identifies the queued run. It carries no result: a run is
-// executed by a worker, and the page follows it through the run history rather
-// than holding a request open for the ten minutes a run may take.
+// runResponse identifies a queued run: the answer to a request that did not
+// wait, or whose wait ran out before the run finished. A run that finished
+// inside the wait is answered with the run itself (#1845).
 type runResponse struct {
 	RunID   string `json:"run_id" example:"run_a1b2c3d4"`
 	Status  string `json:"status" example:"pending"`
@@ -51,12 +55,14 @@ type runResponse struct {
 // portalRunScript queues one run of a script's latest saved version.
 //
 // @Summary      Run a script
-// @Description  Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words.
+// @Description  Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words. With wait, the request holds for up to that many seconds (at most 300): a run that finishes in time is answered 200 with the run itself, including the value it returned with platform.result, its outputs and its error; otherwise, and without wait, 202 with the run id to follow.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
-// @Param        id   path  string      true   "Script ID"
-// @Param        run  body  runRequest  false  "Parameter values"
+// @Param        id    path   string      true   "Script ID"
+// @Param        wait  query  int         false  "Seconds to wait for the run to finish (0-300)"
+// @Param        run   body   runRequest  false  "Parameter values"
+// @Success      200  {object}  portalRunDetail
 // @Success      202  {object}  runResponse
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
@@ -67,6 +73,10 @@ type runResponse struct {
 // @Router       /portal/scripts/{id}/runs [post]
 func (h *Handler) portalRunScript(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	sc, ok := h.ownedScript(w, r, user)
+	if !ok {
+		return
+	}
+	wait, ok := waitFor(w, r)
 	if !ok {
 		return
 	}
@@ -89,9 +99,79 @@ func (h *Handler) portalRunScript(w http.ResponseWriter, r *http.Request, user *
 	if !ok {
 		return
 	}
+	if wait > 0 {
+		finished, done, err := runcontrol.AwaitRun(r.Context(), h.deps.Runs, run, wait, runcontrol.PollEvery)
+		if err != nil {
+			slog.Warn("scripts: reading a run while waiting on it failed", "run_id", run.ID, "error", logsan.SanitizeForLog(err.Error()))
+		}
+		if done {
+			httpjson.WriteJSON(w, http.StatusOK, detailRun(finished))
+			return
+		}
+	}
 	httpjson.WriteJSON(w, http.StatusAccepted, runResponse{
 		RunID: run.ID, Status: run.Status, Version: run.Version,
 		Message: "Queued. It appears in this script's run history and updates as it progresses.",
+	})
+}
+
+// waitFor reads the wait query parameter: absent is no wait, and a value past
+// runcontrol.MaxWaitSeconds is held to it rather than refused, which is what
+// run_script does with wait_seconds.
+func waitFor(w http.ResponseWriter, r *http.Request) (time.Duration, bool) {
+	raw := r.URL.Query().Get("wait")
+	if raw == "" {
+		return 0, true
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds < 0 {
+		httpjson.WriteError(w, http.StatusBadRequest, "wait must be a whole number of seconds, 0 to "+
+			strconv.Itoa(runcontrol.MaxWaitSeconds))
+		return 0, false
+	}
+	return time.Duration(min(seconds, runcontrol.MaxWaitSeconds)) * time.Second, true
+}
+
+// cancelResponse is what a cancel did.
+type cancelResponse struct {
+	RunID string `json:"run_id" example:"run_a1b2c3d4"`
+	// Outcome is canceled (it had not started and will not), requested (it
+	// is running and ends canceled within seconds) or already_finished.
+	Outcome string `json:"outcome" example:"requested"`
+	Message string `json:"message"`
+}
+
+// portalCancelRun stops a run (#1847).
+//
+// @Summary      Cancel a script run
+// @Description  Stops a run. A queued run is canceled and never starts; a running one ends canceled within seconds, keeping the outputs it already wrote; a finished one is left as it is, which the answer says. Restricted to the script's owner, to administrators, and to whoever requested that run.
+// @Tags         Scripts
+// @Produce      json
+// @Param        id     path  string  true  "Script ID"
+// @Param        runID  path  string  true  "Run ID"
+// @Success      200  {object}  cancelResponse
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/scripts/{id}/runs/{runID}/cancel [post]
+func (h *Handler) portalCancelRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	run, ok := h.readableRun(w, r, user)
+	if !ok {
+		return
+	}
+	prior, err := h.deps.Runs.CancelRun(r.Context(), run.ID, user.owner())
+	if errors.Is(err, script.ErrRunNotFound) {
+		httpjson.WriteError(w, http.StatusNotFound, errRunNot)
+		return
+	}
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to cancel the run")
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, cancelResponse{
+		RunID: run.ID, Outcome: string(runcontrol.OutcomeOf(prior)), Message: runcontrol.CancelMessage(prior),
 	})
 }
 

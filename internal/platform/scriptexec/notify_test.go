@@ -209,7 +209,7 @@ func TestWorker_AFailedScheduledRunNotifies(t *testing.T) {
 		notifier: n,
 	})
 
-	w.drain()
+	drainAll(w)
 
 	assert.Equal(t, []string{"jane@example.com"}, n.queued())
 }
@@ -232,7 +232,7 @@ func TestWorker_ARetriedRunDoesNotNotify(t *testing.T) {
 		notifier: n,
 	})
 
-	w.drain()
+	drainAll(w)
 
 	assert.Empty(t, n.queued())
 }
@@ -252,7 +252,7 @@ func TestWorker_AGateRefusalStillReachesTheOwner(t *testing.T) {
 		runner: &fakeExecutor{}, notifier: n,
 	})
 
-	w.drain()
+	drainAll(w)
 
 	assert.Equal(t, []string{"jane@example.com"}, n.queued())
 	require.Len(t, n.payloads, 1)

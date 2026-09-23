@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -72,6 +73,42 @@ func (h *Handle) handleGetRun(ctx context.Context, input manageScriptInput) (*mc
 	out["scheduled_for"] = run.ScheduledFor.UTC()
 	out["steps"] = run.Metrics.Steps
 	return jsonResult(out)
+}
+
+// handleCancelRun stops a run (#1847): a queued one never starts, a running
+// one ends canceled within seconds keeping the outputs it already wrote, and
+// a finished one is left alone, which the answer says. Whoever may read a run
+// may cancel it -- the script's owner, an administrator, and the person who
+// requested that run -- and the same answer covers "no such run" and "not
+// yours".
+func (h *Handle) handleCancelRun(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if h.runs == nil {
+		return errorResult("this deployment keeps no script runs"), nil, nil
+	}
+	if input.RunID == "" {
+		return errorResult("run_id is required"), nil, nil
+	}
+	run, err := h.runs.GetRun(ctx, input.RunID)
+	if errors.Is(err, script.ErrRunNotFound) {
+		return errorResult("run not found"), nil, nil
+	}
+	if err != nil {
+		slog.Error("failed to read a script run", "run_id", input.RunID, logKeyError, err)
+		return errorResult("failed to read the run"), nil, nil
+	}
+	sc, errResult := h.readableRunScript(ctx, run)
+	if errResult != nil {
+		return errResult, nil, nil
+	}
+	prior, err := h.runs.CancelRun(ctx, run.ID, resolveEmail(ctx))
+	if err != nil {
+		slog.Error("failed to cancel a script run", "run_id", run.ID, logKeyError, err)
+		return errorResult("failed to cancel the run"), nil, nil
+	}
+	return jsonResult(map[string]any{
+		fieldName: sc.Name, "run_id": run.ID, "outcome": string(runcontrol.OutcomeOf(prior)),
+		"message": runcontrol.CancelMessage(prior),
+	})
 }
 
 // readableRunScript resolves the script a run belongs to and applies the run
