@@ -88,7 +88,7 @@ func TestList_TheCallersRunsWithLinks(t *testing.T) {
 	assert.Equal(t, "run_2", body.Data[0].RunID)
 	assert.Equal(t, "acme", body.Data[0].Params["tenant"])
 	assert.Equal(t, "/signed/a1/2", body.Data[0].ContentURL)
-	assert.Equal(t, expiry, *body.Data[0].ContentURLExpiresAt)
+	assert.True(t, expiry.Equal(*body.Data[0].ContentURLExpiresAt), "the link expires when the minter said")
 }
 
 func TestList_FiltersByTagAndMetadata(t *testing.T) {
