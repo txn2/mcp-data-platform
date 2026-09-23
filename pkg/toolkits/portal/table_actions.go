@@ -16,8 +16,12 @@ type TableRegistration struct {
 	Connection     string   `json:"connection"`
 	QueryTable     string   `json:"query_table"`
 	Columns        []string `json:"columns,omitempty"`
-	SampleSQL      string   `json:"sample_sql,omitempty"`
-	RegisteredBy   string   `json:"registered_by,omitempty"`
+	// ColumnTypes pairs each column with the type the table declares it as
+	// (#1833): VARCHAR for every column of a CSV, the inferred type for a
+	// JSON-lines file, and the footer's type for a Parquet one.
+	ColumnTypes  []TableColumn `json:"column_types,omitempty"`
+	SampleSQL    string        `json:"sample_sql,omitempty"`
+	RegisteredBy string        `json:"registered_by,omitempty"`
 	// Stale means the file has a newer revision or version than the one the
 	// table points at, so the rows are the content that was current when it
 	// was registered.
@@ -34,8 +38,8 @@ type TableRegistration struct {
 	// version (#1577). It is the choice made when the table was registered.
 	Repair bool `json:"repair"`
 	// Format is the reader the table is declared with: csv, whose values come
-	// back as the CSV reader reads them, or jsonl, whose values come back
-	// exactly (#1820).
+	// back as the CSV reader reads them, jsonl, whose values come back exactly
+	// (#1820), or parquet (#1833).
 	Format string `json:"format,omitempty"`
 	// Repaired says what a correction of the file changed before it could be
 	// registered, and is empty when none was needed (#1441). The file itself
@@ -49,6 +53,12 @@ type TableRegistration struct {
 	// It is a change report, not an inventory, and it is named apart from the
 	// `tables` a reader queries for that reason (#1666).
 	TableChanges []string `json:"table_changes,omitempty"`
+}
+
+// TableColumn is one column a registered table declares, with its type.
+type TableColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }
 
 // TableRegistrar makes a stored CSV readable as a query-engine table (#1327),
@@ -214,8 +224,8 @@ func (t *Toolkit) handleRegisterTable(
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
-	message := "Registered as " + reg.QueryTable + " on connection " + reg.Connection +
-		". Every column is VARCHAR, so a join to a typed column needs a CAST. " + followNote(reg.Follow)
+	message := "Registered as " + reg.QueryTable + " on connection " + reg.Connection + ". " +
+		typesNote(reg.Format) + " " + followNote(reg.Follow)
 	// A registration that corrected the file says so first: the file changed,
 	// and that is the more consequential half of what just happened.
 	if reg.Repaired != "" {
@@ -282,6 +292,19 @@ func requireReference(reference, action string) *mcp.CallToolResult {
 	return toolkit.ErrorResult(
 		"reference is required for " + action + ": pass the mcp:resource: or mcp:asset: reference from a " +
 			"search hit, verbatim.")
+}
+
+// typesNote says what the columns were declared as, by the format that decided
+// it (#1833). A CSV's columns are all VARCHAR because Hive CSV admits nothing
+// else; the other formats carry their types.
+func typesNote(format string) string {
+	switch format {
+	case "jsonl":
+		return "Each column is typed from its values (column_types), so it joins and aggregates without a CAST."
+	case "parquet":
+		return "Each column has the type the file declares (column_types), so it joins and aggregates without a CAST."
+	}
+	return "Every column of a CSV is VARCHAR, so a join to a typed column needs a CAST."
 }
 
 // followNote says what the next write of the file will do to the table, so

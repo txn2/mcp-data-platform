@@ -21,7 +21,7 @@ func registrationRows(rows ...[]driver.Value) *sqlmock.Rows {
 	out := sqlmock.NewRows([]string{
 		"id", "source_kind", "source_id", "connection_name", "catalog_name",
 		"schema_name", "table_name", "location", "columns", "registered_by", "registered_at",
-		"follow", "repair", "follow_error", "format",
+		"follow", "repair", "follow_error", "format", "all_varchar",
 	})
 	for _, r := range rows {
 		out.AddRow(r...)
@@ -34,7 +34,7 @@ func assetRow(id, sourceID, table string) []driver.Value {
 		id, KindAsset, sourceID, "scratch", "scratch", "uploads", table,
 		"s3://portal-assets/artifacts/u1/" + sourceID + "/",
 		[]byte(`[{"name":"store_id","type":"VARCHAR"}]`),
-		"alice@example.com", registeredAt, false, false, "", FormatCSV,
+		"alice@example.com", registeredAt, false, false, "", FormatCSV, false,
 	}
 }
 
@@ -47,7 +47,7 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs("reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads",
 			"analyst_keys", "s3://b/d/", []byte(`[{"name":"id","type":"VARCHAR"}]`),
-			"alice@example.com", true, true, FormatJSONLines).
+			"alice@example.com", true, true, FormatJSONLines, true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, store.Insert(context.Background(), Registration{
@@ -59,6 +59,7 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 		Follow:       true,
 		Repair:       true,
 		Format:       FormatJSONLines,
+		AllVarchar:   true,
 	}))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -74,7 +75,7 @@ func TestPostgresStore_InsertEncodesNoColumnsAsAnArray(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			[]byte(`[]`), sqlmock.AnyArg(), false, false, FormatCSV).
+			[]byte(`[]`), sqlmock.AnyArg(), false, false, FormatCSV, false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, NewPostgresStore(db).Insert(context.Background(), Registration{ID: "reg_1"}),
@@ -141,7 +142,7 @@ func TestPostgresStore_ScansTheFollowState(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	row := assetRow("reg_1", "asset_1", "analyst_keys")
-	row[11], row[12], row[13] = true, true, "the coordinator refused the statement"
+	row[11], row[12], row[13], row[15] = true, true, "the coordinator refused the statement", true
 	mock.ExpectQuery("SELECT (.+) FROM table_registrations WHERE id").
 		WithArgs("reg_1").WillReturnRows(registrationRows(row))
 
@@ -150,6 +151,7 @@ func TestPostgresStore_ScansTheFollowState(t *testing.T) {
 	assert.True(t, got.Follow)
 	assert.True(t, got.Repair)
 	assert.Equal(t, "the coordinator refused the statement", got.FollowError)
+	assert.True(t, got.AllVarchar, "a JSON-lines registration made before typed columns keeps its rule")
 }
 
 // TestPostgresStore_InsertNameCollision pins the race between the registrar's
@@ -438,7 +440,7 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 		mock.ExpectQuery("SELECT .* FROM table_registrations").
 			WillReturnRows(registrationRows([]driver.Value{
 				"reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads", "t",
-				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, false, "", FormatCSV,
+				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, false, "", FormatCSV, false,
 			}))
 
 		_, _, err = NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})

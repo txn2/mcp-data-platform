@@ -49,6 +49,24 @@ func refRateLimit(cfg RateLimitConfig) RateLimitConfig {
 	return cfg
 }
 
+// maxContentReadsPerView is how many requests for one file's bytes a single
+// page view may make. A viewer that reads its file by byte range issues one
+// request per range it needs: the Parquet viewer reads the footer and then a
+// row group at a time, coalescing at two megabytes, so a large file is read in
+// tens of requests over one view (#1833).
+const maxContentReadsPerView = 64
+
+// contentRateLimit scales the viewer's budget for the routes that serve a
+// file's bytes, the way refRateLimit scales it for the reference route and for
+// the same reason: the viewer bucket is sized in page views, and a page view
+// that legitimately makes many requests would be shed partway through.
+func contentRateLimit(cfg RateLimitConfig) RateLimitConfig {
+	cfg = viewerlimit.WithDefaults(cfg)
+	cfg.RequestsPerMinute *= maxContentReadsPerView
+	cfg.BurstSize *= maxContentReadsPerView
+	return cfg
+}
+
 // registerRefRoutes mounts the reference-serving route when this deployment has
 // something to serve a reference from. A deployment with neither a
 // managed-resource layer nor asset storage leaves refMux nil and serves the

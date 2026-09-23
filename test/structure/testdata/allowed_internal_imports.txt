@@ -553,9 +553,12 @@ internal/platform/subjects -> internal/logsan
 internal/platform/subjects -> pkg/middleware
 internal/platform/subjects -> pkg/resource
 internal/platform/tablejsonl -> internal/platform/tablecsv
+internal/platform/tablejsonl -> internal/tabletype
 internal/platform/tableregister -> internal/logsan
 internal/platform/tableregister -> internal/platform/tablecsv
 internal/platform/tableregister -> internal/platform/tablejsonl
+internal/platform/tableregister -> internal/tableparquet
+internal/platform/tableregister -> internal/tabletype
 internal/platform/tableregister -> pkg/audit
 internal/platform/tableregister -> pkg/contenttype
 internal/platform/tableregister -> pkg/knowledge
@@ -656,6 +659,7 @@ internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
 internal/soap -> internal/xmltree
 internal/tableavail -> pkg/query
+internal/tableparquet -> internal/tabletype
 internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
@@ -1107,6 +1111,8 @@ pkg/toolkits/tools/toolsindex -> pkg/indexjobs
 pkg/toolkits/trino -> internal/connprobe
 pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/sqltables
+pkg/toolkits/trino -> internal/tableparquet
+pkg/toolkits/trino -> internal/tabletype
 pkg/toolkits/trino -> pkg/mcpcontext
 pkg/toolkits/trino -> pkg/query
 pkg/toolkits/trino -> pkg/semantic

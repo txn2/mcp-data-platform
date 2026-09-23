@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ModalShell } from "@/components/ModalShell";
 import { CopyButton } from "@/components/provenance/parts";
 import { Button } from "@/components/ui/button";
+import { cellText, detailText } from "./cellText";
 
 /**
  * One record of a tabular file, read as its fields.
@@ -43,9 +44,12 @@ export function RowDetailDialog({
   onNext?: () => void;
   onClose: () => void;
 }) {
-  const asText = (col: string) => (col in row ? String(row[col] ?? "") : null);
+  const asText = (col: string) => (col in row ? detailText(row[col]) : null);
+  // One line per column: detailText indents a nested value over several lines,
+  // which would break the copied block's column-per-line shape, so the copy
+  // takes the compact form of each value.
   const wholeRow = columns
-    .map((col) => `${col}\t${asText(col) ?? ""}`)
+    .map((col) => `${col}\t${col in row ? cellText(row[col]) : ""}`)
     .join("\n");
 
   return (

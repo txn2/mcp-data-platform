@@ -122,7 +122,7 @@ func TestExport_RegisterRefusalsPrecedeTheWrite(t *testing.T) {
 		{
 			"a format no table reads",
 			`platform.export(name="o", rows=[{"a": 1}], format="json", destination="resources", key="s/o.json", register={"connection": "w"})`,
-			`register needs format="jsonl" or format="csv"`,
+			`register needs format="jsonl", "parquet" or "csv"`,
 		},
 		{
 			"a bucket destination",

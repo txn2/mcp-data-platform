@@ -1157,7 +1157,7 @@ Registering an asset as a queryable table is the separate [`manage_table`](#mana
 
 ### manage_table
 
-Make a stored CSV or JSON-lines file readable as a query-engine table over the directory the file already sits in, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested.
+Make a stored CSV, JSON-lines or Parquet file readable as a query-engine table over the directory the file already sits in, so `trino_query` can join it to warehouse tables. Nothing is copied or ingested. A CSV's columns are all `VARCHAR`; a JSON-lines file's are typed from its values and a Parquet file's are the types its footer declares ([Registered Tables](../server/registered-tables.md#csv-json-lines-or-parquet)).
 
 The file is named by its `reference`, the string a `search` hit and a `fetch` document carry, so one action serves every kind of stored file and no argument names the kind.
 
@@ -1177,8 +1177,8 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
-| `register` | Create an external table over the file. Every column is `VARCHAR`, so the response carries a sample join showing the `CAST` | `reference`, `connection` |
-| `list` | The registrations over this file, under `table_registrations`: each with its `registration_id`, columns, whether it follows the file (`follow`), whether the file has moved on since (`stale`), and why a following table is behind (`follow_error`). Check here before registering: registering the same name again replaces the row and changes its id | `reference` |
+| `register` | Create an external table over the file. The response carries each column's declared type in `column_types`, and a sample statement: for a CSV, whose columns are all `VARCHAR`, it shows the `CAST` a typed join needs | `reference`, `connection` |
+| `list` | The registrations over this file, under `table_registrations`: each with its `registration_id`, columns and `column_types`, whether it follows the file (`follow`), whether the file has moved on since (`stale`), and why a following table is behind (`follow_error`). Check here before registering: registering the same name again replaces the row and changes its id | `reference` |
 | `unregister` | Drop one registered table. The file itself is unchanged | `registration_id` |
 
 **Response Schema (register):**
@@ -1190,11 +1190,17 @@ The file is named by its `reference`, the string a `search` hit and a `fetch` do
   "connection": "scratch",
   "query_table": "scratch.uploads.analyst_vendor_keys",
   "columns": ["store_id", "vendor_code", "rebate_pct"],
+  "column_types": [
+    {"name": "store_id", "type": "VARCHAR"},
+    {"name": "vendor_code", "type": "VARCHAR"},
+    {"name": "rebate_pct", "type": "VARCHAR"}
+  ],
   "sample_sql": "SELECT ... CAST(u.store_id AS integer) ...",
   "registered_by": "analyst@example.com",
   "stale": false,
   "follow": true,
-  "message": "Registered as scratch.uploads.analyst_vendor_keys on connection scratch. Every column is VARCHAR, so a join to a typed column needs a CAST. The table follows the file: each revision or version written moves it onto the new contents. Register with follow=false for a table pinned to this version."
+  "format": "csv",
+  "message": "Registered as scratch.uploads.analyst_vendor_keys on connection scratch. Every column of a CSV is VARCHAR, so a join to a typed column needs a CAST. The table follows the file: each revision or version written moves it onto the new contents. Register with follow=false for a table pinned to this version."
 }
 ```
 

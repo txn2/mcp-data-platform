@@ -20,6 +20,7 @@ const (
 	formatMarkdown = "markdown"
 	formatText     = "text"
 	formatJSONL    = "jsonl"
+	formatParquet  = "parquet"
 
 	// File extensions and content types per format.
 	extCSV      = ".csv"
@@ -42,7 +43,7 @@ type Formatter interface {
 }
 
 // NewFormatter returns a Formatter for the given format name.
-// Supported formats: csv, json, jsonl, markdown, text.
+// Supported formats: csv, json, jsonl, markdown, parquet, text.
 //
 // It is exported because trino_export is not the only writer of these formats:
 // a managed script's platform.export writes the same four from rows it computed
@@ -66,8 +67,10 @@ func newFormatter(format string) (Formatter, error) {
 		return &textFormatter{}, nil
 	case formatJSONL:
 		return &jsonlFormatter{}, nil
+	case formatParquet:
+		return &parquetFormatter{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported format: %q (must be csv, json, jsonl, markdown, or text)", format)
+		return nil, fmt.Errorf("unsupported format: %q (must be csv, json, jsonl, markdown, parquet, or text)", format)
 	}
 }
 
@@ -156,9 +159,11 @@ func (*jsonFormatter) Format(columns []string, rows [][]any) ([]byte, error) { /
 // rather than becoming an empty string.
 //
 // A nested value (a list, a map, a Trino ARRAY or ROW) is written as its JSON
-// text, a string. Trino's JSON reader fails every query on a table whose file
-// holds a nested value in a column declared VARCHAR, and every registered
-// column is VARCHAR; as text the value survives and json_parse reads it back.
+// text, a string. A Trino ROW reaches the writer as a positional list with its
+// field names gone and a MAP as an object whose keys differ row to row, so
+// neither would read back as itself from a JSON-lines table typed from its
+// values (#1833); as text the value survives and json_parse reads it back.
+// format=parquet keeps every one of them as its own type.
 //
 // A string that is not valid UTF-8 is refused rather than written. encoding/json
 // would replace its bad bytes with U+FFFD and report nothing, which is the

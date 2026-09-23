@@ -277,6 +277,8 @@ func (m *mockStore) Delete(_ context.Context, id string) error {
 
 type mockS3 struct {
 	objects map[string][]byte
+	// rangeReads counts GetObjectRange calls.
+	rangeReads int
 }
 
 func newMockS3() *mockS3 {
@@ -310,6 +312,22 @@ func (m *mockS3) GetObject(_ context.Context, _, key string) (body []byte, conte
 	}
 	// Return empty content type so the handler falls back to resource MIMEType.
 	return data, "", nil
+}
+
+// GetObjectRange is the ranged read the real adapter has: the content route
+// serves a byte range through it rather than reading the object whole (#1833).
+func (m *mockS3) GetObjectRange(
+	_ context.Context, _, key string, offset, length int64,
+) (body []byte, size int64, err error) {
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, 0, errors.New("not found")
+	}
+	m.rangeReads++
+	if offset >= int64(len(data)) {
+		return nil, int64(len(data)), nil
+	}
+	return data[offset:min(offset+length, int64(len(data)))], int64(len(data)), nil
 }
 
 func (m *mockS3) DeleteObject(_ context.Context, _, key string) error {
@@ -872,6 +890,33 @@ func TestHandleGetContent_Success(t *testing.T) {
 	}
 	if rec.Body.String() != "hello,world\n" {
 		t.Errorf("body = %q", rec.Body.String())
+	}
+}
+
+// TestHandleGetContent_Range: a byte range is answered from a ranged read, so
+// the Parquet viewer's reads do not pull the file once per request (#1833).
+func TestHandleGetContent_Range(t *testing.T) {
+	store := newMockStore()
+	s3 := newMockS3()
+	h := newTestHandler(store, s3, okExtractor)
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-1/content", http.NoBody)
+	req.Header.Set("Range", "bytes=6-10")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("expected 206, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "world" {
+		t.Errorf("body = %q, want %q", rec.Body.String(), "world")
+	}
+	if got := rec.Header().Get("Content-Range"); got != "bytes 6-10/12" {
+		t.Errorf("Content-Range = %q", got)
+	}
+	if s3.rangeReads == 0 {
+		t.Error("the range was served by reading the object whole")
 	}
 }
 

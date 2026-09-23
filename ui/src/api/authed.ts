@@ -18,9 +18,10 @@ import { applyCsrfHeader } from "@/api/csrf";
  */
 export function authedFetch(url: string, init?: RequestInit): Promise<Response> {
   const { apiKey, authMethod } = useAuthStore.getState();
-  const headers: Record<string, string> = {
-    ...(init?.headers as Record<string, string>),
-  };
+  // Read through Headers so a caller's headers survive whichever form they
+  // came in: spreading a Headers instance yields nothing, which dropped the
+  // Range a byte-range reader sets (#1833).
+  const headers: Record<string, string> = Object.fromEntries(new Headers(init?.headers).entries());
   if (authMethod === "apikey" && apiKey) {
     headers["X-API-Key"] = apiKey;
   }

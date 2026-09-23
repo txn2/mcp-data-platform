@@ -62,10 +62,13 @@ interface ResourceBody {
  * replaces it, so a save can set the served text without clearing the result it
  * is reporting. It is read through a ref, so the effect does not re-run when
  * the caller rebuilds it.
+ *
+ * skip reads nothing: a file too large to load inline, and one whose renderer
+ * reads the endpoint itself by range.
  */
 function useResourceBody(
   resource: Resource,
-  tooLarge: boolean,
+  skip: boolean,
   fromURL: boolean,
   onLoaded: (text: string) => void,
 ): ResourceBody {
@@ -78,7 +81,7 @@ function useResourceBody(
   loadedRef.current = onLoaded;
 
   useEffect(() => {
-    if (tooLarge) {
+    if (skip) {
       setLoading(false);
       return;
     }
@@ -119,7 +122,7 @@ function useResourceBody(
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [resource.id, fromURL, tooLarge]);
+  }, [resource.id, fromURL, skip]);
 
   return { text, objectUrl, loading, error, setText };
 }
@@ -252,9 +255,12 @@ export function ResourceContent({
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const draftRef = useRef<SourceDraft | null>(null);
+  // A family that reads the endpoint by range is handed the endpoint and
+  // nothing is fetched for it here (#1833): the whole object in a blob is what
+  // reading by range avoids.
   const body = useResourceBody(
     resource,
-    tooLarge,
+    tooLarge || entry.readsByRange === true,
     entry.source === "url",
     (loaded) => draftRef.current?.reset(loaded),
   );

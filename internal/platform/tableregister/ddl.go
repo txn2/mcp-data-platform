@@ -18,9 +18,9 @@ func qualified(r Registration) string {
 // collision quietly take out somebody else's table, which is why the decision
 // is made before this is called rather than here.
 //
-// Every column is VARCHAR: Hive CSV admits nothing else, and a JSON-lines
-// table declares the same so the two formats read alike to a query. Skipping
-// the header line is what keeps a CSV's column names out of its rows.
+// A CSV's columns are all VARCHAR, because Hive CSV admits nothing else, and
+// skipping the header line is what keeps its column names out of its rows. A
+// JSON-lines or Parquet table declares the type each column carries (#1833).
 func BuildDDL(r Registration, replacing bool) []string {
 	stmts := make([]string, 0, 3)
 	stmts = append(stmts,
@@ -64,10 +64,14 @@ func createTableStatement(r Registration) string {
 //
 // A JSON-lines table needs only the format: the JSON reader finds each value
 // by its key, so there is no header to skip and no escape to declare, and
-// every string arrives exactly as written (#1820).
+// every string arrives exactly as written (#1820). A Parquet table needs only
+// the format too: the reader finds each column in the file by name.
 func formatProperties(format string) string {
-	if format == FormatJSONLines {
+	switch format {
+	case FormatJSONLines:
 		return "format = 'JSON'"
+	case FormatParquet:
+		return "format = 'PARQUET'"
 	}
 	return "format = 'CSV', skip_header_line_count = 1, csv_escape = " + noCSVEscape
 }
@@ -86,14 +90,21 @@ func formatProperties(format string) string {
 const noCSVEscape = `U&'\0000'`
 
 // SampleJoinSQL renders a statement showing how the registered table is used:
-// a SELECT over it, with the CAST that joining it to a typed warehouse column
-// requires. Every column is VARCHAR, so a reader who writes the obvious join
-// gets a type error and no explanation of why; this is the explanation.
+// a SELECT over it, and a join to a warehouse table.
+//
+// A CSV's columns are all VARCHAR, so the join casts, and says why: a reader
+// who writes the obvious join against a CSV table gets a type error and no
+// explanation of it. A JSON-lines or Parquet table declares its columns'
+// types, and its join is the plain one (#1833).
 func SampleJoinSQL(r Registration) string {
 	if len(r.Columns) == 0 {
 		return ""
 	}
 	first := QuoteIdentifier(r.Columns[0].Name)
+	if r.FormatOrDefault() != FormatCSV && !r.AllVarchar {
+		return "SELECT * FROM " + r.QualifiedName() +
+			"\n-- JOIN " + r.QualifiedName() + " t ON w.id = t." + first
+	}
 	return "SELECT * FROM " + r.QualifiedName() +
 		"\n-- every column is VARCHAR, so a join to a typed column casts:" +
 		"\n-- JOIN " + r.QualifiedName() + " t ON w.id = CAST(t." + first + " AS BIGINT)"

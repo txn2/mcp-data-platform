@@ -205,6 +205,15 @@ describe("one registration at an address of its own", () => {
     cleanup();
     open({ format: "jsonl" });
     expect(screen.getByText("JSON lines")).toBeTruthy();
+    expect(screen.queryByTestId("all-varchar-note")).toBeNull();
+    cleanup();
+    open({ format: "parquet" });
+    expect(screen.getByText("Parquet")).toBeTruthy();
+  });
+
+  it("explains a JSON-lines table registered before its columns were typed", () => {
+    open({ format: "jsonl", all_varchar: true });
+    expect(screen.getByTestId("all-varchar-note").textContent).toContain("Register the file again under the same name");
   });
 
   it("links to the file the table reads", () => {

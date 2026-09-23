@@ -226,7 +226,10 @@ func TestIssue1820_ARegistrationRefusesAJSONLinesLineByNumber(t *testing.T) {
 			if !res.IsError {
 				t.Fatalf("a file with a nested value was registered: %s", text)
 			}
-			for _, want := range []string{"line 2", "nested object or list"} {
+			// Since #1833 a nested value is declared rather than refused, and
+			// what the reader cannot read is a key holding a string on one line
+			// and an object on the next.
+			for _, want := range []string{"line 2", `the value of "note" is an object here and was a scalar`} {
 				if !strings.Contains(text, want) {
 					t.Errorf("the refusal does not say %q: %s", want, text)
 				}

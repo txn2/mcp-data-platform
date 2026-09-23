@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
-import type { InfiniteData } from "@tanstack/react-query";
-import { flattenPages, nextOffset, assetKey, sharedKey } from "./assets";
+import { describe, it, expect, vi } from "vitest";
+import { createElement } from "react";
+import { renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
+import { flattenPages, nextOffset, assetKey, sharedKey, useAssetContent } from "./assets";
 import type { Asset, PaginatedResponse, SharedAsset } from "../types";
 
 function asset(id: string, overrides: Partial<Asset> = {}): Asset {
@@ -105,5 +107,30 @@ describe("key extractors", () => {
     expect(assetKey(asset("x"))).toBe("x");
     const shared = { asset: asset("y"), share_id: "s", shared_by: "z", shared_at: "", permission: "viewer" } as SharedAsset;
     expect(sharedKey(shared)).toBe("y");
+  });
+});
+
+describe("useAssetContent", () => {
+  // The content is read once the record says it is worth reading (#1833):
+  // reading before the size was known meant the large-asset threshold never
+  // applied on the first load, and a Parquet file's viewer reads by range.
+  it("waits for the record, and skips a large file and a range-read family", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("a,b\n1,2\n", { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const run = (asset?: { size_bytes: number; content_type: string; name: string }) => {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      return renderHook(() => useAssetContent("a1", asset), {
+        wrapper: ({ children }) => createElement(QueryClientProvider, { client: qc }, children),
+      });
+    };
+    run(undefined);
+    run({ size_bytes: 10 * 1024 * 1024, content_type: "text/csv", name: "big.csv" });
+    run({ size_bytes: 1024, content_type: "application/vnd.apache.parquet", name: "t.parquet" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const { result } = run({ size_bytes: 12, content_type: "text/csv", name: "small.csv" });
+    await vi.waitFor(() => expect(result.current.data).toBe("a,b\n1,2\n"));
+    vi.unstubAllGlobals();
   });
 });

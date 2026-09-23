@@ -23,6 +23,7 @@ var extensions = map[string]string{
 	SVG:                ".svg",
 	JavaScript:         ".js",
 	PDF:                ".pdf",
+	Parquet:            ".parquet",
 	DOCX:               ".docx",
 	XLSX:               ".xlsx",
 	PPTX:               ".pptx",

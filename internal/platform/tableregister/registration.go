@@ -79,12 +79,18 @@ type Registration struct {
 	// follow never fails the write that triggered it, so the listing has to be
 	// able to say what is behind and why without the log of that write.
 	FollowError string `json:"follow_error,omitempty"`
-	// Format names the reader the table is declared with: "csv", or "jsonl"
-	// for a JSON-lines file, whose values come back exactly (#1820). It is
-	// decided by the file, not by the caller, and it is on the record because
-	// the CREATE TABLE is written again at every follow and when a failed
-	// follow puts a table back.
+	// Format names the reader the table is declared with: "csv", "jsonl" for
+	// a JSON-lines file, whose values come back exactly (#1820), or "parquet"
+	// (#1833). It is decided by the file, not by the caller, and it is on the
+	// record because the CREATE TABLE is written again at every follow and
+	// when a failed follow puts a table back.
 	Format string `json:"format"`
+	// AllVarchar marks a JSON-lines registration made before its columns were
+	// typed (#1833), when every column was declared VARCHAR. A follow keeps
+	// the rule, so a query written against the table keeps working whatever
+	// the next version of the file holds; registering the file again under
+	// the same name makes a typed registration in its place.
+	AllVarchar bool `json:"all_varchar,omitempty"`
 }
 
 // The formats a registration reads a file in.
@@ -95,6 +101,9 @@ const (
 	// FormatJSONLines is Trino's Hive JSON reader over one object per line,
 	// which carries every string exactly and keeps a null a null.
 	FormatJSONLines = "jsonl"
+	// FormatParquet is Trino's Parquet reader. The file declares its own
+	// columns and types in its footer, which is all a registration reads.
+	FormatParquet = "parquet"
 )
 
 // FormatOrDefault is the registration's format, reading a record written
@@ -337,9 +346,9 @@ var (
 	// connection. It is the same boundary a tool call meets.
 	ErrConnectionDenied = errors.New("your persona is not granted this connection")
 
-	// ErrNotTabular means the source object is neither a CSV nor a JSON-lines
-	// file, the two formats a registration can be built from.
-	ErrNotTabular = errors.New("only a CSV or a JSON-lines file can be registered as a table")
+	// ErrNotTabular means the source object is not a CSV, a JSON-lines or a
+	// Parquet file, the formats a registration can be built from.
+	ErrNotTabular = errors.New("only a CSV, a JSON-lines or a Parquet file can be registered as a table")
 
 	// ErrEmptyHeader means the object had no header row to take columns from.
 	ErrEmptyHeader = tablecsv.ErrEmptyHeader

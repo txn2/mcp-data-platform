@@ -168,7 +168,7 @@ func TestOutputWriter_DeliveryFailures(t *testing.T) {
 			"an unknown format", func(writerHarness) {},
 			func() scriptrun.ExportRequest {
 				req := deliveryRequest("daily", "")
-				req.Format = "parquet"
+				req.Format = "avro"
 				return req
 			}(),
 			"unsupported format",

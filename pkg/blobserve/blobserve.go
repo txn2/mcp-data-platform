@@ -31,6 +31,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"strings"
@@ -116,6 +117,18 @@ type Options struct {
 	// Data is the object's full content.
 	Data []byte
 
+	// Source serves the object's bytes without holding them, in place of
+	// Data. Serve uses it when it is set, and Data is then ignored.
+	//
+	// It exists for a viewer that reads one object many times by byte range:
+	// the Parquet viewer reads a footer and then a row group at a time
+	// (#1833), and answering each of those from a whole-object read pulls the
+	// file once per request. A Source reads the range asked for and nothing
+	// else. It is for binary content only: a body the serving rewrite derives
+	// from the stored bytes, and the ETag Revalidate takes over it, both need
+	// the whole payload and go through Data.
+	Source io.ReadSeeker
+
 	// ForceAttachment serves the blob as a download regardless of family. Set
 	// it on endpoints that exist to download, not to preview.
 	ForceAttachment bool
@@ -193,8 +206,41 @@ func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
 
 	// http.ServeContent supplies Range, If-Range, If-None-Match,
 	// If-Modified-Since, Content-Length and the 206/304/416 responses. It only
-	// sniffs a Content-Type when the header is unset, and it is set above.
-	http.ServeContent(w, r, opts.Name, modTime, bytes.NewReader(opts.Data))
+	// sniffs a Content-Type when the header is unset, and it is set above. It
+	// seeks the reader to the range it answers, so a Source reads only that.
+	content := opts.Source
+	if content == nil {
+		content = bytes.NewReader(opts.Data)
+	}
+	http.ServeContent(w, r, opts.Name, modTime, content)
+}
+
+// Object names the stored object a ranged read reads from: the store to ask,
+// where the object sits, and how many bytes it holds.
+type Object struct {
+	// Store is the blob store. A store that implements RangeReader can serve
+	// a range; one that does not leaves the caller to serve the bytes itself.
+	Store  any
+	Bucket string
+	Key    string
+	Size   int64
+}
+
+// ServeRanged answers r by reading only the bytes the response needs, and
+// reports whether it did. It reports false, having written nothing, when the
+// store cannot read ranges or the object's size is unknown, and the caller
+// then serves the object's bytes as it otherwise would.
+//
+// It is how a content endpoint serves a viewer that reads one file many times
+// by byte range: see Options.Source and RangeSource.
+func ServeRanged(w http.ResponseWriter, r *http.Request, opts Options, obj Object) bool {
+	source := RangeSourceFor(r.Context(), obj.Store, obj.Bucket, obj.Key, obj.Size)
+	if source == nil {
+		return false
+	}
+	opts.Source = source
+	Serve(w, r, opts)
+	return true
 }
 
 // disposition builds the Content-Disposition header. Scriptable document types

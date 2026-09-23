@@ -27,6 +27,8 @@ describe("resolveRenderer", () => {
     ["text/x-python", "code"],
     ["text/plain", "text"],
     ["application/pdf", "pdf"],
+    ["application/vnd.apache.parquet", "parquet"],
+    ["application/x-parquet", "parquet"],
     ["image/png", "image"],
     ["image/avif", "image"],
     ["audio/mpeg", "audio"],
@@ -126,6 +128,7 @@ describe("familyLabel", () => {
     ["application/json", "JSON"],
     ["text/csv", "CSV"],
     ["application/pdf", "PDF"],
+    ["application/vnd.apache.parquet", "Parquet"],
     ["image/png", "Image (PNG)"],
     ["audio/mpeg", "Audio (MPEG)"],
     ["video/mp4", "Video (MP4)"],
@@ -133,5 +136,15 @@ describe("familyLabel", () => {
     ["", "Unknown"],
   ])("labels %s", (ct, want) => {
     expect(familyLabel(ct)).toBe(want);
+  });
+});
+
+describe("a Parquet file", () => {
+  it("is read from the content URL, not embedded, and never edited", () => {
+    const entry = resolveRenderer({ contentType: "application/octet-stream", fileName: "orders.parquet" });
+    expect(entry.kind).toBe("parquet");
+    expect(entry.source).toBe("url");
+    expect(entry.editable).toBe(false);
+    expect(entry.inlineLimit).toBeNull();
   });
 });

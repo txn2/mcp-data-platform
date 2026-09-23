@@ -90,6 +90,12 @@ export const CAPTURE_BY_RENDERER_KIND: Record<RendererKind, KindCapture> = {
     drawn: false,
     because: "the viewer does not render it either -- it offers the download",
   },
+  parquet: {
+    drawn: false,
+    because:
+      "a Parquet file is columnar and compressed, and its viewer reads it by range with a " +
+      "decoder the tile page does not carry; the tile is the content-type icon",
+  },
 };
 
 /**

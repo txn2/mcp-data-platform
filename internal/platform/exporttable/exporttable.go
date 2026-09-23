@@ -38,7 +38,7 @@ const (
 
 // Formats a registration reads. Any other export format is refused before
 // anything is written, because the file it would write cannot be a table.
-var registrable = map[string]bool{"csv": true, "jsonl": true}
+var registrable = map[string]bool{"csv": true, "jsonl": true, "parquet": true}
 
 // Spec is what a register= argument asks for.
 type Spec struct {
@@ -110,8 +110,8 @@ func (s *Spec) set(key string, value any) error {
 // of the platform, which leaves no stored file for a table to point at.
 func (*Spec) Check(format string, stored bool) error {
 	if !registrable[format] {
-		return fmt.Errorf("register needs format=\"jsonl\" or format=\"csv\", the two formats a table reads; "+
-			"got %q. jsonl brings every value back exactly, line breaks included", format)
+		return fmt.Errorf("register needs format=\"jsonl\", \"parquet\" or \"csv\", the formats a table reads; "+
+			"got %q. jsonl and parquet bring every value back exactly and declare each column's type", format)
 	}
 	if !stored {
 		return errors.New("register applies to an output the platform stores, the \"portal\" or \"resources\" " +
@@ -152,8 +152,14 @@ type Table struct {
 	QueryTable     string   `json:"query_table,omitempty"`
 	RegistrationID string   `json:"registration_id,omitempty"`
 	Columns        []string `json:"columns,omitempty"`
-	Format         string   `json:"format,omitempty"`
-	Follow         bool     `json:"follow"`
+	// ColumnTypes pairs each column with the type the table declares it as
+	// (#1833), the same {name, type} entries manage_table, a search hit and a
+	// fetched document carry under this key. One key names one shape: a
+	// script author who learned it from one surface reads it the same way
+	// here.
+	ColumnTypes []TableColumn `json:"column_types,omitempty"`
+	Format      string        `json:"format,omitempty"`
+	Follow      bool          `json:"follow"`
 	// Preview marks a registration a draft reports rather than makes: the
 	// output was not written, so there was no file to register.
 	Preview bool `json:"preview,omitempty"`
@@ -179,7 +185,39 @@ func FromResult(out map[string]any) *Table {
 			}
 		}
 	}
+	t.ColumnTypes = columnTypesOf(out["column_types"], t.Columns)
 	return t
+}
+
+// TableColumn pairs a column with the type the table declares it as.
+type TableColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// columnTypesOf reads the declared type of each column, in Columns' order,
+// from the column_types manage_table reports. A result carrying none gives
+// none.
+func columnTypesOf(raw any, columns []string) []TableColumn {
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	byName := make(map[string]string, len(list))
+	for _, entry := range list {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		typ, _ := m["type"].(string)
+		byName[name] = typ
+	}
+	out := make([]TableColumn, 0, len(columns))
+	for _, c := range columns {
+		out = append(out, TableColumn{Name: c, Type: byName[c]})
+	}
+	return out
 }
 
 // Map renders a Table as the plain value a script receives.
@@ -188,11 +226,16 @@ func (t *Table) Map() map[string]any {
 	for _, c := range t.Columns {
 		cols = append(cols, c)
 	}
+	types := make([]any, 0, len(t.ColumnTypes))
+	for _, c := range t.ColumnTypes {
+		types = append(types, map[string]any{"name": c.Name, "type": c.Type})
+	}
 	out := map[string]any{
-		keyConnection: t.Connection,
-		keyFollow:     t.Follow,
-		"preview":     t.Preview,
-		"columns":     cols,
+		keyConnection:  t.Connection,
+		keyFollow:      t.Follow,
+		"preview":      t.Preview,
+		"columns":      cols,
+		"column_types": types,
 	}
 	if t.QueryTable != "" {
 		out["query_table"] = t.QueryTable

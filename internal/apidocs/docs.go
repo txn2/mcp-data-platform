@@ -33539,6 +33539,10 @@ const docTemplate = `{
         "tablehttp.registrationView": {
             "type": "object",
             "properties": {
+                "all_varchar": {
+                    "description": "AllVarchar marks a JSON-lines registration made before its columns were\ntyped (#1833), when every column was declared VARCHAR. A follow keeps\nthe rule, so a query written against the table keeps working whatever\nthe next version of the file holds; registering the file again under\nthe same name makes a typed registration in its place.",
+                    "type": "boolean"
+                },
                 "catalog": {
                     "type": "string"
                 },
@@ -33560,7 +33564,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "format": {
-                    "description": "Format names the reader the table is declared with: \"csv\", or \"jsonl\"\nfor a JSON-lines file, whose values come back exactly (#1820). It is\ndecided by the file, not by the caller, and it is on the record because\nthe CREATE TABLE is written again at every follow and when a failed\nfollow puts a table back.",
+                    "description": "Format names the reader the table is declared with: \"csv\", \"jsonl\" for\na JSON-lines file, whose values come back exactly (#1820), or \"parquet\"\n(#1833). It is decided by the file, not by the caller, and it is on the\nrecord because the CREATE TABLE is written again at every follow and\nwhen a failed follow puts a table back.",
                     "type": "string"
                 },
                 "id": {
@@ -33651,6 +33655,10 @@ const docTemplate = `{
         "tablehttp.scratchTableView": {
             "type": "object",
             "properties": {
+                "all_varchar": {
+                    "description": "AllVarchar marks a JSON-lines registration made before its columns were\ntyped (#1833), when every column was declared VARCHAR. A follow keeps\nthe rule, so a query written against the table keeps working whatever\nthe next version of the file holds; registering the file again under\nthe same name makes a typed registration in its place.",
+                    "type": "boolean"
+                },
                 "can_unregister": {
                     "description": "CanUnregister is whether this caller is offered the action, by the rule\nthe per-kind DELETE route applies: authority over the source, and having\nregistered the table or being an administrator.",
                     "type": "boolean"
@@ -33676,7 +33684,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "format": {
-                    "description": "Format names the reader the table is declared with: \"csv\", or \"jsonl\"\nfor a JSON-lines file, whose values come back exactly (#1820). It is\ndecided by the file, not by the caller, and it is on the record because\nthe CREATE TABLE is written again at every follow and when a failed\nfollow puts a table back.",
+                    "description": "Format names the reader the table is declared with: \"csv\", \"jsonl\" for\na JSON-lines file, whose values come back exactly (#1820), or \"parquet\"\n(#1833). It is decided by the file, not by the caller, and it is on the\nrecord because the CREATE TABLE is written again at every follow and\nwhen a failed follow puts a table back.",
                     "type": "string"
                 },
                 "id": {

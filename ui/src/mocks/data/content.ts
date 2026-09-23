@@ -1179,6 +1179,13 @@ South,Q2 2025,580000,6700,86.57,13.7`,
     '{"event":"checkout_completed","ts":"2026-08-18T14:12:03Z","store":"STR-031","order_id":"ORD-99121","coupon":"FALL10"}',
   ].join("\n"),
 
+  "ast-jsonl-table": [
+    '{"store":"STR-014","region":"West","revenue":12840.5,"orders":212,"manager":{"name":"Ana Ruiz","since":2019}}',
+    '{"store":"STR-027","region":"East","revenue":6499.9,"orders":97,"manager":{"name":"Ben Ode","since":2022}}',
+    '{"store":"STR-031","region":"North","revenue":90215.25,"orders":1104,"manager":{"name":"Chi Park","since":2016}}',
+    '{"store":"STR-042","region":"South","revenue":3120,"orders":41,"manager":null}',
+  ].join("\n"),
+
   // The artifact the thumbnail suite captures (#1497): it shows a referenced
   // logo and reads its numbers from a referenced file, and says so plainly when
   // either does not load. Both URIs are rewritten to the reference route on the

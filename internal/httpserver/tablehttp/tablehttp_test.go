@@ -67,6 +67,17 @@ func (f *fakeObjects) GetObject(_ context.Context, _, _ string) (body []byte, co
 	return f.body, "text/csv", nil
 }
 
+// GetObjectRange serves a slice of the body and its whole length.
+func (f *fakeObjects) GetObjectRange(
+	_ context.Context, _, _ string, offset, length int64,
+) (body []byte, size int64, err error) {
+	if f.getErr != nil {
+		return nil, 0, f.getErr
+	}
+	end := min(offset+length, int64(len(f.body)))
+	return f.body[min(offset, end):end], int64(len(f.body)), nil
+}
+
 // ListDirectory answers for the prefix it was asked about, the way the S3
 // adapter's delimiter listing does: a corrected version of a file sits in its
 // own directory, and a fake blind to the prefix would report the version it

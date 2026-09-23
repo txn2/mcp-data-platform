@@ -243,6 +243,36 @@ func TestPublicAssetContentSupportsRange(t *testing.T) {
 	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 }
 
+// TestPublicAssetContentRangeIsReadByRange: the public share serves a byte
+// range from a ranged read. A Parquet file is handed to its viewer at any
+// size, and the viewer reads the footer and then a row group at a time, so
+// reading the object whole per request would pull the file once per range
+// (#1833).
+func TestPublicAssetContentRangeIsReadByRange(t *testing.T) {
+	data := []byte("0123456789abcdefghij")
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "rows.parquet", ContentType: "application/vnd.apache.parquet",
+		S3Bucket: "b", S3Key: "k", SizeBytes: int64(len(data)),
+	}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
+	s3 := &mockS3Client{getData: data, getCT: "application/vnd.apache.parquet"}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   s3,
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/content", http.NoBody)
+	req.Header.Set("Range", "bytes=10-14")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusPartialContent, w.Code)
+	assert.Equal(t, "abcde", w.Body.String())
+	assert.Positive(t, s3.rangeReads)
+	assert.Empty(t, s3.getKey, "the object was not read whole to serve five bytes")
+}
+
 // TestPublicAssetContentCannotScriptTheOrigin covers issue #1068 on the surface
 // that made it reachable: a single-asset public share serves stored bytes with
 // no authentication, on the same origin whose REST API is cookie-authenticated.

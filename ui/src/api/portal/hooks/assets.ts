@@ -4,6 +4,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { readsByRange } from "@/components/renderers/registry";
 import { apiFetch, apiFetchRaw } from "../client";
 import {
   nextOffset,
@@ -117,8 +118,21 @@ export function useAsset(id: string) {
  */
 export const LARGE_ASSET_THRESHOLD = 2 * 1024 * 1024; // 2 MB
 
-export function useAssetContent(id: string, sizeBytes?: number) {
-  const tooLarge = sizeBytes != null && sizeBytes > LARGE_ASSET_THRESHOLD;
+/** What useAssetContent needs to know about an asset before it reads the bytes. */
+export type AssetContentShape = Pick<Asset, "size_bytes" | "content_type" | "name">;
+
+/**
+ * useAssetContent reads an asset's content as text, once its record says the
+ * content is worth reading: not over LARGE_ASSET_THRESHOLD, and not a family
+ * whose renderer reads the endpoint itself by range (#1833).
+ *
+ * It waits for the record. Reading before the size was known meant the
+ * threshold never applied to the first load, which fetched every large asset
+ * whole, and a Parquet file of any size with it.
+ */
+export function useAssetContent(id: string, asset?: AssetContentShape) {
+  const tooLarge = asset != null && asset.size_bytes > LARGE_ASSET_THRESHOLD;
+  const byRange = asset != null && readsByRange(asset.content_type, asset.name);
   return useQuery({
     queryKey: ["asset-content", id],
     queryFn: async () => {
@@ -126,7 +140,7 @@ export function useAssetContent(id: string, sizeBytes?: number) {
       if (!res.ok) throw new Error("Failed to fetch content");
       return res.text();
     },
-    enabled: !!id && !tooLarge,
+    enabled: !!id && asset != null && !tooLarge && !byRange,
   });
 }
 

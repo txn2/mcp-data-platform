@@ -32,7 +32,7 @@ const FAMILY_VARIANT: Record<Family, "success" | "info" | "warning" | "secondary
 
 function contentTypeFamily(contentType: string): Family {
   const lower = contentType.toLowerCase();
-  if (lower.includes("csv")) return "tabular";
+  if (lower.includes("csv") || lower.includes("parquet")) return "tabular";
   if (lower.includes("jsx") || lower.includes("react")) return "component";
   if (lower.includes("html")) return "markup";
   if (lower.includes("svg") || lower.includes("image")) return "image";

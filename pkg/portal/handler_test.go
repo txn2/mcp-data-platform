@@ -244,6 +244,8 @@ type mockS3Client struct {
 	deleted   []string // captures every key passed to DeleteObject, in order
 	// objects, when set, answers GetObject by key: a key it lacks is an error.
 	objects map[string][]byte
+	// rangeReads counts GetObjectRange calls.
+	rangeReads int
 }
 
 func (m *mockS3Client) PutObject(_ context.Context, _, key string, _ []byte, _ string) error {
@@ -267,6 +269,28 @@ func (m *mockS3Client) GetObject(_ context.Context, _, key string) (body []byte,
 	}
 	return m.getData, m.getCT, m.getErr
 }
+
+// GetObjectRange is the ranged read the real adapter has: the content routes
+// serve a byte range through it rather than reading the object whole (#1833).
+// rangeReads counts the calls so a test can hold that the whole-object path
+// was not taken.
+func (m *mockS3Client) GetObjectRange(
+	_ context.Context, _, key string, offset, length int64,
+) (body []byte, size int64, err error) {
+	m.rangeReads++
+	data := m.getData
+	if m.objects != nil {
+		var ok bool
+		if data, ok = m.objects[key]; !ok {
+			return nil, 0, fmt.Errorf("no object at %s", key)
+		}
+	}
+	if offset >= int64(len(data)) {
+		return nil, int64(len(data)), nil
+	}
+	return data[offset:min(offset+length, int64(len(data)))], int64(len(data)), nil
+}
+
 func (m *mockS3Client) DeleteObject(_ context.Context, _, key string) error {
 	m.deleted = append(m.deleted, key)
 	return m.deleteErr
@@ -894,6 +918,52 @@ func TestGetAssetContentSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "text/plain", w.Header().Get("Content-Type"))
 	assert.Equal(t, "hello", w.Body.String())
+}
+
+// TestGetAssetContentRange: a byte range of binary content is answered from a
+// ranged read, so a viewer that reads one file many times by range does not
+// pull the whole object once per request (#1833).
+func TestGetAssetContentRange(t *testing.T) {
+	data := []byte("0123456789abcdefghij")
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		ContentType: "application/vnd.apache.parquet", SizeBytes: int64(len(data)),
+	}
+	s3 := &mockS3Client{getData: data, getCT: "application/vnd.apache.parquet"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req.Header.Set("Range", "bytes=10-14")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusPartialContent, w.Code)
+	assert.Equal(t, "abcde", w.Body.String())
+	assert.Equal(t, "bytes 10-14/20", w.Header().Get("Content-Range"))
+	assert.Positive(t, s3.rangeReads)
+	assert.Empty(t, s3.getKey, "the object was not read whole to serve five bytes")
+}
+
+// TestGetAssetContentRangeOfTextIsServedWhole: textual content is rewritten at
+// serve time and carries an ETag over the result, so it is read whole even for
+// a range.
+func TestGetAssetContentRangeOfTextIsServedWhole(t *testing.T) {
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "k",
+		ContentType: "text/plain", SizeBytes: 5,
+	}
+	s3 := &mockS3Client{getData: []byte("hello"), getCT: "text/plain"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/content", http.NoBody)
+	req.Header.Set("Range", "bytes=0-1")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusPartialContent, w.Code)
+	assert.Equal(t, "he", w.Body.String())
+	assert.Zero(t, s3.rangeReads)
+	assert.Equal(t, "k", s3.getKey)
 }
 
 func TestGetAssetContentS3Error(t *testing.T) {

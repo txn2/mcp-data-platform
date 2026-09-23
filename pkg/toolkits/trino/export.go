@@ -375,17 +375,24 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	queryCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err := t.executeExportQuery(queryCtx, input.SQL, input.Connection, limit)
+	// Parquet is written from the driver's own values, the ones every other
+	// format is written from the JSON-friendly form of: a TIMESTAMP(6) keeps
+	// its microseconds and a VARBINARY its bytes (#1833).
+	typed := input.Format == formatParquet
+	result, err := t.executeExportQuery(queryCtx, input.SQL, input.Connection, trinoclient.QueryOptions{
+		Limit: limit, RawValues: typed,
+	})
 	if err != nil {
 		return nil, exportError(fmt.Sprintf("query execution failed: %v", err))
 	}
 
-	columns, rows := convertQueryResult(result)
+	rows := queryRows(result)
 
-	formatted, formatter, errResult := formatExportResult(input.Format, columns, rows, deps.Config.MaxBytes)
+	out, errResult := formatQueryResult(input.Format, result, rows, deps.Config.MaxBytes)
 	if errResult != nil {
 		return nil, errResult
 	}
+	formatted, formatter, note := out.body, out.formatter, out.note
 
 	sysTags := t.inheritSensitivityTags(ctx, input.SQL)
 	allTags := make([]string, 0, len(input.Tags)+len(sysTags))
@@ -394,7 +401,7 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 
 	if input.Resource != nil {
 		return t.landExport(ctx, deps, input, landedResult{
-			body: formatted, contentType: formatter.ContentType(), tags: allTags, rowCount: len(rows),
+			body: formatted, contentType: formatter.ContentType(), tags: allTags, rowCount: len(rows), note: note,
 		})
 	}
 
@@ -457,7 +464,7 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		Format:    input.Format,
 		RowCount:  len(rows),
 		SizeBytes: int64(len(formatted)),
-		Message:   fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format),
+		Message:   strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format), note), " "),
 	}, nil
 }
 
@@ -506,21 +513,64 @@ func resolveExportLimits(input exportInput, cfg ExportConfig) (timeout time.Dura
 	return timeout, limit
 }
 
-// convertQueryResult converts a trinoclient.QueryResult into columns and rows.
-func convertQueryResult(result *trinoclient.QueryResult) (columns []string, rows [][]any) { //nolint:gocritic // named returns for clarity
-	columns = make([]string, len(result.Columns))
-	for i, col := range result.Columns {
-		columns[i] = col.Name
-	}
-	rows = make([][]any, len(result.Rows))
+// queryRows converts a trinoclient.QueryResult's rows into positional values,
+// in the order of its columns.
+func queryRows(result *trinoclient.QueryResult) [][]any {
+	rows := make([][]any, len(result.Rows))
 	for i, row := range result.Rows {
-		vals := make([]any, len(columns))
-		for j, col := range columns {
-			vals[j] = row[col]
+		vals := make([]any, len(result.Columns))
+		for j, col := range result.Columns {
+			vals[j] = row[col.Name]
 		}
 		rows[i] = vals
 	}
-	return columns, rows
+	return rows
+}
+
+// formattedExport is a query's rows written in the requested format: the bytes,
+// the formatter that wrote them, and what a typed format could not keep of the
+// query's columns.
+type formattedExport struct {
+	body      []byte
+	formatter Formatter
+	note      string
+}
+
+// formatQueryResult formats a query's rows in the requested format and checks
+// the byte cap. A typed format is handed the types Trino reported, and says
+// what it could not keep of them in the note.
+func formatQueryResult(
+	format string, result *trinoclient.QueryResult, rows [][]any, maxBytes int64,
+) (formattedExport, *mcp.CallToolResult) {
+	formatter, err := newFormatter(format)
+	if err != nil {
+		return formattedExport{}, exportError(err.Error())
+	}
+	// Whether a format takes the column types is the format's own answer, not
+	// a name this function knows: a formatter that implements TypedFormatter
+	// is handed them.
+	typedFormatter, ok := formatter.(TypedFormatter)
+	if !ok {
+		columns := make([]string, len(result.Columns))
+		for i, c := range result.Columns {
+			columns[i] = c.Name
+		}
+		body, f, errResult := formatExportResult(format, columns, rows, maxBytes)
+		return formattedExport{body: body, formatter: f}, errResult
+	}
+	typed, err := columnTypes(result.Columns)
+	if err != nil {
+		return formattedExport{}, exportError(fmt.Sprintf("formatting failed: %v", err))
+	}
+	body, err := typedFormatter.FormatTyped(typed, rows)
+	if err != nil {
+		return formattedExport{}, exportError(fmt.Sprintf("formatting failed: %v", err))
+	}
+	if int64(len(body)) > maxBytes {
+		return formattedExport{}, exportError(fmt.Sprintf(
+			"formatted output (%d bytes) exceeds deployment maximum of %d bytes", len(body), maxBytes))
+	}
+	return formattedExport{body: body, formatter: typedFormatter, note: storageNote(typed)}, nil
 }
 
 // formatExportResult formats columns/rows and checks the byte cap.
@@ -558,11 +608,9 @@ func (*Toolkit) createExportVersion(ctx context.Context, deps *ExportDeps, ver E
 }
 
 // executeExportQuery runs the SQL against the Trino client.
-func (t *Toolkit) executeExportQuery(ctx context.Context, sql, connection string, limit int) (*trinoclient.QueryResult, error) {
-	opts := trinoclient.QueryOptions{
-		Limit: limit,
-	}
-
+func (t *Toolkit) executeExportQuery(
+	ctx context.Context, sql, connection string, opts trinoclient.QueryOptions,
+) (*trinoclient.QueryResult, error) {
 	// In multi-connection mode, resolve the correct client
 	if t.manager != nil {
 		var client *trinoclient.Client
@@ -884,11 +932,15 @@ func exportInputSchema() map[string]any {
 			},
 			propFormat: map[string]any{
 				schemaKeyType: schemaTypeString,
-				"enum":        []string{formatCSV, formatJSON, formatJSONL, formatMarkdown, formatText},
-				schemaKeyDesc: "Output format for the exported data. jsonl writes one JSON object per row and is the " +
-					"format to register as a table when values must come back exactly: a line break, a backslash or " +
-					"a null inside a value survives it, where csv cannot carry a line break inside a cell and reads " +
-					"a null back as an empty string.",
+				"enum":        []string{formatCSV, formatJSON, formatJSONL, formatMarkdown, formatParquet, formatText},
+				schemaKeyDesc: "Output format for the exported data. parquet writes a typed, compressed, columnar file " +
+					"with every column as its own Trino type -- DECIMAL, TIMESTAMP to the microsecond, ARRAY, MAP and " +
+					"ROW included -- and registers with manage_table as the same types; a timestamp with a time zone " +
+					"is kept as its instant in UTC, and a type Parquet has no form for (TIME, UUID, JSON, an " +
+					"interval) as text. jsonl writes one JSON object per row: a line break, a backslash or a null " +
+					"inside a value survives it, and its columns are typed from the values when registered, with a " +
+					"nested value written as its JSON text. csv cannot carry a line break inside a cell and reads a " +
+					"null back as an empty string.",
 			},
 			propName: map[string]any{
 				schemaKeyType: schemaTypeString,

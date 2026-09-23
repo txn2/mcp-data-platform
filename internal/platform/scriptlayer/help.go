@@ -53,32 +53,40 @@ WHAT IS AVAILABLE
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
-      markdown page. Formats: csv, json, jsonl, markdown, text, html, jsx.
-      csv, json and jsonl require rows, so a data feed stays well-formed by
-      construction; html and jsx take only a string body; markdown and text
-      accept either.
+      markdown page. Formats: csv, json, jsonl, parquet, markdown, text, html,
+      jsx. csv, json, jsonl and parquet require rows, so a data feed stays
+      well-formed by construction; html and jsx take only a string body;
+      markdown and text accept either.
       csv is RFC 4180 and writes every value as it is: a value starting with
       "=", "+", "-" or "@" is not prefixed, a quote is doubled, and a
       backslash is an ordinary character. A table registered over a CSV
       cannot carry a line break inside a value (registration refuses the
       file unless repair is set, and repair joins the value's lines with
       spaces) and reads a null back as an empty string.
-      jsonl writes one JSON object per row, keys in column order, and is the
-      format to register when every value must come back exactly: line
-      breaks, backslashes, quotes and nulls all survive the table. A list or
-      dict value is written as its JSON text, a string, which json_parse
-      reads back in SQL. A string that is not valid UTF-8 fails the export
-      rather than being altered.
+      jsonl writes one JSON object per row, keys in column order: line
+      breaks, backslashes, quotes and nulls all survive the table, and a
+      registered table types each column from its values (all integers
+      BIGINT, any fraction DOUBLE, all booleans BOOLEAN, anything else
+      VARCHAR). A list or dict value is written as its JSON text, a string,
+      which json_parse reads back in SQL. A string that is not valid UTF-8
+      fails the export rather than being altered.
+      parquet writes a typed, compressed Parquet file with each column's type
+      inferred from its values by the same rules, a dict as a row and a list
+      as an array: a registered table reads every value back as its type
+      with no CAST. A dict, a list and a scalar are three shapes, and a key
+      holding any two of them across rows fails the export, naming it.
       register={"connection": "...", "table_name": "...", "follow": True}
       makes the written file a table in the same call: it is manage_table
       register over the file the export wrote, by the reference the write
       reported, on the connection you name. table_name defaults to a slug of
       the file's name and is prefixed with your persona; follow defaults to
       True, so the next run's export moves the table onto its new version.
-      It needs format "jsonl" or "csv" and the "portal" or "resources"
+      It needs format "jsonl", "parquet" or "csv" and the "portal" or "resources"
       destination, is refused before anything is written otherwise, and the
       record the call returns carries "table" with the query_table to select
-      from. A registration that fails fails the run, naming the output. Pass
+      from, "columns", and "column_types" as [{"name": ..., "type": ...}],
+      the same entries manage_table reports.
+      A registration that fails fails the run, naming the output. Pass
       register by name, as destination and key are. This is the path for
       free text into SQL: trino_execute binds no parameters, and
       INSERT ... SELECT from the registered table does.

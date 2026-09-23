@@ -24,6 +24,7 @@ export type RendererKind =
   | "audio"
   | "video"
   | "pdf"
+  | "parquet"
   | "markdown"
   | "html"
   | "jsx"
@@ -67,6 +68,12 @@ export interface RendererEntry {
   inlineLimit: number | null;
   /** The delimiter for tabular families. */
   delimiter?: "," | "\t";
+  /**
+   * True for a `url` family whose renderer reads the content endpoint itself,
+   * by byte range and with the session's credential, so a surface hands it the
+   * endpoint rather than fetching the whole object for it first (#1833).
+   */
+  readsByRange?: boolean;
 }
 
 /**
@@ -148,6 +155,9 @@ const REGISTRY: Record<string, RendererEntry> = {
   "text/css": { kind: "code", editable: true, source: "inline", inlineLimit: TEXT_INLINE_LIMIT },
   [CT.plain]: TEXT_ENTRY,
   [CT.pdf]: { kind: "pdf", editable: false, source: "url", inlineLimit: null },
+  // Read from the content endpoint by byte range (#1833): the footer first,
+  // then one row group at a time, so a large file costs what is on screen.
+  [CT.parquet]: { kind: "parquet", editable: false, source: "url", inlineLimit: null, readsByRange: true },
 };
 
 /**
@@ -226,6 +236,11 @@ export function isEditableContent(contentType: string, fileName?: string): boole
   return resolveRenderer({ contentType, fileName }).editable;
 }
 
+/** True when the family's renderer reads the content endpoint itself, by range. */
+export function readsByRange(contentType: string, fileName?: string): boolean {
+  return resolveRenderer({ contentType, fileName }).readsByRange === true;
+}
+
 /** True when the family renders from a content URL rather than embedded bytes. */
 export function rendersFromURL(contentType: string, fileName?: string): boolean {
   return resolveRenderer({ contentType, fileName }).source === "url";
@@ -256,6 +271,7 @@ export function familyLabel(contentType: string): string {
     [CT.jsx]: "React component",
     [CT.svg]: "SVG",
     [CT.pdf]: "PDF",
+    [CT.parquet]: "Parquet",
     [CT.plain]: "Plain text",
     [CT.octet]: "Binary",
   };

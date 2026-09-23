@@ -14,7 +14,8 @@ moment the type is known for certain, because you chose the bytes.
 It does try. When a declaration is missing or generic, detection reads the
 first bytes and names the family. That works for JSON, NDJSON, CSV, TSV, XML
 and YAML, and for every binary family with magic bytes at the front: images,
-audio, video, PDF and archives.
+audio, video, PDF, archives, and Parquet, whose file begins (and ends) with
+`PAR1`.
 
 Two groups cannot be named that way.
 
@@ -36,7 +37,7 @@ flowchart TD
   W["Content reaches a write path"] --> D{"A specific type<br/>declared?"}
   D -- "yes" --> K["Stored under the declared type"]
   D -- "no, or text/plain<br/>or application/octet-stream" --> S{"Do the bytes name<br/>a family?"}
-  S -- "JSON, NDJSON, CSV, TSV, XML, YAML,<br/>image, audio, video, PDF, archive" --> N["Stored under the sniffed type"]
+  S -- "JSON, NDJSON, CSV, TSV, XML, YAML,<br/>image, audio, video, PDF, archive, Parquet" --> N["Stored under the sniffed type"]
   S -- "SVG, HTML, JSX, JavaScript:<br/>never named from bytes" --> P["Stored text/plain"]
   S -- "Markdown, plain text, SQL,<br/>Python, CSS: nothing to name" --> P
   P --> B["Served text/plain under nosniff,<br/>so it does not render"]
@@ -72,8 +73,8 @@ types, which the section below covers.
 
 A binary file reaches a tool as base64 in `manage_resource`'s `content_base64`,
 or as an upload through the portal's resource library. These are the families
-the platform names and stores an object key for. Images, audio, video and PDF
-have a viewer; the rest are offered as a download.
+the platform names and stores an object key for. Images, audio, video, PDF and
+Parquet have a viewer; the rest are offered as a download.
 
 {{BINARY_CONTENT_TYPES}}
 
@@ -103,9 +104,10 @@ referenced, and it changes what a browser is told when the bytes are served.
 - A thumbnail is captured by rendering the asset a second time in the browser,
   so a document whose referenced file does not render is captured with it
   missing.
-- `manage_table` decides whether a file is a CSV from its stored type, falling
-  back to the `.csv` in the object key when that type is generic. A CSV stored
-  under a specific type that is not a CSV type is refused registration.
+- `manage_table` decides whether a file is a CSV, JSON lines or Parquet from
+  its stored type, falling back to the `.csv`, `.jsonl` or `.parquet` in the
+  object key when that type is generic. A file stored under a specific type
+  that is none of these is refused registration.
 
 Nothing rewrites a file that was already stored under the wrong type. Write the
 content again with the right declaration: `replace_content` with an explicit

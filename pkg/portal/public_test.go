@@ -1745,6 +1745,38 @@ func TestPublicViewLargeAssetShowsTooLarge(t *testing.T) {
 	assert.Contains(t, body, `"downloadURL"`)
 }
 
+// TestPublicViewLargeParquetRendersFromURL: a Parquet file is read by range,
+// so a large one is handed to its viewer by URL rather than answered with the
+// download prompt a large document gets (#1833), and its bytes are not read to
+// build the page.
+func TestPublicViewLargeParquetRendersFromURL(t *testing.T) {
+	now := time.Now()
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "orders.parquet", ContentType: "application/vnd.apache.parquet",
+		SizeBytes: 10 * 1024 * 1024, Tags: []string{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{getData: []byte("PAR1 should not be fetched PAR1"), getCT: "application/vnd.apache.parquet"}
+	h := NewHandler(Deps{
+		AssetStore: &mockAssetStore{getAsset: asset},
+		ShareStore: &mockShareStore{getByTokenRes: share},
+		S3Client:   s3,
+		S3Bucket:   "test",
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1", http.NoBody)
+	req.SetPathValue("token", "tok1")
+	w := httptest.NewRecorder()
+	h.publicMux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.NotContains(t, body, `"tooLarge":true`)
+	assert.Contains(t, body, `"serveFromURL":true`)
+	assert.NotContains(t, body, "should not be fetched")
+}
+
 func TestPublicAssetContentLargeStillDownloads(t *testing.T) {
 	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{

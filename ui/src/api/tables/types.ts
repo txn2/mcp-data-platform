@@ -1,45 +1,74 @@
-// Table registrations make a stored CSV or JSON-lines file readable as a
-// query-engine table
+// Table registrations make a stored CSV, JSON-lines or Parquet file readable
+// as a query-engine table
 // (#1327). One shape serves both kinds a file arrives as -- a managed resource
 // and a portal asset -- because the registration says the same thing about
 // either.
 
-// TableColumn is one column of a registered table. Every column is VARCHAR:
-// that is the Hive CSV connector's rule, not a choice, which is why a join to
-// a typed warehouse column needs a CAST.
+// TableColumn is one column of a registered table and the type it is declared
+// as. A CSV's columns are all VARCHAR, the Hive CSV connector's rule, which is
+// why a join to a typed warehouse column needs a CAST; a JSON-lines table's are
+// typed from its values and a Parquet table's are the file's own (#1833).
 export interface TableColumn {
   name: string;
   type: string;
 }
 
 // TableFormat is the reader a registered table is declared with.
-export type TableFormat = "csv" | "jsonl";
+export type TableFormat = "csv" | "jsonl" | "parquet";
 
-// isRegistrableType reports whether a stored file is one a table can be
-// registered over: a CSV, or JSON lines (#1820). It decides as the server
+const JSON_LINES_TYPES = ["application/x-ndjson", "application/ndjson", "application/jsonl", "text/x-ndjson"];
+const PARQUET_TYPES = ["application/vnd.apache.parquet", "application/x-parquet", "application/parquet"];
+
+// registrableFormat is the format a stored file would be registered in, or
+// null for a file no table can be registered over. It decides as the server
 // does: by the content type, and by the name where the type is generic or is
 // the application/json detection gives a JSON-lines file holding one record.
-export function isRegistrableType(contentType: string, filename = ""): boolean {
+export function registrableFormat(contentType: string, filename = ""): TableFormat | null {
   const ct = contentType.toLowerCase();
-  const name = filename.toLowerCase();
-  const namedJSONLines = name.endsWith(".jsonl") || name.endsWith(".ndjson");
-  if (ct.includes("csv")) return true;
-  if (
-    ["application/x-ndjson", "application/ndjson", "application/jsonl", "text/x-ndjson"].some((t) =>
-      ct.startsWith(t),
-    )
-  ) {
-    return true;
-  }
-  if (ct === "" || ct.startsWith("application/octet-stream") || ct.startsWith("text/plain")) {
-    return namedJSONLines || name.endsWith(".csv");
-  }
-  return ct.startsWith("application/json") && namedJSONLines;
+  const named = formatNamed(filename.toLowerCase());
+  if (ct.includes("csv")) return "csv";
+  if (JSON_LINES_TYPES.some((t) => ct.startsWith(t))) return "jsonl";
+  if (PARQUET_TYPES.some((t) => ct.startsWith(t))) return "parquet";
+  if (ct === "" || ct.startsWith("application/octet-stream") || ct.startsWith("text/plain")) return named;
+  return ct.startsWith("application/json") && named === "jsonl" ? "jsonl" : null;
+}
+
+function formatNamed(name: string): TableFormat | null {
+  if (name.endsWith(".csv")) return "csv";
+  if (name.endsWith(".jsonl") || name.endsWith(".ndjson")) return "jsonl";
+  if (name.endsWith(".parquet")) return "parquet";
+  return null;
+}
+
+// isRegistrableType reports whether a stored file is one a table can be
+// registered over: a CSV, JSON lines (#1820), or Parquet (#1833).
+export function isRegistrableType(contentType: string, filename = ""): boolean {
+  return registrableFormat(contentType, filename) !== null;
 }
 
 // formatLabel names a registration's format the way a reader says it.
 export function formatLabel(format: TableFormat | undefined): string {
-  return format === "jsonl" ? "JSON lines" : "CSV";
+  switch (format) {
+    case "jsonl":
+      return "JSON lines";
+    case "parquet":
+      return "Parquet";
+    default:
+      return "CSV";
+  }
+}
+
+// columnTypesText says what a table over a file of this format declares its
+// columns as.
+export function columnTypesText(format: TableFormat | null | undefined): string {
+  switch (format) {
+    case "jsonl":
+      return "Each column is typed from the values the file holds.";
+    case "parquet":
+      return "Each column has the type the file declares.";
+    default:
+      return "Every column of a CSV comes back as text.";
+  }
 }
 
 export interface TableRegistration {
@@ -56,7 +85,8 @@ export interface TableRegistration {
   registered_at: string;
   // query_table is the name to write in a FROM clause.
   query_table: string;
-  // sample_sql shows the CAST a join needs.
+  // sample_sql shows a query over the table: for a CSV, with the CAST a join
+  // to a typed column needs.
   sample_sql?: string;
   // stale means the file has a newer version than the one the table points
   // at, so the rows are the version that was current when it was registered.
@@ -73,10 +103,14 @@ export interface TableRegistration {
   // that version (#1577). It is the choice made when the table was registered,
   // and it only does anything for a table that follows its file.
   repair: boolean;
-  // format is the reader the table is declared with (#1820): csv, or jsonl
-  // for a JSON-lines file, whose values come back exactly -- line breaks and
-  // nulls included, which a CSV table cannot carry.
+  // format is the reader the table is declared with (#1820): csv, jsonl for a
+  // JSON-lines file, whose values come back exactly -- line breaks and nulls
+  // included, which a CSV table cannot carry -- or parquet (#1833).
   format?: TableFormat;
+  // all_varchar marks a JSON-lines registration made before its columns were
+  // typed (#1833): it keeps every column VARCHAR across a follow, and
+  // registering the file again under the same name types them.
+  all_varchar?: boolean;
   // repaired says what a correction of the file changed before it could be
   // registered (#1441). It is set only on the registration that made the
   // correction: it describes what just happened, not a property of the record.

@@ -44,7 +44,7 @@ func TestSpec_Check(t *testing.T) {
 	spec := &Spec{Connection: "w"}
 	require.NoError(t, spec.Check("jsonl", true))
 	require.NoError(t, spec.Check("csv", true))
-	assert.ErrorContains(t, spec.Check("json", true), `register needs format="jsonl" or format="csv"`)
+	assert.ErrorContains(t, spec.Check("json", true), `register needs format="jsonl", "parquet" or "csv"`)
 	assert.ErrorContains(t, spec.Check("markdown", true), `got "markdown"`)
 	assert.ErrorContains(t, spec.Check("jsonl", false), "a bucket destination delivers the file out of the platform")
 }
@@ -69,18 +69,25 @@ func TestFromResultAndMap(t *testing.T) {
 	table := FromResult(map[string]any{
 		"connection": "w", "query_table": "scratch.s.t", "registration_id": "reg_1",
 		"columns": []any{"id", 7, "note"}, "format": "jsonl", "follow": true,
+		"column_types": []any{
+			map[string]any{"name": "note", "type": "VARCHAR"}, "junk", map[string]any{"name": "id", "type": "BIGINT"},
+		},
 	})
 	assert.Equal(t, &Table{
 		Connection: "w", QueryTable: "scratch.s.t", RegistrationID: "reg_1",
 		Columns: []string{"id", "note"}, Format: "jsonl", Follow: true,
-	}, table)
+		ColumnTypes: []TableColumn{{Name: "id", Type: "BIGINT"}, {Name: "note", Type: "VARCHAR"}},
+	}, table, "each column's type is read by name, in the columns' order")
 	assert.Equal(t, map[string]any{
 		"connection": "w", "follow": true, "preview": false, "columns": []any{"id", "note"},
+		"column_types": []any{
+			map[string]any{"name": "id", "type": "BIGINT"}, map[string]any{"name": "note", "type": "VARCHAR"},
+		},
 		"query_table": "scratch.s.t", "registration_id": "reg_1", "format": "jsonl",
 	}, table.Map())
 
 	preview := (&Spec{Connection: "w", Follow: true}).Preview()
 	assert.Equal(t, map[string]any{
-		"connection": "w", "follow": true, "preview": true, "columns": []any{},
+		"connection": "w", "follow": true, "preview": true, "columns": []any{}, "column_types": []any{},
 	}, preview.Map(), "a preview names no table, because none was made")
 }

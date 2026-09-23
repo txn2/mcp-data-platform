@@ -159,6 +159,7 @@ func tableObjectReaders(p *platform.Platform) map[string]tableregister.ObjectRea
 // without standing up an S3 endpoint.
 type blobStore interface {
 	GetObject(ctx context.Context, bucket, key string) ([]byte, string, error)
+	GetObjectRange(ctx context.Context, bucket, key string, offset, length int64) ([]byte, int64, error)
 	ListDirectory(ctx context.Context, bucket, prefix string) ([]s3adapter.ObjectEntry, bool, error)
 }
 
@@ -173,6 +174,13 @@ func (a objectReaderAdapter) GetObject(
 	ctx context.Context, bucket, key string,
 ) (body []byte, contentType string, err error) {
 	return a.client.GetObject(ctx, bucket, key) //nolint:wrapcheck // transparent pass-through
+}
+
+// GetObjectRange reads part of an object and reports its whole size.
+func (a objectReaderAdapter) GetObjectRange(
+	ctx context.Context, bucket, key string, offset, length int64,
+) (body []byte, size int64, err error) {
+	return a.client.GetObjectRange(ctx, bucket, key, offset, length) //nolint:wrapcheck // transparent pass-through
 }
 
 // ListDirectory lists the objects directly under a prefix.

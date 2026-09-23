@@ -29,6 +29,9 @@ type landedResult struct {
 	contentType string
 	tags        []string
 	rowCount    int
+	// note is what a typed format could not keep of the query's columns
+	// (#1833), said beside the landing the way an asset export says it.
+	note string
 }
 
 // checkResourceDestination settles everything about a resource destination that
@@ -92,7 +95,8 @@ func (*Toolkit) landExport(
 		RowCount:  res.rowCount,
 		SizeBytes: landing.SizeBytes,
 		Resource:  landing,
-		Message:   fmt.Sprintf("Exported %d rows as %s. %s", res.rowCount, input.Format, landing.Message),
+		Message: strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", res.rowCount, input.Format),
+			res.note, landing.Message), " "),
 	}, nil
 }
 
@@ -115,5 +119,17 @@ const resourceDestinationUnavailable = "This deployment has no managed-resource 
 func resourceDestinationSchema() map[string]any {
 	var out map[string]any
 	_ = json.Unmarshal([]byte(toolkit.ResourceDestinationSchema), &out)
+	return out
+}
+
+// nonEmpty drops the empty sentences from a message's parts, so a message
+// joined from them carries no doubled space where a part said nothing.
+func nonEmpty(parts ...string) []string {
+	out := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
 	return out
 }

@@ -334,6 +334,11 @@ type Handler struct {
 	// MaxAssetRefs references at once, which that bucket would answer
 	// 429 and blank every image on the page.
 	refLimiter *viewerlimit.RateLimiter
+	// contentLimiter bounds the public content route, which one page view now
+	// calls many times: a viewer that reads its file by byte range issues one
+	// request per range (#1833), and the viewer bucket, sized in page views,
+	// would answer the eleventh 429 and leave the file half read.
+	contentLimiter *viewerlimit.RateLimiter
 }
 
 // NewHandler creates a new portal API handler.
@@ -347,6 +352,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 	}
 	h.viewerAssets = contentviewer.Handler()
 	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit), deps.RateLimitResolver)
+	h.contentLimiter = viewerlimit.New(contentRateLimit(deps.RateLimit), deps.RateLimitResolver)
 	h.registerRoutes()
 
 	// Wrap the authenticated mux once at startup, not on every request.
@@ -584,10 +590,11 @@ func (h *Handler) registerRoutes() {
 	// publicChain is the only way a handler reaches this mux, so no route can
 	// serve a token the gate would refuse (#999).
 	h.publicMux.Handle("GET /portal/view/{token}", h.publicChain(h.publicView))
-	h.publicMux.Handle("GET /portal/view/{token}/content", h.publicChain(h.publicAssetContent))
+	h.publicMux.Handle("GET /portal/view/{token}/content", h.contentChain(h.publicAssetContent))
 	h.publicMux.Handle("GET /portal/view/{token}/thumbnail", h.publicChain(h.publicAssetThumbnail))
 	h.publicMux.Handle("GET /portal/view/{token}/collection-thumbnail", h.publicChain(h.publicCollectionThumbnail))
-	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content", h.publicChain(h.publicCollectionItemContent))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content",
+		h.contentChain(h.publicCollectionItemContent))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail", h.publicChain(h.publicCollectionItemThumbnail))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/view", h.publicChain(h.publicCollectionItemView))
 
@@ -612,6 +619,12 @@ func (h *Handler) registerRoutes() {
 // share lookup.
 func (h *Handler) publicChain(fn http.HandlerFunc) http.Handler {
 	return h.rateLimiter.Middleware(h.publicShareGate(fn))
+}
+
+// contentChain is publicChain for the routes that serve a file's bytes, on the
+// budget one page view of a range-reading viewer needs.
+func (h *Handler) contentChain(fn http.HandlerFunc) http.Handler {
+	return h.contentLimiter.Middleware(h.publicShareGate(fn))
 }
 
 // --- Me handler ---
@@ -869,6 +882,11 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 
 	if h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errStorageNotReady)
+		return
+	}
+
+	// A byte range of binary content is read by range: see serveAssetRange.
+	if h.serveAssetRange(w, r, id) {
 		return
 	}
 
