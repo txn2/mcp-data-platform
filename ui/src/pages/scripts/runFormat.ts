@@ -6,7 +6,8 @@ import type { ScriptContract, ScriptRun, ScriptRunOutput } from "@/api/portal/ho
 // runStatusVariant maps a run status onto the badge tints. A skipped overlap is
 // neither a success nor a failure: it names a fire that was never executed
 // because the previous run was still going, which is a fact about the cadence
-// rather than an error.
+// rather than an error. A canceled run is somebody's decision, not a fault,
+// so it is muted rather than red.
 export function runStatusVariant(status: string): "success" | "danger" | "warning" | "info" | "muted" {
   switch (status) {
     case "succeeded":
@@ -26,6 +27,20 @@ export function runStatusVariant(status: string): "success" | "danger" | "warnin
 // translating; the rest are already words.
 export function runStatusLabel(status: string): string {
   return status === "skipped_overlap" ? "Skipped (overlap)" : status;
+}
+
+// progressText renders a platform.progress report as one line: the count when
+// the script gave one, then its message (#1847).
+export function progressText(progress?: { message: string; done?: number; total?: number }): string {
+  if (!progress) return "";
+  let count = "";
+  if (progress.done !== undefined && progress.total !== undefined) {
+    count = `${progress.done} of ${progress.total}`;
+  } else if (progress.done !== undefined) {
+    count = `${progress.done}`;
+  }
+  if (count && progress.message) return `${count} · ${progress.message}`;
+  return count || progress.message;
 }
 
 // formatWhen renders a timestamp in the reader's own locale, or a dash when
@@ -88,6 +103,15 @@ function assetDetail(output: ScriptRunOutput): string {
 // carries decides the line: an asset, a file in the resource library, an object
 // in a bucket, or none of the three.
 export function outputLink(output: ScriptRunOutput): OutputLink {
+  const link = outputLocation(output);
+  // An output an export tool wrote says which (#1854): a trino_export file is
+  // a new asset every run, where a platform.export output is one asset
+  // versioned run after run.
+  if (output.tool) link.detail = `${link.detail} · via ${output.tool}`;
+  return link;
+}
+
+function outputLocation(output: ScriptRunOutput): OutputLink {
   if (output.asset_id) {
     return { label: output.name, detail: assetDetail(output), href: `/assets/${output.asset_id}` };
   }
@@ -133,20 +157,30 @@ export interface RunSummary {
   succeeded: number;
   failed: number;
   skipped: number;
+  canceled: number;
   /** medianMs is the median duration of the runs that recorded one. */
   medianMs: number;
   /** lastFailure is the most recent failed run, if the window holds one. */
   lastFailure?: ScriptRun;
 }
 
+// OUTCOME_COUNTER names the summary count each terminal status adds to. A
+// status not listed (pending, running) is still in flight and counts only
+// toward the total.
+const OUTCOME_COUNTER: Record<string, "succeeded" | "failed" | "skipped" | "canceled"> = {
+  succeeded: "succeeded",
+  failed: "failed",
+  skipped_overlap: "skipped",
+  canceled: "canceled",
+};
+
 /** summarize folds a run history into what it adds up to. */
 export function summarize(runs: ScriptRun[]): RunSummary {
-  const out: RunSummary = { total: runs.length, succeeded: 0, failed: 0, skipped: 0, medianMs: 0 };
+  const out: RunSummary = { total: runs.length, succeeded: 0, failed: 0, skipped: 0, canceled: 0, medianMs: 0 };
   const durations: number[] = [];
   for (const run of runs) {
-    if (run.status === "succeeded") out.succeeded++;
-    else if (run.status === "failed") out.failed++;
-    else if (run.status === "skipped_overlap") out.skipped++;
+    const counter = OUTCOME_COUNTER[run.status];
+    if (counter) out[counter]++;
     if (run.duration_ms > 0) durations.push(run.duration_ms);
     if (run.status === "failed" && !out.lastFailure) out.lastFailure = run;
   }

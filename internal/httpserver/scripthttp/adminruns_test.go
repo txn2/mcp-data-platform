@@ -45,6 +45,13 @@ func (*adminRunStore) Retry(context.Context, script.RunLease, string, time.Durat
 	return nil
 }
 func (*adminRunStore) PurgeRuns(context.Context, time.Duration) (int64, error) { return 0, nil }
+func (*adminRunStore) RecordProgress(context.Context, script.RunLease, script.RunLive) (requested bool, by string, err error) {
+	return false, "", nil
+}
+
+func (*adminRunStore) CancelRun(context.Context, string, string) (string, error) {
+	return "", script.ErrRunNotFound
+}
 
 func adminRunDeps(store *adminRunStore) Deps {
 	return Deps{

@@ -213,4 +213,30 @@ func TestScriptRecorders_NilSafe(*testing.T) {
 	m.RecordScriptMissedFires(ctx, "x", 3)
 	m.ScriptRunStarted(ctx)
 	m.ScriptRunFinished(ctx)
+	m.RecordScriptAdmissionRefused(ctx, "memory")
+	m.RecordScriptQueueWait(ctx, time.Second)
+}
+
+// TestScriptAdmissionInstruments reads the run worker's admission series back
+// from the exporter (#1843): refusals by reason, and the time a run waited in
+// the queue, a clock-skewed negative wait recorded as zero.
+func TestScriptAdmissionInstruments(t *testing.T) {
+	m := newEnabledMetrics(t)
+	ctx := context.Background()
+	m.RecordScriptAdmissionRefused(ctx, "memory")
+	m.RecordScriptAdmissionRefused(ctx, "ceiling")
+	m.RecordScriptQueueWait(ctx, 3*time.Second)
+	m.RecordScriptQueueWait(ctx, -time.Second)
+
+	body := scrapeMetrics(t, m.Handler())
+	for _, want := range []string{
+		"script_run_admission_refusals_total",
+		`reason="memory"`,
+		`reason="ceiling"`,
+		"script_run_queue_wait_seconds_count",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
 }

@@ -35,6 +35,10 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
+  // The run history's stop control (#1847), and the one predicate that says
+  // a run is still in flight, which is a rule rather than a request.
+  useCancelScriptRun: vi.fn(),
+  isRunInFlight: (run?: { status: string }) => run?.status === "pending" || run?.status === "running",
 }));
 
 // The owner transfer's hook (#1404). The control has its own tests; here it
@@ -91,6 +95,7 @@ vi.mock("@/stores/auth", () => ({
 let admin = false;
 
 import {
+  useCancelScriptRun,
   useDryRunScript,
   useScriptContract,
   usePortalScriptVersions,
@@ -122,6 +127,7 @@ const mockValidateSource = vi.mocked(useValidateScriptSource);
 const mockDryRun = vi.mocked(useDryRunScript);
 const mockConnections = vi.mocked(useScriptConnections);
 const mockRunScript = vi.mocked(useRunScript);
+const mockCancel = vi.mocked(useCancelScriptRun);
 const mockState = vi.mocked(useScriptState);
 const mockSetState = vi.mocked(useSetScriptState);
 const mockClearState = vi.mocked(useClearScriptState);
@@ -261,6 +267,7 @@ beforeEach(() => {
   mockValidateSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockDryRun.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockRunScript.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockCancel.mockReturnValue({ mutate: vi.fn(), isPending: false, isSuccess: false, isError: false } as never);
   mockTransfer.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   mockConnections.mockReturnValue(query(undefined));
   mockState.mockReturnValue(query({ state: { synced_through: "2026-08-13" }, revision: 41, run_id: "run-001" }));
@@ -548,6 +555,63 @@ describe("ScriptDetailPage: the run history", () => {
     );
     expect(screen.getByText(/log of run-001/)).toBeInTheDocument();
     expect(screen.queryByText(/log of run-002/)).not.toBeInTheDocument();
+  });
+
+  // #1847: a running run says how far it has got on its row, and opening it
+  // offers to stop it beside the log printed so far.
+  it("shows a running run's progress and stops it on request", () => {
+    const running = {
+      ...runs[0]!, id: "run-live", status: "running", duration_ms: 0,
+      progress: { message: "entities", done: 120, total: 500, at: "2026-08-14T07:00:05Z" },
+    };
+    mockRuns.mockReturnValue(query({ data: [running], total: 1 }));
+    mockRun.mockReturnValue(query({ ...runDetail, ...running, log: "started\n", outputs: [] }));
+    const mutate = vi.fn();
+    mockCancel.mockReturnValue({ mutate, isPending: false, isSuccess: false, isError: false } as never);
+    renderPage();
+
+    expect(screen.getByText("120 of 500 · entities")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("row", { name: /running/ }));
+    expect(screen.getByText(/started/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop run" }));
+    expect(mutate).toHaveBeenCalledWith("run-live");
+  });
+
+  it("offers to cancel a queued run and says when a stop was already asked for", () => {
+    const queued = { ...runs[0]!, id: "run-q", status: "pending", duration_ms: 0 };
+    mockRuns.mockReturnValue(query({ data: [queued], total: 1 }));
+    mockRun.mockReturnValue(query({ ...runDetail, ...queued, log: undefined, outputs: [] }));
+    renderPage();
+    fireEvent.click(screen.getByRole("row", { name: /pending/ }));
+    expect(screen.getByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+    expect(screen.getByText("Nothing printed yet.")).toBeInTheDocument();
+    cleanup();
+
+    const stopping = { ...queued, status: "running", cancel_requested: true };
+    mockRuns.mockReturnValue(query({ data: [stopping], total: 1 }));
+    mockRun.mockReturnValue(query({ ...runDetail, ...stopping, cancel_requested_by: "jane@example.com", outputs: [] }));
+    renderPage();
+    expect(screen.getByText("Stopping")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("row", { name: /running/ }));
+    expect(screen.getByText(/as jane@example.com asked/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Stop run|Cancel run/ })).not.toBeInTheDocument();
+  });
+
+  // #1845: the value a run handed back is shown with the run, and a finished
+  // run offers nothing to stop.
+  it("shows the result a run returned", () => {
+    mockRun.mockReturnValue(query({ ...runDetail, result: { total: 42 } }));
+    renderPage();
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText(/"total": 42/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Stop run|Cancel run/ })).not.toBeInTheDocument();
+  });
+
+  it("counts canceled runs in the summary", () => {
+    mockRuns.mockReturnValue(query({ data: [...runs, { ...runs[0]!, id: "run-c", status: "canceled" }], total: 3 }));
+    renderPage();
+    expect(screen.getByText("1 canceled")).toBeInTheDocument();
   });
 
   it("links a portal asset and never a delivered object", () => {

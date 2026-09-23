@@ -476,9 +476,9 @@ this report makes about what is inside those arguments.
 `PlatformContext.Source == SourceScript`, which the run layer sets for every
 call a run makes. Starlark has no `while` and no recursion, so a single run
 cannot loop, but a cycle across runs has nothing else to stop it — and it would
-deadlock before it got there, because a worker executes one run at a time per
-replica, so a script waiting on a run it queued is waiting on the worker it is
-itself occupying.
+deadlock before it got there, because a run waiting on a run it queued holds a
+worker slot while it waits, and runs waiting on each other can hold every slot
+a replica admits.
 
 ### What a script can move, and what bounds it
 
@@ -680,9 +680,14 @@ Both the tool and the portal go through one implementation
 run is and the two surfaces cannot drift.
 
 **How many run at once is bounded.** A run holds a Starlark heap the
-interpreter cannot cap, so the number executing concurrently is the one lever
-that bounds the memory a pathological script can reach; the platform-run worker
-takes that lever by executing one run at a time per replica. A draft has no
+interpreter cannot cap, so the number executing concurrently is the lever that
+bounds the memory scripts reach together. The platform-run worker pulls it from
+the replica's measured memory and CPU by default (#1843): it claims another run
+only while memory is under `scripts.worker.max_memory_percent` of the
+container's limit and CPU under `max_cpu_percent` of its quota, never more
+than `max_concurrency` at once, and past `shed_memory_percent` it stops and
+requeues the most recently started run. An operator who wants the old
+guarantee sets `concurrency: 1`. A draft has no
 queue in front of it, so the runner holds a small fixed number of execution
 slots and a request that cannot get one within a few seconds is refused as busy
 rather than queued.
@@ -756,7 +761,7 @@ belongs to the build and would otherwise retire every non-UTC schedule at once
 
 **What a schedule does add is unattended repetition**, and that is a real
 property. The controls on it are the ones execution already has — the persona
-filter, the step and result limits, one run at a time per replica — plus two of
+filter, the step and result limits, the worker's admission — plus two of
 scheduling's own: the one-fire-a-minute floor (`pkg/script/schedule.go`,
 `MinFireInterval`), and the overlap policy, which refuses to start a second run
 of a schedule while its previous run is still going.
@@ -968,10 +973,10 @@ safety or determinism.
 | Limit | Mechanism | Where |
 |---|---|---|
 | CPU | Interpreter execution-step cap; a draft is capped tighter than a platform run, because somebody is waiting for a draft | `scriptrun.DraftMaxSteps`, `RunMaxSteps` |
-| Wall clock | Context deadline bridged to thread cancellation, covering time spent inside host calls | `scriptrun.DraftTimeout`, `RunTimeout`, `watchCancel` |
+| Wall clock | Context deadline bridged to thread cancellation, covering time spent inside host calls; a platform run's is `scripts.worker.run_timeout` (default 15m), and the claim lease is derived from it | `scriptrun.DraftTimeout`, `RunTimeout`, `PlatformLimits`, `scriptexec.LeaseFor`, `watchCancel` |
 | Result size | Hard row and byte caps on every `platform.query` result, with the row cap pushed down into the query; the byte cap also applies to a `platform.call` result, which has no row axis to push down | `scriptrun.DraftMaxRows`, `RunMaxRows`, `DraftMaxResultBytes`, `hostState.queryResult`, `hostState.call` |
 | Output size | Cap on one serialized output, matching the portal export ceiling and applied by the serializer, so a draft is refused on the same terms a platform run is | `scriptrun.MaxOutputBytes`, `FormatOutput` |
-| Concurrency | One run at a time per replica, which is the only lever that bounds how much heap concurrent scripts can reach | `internal/platform/scriptexec/worker.go` |
+| Concurrency | Adaptive admission: a run is claimed only while the replica's memory and CPU are under their thresholds and fewer than the ceiling execute; past the shed threshold the newest run is stopped and requeued. A fixed `concurrency` (1 for one at a time) replaces it | `internal/platform/scriptadmit`, `internal/platform/scriptexec/worker.go`, `internal/procload` |
 | Blast radius | Which replicas execute at all, so the memory a script can reach belongs to a pod nothing is talking to | `scripts.worker.enabled` |
 | Truncation | A result the engine truncated at the cap FAILS the run rather than being handed over as complete | `hostState.queryResult`, `truncated` |
 | Log size | Bounded capture, head kept, tail dropped with a marker | `scriptrun.MaxLogBytes`, `logBuffer` |
@@ -982,8 +987,11 @@ safety or determinism.
 embedded interpreter offers one, and this document does not pretend otherwise.
 A pathological script can grow the process heap despite the step limit, because
 allocation per step is unbounded. The mitigations in place are the step limit,
-the wall-clock deadline, the host-side result caps, one run at a time per
-replica, and `GOMEMLIMIT` at the process level. It is recorded in [Residual
+the wall-clock deadline, the host-side result caps, the worker's memory-aware
+admission and shedding, and `GOMEMLIMIT` at the process level. Admission reads
+memory before a claim and cannot see a run that grows afterwards, which is what
+the shed threshold is for; a single run is never shed, so one script's own heap
+past the container limit still ends the pod. It is recorded in [Residual
 risks](#residual-risks), and the control that bounds what an out-of-memory
 condition costs is [isolating execution from
 serving](#isolating-execution-from-serving).
@@ -1096,8 +1104,9 @@ the point of re-running. What the platform eliminates is every source of
 variation it controls: no clock or randomness is reachable, the fire time is a
 pinned value on `run.fire_time` rather than a clock read, the state a run reads
 is pinned on its row at creation rather than read fresh at execution,
-enrichment is off, and map keys are converted in sorted order
-(`internal/platform/scriptrun/convert.go`).
+enrichment is off, and map keys are converted in a fixed order: a query
+row's in the SELECT's column order, every other object's sorted
+(`internal/platform/starlarkconv`).
 
 ### State: one object per script, one write per run
 

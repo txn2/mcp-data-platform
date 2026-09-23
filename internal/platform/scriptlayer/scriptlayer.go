@@ -23,6 +23,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -63,6 +64,10 @@ type Config struct {
 	// DraftExports builds the writer a draft run with allow_writes persists
 	// its exports through (#1822). Nil leaves every draft export a preview.
 	DraftExports scriptdraft.Exports
+	// RunLimits are the ceilings a platform run executes under on this
+	// deployment, which the help reports so an author sizes a script against
+	// the limits it will actually meet (#1843). Zero fields are the defaults.
+	RunLimits scriptrun.PlatformLimits
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -97,6 +102,8 @@ type Handle struct {
 	toolkits scriptdraft.ToolkitLister
 	// draftExports builds the writer a draft allowed to write exports through.
 	draftExports scriptdraft.Exports
+	// runLimits are a platform run's ceilings, reported by the help.
+	runLimits scriptrun.PlatformLimits
 	// indexProducer is the write-path index-job producer the Postgres script
 	// store was built with, so a created or re-described script enters ranked
 	// search without waiting for the reconciler (#1370). Nil when the layer was
@@ -111,6 +118,7 @@ func New(cfg Config) *Handle {
 		store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona,
 		portalURL: cfg.PortalURL, destinations: cfg.Destinations,
 		toolkits: cfg.Toolkits, draftExports: cfg.DraftExports,
+		runLimits: cfg.RunLimits.WithDefaults(),
 	}
 	if h.store == nil && cfg.DB != nil {
 		h.indexProducer = indexjobs.NewProducer(scriptindex.SourceKind)
@@ -224,9 +232,10 @@ func (h *Handle) resolveScript(ctx context.Context, name, ownerEmail string) (*s
 // them — but a script that starts a run can start a script that starts a run,
 // and while Starlark has no while and no recursion, so a single run cannot
 // loop, a cycle ACROSS runs has nothing to stop it. It would also deadlock on
-// the way there: a worker executes one run at a time per replica
-// (internal/platform/scriptexec/worker.go), so a script waiting on a run it
-// queued is waiting on the worker it is itself occupying.
+// the way there: a run waiting on a run it queued holds one of the worker's
+// slots while it waits (internal/platform/scriptexec/worker.go), and once the
+// waiters hold every slot a replica admits, nothing is left to execute the
+// runs they wait on.
 //
 // The signal is PlatformContext.Source, which the run layer sets to
 // SourceScript for every call a run makes, so the guard covers a platform run
@@ -235,8 +244,8 @@ func refuseReentrantRun(ctx context.Context, what string) *mcp.CallToolResult {
 	if !insideRun(ctx) {
 		return nil
 	}
-	return errorResult(what + " cannot be called from inside a script run: a run executes one at a time, " +
-		"so a script waiting on a run it started would wait on the worker running it. " +
+	return errorResult(what + " cannot be called from inside a script run: a run waiting on a run it started " +
+		"holds a worker slot while it waits, and runs waiting on each other can hold every slot there is. " +
 		"Do the work in this script, or give the second script its own schedule.")
 }
 

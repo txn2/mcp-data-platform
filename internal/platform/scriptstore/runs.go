@@ -31,7 +31,8 @@ const runColumns = `id, script_id, script_version_id, version, trigger_kind, sta
 	params, fire_time, requested_by, scheduled_for, started_at, finished_at, attempt,
 	locked_until, locked_by, error, log_text, log_truncated, metrics, outputs,
 	COALESCE(schedule_id::text, ''), state_revision, state_read, state_written,
-	state_revision_written, created_at, updated_at`
+	state_revision_written, result, progress_message, progress_done, progress_total,
+	progress_at, cancel_requested_at, cancel_requested_by, created_at, updated_at`
 
 // stateAtCreation is the VALUES fragment every run insert carries for the two
 // state columns pinned at creation (#1537): the revision the script's state
@@ -53,6 +54,33 @@ const runSelect = "SELECT " + runColumns + " FROM script_runs"
 const dueClause = `((status = 'pending' AND scheduled_for <= NOW())
 	OR (status = 'running' AND locked_until < NOW()))`
 
+// liveColumns are the columns a run reports while it executes and hands back
+// when it ends (#1845, #1847), read as their nullable forms.
+type liveColumns struct {
+	result      []byte
+	message     string
+	done, total sql.NullInt64
+	at          *time.Time
+}
+
+// apply sets the run's result and, when it has reported any, its progress.
+func (l liveColumns) apply(r *script.Run) {
+	if len(l.result) > 0 {
+		r.Result = l.result
+	}
+	if l.at == nil {
+		return
+	}
+	p := &script.RunProgress{Message: l.message, At: *l.at}
+	if l.done.Valid {
+		p.Done = &l.done.Int64
+	}
+	if l.total.Valid {
+		p.Total = &l.total.Int64
+	}
+	r.Progress = p
+}
+
 // scanRun reads one row in runColumns order into a Run.
 func scanRun(sc rowScanner) (*script.Run, error) {
 	r := &script.Run{}
@@ -60,15 +88,18 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		paramsJSON, metricsJSON, outputsJSON []byte
 		stateRead, stateWritten              []byte
 		revisionWritten                      sql.NullInt64
+		live                                 liveColumns
 	)
 	err := sc.Scan(&r.ID, &r.ScriptID, &r.VersionID, &r.Version, &r.Trigger, &r.Status,
 		&paramsJSON, &r.FireTime, &r.RequestedBy, &r.ScheduledFor, &r.StartedAt, &r.FinishedAt,
 		&r.Attempt, &r.LockedUntil, &r.LockedBy, &r.Error, &r.Log, &r.LogTruncated,
 		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.StateRevision, &stateRead, &stateWritten,
-		&revisionWritten, &r.CreatedAt, &r.UpdatedAt)
+		&revisionWritten, &live.result, &live.message, &live.done, &live.total, &live.at,
+		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
+	live.apply(r)
 	if err := json.Unmarshal(paramsJSON, &r.Params); err != nil {
 		return nil, fmt.Errorf("unmarshal run params: %w", err)
 	}
@@ -395,18 +426,120 @@ func finishRow(ctx context.Context, db execer, row terminalRow) error {
 	if row.written != nil {
 		stateWritten, revisionWritten = row.written, row.revision
 	}
+	p := progressArgs(row.result.Progress)
 	res, err := db.ExecContext(ctx, `
 		UPDATE script_runs
 		   SET status = $4, error = $5, log_text = $6, log_truncated = $7,
 		       metrics = $8, state_written = $9, state_revision_written = $10,
+		       result = $11,
+		       progress_message = CASE WHEN $14::timestamptz IS NULL THEN progress_message ELSE $12 END,
+		       progress_done = CASE WHEN $14::timestamptz IS NULL THEN progress_done ELSE $13 END,
+		       progress_total = CASE WHEN $14::timestamptz IS NULL THEN progress_total ELSE $15 END,
+		       progress_at = COALESCE($14::timestamptz, progress_at),
 		       finished_at = NOW(), locked_until = NULL, updated_at = NOW()`+leaseClause,
 		row.lease.RunID, row.lease.Worker, row.lease.Attempt,
 		row.result.Status, row.result.Error, row.result.Log, row.result.LogTruncated, row.metrics,
-		stateWritten, revisionWritten)
+		stateWritten, revisionWritten, nullJSON(row.result.Result),
+		p.message, p.done, p.at, p.total)
 	if err != nil {
 		return fmt.Errorf("finish script run: %w", err)
 	}
 	return requireLease(res, row.lease)
+}
+
+// nullJSON binds an absent JSON value as NULL rather than as an empty string,
+// which JSONB would refuse.
+func nullJSON(v []byte) any {
+	if len(v) == 0 {
+		return nil
+	}
+	return v
+}
+
+// RecordProgress writes the claimed run's latest progress and the log it has
+// printed so far, and reads back whether a cancel was requested and by whom
+// (#1847). It is one statement, fenced on the lease like every other write a
+// worker makes, so the report and the cancel check cannot come from different
+// moments and a worker that lost its run neither writes nor learns anything.
+// An unchanged report leaves the row as it is and only answers the check.
+func (s *Store) RecordProgress(ctx context.Context, lease script.RunLease, live script.RunLive) (requested bool, by string, err error) {
+	p := progressArgs(live.Progress)
+	var cancelAt *time.Time
+	err = s.db.QueryRowContext(ctx, `
+		UPDATE script_runs
+		   SET log_text = CASE WHEN $10 THEN log_text ELSE $4 END,
+		       log_truncated = CASE WHEN $10 THEN log_truncated ELSE $5 END,
+		       progress_message = CASE WHEN $10 OR $8::timestamptz IS NULL THEN progress_message ELSE $6 END,
+		       progress_done = CASE WHEN $10 OR $8::timestamptz IS NULL THEN progress_done ELSE $7 END,
+		       progress_total = CASE WHEN $10 OR $8::timestamptz IS NULL THEN progress_total ELSE $9 END,
+		       progress_at = CASE WHEN $10 THEN progress_at ELSE COALESCE($8::timestamptz, progress_at) END,
+		       updated_at = NOW()`+leaseClause+`
+		 RETURNING cancel_requested_at, cancel_requested_by`,
+		lease.RunID, lease.Worker, lease.Attempt, live.Log, live.LogTruncated,
+		p.message, p.done, p.at, p.total, live.Unchanged).Scan(&cancelAt, &by)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, "", fmt.Errorf("run %s attempt %d is no longer held by %s: %w",
+			lease.RunID, lease.Attempt, lease.Worker, script.ErrLeaseLost)
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("record script run progress: %w", err)
+	}
+	return cancelAt != nil, by, nil
+}
+
+// progressColumns are a progress report bound as the columns store it, each
+// NULL when the report does not carry it.
+type progressColumns struct {
+	message         string
+	done, total, at any
+}
+
+// progressArgs binds a progress report; nil binds as no report at all.
+func progressArgs(p *script.RunProgress) progressColumns {
+	var out progressColumns
+	if p == nil {
+		return out
+	}
+	out.message, out.at = p.Message, p.At
+	if p.Done != nil {
+		out.done = *p.Done
+	}
+	if p.Total != nil {
+		out.total = *p.Total
+	}
+	return out
+}
+
+// CancelRun stops a run for by (#1847) and returns the status the run had
+// when the request arrived. The row is locked first and that status read under
+// the lock, so it is the one the update acted on: a pending run is finished as canceled in the same statement, so it
+// cannot be claimed in between; a running run is marked, and its worker stops
+// it at its next report; anything else has already ended and is left alone.
+func (s *Store) CancelRun(ctx context.Context, id, by string) (string, error) {
+	var prior string
+	err := s.db.QueryRowContext(ctx, `
+		WITH prior AS (SELECT id, status FROM script_runs WHERE id = $1 FOR UPDATE)
+		UPDATE script_runs r
+		   SET status = CASE WHEN prior.status = 'pending' THEN 'canceled' ELSE r.status END,
+		       finished_at = CASE WHEN prior.status = 'pending' THEN NOW() ELSE r.finished_at END,
+		       error = CASE WHEN prior.status = 'pending' THEN 'canceled by ' || $2 ELSE r.error END,
+		       cancel_requested_at = CASE WHEN prior.status IN ('pending', 'running')
+		                                  THEN COALESCE(r.cancel_requested_at, NOW())
+		                                  ELSE r.cancel_requested_at END,
+		       cancel_requested_by = CASE WHEN prior.status IN ('pending', 'running') AND r.cancel_requested_by = ''
+		                                  THEN $2 ELSE r.cancel_requested_by END,
+		       updated_at = NOW()
+		  FROM prior
+		 WHERE r.id = prior.id
+		 RETURNING prior.status`,
+		id, by).Scan(&prior)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", script.ErrRunNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("cancel script run: %w", err)
+	}
+	return prior, nil
 }
 
 // Retry returns the claimed run to pending, due after backoff. It is for
@@ -449,7 +582,7 @@ func requireLease(res sql.Result, lease script.RunLease) error {
 func (s *Store) PurgeRuns(ctx context.Context, retention time.Duration) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM script_runs
-		 WHERE status IN ('succeeded', 'failed', 'skipped_overlap')
+		 WHERE status IN ('succeeded', 'failed', 'skipped_overlap', 'canceled')
 		   AND finished_at < NOW() - ($1 || ' seconds')::INTERVAL`,
 		int(retention.Seconds()))
 	if err != nil {

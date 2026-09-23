@@ -2,6 +2,7 @@ package scripthttp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -143,6 +144,7 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Running one now (#1363). It is mounted with the history because it is the
 	// same store: what a run IS and what a run DID are one record.
 	mux.Handle("POST /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalRunScript)))
+	mux.Handle("POST /api/v1/portal/scripts/{id}/runs/{runID}/cancel", wrap(h.portalHandler(h.portalCancelRun)))
 }
 
 // portalHandler adapts a portal handler by resolving the caller first,
@@ -182,6 +184,12 @@ type portalRun struct {
 	// RequestedBy is who asked for the run, empty for a scheduled one, which
 	// nobody requested.
 	RequestedBy string `json:"requested_by,omitempty" example:"jane@example.com"`
+	// Progress is the run's latest platform.progress report (#1847): how far a
+	// running run has got, or the last thing a finished one said.
+	Progress *script.RunProgress `json:"progress,omitempty"`
+	// CancelRequested marks a running run somebody has asked to stop; it ends
+	// canceled within seconds.
+	CancelRequested bool `json:"cancel_requested,omitempty"`
 }
 
 // summarizeRun projects a run for a listing.
@@ -198,6 +206,10 @@ func summarizeRun(r *script.Run) portalRun {
 		Error:       r.Error,
 		OutputCount: len(r.Outputs),
 		RequestedBy: r.RequestedBy,
+		Progress:    r.Progress,
+		// Only while it can still act: a finished run's request is history,
+		// and its status already says how it ended.
+		CancelRequested: r.CancelRequestedAt != nil && !r.Terminal(),
 	}
 }
 
@@ -551,7 +563,8 @@ type portalRunDetail struct {
 	Attempt      int            `json:"attempt"`
 	Params       map[string]any `json:"params,omitempty"`
 	// Log is the run's own account of itself, bounded at capture time, so
-	// returning it whole is bounded too.
+	// returning it whole is bounded too. On a running run it is the log so
+	// far, written every few seconds (#1847).
 	Log          string             `json:"log,omitempty"`
 	LogTruncated bool               `json:"log_truncated,omitempty"`
 	Metrics      script.RunMetrics  `json:"metrics"`
@@ -564,7 +577,12 @@ type portalRunDetail struct {
 	StateRead            map[string]any `json:"state_read"`
 	StateWritten         map[string]any `json:"state_written,omitempty"`
 	StateRevisionWritten int64          `json:"state_revision_written,omitempty"`
-	CreatedAt            time.Time      `json:"created_at"`
+	// Result is the value the run handed back with platform.result (#1845),
+	// absent when it set none.
+	Result json.RawMessage `json:"result,omitempty" swaggertype:"object"`
+	// CancelRequestedBy is who asked a run to stop, on a run that was asked.
+	CancelRequestedBy string    `json:"cancel_requested_by,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // detailRun projects one run for the detail route.
@@ -583,6 +601,8 @@ func detailRun(r *script.Run) portalRunDetail {
 		StateRead:            orEmptyObject(r.StateRead),
 		StateWritten:         r.StateWritten,
 		StateRevisionWritten: r.StateRevisionWritten,
+		Result:               r.Result,
+		CancelRequestedBy:    r.CancelRequestedBy,
 		CreatedAt:            r.CreatedAt,
 	}
 }
@@ -785,34 +805,44 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/runs/{runID} [get]
 func (h *Handler) portalGetRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	run, ok := h.readableRun(w, r, user)
+	if !ok {
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, detailRun(run))
+}
+
+// readableRun reads the run in the path for a caller entitled to it, or
+// writes the refusal. A run id is unguessable, but unguessable is not an
+// authorization rule: the run must belong to the script in the path, and the
+// caller must be the script's owner, an administrator, or whoever asked for
+// this particular run -- the result was handed to them when they requested
+// it, so a run they cannot re-read is an id they cannot follow. Reading and
+// canceling a run answer to the same rule (#1847).
+func (h *Handler) readableRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) (*script.Run, bool) {
 	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get script")
-		return
+		return nil, false
 	}
 	if sc == nil {
 		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
-		return
+		return nil, false
 	}
 	run, err := h.deps.Runs.GetRun(r.Context(), r.PathValue(pathRunID))
 	if errors.Is(err, script.ErrRunNotFound) {
 		httpjson.WriteError(w, http.StatusNotFound, errRunNot)
-		return
+		return nil, false
 	}
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get run")
-		return
+		return nil, false
 	}
-	// A run id is unguessable, but unguessable is not an authorization rule.
-	// The run must belong to the script in the path, and the caller must be
-	// entitled to it: the script's owner, an administrator, or whoever asked
-	// for this particular run — the result was handed to them when they
-	// requested it, so a run they cannot re-read is an id they cannot follow.
 	if run.ScriptID != sc.ID || (!ownsScript(sc, user) && !ownsEmail(run.RequestedBy, user.owner())) {
 		httpjson.WriteError(w, http.StatusNotFound, errRunNot)
-		return
+		return nil, false
 	}
-	httpjson.WriteJSON(w, http.StatusOK, detailRun(run))
+	return run, true
 }
 
 // producedListResponse is everything one script has produced or modified.

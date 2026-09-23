@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/graphqlcatalog"
 	"github.com/txn2/mcp-data-platform/internal/platform/graphqlwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
+	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
@@ -119,6 +120,7 @@ func (p *Platform) graphQLExportDeps() *graphqlkit.ExportDeps {
 			}
 			return &graphqlkit.ExportUserContext{
 				UserID: pc.UserID, UserEmail: pc.UserEmail, SessionID: pc.SessionID,
+				RunOutputKey: producedby.RunOutputKey(ctx),
 			}
 		},
 	}

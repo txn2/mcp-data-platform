@@ -806,7 +806,9 @@ metadata:
     app.kubernetes.io/name: mcp-data-platform
     app.kubernetes.io/component: script-worker
 spec:
-  # A replica executes one run at a time, so concurrency is the replica count.
+  # Each replica admits runs while its memory and CPU have headroom
+  # (scripts.worker.concurrency: adaptive), so replicas add capacity and
+  # availability rather than being the whole of either.
   replicas: 2
   strategy:
     type: RollingUpdate
@@ -938,13 +940,18 @@ spec:
           emptyDir: {}
 ```
 
-Capacity, briefly. A worker executes one run at a time, so concurrent runs equal
-worker replicas: two replicas is enough for on-demand runs and a handful of
-schedules, and the signal to add more is queue wait — runs sitting `pending`
-while workers are busy — rather than CPU. Memory is the figure to set from
-measurement: give a worker the largest result set its approved scripts hold plus
-headroom, keep `GOMEMLIMIT` at about 90% of the limit, and remember that the
-approval gate is what decides how large that can get.
+Capacity, briefly. A worker admits runs while its memory and CPU are under
+their thresholds (`scripts.worker.concurrency: adaptive`, the default; see
+[how many runs a replica executes](../scripts/running.md#how-many-runs-a-replica-executes-at-once)),
+so a replica whose runs mostly wait on Trino and upstream APIs executes many at
+once, and the container's memory limit and CPU request are what size it. The
+signal to add replicas is `script_run_queue_wait_seconds` rising while
+`script_run_admission_refusals_total` counts `memory` or `cpu`; refusals by
+`ceiling` mean `max_concurrency` binds before the pod does. Memory is the figure
+to set from measurement: give a worker room for the largest result sets its
+scripts hold at once plus headroom, keep `GOMEMLIMIT` at about 90% of the
+limit, and remember that the per-query result caps (`max_query_rows` and the
+byte cap) are what bound one run's share of it.
 
 The worker pods still expose `/healthz`, `/readyz`, and `/metrics`, which is what
 the probes and the Prometheus scrape above use. Rolling them is safe at any

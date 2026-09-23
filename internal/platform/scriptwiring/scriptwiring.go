@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
@@ -69,6 +70,8 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Destinations:          deps.Destinations,
 		PortalURL:             deps.PortalURL,
 		RunRetention:          deps.RunRetention,
+		Limits:                runLimits(deps.Worker),
+		Admission:             admission(deps.Worker),
 		WorkerDisabled:        !deps.WorkerEnabled,
 		NotificationsDisabled: !deps.NotificationsEnabled,
 		DigestHourUTC:         deps.DigestHourUTC,
@@ -79,6 +82,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 		AdminPersona: deps.AdminPersona,
 		PortalURL:    deps.PortalURL,
 		Destinations: deps.Destinations,
+		// The ceilings a platform run executes under, which the help reports
+		// beside the draft limits (#1843).
+		RunLimits: runLimits(deps.Worker),
 		// The live toolkits, so a draft's write barrier reads what an
 		// api_invoke_endpoint call sends and what a proxied tool's upstream
 		// declares, rather than refusing both (#1664).
@@ -126,8 +132,11 @@ type Deps struct {
 	Subjects scriptexec.SubjectResolver
 	Metrics  *observability.Metrics
 
-	Destinations         []script.Destination
-	RunRetention         time.Duration
+	Destinations []script.Destination
+	RunRetention time.Duration
+	// Worker is the scripts.worker capacity settings: admission and a
+	// platform run's ceilings (#1843).
+	Worker               scriptadmit.Config
 	WorkerEnabled        bool
 	NotificationsEnabled bool
 	DigestHourUTC        int
@@ -138,4 +147,25 @@ type Deps struct {
 	// Bind hands the assembled tool layer back to the facade, which keeps it
 	// because the index queue binds its write-path producer (#1370).
 	Bind func(*scriptlayer.Handle)
+}
+
+// runLimits is a platform run's configured ceilings; unset fields take the
+// engine's defaults where the limits are applied.
+func runLimits(c scriptadmit.Config) scriptrun.PlatformLimits {
+	return scriptrun.PlatformLimits{
+		Timeout: c.RunTimeout, MaxSteps: uint64(max(c.MaxSteps, 0)), MaxRows: c.MaxQueryRows,
+		ResultMaxBytes: c.ResultMaxBytes,
+	}
+}
+
+// admission is the configured admission. Config.Validate refuses a value
+// scriptadmit cannot read before the platform is built, so one that arrives
+// here unread (a platform assembled without validating its config) runs
+// adaptive.
+func admission(c scriptadmit.Config) scriptadmit.Admission {
+	adm, err := c.Admission()
+	if err != nil {
+		return scriptadmit.Admission{}
+	}
+	return adm
 }

@@ -120,6 +120,11 @@ const (
 	instScriptRunDuration = "script_run_duration"
 	instScriptRunsRunning = "script_runs_running"
 	instScriptMissedFires = "script_missed_fires"
+	// The run worker's admission (#1843): what kept a replica from claiming
+	// another run, and how long a run waited in the queue once it was due, so
+	// an operator can tell capacity from load as what holds work back.
+	instScriptAdmissionRefusals = "script_run_admission_refusals"
+	instScriptQueueWait         = "script_run_queue_wait"
 
 	instTrinoQueries        = "trino_queries"
 	instTrinoQueryDuration  = "trino_query_duration"
@@ -192,6 +197,7 @@ const (
 	attrIdentity       = "identity"
 	// Toolkit / provider metric attribute keys (issue #461).
 	attrScript    = "script"
+	attrReason    = "reason"
 	attrTrigger   = "trigger"
 	attrStatus    = "status"
 	attrQueryKind = "query_kind"
@@ -299,6 +305,8 @@ type Metrics struct {
 	scriptRunDuration metric.Float64Histogram
 	scriptRunsRunning metric.Int64UpDownCounter
 	scriptMissedFires metric.Int64Counter
+	scriptRefusals    metric.Int64Counter
+	scriptQueueWait   metric.Float64Histogram
 
 	trinoQueriesTotal    metric.Int64Counter
 	trinoQueryDuration   metric.Float64Histogram
@@ -563,6 +571,18 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 				metric.WithDescription("Total scheduled fires stepped over by the misfire policy, labeled by script. A rising value is an automation that is not keeping its cadence."))
 			m.scriptMissedFires = v
 			return wrapReg(instScriptMissedFires, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instScriptAdmissionRefusals,
+				metric.WithDescription("Times a replica's run worker declined to claim another run while the queue held work, labeled by reason (ceiling, memory, cpu). A steady rate is a replica at capacity; the runs wait queued for this one or another replica."))
+			m.scriptRefusals = v
+			return wrapReg(instScriptAdmissionRefusals, err)
+		},
+		func() error {
+			v, err := meter.Float64Histogram(instScriptQueueWait,
+				metric.WithDescription("Seconds a managed-script run waited in the queue between becoming due and being claimed."), metric.WithUnit(unitSeconds))
+			m.scriptQueueWait = v
+			return wrapReg(instScriptQueueWait, err)
 		},
 		func() error {
 			v, err := meter.Int64Counter(instTrinoQueries,
@@ -941,6 +961,25 @@ func (m *Metrics) ScriptRunFinished(ctx context.Context) {
 		return
 	}
 	m.scriptRunsRunning.Add(ctx, -1)
+}
+
+// RecordScriptAdmissionRefused records the run worker declining to claim
+// another run, for the reason it gave (#1843). Nil-safe.
+func (m *Metrics) RecordScriptAdmissionRefused(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+	m.scriptRefusals.Add(ctx, 1, metric.WithAttributes(attribute.String(attrReason, reason)))
+}
+
+// RecordScriptQueueWait records how long a claimed run waited after it became
+// due. A negative wait (a clock skewed between replicas) is recorded as zero.
+// Nil-safe.
+func (m *Metrics) RecordScriptQueueWait(ctx context.Context, wait time.Duration) {
+	if m == nil {
+		return
+	}
+	m.scriptQueueWait.Record(ctx, max(wait, 0).Seconds())
 }
 
 // RecordScriptMissedFires records fires the misfire policy stepped over for one

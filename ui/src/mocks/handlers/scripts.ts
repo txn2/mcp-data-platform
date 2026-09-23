@@ -860,6 +860,20 @@ export const scriptHandlers = [
     return HttpResponse.json({ data: list, total: list.length });
   }),
 
+  // Canceling a run (#1847). Every mocked run has already finished, which is
+  // what the route answers for one: nothing changed, and it says why.
+  http.post(`${PORTAL_BASE}/scripts/:id/runs/:runID/cancel`, ({ params }) => {
+    const run = mockScriptRunDetails[String(params.runID)];
+    if (!run || run.script_id !== String(params.id)) {
+      return HttpResponse.json({ detail: "run not found" }, { status: 404 });
+    }
+    return HttpResponse.json({
+      run_id: run.id,
+      outcome: "already_finished",
+      message: `The run had already finished (${run.status}); nothing was changed.`,
+    });
+  }),
+
   http.get(`${PORTAL_BASE}/scripts/:id/runs/:runID`, ({ params }) => {
     const run = mockScriptRunDetails[String(params.runID)];
     // A run of another script is answered exactly as a run that does not

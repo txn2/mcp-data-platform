@@ -102,9 +102,10 @@ platform.export(name="delta", rows=[{"a": 1}], format="csv", destination="nowher
 }
 
 // TestIntegration_TwoRunsReadingOneRevisionCannotBothWrite: both runs are
-// created before either executes, so both read revision 0; the worker then
-// executes them in order, the first writes revision 1, and the second fails at
-// its write naming the first, its output already recorded.
+// created before either executes, so both read revision 0. The worker executes
+// them at once (#1843), so which reaches its write first is not fixed: that one
+// writes revision 1, and the other fails at its write naming it, its output
+// already recorded.
 func TestIntegration_TwoRunsReadingOneRevisionCannotBothWrite(t *testing.T) {
 	ctx := context.Background()
 	h := execServerWithWorker(t, false, "warehouse")
@@ -122,12 +123,16 @@ func TestIntegration_TwoRunsReadingOneRevisionCannotBothWrite(t *testing.T) {
 	doneA := awaitRunResult(ctx, t, session, str(a, "run_id"))
 	doneB := awaitRunResult(ctx, t, session, str(b, "run_id"))
 
-	assert.Equal(t, script.RunStatusSucceeded, doneA["status"], doneA)
-	assert.Equal(t, float64(1), doneA["state_revision_written"])
-	assert.Equal(t, script.RunStatusFailed, doneB["status"], "the second write is refused rather than lost")
-	assert.Contains(t, doneB["error"], "run "+str(a, "run_id"), "the failure names the run that wrote")
-	assert.Contains(t, doneB["error"], "outputs stand")
-	outputs, ok := doneB["outputs"].([]any)
+	winner, loser := doneA, doneB
+	if doneB["status"] == script.RunStatusSucceeded {
+		winner, loser = doneB, doneA
+	}
+	assert.Equal(t, script.RunStatusSucceeded, winner["status"], winner)
+	assert.Equal(t, float64(1), winner["state_revision_written"])
+	assert.Equal(t, script.RunStatusFailed, loser["status"], "the second write is refused rather than lost")
+	assert.Contains(t, loser["error"], "run "+str(winner, "run_id"), "the failure names the run that wrote")
+	assert.Contains(t, loser["error"], "outputs stand")
+	outputs, ok := loser["outputs"].([]any)
 	require.True(t, ok)
 	assert.Len(t, outputs, 1, "the loser's output was produced from the state it read, and stands")
 
@@ -162,7 +167,7 @@ func awaitRunResult(ctx context.Context, t *testing.T, session *mcp.ClientSessio
 			return false
 		}
 		s, _ := out["status"].(string)
-		return s == script.RunStatusSucceeded || s == script.RunStatusFailed
+		return (&script.Run{Status: s}).Terminal()
 	}, 10*time.Second, 25*time.Millisecond)
 	out, _ := callTool(ctx, t, session, map[string]any{"command": cmdGetRun, "run_id": runID})
 	return out

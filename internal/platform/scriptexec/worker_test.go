@@ -42,6 +42,8 @@ type fakeRuns struct {
 	blockWrites bool
 	purged      int64
 	purgeErr    error
+	// reports are the live snapshots a running run wrote (#1847).
+	reports []script.RunLive
 }
 
 func (f *fakeRuns) Enqueue(_ context.Context, r *script.Run) error {
@@ -154,6 +156,56 @@ func (f *fakeRuns) Retry(ctx context.Context, lease script.RunLease, cause strin
 	return nil
 }
 
+// RecordProgress models the real store: fenced on the lease, an unchanged
+// report leaves the row alone, and the cancel flag is read back.
+func (f *fakeRuns) RecordProgress(_ context.Context, lease script.RunLease, live script.RunLive) (requested bool, by string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if heldErr := f.held(lease); heldErr != nil {
+		return false, "", heldErr
+	}
+	f.reports = append(f.reports, live)
+	for _, r := range f.queue {
+		if r.ID == lease.RunID {
+			return r.CancelRequestedAt != nil, r.CancelRequestedBy, nil
+		}
+	}
+	return false, "", nil
+}
+
+// CancelRun models the real store's transition from the run's prior status.
+func (f *fakeRuns) CancelRun(_ context.Context, id, by string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.find(id)
+	if !ok {
+		return "", script.ErrRunNotFound
+	}
+	prior := r.Status
+	switch prior {
+	case script.RunStatusPending:
+		now := time.Now().UTC()
+		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &now, "canceled by "+by
+		r.CancelRequestedAt, r.CancelRequestedBy = &now, by
+	case script.RunStatusRunning:
+		if r.CancelRequestedAt == nil {
+			now := time.Now().UTC()
+			r.CancelRequestedAt, r.CancelRequestedBy = &now, by
+		}
+	}
+	return prior, nil
+}
+
+// find returns the stored row for id. The caller holds the lock.
+func (f *fakeRuns) find(id string) (*script.Run, bool) {
+	for _, r := range f.queue {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return nil, false
+}
+
 func (f *fakeRuns) PurgeRuns(_ context.Context, _ time.Duration) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -255,8 +307,15 @@ func newTestWorker(t *testing.T, mutate func(*script.Script, *script.Version), o
 	exec := &fakeExecutor{out: out}
 	return newWorker(workerConfig{
 		runs: runs, scripts: &fakeScripts{script: sc}, versions: &fakeVersions{version: v},
-		runner: exec,
+		runner: exec, load: fakeLoad{},
 	}), runs, exec
+}
+
+// drainAll drains the queue and waits for every run it launched, which is the
+// synchronous view a test of one run's outcome needs.
+func drainAll(w *worker) {
+	w.drain()
+	w.wg.Wait()
 }
 
 // succeeded is the attempt a clean run produces.
@@ -266,7 +325,7 @@ var succeeded = attempt{result: script.RunResult{Status: script.RunStatusSucceed
 // execute, finish.
 func TestWorker_ExecutesADueRunAndRecordsTheResult(t *testing.T) {
 	w, runs, exec := newTestWorker(t, nil, succeeded)
-	w.drain()
+	drainAll(w)
 
 	assert.Equal(t, 1, exec.called)
 	results := runs.results()
@@ -297,7 +356,7 @@ func TestWorker_ReChecksTheGateBeforeExecuting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w, runs, exec := newTestWorker(t, tt.mutate, succeeded)
-			w.drain()
+			drainAll(w)
 
 			assert.Zero(t, exec.called, "a refused run must not reach the interpreter")
 			results := runs.results()
@@ -314,7 +373,7 @@ func TestWorker_MissingScriptOrVersionFailsTheRun(t *testing.T) {
 	t.Run("script gone", func(t *testing.T) {
 		w, runs, _ := newTestWorker(t, nil, succeeded)
 		w.cfg.scripts = &fakeScripts{}
-		w.drain()
+		drainAll(w)
 		require.Len(t, runs.results(), 1)
 		assert.Contains(t, runs.results()[0].Error, "no longer exists")
 	})
@@ -322,7 +381,7 @@ func TestWorker_MissingScriptOrVersionFailsTheRun(t *testing.T) {
 	t.Run("version gone", func(t *testing.T) {
 		w, runs, _ := newTestWorker(t, nil, succeeded)
 		w.cfg.versions = &fakeVersions{}
-		w.drain()
+		drainAll(w)
 		require.Len(t, runs.results(), 1)
 		assert.Contains(t, runs.results()[0].Error, "no longer exists")
 	})
@@ -342,7 +401,7 @@ func TestWorker_StoreReadFailuresRetry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w, runs, _ := newTestWorker(t, nil, succeeded)
 			tt.apply(w)
-			w.drain()
+			drainAll(w)
 
 			assert.Empty(t, runs.results(), "a platform fault is not a script failure")
 			require.Len(t, runs.retried, 1)
@@ -358,7 +417,7 @@ func TestWorker_ScriptFailuresNeverRetry(t *testing.T) {
 	w, runs, _ := newTestWorker(t, nil, attempt{
 		result: script.RunResult{Status: script.RunStatusFailed, Error: "Traceback: boom"},
 	})
-	w.drain()
+	drainAll(w)
 
 	assert.Empty(t, runs.retried)
 	require.Len(t, runs.results(), 1)
@@ -372,9 +431,9 @@ func TestWorker_RetryBudgetIsBounded(t *testing.T) {
 	w.cfg.scripts = &fakeScripts{err: errors.New("boom")}
 	w.cfg.maxAttempts = 2
 
-	w.drain() // attempt 1: retried with a backoff
+	drainAll(w) // attempt 1: retried with a backoff
 	runs.dueAt = nil
-	w.drain() // attempt 2: budget spent, failed
+	drainAll(w) // attempt 2: budget spent, failed
 	assert.Len(t, runs.retried, 1)
 	require.Len(t, runs.results(), 1)
 	assert.Contains(t, runs.results()[0].Error, "boom")
@@ -386,7 +445,7 @@ func TestWorker_RetryBudgetIsBounded(t *testing.T) {
 func TestWorker_LostLeaseIsNotAnError(t *testing.T) {
 	w, runs, _ := newTestWorker(t, nil, succeeded)
 	runs.writeErr = script.ErrLeaseLost
-	w.drain()
+	drainAll(w)
 	assert.Empty(t, runs.results())
 }
 
@@ -395,7 +454,7 @@ func TestWorker_LostLeaseIsNotAnError(t *testing.T) {
 func TestWorker_ClaimFailuresStopTheDrain(t *testing.T) {
 	w, runs, exec := newTestWorker(t, nil, succeeded)
 	runs.claimErr = errors.New("boom")
-	w.drain()
+	drainAll(w)
 	assert.Zero(t, exec.called)
 }
 
@@ -403,15 +462,15 @@ func TestWorker_ClaimFailuresStopTheDrain(t *testing.T) {
 // window rather than on every drain.
 func TestWorker_PurgeIsThrottled(t *testing.T) {
 	w, runs, _ := newTestWorker(t, nil, succeeded)
-	w.drain()
-	w.drain()
+	drainAll(w)
+	drainAll(w)
 	assert.Equal(t, int64(1), runs.purged)
 }
 
 func TestWorker_PurgeFailureIsNotFatal(t *testing.T) {
 	w, runs, exec := newTestWorker(t, nil, succeeded)
 	runs.purgeErr = errors.New("boom")
-	w.drain()
+	drainAll(w)
 	assert.Equal(t, 1, exec.called, "a failed sweep must not stop the queue draining")
 }
 
@@ -581,9 +640,8 @@ func TestWorker_ARunThatSucceededAsTheCancelLandedIsRecorded(t *testing.T) {
 	run, err := runs.Claim(context.Background(), w.id, time.Minute)
 	require.NoError(t, err)
 
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	w.resolve(canceled, run, succeeded)
+	w.cancelRun()
+	w.resolve(run, succeeded)
 
 	assert.Empty(t, runs.retried)
 	require.Len(t, runs.results(), 1)
@@ -679,7 +737,7 @@ func TestWorker_RecordsTheRunItExecuted(t *testing.T) {
 
 	w, _, _ := newTestWorker(t, nil, succeeded)
 	w.cfg.metrics = m
-	w.drain()
+	drainAll(w)
 
 	body := scrapeWorkerMetrics(t, m)
 	assert.Contains(t, body, "script_runs_total")
@@ -700,7 +758,7 @@ func TestWorker_RecordsARunThatCouldNotLoadItsScript(t *testing.T) {
 	w, _, _ := newTestWorker(t, nil, succeeded)
 	w.cfg.scripts = &fakeScripts{}
 	w.cfg.metrics = m
-	w.drain()
+	drainAll(w)
 
 	body := scrapeWorkerMetrics(t, m)
 	assert.Contains(t, body, `status="failed"`)

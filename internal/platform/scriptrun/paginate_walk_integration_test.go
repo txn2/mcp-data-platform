@@ -95,7 +95,7 @@ func TestIntegration_AScriptWalksAPaginatedAPIInOneCall(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
-	opts := RunLimits()
+	opts := RunLimits(PlatformLimits{})
 	opts.Source = strings.Join([]string{
 		`out = platform.call("api_export", {`,
 		`    "connection": "vendor", "method": "GET", "path": "/v1/changelog", "name": "changelog.json",`,

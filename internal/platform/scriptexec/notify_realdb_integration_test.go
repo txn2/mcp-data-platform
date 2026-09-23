@@ -46,7 +46,7 @@ func TestRealDB_AFailedScheduledRunLandsANotificationRow(t *testing.T) {
 		notifier: notifier,
 	})
 
-	w.drain()
+	drainAll(w)
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT recipient, category, payload->>'kind', payload->>'item_id', payload->>'message'
@@ -90,7 +90,7 @@ func TestRealDB_ASuccessfulScheduledRunMailsNobody(t *testing.T) {
 		notifier: newNotifier(Config{DB: db}),
 	})
 
-	w.drain()
+	drainAll(w)
 
 	var count int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications`).Scan(&count))

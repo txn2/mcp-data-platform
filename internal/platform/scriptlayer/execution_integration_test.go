@@ -176,6 +176,10 @@ func (m *memRuns) Finish(_ context.Context, lease script.RunLease, res script.Ru
 	finished := time.Now().UTC()
 	r.Status, r.Error, r.Log, r.LogTruncated = res.Status, res.Error, res.Log, res.LogTruncated
 	r.Metrics, r.FinishedAt = res.Metrics, &finished
+	r.Result = res.Result
+	if res.Progress != nil {
+		r.Progress = res.Progress
+	}
 	if res.State != nil && res.Status == script.RunStatusSucceeded && m.states != nil {
 		revision, err := m.states.writeRunState(r.ScriptID, r.ID, r.StateRevision, res.State.Value)
 		if err != nil {
@@ -199,6 +203,47 @@ func (m *memRuns) Retry(_ context.Context, lease script.RunLease, cause string, 
 }
 
 func (*memRuns) PurgeRuns(context.Context, time.Duration) (int64, error) { return 0, nil }
+
+// RecordProgress models the real store: fenced on the lease, an unchanged
+// report leaves the row alone, and the cancel flag is read back.
+func (m *memRuns) RecordProgress(_ context.Context, lease script.RunLease, live script.RunLive) (requested bool, by string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, heldErr := m.held(lease)
+	if heldErr != nil {
+		return false, "", heldErr
+	}
+	if !live.Unchanged {
+		r.Log, r.LogTruncated = live.Log, live.LogTruncated
+		if live.Progress != nil {
+			r.Progress = live.Progress
+		}
+	}
+	return r.CancelRequestedAt != nil, r.CancelRequestedBy, nil
+}
+
+// CancelRun models the real store's transition from the run's prior status.
+func (m *memRuns) CancelRun(_ context.Context, id, by string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.byID[id]
+	if !ok {
+		return "", script.ErrRunNotFound
+	}
+	prior := r.Status
+	switch prior {
+	case script.RunStatusPending:
+		now := time.Now().UTC()
+		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &now, "canceled by "+by
+		r.CancelRequestedAt, r.CancelRequestedBy = &now, by
+	case script.RunStatusRunning:
+		if r.CancelRequestedAt == nil {
+			now := time.Now().UTC()
+			r.CancelRequestedAt, r.CancelRequestedBy = &now, by
+		}
+	}
+	return prior, nil
+}
 
 // memAssets, memVersions and memS3 stand in for the portal persistence the
 // output writer targets.
@@ -343,6 +388,13 @@ func (a *connectionAuthz) IsAuthorized(_ context.Context, _ string, _ []string, 
 type executeInput struct {
 	SQL        string `json:"sql"`
 	Connection string `json:"connection,omitempty"`
+}
+
+// exportToolInput is the part of a trino_export call the stand-in reads.
+type exportToolInput struct {
+	SQL    string `json:"sql"`
+	Name   string `json:"name,omitempty"`
+	Format string `json:"format,omitempty"`
 }
 
 // recordingExecutes collects what the write tool was asked to run.
@@ -525,6 +577,17 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 			executes.record(in)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}},
 				map[string]any{"statement": in.SQL, "rows_affected": 1}, nil
+		})
+
+	// trino_export answers in the real tool's result shape (exportOutput in
+	// pkg/toolkits/trino): a new asset, its format, rows and size (#1854).
+	mcp.AddTool(server, &mcp.Tool{Name: "trino_export", Description: "export"},
+		func(_ context.Context, _ *mcp.CallToolRequest, in exportToolInput) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}},
+				map[string]any{
+					"asset_id": "asset-export-" + in.Name, "format": in.Format,
+					"row_count": 52000, "size_bytes": 4_100_000, "message": "exported",
+				}, nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "api_invoke_endpoint", Description: "invoke"},
@@ -1085,8 +1148,8 @@ func TestIntegration_MiddlewareRefusesAToolThePersonaLacks(t *testing.T) {
 
 // TestIntegration_AScriptCannotStartARun pins the runaway-work guard. It is not
 // authorization — run_script is a tool the caller's own persona allows — it is
-// that a worker executes one run at a time per replica, so a script waiting on
-// a run it queued would wait on the worker running it.
+// that a run waiting on a run it queued holds a worker slot while it waits, and
+// runs waiting on each other can hold every slot a replica admits.
 func TestIntegration_AScriptCannotStartARun(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")

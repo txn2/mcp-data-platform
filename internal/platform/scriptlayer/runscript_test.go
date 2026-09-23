@@ -23,6 +23,14 @@ type stubRuns struct {
 	enqueueErr error
 	getErr     error
 	listErr    error
+	cancelErr  error
+}
+
+func (s *stubRuns) CancelRun(ctx context.Context, id, by string) (string, error) {
+	if s.cancelErr != nil {
+		return "", s.cancelErr
+	}
+	return s.memRuns.CancelRun(ctx, id, by)
 }
 
 func newStubRuns() *stubRuns { return &stubRuns{memRuns: newMemRuns()} }
@@ -578,4 +586,54 @@ func TestRunScript_OffersADraftRunOnlyWhereOneWouldBeAdmitted(t *testing.T) {
 				"run_draft refuses this state too, so naming it sends the caller to a second refusal")
 		})
 	}
+}
+
+// TestCancelRun_Refusals covers cancel_run's answers short of a cancel: no run
+// store, a run the caller may not read (the same answer as none), a read that
+// fails, and a store that refuses the cancel.
+func TestCancelRun_Refusals(t *testing.T) {
+	t.Run("no run store", func(t *testing.T) {
+		h := New(Config{Store: newMemStore(), AdminPersona: "admin"})
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCancelRun, RunID: "dpx_1"})
+		assert.Contains(t, resultText(res), "keeps no script runs")
+	})
+
+	queued := func(t *testing.T) (*Handle, *stubRuns, string) {
+		t.Helper()
+		h, _, runs := runnableHandle(t)
+		out := runScriptCall(t, h, runScriptInput{Name: "daily", WaitSeconds: -1})
+		runID, ok := out["run_id"].(string)
+		require.True(t, ok)
+		return h, runs, runID
+	}
+
+	t.Run("a stranger is told there is no such run", func(t *testing.T) {
+		h, runs, runID := queued(t)
+		res := call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{Command: cmdCancelRun, RunID: runID})
+		assert.True(t, res.IsError)
+		assert.Contains(t, resultText(res), "run not found")
+		got, err := runs.GetRun(context.Background(), runID)
+		require.NoError(t, err)
+		assert.Equal(t, script.RunStatusPending, got.Status, "nothing was canceled")
+	})
+
+	t.Run("reading the run fails", func(t *testing.T) {
+		h, runs, runID := queued(t)
+		runs.getErr = errors.New("boom")
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCancelRun, RunID: runID})
+		assert.Contains(t, resultText(res), "failed to read the run")
+	})
+
+	t.Run("the store refuses the cancel", func(t *testing.T) {
+		h, runs, runID := queued(t)
+		runs.cancelErr = errors.New("boom")
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCancelRun, RunID: runID})
+		assert.Contains(t, resultText(res), "failed to cancel the run")
+	})
+
+	t.Run("the owner cancels a queued run", func(t *testing.T) {
+		h, _, runID := queued(t)
+		out := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdCancelRun, RunID: runID}))
+		assert.Equal(t, "canceled", out["outcome"])
+	})
 }

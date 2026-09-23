@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 
 	"go.starlark.net/starlark"
@@ -77,7 +77,10 @@ const (
 // member" refusal. It is not a boundary: platform.call reaches every tool the
 // run's persona authorizes, and what a script reaches is read from the source
 // by Validate, which reports the tool names it names.
-var Capabilities = []string{CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState, CapabilityNotify, CapabilityPublish}
+var Capabilities = []string{
+	CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
+	CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
+}
 
 // The formats platform.export accepts, split by what serializes them. A format
 // may appear in both sets: markdown and text are sometimes a table computed
@@ -159,7 +162,7 @@ func argErr(b *starlark.Builtin, err error) error {
 type hostState struct {
 	opts    Options
 	ctx     context.Context //nolint:containedctx // one run's context, bound for the life of that run and used only by its host bindings
-	log     *logBuffer
+	log     *scriptlive.Live
 	queries int
 	exports []ExportRecord
 	// writes records the persisting platform.call calls the run made, in call
@@ -408,6 +411,8 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	// registered over it, and the run log carries that the way it carries an
 	// export's (#1536): the run that put a table behind its file says so.
 	h.noteTables(tool, tableSentences(out))
+	// An export tool's file is an output of this run (#1854).
+	h.recordToolOutput(tool, payload, out)
 	// The byte cap is the query binding's, applied here for the same reason: a
 	// heap the interpreter cannot bound is the one resource no limit in this
 	// engine covers, and a tool asked for more than a run can hold must fail
@@ -416,7 +421,7 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 		return nil, fmt.Errorf("result of %s(%q) is %d bytes, over the %d-byte cap; narrow what the tool is asked for",
 			b.Name(), tool, n, h.opts.MaxResultBytes)
 	}
-	value, err := starlarkconv.ToStarlark(out)
+	value, err := starlarkconv.ResultToStarlark(out)
 	if err != nil {
 		return nil, fmt.Errorf("converting the result of %s(%q): %w", b.Name(), tool, err)
 	}
@@ -590,13 +595,18 @@ func (h *hostState) queryResult(name string, out map[string]any) (starlark.Value
 			name, n, h.opts.MaxResultBytes)
 	}
 	result := starlark.NewDict(queryResultFields)
-	for _, key := range []string{"columns", "rows"} {
-		v, err := starlarkconv.ToStarlark(out[key])
-		if err != nil {
-			return nil, fmt.Errorf("converting the %s field of the %s result: %w", key, name, err)
-		}
-		_ = result.SetKey(starlark.String(key), v)
+	columns, err := starlarkconv.ToStarlark(out["columns"])
+	if err != nil {
+		return nil, fmt.Errorf("converting the columns field of the %s result: %w", name, err)
 	}
+	_ = result.SetKey(starlark.String("columns"), columns)
+	// Each row is built in the SELECT's column order (#1852); the columns
+	// field is the only place that order survives the JSON object a row is.
+	converted, err := starlarkconv.RowsToStarlark(rows, starlarkconv.ColumnNames(out["columns"]))
+	if err != nil {
+		return nil, fmt.Errorf("converting the rows field of the %s result: %w", name, err)
+	}
+	_ = result.SetKey(starlark.String("rows"), converted)
 	_ = result.SetKey(starlark.String("row_count"), starlark.MakeInt(len(rows)))
 	return result, nil
 }
@@ -674,7 +684,7 @@ func (h *hostState) declareReferences(b *starlark.Builtin, req ExportRequest, re
 		return nil
 	}
 	if record.UndeclaredReferences = exportrefs.Undeclared(*req.Body, req.References); len(record.UndeclaredReferences) > 0 {
-		h.log.write(exportrefs.LogLine(record.Name, record.UndeclaredReferences))
+		h.log.Print(exportrefs.LogLine(record.Name, record.UndeclaredReferences))
 	}
 	if record.References = req.References; req.References == nil || record.Preview {
 		return nil
@@ -823,7 +833,7 @@ func (h *hostState) finishRecord(
 // there, whether or not the script prints the result it was handed.
 func (h *hostState) noteTables(subject string, changes []string) {
 	for _, line := range changes {
-		h.log.write("table_changes: " + subject + ": " + line)
+		h.log.Print("table_changes: " + subject + ": " + line)
 	}
 }
 
@@ -838,10 +848,10 @@ func (h *hostState) noteChannel(payload, out map[string]any) {
 	}
 	action, _ := payload["action"].(string)
 	if detail, ok := out["detail"].(string); ok {
-		h.log.write("notify: " + action + " to " + channel + ": " + detail)
+		h.log.Print("notify: " + action + " to " + channel + ": " + detail)
 		return
 	}
-	h.log.write("notify: " + action + " to " + channel)
+	h.log.Print("notify: " + action + " to " + channel)
 }
 
 // PublishRowCount reports the honest row count of a payload: the length of a
@@ -1150,56 +1160,6 @@ func approxJSONBytes(v any) int {
 		return 0
 	}
 	return len(data)
-}
-
-// logBuffer captures print output up to a byte cap. Past the cap it keeps the
-// HEAD and drops the tail: the first lines of a failing run explain how it got
-// there, while the last lines of a runaway loop are the same line repeated.
-type logBuffer struct {
-	limit     int
-	buf       strings.Builder
-	truncated bool
-}
-
-// write appends one print line, stopping at the cap.
-func (l *logBuffer) write(msg string) {
-	if l.truncated {
-		return
-	}
-	remaining := l.limit - l.buf.Len()
-	if remaining <= 0 {
-		l.truncated = true
-		return
-	}
-	line := msg + "\n"
-	if len(line) > remaining {
-		// Cut on a rune boundary: a byte-offset cut through a multi-byte
-		// character leaves an invalid byte that json.Marshal silently rewrites
-		// to U+FFFD in the response.
-		l.buf.WriteString(truncateRunes(line, remaining))
-		l.truncated = true
-		return
-	}
-	l.buf.WriteString(line)
-}
-
-// truncateRunes cuts s to at most n bytes without splitting a rune.
-func truncateRunes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
-}
-
-// string returns the captured log, marked when output was dropped.
-func (l *logBuffer) string() string {
-	if l.truncated {
-		return l.buf.String() + "\n... log truncated at the size cap; write large output as an export instead\n"
-	}
-	return l.buf.String()
 }
 
 // MaxOutputBytes caps one serialized output. It matches the ceiling the portal

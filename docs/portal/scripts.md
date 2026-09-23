@@ -222,8 +222,16 @@ trigger is a short enumeration and the version is the same number down the whole
 — so they sit under it in the row rather than each holding a column open.
 
 The section header carries what the history adds up to — the share that succeeded, how
-many failed or were skipped, and the median duration — over the runs actually loaded,
-which the sentence names rather than implying it covers all time.
+many failed, were skipped or were canceled, and the median duration — over the runs
+actually loaded, which the sentence names rather than implying it covers all time.
+
+A run still in flight says how far it has got under its status, from the script's latest
+`platform.progress` report (`120 of 500 · entities`), and says Stopping once somebody has
+asked it to stop. Opening it shows the log printed so far, re-read every few seconds
+while the run is queued or executing, and a control to stop it: Cancel run for a queued
+run, which then never starts, and Stop run for an executing one, which ends canceled
+within seconds and keeps what it already wrote (#1847). A run that handed a value back
+with `platform.result` shows it as Result (#1845).
 
 It sits directly under the code, because an error here is answered by the text above it,
 and nothing in it holds the page open sideways: a failure message wraps to as many lines

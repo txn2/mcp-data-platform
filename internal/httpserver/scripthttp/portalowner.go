@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/transferwords"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -196,34 +195,14 @@ func (h *Handler) outputsBefore(
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read what this script produced")
 		return nil, false
 	}
-	created := createdOutputs(items)
+	created := transferwords.Created(items)
 	if len(created) > 0 && outputs == "" {
 		httpjson.WriteError(w, http.StatusBadRequest, fmt.Sprintf(
 			"%s's runs have written %s. Say whether they move with it (\"outputs\": \"move\") or stay with %s (\"outputs\": \"keep\").",
-			sc.Name, countOutputs(created), keptWith(created, sc.OwnerEmail)))
+			sc.Name, transferwords.Count(created), transferwords.KeptWith(created, sc.OwnerEmail)))
 		return nil, false
 	}
 	return created, true
-}
-
-// createdOutputs narrows what a script wrote to what a transfer is about: the
-// live assets and collections its runs CREATED. A file the script only wrote a
-// version over is somebody else's and is not the script's to move; a resource
-// is filed by library rather than by address and has no owner to change; a
-// deleted file is gone either way.
-func createdOutputs(items []producedview.Item) []producedview.Item {
-	out := make([]producedview.Item, 0, len(items))
-	for _, it := range items {
-		switch it.TargetKind {
-		case producedview.TargetAsset, producedview.TargetCollection:
-		default:
-			continue
-		}
-		if it.Created && !it.Deleted {
-			out = append(out, it)
-		}
-	}
-	return out
 }
 
 // outputsAfter is the account the response carries. Moved outputs are counted
@@ -252,7 +231,7 @@ func outputsAfter(
 		} else {
 			acct.Collections++
 		}
-		if !sameAddress(it.OwnerEmail, owner) {
+		if !transferwords.SameAddress(it.OwnerEmail, owner) {
 			acct.Kept = append(acct.Kept, ownerOutput{
 				TargetKind: it.TargetKind, TargetID: it.TargetID, Name: it.Name, OwnerEmail: it.OwnerEmail,
 			})
@@ -261,92 +240,20 @@ func outputsAfter(
 	return acct
 }
 
-// outputsSentence states, after the sentence about the script, what became of
-// its outputs. It is the answer to the question the ticket found nobody was
-// asked (#1588): a transfer moves the automation, and whether the files it
-// refreshes went with it is the part an administrator is most likely to be
-// wrong about.
+// outputsSentence states what became of the script's outputs, in
+// transferwords' words, from the account the response carries.
 func outputsSentence(acct *ownerOutputs, owner string) string {
 	if acct == nil {
 		return ""
 	}
-	files := countOutputs2(acct.Assets, acct.Collections)
-	if acct.Disposition == string(script.OutputsMove) {
-		return " The " + files + " its runs wrote now belong to " + owner + " too."
+	kept := make([]string, 0, len(acct.Kept))
+	for _, it := range acct.Kept {
+		kept = append(kept, it.OwnerEmail)
 	}
-	if len(acct.Kept) == 0 {
-		return " The " + files + " its runs wrote already belong to " + owner + "."
-	}
-	return " The " + files + " its runs wrote stay with " + keptOwners(acct.Kept) + ". " +
-		owner + " cannot open, share or delete them, and each run goes on writing a new version into them."
-}
-
-// keptOwners names who the kept outputs stayed with: one address when they
-// share one, and the plain fact when they do not.
-func keptOwners(kept []ownerOutput) string {
-	owner := kept[0].OwnerEmail
-	for _, it := range kept[1:] {
-		if !strings.EqualFold(it.OwnerEmail, owner) {
-			return "their current owners"
-		}
-	}
-	if owner == "" {
-		return "nobody"
-	}
-	return owner
-}
-
-// keptWith names who the outputs stay with when they are not moved, for the
-// refusal that asks the caller to choose: the script's owner when every row
-// names them, and the plain fact otherwise.
-func keptWith(created []producedview.Item, scriptOwner string) string {
-	for _, it := range created {
-		if !sameAddress(it.OwnerEmail, scriptOwner) {
-			return "their current owners"
-		}
-	}
-	return scriptOwner
-}
-
-// sameAddress reports whether a row's address names the person at owner. The
-// comparison is case-insensitive, as every address comparison in the platform
-// is, and an unattributed row names nobody.
-func sameAddress(rowOwner, owner string) bool {
-	return rowOwner != "" && strings.EqualFold(rowOwner, owner)
-}
-
-// countOutputs renders "2 assets and 1 collection" for a set of outputs.
-func countOutputs(created []producedview.Item) string {
-	var assets, collections int
-	for _, it := range created {
-		if it.TargetKind == producedview.TargetAsset {
-			assets++
-		} else {
-			collections++
-		}
-	}
-	return countOutputs2(assets, collections)
-}
-
-// countOutputs2 renders the two counts as prose, naming only the kinds that
-// are present.
-func countOutputs2(assets, collections int) string {
-	parts := make([]string, 0, 2)
-	if assets > 0 {
-		parts = append(parts, plural(assets, "asset"))
-	}
-	if collections > 0 {
-		parts = append(parts, plural(collections, "collection"))
-	}
-	return strings.Join(parts, " and ")
-}
-
-// plural renders a count with its noun.
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return strconv.Itoa(n) + " " + noun + "s"
+	return transferwords.Sentence(transferwords.Account{
+		Moved:  acct.Disposition == string(script.OutputsMove),
+		Assets: acct.Assets, Collections: acct.Collections, KeptWith: kept,
+	}, owner)
 }
 
 // transferMessage states what the transfer means for the next run, which is the

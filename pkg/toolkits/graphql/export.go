@@ -125,6 +125,11 @@ type ExportUserContext struct {
 	UserID    string
 	UserEmail string
 	SessionID string
+	// RunOutputKey, set when a managed-script run made the call, turns the
+	// export's name into the script's output identity, so a named export
+	// inside a run writes the next version of one asset (#1854). Nil
+	// otherwise.
+	RunOutputKey func(name string) string
 }
 
 // ExportDeps holds the platform-side dependencies graphql_export needs.
@@ -191,12 +196,15 @@ type exportInput struct {
 // exportOutput is the asset metadata the model gets back. The data
 // itself is not in it: that is the whole point of the tool.
 type exportOutput struct {
-	AssetID     string   `json:"asset_id,omitempty"`
-	PortalURL   string   `json:"portal_url,omitempty"`
-	ShareURL    string   `json:"share_url,omitempty"`
-	ContentType string   `json:"content_type,omitempty"`
-	SizeBytes   int64    `json:"size_bytes"`
-	Operations  []string `json:"operations,omitempty"`
+	AssetID string `json:"asset_id,omitempty"`
+	// AssetVersion is the version this export wrote: 1 for a new asset, the
+	// next one for a named export a script run repeats (#1854).
+	AssetVersion int      `json:"asset_version,omitempty"`
+	PortalURL    string   `json:"portal_url,omitempty"`
+	ShareURL     string   `json:"share_url,omitempty"`
+	ContentType  string   `json:"content_type,omitempty"`
+	SizeBytes    int64    `json:"size_bytes"`
+	Operations   []string `json:"operations,omitempty"`
 	// Status is the HTTP status the endpoint answered with, and
 	// UpstreamError whether that answer was a failure: a non-2xx, or a
 	// 200 carrying errors. They are the same facts graphql_query reports,
@@ -319,12 +327,14 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 	if in.Resource != nil {
 		return landExport(ctx, deps, in, payload, result)
 	}
-	assetID, size, err := t.persist(ctx, deps, uc, in, payload)
+	st, err := t.persist(ctx, deps, uc, in, payload)
 	if err != nil {
 		return nil, err
 	}
+	assetID, version, size := st.assetID, st.version, st.size
 	return &exportOutput{
 		AssetID:       assetID,
+		AssetVersion:  version,
 		PortalURL:     buildExportPortalURL(deps.BaseURL, assetID),
 		ShareURL:      maybeCreateExportShare(ctx, deps, in, assetID, uc.UserEmail),
 		ContentType:   exportContentType,
@@ -351,15 +361,15 @@ type exportPayload struct {
 // first version. A version-row failure is not fatal: the asset row is
 // already in place and the caller has an id, and failing the call would
 // orphan the stored object.
-func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserContext, in exportInput, payload []byte) (assetID string, size int64, err error) {
-	assetID, err = generateExportAssetID()
+func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserContext, in exportInput, payload []byte) (stored, error) {
+	assetID, err := generateExportAssetID()
 	if err != nil {
-		return "", 0, fmt.Errorf("graphql: generating asset id: %w", err)
+		return stored{}, fmt.Errorf("graphql: generating asset id: %w", err)
 	}
 	s3Key := buildExportS3Key(deps.S3Prefix, uc.UserID, assetID)
-	size, err = deps.S3Client.PutObjectStream(ctx, deps.S3Bucket, s3Key, bytes.NewReader(payload), exportContentType)
+	size, err := deps.S3Client.PutObjectStream(ctx, deps.S3Bucket, s3Key, bytes.NewReader(payload), exportContentType)
 	if err != nil {
-		return "", 0, fmt.Errorf("graphql: writing the export to storage failed: %w", err)
+		return stored{}, fmt.Errorf("graphql: writing the export to storage failed: %w", err)
 	}
 	asset := ExportAsset{
 		ID: assetID, OwnerID: uc.UserID, OwnerEmail: uc.UserEmail,
@@ -368,11 +378,66 @@ func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserCon
 		Provenance: buildExportProvenance(uc, in), SessionID: uc.SessionID,
 		IdempotencyKey: in.IdempotencyKey,
 	}
+	if key := runOutputKey(uc, in); key != "" && deps.VersionStore != nil {
+		id, version, err := recordRunVersion(ctx, deps, asset, key, uc.UserID)
+		return stored{assetID: id, version: version, size: size}, err
+	}
 	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
-		return "", 0, fmt.Errorf("graphql: recording the asset failed: %w", err)
+		return stored{}, fmt.Errorf("graphql: recording the asset failed: %w", err)
 	}
 	recordExportVersion(ctx, deps, asset, uc)
-	return assetID, size, nil
+	return stored{assetID: assetID, version: 1, size: size}, nil
+}
+
+// stored is what persist wrote: the asset, the version, and the bytes.
+type stored struct {
+	assetID string
+	version int
+	size    int64
+}
+
+// recordRunVersion records a named export a script run made under the
+// script's output identity: the next version of the asset the key names, or
+// the new asset carrying it (#1854).
+func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, key, createdBy string) (assetID string, version int, err error) {
+	assetID, version, err = toolkit.PersistRunAsset(ctx, key, asset.ID, toolkit.RunAssetWrite{
+		Lookup: func(ctx context.Context, key string) (string, bool) {
+			ref, err := deps.AssetStore.GetByIdempotencyKey(ctx, asset.OwnerID, key)
+			if err != nil || ref == nil {
+				return "", false
+			}
+			return ref.ID, true
+		},
+		Insert: func(ctx context.Context, key string) error {
+			asset.IdempotencyKey = key
+			return deps.AssetStore.InsertExportAsset(ctx, asset)
+		},
+		Version: func(ctx context.Context, assetID string) (int, error) {
+			versionID, err := generateExportAssetID()
+			if err != nil {
+				return 0, err
+			}
+			return deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
+				ID: versionID, AssetID: assetID, S3Key: asset.S3Key, S3Bucket: asset.S3Bucket,
+				ContentType: asset.ContentType, SizeBytes: asset.SizeBytes,
+				CreatedBy: createdBy, ChangeSummary: "Exported from GraphQL",
+			})
+		},
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("graphql: %w", err)
+	}
+	return assetID, version, nil
+}
+
+// runOutputKey is the script output identity a named export made inside a run
+// writes under, or "" when the call is not a run's, names nothing, or carries
+// its own idempotency key, which keeps its own meaning.
+func runOutputKey(uc *ExportUserContext, in exportInput) string {
+	if uc.RunOutputKey == nil || in.Name == "" || in.IdempotencyKey != "" {
+		return ""
+	}
+	return uc.RunOutputKey(in.Name)
 }
 
 // recordExportVersion inserts the asset's first version row.

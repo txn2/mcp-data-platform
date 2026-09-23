@@ -117,10 +117,13 @@ connection named literally inside the args dict joins the `connections` list,
 and what cannot be read is reported as `dynamic_tools` or
 `dynamic_connections` rather than quietly left out.
 
-Two things a generic call does not get: a write made by tool call is not one of
-the run's outputs (the run's output list covers `platform.export` and
-`platform.publish_data`, and everything else is in the audit log), and a query
-issued by tool call carries no row cap pushed into the statement. That is why
+Two things a generic call does not get: most writes made by tool call are not
+the run's outputs (the run's output list covers `platform.export`,
+`platform.publish_data`, and the files `trino_export` and `api_export` write,
+marked with the tool; everything else is in the audit log), and a query issued
+by tool call carries no row cap pushed into the statement. A named export tool
+call inside a run versions one asset per name across runs, the same identity
+`platform.export` uses; pass `resource` to keep a managed file instead. That is why
 the three helpers are still the way to do the three things they do. A tool that
 answers with plain text rather than a structured object arrives as
 `{"text": "..."}`.
@@ -132,9 +135,9 @@ SHARED with you is not inherited, and `manage_asset list` from a script shows
 that script's outputs rather than your whole library.
 
 `run_script` and `manage_script run_draft` are the two refusals, and they are
-about runaway work rather than authority: a run executes one at a time, so a
-script waiting on a run it started would be waiting on the worker running it.
-Give the second script its own schedule.
+about runaway work rather than authority: a run waiting on a run it started
+holds a worker slot while it waits, and runs waiting on each other can hold
+every slot there is. Give the second script its own schedule.
 
 ## Reading an XML or SOAP answer
 

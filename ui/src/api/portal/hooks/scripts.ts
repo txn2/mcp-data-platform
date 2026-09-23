@@ -50,6 +50,21 @@ export interface ScriptRun {
   // the outputs themselves.
   output_count: number;
   requested_by?: string;
+  // progress is the run's latest platform.progress report (#1847): how far a
+  // running run has got, or the last thing a finished one said.
+  progress?: ScriptRunProgress;
+  // cancel_requested marks a running run somebody asked to stop; it ends
+  // canceled within seconds.
+  cancel_requested?: boolean;
+}
+
+// ScriptRunProgress is one platform.progress report. done and total are
+// absent when the script reported a message without a count.
+export interface ScriptRunProgress {
+  message: string;
+  done?: number;
+  total?: number;
+  at: string;
 }
 
 // ScriptRunOutput is one thing a run persisted, as the run record carries it:
@@ -61,6 +76,9 @@ export interface ScriptRun {
 // always landed.
 export interface ScriptRunOutput {
   name: string;
+  // tool names the export tool that wrote this output when a platform.call
+  // of trino_export or api_export did, rather than platform.export (#1854).
+  tool?: string;
   destination?: string;
   asset_id?: string;
   asset_version?: number;
@@ -123,6 +141,11 @@ export interface ScriptRunDetail extends ScriptRun {
   state_read?: Record<string, unknown>;
   state_written?: Record<string, unknown>;
   state_revision_written?: number;
+  // result is the JSON value the run handed back with platform.result
+  // (#1845), absent when it set none.
+  result?: unknown;
+  // cancel_requested_by is who asked the run to stop, on a run that was asked.
+  cancel_requested_by?: string;
   created_at: string;
 }
 
@@ -380,9 +403,7 @@ export function useScriptRuns(scriptID: string | null, owned: boolean) {
 export function hasRunInFlight(
   data: { data: ScriptRun[] } | undefined,
 ): boolean {
-  return (data?.data ?? []).some(
-    (r) => r.status === "pending" || r.status === "running",
-  );
+  return (data?.data ?? []).some(isRunInFlight);
 }
 
 // useScriptSchedule reads an owned script's cadence in full, including the
@@ -439,12 +460,45 @@ export function useSetScriptSchedulePaused(scriptID: string) {
   });
 }
 
+// useScriptRun reads one run in full. While the run is still queued or
+// executing it is re-read on the history's interval, so an open run shows its
+// progress and the log so far as the worker writes them (#1847) rather than
+// the state it was in when it was opened.
 export function useScriptRun(scriptID: string | null, runID: string | null) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "runs", runID],
     queryFn: () =>
       apiFetch<ScriptRunDetail>(`/scripts/${scriptID}/runs/${runID}`),
     enabled: !!scriptID && !!runID,
+    refetchInterval: (query) =>
+      isRunInFlight(query.state.data) ? RUN_POLL_MS : false,
+  });
+}
+
+// isRunInFlight reports whether one run has yet to finish.
+export function isRunInFlight(run: { status: string } | undefined): boolean {
+  return run?.status === "pending" || run?.status === "running";
+}
+
+// ScriptRunCancelled is what a cancel did: canceled (it had not started and
+// will not), requested (it is running and ends canceled within seconds) or
+// already_finished.
+export interface ScriptRunCancelled {
+  run_id: string;
+  outcome: "canceled" | "requested" | "already_finished";
+  message: string;
+}
+
+// useCancelScriptRun stops a run (#1847). Every script query is invalidated,
+// because the run's status, the history row and the listing all change.
+export function useCancelScriptRun(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (runID: string) =>
+      apiFetch<ScriptRunCancelled>(`/scripts/${scriptID}/runs/${runID}/cancel`, {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }
 

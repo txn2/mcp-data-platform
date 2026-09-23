@@ -5,6 +5,7 @@ import {
   executionState,
   formatWhen,
   outputLink,
+  progressText,
   runStatusLabel,
   runStatusVariant,
   runWhen,
@@ -184,5 +185,41 @@ describe("what a run history adds up to", () => {
     expect(successRate(summarize([]))).toBeUndefined();
     expect(successRate(summarize([run("succeeded", 10, "a")]))).toBe(100);
     expect(successRate(summarize([run("failed", 10, "a"), run("succeeded", 10, "b")]))).toBe(50);
+  });
+});
+
+describe("progressText", () => {
+  it("renders a count and a message, a count alone, or a message alone", () => {
+    expect(progressText({ message: "rows", done: 3, total: 10 })).toBe("3 of 10 · rows");
+    expect(progressText({ message: "", done: 3, total: 10 })).toBe("3 of 10");
+    expect(progressText({ message: "rows", done: 3 })).toBe("3 · rows");
+    expect(progressText({ message: "warming up" })).toBe("warming up");
+    expect(progressText(undefined)).toBe("");
+  });
+});
+
+describe("summarize with canceled runs", () => {
+  const base: ScriptRun = {
+    id: "", status: "", trigger: "portal", version: 1,
+    fire_time: "2026-09-22T07:00:00Z", duration_ms: 0, output_count: 0,
+  };
+  it("counts a canceled run apart from failures", () => {
+    const summary = summarize([
+      { ...base, id: "a", status: "canceled" },
+      { ...base, id: "b", status: "failed" },
+    ]);
+    expect(summary.canceled).toBe(1);
+    expect(summary.failed).toBe(1);
+  });
+});
+
+describe("outputLink for an export tool's file", () => {
+  it("names the tool that wrote it", () => {
+    const link = outputLink({
+      name: "big-report", tool: "trino_export", asset_id: "a1", asset_version: 1,
+      format: "csv", row_count: 52000, bytes: 4_100_000,
+    });
+    expect(link.href).toBe("/assets/a1");
+    expect(link.detail).toMatch(/via trino_export$/);
   });
 });

@@ -19215,7 +19215,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words.",
+                "description": "Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words. With wait, the request holds for up to that many seconds (at most 300): a run that finishes in time is answered 200 with the run itself, including the value it returned with platform.result, its outputs and its error; otherwise, and without wait, 202 with the run id to follow.",
                 "consumes": [
                     "application/json"
                 ],
@@ -19235,6 +19235,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "type": "integer",
+                        "description": "Seconds to wait for the run to finish (0-300)",
+                        "name": "wait",
+                        "in": "query"
+                    },
+                    {
                         "description": "Parameter values",
                         "name": "run",
                         "in": "body",
@@ -19244,6 +19250,12 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.portalRunDetail"
+                        }
+                    },
                     "202": {
                         "description": "Accepted",
                         "schema": {
@@ -19316,6 +19328,68 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.portalRunDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/runs/{runID}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops a run. A queued run is canceled and never starts; a running one ends canceled within seconds, keeping the outputs it already wrote; a finished one is left as it is, which the answer says. Restricted to the script's owner, to administrators, and to whoever requested that run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Cancel a script run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "runID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.cancelResponse"
                         }
                     },
                     "401": {
@@ -31539,6 +31613,27 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "tool": {
+                    "description": "Tool names the tool that wrote this output when a platform.call of an\nexport tool (trino_export, api_export) did, rather than platform.export\n(#1854). Empty for platform.export and platform.publish_data.",
+                    "type": "string"
+                }
+            }
+        },
+        "script.RunProgress": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "done": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -31768,6 +31863,10 @@ const docTemplate = `{
         "scripthttp.adminRun": {
             "type": "object",
             "properties": {
+                "cancel_requested": {
+                    "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
+                    "type": "boolean"
+                },
                 "duration_ms": {
                     "type": "integer",
                     "example": 1840
@@ -31790,6 +31889,14 @@ const docTemplate = `{
                     "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
                     "type": "integer",
                     "example": 1
+                },
+                "progress": {
+                    "description": "Progress is the run's latest platform.progress report (#1847): how far a\nrunning run has got, or the last thing a finished one said.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.RunProgress"
+                        }
+                    ]
                 },
                 "requested_by": {
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
@@ -31833,6 +31940,23 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 42
+                }
+            }
+        },
+        "scripthttp.cancelResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "description": "Outcome is canceled (it had not started and will not), requested (it\nis running and ends canceled within seconds) or already_finished.",
+                    "type": "string",
+                    "example": "requested"
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
                 }
             }
         },
@@ -32109,6 +32233,10 @@ const docTemplate = `{
         "scripthttp.portalRun": {
             "type": "object",
             "properties": {
+                "cancel_requested": {
+                    "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
+                    "type": "boolean"
+                },
                 "duration_ms": {
                     "type": "integer",
                     "example": 1840
@@ -32131,6 +32259,14 @@ const docTemplate = `{
                     "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
                     "type": "integer",
                     "example": 1
+                },
+                "progress": {
+                    "description": "Progress is the run's latest platform.progress report (#1847): how far a\nrunning run has got, or the last thing a finished one said.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.RunProgress"
+                        }
+                    ]
                 },
                 "requested_by": {
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
@@ -32160,6 +32296,14 @@ const docTemplate = `{
                 "attempt": {
                     "type": "integer"
                 },
+                "cancel_requested": {
+                    "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
+                    "type": "boolean"
+                },
+                "cancel_requested_by": {
+                    "description": "CancelRequestedBy is who asked a run to stop, on a run that was asked.",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -32182,7 +32326,7 @@ const docTemplate = `{
                     "example": "run_a1b2c3d4"
                 },
                 "log": {
-                    "description": "Log is the run's own account of itself, bounded at capture time, so\nreturning it whole is bounded too.",
+                    "description": "Log is the run's own account of itself, bounded at capture time, so\nreturning it whole is bounded too. On a running run it is the log so\nfar, written every few seconds (#1847).",
                     "type": "string"
                 },
                 "log_truncated": {
@@ -32206,10 +32350,22 @@ const docTemplate = `{
                     "type": "object",
                     "additionalProperties": {}
                 },
+                "progress": {
+                    "description": "Progress is the run's latest platform.progress report (#1847): how far a\nrunning run has got, or the last thing a finished one said.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.RunProgress"
+                        }
+                    ]
+                },
                 "requested_by": {
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
                     "type": "string",
                     "example": "jane@example.com"
+                },
+                "result": {
+                    "description": "Result is the value the run handed back with platform.result (#1845),\nabsent when it set none.",
+                    "type": "object"
                 },
                 "scheduled_for": {
                     "type": "string"
@@ -32344,6 +32500,10 @@ const docTemplate = `{
         "scripthttp.portalScriptRun": {
             "type": "object",
             "properties": {
+                "cancel_requested": {
+                    "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
+                    "type": "boolean"
+                },
                 "duration_ms": {
                     "type": "integer",
                     "example": 1840
@@ -32366,6 +32526,14 @@ const docTemplate = `{
                     "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
                     "type": "integer",
                     "example": 1
+                },
+                "progress": {
+                    "description": "Progress is the run's latest platform.progress report (#1847): how far a\nrunning run has got, or the last thing a finished one said.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.RunProgress"
+                        }
+                    ]
                 },
                 "requested_by": {
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",

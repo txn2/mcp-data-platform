@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -26,6 +28,10 @@ const surfaceRunScript = "run_script"
 
 // workerTokenBytes is the entropy in a worker's fencing name.
 const workerTokenBytes = 8
+
+// liveReportEvery is how often a running run's progress and log reach its row,
+// and so how soon a cancel requested for it takes effect (#1847).
+const liveReportEvery = 2 * time.Second
 
 // generateWorkerToken returns a random per-process worker name.
 func generateWorkerToken() (string, error) {
@@ -48,6 +54,10 @@ type runner struct {
 	// page is built: the link a platform.notify post carries when the script
 	// names none (#1723).
 	portalURL string
+	// limits are the ceilings a platform run executes under (#1843).
+	limits scriptrun.PlatformLimits
+	// reportEvery is liveReportEvery, shortened by tests.
+	reportEvery time.Duration
 }
 
 // newRunner builds the executor the worker drives.
@@ -55,7 +65,8 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 	return &runner{
 		runs: runs, server: cfg.Server, export: cfg.Export,
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
-		portalURL: cfg.PortalURL,
+		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
+		reportEvery: liveReportEvery,
 	}
 }
 
@@ -81,7 +92,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	}
 	defer cleanup()
 
-	opts := scriptrun.RunLimits()
+	opts := scriptrun.RunLimits(r.limits)
 	opts.Source = v.Source
 	opts.Name = sc.Name
 	opts.RunID = run.ID
@@ -100,11 +111,105 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.Destinations = r.destinations
 	opts.RunURL = r.runURL(sc.ID, run.ID)
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
+	opts.Live = scriptlive.New(opts.MaxLogBytes, r.limits.ResultMaxBytes)
 
-	result, runErr := scriptrun.Run(ctx, opts)
+	// The reporter writes what the run has reported so far to its row while
+	// it executes, and stops it when a cancel is requested (#1847).
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	rep := newReporter(r.runs, run.Lease(), opts.Live, stop, r.reportEvery)
+	go rep.run(ctx)
+	result, runErr := scriptrun.Run(runCtx, opts)
+	rep.finish()
+
 	outcome := attemptFrom(result, runErr)
+	// A run stopped on request ends canceled, not failed. One that reported
+	// success as the request landed finished, and the request decided nothing.
+	if rep.canceled && outcome.result.Status != script.RunStatusSucceeded {
+		outcome.result.Status = script.RunStatusCanceled
+		outcome.result.Error = cancelledError(rep.by)
+	}
 	r.recordAudit(ctx, run, sc, v, outcome.result)
 	return outcome
+}
+
+// cancelledError is the error a canceled run records.
+func cancelledError(by string) string {
+	if by == "" {
+		return "canceled on request"
+	}
+	return "canceled by " + by
+}
+
+// reporter writes one running run's progress and log to its row every
+// interval, and stops the run when the row says a cancel was requested. The
+// cancel check rides on the same fenced write, so it reaches whichever replica
+// holds the run with no channel of its own; a write refused because the lease
+// moved to another worker stops the run too, since its every later write would
+// be refused and a second execution is already under way.
+type reporter struct {
+	runs  script.RunStore
+	lease script.RunLease
+	live  *scriptlive.Live
+	stop  context.CancelFunc
+	every time.Duration
+	quit  chan struct{}
+	done  chan struct{}
+	// Written by run, read after finish: finish waits for run to return.
+	sent     bool
+	last     uint64
+	canceled bool
+	by       string
+}
+
+func newReporter(runs script.RunStore, lease script.RunLease, live *scriptlive.Live, stop context.CancelFunc, every time.Duration) *reporter {
+	return &reporter{
+		runs: runs, lease: lease, live: live, stop: stop, every: every,
+		quit: make(chan struct{}), done: make(chan struct{}),
+	}
+}
+
+// run reports on every tick until finish is called.
+func (p *reporter) run(ctx context.Context) {
+	defer close(p.done)
+	ticker := time.NewTicker(p.every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.quit:
+			return
+		case <-ticker.C:
+			p.report(ctx)
+		}
+	}
+}
+
+// finish stops reporting and waits for the last report to land.
+func (p *reporter) finish() {
+	close(p.quit)
+	<-p.done
+}
+
+// report writes one snapshot, sending the log only when it has moved.
+func (p *reporter) report(ctx context.Context) {
+	snap, version := p.live.Snapshot()
+	snap.Unchanged = p.sent && version == p.last
+	requested, by, err := p.runs.RecordProgress(ctx, p.lease, snap)
+	if errors.Is(err, script.ErrLeaseLost) {
+		slog.Warn("scripts: the run was reclaimed by another worker; stopping this execution", logKeyRunID, p.lease.RunID)
+		p.stop()
+		return
+	}
+	if err != nil {
+		slog.Warn("scripts: recording run progress failed", logKeyRunID, p.lease.RunID, logKeyError, err)
+		return
+	}
+	p.sent, p.last = true, version
+	if requested && !p.canceled {
+		slog.Info("scripts: stopping a run on request", logKeyRunID, p.lease.RunID)
+		p.canceled, p.by = true, by
+		p.stop()
+	}
 }
 
 // attemptFrom turns an engine result into the attempt the worker resolves.
@@ -128,6 +233,8 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 		// where it was and a watermark never moves past work that did not
 		// happen.
 		out.result.State = result.State
+		out.result.Result = result.Return
+		out.result.Progress = result.Progress
 	}
 	if runErr != nil {
 		out.result.Status = script.RunStatusFailed

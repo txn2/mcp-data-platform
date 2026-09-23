@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/personacfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
@@ -1369,6 +1370,10 @@ type ScriptsWorkerConfig struct {
 	// deployment with the worker on claims and executes them, which is how
 	// script execution is scaled and isolated apart from serving.
 	Enabled *bool `yaml:"enabled"`
+
+	// Config is how many runs this replica executes at once and a platform
+	// run's ceilings (#1843), owned by the admission policy that reads it.
+	scriptadmit.Config `yaml:",inline"`
 }
 
 // IsWorkerEnabled reports whether this replica claims and executes queued runs,
@@ -2029,6 +2034,9 @@ func (c *Config) Validate() error {
 	errs = c.validateBrowserSession(errs)
 	errs = c.validatePersonas(errs)
 	errs = c.validateScriptDestinations(errs)
+	if _, err := c.Scripts.Worker.Admission(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if msg := portalcfg.MaxVersionsError(c.Portal.MaxVersions); msg != "" {
 		errs = append(errs, msg)
 	}

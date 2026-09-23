@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -24,18 +25,11 @@ const (
 	// the caller names no window.
 	DefaultWaitSeconds = 120
 
-	// MaxWaitSeconds caps the wait. Past it the tool answers with the run id and
-	// a pending status rather than holding a request open for the ten minutes a
-	// run is allowed to take.
-	MaxWaitSeconds = 300
-
-	// pollEvery is how often the wait re-reads the run row.
-	//
-	// The worker is woken by NOTIFY the moment a run is enqueued, so the poll
-	// interval is what a caller waits AFTER the run finishes, not before it
-	// starts. Holding a dedicated LISTEN connection per waiting tool call would
-	// buy at most this interval and cost one connection per concurrent caller.
-	pollEvery = 300 * time.Millisecond
+	// MaxWaitSeconds caps the wait, the same cap the portal's run route
+	// applies (runcontrol.MaxWaitSeconds). Past it the tool answers with the
+	// run id and a pending status rather than holding a request open for the
+	// length of a run.
+	MaxWaitSeconds = runcontrol.MaxWaitSeconds
 )
 
 // runScriptInput is the run_script argument set.
@@ -169,33 +163,16 @@ func waitBudget(seconds int) time.Duration {
 // renders whichever happened. A run that outlives the wait is not canceled or
 // lost: the caller gets its id and follows it with manage_script get_run.
 func (h *Handle) awaitRun(ctx context.Context, sc *script.Script, run *script.Run, budget time.Duration) map[string]any {
-	deadline := time.Now().Add(budget)
-	current := run
-	for {
-		if current.Terminal() {
-			return runResult(sc, current)
-		}
-		if time.Now().After(deadline) {
-			return pendingResult(sc, current, budget)
-		}
-		select {
-		case <-ctx.Done():
-			return pendingResult(sc, current, budget)
-		case <-time.After(pollEvery):
-		}
-		latest, err := h.runs.GetRun(ctx, run.ID)
-		if err != nil {
-			// A read failing mid-wait says nothing about the run, which is being
-			// executed by a worker elsewhere. Report it as pending with its id so
-			// the caller can follow it rather than as a failure that did not
-			// happen.
-			if !errors.Is(err, script.ErrRunNotFound) {
-				slog.Warn("failed to read a script run while waiting", "run_id", run.ID, logKeyError, err)
-			}
-			return pendingResult(sc, current, budget)
-		}
-		current = latest
+	current, finished, err := runcontrol.AwaitRun(ctx, h.runs, run, budget, runcontrol.PollEvery)
+	if err != nil && !errors.Is(err, script.ErrRunNotFound) {
+		// A read failing mid-wait says nothing about the run, which a worker
+		// is executing elsewhere; it is reported as pending with its id.
+		slog.Warn("failed to read a script run while waiting", "run_id", run.ID, logKeyError, err)
 	}
+	if finished {
+		return runResult(sc, current)
+	}
+	return pendingResult(sc, current, budget)
 }
 
 // runResult renders a finished run.
@@ -212,10 +189,19 @@ func runResult(sc *script.Script, run *script.Run) map[string]any {
 		out["state_written"] = run.StateWritten
 		out["state_revision_written"] = run.StateRevisionWritten
 	}
-	if run.Status == script.RunStatusFailed {
+	// The value the run handed back with platform.result (#1845), which is
+	// what a caller running a script for an answer came for.
+	if run.Result != nil {
+		out["result"] = run.Result
+	}
+	switch run.Status {
+	case script.RunStatusFailed:
 		out["error"] = run.Error
 		out["retryable"] = false
 		out["message"] = "A script failure is deterministic: the same version on the same inputs fails the same way, so the platform does not retry it. Fix the script with run_draft and save the fix."
+	case script.RunStatusCanceled:
+		out["error"] = run.Error
+		out["message"] = "The run was canceled. The outputs it wrote before it stopped are listed and stand."
 	}
 	return out
 }
@@ -255,6 +241,14 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 		out["finished_at"] = run.FinishedAt.UTC()
 		out["duration_ms"] = run.Metrics.DurationMS
 	}
+	// The latest platform.progress report (#1847): on a running run it is
+	// how far the run has got, on a finished one the last thing it said.
+	if run.Progress != nil {
+		out["progress"] = run.Progress
+	}
+	if run.CancelRequestedAt != nil && !run.Terminal() {
+		out["cancel_requested_by"] = run.CancelRequestedBy
+	}
 	return out
 }
 
@@ -277,7 +271,10 @@ while you are still writing them.
 
 Parameters are checked against the script's contract before anything is
 queued. The call waits up to two minutes for the run to finish; a longer run
-returns its run_id, keeps going, and is read with manage_script get_run.
+returns its run_id, keeps going, and is read with manage_script get_run, which
+shows its latest progress and the log so far while it runs. A run that set a
+value with platform.result returns it as "result". manage_script cancel_run
+stops a run: a queued one never starts, a running one ends canceled.
 
 A failed run is not retried. A script failure is deterministic — the same
 version on the same inputs fails the same way — so the fix is to correct the
