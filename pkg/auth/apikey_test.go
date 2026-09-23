@@ -492,3 +492,29 @@ func TestConcurrentAPIKeyAccess(t *testing.T) {
 		t.Errorf("UserID = %q, want %q", info.UserID, "apikey:initial")
 	}
 }
+
+// An API key's attributes reach the caller as claims, so a script parameter
+// bound to caller.<claim> reads the same value for a key and for a person
+// (#1846). A key with none has an empty claims map, never nil.
+func TestAPIKeyAttributesBecomeClaims(t *testing.T) {
+	auth := NewAPIKeyAuthenticator(APIKeyConfig{Keys: []APIKey{
+		{Key: "tenant-key", Name: "tenant", Roles: []string{testRoleAnalyst}, Attributes: map[string]string{"tenant_id": "acme"}},
+		{Key: "plain-key", Name: "plain", Roles: []string{testRoleAnalyst}},
+	}})
+
+	info, err := auth.Authenticate(WithToken(context.Background(), "tenant-key"))
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if got := info.Claims["tenant_id"]; got != "acme" {
+		t.Errorf("Claims[tenant_id] = %v, want acme", got)
+	}
+
+	info, err = auth.Authenticate(WithToken(context.Background(), "plain-key"))
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	if info.Claims == nil || len(info.Claims) != 0 {
+		t.Errorf("Claims = %#v, want an empty map", info.Claims)
+	}
+}

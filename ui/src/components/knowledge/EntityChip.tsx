@@ -1,4 +1,4 @@
-import { FileText, MessageSquareText, FolderOpen, BookOpen, Plug, Database, Link2, Unlink } from "lucide-react";
+import { FileText, MessageSquareText, FolderOpen, BookOpen, Plug, Database, Link2, Unlink, FileCode2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { parseRef, refHref, type ResolvedRef, type RefType } from "@/lib/entityRefs";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ const TYPE_ICONS: Record<RefType, LucideIcon> = {
   collection: FolderOpen,
   knowledge_page: BookOpen,
   connection: Plug,
+  script: FileCode2,
   datahub: Database,
   unknown: Link2,
 };

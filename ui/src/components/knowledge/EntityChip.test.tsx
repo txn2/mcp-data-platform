@@ -53,6 +53,23 @@ describe("EntityChip", () => {
     expect(onNavigate).toHaveBeenCalledWith("/knowledge/pages/kp-7");
   });
 
+  it("deep-links a cited script chip to its script page by name (#1855)", () => {
+    const id = "6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55";
+    const onNavigate = vi.fn();
+    const { container } = render(
+      <EntityChip
+        urn={`mcp:script:${id}`}
+        resolved={resolved({ urn: `mcp:script:${id}`, type: "script", label: "Orders sync" })}
+        onNavigate={onNavigate}
+      />,
+    );
+    expect(container.textContent).toContain("Orders sync");
+    const a = container.querySelector("a");
+    expect(a).not.toBeNull();
+    fireEvent.click(a!);
+    expect(onNavigate).toHaveBeenCalledWith(`/scripts/${id}`);
+  });
+
   it("renders a destination-less type as a neutral, non-link chip (connection)", () => {
     const onNavigate = vi.fn();
     const { container } = render(

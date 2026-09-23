@@ -66,6 +66,20 @@ type APIKey struct {
 	// authenticates as that person: their subject, their address, and their
 	// roles unless Roles narrows them (#1759).
 	UserEmail string
+	// Attributes are named values the key carries into every call as claims
+	// (#1846): a multi-tenant application's key names its tenant here, and a
+	// script parameter bound to caller.tenant takes its value from it, not
+	// from the request.
+	Attributes map[string]string
+}
+
+// attributeClaims renders a key's attributes as the claims its callers carry.
+func attributeClaims(attributes map[string]string) map[string]any {
+	claims := make(map[string]any, len(attributes))
+	for k, v := range attributes {
+		claims[k] = v
+	}
+	return claims
 }
 
 // IsExpired returns true if the key has an expiration date that has passed.
@@ -86,6 +100,8 @@ type APIKeySummary struct {
 	// key bound to nobody. A key listing is how an administrator sees whose a
 	// key is, including one a person issued for themselves.
 	UserEmail string `json:"user_email,omitempty" example:"analyst@example.com"`
+	// Attributes are the named values the key carries as claims (#1846).
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // HashedKeySource is the store the database-managed keys live in. Every
@@ -274,7 +290,7 @@ func keyUserInfo(key *APIKey) *middleware.UserInfo {
 	return &middleware.UserInfo{
 		UserID:   "apikey:" + key.Name,
 		Email:    apiKeyEmail(*key),
-		Claims:   make(map[string]any),
+		Claims:   attributeClaims(key.Attributes),
 		Roles:    key.Roles,
 		AuthType: middleware.AuthTypeAPIKey,
 	}
@@ -369,6 +385,7 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 			Expired:     k.IsExpired(),
 			Source:      sourceFile,
 			UserEmail:   k.UserEmail,
+			Attributes:  k.Attributes,
 		}
 	}
 	for _, k := range a.hashedKeys {
@@ -385,6 +402,7 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 				Expired:     k.IsExpired(),
 				Source:      sourceDatabase,
 				UserEmail:   k.UserEmail,
+				Attributes:  k.Attributes,
 			}
 		}
 	}

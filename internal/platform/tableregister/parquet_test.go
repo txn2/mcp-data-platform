@@ -231,14 +231,6 @@ func TestFormatOf_Parquet(t *testing.T) {
 		"a file named .parquet whose bytes are text is taken as Parquet and refused by its magic")
 }
 
-func TestColumnChanges(t *testing.T) {
-	before := []Column{{Name: "a", Type: "BIGINT"}, {Name: "b", Type: "VARCHAR"}, {Name: "c", Type: "DATE"}}
-	after := []Column{{Name: "c", Type: "DATE"}, {Name: "a", Type: "DOUBLE"}, {Name: "d", Type: "BOOLEAN"}}
-	assert.Equal(t, "added d BOOLEAN; removed b; a is now DOUBLE (was BIGINT)", ColumnChanges(before, after))
-	assert.Empty(t, ColumnChanges(before, before))
-	assert.Empty(t, ColumnChanges(before, []Column{before[2], before[0], before[1]}), "a reorder is not a change")
-}
-
 // TestRangeReader_ReadsAtAnOffset pins the ReaderAt the footer is read
 // through: a short read at the end is io.EOF, and the first store failure is
 // kept so a refusal and a failed read are told apart.

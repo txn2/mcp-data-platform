@@ -56,6 +56,8 @@ A knowledge page's **Manual references** panel is where an editor states what th
 
 An attached reference renders as a named chip in the **Related** panel and links to where that entity is managed: a glossary term to the Glossary tab, a tag to Tags, a domain to Domains, a table to Tables. The names are resolved from the catalog itself, because the key inside a governance URN is not a name — DataHub generates one for anything created without an explicit id — so a chip built from the URN alone would read as `8f3c1a94` where the page meant *Net Revenue*. When the catalog cannot be reached, the chip falls back to that key rather than failing the page. Resolving a name is a catalog read, so it is gated the same way the Catalog tab is: a persona granted no DataHub tool sees the URN-derived label, since a name it could not look up there should not arrive here instead.
 
+A page can also cite a **managed script** (`mcp:script:<id>`), which is how a page that says which script keeps a dataset current names the script rather than describing it in prose. A script is personal, so the citation is resolved for each reader: the script's owner and administrators see it in **Related** and as a chip in the body, linking to the script's page, and any other reader reads the page without it (a body link shows as its link text). Deleting the script removes the citation. Scripts are cited through `apply_knowledge` (`page.references`, or the reference written in the body); the Manual references picker does not search scripts.
+
 The link runs both ways: each governance detail page lists the knowledge pages that reference its entity, so a steward reading a term sees what has been written about it. References you cannot access are omitted from both directions.
 
 ## Catalog

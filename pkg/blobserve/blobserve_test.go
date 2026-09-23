@@ -218,7 +218,7 @@ func TestServeFilenameSanitization(t *testing.T) {
 		{"plain.json", `inline; filename="plain.json"`},
 		{"has\"quote.json", `inline; filename="has_quote.json"`},
 		{"a/b/c.json", `inline; filename="a_b_c.json"`},
-		{"inject\r\nX-Evil: 1", `inline; filename="injectX-Evil: 1"`},
+		{"inject\r\nX-Evil: 1", `inline; filename="injectX-Evil: 1.json"`},
 		{"", "inline"},
 	}
 
@@ -409,4 +409,20 @@ func TestServeRevalidate(t *testing.T) {
 		blobserve.Serve(rec, req, opts)
 		require.Equal(t, "private, no-cache", rec.Result().Header.Get("Cache-Control"))
 	})
+}
+
+// A name with no extension takes its content type's, so a saved download
+// opens by name (#1849): a script output named "sales" downloads as
+// sales.xlsx. A name with one, and an unknown type, are left alone.
+func TestServeFilenameTakesTheTypesExtension(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct{ name, ct, want string }{
+		{"sales", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `attachment; filename="sales.xlsx"`},
+		{"report.csv", "text/csv", `inline; filename="report.csv"`},
+		{"blob", "application/x-unknown-thing", `attachment; filename="blob"`},
+	} {
+		res := serve(t, blobserve.Options{Name: tt.name, ContentType: tt.ct, Data: []byte("x"), ForceAttachment: tt.ct != "text/csv"}, "")
+		_ = res.Body.Close()
+		require.Equal(t, tt.want, res.Header.Get("Content-Disposition"), tt.name)
+	}
 }

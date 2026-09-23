@@ -1425,6 +1425,18 @@ func assetOwnerPredicate(owner portaldomain.AssetOwner) sq.Sqlizer {
 	}
 }
 
+// filterTags is every tag a listing names: the single tag and the repeated
+// ones, without blanks.
+func filterTags(filter portaldomain.AssetFilter) []string {
+	var tags []string
+	for _, t := range append([]string{filter.Tag}, filter.Tags...) {
+		if t != "" {
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
 func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.SelectBuilder {
 	if filter.Owner.Identified() {
 		qb = qb.Where(assetOwnerPredicate(filter.Owner))
@@ -1435,9 +1447,14 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 	if filter.ContentType != "" {
 		qb = qb.Where(sq.Eq{colContentType: filter.ContentType})
 	}
-	if filter.Tag != "" {
-		tagJSON, _ := json.Marshal([]string{filter.Tag})
+	if tags := filterTags(filter); len(tags) > 0 {
+		// Containment is AND: every tag named must be on the asset (#1848).
+		tagJSON, _ := json.Marshal(tags)
 		qb = qb.Where(sq.Expr("tags @> ?::jsonb", string(tagJSON)))
+	}
+	if len(filter.Metadata) > 0 {
+		metaJSON, _ := json.Marshal(filter.Metadata)
+		qb = qb.Where(sq.Expr("portal_assets.metadata @> ?::jsonb", string(metaJSON)))
 	}
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"

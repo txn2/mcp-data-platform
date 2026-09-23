@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -254,16 +258,19 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 	if err != nil {
 		return nil, script.RunOutput{}, err
 	}
+	w.addTags(ctx, asset, req.Tags)
+	metadata := w.versionMetadata(req.Metadata)
 	summary := w.changeSummary("")
-	version, changes, err := w.storeVersion(ctx, asset.ID, identity, data, summary)
+	version, changes, err := w.storeVersion(ctx, asset.ID, identity, data, versionNote{summary: summary, metadata: metadata})
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q: %w", req.Name, err)
 	}
 	out := script.RunOutput{
 		Name: req.Name, Destination: req.Destination.Name,
 		AssetID: asset.ID, AssetVersion: version,
-		Format: req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
+		Format: req.Format, RowCount: req.RowCount(), Document: req.Body != nil,
 		Bytes: len(data), TableChanges: changes,
+		Tags: req.Tags, Metadata: metadata,
 	}
 	return &scriptrun.ExportResult{
 		AssetID: asset.ID, AssetVersion: version, Bytes: len(data), TableChanges: changes,
@@ -276,7 +283,7 @@ func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequ
 // them: an immutable per-run object, then the version row that repoints the
 // asset at it, then the tables registered over the asset following that
 // version (#1536), reported as the sentences the run carries.
-func (w *outputWriter) storeVersion(ctx context.Context, assetID string, identity scriptrun.OutputIdentity, data []byte, summary string) (version int, tables []string, err error) {
+func (w *outputWriter) storeVersion(ctx context.Context, assetID string, identity scriptrun.OutputIdentity, data []byte, note versionNote) (version int, tables []string, err error) {
 	key := w.objectKey(assetID, identity.Extension)
 	if err := w.deps.S3.PutObject(ctx, w.deps.Bucket, key, data, identity.ContentType); err != nil {
 		return 0, nil, fmt.Errorf("uploading the object: %w", err)
@@ -289,12 +296,57 @@ func (w *outputWriter) storeVersion(ctx context.Context, assetID string, identit
 		ContentType:   identity.ContentType,
 		SizeBytes:     int64(len(data)),
 		CreatedBy:     w.script.Principal(),
-		ChangeSummary: summary,
+		ChangeSummary: note.summary,
+		Metadata:      note.metadata,
 	})
 	if err != nil {
 		return 0, nil, fmt.Errorf("recording the version: %w", err)
 	}
 	return version, w.followTables(ctx, assetID, version), nil
+}
+
+// versionNote is what a version records about itself beside its content.
+type versionNote struct {
+	summary  string
+	metadata map[string]any
+}
+
+// versionMetadata is the metadata a version records (#1848): what the script
+// passed, and the run, script, version and requester the platform records on
+// every output.
+func (w *outputWriter) versionMetadata(passed map[string]any) map[string]any {
+	out := make(map[string]any, len(passed))
+	maps.Copy(out, passed)
+	out["run_id"] = w.run.ID
+	out["script"] = w.script.Name
+	out["script_version"] = w.run.Version
+	if w.run.RequestedBy != "" {
+		out["requested_by"] = w.run.RequestedBy
+	}
+	return out
+}
+
+// addTags adds tags= to the output asset's tags (#1848). The asset keeps the
+// tags it had; a failed update is logged, since the version is still written.
+func (w *outputWriter) addTags(ctx context.Context, asset *portal.Asset, tags []string) {
+	merged := slices.Clone(asset.Tags)
+	for _, t := range tags {
+		if !slices.Contains(merged, t) {
+			merged = append(merged, t)
+		}
+	}
+	if len(merged) == len(asset.Tags) {
+		return
+	}
+	if len(merged) > portaldomain.MaxTags {
+		merged = merged[:portaldomain.MaxTags]
+	}
+	if err := w.deps.Assets.Update(ctx, asset.ID, portal.AssetUpdate{Tags: merged}); err != nil {
+		slog.Warn("scripts: adding an output's tags failed", logKeyRunID, w.run.ID,
+			"asset_id", asset.ID, "error", logsan.SanitizeForLog(err.Error()))
+		return
+	}
+	asset.Tags = merged
 }
 
 // followTables reports what a version did to the tables registered over the
@@ -358,13 +410,28 @@ func (w *outputWriter) assetFor(ctx context.Context, name, contentType string) (
 	return &asset, nil
 }
 
-// objectKey composes the S3 key for one output version. It includes the run id,
-// so each version is its own immutable object and a reclaimed run rewriting the
-// same output lands on the same key with the same bytes rather than clobbering
-// the version before it.
+// objectKey composes the S3 key for one output version:
+// <prefix>/scripts/<script>/<asset>/<run>/content<ext>. The run id makes each
+// version its own immutable object, and a reclaimed run rewriting the same
+// output lands on the same key with the same bytes rather than clobbering the
+// version before it.
+//
+// The run id is a directory rather than the file name, which is the portal's
+// own convention for a version (#1851). A table registered over an asset
+// points at the directory its head object sits in, and Trino reads every file
+// in that directory. With every version in one directory, the next run put its
+// file beside the one a pinned table was registered over and the table read
+// both, and an output with two versions could not be registered at all. With a
+// directory per version, a pinned table reads its version alone and a
+// following one is moved to the next version's directory.
+//
+// A version written before this, as <asset>/<run><ext>, keeps the key its
+// version row recorded. The directories of the versions written after it sit
+// beneath that one, where a table registered over it does not look
+// (hive.recursive-directories is false).
 func (w *outputWriter) objectKey(assetID, extension string) string {
 	return path.Join(w.deps.Prefix, "scripts", sanitizeKeySegment(w.script.ID),
-		sanitizeKeySegment(assetID), sanitizeKeySegment(w.run.ID)+extension)
+		sanitizeKeySegment(assetID), sanitizeKeySegment(w.run.ID), "content"+extension)
 }
 
 // sanitizeKeySegment keeps an identifier usable as one S3 key segment across

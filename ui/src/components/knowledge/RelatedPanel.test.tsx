@@ -6,6 +6,7 @@ import { render } from "@testing-library/react";
 const refs = [
   { urn: "mcp:asset:a1", type: "asset", label: "Sales Dashboard", exists: true, source: "manual" },
   { urn: "mcp:connection:(trino,warehouse)", type: "connection", label: "warehouse (trino)", exists: true, source: "promoted" },
+  { urn: "mcp:script:6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55", type: "script", label: "Orders sync", exists: true, source: "promoted" },
 ];
 
 vi.mock("@/api/portal/hooks", () => ({
@@ -23,6 +24,8 @@ describe("RelatedPanel", () => {
     expect(text).toContain("Sales Dashboard");
     expect(text).toContain("Connections");
     expect(text).toContain("warehouse (trino)");
+    expect(text).toContain("Scripts");
+    expect(text).toContain("Orders sync");
   });
 
   it("renders nothing when there are no refs", () => {

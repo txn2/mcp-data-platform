@@ -50,14 +50,30 @@ WHAT IS AVAILABLE
       pass it through float() before arithmetic:
       sum([float(r["total"]) for r in rows]).
   platform.export(name, rows, format="csv", destination="portal", key=None,
-                  register=None, references=None)
+                  register=None, references=None, tags=None, metadata=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
-      markdown page. Formats: csv, json, jsonl, parquet, markdown, text, html,
-      jsx. csv, json, jsonl and parquet require rows, so a data feed stays
-      well-formed by construction; html and jsx take only a string body;
-      markdown and text accept either.
+      markdown page. Formats: csv, json, jsonl, parquet, xlsx, markdown, text,
+      html, jsx. csv, json, jsonl and parquet require rows, so a data feed
+      stays well-formed by construction; html and jsx take only a string body;
+      markdown and text accept either; xlsx takes a dict of sheets.
+      xlsx writes an Excel workbook from {"sheets": [{"name": "Summary",
+      "columns": [...], "rows": [...], "column_types": {"net": "currency"},
+      "freeze": "A2", "widths": {"name": 30}, "title": "..."}, ...]}. Rows are
+      dicts (projected onto columns) or lists (positional); columns defaults
+      to the rows' keys in the order written. column_types are string,
+      integer, decimal, currency, date, datetime and percent; a column with
+      none is written as its values are. currency takes the exact decimal
+      text ("1234.50") or integer cents (123450), never a float, and shows
+      as 1,234.50; date takes "YYYY-MM-DD" and datetime
+      "YYYY-MM-DDTHH:MM:SS"; percent takes the fraction (0.125 is 12.50%).
+      The header row is bold, freeze names the first cell that scrolls, and
+      title adds a row above the header. A sheet name is 1 to 31 characters
+      without []:*?/\ and unique ignoring case; a control character in any
+      text, a number with more than 15 significant digits, or a workbook
+      over the output limit fails the export, naming the sheet, row and
+      column. The record carries "sheets", each sheet's name and data rows.
       csv is RFC 4180 and writes every value as it is: a value starting with
       "=", "+", "-" or "@" is not prefixed, a quote is doubled, and a
       backslash is an ordinary character. A table registered over a CSV
@@ -91,6 +107,12 @@ WHAT IS AVAILABLE
       register by name, as destination and key are. This is the path for
       free text into SQL: trino_execute binds no parameters, and
       INSERT ... SELECT from the registered table does.
+      tags=["report:sales"] adds tags to a portal output's asset, and
+      metadata={"region": "west"} (a small dict, 4 KiB as JSON) is stored on
+      the version it writes beside run_id, script, script_version and
+      requested_by, which the platform records itself. The asset listing
+      filters on both (tag=, metadata.<key>=), and so does
+      GET /api/v1/portal/scripts/runs/outputs.
       references=["mcp://global/brand/logo.svg", "mcp:asset:<id>"] declares
       what a portal document names, so the page renders the file: write the
       reference itself in the markup (<img src="mcp://global/brand/logo.svg">)
@@ -442,12 +464,13 @@ platform.export(
 		name:        "example-region-rollup",
 		description: "A parameterized rollup: a declared enum and a bound list, with the empty case handled instead of raised.",
 		source: `# A month-to-date rollup for a set of regions. Declare the script's params as
-# {"name": "regions", "type": "string", "required": True} and
+# {"name": "regions", "type": "list", "items": "string", "label": "Regions"} and
 # {"name": "grain", "type": "enum", "values": ["region", "channel"],
-#  "required": True}.
+#  "required": True}. A list parameter checks every element when the run is
+# bound and reaches the script as a list, which platform.query binds as IN (...).
 today = date.of(run.fire_time)
 month_start = date.start_of_month(today)
-regions = [r.strip() for r in run.params["regions"].split(",") if r.strip()]
+regions = run.params["regions"]
 
 if not regions:
     # There is no try/except: stop deliberately, with a message the run record

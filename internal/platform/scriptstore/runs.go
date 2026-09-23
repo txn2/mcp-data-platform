@@ -272,6 +272,9 @@ func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
 	if filter.Status != "" {
 		q.add("status = $%d", filter.Status)
 	}
+	if filter.RequestedBy != "" {
+		q.add("requested_by = $%d", filter.RequestedBy)
+	}
 	query = runSelect
 	if len(q.where) > 0 {
 		query += " WHERE " + joinAnd(q.where)

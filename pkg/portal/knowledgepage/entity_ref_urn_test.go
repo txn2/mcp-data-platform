@@ -110,6 +110,7 @@ func TestParseCitableRef_AllowsSharedForms(t *testing.T) {
 		"mcp:asset:a1",
 		"mcp:knowledge_page:kp1",
 		"mcp:connection:(trino,wh)",
+		"mcp:script:6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55",
 		"urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)",
 	} {
 		got, err := ParseCitableRef(ref)
@@ -122,20 +123,27 @@ func TestParseCitableRef_AllowsSharedForms(t *testing.T) {
 	}
 }
 
-// A managed script is fetchable but not citable on a shared page (#1302): it is
-// visibility-scoped, so the citation would be broken for every reader outside
-// that scope. The refusal must name both the reason and what to do instead,
-// because an author who is blocked has to be told where the reference DOES
-// belong.
-func TestParseCitableRef_RejectsScriptForm(t *testing.T) {
+// A managed script is citable on a knowledge page (#1855): who can open the
+// citation is decided per reader when references are resolved, not by refusing
+// it for everyone at write time.
+func TestParseCitableRef_AcceptsScriptForm(t *testing.T) {
+	const id = "6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55"
+	got, err := ParseCitableRef("mcp:script:" + id)
+	require.NoError(t, err)
+	assert.Equal(t, RefTargetScript, got.TargetType)
+	assert.Equal(t, id, got.ScriptID)
+	assert.Equal(t, "mcp:script:"+id, got.URN())
+}
+
+// A script id that is not a UUID names no script (scripts.id is a UUID), so the
+// citation path refuses it cleanly rather than handing the database a value its
+// column type rejects. fetch still parses it, and answers it as not-found.
+func TestParseCitableRef_ScriptIDMustBeUUID(t *testing.T) {
 	parsed, err := ParseEntityRef("mcp:script:script_01HK7")
-	require.NoError(t, err, "ParseEntityRef accepts a script reference (fetch uses it)")
-	assert.Equal(t, RefTargetScript, parsed.TargetType)
+	require.NoError(t, err, "ParseEntityRef accepts any script id (fetch uses it)")
 	assert.Equal(t, "script_01HK7", parsed.ScriptID)
 
 	_, err = ParseCitableRef("mcp:script:script_01HK7")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot be cited on a knowledge page")
-	assert.Contains(t, err.Error(), "visibility-scoped")
-	assert.Contains(t, err.Error(), "attach the script to a prompt")
+	assert.Contains(t, err.Error(), "script reference id must be a uuid")
 }

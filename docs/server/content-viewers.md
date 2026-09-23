@@ -183,6 +183,7 @@ content type renders identically wherever it is opened.
 | Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers; an HTML asset is framed as `srcdoc`, filling the page under the control row, with Present (fullscreen), Overview (a deck's grid of every slide, asked of the runtime by message) and Export PDF (a second, print-stepped copy of the document under a modals grant, printed one slide per page and always rendered light, #1772) on that row, which is how a slide deck on the served reveal.js runtime is presented (#1767, #1769) | Source editor |
 | Structured text | `application/xml`, `application/yaml` | CodeMirror, read-only, with folding and a wrap toggle | CodeMirror |
 | Code and logs | `application/sql`, `text/x-python`, `text/javascript`, `text/plain` | CodeMirror, read-only, with line numbers and a wrap toggle | CodeMirror |
+| Excel workbook | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | Metadata card naming it an Excel workbook, with its size and a download action; there is no in-page preview of the sheets (#1849) | None |
 | Anything else | | Metadata card naming the type and size, with a download action | None |
 
 Media types are never edited: the platform stores audio, video and images, it

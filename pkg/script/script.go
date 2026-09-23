@@ -254,8 +254,12 @@ type ListFilter struct {
 	// whole of visibility: a caller lists their own, and an administrator
 	// leaves it empty to list every script on the platform.
 	OwnerEmail string
-	Enabled    *bool  // filter by enabled state
-	Status     string // filter by lifecycle status; "" for all
+	// IDs narrows the listing to these scripts: a grantee's catalog is the
+	// scripts granted to it (#1846). Nil does not narrow; an empty, non-nil
+	// set matches nothing.
+	IDs     []string
+	Enabled *bool  // filter by enabled state
+	Status  string // filter by lifecycle status; "" for all
 	// Category narrows to one category slug; "" for all. Tags narrows to the
 	// scripts carrying ANY of the named tags: a reader filtering by two tags is
 	// asking for the union of two shelves, not for the scripts on both.

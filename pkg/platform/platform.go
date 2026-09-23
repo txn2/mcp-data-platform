@@ -1201,6 +1201,7 @@ func (p *Platform) authInput() iam.Input {
 			Email:       k.Email,
 			Description: k.Description,
 			Roles:       k.Roles,
+			Attributes:  k.Attributes,
 		})
 	}
 

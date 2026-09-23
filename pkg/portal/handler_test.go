@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -5071,4 +5072,26 @@ func TestCreateAssetInsertError(t *testing.T) {
 	)
 	w := postCreateAssetJSON(t, h, `{"name":"x","content_type":"text/markdown","content":"y"}`)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// A repeated tag and metadata.<key> parameters reach the store as AND filters
+// (#1848).
+func TestListAssetsTagsAndMetadata(t *testing.T) {
+	assets := &mockAssetStore{listRes: []Asset{}, listTotal: 0}
+	h := newTestHandler(assets, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/assets?tag=report:sales&tag=tenant:x&metadata.region=west&metadata.=ignored", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, assets.lastFilter)
+	assert.Equal(t, []string{"report:sales", "tenant:x"}, assets.lastFilter.Tags)
+	assert.Equal(t, map[string]string{"region": "west"}, assets.lastFilter.Metadata)
+
+	many := url.Values{}
+	for i := range maxMetadataFilters + 5 {
+		many.Set(fmt.Sprintf("metadata.k%d", i), "v")
+	}
+	assert.Len(t, metadataFilter(many), maxMetadataFilters)
+	assert.Nil(t, metadataFilter(url.Values{"tag": {"x"}}))
 }

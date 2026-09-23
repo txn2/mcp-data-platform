@@ -530,13 +530,20 @@ func generateExportAssetID() (string, error) {
 }
 
 // buildExportS3Key composes the object key:
-// <prefix>/graphql_export/<user>/<asset>.json.
+// <prefix>/graphql_export/<user>/<asset>/content.json.
+//
+// The object is alone in a directory of its own, the portal's convention for
+// a version (#1851): a table registered over an asset points at the directory
+// its content sits in and reads every file there, so an export written beside
+// the same user's other exports could not be registered, and a version a
+// script run writes onto an existing asset would land beside the one a pinned
+// table reads.
 func buildExportS3Key(prefix, userID, assetID string) string {
 	parts := []string{}
 	if prefix != "" {
 		parts = append(parts, strings.Trim(prefix, "/"))
 	}
-	parts = append(parts, "graphql_export", userID, assetID+".json")
+	parts = append(parts, "graphql_export", userID, assetID, "content.json")
 	return path.Join(parts...)
 }
 

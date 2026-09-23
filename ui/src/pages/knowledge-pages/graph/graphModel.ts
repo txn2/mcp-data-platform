@@ -24,6 +24,7 @@ export const NODE_STYLE: Record<string, { fill: string; shape: "circle" | "squar
   asset: { fill: "hsl(172, 66%, 45%)", shape: "square", label: "Asset" },
   collection: { fill: "hsl(262, 60%, 62%)", shape: "square", label: "Collection" },
   prompt: { fill: "hsl(291, 55%, 58%)", shape: "diamond", label: "Prompt" },
+  script: { fill: "hsl(340, 65%, 58%)", shape: "diamond", label: "Script" },
   datahub: { fill: "hsl(35, 85%, 52%)", shape: "diamond", label: "Catalog" },
   connection: { fill: "hsl(199, 75%, 48%)", shape: "square", label: "Connection" },
 };

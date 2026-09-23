@@ -24,6 +24,7 @@ import { ScriptProducedPanel } from "./ScriptProducedPanel";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
+import { ScriptGrantsCard } from "./ScriptGrantsCard";
 import { ScriptStateCard } from "./ScriptStateCard";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
@@ -173,6 +174,8 @@ function ScriptDetail({
               the history because a watermark is explained by the run that
               wrote it. Keyed on the script for the reason the editors are. */}
           <ScriptStateCard key={`state-${scriptId}`} scriptId={scriptId} contract={contract} />
+          {/* Who else may run it (#1846), the owner's to decide. */}
+          <ScriptGrantsCard key={`grants-${scriptId}`} scriptId={scriptId} />
         </>
       )}
 

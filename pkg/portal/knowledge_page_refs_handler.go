@@ -123,7 +123,7 @@ type setEntityRefsRequest struct {
 // listKnowledgePageRefs handles GET /api/v1/portal/knowledge-pages/{id}/refs.
 //
 // @Summary      List a knowledge page's entity references
-// @Description  Returns the entities the page references (assets, prompts, collections, connections, DataHub URNs, and other pages), each with its serialized URN.
+// @Description  Returns the entities the page references (assets, prompts, collections, connections, managed scripts, DataHub URNs, and other pages), each with its serialized URN. A reference the caller may not open is omitted: a managed script resolves for its owner and administrators only.
 // @Tags         Knowledge
 // @Produce      json
 // @Param        id  path  string  true  "Knowledge page id"
@@ -458,7 +458,7 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 }
 
 // resolveRef resolves a single reference to a display label, existence, and
-// accessibility. Access-gated targets (asset, collection, prompt) resolve only
+// accessibility. Access-gated targets (asset, collection, prompt, script) resolve only
 // when the user may view them; otherwise they are reported inaccessible, and
 // because not-found and not-permitted both yield Accessible=false the endpoint
 // cannot enumerate names or existence across the share boundary. Knowledge pages
@@ -478,6 +478,8 @@ func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowle
 		h.resolveCollectionRef(r, user, ref.CollectionID, &out)
 	case knowledgepage.RefTargetPrompt:
 		h.resolvePromptRef(r, user, ref.PromptID, &out)
+	case knowledgepage.RefTargetScript:
+		h.resolveScriptRef(r.Context(), user, ref.ScriptID, &out)
 	case knowledgepage.RefTargetKnowledgePage:
 		h.resolvePageRef(r.Context(), ref.RefPageID, &out)
 	case knowledgepage.RefTargetConnection:
@@ -542,6 +544,26 @@ func (h *Handler) resolvePromptRef(r *http.Request, user *User, id string, out *
 		return
 	}
 	out.Label = p.Name
+}
+
+// resolveScriptRef sets a cited script's name when the reader may open the
+// script (#1855). A script is personal: its owner and administrators see it and
+// no one else, the rule every other script surface applies (script.OwnedBy). A
+// script the reader may not open and one that does not exist are both marked
+// inaccessible, so the reference is withheld from that reader rather than
+// breaking the page, and its existence is not revealed.
+func (h *Handler) resolveScriptRef(ctx context.Context, user *User, id string, out *resolvedRef) {
+	if h.deps.ScriptRefs == nil {
+		out.Accessible = false
+		return
+	}
+	label, owner, ok := h.deps.ScriptRefs(ctx, id)
+	ownedByReader := owner != "" && user != nil && owner == user.Email
+	if !ok || (!ownedByReader && !h.access.IsAdmin(user)) {
+		out.Accessible = false
+		return
+	}
+	out.Label = label
 }
 
 // resolvePageRef sets a knowledge page's title; a missing page is a broken

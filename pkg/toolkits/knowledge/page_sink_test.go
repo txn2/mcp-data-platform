@@ -76,7 +76,7 @@ func newFakePageWriter() *fakePageWriter {
 // fakeRefKey mirrors the store's per-target uniqueness for the in-memory union.
 func fakeRefKey(r knowledgepage.EntityRef) string {
 	return r.TargetType + "|" + r.AssetID + "|" + r.PromptID + "|" + r.CollectionID + "|" +
-		r.RefPageID + "|" + r.ConnectionKind + "/" + r.ConnectionName + "|" + r.EntityURN
+		r.RefPageID + "|" + r.ConnectionKind + "/" + r.ConnectionName + "|" + r.EntityURN + "|" + r.ScriptID
 }
 
 func (f *fakePageWriter) ListEntityRefs(_ context.Context, pageID string) ([]knowledgepage.EntityRef, error) {

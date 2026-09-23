@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -28,6 +30,9 @@ type fakeAssets struct {
 	// lookupOnce fails only the first lookup, which is the shape of a read that
 	// missed or failed while the row was in fact there.
 	lookupOnce bool
+	// updates records every Update, and updateErr fails them (#1848).
+	updates   []portal.AssetUpdate
+	updateErr error
 }
 
 func newFakeAssets() *fakeAssets { return &fakeAssets{byKey: map[string]*portal.Asset{}} }
@@ -66,7 +71,12 @@ func (*fakeAssets) GetByIDs(context.Context, []string) (assets map[string]*porta
 func (*fakeAssets) List(context.Context, portal.AssetFilter) (assets []portal.Asset, total int, err error) {
 	return nil, 0, nil
 }
-func (*fakeAssets) Update(context.Context, string, portal.AssetUpdate) error { return nil }
+
+func (f *fakeAssets) Update(_ context.Context, _ string, u portal.AssetUpdate) error {
+	f.updates = append(f.updates, u)
+	return f.updateErr
+}
+
 func (*fakeAssets) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
 	return nil
 }
@@ -391,6 +401,36 @@ func TestOutputWriter_SameNameIsANewVersionOfOneAsset(t *testing.T) {
 	assert.Len(t, h.s3.objects, 2, "each version keeps its own object")
 }
 
+// TestOutputWriter_EachVersionIsAloneInItsDirectory pins #1851: a table over
+// an asset reads every file in the directory of the version it points at, so a
+// version is written as content<ext> under a directory of its own run, the
+// portal's convention, and never beside the version before it.
+func TestOutputWriter_EachVersionIsAloneInItsDirectory(t *testing.T) {
+	h := newWriterHarness(t)
+	ctx := context.Background()
+
+	first, err := h.writer.Export(ctx, csvRequest("daily"))
+	require.NoError(t, err)
+
+	secondRun := &script.Run{
+		ID: "dpx_2", ScriptID: h.run.ScriptID, VersionID: h.run.VersionID, Version: h.run.Version,
+	}
+	require.NoError(t, h.runs.Enqueue(ctx, secondRun))
+	secondRun.LockedBy, secondRun.Attempt = "worker-a", 1
+	secondWriter := newOutputWriter(h.writer.deps, h.runs,
+		claimedRun{run: secondRun, script: h.writer.script, version: testVersion()}, h.caller)
+	_, err = secondWriter.Export(ctx, csvRequest("daily"))
+	require.NoError(t, err)
+
+	require.Len(t, h.versions.created, 2)
+	for i, runID := range []string{h.run.ID, secondRun.ID} {
+		assert.Equal(t, path.Join("portal", "scripts", h.writer.script.ID, first.AssetID, runID, "content.csv"),
+			h.versions.created[i].S3Key, "version %d is content.csv under its run's directory", i+1)
+	}
+	assert.NotEqual(t, path.Dir(h.versions.created[0].S3Key), path.Dir(h.versions.created[1].S3Key),
+		"two versions never share a directory a table could be pointed at")
+}
+
 // TestOutputWriter_ReclaimedRunDoesNotWriteTwice is the idempotency the queue
 // needs: a run that died after writing an output and was reclaimed re-executes
 // from the top, and must not produce a second version of that output.
@@ -563,4 +603,52 @@ func TestOutputWriter_SameNamedScriptsOfTwoOwnersGetTwoAssets(t *testing.T) {
 	assert.Equal(t, "bob@example.com", h.assets.inserted[1].OwnerEmail,
 		"the address is what distinguishes the two rows sharing a principal")
 	assert.Equal(t, 1, theirs.AssetVersion, "the second script writes its own first version")
+}
+
+// tags= are added to the output asset's own and metadata= is stored on the
+// version beside what the platform records, and both reach the run's output
+// record (#1848).
+func TestOutputWriter_TagsAndMetadata(t *testing.T) {
+	h := newWriterHarness(t)
+	h.run.RequestedBy = "apikey:reporting-app"
+	req := csvRequest("daily")
+	req.Tags = []string{"report:sales", "script"}
+	req.Metadata = map[string]any{"region": "west"}
+
+	_, err := h.writer.Export(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, h.assets.updates, 1)
+	assert.Equal(t, []string{"script", "daily", "report:sales"}, h.assets.updates[0].Tags, "added, not duplicated")
+	meta := h.versions.created[0].Metadata
+	assert.Equal(t, "west", meta["region"])
+	assert.Equal(t, h.run.ID, meta["run_id"])
+	assert.Equal(t, "apikey:reporting-app", meta["requested_by"])
+	require.Len(t, h.runs.outputs, 1)
+	assert.Equal(t, []string{"report:sales", "script"}, h.runs.outputs[0].Tags)
+	assert.Equal(t, "west", h.runs.outputs[0].Metadata["region"])
+}
+
+// A tag update that fails leaves the version written.
+func TestOutputWriter_TagUpdateFailureKeepsTheVersion(t *testing.T) {
+	h := newWriterHarness(t)
+	h.assets.updateErr = errors.New("boom")
+	req := csvRequest("daily")
+	req.Tags = []string{"report:sales"}
+	_, err := h.writer.Export(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, h.versions.created, 1)
+}
+
+// An asset already at the tag cap stays at it.
+func TestOutputWriter_TagsStayWithinTheCap(t *testing.T) {
+	h := newWriterHarness(t)
+	asset := &portal.Asset{ID: "a1"}
+	for i := range portaldomain.MaxTags {
+		asset.Tags = append(asset.Tags, fmt.Sprintf("t%d", i))
+	}
+	h.writer.addTags(context.Background(), asset, []string{"one-more"})
+	require.Len(t, h.assets.updates, 1)
+	assert.Len(t, h.assets.updates[0].Tags, portaldomain.MaxTags)
+	h.writer.addTags(context.Background(), asset, []string{"t1"})
+	assert.Len(t, h.assets.updates, 1, "nothing new, no update")
 }

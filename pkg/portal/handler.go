@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
 	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/portal/producerapi"
@@ -155,7 +156,10 @@ type Deps struct {
 	S3Client                    S3Client
 	S3Bucket                    string
 	PublicBaseURL               string
-	RateLimit                   RateLimitConfig
+	// ContentURLKey signs the expiring content URLs an asset's reader mints
+	// (#1848). Empty leaves both routes unmounted.
+	ContentURLKey []byte
+	RateLimit     RateLimitConfig
 	// RateLimitResolver attributes the client IP for the public viewer's
 	// rate limiter with trusted-proxy awareness (#904). nil yields the safe
 	// trust-none default (direct peer address; X-Forwarded-For ignored), so an
@@ -308,6 +312,11 @@ type Deps struct {
 	// so to whether it still exists at all. Nil reports every script producer
 	// as existing.
 	ScriptNames producerapi.ScriptNames
+	// ScriptRefs looks up a managed script a knowledge page cites (#1855): the
+	// name it is shown by, and the owner who, with an administrator, is the one
+	// reader it resolves for. ok is false when no such script exists. Nil
+	// resolves every script citation as unavailable.
+	ScriptRefs func(ctx context.Context, id string) (label, owner string, ok bool)
 }
 
 // Handler provides portal REST API endpoints.
@@ -442,7 +451,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.viewerAssets.ServeHTTP(w, r)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/portal/view/") {
+	if strings.HasPrefix(r.URL.Path, "/portal/view/") || strings.HasPrefix(r.URL.Path, contenturl.Path) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
@@ -589,6 +598,12 @@ func (h *Handler) registerRoutes() {
 	// Public routes: rate limited, then gated on the share's access mode.
 	// publicChain is the only way a handler reaches this mux, so no route can
 	// serve a token the gate would refuse (#999).
+	// A signed content URL carries its own authority and expiry (#1848): it is
+	// rate limited like share content and takes no session.
+	if h.contentURLsReady() {
+		h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content-url", h.mintContentURL)
+		h.publicMux.Handle("GET /api/v1/portal/content/{token}", h.contentLimiter.Middleware(http.HandlerFunc(h.serveSignedContent)))
+	}
 	h.publicMux.Handle("GET /portal/view/{token}", h.publicChain(h.publicView))
 	h.publicMux.Handle("GET /portal/view/{token}/content", h.contentChain(h.publicAssetContent))
 	h.publicMux.Handle("GET /portal/view/{token}/thumbnail", h.publicChain(h.publicAssetThumbnail))
@@ -702,11 +717,12 @@ type paginatedResponse struct {
 // listAssets handles GET /api/v1/portal/assets.
 //
 // @Summary      List assets
-// @Description  Returns paginated assets owned by the current user with optional filtering.
+// @Description  Returns paginated assets owned by the current user with optional filtering. A repeated tag requires every named tag, and each metadata.<key>=<value> requires that value in the asset's metadata (the metadata a script output's latest version recorded), all combined with AND.
 // @Tags         Assets
 // @Produce      json
 // @Param        content_type  query  string   false  "Filter by content type"
-// @Param        tag           query  string   false  "Filter by tag"
+// @Param        tag           query  []string false  "Filter by tag; repeat it to require every one"  collectionFormat(multi)
+// @Param        metadata.key  query  string   false  "Filter by a metadata value, as metadata.<key>=<value>; several are ANDed"
 // @Param        limit         query  integer  false  "Results per page (default: 20)"
 // @Param        offset        query  integer  false  "Offset for pagination (default: 0)"
 // @Param        sort          query  string   false  "Sort column (default: updated_at)"  Enums(updated_at, created_at, name, size_bytes)
@@ -737,7 +753,8 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 	filter := AssetFilter{
 		Owner:       owner,
 		ContentType: r.URL.Query().Get("content_type"),
-		Tag:         r.URL.Query().Get("tag"),
+		Tags:        r.URL.Query()["tag"],
+		Metadata:    metadataFilter(r.URL.Query()),
 		Limit:       intParam(r, paramLimit, defaultLimit),
 		Offset:      intParam(r, paramOffset, 0),
 		SortBy:      sortBy,
@@ -769,6 +786,26 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		Limit: filter.EffectiveLimit(), Offset: filter.Offset,
 		ShareSummaries: summaries,
 	})
+}
+
+// maxMetadataFilters bounds how many metadata.<key> values one listing names.
+const maxMetadataFilters = 20
+
+// metadataFilter reads the metadata.<key>=<value> parameters of a listing
+// (#1848), nil when there are none.
+func metadataFilter(q url.Values) map[string]string {
+	var out map[string]string
+	for param, values := range q {
+		key, ok := strings.CutPrefix(param, "metadata.")
+		if !ok || key == "" || len(values) == 0 || len(out) >= maxMetadataFilters {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[key] = values[0]
+	}
+	return out
 }
 
 // assetResponse is the response for GET /api/v1/portal/assets/{id}.

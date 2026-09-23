@@ -226,7 +226,7 @@ func (w *outputWriter) writeRefreshedVersion(ctx context.Context, asset *portal.
 	version, tables, err = w.storeVersion(ctx, asset.ID, scriptrun.OutputIdentity{
 		ContentType: asset.ContentType,
 		Extension:   contenttype.Extension(asset.ContentType),
-	}, []byte(body), summary)
+	}, []byte(body), versionNote{summary: summary, metadata: w.versionMetadata(nil)})
 	if err != nil {
 		return 0, nil, fmt.Errorf("writing the refreshed version of output %q: %w", asset.Name, err)
 	}

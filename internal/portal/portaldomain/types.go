@@ -118,6 +118,11 @@ type AssetVersion struct {
 	CreatedBy     string    `json:"created_by" example:"alice@example.com"`
 	ChangeSummary string    `json:"change_summary" example:"Updated regional breakdown chart"`
 	CreatedAt     time.Time `json:"created_at"`
+	// Metadata is what the writer recorded about this version (#1848): a
+	// script output carries the run, the script, its version, who asked for
+	// the run, and what the script passed to platform.export. Empty for a
+	// version nothing described.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // ObjectKeys returns every object key this version owns: its stored content and
@@ -504,9 +509,14 @@ type AssetFilter struct {
 	ProducedBy  ContentProducer `json:"produced_by,omitzero"`
 	ContentType string          `json:"content_type,omitempty"`
 	Tag         string          `json:"tag,omitempty"`
-	Search      string          `json:"search,omitempty"`
-	Limit       int             `json:"limit,omitempty"`
-	Offset      int             `json:"offset,omitempty"`
+	// Tags narrows to the assets carrying every one of these tags, and
+	// Metadata to those whose metadata holds every one of these values
+	// (#1848); both are ANDed with Tag and with each other.
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Search   string            `json:"search,omitempty"`
+	Limit    int               `json:"limit,omitempty"`
+	Offset   int               `json:"offset,omitempty"`
 	// SortBy names the ordering column. It must be a key of
 	// AssetSortColumns; anything else falls back to SortUpdatedAt.
 	SortBy string `json:"sort_by,omitempty"`

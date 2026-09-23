@@ -13,7 +13,7 @@ import (
 )
 
 // ErrRefTargetNotFound is returned when a reference points at an internal entity
-// (asset, prompt, collection, page, connection) that does not exist, so the
+// (asset, prompt, collection, page, connection, script) that does not exist, so the
 // foreign key rejects it. Callers map it to a client error rather than a 500.
 var ErrRefTargetNotFound = errors.New("entity reference target does not exist")
 
@@ -48,12 +48,13 @@ const (
 	// It has no DB column and is rejected by the page-citation path (ParseCitableRef).
 	RefTargetMemory = "memory"
 	// RefTargetScript is a managed script (#1302). It resolves by id rather than by
-	// name so renaming a script cannot break a stored reference. It is fetchable by
-	// anyone the script's visibility rule reaches, and it is what a prompt stores to
-	// attach one (#1289), but it is NOT citable on a shared knowledge page: a script
-	// is visibility-scoped (global, persona, or personal), so the citation would be
-	// broken for every reader outside that scope. The page-citation path rejects it
-	// (ParseCitableRef).
+	// name so renaming a script cannot break a stored reference. It is what a
+	// prompt stores to attach one (#1289), and it is citable on a knowledge page
+	// (#1855): a page that says which script maintains a dataset cites the script
+	// itself. A script is personal to its owner, so who can open the citation is
+	// decided per reader when references are resolved (the owner and
+	// administrators), exactly as for an asset or a prompt the reader cannot open;
+	// the citation is stored in the script_id column (migration 000154).
 	RefTargetScript = "script"
 	// RefTargetSession is one platform session: the unit of work a caller's
 	// calls belong to, read back from the audit log (#1318, #1322). It is what
@@ -110,9 +111,9 @@ type EntityRef struct {
 	// (fetch-only); it is never persisted, since a managed resource is not citable
 	// on a page (#1012).
 	ResourceID string `json:"resource_id,omitempty"`
-	// ScriptID is set only by the parser for an mcp:script: reference (#1302). Like
-	// the memory and resource ids it is never persisted on a page, since a managed
-	// script is not citable there; a prompt stores the serialized reference instead.
+	// ScriptID is the managed script an mcp:script: reference names (#1302). A
+	// page citation persists it in the script_id column (#1855); a prompt stores
+	// the serialized reference instead.
 	ScriptID string `json:"script_id,omitempty"`
 	// CallID is set only by the parser for an mcp:call: reference (#1321): the
 	// audit event id of one recorded query or API invocation. Never persisted
@@ -175,7 +176,7 @@ func (r EntityRef) identity() string {
 func NewRefID() string { return "kpr_" + uuid.New().String() }
 
 const entityRefColumns = `id, page_id, target_type, asset_id, prompt_id, collection_id, ref_page_id, ` +
-	`connection_kind, connection_name, entity_urn, source, created_by, created_at`
+	`connection_kind, connection_name, entity_urn, script_id, source, created_by, created_at`
 
 // prefixedEntityRefColumns is entityRefColumns qualified with the "r" alias, for
 // the reads that join the refs table to portal_knowledge_pages. It is derived
@@ -254,13 +255,21 @@ func (s *postgresStore) FilterExistingRefTargets(ctx context.Context, refs []Ent
 }
 
 // refTargetExists reports whether one reference's foreign-key target row exists.
-// The table set mirrors the foreign keys in migration 000073 (portal_assets,
-// prompts, portal_collections, portal_knowledge_pages, connection_instances).
-// Types without a catalog foreign key (datahub, unknown) are reported present.
+// The table set mirrors the foreign keys in migrations 000073 and 000154
+// (portal_assets, prompts, portal_collections, portal_knowledge_pages,
+// connection_instances, scripts). Types without a catalog foreign key (datahub,
+// unknown) are reported present.
 func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (bool, error) {
 	var query string
 	var args []any
 	switch ref.TargetType {
+	case RefTargetScript:
+		// scripts.id is a UUID: an id that is not one names no script, and is
+		// answered as missing rather than handed to the database to fail on.
+		if !isUUID(ref.ScriptID) {
+			return false, nil
+		}
+		query, args = `SELECT 1 FROM scripts WHERE id = $1`, []any{ref.ScriptID}
 	case RefTargetAsset:
 		query, args = `SELECT 1 FROM portal_assets WHERE id = $1`, []any{ref.AssetID}
 	case RefTargetPrompt:
@@ -322,6 +331,8 @@ func refConflictTarget(targetType string) string {
 		return "(page_id, connection_kind, connection_name) WHERE connection_kind IS NOT NULL"
 	case RefTargetDataHub:
 		return "(page_id, entity_urn) WHERE entity_urn IS NOT NULL"
+	case RefTargetScript:
+		return "(page_id, script_id) WHERE script_id IS NOT NULL"
 	default:
 		return ""
 	}
@@ -396,8 +407,8 @@ func insertEntityRef(ctx context.Context, e execer, pageID string, ref EntityRef
 	query := `
 		INSERT INTO knowledge_page_entity_refs
 		(id, page_id, target_type, asset_id, prompt_id, collection_id, ref_page_id,
-		 connection_kind, connection_name, entity_urn, source, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		 connection_kind, connection_name, entity_urn, script_id, source, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	if target := refConflictTarget(ref.TargetType); target != "" {
 		query += " ON CONFLICT " + target + " DO NOTHING"
@@ -406,7 +417,7 @@ func insertEntityRef(ctx context.Context, e execer, pageID string, ref EntityRef
 		id, pageID, ref.TargetType,
 		nullRefString(ref.AssetID), nullRefString(ref.PromptID), nullRefString(ref.CollectionID), nullRefString(ref.RefPageID),
 		nullRefString(ref.ConnectionKind), nullRefString(ref.ConnectionName), nullRefString(ref.EntityURN),
-		source, ref.CreatedBy,
+		nullRefString(ref.ScriptID), source, ref.CreatedBy,
 	)
 	if err != nil {
 		var pqErr *pq.Error
@@ -420,10 +431,10 @@ func insertEntityRef(ctx context.Context, e execer, pageID string, ref EntityRef
 
 func scanEntityRef(rows *sql.Rows) (EntityRef, error) {
 	var r EntityRef
-	var assetID, promptID, collectionID, refPageID, connKind, connName, urn sql.NullString
+	var assetID, promptID, collectionID, refPageID, connKind, connName, urn, scriptID sql.NullString
 	if err := rows.Scan(
 		&r.ID, &r.PageID, &r.TargetType, &assetID, &promptID, &collectionID, &refPageID,
-		&connKind, &connName, &urn, &r.Source, &r.CreatedBy, &r.CreatedAt,
+		&connKind, &connName, &urn, &scriptID, &r.Source, &r.CreatedBy, &r.CreatedAt,
 	); err != nil {
 		return r, fmt.Errorf("scanning entity ref row: %w", err)
 	}
@@ -434,6 +445,7 @@ func scanEntityRef(rows *sql.Rows) (EntityRef, error) {
 	r.ConnectionKind = connKind.String
 	r.ConnectionName = connName.String
 	r.EntityURN = urn.String
+	r.ScriptID = scriptID.String
 	return r, nil
 }
 

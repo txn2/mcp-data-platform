@@ -368,6 +368,12 @@ const maxCatchupWalk = 600000
 // parameters asks the same question, rather than asking about whatever day the
 // re-run happens on.
 func BindScheduleParams(defs []Param, raw map[string]any, fire time.Time, loc *time.Location) (map[string]any, error) {
+	// A caller-bound parameter reads the caller, and a fire has none (#1846).
+	for _, p := range defs {
+		if p.Bind != "" {
+			return nil, fmt.Errorf("parameter %q is bound to %s, and a schedule has no caller to read it from; run this script on request", p.Name, p.Bind)
+		}
+	}
 	expanded := make(map[string]any, len(raw))
 	for name, value := range raw {
 		v, err := expandToken(value, fire, loc)

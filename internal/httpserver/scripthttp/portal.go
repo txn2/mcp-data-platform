@@ -4,11 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/granthttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/outputshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/scriptlist"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/statehttp"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -45,6 +52,14 @@ type PortalIdentity struct {
 	// present the authentication the request actually arrived with rather than
 	// a kind no authenticator issues.
 	AuthType string
+	// Claims are the caller's claims, an API key's attributes among them: a
+	// parameter bound to caller.<claim> takes its value from here (#1846).
+	Claims map[string]any
+}
+
+// caller is this caller in the terms a run grant names.
+func (p *PortalIdentity) caller() scriptgrant.Caller {
+	return scriptgrant.Caller{UserID: p.UserID, Persona: p.Persona, Roles: p.Roles}
 }
 
 // owner is the identity a script's owner is compared against: the caller's
@@ -122,10 +137,14 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// The state a script carries from run to run, and the owner's reset of it
 	// (#1537).
 	if h.deps.States != nil {
-		h.registerPortalState(mux, wrap)
+		statehttp.New(statehttp.Deps{States: h.deps.States, Owned: h.ownedByCaller}).Register(mux, wrap)
 	}
 	if h.deps.Schedules != nil {
 		h.registerPortalSchedules(mux, wrap)
+	}
+	// Who else may run it (#1846), which is the owner's to decide.
+	if h.deps.Grants != nil {
+		granthttp.New(granthttp.Deps{Grants: h.deps.Grants, Owned: h.ownedByCaller, Audit: h.auditGrantAct}).Register(mux, wrap)
 	}
 	// Everything the script has ever written (#1569), which no per-run listing
 	// can answer: a file a run modified is one line in that run's outputs, and
@@ -139,6 +158,8 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// A literal segment outranks the {id} wildcard, so a script whose id is
 	// "runs" cannot shadow the caller's cross-script run listing (#1405).
 	mux.Handle("GET /api/v1/portal/scripts/runs", wrap(h.portalHandler(h.portalListOwnRuns)))
+	// What the caller's runs wrote, across scripts (#1848).
+	outputshttp.New(outputshttp.Deps{Runs: h.deps.Runs, Caller: h.requester, ContentURL: h.deps.ContentURL}).Register(mux, wrap)
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalListRuns)))
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs/{runID}", wrap(h.portalHandler(h.portalGetRun)))
 	// Running one now (#1363). It is mounted with the history because it is the
@@ -228,6 +249,10 @@ type portalScriptRow struct {
 	// so the page offers those surfaces rather than linking a reader to a
 	// refusal.
 	Owned bool `json:"owned" example:"true"`
+	// Granted marks a script this caller may run because it was granted to
+	// them rather than because they own it (#1846), on a scope=granted
+	// listing.
+	Granted bool `json:"granted,omitempty" example:"true"`
 }
 
 // portalScriptListResponse is the portal listing payload.
@@ -248,10 +273,10 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
+// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
 // @Tags         Scripts
 // @Produce      json
-// @Param        scope     query  string    false  "Whose scripts to list: mine (default) or all"  Enums(mine, all)
+// @Param        scope     query  string    false  "Whose scripts to list: mine (default), all, or granted"  Enums(mine, all, granted)
 // @Param        category  query  string    false  "Narrow to one category slug"
 // @Param        tag       query  []string  false  "Narrow to the scripts carrying any of these tags"  collectionFormat(multi)
 // @Param        search    query  string    false  "Narrow to the scripts whose name, display name or description contains this text"
@@ -268,6 +293,11 @@ type portalScriptListResponse struct {
 // @Router       /portal/scripts [get]
 func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	filter := scriptlist.Filter(user.owner(), user.IsAdmin, r.URL.Query())
+	granted, err := h.grantedFilter(r, user, &filter)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
+		return
+	}
 	scripts, err := h.deps.Scripts.List(r.Context(), filter)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
@@ -276,7 +306,9 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	rows := make([]portalScriptRow, 0, len(scripts))
 	for i := range scripts {
 		owned := ownsScript(&scripts[i], user)
-		rows = append(rows, portalScriptRow{Script: reportableScript(scripts[i], owned), Owned: owned})
+		rows = append(rows, portalScriptRow{
+			Script: reportableScript(scripts[i], owned), Owned: owned, Granted: granted[scripts[i].ID],
+		})
 	}
 	h.attachSchedules(r.Context(), rows)
 	h.attachLastRuns(r.Context(), rows)
@@ -291,6 +323,30 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	}
 	resp.Scheduled, resp.Failing = h.healthCounts(r.Context(), filter, rows)
 	httpjson.WriteJSON(w, http.StatusOK, resp)
+}
+
+// grantedFilter narrows a scope=granted listing to the scripts granted to the
+// caller, and reports which they are. A deployment that keeps no grants has
+// granted nothing, so the listing is empty rather than unfiltered.
+func (h *Handler) grantedFilter(r *http.Request, user *PortalIdentity, filter *script.ListFilter) (map[string]bool, error) {
+	if r.URL.Query().Get("scope") != "granted" {
+		return map[string]bool{}, nil
+	}
+	filter.OwnerEmail = ""
+	filter.IDs = []string{}
+	if h.deps.Grants == nil {
+		return map[string]bool{}, nil
+	}
+	ids, err := h.deps.Grants.GrantedScriptIDs(r.Context(), user.caller())
+	if err != nil {
+		return nil, fmt.Errorf("reading granted scripts: %w", err)
+	}
+	filter.IDs = ids
+	granted := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		granted[id] = true
+	}
+	return granted, nil
 }
 
 // healthCounts answers the two numbers above the listing.
@@ -467,7 +523,7 @@ type portalScriptResponse struct {
 func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	contract, err := h.deps.Contracts.Contract(r.Context(), r.PathValue(pathID))
 	if err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get script")
+		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)
 		return
 	}
 	if contract == nil {
@@ -822,7 +878,7 @@ func (h *Handler) portalGetRun(w http.ResponseWriter, r *http.Request, user *Por
 func (h *Handler) readableRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) (*script.Run, bool) {
 	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
 	if err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get script")
+		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)
 		return nil, false
 	}
 	if sc == nil {
@@ -896,7 +952,7 @@ func (h *Handler) portalListProduced(w http.ResponseWriter, r *http.Request, use
 func (h *Handler) ownedScript(w http.ResponseWriter, r *http.Request, user *PortalIdentity) (*script.Script, bool) {
 	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
 	if err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get script")
+		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)
 		return nil, false
 	}
 	if sc == nil || !ownsScript(sc, user) {
@@ -904,6 +960,68 @@ func (h *Handler) ownedScript(w http.ResponseWriter, r *http.Request, user *Port
 		return nil, false
 	}
 	return sc, true
+}
+
+// runnableScript resolves the script in the path for a caller who may run it:
+// its owner, an administrator, or a principal it is granted to (#1846).
+// Everybody else is answered as if it did not exist, as ownedScript answers.
+func (h *Handler) runnableScript(w http.ResponseWriter, r *http.Request, user *PortalIdentity) (*script.Script, bool) {
+	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)
+		return nil, false
+	}
+	if sc != nil && (ownsScript(sc, user) || h.granted(r, sc, user)) {
+		return sc, true
+	}
+	httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
+	return nil, false
+}
+
+// granted reports whether the script is granted to the caller. A grant that
+// cannot be read is no grant: the caller is refused rather than let in.
+func (h *Handler) granted(r *http.Request, sc *script.Script, user *PortalIdentity) bool {
+	if h.deps.Grants == nil {
+		return false
+	}
+	ok, err := h.deps.Grants.Allows(r.Context(), sc.ID, user.caller())
+	if err != nil {
+		slog.Warn("scripts: reading run grants failed", keyScriptID, sc.ID, "error", logsan.SanitizeForLog(err.Error()))
+	}
+	return ok && err == nil
+}
+
+// auditGrantAct records a grant or a withdrawal as an act on the script.
+func (h *Handler) auditGrantAct(r *http.Request, tool, scriptID string, params map[string]any, opErr error) {
+	if user := h.deps.PortalUser(r); user != nil {
+		h.auditScriptAct(r, user, scriptAct{tool: tool, scriptID: scriptID}, params, opErr)
+	}
+}
+
+// requester is the portal caller as a run records who asked for it.
+func (h *Handler) requester(w http.ResponseWriter, r *http.Request) (requester string, isAdmin, ok bool) {
+	user := h.deps.PortalUser(r)
+	if user == nil {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return "", false, false
+	}
+	return user.owner(), user.IsAdmin, true
+}
+
+// ownedByCaller is ownedScript for a route mounted outside this package: it
+// resolves the caller too, answering 401 when there is none, and reports the
+// script's id and the caller's identity.
+func (h *Handler) ownedByCaller(w http.ResponseWriter, r *http.Request) (scriptID, actor string, ok bool) {
+	user := h.deps.PortalUser(r)
+	if user == nil {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return "", "", false
+	}
+	sc, ok := h.ownedScript(w, r, user)
+	if !ok {
+		return "", "", false
+	}
+	return sc.ID, user.owner(), true
 }
 
 // ownsScript reports whether the caller may read a script's runs and source:

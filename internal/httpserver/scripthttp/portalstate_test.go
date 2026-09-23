@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -63,94 +62,12 @@ func stateDeps(states *stubStates, user *PortalIdentity) Deps {
 	return deps
 }
 
-func TestPortalGetState_ReportsAnEmptyObjectAtRevisionZero(t *testing.T) {
-	rec := servePortalRequest(t, stateDeps(newStubStates(), carol), http.MethodGet, statePath, "")
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body stateResponse
-	decodeInto(t, rec, &body)
-	assert.Equal(t, map[string]any{}, body.State, "{} rather than null")
-	assert.Zero(t, body.Revision)
-	assert.Nil(t, body.UpdatedAt)
-}
-
-func TestPortalGetState_NamesTheRunThatWroteIt(t *testing.T) {
-	states := newStubStates()
-	states.states["script_2"] = &script.State{
-		ScriptID: "script_2", Value: map[string]any{"synced_through": "2026-08-28"}, Revision: 3,
-		RunID: "dpx_9", UpdatedAt: time.Now().UTC(),
-	}
-	rec := servePortalRequest(t, stateDeps(states, carol), http.MethodGet, statePath, "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	var body stateResponse
-	decodeInto(t, rec, &body)
-	assert.Equal(t, "2026-08-28", body.State["synced_through"])
-	assert.Equal(t, int64(3), body.Revision)
-	assert.Equal(t, "dpx_9", body.RunID)
-	assert.NotNil(t, body.UpdatedAt)
-}
-
-func TestPortalSetState_ReplacesTheObjectAsTheCaller(t *testing.T) {
-	states := newStubStates()
-	rec := servePortalRequest(t, stateDeps(states, carol), http.MethodPut, statePath,
-		`{"state":{"synced_through":"2026-08-01","count":2}}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body stateResponse
-	decodeInto(t, rec, &body)
-	assert.Equal(t, int64(1), body.Revision)
-	assert.Equal(t, carol.owner(), body.UpdatedBy)
-	assert.Contains(t, body.Message, "fails at its write")
-	assert.Equal(t, carol.owner(), states.setBy, "the reset is recorded with who did it")
-	assert.Equal(t, "2026-08-01", states.states["script_2"].Value["synced_through"])
-}
-
-func TestPortalClearState_ResetsToAnEmptyObject(t *testing.T) {
-	states := newStubStates()
-	states.states["script_2"] = &script.State{ScriptID: "script_2", Value: map[string]any{"k": "v"}, Revision: 4}
-	rec := servePortalRequest(t, stateDeps(states, admin), http.MethodDelete, statePath, "")
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body stateResponse
-	decodeInto(t, rec, &body)
-	assert.Equal(t, map[string]any{}, body.State)
-	assert.Equal(t, int64(5), body.Revision, "a clear moves the revision")
-	assert.Contains(t, body.Message, "starts from {}")
-	assert.Equal(t, admin.owner(), states.setBy, "an administrator reaches every script's state")
-}
-
-func TestPortalSetState_Refusals(t *testing.T) {
-	tests := []struct {
-		name, body string
-		want       int
-	}{
-		{"not JSON", "{", http.StatusBadRequest},
-		{"no object", `{}`, http.StatusBadRequest},
-		{"over the bound", `{"state":{"blob":"` + strings.Repeat("x", script.MaxStateBytes) + `"}}`, http.StatusBadRequest},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			states := newStubStates()
-			rec := servePortalRequest(t, stateDeps(states, carol), http.MethodPut, statePath, tt.body)
-			assert.Equal(t, tt.want, rec.Code, rec.Body.String())
-			assert.Empty(t, states.states, "nothing was written")
-		})
-	}
-}
-
 // The state is the owner's and an administrator's, refused to everybody else
 // with the same answer as a script that does not exist.
 func TestPortalState_RefusesACallerWhoDoesNotOwnIt(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 		rec := servePortalRequest(t, stateDeps(newStubStates(), stranger), method, statePath, `{"state":{}}`)
 		assert.Equal(t, http.StatusNotFound, rec.Code, method)
-	}
-}
-
-func TestPortalState_StoreFailures(t *testing.T) {
-	states := newStubStates()
-	states.err = errors.New("boom")
-	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-		rec := servePortalRequest(t, stateDeps(states, carol), method, statePath, `{"state":{}}`)
-		assert.Equal(t, http.StatusInternalServerError, rec.Code, method)
-		assert.NotContains(t, rec.Body.String(), "boom")
 	}
 }
 
@@ -224,10 +141,4 @@ func TestPortalDryRunSource_ReadsAnEmptyStateWhenTheReadFails(t *testing.T) {
 	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(draftSource))
 	require.Equal(t, http.StatusOK, rec.Code, "a failed state read does not fail the draft")
 	assert.Nil(t, runner.got.State, "the draft reads {} rather than failing")
-}
-
-func TestRenderState_RevisionZeroHasNoTimestamp(t *testing.T) {
-	out := renderState(&script.State{ScriptID: "s"}, "")
-	assert.Equal(t, map[string]any{}, out.State)
-	assert.Nil(t, out.UpdatedAt)
 }

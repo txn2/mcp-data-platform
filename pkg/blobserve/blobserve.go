@@ -34,6 +34,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -256,7 +257,23 @@ func disposition(ct string, opts Options) string {
 	if name == "" {
 		return kind
 	}
-	return fmt.Sprintf("%s; filename=%q", kind, name)
+	return fmt.Sprintf("%s; filename=%q", kind, withExtension(name, ct))
+}
+
+// withExtension gives a name that has no extension the one its content type
+// maps to, so a saved download opens in the program for it. An asset is named
+// by its author (a script's output is named "sales"), and a workbook saved as
+// "sales" is a file Excel does not recognize by name. A name that already has
+// an extension, and a type with none better than ".bin", are left alone.
+func withExtension(name, ct string) string {
+	if path.Ext(name) != "" {
+		return name
+	}
+	ext := contenttype.Extension(ct)
+	if ext == contenttype.Extension(contenttype.OctetStream) {
+		return name
+	}
+	return name + ext
 }
 
 // sanitizeFilename strips the characters that would break out of the quoted

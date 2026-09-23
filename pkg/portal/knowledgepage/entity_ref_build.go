@@ -60,9 +60,8 @@ func ResourceRef(id string) string {
 // ScriptRef returns the canonical reference for a managed script, or "" if id is
 // empty. It is the one way to name a script from outside pkg/script: search emits
 // it on a hit, fetch dereferences it to the script's contract, and a prompt stores
-// it to attach one (#1302, #1289). A script is NOT citable on a knowledge page (it
-// is visibility-scoped, so the citation would be broken for readers outside that
-// scope); the page-citation path rejects it (ParseCitableRef).
+// it to attach one (#1302, #1289), and a knowledge page cites it (#1855), where
+// it resolves for the readers who can open the script.
 func ScriptRef(id string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetScript, ScriptID: id})
 }

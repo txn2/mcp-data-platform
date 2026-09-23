@@ -30,9 +30,12 @@ const FAMILY_VARIANT: Record<Family, "success" | "info" | "warning" | "secondary
   other: "muted",
 };
 
+/** Substrings of the media types that hold a table: CSV, Parquet, an Excel workbook. */
+const TABULAR_MARKERS = ["csv", "parquet", "spreadsheetml"];
+
 function contentTypeFamily(contentType: string): Family {
   const lower = contentType.toLowerCase();
-  if (lower.includes("csv") || lower.includes("parquet")) return "tabular";
+  if (TABULAR_MARKERS.some((marker) => lower.includes(marker))) return "tabular";
   if (lower.includes("jsx") || lower.includes("react")) return "component";
   if (lower.includes("html")) return "markup";
   if (lower.includes("svg") || lower.includes("image")) return "image";

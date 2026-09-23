@@ -31,6 +31,17 @@ const (
 	// instead of asking somebody to remember the spelling, and a value outside
 	// that set is refused by the middleware at the query it names.
 	ParamTypeConnection = "connection"
+
+	// ParamTypeList is a list of values of one element type, named by Items
+	// (#1844). It binds as a JSON array with every element checked, and
+	// reaches the script as a Starlark list, which platform.query binds as a
+	// parenthesized SQL list: WHERE id IN :ids.
+	ParamTypeList = "list"
+
+	// ParamTypeDateRange is a pair of dates, {"from": ..., "to": ...}, with
+	// from on or before to (#1844), so a report script does not re-implement
+	// that check with fail().
+	ParamTypeDateRange = "date_range"
 )
 
 // ConnectionParamKind is the toolkit kind a connection-typed parameter's value
@@ -59,6 +70,8 @@ var validParamTypes = map[string]bool{
 	ParamTypeDate:       true,
 	ParamTypeEnum:       true,
 	ParamTypeConnection: true,
+	ParamTypeList:       true,
+	ParamTypeDateRange:  true,
 }
 
 // DateLayout is the one accepted wire form for a date parameter and the form
@@ -93,9 +106,42 @@ type Param struct {
 	// caller-supplied value, so a default cannot smuggle in a type the
 	// parameter does not accept.
 	Default any `json:"default,omitempty"`
-	// Values enumerates the allowed values of an enum parameter, and is
-	// meaningless (and refused) on every other type.
+	// Values enumerates the allowed values of an enum parameter, or of the
+	// elements of a list of enum, and is refused on every other type.
 	Values []string `json:"values,omitempty" example:"daily,weekly"`
+
+	// Items is a list parameter's element type: string, int, float, date or
+	// enum (#1844). MinItems and MaxItems bound its length.
+	Items    string `json:"items,omitempty" example:"string"`
+	MinItems *int   `json:"min_items,omitempty"`
+	MaxItems *int   `json:"max_items,omitempty"`
+
+	// Label is what a form shows as the parameter's name; Description
+	// becomes its help text. Order and Group arrange a form: ascending order,
+	// then declaration order, within groups (#1844).
+	Label string `json:"label,omitempty" example:"Report date"`
+	Order int    `json:"order,omitempty"`
+	Group string `json:"group,omitempty" example:"Filters"`
+
+	// Min and Max bound a number (int, float) or a date (date, date_range,
+	// and a list's number or date elements), in the parameter's own type.
+	// Pattern is a regular expression a string, or a list's string elements,
+	// must match in full.
+	Min     any    `json:"min,omitempty"`
+	Max     any    `json:"max,omitempty"`
+	Pattern string `json:"pattern,omitempty"`
+
+	// Bind takes the parameter's value from the authenticated caller rather
+	// than from the request: "caller.<claim>" reads that claim, which for an
+	// API key is one of its attributes (#1846). A value for it in a request is
+	// refused, a caller without the claim cannot run the script, and a
+	// schedule, which has no caller, cannot fire it.
+	Bind string `json:"bind,omitempty" example:"caller.tenant"`
+
+	// UI is an opaque hint for whatever builds a form from the contract, e.g.
+	// {"widget": "location-picker"}. The platform stores and returns it and
+	// never interprets it.
+	UI map[string]any `json:"ui,omitempty"`
 }
 
 // ParamsEqual reports whether two parameter contracts are identical. Param
@@ -104,12 +150,7 @@ type Param struct {
 // parameter-contract equality, shared by the edit funnel and the diff surface.
 func ParamsEqual(a, b []Param) bool {
 	return slices.EqualFunc(a, b, func(x, y Param) bool {
-		return x.Name == y.Name &&
-			x.Type == y.Type &&
-			x.Description == y.Description &&
-			x.Required == y.Required &&
-			reflect.DeepEqual(x.Default, y.Default) &&
-			slices.Equal(x.Values, y.Values)
+		return reflect.DeepEqual(x, y)
 	})
 }
 
@@ -139,9 +180,12 @@ func ValidateParams(params []Param) error {
 // validateParamShape checks one parameter's type, enum values, and default.
 func validateParamShape(p Param) error {
 	if !validParamTypes[p.Type] {
-		return fmt.Errorf("parameter %q has invalid type %q: must be string, int, float, bool, date, or enum", p.Name, p.Type)
+		return fmt.Errorf("parameter %q has invalid type %q: must be string, int, float, bool, date, enum, connection, list or date_range", p.Name, p.Type)
 	}
 	if err := validateEnumValues(p); err != nil {
+		return err
+	}
+	if err := validateFormShape(p); err != nil {
 		return err
 	}
 	if p.Default == nil {
@@ -169,7 +213,7 @@ func validateParamShape(p Param) error {
 // deployment defaults, which is not what a typed parameter meant.
 func requiresDefault(paramType string) bool {
 	switch paramType {
-	case ParamTypeEnum, ParamTypeDate, ParamTypeConnection:
+	case ParamTypeEnum, ParamTypeDate, ParamTypeConnection, ParamTypeDateRange:
 		return true
 	default:
 		return false
@@ -179,11 +223,12 @@ func requiresDefault(paramType string) bool {
 // validateEnumValues checks that an enum enumerates something and that nothing
 // else carries a value list.
 func validateEnumValues(p Param) error {
-	if p.Type == ParamTypeEnum && len(p.Values) == 0 {
+	enum := p.Type == ParamTypeEnum || (p.Type == ParamTypeList && p.Items == ParamTypeEnum)
+	if enum && len(p.Values) == 0 {
 		return fmt.Errorf("enum parameter %q must list its allowed values", p.Name)
 	}
-	if p.Type != ParamTypeEnum && len(p.Values) > 0 {
-		return fmt.Errorf("parameter %q is of type %s; only an enum parameter carries values", p.Name, p.Type)
+	if !enum && len(p.Values) > 0 {
+		return fmt.Errorf("parameter %q is of type %s; only an enum parameter, or a list of enum, carries values", p.Name, p.Type)
 	}
 	return nil
 }
@@ -271,6 +316,8 @@ func zeroParam(p Param) any {
 		return float64(0)
 	case ParamTypeBool:
 		return false
+	case ParamTypeList:
+		return []any{}
 	default:
 		return ""
 	}
@@ -282,23 +329,45 @@ func zeroParam(p Param) any {
 // everything else.
 func coerceParam(p Param, raw any) (any, error) {
 	switch p.Type {
-	case ParamTypeString:
-		return coerceString(raw)
-	case ParamTypeEnum:
-		return coerceEnum(p, raw)
-	case ParamTypeInt:
-		return coerceInt(raw)
-	case ParamTypeFloat:
-		return coerceFloat(raw)
+	case ParamTypeList:
+		return coerceList(p, raw)
+	case ParamTypeDateRange:
+		return coerceDateRange(p, raw)
 	case ParamTypeBool:
 		return coerceBool(raw)
-	case ParamTypeDate:
-		return coerceDate(raw)
 	case ParamTypeConnection:
 		return coerceConnection(raw)
 	default:
-		return nil, fmt.Errorf("invalid type %q", p.Type)
+		return coerceScalar(p, p.Type, raw)
 	}
+}
+
+// coerceScalar converts one value of a scalar type, applying the parameter's
+// constraints. It is the element check of a list as well as the check of a
+// scalar parameter, so both answer the same way.
+func coerceScalar(p Param, typ string, raw any) (any, error) {
+	var (
+		v   any
+		err error
+	)
+	switch typ {
+	case ParamTypeString:
+		v, err = coerceString(raw)
+	case ParamTypeEnum:
+		v, err = coerceEnum(p, raw)
+	case ParamTypeInt:
+		v, err = coerceInt(raw)
+	case ParamTypeFloat:
+		v, err = coerceFloat(raw)
+	case ParamTypeDate:
+		v, err = coerceDate(raw)
+	default:
+		return nil, fmt.Errorf("invalid type %q", typ)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return v, checkConstraints(p, typ, v)
 }
 
 // coerceConnection accepts a non-empty connection name. Emptiness is refused

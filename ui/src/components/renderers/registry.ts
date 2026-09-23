@@ -272,6 +272,8 @@ export function familyLabel(contentType: string): string {
     [CT.svg]: "SVG",
     [CT.pdf]: "PDF",
     [CT.parquet]: "Parquet",
+    // No viewer draws a workbook: it opens on the download card (#1849).
+    [CT.xlsx]: "Excel workbook",
     [CT.plain]: "Plain text",
     [CT.octet]: "Binary",
   };
