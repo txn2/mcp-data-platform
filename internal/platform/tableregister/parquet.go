@@ -1,6 +1,7 @@
 package tableregister
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -10,24 +11,23 @@ import (
 )
 
 // parquetColumns reads the columns a Parquet file's footer declares, through
-// ranged reads of the object rather than the whole of it (#1833).
-//
-// A read the store failed is the platform's failure; anything the footer says
-// that no table can be declared over -- bytes that are not Parquet, a type
-// nothing reads back exactly, two columns one apart by case -- is a refusal
-// naming it.
+// ranged reads of the object rather than the whole of it (#1833). A read the
+// store failed is the platform's failure; anything the footer says that no
+// table can be declared over -- bytes that are not Parquet, a type nothing
+// reads back exactly, two columns one apart by case -- is a refusal naming it.
 func parquetColumns(ctx context.Context, objects ObjectReader, src Source) ([]Column, error) {
 	ra := &rangeReader{ctx: ctx, objects: objects, bucket: src.Bucket, key: src.HeadKey}
 	size, err := ra.size()
-	if err != nil {
-		// A store answers a ranged read of a zero-byte object with 416, so an
-		// empty file would be reported as the platform's failure rather than
-		// refused by name. Only an object that comes back empty is taken as
-		// one: a failed read, or one with bytes, leaves the probe's error.
-		if body, _, getErr := objects.GetObject(ctx, src.Bucket, src.HeadKey); getErr != nil || len(body) > 0 {
-			return nil, failedf("reading the file", err)
+	if err != nil || size < 0 {
+		// The probe cannot always answer: a store refuses a ranged read of an
+		// empty object outright, and one that satisfies a range may report no
+		// total, which arrives negative. Reading the object whole answers
+		// both, and an empty one is refused by name below.
+		body, _, getErr := objects.GetObject(ctx, src.Bucket, src.HeadKey)
+		if getErr != nil {
+			return nil, failedf("reading the file", cmp.Or(err, getErr))
 		}
-		size = 0
+		size = int64(len(body))
 	}
 	cols, err := tableparquet.Columns(ra, size)
 	switch {
@@ -51,8 +51,8 @@ func declaredColumns(cols []tabletype.Column) []Column {
 }
 
 // rangeReader is an io.ReaderAt over an object's ranged reads. The first
-// failure the store returns is kept, so the caller can tell a read that
-// failed from a file that said something the footer parse refused.
+// failure the store returns is kept, so the caller can tell a read that failed
+// from a file the footer parse refused.
 type rangeReader struct {
 	ctx     context.Context //nolint:containedctx // an io.ReaderAt carries no context of its own
 	objects ObjectReader
@@ -61,8 +61,8 @@ type rangeReader struct {
 	err     error
 }
 
-// sizeProbe is how much of the object the size is learned from: the magic a
-// Parquet file begins with, which the footer read asks for anyway.
+// sizeProbe is how much of the object the size is learned from: the magic the
+// footer read asks for anyway.
 const sizeProbe = 4
 
 // size learns the object's whole size from one small ranged read.

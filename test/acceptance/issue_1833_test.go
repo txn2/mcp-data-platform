@@ -409,6 +409,17 @@ func issue1833PutObject(t *testing.T, bucket, key string, body []byte) {
 	}); err != nil {
 		t.Fatalf("overwriting s3://%s/%s: %v", bucket, key, err)
 	}
+	// Remove the object rather than leaving it to the asset delete. This one
+	// is written past the read cap on purpose, and the dev store preallocates
+	// its volumes: a run that leaves a few hundred megabytes behind exhausts
+	// them, and every later test fails its upload with a store 500.
+	t.Cleanup(func() {
+		del, cancelDel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancelDel()
+		if err := s3.DeleteObject(del, bucket, key); err != nil {
+			t.Logf("removing s3://%s/%s: %v", bucket, key, err)
+		}
+	})
 }
 
 // TestIssue1833_ANewVersionWithAnAddedColumnMovesTheTable is criterion 7: a
