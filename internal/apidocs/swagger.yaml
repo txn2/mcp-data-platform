@@ -305,6 +305,15 @@ definitions:
     type: object
   admin.authKeyCreateRequest:
     properties:
+      attributes:
+        additionalProperties:
+          type: string
+        description: |-
+          Attributes are named values the key carries into every call as claims
+          (#1846). A script parameter bound to caller.<name> takes its value from
+          the one named here, so a multi-tenant application's key names its
+          tenant and no request can claim another.
+        type: object
       description:
         example: CI/CD pipeline integration
         type: string
@@ -396,6 +405,11 @@ definitions:
     type: object
   admin.authKeySummary:
     properties:
+      attributes:
+        additionalProperties:
+          type: string
+        description: Attributes are the named values the key carries as claims (#1846).
+        type: object
       description:
         example: CI/CD pipeline integration
         type: string
@@ -3863,6 +3877,25 @@ definitions:
         description: Basic info
         type: string
     type: object
+  granthttp.grantListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scriptgrant.Grant'
+        type: array
+      total:
+        example: 1
+        type: integer
+    type: object
+  granthttp.grantRequest:
+    properties:
+      principal:
+        example: reporting-app
+        type: string
+      principal_kind:
+        example: api_key
+        type: string
+    type: object
   graphql.SchemaInfo:
     properties:
       connection:
@@ -4390,6 +4423,41 @@ definitions:
       shares_enabled:
         type: boolean
     type: object
+  outputshttp.listResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/outputshttp.runOutput'
+        type: array
+      total:
+        example: 4
+        type: integer
+    type: object
+  outputshttp.runOutput:
+    properties:
+      content_url:
+        description: |-
+          ContentURL downloads this version without a session until
+          ContentURLExpiresAt; absent for an output that is not a portal asset.
+        type: string
+      content_url_expires_at:
+        type: string
+      finished_at:
+        type: string
+      output:
+        $ref: '#/definitions/script.RunOutput'
+      params:
+        additionalProperties: {}
+        type: object
+      run_id:
+        example: dpx_a1b2c3d4
+        type: string
+      script_id:
+        type: string
+      version:
+        example: 3
+        type: integer
+    type: object
   persona.APIRouteRule:
     properties:
       action:
@@ -4600,6 +4668,14 @@ definitions:
       id:
         example: ver_01HK7R9A
         type: string
+      metadata:
+        additionalProperties: {}
+        description: |-
+          Metadata is what the writer recorded about this version (#1848): a
+          script output carries the run, the script, its version, who asked for
+          the run, and what the script passed to platform.export. Empty for a
+          version nothing described.
+        type: object
       s3_bucket:
         example: portal-assets
         type: string
@@ -4968,6 +5044,23 @@ definitions:
         items:
           $ref: '#/definitions/knowledgepage.PageRef'
         type: array
+    type: object
+  portal.contentURLResponse:
+    properties:
+      expires_at:
+        type: string
+      path:
+        example: /api/v1/portal/content/eyJ...Q
+        type: string
+      url:
+        description: |-
+          URL is the absolute link where the deployment names its public base
+          URL; Path is the same link relative to this server.
+        example: https://data.example.com/api/v1/portal/content/eyJ...Q
+        type: string
+      version:
+        example: 3
+        type: integer
     type: object
   portal.createAssetRequest:
     properties:
@@ -6863,6 +6956,15 @@ definitions:
     type: object
   script.Param:
     properties:
+      bind:
+        description: |-
+          Bind takes the parameter's value from the authenticated caller rather
+          than from the request: "caller.<claim>" reads that claim, which for an
+          API key is one of its attributes (#1846). A value for it in a request is
+          refused, a caller without the claim cannot run the script, and a
+          schedule, which has no caller, cannot fire it.
+        example: caller.tenant
+        type: string
       default:
         description: |-
           Default supplies the value when the caller omits an optional parameter.
@@ -6872,8 +6974,39 @@ definitions:
       description:
         example: The business date to report on
         type: string
+      group:
+        example: Filters
+        type: string
+      items:
+        description: |-
+          Items is a list parameter's element type: string, int, float, date or
+          enum (#1844). MinItems and MaxItems bound its length.
+        example: string
+        type: string
+      label:
+        description: |-
+          Label is what a form shows as the parameter's name; Description
+          becomes its help text. Order and Group arrange a form: ascending order,
+          then declaration order, within groups (#1844).
+        example: Report date
+        type: string
+      max: {}
+      max_items:
+        type: integer
+      min:
+        description: |-
+          Min and Max bound a number (int, float) or a date (date, date_range,
+          and a list's number or date elements), in the parameter's own type.
+          Pattern is a regular expression a string, or a list's string elements,
+          must match in full.
+      min_items:
+        type: integer
       name:
         example: report_date
+        type: string
+      order:
+        type: integer
+      pattern:
         type: string
       required:
         example: true
@@ -6881,10 +7014,17 @@ definitions:
       type:
         example: date
         type: string
+      ui:
+        additionalProperties: {}
+        description: |-
+          UI is an opaque hint for whatever builds a form from the contract, e.g.
+          {"widget": "location-picker"}. The platform stores and returns it and
+          never interprets it.
+        type: object
       values:
         description: |-
-          Values enumerates the allowed values of an enum parameter, and is
-          meaningless (and refused) on every other type.
+          Values enumerates the allowed values of an enum parameter, or of the
+          elements of a list of enum, and is refused on every other type.
         example:
         - daily
         - weekly
@@ -6933,6 +7073,9 @@ definitions:
         type: string
       key:
         type: string
+      metadata:
+        additionalProperties: {}
+        type: object
       name:
         type: string
       refresh:
@@ -6961,6 +7104,14 @@ definitions:
           the version or is pinned and now behind it. Absent when none is
           registered. It is a change report rather than the `tables` a fetched
           reference carries (#1666).
+        items:
+          type: string
+        type: array
+      tags:
+        description: |-
+          Tags and Metadata are what the script passed to platform.export for this
+          output (#1848), kept on the run so its outputs can be found again by
+          them without reading every asset.
         items:
           type: string
         type: array
@@ -7162,6 +7313,23 @@ definitions:
       version:
         example: 3
         type: integer
+    type: object
+  scriptgrant.Grant:
+    properties:
+      created_at:
+        type: string
+      granted_by:
+        example: jane@example.com
+        type: string
+      principal:
+        example: reporting-app
+        type: string
+      principal_kind:
+        example: api_key
+        type: string
+      script_id:
+        example: 3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b
+        type: string
     type: object
   scripthttp.ConnectionChoice:
     properties:
@@ -7723,6 +7891,13 @@ definitions:
     type: object
   scripthttp.portalScriptRow:
     properties:
+      granted:
+        description: |-
+          Granted marks a script this caller may run because it was granted to
+          them rather than because they own it (#1846), on a scope=granted
+          listing.
+        example: true
+        type: boolean
       last_run:
         allOf:
         - $ref: '#/definitions/scripthttp.portalRun'
@@ -7952,39 +8127,6 @@ definitions:
       message:
         description: Message states the outcome in the owner's terms.
         example: Saved, and this version is what runs now.
-        type: string
-    type: object
-  scripthttp.stateRequest:
-    properties:
-      state:
-        additionalProperties: {}
-        type: object
-    type: object
-  scripthttp.stateResponse:
-    properties:
-      message:
-        description: Message states what a write means for the next run.
-        type: string
-      revision:
-        description: Revision counts writes; 0 means nothing was ever saved or reset.
-        example: 3
-        type: integer
-      run_id:
-        description: |-
-          RunID names the run that wrote this revision, and UpdatedBy the person
-          who set or cleared it; one of the two is set past revision 0.
-        example: dpx_a1b2c3d4
-        type: string
-      state:
-        additionalProperties: {}
-        description: State is the object itself, {} when nothing has been saved.
-        type: object
-      updated_at:
-        description: UpdatedAt is when this revision was written, absent at revision
-          0.
-        type: string
-      updated_by:
-        example: jane@example.com
         type: string
     type: object
   scripthttp.validateResponse:
@@ -8668,6 +8810,39 @@ definitions:
     properties:
       to:
         example: admin@example.com
+        type: string
+    type: object
+  statehttp.stateRequest:
+    properties:
+      state:
+        additionalProperties: {}
+        type: object
+    type: object
+  statehttp.stateResponse:
+    properties:
+      message:
+        description: Message states what a write means for the next run.
+        type: string
+      revision:
+        description: Revision counts writes; 0 means nothing was ever saved or reset.
+        example: 3
+        type: integer
+      run_id:
+        description: |-
+          RunID names the run that wrote this revision, and UpdatedBy the person
+          who set or cleared it; one of the two is set past revision 0.
+        example: dpx_a1b2c3d4
+        type: string
+      state:
+        additionalProperties: {}
+        description: State is the object itself, {} when nothing has been saved.
+        type: object
+      updated_at:
+        description: UpdatedAt is when this revision was written, absent at revision
+          0.
+        type: string
+      updated_by:
+        example: jane@example.com
         type: string
     type: object
   tablehttp.ConnectionChoice:
@@ -15814,15 +15989,25 @@ paths:
   /portal/assets:
     get:
       description: Returns paginated assets owned by the current user with optional
-        filtering.
+        filtering. A repeated tag requires every named tag, and each metadata.<key>=<value>
+        requires that value in the asset's metadata (the metadata a script output's
+        latest version recorded), all combined with AND.
       parameters:
       - description: Filter by content type
         in: query
         name: content_type
         type: string
-      - description: Filter by tag
+      - collectionFormat: multi
+        description: Filter by tag; repeat it to require every one
         in: query
+        items:
+          type: string
         name: tag
+        type: array
+      - description: Filter by a metadata value, as metadata.<key>=<value>; several
+          are ANDed
+        in: query
+        name: metadata.key
         type: string
       - description: 'Results per page (default: 20)'
         in: query
@@ -16151,6 +16336,52 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update asset content
+      tags:
+      - Assets
+  /portal/assets/{id}/content-url:
+    get:
+      description: 'Returns an expiring, signed URL that downloads one version of
+        the asset without a portal session: the current version, or the one named
+        by version. ttl is its lifetime in seconds (default 300, at most 86400). The
+        caller must be able to view the asset. The link keeps serving that exact version
+        until it expires and answers 403 afterwards.'
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Version to link to (default: current)'
+        in: query
+        name: version
+        type: integer
+      - description: Lifetime in seconds (default 300, max 86400)
+        in: query
+        name: ttl
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.contentURLResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a signed content URL
       tags:
       - Assets
   /portal/assets/{id}/copy:
@@ -17792,6 +18023,31 @@ paths:
       summary: Search my collections
       tags:
       - Collections
+  /portal/content/{token}:
+    get:
+      description: Serves the asset version a signed content URL names, with no session.
+        An expired or altered link answers 403; a version or asset since removed answers
+        404.
+      parameters:
+      - description: The signed token
+        in: path
+        name: token
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      summary: Download through a signed URL
+      tags:
+      - Assets
   /portal/datahub/{conn}/catalog/browse:
     get:
       description: Returns a page of the connection's catalog with no filters applied,
@@ -19683,8 +19939,10 @@ paths:
       - Knowledge
   /portal/knowledge-pages/{id}/refs:
     get:
-      description: Returns the entities the page references (assets, prompts, collections,
-        connections, DataHub URNs, and other pages), each with its serialized URN.
+      description: 'Returns the entities the page references (assets, prompts, collections,
+        connections, managed scripts, DataHub URNs, and other pages), each with its
+        serialized URN. A reference the caller may not open is omitted: a managed
+        script resolves for its owner and administrators only.'
       parameters:
       - description: Knowledge page id
         in: path
@@ -21375,18 +21633,21 @@ paths:
         is visible to everyone; what is readable is not. A row the caller does not
         own carries no source, no run state and no action — it says that the script
         exists, who owns it, what it says about itself and when it runs. scope=mine
-        narrows to the caller's own and is the default; scope=all lists every script.
-        Administrators see every script either way. The category, tag, search, owner,
-        status and enabled parameters narrow the listing; tag may be repeated, and
-        a script matching any of the named tags is returned. sort and dir order it
-        in the store, ahead of the page cap, so an ordering is over every matching
-        script rather than over the page. total counts every script the predicate
+        narrows to the caller's own and is the default; scope=all lists every script;
+        scope=granted lists the scripts granted to the caller's persona, roles or
+        API key, each with its parameter contract, which is the catalog an application
+        builds from. Administrators see every script either way. The category, tag,
+        search, owner, status and enabled parameters narrow the listing; tag may be
+        repeated, and a script matching any of the named tags is returned. sort and
+        dir order it in the store, ahead of the page cap, so an ordering is over every
+        matching script rather than over the page. total counts every script the predicate
         matches, so it exceeds the rows returned when the listing was capped.
       parameters:
-      - description: 'Whose scripts to list: mine (default) or all'
+      - description: 'Whose scripts to list: mine (default), all, or granted'
         enum:
         - mine
         - all
+        - granted
         in: query
         name: scope
         type: string
@@ -21619,6 +21880,139 @@ paths:
       summary: Dry-run a script's source
       tags:
       - Scripts
+  /portal/scripts/{id}/grants:
+    get:
+      description: 'Returns who other than the owner may run this script: each persona,
+        role or API key it is granted to, who granted it, and when. A grantee may
+        run the script and read the runs it started, with their outputs; it may not
+        read the source or change the script, and the run executes as the script with
+        its author''s roles. Restricted to the script''s owner and to administrators.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/granthttp.grantListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a script's run grants
+      tags:
+      - Scripts
+    post:
+      consumes:
+      - application/json
+      description: Lets a persona, a role or an API key (by name) run this script
+        over HTTP and read the runs it started. Granting what is already granted changes
+        nothing. Answers with the script's grants as they now stand. Restricted to
+        the script's owner and to administrators, and audited.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: The principal to grant
+        in: body
+        name: grant
+        required: true
+        schema:
+          $ref: '#/definitions/granthttp.grantRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/granthttp.grantListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Grant a script's runs
+      tags:
+      - Scripts
+  /portal/scripts/{id}/grants/{kind}/{principal}:
+    delete:
+      description: Withdraws one grant; the principal can no longer run the script.
+        Runs it already started are unaffected. Answers with the script's grants as
+        they now stand, or 404 when there was no such grant. Restricted to the script's
+        owner and to administrators, and audited.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: persona, role or api_key
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: The persona, role or API key name
+        in: path
+        name: principal
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/granthttp.grantListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Withdraw a script run grant
+      tags:
+      - Scripts
   /portal/scripts/{id}/metadata:
     put:
       consumes:
@@ -21813,14 +22207,16 @@ paths:
       consumes:
       - application/json
       description: 'Queues one run of the latest saved version of a script the caller
-        owns, binding the supplied parameters against its contract. The run is executed
-        by a worker under the script''s own identity, exactly as a scheduled fire
-        is, and appears in the script''s run history. A disabled or retired script
-        is refused, in the run gate''s own words. With wait, the request holds for
-        up to that many seconds (at most 300): a run that finishes in time is answered
-        200 with the run itself, including the value it returned with platform.result,
-        its outputs and its error; otherwise, and without wait, 202 with the run id
-        to follow.'
+        owns or was granted, binding the supplied parameters against its contract.
+        A parameter bound to caller.<claim> takes the caller''s claim (an API key''s
+        attribute): a value for it in the body is refused with 400, and a caller without
+        the claim is refused with 403. The run is executed by a worker under the script''s
+        own identity, exactly as a scheduled fire is, and appears in the script''s
+        run history. A disabled or retired script is refused, in the run gate''s own
+        words. With wait, the request holds for up to that many seconds (at most 300):
+        a run that finishes in time is answered 200 with the run itself, including
+        the value it returned with platform.result, its outputs and its error; otherwise,
+        and without wait, 202 with the run id to follow.'
       parameters:
       - description: Script ID
         in: path
@@ -21853,6 +22249,10 @@ paths:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
@@ -22174,7 +22574,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/scripthttp.stateResponse'
+            $ref: '#/definitions/statehttp.stateResponse'
         "401":
           description: Unauthorized
           schema:
@@ -22210,7 +22610,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/scripthttp.stateResponse'
+            $ref: '#/definitions/statehttp.stateResponse'
         "401":
           description: Unauthorized
           schema:
@@ -22248,14 +22648,14 @@ paths:
         name: state
         required: true
         schema:
-          $ref: '#/definitions/scripthttp.stateRequest'
+          $ref: '#/definitions/statehttp.stateRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/scripthttp.stateResponse'
+            $ref: '#/definitions/statehttp.stateResponse'
         "400":
           description: Bad Request
           schema:
@@ -22396,6 +22796,53 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List the caller's script runs
+      tags:
+      - Scripts
+  /portal/scripts/runs/outputs:
+    get:
+      description: 'Returns the portal outputs of the script runs the caller requested,
+        newest first, across every script, each with the run''s parameters and an
+        expiring signed URL that downloads that exact version without a session. A
+        caller need not own the scripts: a grantee reads the outputs of the runs it
+        started. Administrators read every run''s. script_id narrows to one script;
+        tag (repeatable) and metadata.<key>=<value> narrow to outputs whose platform.export
+        named them, all combined with AND. Reads the caller''s 50 most recent finished
+        runs.'
+      parameters:
+      - description: Narrow to one script
+        in: query
+        name: script_id
+        type: string
+      - collectionFormat: multi
+        description: Require these tags
+        in: query
+        items:
+          type: string
+        name: tag
+        type: array
+      - description: Require this metadata value, as metadata.<key>=<value>
+        in: query
+        name: metadata.key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/outputshttp.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the outputs of the caller's script runs
       tags:
       - Scripts
   /portal/search:

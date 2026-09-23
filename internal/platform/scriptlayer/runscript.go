@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -80,7 +82,7 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	params, err := script.BindParams(version.Params, input.Args)
+	params, err := scriptgrant.BindCaller(version.Params, input.Args, callerClaims(ctx))
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
@@ -90,6 +92,15 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 		return errorResult("failed to queue the run"), nil, nil
 	}
 	return jsonResult(h.awaitRun(ctx, sc, run, waitBudget(input.WaitSeconds)))
+}
+
+// callerClaims are the calling session's claims, which a parameter bound to
+// caller.<claim> reads (#1846); nil outside an authenticated call.
+func callerClaims(ctx context.Context) map[string]any {
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		return pc.UserClaims
+	}
+	return nil
 }
 
 // currentVersion loads the script's latest saved version — the one a run

@@ -31,6 +31,11 @@ type authKeyCreateRequest struct {
 	// not intersected with what they hold.
 	Roles     []string `json:"roles" example:"analyst"`
 	ExpiresIn string   `json:"expires_in,omitempty" example:"720h"` // e.g. "24h", "720h", "8760h"
+	// Attributes are named values the key carries into every call as claims
+	// (#1846). A script parameter bound to caller.<name> takes its value from
+	// the one named here, so a multi-tenant application's key names its
+	// tenant and no request can claim another.
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // authKeyCreateResponse is the response after creating an API key.
@@ -147,6 +152,7 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		Roles:       req.Roles,
 		ExpiresAt:   expiresAt,
 		CreatedBy:   extractAuthor(r),
+		Attributes:  req.Attributes,
 	})
 	if err != nil {
 		writeAuthKeyIssueError(w, req.Name, req.UserEmail, err)

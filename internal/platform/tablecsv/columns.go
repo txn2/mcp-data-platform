@@ -112,6 +112,73 @@ func uniqueName(name string, seen map[string]int) string {
 	}
 }
 
+// ColumnNames lists the names of a column list.
+func ColumnNames(cols []Column) []string {
+	names := make([]string, 0, len(cols))
+	for _, c := range cols {
+		names = append(names, c.Name)
+	}
+	return names
+}
+
+// ColumnChanges says how one declaration of a table's columns differs from the
+// next: the columns added, the columns removed, and the columns whose type
+// changed, each with its type, in the order the new declaration lists them.
+// It is empty when the two declare the same columns, and when they differ only
+// in order.
+func ColumnChanges(before, after []Column) string {
+	was := make(map[string]string, len(before))
+	for _, c := range before {
+		was[c.Name] = c.Type
+	}
+	now := make(map[string]bool, len(after))
+	var added, retyped, removed []string
+	for _, c := range after {
+		now[c.Name] = true
+		prior, ok := was[c.Name]
+		switch {
+		case !ok:
+			added = append(added, c.Name+" "+c.Type)
+		case prior != c.Type:
+			retyped = append(retyped, c.Name+" is now "+c.Type+" (was "+prior+")")
+		}
+	}
+	for _, c := range before {
+		if !now[c.Name] {
+			removed = append(removed, c.Name)
+		}
+	}
+	var parts []string
+	if len(added) > 0 {
+		parts = append(parts, "added "+strings.Join(added, ", "))
+	}
+	if len(removed) > 0 {
+		parts = append(parts, "removed "+strings.Join(removed, ", "))
+	}
+	parts = append(parts, retyped...)
+	return strings.Join(parts, "; ")
+}
+
+// VarcharColumns declares columns under the rule a JSON-lines registration
+// made before typed columns keeps (#1833): every column VARCHAR. A nested value
+// was refused under that rule, because the reader fails a query on an object
+// or a list in a VARCHAR column, and it still is; registering the file again
+// gives a typed registration that declares it. The error is the refusal's
+// sentence.
+func VarcharColumns(columns []Column) ([]Column, error) {
+	out := make([]Column, 0, len(columns))
+	for _, c := range columns {
+		if strings.HasPrefix(c.Type, "ROW(") || strings.HasPrefix(c.Type, "ARRAY(") ||
+			strings.HasPrefix(c.Type, "MAP(") {
+			return nil, fmt.Errorf("the value of %q is a nested object or list, and this table declares every column "+
+				"VARCHAR, which the reader fails every query on for such a value; register the file again under the "+
+				"same name and its columns are declared with their types", c.Name)
+		}
+		out = append(out, Column{Name: c.Name, Type: ColumnType})
+	}
+	return out, nil
+}
+
 // JoinAnd renders a short list in prose so a refusal names what is in the way
 // rather than printing a slice.
 func JoinAnd(items []string) string {

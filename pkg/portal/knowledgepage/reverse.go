@@ -69,6 +69,13 @@ func reverseLookupFilter(ref EntityRef) (where string, args []any) {
 		return "r.connection_kind = $1 AND r.connection_name = $2", connArgs(ref)
 	case RefTargetDataHub:
 		return "r.entity_urn = $1", []any{ref.EntityURN}
+	case RefTargetScript:
+		// script_id is a UUID column: an id that is not one is cited by no page,
+		// and is answered as such rather than handed to the database to fail on.
+		if !isUUID(ref.ScriptID) {
+			return "", nil
+		}
+		return "r.script_id = $1", []any{ref.ScriptID}
 	default:
 		return "", nil
 	}

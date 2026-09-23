@@ -19,6 +19,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
@@ -31,14 +32,17 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -110,6 +114,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		// that says whether a script producer still exists.
 		Producers:   producedby.NewPostgres(p.DB()),
 		ScriptNames: portalScriptNames(p.DB()),
+		ScriptRefs:  portalScriptRefs(p.DB()),
 		RateLimit: portal.RateLimitConfig{
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
@@ -137,6 +142,10 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	notifywire.WirePortalNotifications(&deps, p, notify, mentionAudience(p))
 
 	wirePortalUserKeys(&deps, p)
+
+	// Signed content URLs (#1848) are keyed off the browser-session signing
+	// key, as the guest and unsubscribe links are; without it they are off.
+	deps.ContentURLKey = contentURLKey(p)
 
 	wirePortalOptionalDeps(&deps, p)
 
@@ -240,6 +249,11 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
 	}
 	deps.PortalUser = scriptPortalIdentity(adminRoles, resolver)
+	// Who other than the owner may run a script (#1846). Portal-only: the
+	// admin surface is every script's already.
+	deps.Grants = scriptgrant.NewPostgres(p.DB())
+	// A signed link to each output the caller's runs wrote (#1848).
+	deps.ContentURL = contentURLMinter(contentURLKey(p), p.Config().Portal.PublicBaseURL)
 	// The owner's exercise loop (#1361, #1363, #1364): the connections a
 	// parameter may name, and the runner a dry run of an edit executes on. The
 	// runner is built over the assembled MCP server, so a draft's platform
@@ -288,6 +302,29 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 	return deps, true
 }
 
+// contentURLKey derives the signed-content-URL key, nil where browser sessions
+// have no signing key.
+func contentURLKey(p *platform.Platform) []byte {
+	master := browserSessionSigningKey(p)
+	if master == nil {
+		return nil
+	}
+	return shareguest.DeriveKey(master, contenturl.KeyLabel)
+}
+
+// contentURLMinter signs a default-lifetime link to one asset version, nil
+// where there is no key to sign with.
+func contentURLMinter(key []byte, base string) func(assetID string, version int) (string, time.Time) {
+	if key == nil {
+		return nil
+	}
+	return func(assetID string, version int) (string, time.Time) {
+		expires := time.Now().Add(contenturl.DefaultTTL).Truncate(time.Second)
+		tok := contenturl.Sign(key, contenturl.Target{AssetID: assetID, Version: version, Expires: expires})
+		return base + contenturl.Path + tok, expires
+	}
+}
+
 // scriptPortalIdentity resolves the portal caller for the script routes: who
 // they are, the persona they resolved to, and whether they hold the admin
 // roles that make the surface unrestricted for them.
@@ -299,8 +336,8 @@ func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) 
 		}
 		id := &scripthttp.PortalIdentity{
 			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
-			AuthType: user.AuthType,
-			IsAdmin:  rolesIntersect(user.Roles, adminRoles),
+			AuthType: user.AuthType, Claims: user.Claims,
+			IsAdmin: rolesIntersect(user.Roles, adminRoles),
 		}
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {

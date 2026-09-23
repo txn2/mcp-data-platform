@@ -66,3 +66,30 @@ func TestWithoutCommas(t *testing.T) {
 	assert.Equal(t, "a b", withoutCommas("a ,b"))
 	assert.Empty(t, withoutCommas(",,,"))
 }
+
+func TestColumnChanges(t *testing.T) {
+	before := []Column{{Name: "a", Type: "BIGINT"}, {Name: "b", Type: "VARCHAR"}, {Name: "c", Type: "DATE"}}
+	after := []Column{{Name: "c", Type: "DATE"}, {Name: "a", Type: "DOUBLE"}, {Name: "d", Type: "BOOLEAN"}}
+	assert.Equal(t, "added d BOOLEAN; removed b; a is now DOUBLE (was BIGINT)", ColumnChanges(before, after))
+	assert.Empty(t, ColumnChanges(before, before))
+	assert.Empty(t, ColumnChanges(before, []Column{before[2], before[0], before[1]}), "a reorder is not a change")
+}
+
+func TestColumnNames(t *testing.T) {
+	assert.Equal(t, []string{"a", "b"}, ColumnNames([]Column{{Name: "a", Type: "BIGINT"}, {Name: "b"}}))
+	assert.Equal(t, []string{}, ColumnNames(nil), "no columns is an empty list, never null")
+}
+
+// TestVarcharColumns pins the rule a JSON-lines registration made before typed
+// columns keeps: every scalar is declared VARCHAR, and a nested value is
+// refused naming the column.
+func TestVarcharColumns(t *testing.T) {
+	got, err := VarcharColumns([]Column{{Name: "id", Type: "BIGINT"}, {Name: "ok", Type: "BOOLEAN"}})
+	assert.NoError(t, err)
+	assert.Equal(t, []Column{{Name: "id", Type: ColumnType}, {Name: "ok", Type: ColumnType}}, got)
+
+	for _, nested := range []string{"ROW(x BIGINT)", "ARRAY(VARCHAR)", "MAP(VARCHAR, BIGINT)"} {
+		_, err := VarcharColumns([]Column{{Name: "id", Type: "BIGINT"}, {Name: "blob", Type: nested}})
+		assert.ErrorContains(t, err, `the value of "blob" is a nested object or list`, nested)
+	}
+}

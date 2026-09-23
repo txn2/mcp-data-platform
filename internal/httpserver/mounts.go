@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
@@ -916,4 +918,33 @@ func portalScriptNames(db *sql.DB) producerapi.ScriptNames {
 		return nil
 	}
 	return producedview.New(producedby.NewPostgres(db), nil, nil, nil, scriptstore.New(db))
+}
+
+// portalScriptRefs looks up the managed scripts knowledge pages cite (#1855), or
+// nil on a deployment with no database, where the portal resolves every script
+// citation as unavailable.
+func portalScriptRefs(db *sql.DB) func(ctx context.Context, id string) (label, owner string, ok bool) {
+	if db == nil {
+		return nil
+	}
+	return citedScripts(scriptstore.New(db).Citation)
+}
+
+// citedScripts adapts a script citation lookup to the shape the portal resolves
+// a script reference through. A read failure is logged and answered as not
+// found, so the citation is withheld from that reader rather than failing the
+// page it sits on.
+func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, error)) func(ctx context.Context, id string) (label, owner string, ok bool) {
+	return func(ctx context.Context, id string) (label, owner string, ok bool) {
+		c, err := lookup(ctx, id)
+		if err != nil {
+			slog.Warn("resolving a cited script failed",
+				"script_id", logsan.SanitizeForLog(id), "error", logsan.SanitizeForLog(err.Error()))
+			return "", "", false
+		}
+		if c == nil {
+			return "", "", false
+		}
+		return c.Label, c.Owner, true
+	}
 }

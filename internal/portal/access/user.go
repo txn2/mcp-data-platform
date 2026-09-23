@@ -22,6 +22,9 @@ type User struct {
 	// actually arrived with, and FromCookie alone cannot tell an API key from a
 	// bearer token.
 	AuthType string
+	// Claims are the claims the authenticator reported, an API key's
+	// attributes among them (#1846). A browser session carries none.
+	Claims map[string]any
 }
 
 // GetUser returns the User from context, or nil if not set.

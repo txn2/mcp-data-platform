@@ -157,6 +157,23 @@ export interface ScriptParam {
   required: boolean;
   default?: unknown;
   values?: string[];
+  // A list's element type and length bounds, and the form metadata (#1844):
+  // label is the field's name on a form (description is its help text),
+  // order and group arrange the form, min/max/pattern constrain the value,
+  // and ui is an opaque hint for an embedding application.
+  items?: string;
+  min_items?: number;
+  max_items?: number;
+  label?: string;
+  order?: number;
+  group?: string;
+  min?: unknown;
+  max?: unknown;
+  pattern?: string;
+  // bind takes the value from the caller ("caller.<claim>") rather than the
+  // form (#1846); a form offers no field for it.
+  bind?: string;
+  ui?: Record<string, unknown>;
 }
 
 // ScriptContractRun is what the script last successfully produced.
@@ -235,6 +252,15 @@ export {
   type ScriptDryRunWrite,
   type ScriptValidation,
 } from "./scriptDrafts";
+
+// Who other than the owner may run a script (#1846) lives in scriptGrants.ts.
+export {
+  useAddScriptGrant,
+  useRemoveScriptGrant,
+  useScriptGrants,
+  type ScriptGrant,
+  type ScriptGrantKind,
+} from "./scriptGrants";
 
 export type {
   ScriptListFilter,

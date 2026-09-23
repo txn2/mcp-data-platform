@@ -96,7 +96,7 @@ func (a *APIKeyAuthenticator) boundUserInfo(ctx context.Context, key *APIKey) (*
 	return &middleware.UserInfo{
 		UserID:   person.Subject,
 		Email:    person.Email,
-		Claims:   make(map[string]any),
+		Claims:   attributeClaims(key.Attributes),
 		Roles:    boundRoles(key, person),
 		AuthType: middleware.AuthTypeAPIKey,
 	}, nil

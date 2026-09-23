@@ -81,7 +81,7 @@ func (w *outputWriter) deliver(ctx context.Context, req scriptrun.ExportRequest,
 	record := script.RunOutput{
 		Name: req.Name, Destination: req.Destination.Name,
 		Bucket: req.Destination.Bucket, Key: key,
-		Format: req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
+		Format: req.Format, RowCount: req.RowCount(), Document: req.Body != nil,
 		Bytes: bytes,
 	}
 	return &scriptrun.ExportResult{

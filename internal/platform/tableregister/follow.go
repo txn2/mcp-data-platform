@@ -42,8 +42,10 @@ type FollowOutcome struct {
 	// Pinned means the registration was made without follow, so it stays on
 	// the version it was registered over by design.
 	Pinned bool `json:"pinned,omitempty"`
-	// Reason is why a following registration was not moved. Empty when it
-	// followed or is pinned.
+	// Reason is why a following registration was not moved, or, on a pinned
+	// one, why it does not read the version it was registered over alone: a
+	// directory versions of the file were written into together (#1851).
+	// Empty when it followed, and on a pinned one that reads its version.
 	Reason string `json:"reason,omitempty"`
 	// ColumnsChanged means the new version's header differs from the one the
 	// table declared, so the table was rebuilt with the new columns.
@@ -93,6 +95,9 @@ func (o FollowOutcome) tableSentence() string {
 		return s
 	case o.Missing:
 		return name + " no longer exists: " + o.Reason + " Register it again to restore it."
+	case o.Pinned && o.Reason != "":
+		return name + " is pinned, but it does not read the version it was registered over alone: " + o.Reason +
+			" Register it again to point it at one version, with follow left on if it should keep up with the file."
 	case o.Pinned:
 		return name + " is pinned to the version it was registered over and is now behind this file;" +
 			" register it again to move it, with follow left on if it should keep up with the file."
@@ -332,13 +337,8 @@ func (r *Registrar) followOne(
 	outcome := FollowOutcome{
 		RegistrationID: reg.ID, Table: reg.QualifiedName(), Connection: reg.Connection, Version: version,
 	}
-	current := !reg.IsStale(src.Bucket, src.HeadKey)
 	if !reg.Follow {
-		// A pinned registration that already reads the new head -- the head
-		// was written twice at the same directory -- is current, and saying
-		// it is behind would be false.
-		outcome.Followed, outcome.Pinned = current, !current
-		return outcome, false
+		return r.pinned(ctx, reg, src, outcome), false
 	}
 	if *head == nil {
 		*head = r.readHead(ctx, src, version, repairFor)
@@ -362,18 +362,81 @@ func (r *Registrar) followOne(
 		target.columns = reg.Columns
 	}
 	if reg.AllVarchar && target.format == FormatJSONLines {
-		columns, err := varcharColumns(target.columns)
+		columns, err := tablecsv.VarcharColumns(target.columns)
 		if err != nil {
-			return r.followFailed(ctx, reg, outcome, err), false
+			return r.followFailed(ctx, reg, outcome, refusedf("%s", err.Error())), false
 		}
 		target.columns = columns
 	}
 	outcome.ColumnsChanged = !sameColumns(reg.Columns, target.columns)
-	outcome.ColumnChanges = ColumnChanges(reg.Columns, target.columns)
+	outcome.ColumnChanges = tablecsv.ColumnChanges(reg.Columns, target.columns)
 	if reg.Location == target.location && !outcome.ColumnsChanged && reg.FormatOrDefault() == target.format {
 		return r.alreadyThere(ctx, reg, outcome), false
 	}
 	return r.moveTable(ctx, reg, target, outcome)
+}
+
+// pinned answers a registration made without follow. It stays on its
+// directory, and Trino reads every file in that directory (#1851). A version
+// written to a directory of its own leaves the table behind it. A head written
+// at the table's directory as its only file was replaced in place, and the
+// table reads it. A directory holding more than one file Trino reads -- a
+// script's outputs before #1851 put every version of an output into one --
+// makes the table read them all: it is left there, since moving files a report
+// reads is worse than the defect, and the write says so rather than calling it
+// pinned to one version or followed. The directory is listed only when the
+// head is at or beneath it, the one shape in which a version can have put a
+// file there; a listing that fails is logged and the directory alone decides.
+func (r *Registrar) pinned(ctx context.Context, reg Registration, src Source, outcome FollowOutcome) FollowOutcome {
+	outcome.Pinned = true
+	regDir, inBucket := strings.CutPrefix(reg.Location, LocationURI(src.Bucket, ""))
+	headDir := DirectoryOf(src.HeadKey)
+	if !inBucket || regDir == "" || headDir == "" || !strings.HasPrefix(headDir, regDir) {
+		return outcome
+	}
+	sameDir := headDir == regDir
+	files, err := r.filesTrinoReads(ctx, src, regDir)
+	if err != nil {
+		slog.Warn("table registration: could not list the directory a pinned table reads",
+			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
+		outcome.Followed, outcome.Pinned = sameDir, !sameDir
+		return outcome
+	}
+	switch {
+	case files > 1 && sameDir:
+		outcome.Reason = "this version was written into the directory it reads, beside the version it was " +
+			"registered over, and it reads every file there."
+	case files > 1:
+		outcome.Reason = "earlier versions of this file were written into the directory it reads, beside the " +
+			"version it was registered over, and it reads every file there."
+	case sameDir:
+		outcome.Followed, outcome.Pinned = true, false
+	}
+	return outcome
+}
+
+// filesTrinoReads counts the files directly in a directory that a table over
+// it reads: every object but the names Hive skips. A listing too long to check
+// counts as more than one, which is all a caller asks of it.
+func (r *Registrar) filesTrinoReads(ctx context.Context, src Source, dir string) (int, error) {
+	objects := r.objectsFor(src.Kind)
+	if objects == nil {
+		return 0, ErrUnavailable
+	}
+	entries, truncated, err := objects.ListDirectory(ctx, src.Bucket, dir)
+	if err != nil {
+		return 0, fmt.Errorf("listing %s: %w", dir, err)
+	}
+	n := 0
+	for _, e := range entries {
+		if !hiddenToHive(fileNameOf(e.Key)) {
+			n++
+		}
+	}
+	if truncated {
+		n = max(n, 2)
+	}
+	return n, nil
 }
 
 // readHead reads what the new head decides: the directory the table has to
@@ -594,8 +657,8 @@ func (r *Registrar) auditFollow(ctx context.Context, rec followRecord) {
 		"followed_version": rec.version,
 	}
 	if !sameColumns(rec.from.Columns, rec.to.Columns) {
-		ev.Parameters["columns_before"] = columnNames(rec.from.Columns)
-		ev.Parameters["columns_after"] = columnNames(rec.to.Columns)
+		ev.Parameters["columns_before"] = tablecsv.ColumnNames(rec.from.Columns)
+		ev.Parameters["columns_after"] = tablecsv.ColumnNames(rec.to.Columns)
 	}
 	ev.Source = "follow"
 	ev.Transport = "http"
@@ -609,70 +672,4 @@ func (r *Registrar) auditFollow(ctx context.Context, rec followRecord) {
 		slog.Warn("table follow audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
 			logFieldTable, logsan.SanitizeForLog(rec.from.QualifiedName()))
 	}
-}
-
-// columnNames lists the names of a column list, for an audit parameter.
-func columnNames(cols []Column) []string {
-	names := make([]string, 0, len(cols))
-	for _, c := range cols {
-		names = append(names, c.Name)
-	}
-	return names
-}
-
-// ColumnChanges says how one declaration of a table's columns differs from the
-// next: the columns added, the columns removed, and the columns whose type
-// changed, each with its type, in the order the new declaration lists them.
-// It is empty when the two declare the same columns, and when they differ only
-// in order.
-func ColumnChanges(before, after []Column) string {
-	was := make(map[string]string, len(before))
-	for _, c := range before {
-		was[c.Name] = c.Type
-	}
-	now := make(map[string]bool, len(after))
-	var added, retyped, removed []string
-	for _, c := range after {
-		now[c.Name] = true
-		prior, ok := was[c.Name]
-		switch {
-		case !ok:
-			added = append(added, c.Name+" "+c.Type)
-		case prior != c.Type:
-			retyped = append(retyped, c.Name+" is now "+c.Type+" (was "+prior+")")
-		}
-	}
-	for _, c := range before {
-		if !now[c.Name] {
-			removed = append(removed, c.Name)
-		}
-	}
-	var parts []string
-	if len(added) > 0 {
-		parts = append(parts, "added "+strings.Join(added, ", "))
-	}
-	if len(removed) > 0 {
-		parts = append(parts, "removed "+strings.Join(removed, ", "))
-	}
-	parts = append(parts, retyped...)
-	return strings.Join(parts, "; ")
-}
-
-// varcharColumns declares a JSON-lines head under the rule a registration made
-// before typed columns keeps (#1833): every column VARCHAR. A nested value was
-// refused under that rule, because the reader fails a query on an object or a
-// list in a VARCHAR column, and it still is; registering the file again gives
-// a typed registration that declares it.
-func varcharColumns(columns []Column) ([]Column, error) {
-	out := make([]Column, 0, len(columns))
-	for _, c := range columns {
-		if strings.HasPrefix(c.Type, "ROW(") || strings.HasPrefix(c.Type, "ARRAY(") ||
-			strings.HasPrefix(c.Type, "MAP(") {
-			return nil, refusedf("the value of %q is a nested object or list, and this table declares every column "+
-				"VARCHAR, which the reader fails every query on for such a value; register the file again under the "+
-				"same name and its columns are declared with their types", c.Name)
-		}
-		out = append(out, Column{Name: c.Name, Type: tablecsv.ColumnType})
-	}
-	return out, nil
 }

@@ -203,7 +203,7 @@ func TestParams_Connection(t *testing.T) {
 				Name: "source", Type: script.ParamTypeConnection, Required: true,
 				Values: []string{"warehouse"},
 			},
-			wantErr: "only an enum parameter carries values",
+			wantErr: "only an enum parameter, or a list of enum, carries values",
 		},
 	}
 	for _, tt := range tests {

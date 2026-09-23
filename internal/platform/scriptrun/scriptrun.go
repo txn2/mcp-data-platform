@@ -53,6 +53,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/scriptsum"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
+	"github.com/txn2/mcp-data-platform/internal/tablexlsx"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -363,6 +364,28 @@ type ExportRequest struct {
 	// References is references= (#1834): nil leaves the asset's alone, [] clears
 	// them. The host declares them after the write; a writer ignores it.
 	References []string
+	// Tags and Metadata are tags= and metadata= (#1848): added to the portal
+	// asset's tags, and stored on the version it writes.
+	Tags     []string
+	Metadata map[string]any
+	// Workbook is the xlsx arm (#1849): the sheets, checked. Nil otherwise.
+	Workbook *tablexlsx.Workbook
+}
+
+// RowCount is the data rows the output carries: its rows, or every sheet's.
+func (r ExportRequest) RowCount() int {
+	if r.Workbook != nil {
+		return r.Workbook.RowCount()
+	}
+	return len(r.Rows)
+}
+
+// Sheets is a workbook's sheets and their row counts, nil for any other output.
+func (r ExportRequest) Sheets() []tablexlsx.SheetShape {
+	if r.Workbook == nil {
+		return nil
+	}
+	return r.Workbook.Shape()
 }
 
 // ExportResult is where one output landed. A portal output reports the asset
@@ -442,6 +465,8 @@ type ExportRecord struct {
 	// each reference a portal document names that it did not list (#1834).
 	References           []string `json:"references,omitzero"`
 	UndeclaredReferences []string `json:"undeclared_references,omitempty"`
+	// Sheets is an xlsx output's sheets and the data rows in each (#1849).
+	Sheets []tablexlsx.SheetShape `json:"sheets,omitempty"`
 }
 
 // Result reports one completed execution.

@@ -47,7 +47,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -697,6 +697,17 @@ verify:
 	@# wall clock buys a broken integration-tagged file being reported before
 	@# any of that begins (#1799).
 	@$(MAKE) --no-print-directory vet-tags
+	@# Then the diff-scoped gates that read the change rather than a coverage
+	@# profile (#1856): about fifteen seconds together. They used to run at the
+	@# END of verify-go, behind the full race+coverage unit run, so a finding
+	@# in one was reported thirteen minutes in and cost a second full run to
+	@# learn whether the rest of the lane passed.
+	@$(MAKE) --no-print-directory preverify-fast
+	@# Then lint, still serial and before any lane starts. It used to run in
+	@# the verify-lint lane beside the full unit run, so a lint finding was
+	@# reported only after every lane had been started, and the run it cost
+	@# was the whole of verify. Two minutes here answers it first.
+	@$(MAKE) --no-print-directory lint
 	@# CodeQL is deliberately NOT here. It cannot join the concurrent phase:
 	@# its Go extractor uses autobuild, which finds this Makefile and runs the
 	@# default goal, so the step quietly regenerates swagger, runs the whole
@@ -787,20 +798,37 @@ verify-checks: verify-go verify-lint verify-docker verify-ui
 ## writes, which is why this group is ordered rather than parallel.
 verify-go:
 	@echo "[lane start $$(date +%T)] verify-go"
-	@$(MAKE) --no-print-directory test
+	@# The schedule lane runs first (#1856): it covers only the changed
+	@# packages, so a failing changed test is reported in minutes rather than
+	@# after the whole module's unit run. The lane's length is unchanged.
 	@$(MAKE) --no-print-directory schedule-lane
+	@$(MAKE) --no-print-directory test
 	@$(MAKE) --no-print-directory coverage-report
 	@$(MAKE) --no-print-directory patch-coverage
 	@$(MAKE) --no-print-directory security
 	@$(MAKE) --no-print-directory semgrep
-	@$(MAKE) --no-print-directory semgrep-diff
-	@$(MAKE) --no-print-directory dead-code
 	@$(MAKE) --no-print-directory bench-test
 	@$(MAKE) --no-print-directory bench-report-check
+	@echo "[lane done  $$(date +%T)] verify-go"
+
+## preverify-fast: the diff-scoped gates verify runs before its lanes (#1856)
+## semgrep-diff, doc-check, acceptance-check, state-readers-check and
+## dead-code read the change and the tree, not a coverage profile, so they
+## answer in about fifteen seconds. verify runs them in its serial preamble.
+preverify-fast:
+	@$(MAKE) --no-print-directory semgrep-diff
 	@$(MAKE) --no-print-directory doc-check
 	@$(MAKE) --no-print-directory acceptance-check
 	@$(MAKE) --no-print-directory state-readers-check
-	@echo "[lane done  $$(date +%T)] verify-go"
+	@$(MAKE) --no-print-directory dead-code
+
+## preverify: the gates that decide most verify failures, in minutes (#1856)
+## preverify-fast, the patch-scoped lint and the schedule lane over the
+## changed packages. A branch that passes it fails verify only on the full
+## unit run, coverage, security, the real-DB lane, or the UI lane.
+preverify: preverify-fast
+	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory schedule-lane
 
 ## verify-lint: the two lint targets, in order.
 ##
@@ -812,7 +840,8 @@ verify-go:
 ## since `lint` cleans golangci-lint's cache; on this module that is two seconds.
 verify-lint:
 	@echo "[lane start $$(date +%T)] verify-lint"
-	@$(MAKE) --no-print-directory lint
+	@# `lint` itself runs in verify's serial preamble, before the lanes, so a
+	@# finding fails verify first; this lane keeps the bench module's lint.
 	@$(MAKE) --no-print-directory bench-lint
 	@echo "[lane done  $$(date +%T)] verify-lint"
 

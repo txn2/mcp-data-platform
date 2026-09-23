@@ -16,6 +16,7 @@ package portalversions
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -109,13 +110,17 @@ func (s *store) createVersionTx(ctx context.Context, version portaldomain.AssetV
 
 	insertQuery := `
 		INSERT INTO portal_asset_versions
-		(id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes, created_by, change_summary)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		(id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes, created_by, change_summary, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
+	metadata, err := marshalMetadata(version.Metadata)
+	if err != nil {
+		return 0, pruneResult{}, err
+	}
 	_, err = tx.ExecContext(ctx, insertQuery,
 		version.ID, version.AssetID, nextVersion,
 		version.S3Key, version.S3Bucket, version.ContentType,
-		version.SizeBytes, version.CreatedBy, version.ChangeSummary,
+		version.SizeBytes, version.CreatedBy, version.ChangeSummary, metadata,
 	)
 	if err != nil {
 		return 0, pruneResult{}, fmt.Errorf("inserting version: %w", err)
@@ -129,13 +134,18 @@ func (s *store) createVersionTx(ctx context.Context, version portaldomain.AssetV
 	// keeps the capture it has and records the version it came from
 	// (thumbnail_version, migration 000122), so it stays behind rather than
 	// blank and the refresh queue can find it (#1431).
+	//
+	// The asset takes the metadata of a version that carries any (#1848), and
+	// keeps what it had through one that carries none: an edit made in the
+	// portal to a script's output does not erase what the run recorded.
 	updateQuery := `
 		UPDATE portal_assets
-		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, updated_at = NOW()
+		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, updated_at = NOW(),
+		    metadata = CASE WHEN $6::jsonb = '{}'::jsonb THEN metadata ELSE $6::jsonb END
 		WHERE id = $5
 	`
 	_, err = tx.ExecContext(ctx, updateQuery,
-		nextVersion, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID,
+		nextVersion, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID, metadata,
 	)
 	if err != nil {
 		return 0, pruneResult{}, fmt.Errorf("updating asset version: %w", err)
@@ -416,7 +426,7 @@ func (s *store) ListByAsset(ctx context.Context, assetID string, limit, offset i
 
 	query := `
 		SELECT id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes,
-		       created_by, change_summary, created_at
+		       created_by, change_summary, created_at, metadata
 		FROM portal_asset_versions
 		WHERE asset_id = $1
 		ORDER BY version DESC
@@ -446,17 +456,21 @@ func (s *store) ListByAsset(ctx context.Context, assetID string, limit, offset i
 func (s *store) GetByVersion(ctx context.Context, assetID string, version int) (*portaldomain.AssetVersion, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes,
-		       created_by, change_summary, created_at
+		       created_by, change_summary, created_at, metadata
 		FROM portal_asset_versions
 		WHERE asset_id = $1 AND version = $2
 	`
 	var v portaldomain.AssetVersion
+	var metadata []byte
 	err := s.db.QueryRowContext(ctx, query, assetID, version).Scan(
 		&v.ID, &v.AssetID, &v.Version, &v.S3Key, &v.S3Bucket,
-		&v.ContentType, &v.SizeBytes, &v.CreatedBy, &v.ChangeSummary, &v.CreatedAt,
+		&v.ContentType, &v.SizeBytes, &v.CreatedBy, &v.ChangeSummary, &v.CreatedAt, &metadata,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying version: %w", err)
+	}
+	if err := unmarshalMetadata(metadata, &v); err != nil {
+		return nil, err
 	}
 	return &v, nil
 }
@@ -464,32 +478,62 @@ func (s *store) GetByVersion(ctx context.Context, assetID string, version int) (
 func (s *store) GetLatest(ctx context.Context, assetID string) (*portaldomain.AssetVersion, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes,
-		       created_by, change_summary, created_at
+		       created_by, change_summary, created_at, metadata
 		FROM portal_asset_versions
 		WHERE asset_id = $1
 		ORDER BY version DESC
 		LIMIT 1
 	`
 	var v portaldomain.AssetVersion
+	var metadata []byte
 	err := s.db.QueryRowContext(ctx, query, assetID).Scan(
 		&v.ID, &v.AssetID, &v.Version, &v.S3Key, &v.S3Bucket,
-		&v.ContentType, &v.SizeBytes, &v.CreatedBy, &v.ChangeSummary, &v.CreatedAt,
+		&v.ContentType, &v.SizeBytes, &v.CreatedBy, &v.ChangeSummary, &v.CreatedAt, &metadata,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying latest version: %w", err)
+	}
+	if err := unmarshalMetadata(metadata, &v); err != nil {
+		return nil, err
 	}
 	return &v, nil
 }
 
 func scanVersionRow(rows *sql.Rows) (portaldomain.AssetVersion, error) {
 	var v portaldomain.AssetVersion
+	var metadata []byte
 	if err := rows.Scan(
 		&v.ID, &v.AssetID, &v.Version, &v.S3Key, &v.S3Bucket,
-		&v.ContentType, &v.SizeBytes, &v.CreatedBy, &v.ChangeSummary, &v.CreatedAt,
+		&v.ContentType, &v.SizeBytes, &v.CreatedBy, &v.ChangeSummary, &v.CreatedAt, &metadata,
 	); err != nil {
 		return v, fmt.Errorf("scanning version row: %w", err)
 	}
-	return v, nil
+	err := unmarshalMetadata(metadata, &v)
+	return v, err
+}
+
+// marshalMetadata renders a version's metadata for its column, {} for none.
+func marshalMetadata(m map[string]any) ([]byte, error) {
+	if len(m) == 0 {
+		return []byte("{}"), nil
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("encoding version metadata: %w", err)
+	}
+	return out, nil
+}
+
+// unmarshalMetadata reads the metadata column onto v, leaving an empty
+// object as no metadata.
+func unmarshalMetadata(raw []byte, v *portaldomain.AssetVersion) error {
+	if len(raw) == 0 || string(raw) == "{}" {
+		return nil
+	}
+	if err := json.Unmarshal(raw, &v.Metadata); err != nil {
+		return fmt.Errorf("decoding version metadata: %w", err)
+	}
+	return nil
 }
 
 // Verify interface compliance.

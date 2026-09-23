@@ -49,9 +49,57 @@ export function declaresConnection(params: ScriptParam[]): boolean {
 export function valuesFrom(stored: Record<string, unknown> | undefined): Values {
   const values: Values = {};
   for (const [name, value] of Object.entries(stored ?? {})) {
-    values[name] = value === null || value === undefined ? "" : String(value);
+    values[name] = formValue(value);
   }
   return values;
+}
+
+// formValue renders one stored binding as the string a control holds: a list
+// as comma-separated values, a date range as from and to joined by RANGE_SEP.
+function formValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.map(String).join(", ");
+  if (typeof value === "object") {
+    const range = value as { from?: unknown; to?: unknown };
+    return `${String(range.from ?? "")}${RANGE_SEP}${String(range.to ?? "")}`;
+  }
+  return String(value);
+}
+
+// RANGE_SEP joins a date range's two ends in the one string a form holds.
+const RANGE_SEP = "..";
+
+// listValues splits a list control's text into its values: separated by
+// commas or new lines, trimmed, empties dropped.
+export function listValues(text: string): string[] {
+  return text
+    .split(/[,\n]/)
+    .map((v) => v.trim())
+    .filter((v) => v !== "");
+}
+
+// wireValue is what one parameter's form text is sent as: a list as an
+// array, a date range as {from, to}, and every other type as the string the
+// server coerces (#1844).
+function wireValue(p: ScriptParam, text: string): unknown {
+  if (p.type === "list") return listValues(text);
+  if (p.type === "date_range") {
+    const [from = "", to = ""] = text.split(RANGE_SEP);
+    return { from, to };
+  }
+  return text;
+}
+
+// orderedParams is the order a form shows the parameters in: grouped, then by
+// declared order, then as declared (#1844). A parameter bound to the caller
+// (#1846) has no field: its value is the caller's, and a value sent for it is
+// refused.
+export function orderedParams(params: ScriptParam[]): ScriptParam[] {
+  return params
+    .filter((p) => !p.bind)
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => (a.p.order ?? 0) - (b.p.order ?? 0) || a.i - b.i)
+    .map(({ p }) => p);
 }
 
 // boundParams is what an execution binds. An empty box is an unbound parameter
@@ -65,9 +113,10 @@ export function valuesFrom(stored: Record<string, unknown> | undefined): Values 
 export function boundParams(params: ScriptParam[], values: Values): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const p of params) {
+    if (p.bind) continue;
     const value = values[p.name];
-    if (value === undefined || value === "") continue;
-    out[p.name] = value;
+    if (value === undefined || value === "" || value === RANGE_SEP) continue;
+    out[p.name] = wireValue(p, value);
   }
   return out;
 }
@@ -76,7 +125,7 @@ export function boundParams(params: ScriptParam[], values: Values): Record<strin
 // say what is missing instead of submitting a request it knows will be refused.
 export function missingRequired(params: ScriptParam[], values: Values): string[] {
   return params
-    .filter((p) => p.required && !values[p.name] && p.default === undefined)
+    .filter((p) => !p.bind && p.required && !values[p.name] && p.default === undefined)
     .map((p) => p.name);
 }
 
@@ -115,29 +164,54 @@ export function ScriptParameterForm({
   // A script that declares no parameters gets no form at all: the contract
   // above already says it takes none, and a second sentence saying so is one
   // more thing to read on the way to the button.
-  if (params.length === 0) return null;
+  const shown = orderedParams(params);
+  if (shown.length === 0) return null;
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {params.map((p) => (
-        <Field
-          key={p.name}
-          id={controlID(form, p.name)}
-          label={`${p.name}${p.required ? "" : " (optional)"}`}
-          hint={bindingHint(p, connections, scheduled)}
-        >
-          <BindingInput
-            param={p}
-            id={controlID(form, p.name)}
-            value={values[p.name] ?? ""}
-            disabled={disabled}
-            connections={connections}
-            scheduled={scheduled}
-            onChange={(value) => onChange(p.name, value)}
-          />
-        </Field>
+    <div className="space-y-4">
+      {paramGroups(shown).map(({ group, members }) => (
+        <div key={group || "__ungrouped__"} className="space-y-2">
+          {group && <h4 className="text-sm font-medium">{group}</h4>}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {members.map((p) => (
+              <Field
+                key={p.name}
+                id={controlID(form, p.name)}
+                label={`${p.label || p.name}${p.required ? "" : " (optional)"}`}
+                hint={bindingHint(p, connections, scheduled)}
+              >
+                <BindingInput
+                  param={p}
+                  id={controlID(form, p.name)}
+                  value={values[p.name] ?? ""}
+                  disabled={disabled}
+                  connections={connections}
+                  scheduled={scheduled}
+                  onChange={(value) => onChange(p.name, value)}
+                />
+              </Field>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );
+}
+
+// paramGroups splits ordered parameters into their groups, keeping the order
+// each group first appears in; parameters with no group come first.
+function paramGroups(params: ScriptParam[]): { group: string; members: ScriptParam[] }[] {
+  const groups: { group: string; members: ScriptParam[] }[] = [];
+  for (const p of params) {
+    const name = p.group ?? "";
+    let g = groups.find((x) => x.group === name);
+    if (!g) {
+      g = { group: name, members: [] };
+      if (name === "") groups.unshift(g);
+      else groups.push(g);
+    }
+    g.members.push(p);
+  }
+  return groups;
 }
 
 // bindingHint tells the person what this box takes. For a date on a schedule it
@@ -151,22 +225,26 @@ export function bindingHint(
   scheduled = false,
 ): string {
   const described = p.description ? `${p.description} ` : "";
-  if (p.type === "date") {
-    return scheduled
-      ? `${described}A date as YYYY-MM-DD, or ${FIRE_DATE} for the day the schedule fires.`
-      : `${described}A date as YYYY-MM-DD.`;
-  }
-  if (p.type === "enum") {
-    return `${described}One of: ${(p.values ?? []).join(", ")}.`;
-  }
-  if (p.type === "connection") {
-    if (connections && connections.length === 0) {
-      return `${described}No connection is available for this script to reach.`;
-    }
-    return `${described}A platform connection.`;
-  }
-  return `${described}Type: ${p.type}.`;
+  const hint = TYPE_HINTS[p.type];
+  return `${described}${hint ? hint(p, connections, scheduled) : `Type: ${p.type}.`}`;
 }
+
+// TYPE_HINTS is what each type's control takes, in the words its hint uses.
+const TYPE_HINTS: Record<
+  string,
+  (p: ScriptParam, connections: ScriptConnectionChoice[] | undefined, scheduled: boolean) => string
+> = {
+  date: (_p, _c, scheduled) =>
+    scheduled ? `A date as YYYY-MM-DD, or ${FIRE_DATE} for the day the schedule fires.` : "A date as YYYY-MM-DD.",
+  enum: (p) => `One of: ${(p.values ?? []).join(", ")}.`,
+  connection: (_p, connections) =>
+    connections && connections.length === 0
+      ? "No connection is available for this script to reach."
+      : "A platform connection.",
+  list: (p) =>
+    p.items === "enum" ? "Any of the values checked." : `Several ${p.items ?? "string"} values, separated by commas.`,
+  date_range: () => "A range of dates, from and to as YYYY-MM-DD.",
+};
 
 // BindingInput is the control one parameter deserves: a choice where the value
 // comes from a set somebody already knows, a box otherwise.
@@ -187,6 +265,8 @@ function BindingInput({
   scheduled: boolean;
   onChange: (value: string) => void;
 }) {
+  const composite = compositeInput({ param, id, value, disabled, onChange });
+  if (composite) return composite;
   const options = choicesFor(param, connections);
   if (options === null) {
     return (
@@ -221,6 +301,103 @@ function BindingInput({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+// compositeInput is the control for a value that is more than one scalar: a
+// date range's two dates, or a list of enum's checkboxes. Null otherwise.
+function compositeInput({
+  param,
+  id,
+  value,
+  disabled,
+  onChange,
+}: {
+  param: ScriptParam;
+  id: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}): React.ReactNode {
+  if (param.type === "date_range") {
+    return <RangeInput id={id} value={value} disabled={disabled} onChange={onChange} />;
+  }
+  if (param.type === "list" && param.items === "enum") {
+    return (
+      <EnumListInput id={id} values={param.values ?? []} value={value} disabled={disabled} onChange={onChange} />
+    );
+  }
+  return null;
+}
+
+// RangeInput is a date range: two dates, held as one string.
+function RangeInput({
+  id,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [from = "", to = ""] = value.split(RANGE_SEP);
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        id={id}
+        aria-label="from"
+        placeholder="YYYY-MM-DD"
+        value={from}
+        disabled={disabled}
+        onChange={(e) => onChange(`${e.target.value}${RANGE_SEP}${to}`)}
+      />
+      <span className="text-xs text-muted-foreground">to</span>
+      <Input
+        aria-label="to"
+        placeholder="YYYY-MM-DD"
+        value={to}
+        disabled={disabled}
+        onChange={(e) => onChange(`${from}${RANGE_SEP}${e.target.value}`)}
+      />
+    </div>
+  );
+}
+
+// EnumListInput is a list of enum: one checkbox per allowed value, held as the
+// comma-separated values checked.
+function EnumListInput({
+  id,
+  values,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  values: string[];
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const checked = new Set(listValues(value));
+  return (
+    <div id={id} className="flex flex-wrap gap-3">
+      {values.map((v) => (
+        <label key={v} className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={checked.has(v)}
+            disabled={disabled}
+            onChange={(e) => {
+              const next = values.filter((x) => (x === v ? e.target.checked : checked.has(x)));
+              onChange(next.join(", "));
+            }}
+          />
+          {v}
+        </label>
+      ))}
+    </div>
   );
 }
 

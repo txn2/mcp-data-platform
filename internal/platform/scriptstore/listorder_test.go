@@ -170,3 +170,21 @@ func TestCountScheduled_ReportsAFailedRead(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "count scheduled scripts")
 }
+
+// A grantee's catalog narrows the listing to the granted ids (#1846); an
+// empty set is still a predicate, so a caller granted nothing lists nothing.
+func TestBuildListQuery_NarrowsToIDs(t *testing.T) {
+	query, args := buildListQuery(script.ListFilter{IDs: []string{}})
+	assert.Contains(t, query, "id::text = ANY($1)")
+	require.Len(t, args, 2, "the id set and the limit")
+
+	query, _ = buildListQuery(script.ListFilter{})
+	assert.NotContains(t, query, "ANY(", "nil ids do not narrow")
+}
+
+// A run listing narrows to the runs one caller asked for (#1848).
+func TestBuildRunListQuery_NarrowsToTheRequester(t *testing.T) {
+	query, args := buildRunListQuery(script.RunFilter{RequestedBy: "apikey:reporting-app"})
+	assert.Contains(t, query, "requested_by = $1")
+	assert.Equal(t, "apikey:reporting-app", args[0])
+}

@@ -323,8 +323,12 @@ func manageScriptSchema() any {
 		},
 		"params": map[string]any{
 			keyType: valArray,
-			keyDescription: "Typed parameter contract: {name, type: string|int|float|bool|date|enum|connection, required, default, description, values}. " +
-				"A connection parameter takes the name of a platform connection; the surfaces that ask for one offer the set this script may reach.",
+			keyDescription: "Typed parameter contract: {name, type: string|int|float|bool|date|enum|connection|list|date_range, required, default, description, values}. " +
+				"A connection parameter takes the name of a platform connection; the surfaces that ask for one offer the set this script may reach. " +
+				"A list takes items (string|int|float|date|enum; an enum list lists values) and optional min_items/max_items, binds a JSON array, and reaches the script as a list that platform.query binds as IN (...). " +
+				"A date_range binds {\"from\": \"YYYY-MM-DD\", \"to\": \"YYYY-MM-DD\"} with from on or before to. " +
+				"Form metadata: label (the field's name; description is its help text), order, group, min/max (numbers and dates), pattern (strings, anchored), and ui (an opaque hint stored for whatever builds the form). " +
+				"bind: \"caller.<claim>\" takes the value from the calling identity (an API key's attribute, an OIDC claim) instead of the arguments: an argument for it is refused, a caller without the claim cannot run the script, and it cannot be scheduled.",
 			keyItems: map[string]any{keyType: valObject},
 		},
 		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script; admins use it to address another person's script."},

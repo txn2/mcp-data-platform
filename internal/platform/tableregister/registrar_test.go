@@ -158,7 +158,10 @@ func (f *fakeObjects) ListDirectory(
 	}
 	var under []ObjectEntry
 	for _, e := range f.entries {
-		if strings.HasPrefix(e.Key, prefix) {
+		// Directly under the prefix only: the delimiter listing leaves out an
+		// object in a subdirectory, which is where a later version of a file
+		// sits, and Trino does not read it either.
+		if rest, ok := strings.CutPrefix(e.Key, prefix); ok && !strings.Contains(rest, "/") {
 			under = append(under, e)
 		}
 	}

@@ -648,7 +648,7 @@ func TestExtensionForContentType(t *testing.T) {
 
 func TestBuildExportS3Key_FormatStable(t *testing.T) {
 	got := buildExportS3Key("my-prefix", "user-1", "asset-abc", "application/json")
-	want := "my-prefix/api_export/user-1/asset-abc.json"
+	want := "my-prefix/api_export/user-1/asset-abc/content.json"
 	if got != want {
 		t.Errorf("S3 key = %q; want %q", got, want)
 	}

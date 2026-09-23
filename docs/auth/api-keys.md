@@ -173,6 +173,27 @@ roles, as it always has. Bound to a person, it fills the roles with the ones
 that person holds and the key follows them unless the roles are edited. The
 generated key is shown once in a copy-now banner and never again.
 
+## Attributes
+
+A key can carry named values that reach every call it makes as claims:
+
+```yaml
+auth:
+  api_keys:
+    keys:
+      - key: "${REPORTING_APP_KEY}"
+        name: reporting-app
+        roles: ["dp_service"]
+        attributes:
+          tenant: acme
+```
+
+A key created through `POST /api/v1/admin/auth/keys` takes the same
+`attributes` object, and the key listing returns it. A managed-script
+parameter declared `bind: "caller.tenant"` takes its value from here, so an
+application's key names its tenant and no request can name another. See
+[Running Managed Scripts](../scripts/running.md#parameters-the-caller-supplies).
+
 ## Multiple Keys
 
 You can define multiple keys with different access levels:

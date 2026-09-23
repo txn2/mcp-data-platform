@@ -30,6 +30,10 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   // The state card's hooks (#1537). The card has its own tests; here they only
   // have to answer, so the page composes with the section that carries state.
   useScriptState: vi.fn(),
+  // The grants card (#1846) reads as "none kept" here; its own test covers it.
+  useScriptGrants: vi.fn(() => ({ data: null, isLoading: false, error: null })),
+  useAddScriptGrant: vi.fn(),
+  useRemoveScriptGrant: vi.fn(),
   useSetScriptState: vi.fn(),
   useClearScriptState: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history

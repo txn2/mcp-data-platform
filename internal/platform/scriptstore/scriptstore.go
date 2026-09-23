@@ -402,6 +402,9 @@ func (q *listQuery) addEquality(filter script.ListFilter) {
 	if filter.OwnerEmail != "" {
 		q.add("owner_email = $%d", filter.OwnerEmail)
 	}
+	if filter.IDs != nil {
+		q.add("id::text = ANY($%d)", pq.Array(filter.IDs))
+	}
 	if filter.Enabled != nil {
 		q.add("enabled = $%d", *filter.Enabled)
 	}

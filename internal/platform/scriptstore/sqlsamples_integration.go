@@ -26,6 +26,7 @@ func SQLSamples() map[string]string {
 	// statement exercises each clause the builders can emit.
 	listing := script.ListFilter{
 		OwnerEmail: "owner@example.com",
+		IDs:        []string{"3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b"},
 		Category:   "reports",
 		Tags:       []string{"weekly"},
 		Status:     "active",
@@ -47,5 +48,12 @@ func SQLSamples() map[string]string {
 			return q
 		}(),
 		"buildListQuery": func() string { q, _ := buildListQuery(listing); return q }(),
+		"buildRunListQuery": func() string {
+			q, _ := buildRunListQuery(script.RunFilter{
+				ScriptID: "3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b", ScriptIDs: []string{},
+				Status: "succeeded", RequestedBy: "owner@example.com", Limit: 10,
+			})
+			return q
+		}(),
 	}
 }

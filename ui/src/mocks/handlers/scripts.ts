@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { MOCK_CALLER_EMAIL } from "../data/audit";
 import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
-import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
+import type { ScriptGrant, ScriptSchedule } from "@/api/portal/hooks/scripts";
 import {
   mockBindableConnections,
   mockConnectionNames,
@@ -75,6 +75,9 @@ const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
 
 // States are mutable for the same reason: a reset on this surface has to be
 // what the page reads back, at the revision the reset moved it to (#1537).
+// Run grants per script (#1846); none until a test or a person grants one.
+const grants: Record<string, ScriptGrant[]> = {};
+
 const states = JSON.parse(
   JSON.stringify(mockScriptStates),
 ) as typeof mockScriptStates;
@@ -854,6 +857,50 @@ export const scriptHandlers = [
       "State cleared. The next run starts from {}; a run already in flight that read the previous revision fails at its write.",
     ),
   ),
+
+  // Who other than the owner may run a script (#1846), mirroring
+  // internal/httpserver/scripthttp/granthttp.
+  http.get(`${PORTAL_BASE}/scripts/:id/grants`, ({ params }) => {
+    const list = grants[String(params.id)] ?? [];
+    return HttpResponse.json({ data: list, total: list.length });
+  }),
+
+  http.post(`${PORTAL_BASE}/scripts/:id/grants`, async ({ params, request }) => {
+    const body = (await request.json()) as { principal_kind?: string; principal?: string };
+    const kind = body.principal_kind ?? "";
+    const principal = (body.principal ?? "").trim();
+    if (!["persona", "role", "api_key"].includes(kind) || !principal) {
+      return HttpResponse.json(
+        { detail: "principal_kind is persona, role or api_key, and principal names one" },
+        { status: 400 },
+      );
+    }
+    const id = String(params.id);
+    const list = (grants[id] ??= []);
+    if (!list.some((g) => g.principal_kind === kind && g.principal === principal)) {
+      list.push({
+        script_id: id,
+        principal_kind: kind as "persona" | "role" | "api_key",
+        principal,
+        granted_by: "admin@example.com",
+        created_at: new Date().toISOString(),
+      });
+    }
+    return HttpResponse.json({ data: list, total: list.length }, { status: 201 });
+  }),
+
+  http.delete(`${PORTAL_BASE}/scripts/:id/grants/:kind/:principal`, ({ params }) => {
+    const id = String(params.id);
+    const list = grants[id] ?? [];
+    const at = list.findIndex(
+      (g) => g.principal_kind === params.kind && g.principal === params.principal,
+    );
+    if (at < 0) {
+      return HttpResponse.json({ detail: "this script has no such grant" }, { status: 404 });
+    }
+    list.splice(at, 1);
+    return HttpResponse.json({ data: list, total: list.length });
+  }),
 
   http.get(`${PORTAL_BASE}/scripts/:id/runs`, ({ params }) => {
     const list = mockScriptRuns[String(params.id)] ?? [];

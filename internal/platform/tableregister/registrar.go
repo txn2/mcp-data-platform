@@ -547,7 +547,8 @@ func (r *Registrar) locationFor(ctx context.Context, src Source) (string, error)
 	if len(siblings) > 0 {
 		sort.Strings(siblings)
 		return "", refusedf(
-			"a table reads every file in this file's directory, and %s sits beside it; move or remove it and register again",
+			"a table reads every file in this file's directory, and %s sits beside it; move or remove it and register again "+
+				"(a script output written before each version had a directory of its own: run the script again and register the version it writes)",
 			tablecsv.JoinAnd(siblings))
 	}
 

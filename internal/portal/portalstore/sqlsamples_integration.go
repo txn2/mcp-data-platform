@@ -74,6 +74,7 @@ func SQLSamples() map[string]string {
 		Owner: portaldomain.NewAssetOwner(
 			"550e8400-e29b-41d4-a716-446655440444", "analyst@example.com"),
 		ContentType: "text/csv", Tag: "script", Search: "revenue", Limit: 10, Offset: 20,
+		Tags: []string{"report:sales"}, Metadata: map[string]string{"region": "west"},
 	}
 	listFilterIDOnly := portaldomain.AssetFilter{
 		Owner: portaldomain.NewAssetOwner("550e8400-e29b-41d4-a716-446655440444", ""),

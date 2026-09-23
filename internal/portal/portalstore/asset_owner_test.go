@@ -253,3 +253,15 @@ func TestOwnerArmsOfAnUnidentifiedOwnerMatchNothing(t *testing.T) {
 	assert.Equal(t, "FALSE", scope)
 	assert.Empty(t, scopeArgs)
 }
+
+// Every tag named and every metadata value must hold (#1848): one containment
+// per axis, the single tag folded in with the repeated ones.
+func TestApplyAssetFilterTagsAndMetadataAreANDed(t *testing.T) {
+	got, args, err := applyAssetFilter(psq.Select("id").From("portal_assets"), portaldomain.AssetFilter{
+		Tag: "report:sales", Tags: []string{"", "tenant:x"}, Metadata: map[string]string{"region": "west"},
+	}).ToSql()
+	require.NoError(t, err)
+	assert.Contains(t, got, "tags @> $1::jsonb")
+	assert.Contains(t, got, "portal_assets.metadata @> $2::jsonb")
+	assert.Equal(t, []any{`["report:sales","tenant:x"]`, `{"region":"west"}`}, args)
+}

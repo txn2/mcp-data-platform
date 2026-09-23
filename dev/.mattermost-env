@@ -2,6 +2,6 @@
 # anything that wants to post to the dev chat fixture. Not a secret: it is a
 # loopback dev server seeded with a fixed password.
 export MATTERMOST_URL="http://127.0.0.1:8065"
-export MATTERMOST_TOKEN="s53tdtf9qpf7uxzmp7jk8eafje"
+export MATTERMOST_TOKEN="tpcu7ik9q7gmbjo6r1s3bccaxo"
 export MATTERMOST_CHANNEL_ID="tibxywwfxprt9pw5rtdqaz1qna"
 export MATTERMOST_TEAM_ID="n6sziiqc5jbtzjd7r4ke1td4cr"

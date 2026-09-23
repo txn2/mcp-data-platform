@@ -129,6 +129,7 @@ describe("familyLabel", () => {
     ["text/csv", "CSV"],
     ["application/pdf", "PDF"],
     ["application/vnd.apache.parquet", "Parquet"],
+    ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Excel workbook"],
     ["image/png", "Image (PNG)"],
     ["audio/mpeg", "Audio (MPEG)"],
     ["video/mp4", "Video (MP4)"],
@@ -136,6 +137,21 @@ describe("familyLabel", () => {
     ["", "Unknown"],
   ])("labels %s", (ct, want) => {
     expect(familyLabel(ct)).toBe(want);
+  });
+});
+
+describe("an Excel workbook", () => {
+  it("opens on the download card, read from the content URL and never edited (#1849)", () => {
+    for (const input of [
+      { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+      { contentType: "application/octet-stream", fileName: "sales.xlsx" },
+    ]) {
+      const entry = resolveRenderer(input);
+      expect(entry.kind).toBe("binary");
+      expect(entry.contentType).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      expect(entry.source).toBe("url");
+      expect(entry.editable).toBe(false);
+    }
   });
 });
 

@@ -637,3 +637,35 @@ func TestCancelRun_Refusals(t *testing.T) {
 		assert.Equal(t, "canceled", out["outcome"])
 	})
 }
+
+// A parameter bound to caller.<claim> takes the calling session's claim over
+// MCP too (#1846): an argument for it is refused, and a session without the
+// claim cannot run the script.
+func TestRunScript_ABoundParameterIsTheCallers(t *testing.T) {
+	store, runs := newMemStore(), newStubRuns()
+	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
+	res := call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "tenant-report", Source: "print(run.params.tenant)\n",
+		Params: []script.Param{{Name: "tenant", Type: script.ParamTypeString, Bind: "caller.tenant"}},
+	})
+	require.False(t, res.IsError, resultText(res))
+
+	ctx := authorCtx()
+	middleware.GetPlatformContext(ctx).UserClaims = map[string]any{"tenant": "acme"}
+	res, _, err := h.handleRunScript(ctx, runScriptInput{Name: "tenant-report", WaitSeconds: -1})
+	require.NoError(t, err)
+	require.False(t, res.IsError, resultText(res))
+	queued, err := runs.ListRuns(context.Background(), script.RunFilter{})
+	require.NoError(t, err)
+	require.Len(t, queued, 1)
+	assert.Equal(t, "acme", queued[0].Params["tenant"])
+
+	res, _, err = h.handleRunScript(ctx, runScriptInput{Name: "tenant-report", Args: map[string]any{"tenant": "globex"}})
+	require.NoError(t, err)
+	assert.Contains(t, resultText(res), "value is the caller's")
+
+	res, _, err = h.handleRunScript(authorCtx(), runScriptInput{Name: "tenant-report"})
+	require.NoError(t, err)
+	assert.Contains(t, resultText(res), "does not carry the claim")
+	assert.Nil(t, callerClaims(context.Background()))
+}

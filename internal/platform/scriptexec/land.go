@@ -67,7 +67,7 @@ func (w *outputWriter) writeResource(
 		ResourceID:      landing.ResourceID,
 		ResourceURI:     landing.URI,
 		ResourceVersion: landing.Version,
-		Format:          req.Format, RowCount: len(req.Rows), Document: req.Body != nil,
+		Format:          req.Format, RowCount: req.RowCount(), Document: req.Body != nil,
 		Bytes:        len(data),
 		TableChanges: landing.TableChanges,
 	}

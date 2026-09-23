@@ -312,7 +312,8 @@ a queued run.
 
 ### Typed parameters, and the ones the platform can offer
 
-A parameter is typed `string`, `int`, `float`, `bool`, `date`, `enum` or
+A parameter is typed `string`, `int`, `float`, `bool`, `date`, `enum`, `list`,
+`date_range` or
 `connection`. Every surface that asks for a value renders the control the type
 deserves: a choice where the value comes from a set somebody already knows, and
 a box only for a value the platform genuinely cannot enumerate.
@@ -334,8 +335,34 @@ set of values it can take:
   destination rather than a connection, so it does not widen the set.
 
 An `enum` carries its own values and renders the same way. An optional
-`connection`, like an optional `enum` or `date`, must declare a default: there
-is no meaningful empty connection.
+`connection`, like an optional `enum`, `date` or `date_range`, must declare a
+default: there is no meaningful empty connection.
+
+A `list` (#1844) names its element type in `items` (`string`, `int`, `float`,
+`date` or `enum`; a list of enum lists its `values`), and optionally
+`min_items` and `max_items`. It binds a JSON array with every element checked,
+so a typo in one id among twenty is refused naming the element rather than
+silently matching nothing, and it reaches the script as a list that
+`platform.query` binds as a parenthesized list:
+
+```python
+rows = platform.query(connection="warehouse",
+    sql="SELECT * FROM stores WHERE id IN :ids", params={"ids": run.params["ids"]})["rows"]
+```
+
+A `date_range` binds `{"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}` and refuses
+one whose `from` is after its `to`; the script reads `run.params["period"]["from"]`.
+
+Every parameter may also carry form metadata, stored with the contract and
+returned by `GET /api/v1/portal/scripts/{id}` so a client builds a form without
+reading the source: `label` (the field's name; `description` becomes its help
+text), `order` and `group` (how the form is laid out), `min` and `max` (for a
+number or a date, and for each end of a range or each element of a list),
+`pattern` (a regular expression a string must match in full), and `ui`, an
+opaque object the platform stores and returns and never interprets, for an
+embedding application's own widgets (`{"widget": "location-picker"}`). The
+portal's run form renders a list as comma-separated values (checkboxes for a
+list of enum), a range as two dates, and lays fields out by group and order.
 
 ### Running one from the portal
 
@@ -367,6 +394,56 @@ Two things it cannot do:
 A run's trigger records which of the three producers created it: `tool` for
 `run_script`, `schedule` for a fire, and `portal` for one an owner asked for on
 the page. They execute identically.
+
+### Letting others run it
+
+A script's owner, or an administrator, can grant its runs to a persona, a role,
+or an API key by name, from the **Access** card on the script's page or over
+the API:
+
+```
+GET    /api/v1/portal/scripts/{id}/grants
+POST   /api/v1/portal/scripts/{id}/grants   {"principal_kind": "api_key", "principal": "reporting-app"}
+DELETE /api/v1/portal/scripts/{id}/grants/{kind}/{principal}
+```
+
+A grantee may call `POST /api/v1/portal/scripts/{id}/runs` and read the runs it
+started, with their outputs and results. It cannot read the source, the version
+history or the state, and it cannot change the script; on a script it was not
+granted it gets 404. The run still executes as the script with its author's
+roles, so a grant decides who may ask for a run, never what the run may reach.
+Every grant and withdrawal is audited (`script_grant`, `script_revoke`).
+
+`GET /api/v1/portal/scripts?scope=granted` lists the scripts granted to the
+caller, each with its parameter contract and `granted: true`, which is the
+catalog an application builds its own screens from.
+
+### Parameters the caller supplies
+
+A parameter declared with `bind: "caller.<claim>"` takes its value from the
+authenticated caller rather than from the request. For an API key the claim is
+one of the key's attributes, set when the key is created:
+
+```yaml
+auth:
+  api_keys:
+    keys:
+      - key: "${REPORTING_APP_KEY}"
+        name: reporting-app
+        roles: ["dp_service"]
+        attributes:
+          tenant: acme
+```
+
+A key created through the admin API takes the same `attributes` object. With a
+parameter `{"name": "tenant", "type": "string", "bind": "caller.tenant"}`, a run
+requested by that key binds `tenant` to `acme`, and the run record stores it. A
+request that sends a value for `tenant` is refused with 400 rather than
+overridden, and a caller that does not carry the claim is refused with 403. A
+dotted claim (`caller.org.id`) reads a nested claim. A bound parameter is a
+string, int, float, enum or date, takes no default, and has no field in the
+portal's run form. A schedule has no caller, so a script with a bound parameter
+cannot be scheduled.
 
 ### Handing an answer back
 
@@ -912,12 +989,51 @@ onto it before the write returns, so a query against the table reads the new
 contents from then on with no second call. What the write did to each table is
 reported on the export record (`table_changes`) and on the tool result, and
 printed into the run log as `table_changes: <output>: <sentence>`, so a run
-that left a pinned table behind says so in its history. See
+that left a pinned table behind says so in its history. Each version of an
+output is stored as `content.<ext>` in a directory of its own run,
+`scripts/<script>/<asset>/<run>/`, so a table pinned with `follow=false` keeps
+returning the version it was registered over after later runs, and an output
+with any number of versions can be registered (#1851). See
 [Registered Tables](../server/registered-tables.md#following-the-file).
+
+### Finding an output again
+
+`platform.export` takes two optional arguments that identify an output beyond
+its name:
+
+```python
+platform.export("sales", rows, format="csv",
+    tags=["report:sales", "tenant:" + run.params["tenant"]],
+    metadata={"region": "west", "period": run.params["period"]})
+```
+
+The tags are added to the asset's own (`script` and the script's name). The
+metadata is a small JSON object stored on the version the run writes, beside
+what the platform records itself: `run_id`, `script`, `script_version` and
+`requested_by`. The asset carries the metadata of its latest version that set
+any.
+
+Three ways to find outputs again:
+
+- `GET /api/v1/portal/assets?tag=report:sales&tag=tenant:x&metadata.region=west`
+  lists the caller's assets carrying every named tag and every named metadata
+  value.
+- `GET /api/v1/portal/scripts/runs/outputs` lists the outputs of the runs the
+  caller requested, across scripts, newest first, whoever owns the scripts: a
+  key granted a script (see [Letting others run it](#letting-others-run-it))
+  reads back what its runs wrote. It takes `script_id`, repeated `tag` and
+  `metadata.<key>=<value>`, and each output carries the run's parameters and a
+  signed download link.
+- `GET /api/v1/portal/assets/{id}/content-url?ttl=300` mints an expiring,
+  signed URL for one version (the current one, or `version=N`) for a caller who
+  can view the asset. Anybody holding it downloads that exact version without a
+  session until it expires (at most 24 hours), and gets 403 afterwards. The
+  links are signed with a key derived from `auth.browser_session.signing_key`;
+  a deployment without one serves neither route.
 
 ### Tables and documents
 
-`rows` carries the output's content in one of two shapes, and the declared
+`rows` carries the output's content in one of three shapes, and the declared
 format decides which are valid:
 
 - **A list of dicts**, serialized in the declared format. `csv`, `json`,
@@ -930,6 +1046,8 @@ format decides which are valid:
   content type the portal already stores and renders for that kind of saved
   asset, so a script-published dashboard is patchable and shareable like any
   other document asset.
+- **A dict of sheets**, for `xlsx`, which accepts only this shape: an Excel
+  workbook described as data. See [Excel workbooks](#excel-workbooks).
 
 ```python
 platform.export(
@@ -948,6 +1066,79 @@ replacing the current version of a shared dashboard. Object keys carry the
 extension the platform assigns the document's content type — `.md`, `.txt`,
 `.html`, and `.html` for `jsx` too, the platform-wide key spelling for
 `text/jsx` objects.
+
+### Excel workbooks
+
+`format="xlsx"` writes an Excel workbook with several sheets, typed cells, a
+bold header row, column widths, frozen panes and an optional title row (#1849).
+The body describes the workbook as data; it is not a styling API.
+
+```python
+platform.export("sales", {
+    "sheets": [
+        {"name": "Summary", "title": "Sales by region",
+         "columns": ["region", "sales", "net"],
+         "rows": rows,
+         "column_types": {"net": "currency", "sales": "integer"},
+         "freeze": "A3", "widths": {"region": 30}},
+        {"name": "By day", "rows": daily},
+    ],
+}, format="xlsx")
+```
+
+- **Sheets.** `name` is required: 1 to 31 characters, none of `[]:*?/\`, not
+  beginning or ending with an apostrophe, and unique ignoring case. A workbook
+  holds at most 255 sheets and 2,000,000 cells.
+- **Columns and rows.** A row is a dict, projected onto `columns` (a key the
+  columns do not name is not written), or a list, positional against them.
+  `columns` defaults to the rows' keys in the order the script wrote them. A
+  `None` value is an empty cell.
+- **Column types.** `column_types` maps a column to `string`, `integer`,
+  `decimal`, `currency`, `date`, `datetime` or `percent`. A column with no
+  declared type is written as its values are: text as text, a number as a
+  number, a bool as a bool, a list or dict as its JSON text.
+
+  | Type | Accepts | Shown as |
+  |------|---------|----------|
+  | `string` | any value, written as its text | as written |
+  | `integer` | an integer, a whole float, or its text | `#,##0` |
+  | `decimal` | a number or its exact decimal text | as written |
+  | `currency` | the exact decimal text (`"1234.50"`) or integer cents (`123450`) | `#,##0.00` |
+  | `percent` | the fraction, as a number or decimal text (`0.125`) | `0.00%` |
+  | `date` | `"YYYY-MM-DD"` | `yyyy-mm-dd` |
+  | `datetime` | `"YYYY-MM-DDTHH:MM:SS"` (a space for the `T`, a fraction and a zone accepted) | `yyyy-mm-dd hh:mm:ss` |
+
+- **Currency is exact.** The decimal text the script computed is written into
+  the cell's value as it is, so the file holds `1234.50`, not the float nearest
+  to it; integer cents are turned into that text in integer arithmetic. A
+  float is refused for a currency column, because it is already not the amount
+  the script meant. A number with more than 15 significant digits is refused
+  in a number column, because Excel keeps 15 and would change it on opening;
+  declare the column `string` to keep every digit.
+- **Dates.** A date is the day the script wrote; a datetime's zone is read and
+  dropped, since a cell has none, so the cell shows the clock time written.
+  Dates before 1900-03-01 are refused: Excel's 1900 date system counts a
+  February 29 that never was, and an earlier serial does not name the same day
+  in every reader.
+- **Presentation.** The header row is bold. `title` adds a larger bold row
+  above it, across the columns. `freeze` names the first cell that scrolls
+  (`"A2"` keeps the header row in view, `"B3"` also the first column and a
+  title row). `widths` maps a column to a width in Excel's character units,
+  above 0 and at most 255.
+- **Limits.** A control character other than tab, line feed and carriage
+  return in any text (a value, a column name, a title, a sheet name), text
+  longer than the 32,767 characters a cell holds, or a workbook over the
+  output ceiling fails the export, naming the sheet, row and column, rather
+  than writing a file Excel would repair or refuse. An unknown key in the body
+  or a sheet is refused, so a misspelled `column_type` is not ignored.
+
+The export record carries `sheets`, each sheet's `name` and data `rows`, and
+`row_count` is the data rows across every sheet; a draft reports the same with
+the `bytes` a platform run would write. The file is stored as
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` with an
+`.xlsx` key, and the portal offers it for download. An `xlsx` output cannot be
+registered as a table (`register=` takes `jsonl`, `parquet` or `csv`). A logo
+in the header through an `mcp://` reference is not supported.
 
 ### Refreshing a dashboard's data region
 

@@ -98,7 +98,7 @@ func TestExportWritesTheResultToAnAssetAndNotThroughTheModel(t *testing.T) {
 	if asset.Name != "datasets.json" || asset.OwnerID != "u1" || asset.SessionID != "s1" {
 		t.Errorf("asset = %+v", asset)
 	}
-	if !strings.HasPrefix(asset.S3Key, "exports/graphql_export/u1/") || !strings.HasSuffix(asset.S3Key, ".json") {
+	if !strings.HasPrefix(asset.S3Key, "exports/graphql_export/u1/") || !strings.HasSuffix(asset.S3Key, "/content.json") {
 		t.Errorf("key = %q", asset.S3Key)
 	}
 	if len(asset.Provenance.ToolCalls) != 1 || asset.Provenance.ToolCalls[0].Parameters["query"] != datasetDocument {
@@ -288,7 +288,7 @@ func TestBuildExportPortalURL(t *testing.T) {
 }
 
 func TestBuildExportS3KeyWithoutAPrefix(t *testing.T) {
-	if got := buildExportS3Key("", "u1", "a1"); got != "graphql_export/u1/a1.json" {
+	if got := buildExportS3Key("", "u1", "a1"); got != "graphql_export/u1/a1/content.json" {
 		t.Errorf("key = %q", got)
 	}
 }

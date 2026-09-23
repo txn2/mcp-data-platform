@@ -104,6 +104,8 @@ type Request struct {
 	ExpiresAt *time.Time
 	// CreatedBy records who issued it.
 	CreatedBy string
+	// Attributes are named values the key carries as claims (#1846).
+	Attributes map[string]string
 }
 
 // Issued is the key handed back. Key is the only time the value exists outside
@@ -170,6 +172,7 @@ func keyDefinition(req Request, person *auth.BoundPrincipal) auth.APIKey {
 		Roles:       req.Roles,
 		ExpiresAt:   req.ExpiresAt,
 		UserEmail:   boundAddress(person),
+		Attributes:  req.Attributes,
 	}
 }
 
@@ -210,6 +213,7 @@ func (i *Issuer) store(ctx context.Context, def auth.APIKey, value, createdBy st
 		ExpiresAt:   def.ExpiresAt,
 		UserEmail:   def.UserEmail,
 		CreatedBy:   createdBy,
+		Attributes:  def.Attributes,
 	})
 	if errors.Is(err, apikeystore.ErrExists) {
 		return ErrNameTaken

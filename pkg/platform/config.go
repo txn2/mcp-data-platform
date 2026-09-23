@@ -555,6 +555,9 @@ type APIKeyDef struct {
 	Email       string   `yaml:"email"`
 	Description string   `yaml:"description"`
 	Roles       []string `yaml:"roles"`
+	// Attributes are named values the key carries as claims, which a script
+	// parameter bound to caller.<name> reads (#1846).
+	Attributes map[string]string `yaml:"attributes"`
 }
 
 // OAuthConfig configures the OAuth server.

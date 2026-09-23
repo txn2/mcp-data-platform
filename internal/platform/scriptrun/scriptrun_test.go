@@ -486,19 +486,6 @@ func TestFormatOutput_RefusesAnOversizedOutput(t *testing.T) {
 	assert.Contains(t, err.Error(), "over the")
 }
 
-// TestTabular_ProjectsRowsOntoTheColumnOrder pins the projection every output
-// format shares. It sits beside the formatter it feeds: one serializer writes a
-// script's output, whether the run persists it or only measures it.
-func TestTabular_ProjectsRowsOntoTheColumnOrder(t *testing.T) {
-	rows := tabular([]string{"a", "b"}, []any{
-		map[string]any{"b": 2, "a": 1},
-		map[string]any{"a": 3},
-		"not a dict",
-	})
-	assert.Equal(t, [][]any{{1, 2}, {3, nil}, {nil, nil}}, rows,
-		"a missing column is an empty cell, not a shifted row")
-}
-
 func TestRun_ExportCountCap(t *testing.T) {
 	_, err := execute(t, `
 for n in range(20):

@@ -113,6 +113,12 @@ type RunOutput struct {
 
 	Format   string `json:"format"`
 	RowCount int    `json:"row_count"`
+
+	// Tags and Metadata are what the script passed to platform.export for this
+	// output (#1848), kept on the run so its outputs can be found again by
+	// them without reading every asset.
+	Tags     []string       `json:"tags,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 	// Document marks an output written verbatim from a string body rather than
 	// serialized from rows, so a surface reporting the output does not describe
 	// a dashboard as a zero-row table.
@@ -360,6 +366,9 @@ type RunFilter struct {
 	ScriptIDs []string
 	// Status scopes the listing to one lifecycle status.
 	Status string
+	// RequestedBy scopes the listing to the runs one caller asked for (#1848):
+	// an application reading back the outputs of the runs it started.
+	RequestedBy string
 	// Limit caps the rows returned; zero means the store default.
 	Limit int
 }

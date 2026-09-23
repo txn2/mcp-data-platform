@@ -959,15 +959,22 @@ func generateExportAssetID() (string, error) {
 }
 
 // buildExportS3Key composes the S3 key for a given asset:
-// <prefix>/<user>/<asset>.<ext>. Falls back to "bin" when the
-// content type doesn't yield a known extension.
+// <prefix>/api_export/<user>/<asset>/content.<ext>. Falls back to "bin" when
+// the content type doesn't yield a known extension.
+//
+// The object is alone in a directory of its own, the portal's convention for
+// a version (#1851): a table registered over an asset points at the directory
+// its content sits in and reads every file there, so an export written beside
+// the same user's other exports could not be registered, and a version a
+// script run writes onto an existing asset would land beside the one a pinned
+// table reads.
 func buildExportS3Key(prefix, userID, assetID, contentType string) string {
 	ext := extensionForContentType(contentType)
 	parts := []string{}
 	if prefix != "" {
 		parts = append(parts, strings.Trim(prefix, "/"))
 	}
-	parts = append(parts, "api_export", userID, assetID+"."+ext)
+	parts = append(parts, "api_export", userID, assetID, "content."+ext)
 	return path.Join(parts...)
 }
 

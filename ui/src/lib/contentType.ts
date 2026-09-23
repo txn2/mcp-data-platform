@@ -30,6 +30,7 @@ export const CT = {
   python: "text/x-python",
   pdf: "application/pdf",
   parquet: "application/vnd.apache.parquet",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   octet: "application/octet-stream",
 } as const;
 
@@ -139,6 +140,7 @@ const BY_EXTENSION: Record<string, string> = {
   svg: CT.svg,
   pdf: CT.pdf,
   parquet: CT.parquet,
+  xlsx: CT.xlsx,
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",

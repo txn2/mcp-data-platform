@@ -3,11 +3,12 @@ import { useKnowledgePageRefs, type PageEntityRef } from "@/api/portal/hooks";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { EntityChip } from "./EntityChip";
 
-const TYPE_ORDER = ["asset", "prompt", "collection", "connection", "knowledge_page", "datahub"];
+const TYPE_ORDER = ["asset", "prompt", "collection", "script", "connection", "knowledge_page", "datahub"];
 const TYPE_LABELS: Record<string, string> = {
   asset: "Assets",
   prompt: "Prompts",
   collection: "Collections",
+  script: "Scripts",
   connection: "Connections",
   knowledge_page: "Pages",
   datahub: "DataHub",

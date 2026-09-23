@@ -15,8 +15,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -84,6 +86,14 @@ type Deps struct {
 	// what the admin surface passes.
 	PortalUser func(r *http.Request) *PortalIdentity
 
+	// ContentURL mints a signed link to one asset version (#1848), which the
+	// run-outputs listing hands out. Nil lists outputs without links.
+	ContentURL func(assetID string, version int) (string, time.Time)
+
+	// Grants keeps who other than the owner may run each script (#1846). Nil
+	// leaves the grant routes unmounted and every run the owner's.
+	Grants scriptgrant.Store
+
 	// Produced lists everything a script has written across every run (#1569).
 	// Nil leaves that route unmounted, which is the shape of a deployment that
 	// records no producers.
@@ -123,6 +133,7 @@ const (
 	pathVersion      = "version"
 	pathRunID        = "runID"
 	errScriptNot     = "script not found"
+	errGetScript     = "failed to get script"
 	errVersionNot    = "version not found"
 	errRunNot        = "run not found"
 	errListVersions  = "failed to list versions"
@@ -321,7 +332,7 @@ func (h *Handler) dryRunFor(r *http.Request, scriptID, source string) *script.Dr
 func (h *Handler) loadScript(w http.ResponseWriter, r *http.Request) (*script.Script, bool) {
 	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
 	if err != nil {
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get script")
+		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)
 		return nil, false
 	}
 	if sc == nil {

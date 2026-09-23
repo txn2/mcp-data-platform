@@ -10070,7 +10070,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns paginated assets owned by the current user with optional filtering.",
+                "description": "Returns paginated assets owned by the current user with optional filtering. A repeated tag requires every named tag, and each metadata.\u003ckey\u003e=\u003cvalue\u003e requires that value in the asset's metadata (the metadata a script output's latest version recorded), all combined with AND.",
                 "produces": [
                     "application/json"
                 ],
@@ -10086,9 +10086,19 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "Filter by tag",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Filter by tag; repeat it to require every one",
                         "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by a metadata value, as metadata.\u003ckey\u003e=\u003cvalue\u003e; several are ANDed",
+                        "name": "metadata.key",
                         "in": "query"
                     },
                     {
@@ -10658,6 +10668,73 @@ const docTemplate = `{
                     },
                     "503": {
                         "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/assets/{id}/content-url": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns an expiring, signed URL that downloads one version of the asset without a portal session: the current version, or the one named by version. ttl is its lifetime in seconds (default 300, at most 86400). The caller must be able to view the asset. The link keeps serving that exact version until it expires and answers 403 afterwards.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Get a signed content URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version to link to (default: current)",
+                        "name": "version",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Lifetime in seconds (default 300, max 86400)",
+                        "name": "ttl",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.contentURLResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
                         }
@@ -13086,6 +13163,41 @@ const docTemplate = `{
                     },
                     "503": {
                         "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/content/{token}": {
+            "get": {
+                "description": "Serves the asset version a signed content URL names, with no session. An expired or altered link answers 403; a version or asset since removed answers 404.",
+                "tags": [
+                    "Assets"
+                ],
+                "summary": "Download through a signed URL",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The signed token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
                         }
@@ -16210,7 +16322,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the entities the page references (assets, prompts, collections, connections, DataHub URNs, and other pages), each with its serialized URN.",
+                "description": "Returns the entities the page references (assets, prompts, collections, connections, managed scripts, DataHub URNs, and other pages), each with its serialized URN. A reference the caller may not open is omitted: a managed script resolves for its owner and administrators only.",
                 "produces": [
                     "application/json"
                 ],
@@ -18527,7 +18639,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
+                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
                 "produces": [
                     "application/json"
                 ],
@@ -18539,10 +18651,11 @@ const docTemplate = `{
                     {
                         "enum": [
                             "mine",
-                            "all"
+                            "all",
+                            "granted"
                         ],
                         "type": "string",
-                        "description": "Whose scripts to list: mine (default) or all",
+                        "description": "Whose scripts to list: mine (default), all, or granted",
                         "name": "scope",
                         "in": "query"
                     },
@@ -18675,6 +18788,70 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.portalOwnRunsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/runs/outputs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the portal outputs of the script runs the caller requested, newest first, across every script, each with the run's parameters and an expiring signed URL that downloads that exact version without a session. A caller need not own the scripts: a grantee reads the outputs of the runs it started. Administrators read every run's. script_id narrows to one script; tag (repeatable) and metadata.\u003ckey\u003e=\u003cvalue\u003e narrow to outputs whose platform.export named them, all combined with AND. Reads the caller's 50 most recent finished runs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List the outputs of the caller's script runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Narrow to one script",
+                        "name": "script_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "Require these tags",
+                        "name": "tag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Require this metadata value, as metadata.\u003ckey\u003e=\u003cvalue\u003e",
+                        "name": "metadata.key",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/outputshttp.listResponse"
                         }
                     },
                     "401": {
@@ -18904,6 +19081,201 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/grants": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns who other than the owner may run this script: each persona, role or API key it is granted to, who granted it, and when. A grantee may run the script and read the runs it started, with their outputs; it may not read the source or change the script, and the run executes as the script with its author's roles. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a script's run grants",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/granthttp.grantListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lets a persona, a role or an API key (by name) run this script over HTTP and read the runs it started. Granting what is already granted changes nothing. Answers with the script's grants as they now stand. Restricted to the script's owner and to administrators, and audited.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Grant a script's runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The principal to grant",
+                        "name": "grant",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/granthttp.grantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/granthttp.grantListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/grants/{kind}/{principal}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Withdraws one grant; the principal can no longer run the script. Runs it already started are unaffected. Answers with the script's grants as they now stand, or 404 when there was no such grant. Restricted to the script's owner and to administrators, and audited.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Withdraw a script run grant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "persona, role or api_key",
+                        "name": "kind",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "The persona, role or API key name",
+                        "name": "principal",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/granthttp.grantListResponse"
                         }
                     },
                     "401": {
@@ -19215,7 +19587,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Queues one run of the latest saved version of a script the caller owns, binding the supplied parameters against its contract. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words. With wait, the request holds for up to that many seconds (at most 300): a run that finishes in time is answered 200 with the run itself, including the value it returned with platform.result, its outputs and its error; otherwise, and without wait, 202 with the run id to follow.",
+                "description": "Queues one run of the latest saved version of a script the caller owns or was granted, binding the supplied parameters against its contract. A parameter bound to caller.\u003cclaim\u003e takes the caller's claim (an API key's attribute): a value for it in the body is refused with 400, and a caller without the claim is refused with 403. The run is executed by a worker under the script's own identity, exactly as a scheduled fire is, and appears in the script's run history. A disabled or retired script is refused, in the run gate's own words. With wait, the request holds for up to that many seconds (at most 300): a run that finishes in time is answered 200 with the run itself, including the value it returned with platform.result, its outputs and its error; otherwise, and without wait, 202 with the run id to follow.",
                 "consumes": [
                     "application/json"
                 ],
@@ -19270,6 +19642,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -19753,7 +20131,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/scripthttp.stateResponse"
+                            "$ref": "#/definitions/statehttp.stateResponse"
                         }
                     },
                     "401": {
@@ -19810,7 +20188,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/scripthttp.stateRequest"
+                            "$ref": "#/definitions/statehttp.stateRequest"
                         }
                     }
                 ],
@@ -19818,7 +20196,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/scripthttp.stateResponse"
+                            "$ref": "#/definitions/statehttp.stateResponse"
                         }
                     },
                     "400": {
@@ -19877,7 +20255,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/scripthttp.stateResponse"
+                            "$ref": "#/definitions/statehttp.stateResponse"
                         }
                     },
                     "401": {
@@ -23251,6 +23629,13 @@ const docTemplate = `{
         "admin.authKeyCreateRequest": {
             "type": "object",
             "properties": {
+                "attributes": {
+                    "description": "Attributes are named values the key carries into every call as claims\n(#1846). A script parameter bound to caller.\u003cname\u003e takes its value from\nthe one named here, so a multi-tenant application's key names its\ntenant and no request can claim another.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "description": {
                     "type": "string",
                     "example": "CI/CD pipeline integration"
@@ -23357,6 +23742,13 @@ const docTemplate = `{
         "admin.authKeySummary": {
             "type": "object",
             "properties": {
+                "attributes": {
+                    "description": "Attributes are the named values the key carries as claims (#1846).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "description": {
                     "type": "string",
                     "example": "CI/CD pipeline integration"
@@ -27749,6 +28141,34 @@ const docTemplate = `{
                 }
             }
         },
+        "granthttp.grantListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptgrant.Grant"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "granthttp.grantRequest": {
+            "type": "object",
+            "properties": {
+                "principal": {
+                    "type": "string",
+                    "example": "reporting-app"
+                },
+                "principal_kind": {
+                    "type": "string",
+                    "example": "api_key"
+                }
+            }
+        },
         "graphql.SchemaInfo": {
             "type": "object",
             "properties": {
@@ -28470,6 +28890,54 @@ const docTemplate = `{
                 }
             }
         },
+        "outputshttp.listResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/outputshttp.runOutput"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "outputshttp.runOutput": {
+            "type": "object",
+            "properties": {
+                "content_url": {
+                    "description": "ContentURL downloads this version without a session until\nContentURLExpiresAt; absent for an output that is not a portal asset.",
+                    "type": "string"
+                },
+                "content_url_expires_at": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "output": {
+                    "$ref": "#/definitions/script.RunOutput"
+                },
+                "params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "dpx_a1b2c3d4"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
         "persona.APIRouteRule": {
             "type": "object",
             "properties": {
@@ -28691,6 +29159,11 @@ const docTemplate = `{
                 "id": {
                     "type": "string",
                     "example": "ver_01HK7R9A"
+                },
+                "metadata": {
+                    "description": "Metadata is what the writer recorded about this version (#1848): a\nscript output carries the run, the script, its version, who asked for\nthe run, and what the script passed to platform.export. Empty for a\nversion nothing described.",
+                    "type": "object",
+                    "additionalProperties": {}
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -29161,6 +29634,27 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/knowledgepage.PageRef"
                     }
+                }
+            }
+        },
+        "portal.contentURLResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/api/v1/portal/content/eyJ...Q"
+                },
+                "url": {
+                    "description": "URL is the absolute link where the deployment names its public base\nURL; Path is the same link relative to this server.",
+                    "type": "string",
+                    "example": "https://data.example.com/api/v1/portal/content/eyJ...Q"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -31507,6 +32001,11 @@ const docTemplate = `{
         "script.Param": {
             "type": "object",
             "properties": {
+                "bind": {
+                    "description": "Bind takes the parameter's value from the authenticated caller rather\nthan from the request: \"caller.\u003cclaim\u003e\" reads that claim, which for an\nAPI key is one of its attributes (#1846). A value for it in a request is\nrefused, a caller without the claim cannot run the script, and a\nschedule, which has no caller, cannot fire it.",
+                    "type": "string",
+                    "example": "caller.tenant"
+                },
                 "default": {
                     "description": "Default supplies the value when the caller omits an optional parameter.\nIt is bound through exactly the same coercion and checking as a\ncaller-supplied value, so a default cannot smuggle in a type the\nparameter does not accept."
                 },
@@ -31514,9 +32013,39 @@ const docTemplate = `{
                     "type": "string",
                     "example": "The business date to report on"
                 },
+                "group": {
+                    "type": "string",
+                    "example": "Filters"
+                },
+                "items": {
+                    "description": "Items is a list parameter's element type: string, int, float, date or\nenum (#1844). MinItems and MaxItems bound its length.",
+                    "type": "string",
+                    "example": "string"
+                },
+                "label": {
+                    "description": "Label is what a form shows as the parameter's name; Description\nbecomes its help text. Order and Group arrange a form: ascending order,\nthen declaration order, within groups (#1844).",
+                    "type": "string",
+                    "example": "Report date"
+                },
+                "max": {},
+                "max_items": {
+                    "type": "integer"
+                },
+                "min": {
+                    "description": "Min and Max bound a number (int, float) or a date (date, date_range,\nand a list's number or date elements), in the parameter's own type.\nPattern is a regular expression a string, or a list's string elements,\nmust match in full."
+                },
+                "min_items": {
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string",
                     "example": "report_date"
+                },
+                "order": {
+                    "type": "integer"
+                },
+                "pattern": {
+                    "type": "string"
                 },
                 "required": {
                     "type": "boolean",
@@ -31526,8 +32055,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": "date"
                 },
+                "ui": {
+                    "description": "UI is an opaque hint for whatever builds a form from the contract, e.g.\n{\"widget\": \"location-picker\"}. The platform stores and returns it and\nnever interprets it.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "values": {
-                    "description": "Values enumerates the allowed values of an enum parameter, and is\nmeaningless (and refused) on every other type.",
+                    "description": "Values enumerates the allowed values of an enum parameter, or of the\nelements of a list of enum, and is refused on every other type.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -31587,6 +32121,10 @@ const docTemplate = `{
                 "key": {
                     "type": "string"
                 },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "name": {
                     "type": "string"
                 },
@@ -31609,6 +32147,13 @@ const docTemplate = `{
                 },
                 "table_changes": {
                     "description": "TableChanges is what this version did to the tables registered over the\noutput's file (#1536): one sentence per table, saying it followed onto\nthe version or is pinned and now behind it. Absent when none is\nregistered. It is a change report rather than the ` + "`" + `tables` + "`" + ` a fetched\nreference carries (#1666).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tags": {
+                    "description": "Tags and Metadata are what the script passed to platform.export for this\noutput (#1848), kept on the run so its outputs can be found again by\nthem without reading every asset.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -31839,6 +32384,30 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "scriptgrant.Grant": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "granted_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "principal": {
+                    "type": "string",
+                    "example": "reporting-app"
+                },
+                "principal_kind": {
+                    "type": "string",
+                    "example": "api_key"
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b"
                 }
             }
         },
@@ -32471,6 +33040,11 @@ const docTemplate = `{
         "scripthttp.portalScriptRow": {
             "type": "object",
             "properties": {
+                "granted": {
+                    "description": "Granted marks a script this caller may run because it was granted to\nthem rather than because they own it (#1846), on a scope=granted\nlisting.",
+                    "type": "boolean",
+                    "example": true
+                },
                 "last_run": {
                     "description": "LastRun is the most recent run of this script, absent when it has never\nrun and when the caller does not own it — a run is owner-and-admin\nreading, and so is the fact that one failed.",
                     "allOf": [
@@ -32736,47 +33310,6 @@ const docTemplate = `{
                     "description": "Message states the outcome in the owner's terms.",
                     "type": "string",
                     "example": "Saved, and this version is what runs now."
-                }
-            }
-        },
-        "scripthttp.stateRequest": {
-            "type": "object",
-            "properties": {
-                "state": {
-                    "type": "object",
-                    "additionalProperties": {}
-                }
-            }
-        },
-        "scripthttp.stateResponse": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "description": "Message states what a write means for the next run.",
-                    "type": "string"
-                },
-                "revision": {
-                    "description": "Revision counts writes; 0 means nothing was ever saved or reset.",
-                    "type": "integer",
-                    "example": 3
-                },
-                "run_id": {
-                    "description": "RunID names the run that wrote this revision, and UpdatedBy the person\nwho set or cleared it; one of the two is set past revision 0.",
-                    "type": "string",
-                    "example": "dpx_a1b2c3d4"
-                },
-                "state": {
-                    "description": "State is the object itself, {} when nothing has been saved.",
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "updated_at": {
-                    "description": "UpdatedAt is when this revision was written, absent at revision 0.",
-                    "type": "string"
-                },
-                "updated_by": {
-                    "type": "string",
-                    "example": "jane@example.com"
                 }
             }
         },
@@ -33664,6 +34197,47 @@ const docTemplate = `{
                 "to": {
                     "type": "string",
                     "example": "admin@example.com"
+                }
+            }
+        },
+        "statehttp.stateRequest": {
+            "type": "object",
+            "properties": {
+                "state": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "statehttp.stateResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Message states what a write means for the next run.",
+                    "type": "string"
+                },
+                "revision": {
+                    "description": "Revision counts writes; 0 means nothing was ever saved or reset.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "run_id": {
+                    "description": "RunID names the run that wrote this revision, and UpdatedBy the person\nwho set or cleared it; one of the two is set past revision 0.",
+                    "type": "string",
+                    "example": "dpx_a1b2c3d4"
+                },
+                "state": {
+                    "description": "State is the object itself, {} when nothing has been saved.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "updated_at": {
+                    "description": "UpdatedAt is when this revision was written, absent at revision 0.",
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
                 }
             }
         },

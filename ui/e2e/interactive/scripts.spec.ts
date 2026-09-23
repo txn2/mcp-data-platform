@@ -90,6 +90,8 @@ test.describe("Portal script pages", () => {
       "Run history",
       "Files written (4)",
       "State",
+      // Who else may run it (#1846), the owner's to decide.
+      "Access",
       "Owner",
       // Removing the script is last, because it is the last thing anybody does
       // to one (#1575).

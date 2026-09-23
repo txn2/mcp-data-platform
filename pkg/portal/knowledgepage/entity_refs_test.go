@@ -112,7 +112,7 @@ func TestStore_ValidateRefTargets_QueryError(t *testing.T) {
 func refRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "page_id", "target_type", "asset_id", "prompt_id", "collection_id", "ref_page_id",
-		"connection_kind", "connection_name", "entity_urn", "source", "created_by", "created_at",
+		"connection_kind", "connection_name", "entity_urn", "script_id", "source", "created_by", "created_at",
 	})
 }
 
@@ -126,8 +126,8 @@ func TestStore_ListEntityRefs(t *testing.T) {
 	mock.ExpectQuery("FROM knowledge_page_entity_refs WHERE page_id").
 		WithArgs("kp1").
 		WillReturnRows(refRows().
-			AddRow("r1", "kp1", "datahub", nil, nil, nil, nil, nil, nil, "urn:li:dataset:x", "promoted", "alice", now).
-			AddRow("r2", "kp1", "connection", nil, nil, nil, nil, "trino", "warehouse", nil, "manual", "bob", now))
+			AddRow("r1", "kp1", "datahub", nil, nil, nil, nil, nil, nil, "urn:li:dataset:x", nil, "promoted", "alice", now).
+			AddRow("r2", "kp1", "connection", nil, nil, nil, nil, "trino", "warehouse", nil, nil, "manual", "bob", now))
 
 	refs, err := store.ListEntityRefs(context.Background(), "kp1")
 	require.NoError(t, err)
@@ -150,11 +150,11 @@ func TestStore_AddEntityRefs_InsertsWithConflictTarget(t *testing.T) {
 	// is enforced at the DB by the per-type unique index, race-safe).
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs.*ON CONFLICT .page_id, entity_urn. WHERE entity_urn IS NOT NULL DO NOTHING").
 		WithArgs(sqlmock.AnyArg(), "kp1", "datahub", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnA", "promoted", sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnA", sqlmock.AnyArg(), "promoted", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs.*ON CONFLICT").
 		WithArgs(sqlmock.AnyArg(), "kp1", "datahub", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnB", "promoted", sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnB", sqlmock.AnyArg(), "promoted", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// urnA is repeated in the batch and must be collapsed to a single insert.
@@ -176,12 +176,12 @@ func TestStore_AddEntityRefs_InternalTargets(t *testing.T) {
 	// An asset reference uses its own conflict target and FK column.
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs.*ON CONFLICT .page_id, asset_id. WHERE asset_id IS NOT NULL DO NOTHING").
 		WithArgs(sqlmock.AnyArg(), "kp1", "asset", "asset-001", sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// A connection reference uses the composite conflict target.
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs.*ON CONFLICT .page_id, connection_kind, connection_name. WHERE connection_kind IS NOT NULL DO NOTHING").
 		WithArgs(sqlmock.AnyArg(), "kp1", "connection", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), "trino", "warehouse", sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
+			sqlmock.AnyArg(), "trino", "warehouse", sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.AddEntityRefs(context.Background(), "kp1", []EntityRef{
@@ -204,7 +204,7 @@ func TestStore_ReplaceEntityRefs(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").
 		WithArgs(sqlmock.AnyArg(), "kp1", "datahub", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnA", "promoted", sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "urnA", sqlmock.AnyArg(), "promoted", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -245,7 +245,7 @@ func TestStore_ReplaceEntityRefsBySource(t *testing.T) {
 	// The ref is stamped with the given source on insert.
 	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").
 		WithArgs(sqlmock.AnyArg(), "kp1", "asset", "asset-001", sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 

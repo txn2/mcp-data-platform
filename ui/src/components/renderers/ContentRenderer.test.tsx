@@ -101,6 +101,23 @@ describe("ContentRenderer routing", () => {
     expect(screen.getByRole("link", { name: /download/i })).toHaveAttribute("href", CONTENT_URL);
   });
 
+  it("offers an Excel workbook for download on a card that names it (#1849)", () => {
+    render(
+      <ContentRenderer
+        contentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        contentUrl={CONTENT_URL}
+        fileName="sales.xlsx"
+        sizeBytes={2048}
+      />,
+    );
+
+    expect(screen.getByText(/no preview for this file type/i)).toBeInTheDocument();
+    expect(screen.getByText(/Excel workbook/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /download/i });
+    expect(link).toHaveAttribute("href", CONTENT_URL);
+    expect(link).toHaveAttribute("download", "sales.xlsx");
+  });
+
   it("falls back to the metadata card when a URL family has no URL", () => {
     render(<ContentRenderer contentType="image/png" fileName="chart.png" sizeBytes={10} />);
     expect(screen.getByText(/no preview for this file type/i)).toBeInTheDocument();

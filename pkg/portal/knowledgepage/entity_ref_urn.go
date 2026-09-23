@@ -89,9 +89,16 @@ func ParseEntityRef(s string) (EntityRef, error) {
 //     (mcp:session:<id>), which are ScopePerUser and resolve only for their owner
 //     (#699, #1321, #1322). An insight promoted to the catalog via apply_knowledge
 //     becomes a shared DataHub entity, which IS citable as its urn:li:... form.
-//   - the visibility-scoped sources, managed resources (mcp:resource:<id>, #1012)
-//     and managed scripts (mcp:script:<id>, #1302), whose global/persona/personal
-//     scope reaches fewer readers than a shared page does.
+//   - managed resources (mcp:resource:<id>, #1012), whose global/persona/user
+//     scope reaches fewer readers than a shared page does, and which have no
+//     column on the page-reference table.
+//
+// A managed script (mcp:script:<id>) IS citable (#1855). It is personal to its
+// owner, but a page that says which script maintains a dataset has the script as
+// its most important citation, and whether a reader can open it is decided when
+// references are resolved for that reader, as it is for an asset or a prompt. Its
+// id must be a UUID, the type of the scripts table's key, so a malformed one is a
+// clean refusal here rather than a database type error at insert.
 //
 // Use this on the page-authoring paths (apply_knowledge references, the REST
 // picker, the inline body scan); fetch keeps using ParseEntityRef so every form
@@ -111,7 +118,9 @@ func ParseCitableRef(s string) (EntityRef, error) {
 	case RefTargetResource:
 		return EntityRef{}, fmt.Errorf("a managed resource reference (%q) cannot be cited on a knowledge page: a resource is visibility-scoped (global, persona, or user), so the citation would be broken for every reader outside that scope; link to the resource from the page body, or describe its content on the page instead", s)
 	case RefTargetScript:
-		return EntityRef{}, fmt.Errorf("a managed script reference (%q) cannot be cited on a knowledge page: a script is visibility-scoped (global, persona, or personal), so the citation would be broken for every reader outside that scope; attach the script to a prompt, or describe what it produces on the page instead", s)
+		if !isUUID(ref.ScriptID) {
+			return EntityRef{}, fmt.Errorf("script reference id must be a uuid: %q", ref.ScriptID)
+		}
 	}
 	return ref, nil
 }
@@ -174,15 +183,19 @@ func parseSimpleMCPRef(typ, id, s string) (EntityRef, error) {
 		// passed, are both not-found.
 		return EntityRef{TargetType: RefTargetSession, SessionID: id}, nil
 	case RefTargetScript:
-		// Script ids are opaque server-generated strings ("script_<uuid>"), accepted
-		// as-is; the visibility-checked fetch resolves them and reports a stale id as
-		// not-found. Resolution is by id and never by name, so renaming a script
-		// leaves every stored reference to it intact.
+		// Script ids are server-generated UUIDs. They are accepted as-is here so
+		// fetch answers any other form as not-found; the page-citation path
+		// requires the UUID (ParseCitableRef). Resolution is by id and never by
+		// name, so renaming a script leaves every stored reference to it intact.
 		return EntityRef{TargetType: RefTargetScript, ScriptID: id}, nil
 	default:
 		return EntityRef{}, fmt.Errorf("unknown internal reference type %q in %q", typ, s)
 	}
 }
+
+// isUUID reports whether id has the form of a UUID key column (scripts.id), so
+// an id that could never name a row is answered without a database round trip.
+func isUUID(id string) bool { return uuid.Validate(id) == nil }
 
 // parseConnectionTuple parses the "(kind,name)" body of a connection reference.
 func parseConnectionTuple(body string) (kind, name string, err error) {

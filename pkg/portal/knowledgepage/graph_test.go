@@ -38,10 +38,10 @@ func TestStore_ListEntityRefsForPages(t *testing.T) {
 
 		rows := sqlmock.NewRows([]string{
 			"id", "page_id", "target_type", "asset_id", "prompt_id", "collection_id", "ref_page_id",
-			"connection_kind", "connection_name", "entity_urn", "source", "created_by", "created_at",
+			"connection_kind", "connection_name", "entity_urn", "script_id", "source", "created_by", "created_at",
 		}).
-			AddRow("kpr1", "kp1", RefTargetDataHub, nil, nil, nil, nil, nil, nil, "urn:li:dataset:x", RefSourcePromoted, "a@example.com", created).
-			AddRow("kpr2", "kp2", RefTargetKnowledgePage, nil, nil, nil, "kp1", nil, nil, nil, RefSourceInline, "b@example.com", created)
+			AddRow("kpr1", "kp1", RefTargetDataHub, nil, nil, nil, nil, nil, nil, "urn:li:dataset:x", nil, RefSourcePromoted, "a@example.com", created).
+			AddRow("kpr2", "kp2", RefTargetKnowledgePage, nil, nil, nil, "kp1", nil, nil, nil, nil, RefSourceInline, "b@example.com", created)
 		mock.ExpectQuery("FROM knowledge_page_entity_refs r").WillReturnRows(rows)
 
 		refs, err := store.ListEntityRefsForPages(context.Background(), []string{"kp1", "kp2"})

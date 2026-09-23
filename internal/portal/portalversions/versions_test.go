@@ -75,10 +75,10 @@ func TestPostgresVersionStoreCreateVersion(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).AddRow(1, nil))
 	mock.ExpectExec("INSERT INTO portal_asset_versions").
 		WithArgs(version.ID, version.AssetID, version.Version, version.S3Key, version.S3Bucket,
-			version.ContentType, version.SizeBytes, version.CreatedBy, version.ChangeSummary).
+			version.ContentType, version.SizeBytes, version.CreatedBy, version.ChangeSummary, []byte(`{}`)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE portal_assets").
-		WithArgs(version.Version, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID).
+		WithArgs(version.Version, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID, []byte(`{}`)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// No override and no configured default, so the cap is
 	// portaldomain.DefaultMaxVersions -- which version 2 is nowhere near, so no
@@ -164,10 +164,10 @@ func TestPostgresVersionStoreListByAsset(t *testing.T) {
 
 	dataRows := sqlmock.NewRows([]string{
 		"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
-		"size_bytes", "created_by", "change_summary", "created_at",
+		"size_bytes", "created_by", "change_summary", "created_at", "metadata",
 	}).
-		AddRow("v2", "abc123", 2, "key2", "portal", "text/html", int64(2048), "user1", "v2 changes", now).
-		AddRow("v1", "abc123", 1, "key1", "portal", "text/html", int64(1024), "user1", "initial", now)
+		AddRow("v2", "abc123", 2, "key2", "portal", "text/html", int64(2048), "user1", "v2 changes", now, []byte(`{"region":"west"}`)).
+		AddRow("v1", "abc123", 1, "key1", "portal", "text/html", int64(1024), "user1", "initial", now, []byte(`{}`))
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123", 10, 0).
@@ -178,6 +178,8 @@ func TestPostgresVersionStoreListByAsset(t *testing.T) {
 	assert.Equal(t, 2, total)
 	require.Len(t, versions, 2)
 	assert.Equal(t, 2, versions[0].Version)
+	assert.Equal(t, map[string]any{"region": "west"}, versions[0].Metadata)
+	assert.Nil(t, versions[1].Metadata, "{} reads as no metadata")
 	assert.Equal(t, 1, versions[1].Version)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -235,7 +237,7 @@ func TestPostgresVersionStoreListByAssetDefaults(t *testing.T) {
 		WithArgs("abc123", portaldomain.DefaultLimit, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
-			"size_bytes", "created_by", "change_summary", "created_at",
+			"size_bytes", "created_by", "change_summary", "created_at", "metadata",
 		}))
 
 	versions, total, err := store.ListByAsset(context.Background(), "abc123", 0, 0)
@@ -255,8 +257,8 @@ func TestPostgresVersionStoreGetByVersion(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
-		"size_bytes", "created_by", "change_summary", "created_at",
-	}).AddRow("v1", "abc123", 1, "key1", "portal", "text/html", int64(1024), "user1", "initial", now)
+		"size_bytes", "created_by", "change_summary", "created_at", "metadata",
+	}).AddRow("v1", "abc123", 1, "key1", "portal", "text/html", int64(1024), "user1", "initial", now, []byte(`{}`))
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123", 1).
@@ -298,8 +300,8 @@ func TestPostgresVersionStoreGetLatest(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "version", "s3_key", "s3_bucket", "content_type",
-		"size_bytes", "created_by", "change_summary", "created_at",
-	}).AddRow("v3", "abc123", 3, "key3", "portal", "text/html", int64(4096), "user1", "latest changes", now)
+		"size_bytes", "created_by", "change_summary", "created_at", "metadata",
+	}).AddRow("v3", "abc123", 3, "key3", "portal", "text/html", int64(4096), "user1", "latest changes", now, []byte(`{"run_id":"run_1"}`))
 
 	mock.ExpectQuery("SELECT .+ FROM portal_asset_versions").
 		WithArgs("abc123").
@@ -310,6 +312,7 @@ func TestPostgresVersionStoreGetLatest(t *testing.T) {
 	assert.Equal(t, "v3", v.ID)
 	assert.Equal(t, 3, v.Version)
 	assert.Equal(t, "latest changes", v.ChangeSummary)
+	assert.Equal(t, "run_1", v.Metadata["run_id"])
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -736,4 +739,40 @@ func TestEffectiveCap(t *testing.T) {
 		effectiveCap(sql.NullInt64{}), "a NULL column inherits the deployment default")
 	assert.Equal(t, portaldomain.DefaultMaxVersions, (&store{}).
 		effectiveCap(sql.NullInt64{}), "with neither set, the platform default applies")
+}
+
+// A version's metadata is stored on it and on the asset (#1848); a version
+// that carries none leaves the asset's in place, and a column that is not
+// JSON is an error rather than a silent empty.
+func TestPostgresVersionStoreMetadata(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgres(db, nil, nil, nil)
+	version := portaldomain.AssetVersion{ID: "v1", AssetID: "abc123", Metadata: map[string]any{"region": "west"}}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version, max_versions FROM portal_assets").
+		WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).AddRow(0, nil))
+	mock.ExpectExec("INSERT INTO portal_asset_versions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), 1, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), []byte(`{"region":"west"}`)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`metadata = CASE WHEN \$6::jsonb = '\{\}'::jsonb THEN metadata ELSE \$6::jsonb END`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	_, err = store.CreateVersion(context.Background(), version)
+	require.NoError(t, err)
+
+	_, err = marshalMetadata(map[string]any{"bad": make(chan int)})
+	require.Error(t, err)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT current_version").WillReturnRows(sqlmock.NewRows([]string{"current_version", "max_versions"}).AddRow(0, nil))
+	mock.ExpectRollback()
+	_, err = store.CreateVersion(context.Background(), portaldomain.AssetVersion{AssetID: "a", Metadata: map[string]any{"bad": make(chan int)}})
+	require.ErrorContains(t, err, "encoding version metadata")
+
+	var v portaldomain.AssetVersion
+	require.ErrorContains(t, unmarshalMetadata([]byte("not json"), &v), "decoding version metadata")
+	require.NoError(t, mock.ExpectationsWereMet())
 }

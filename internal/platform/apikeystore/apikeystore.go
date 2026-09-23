@@ -40,6 +40,8 @@ type Definition struct {
 	UserEmail string    `json:"user_email,omitempty"`
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
+	// Attributes are the named values the key carries as claims (#1846).
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // Store manages API key persistence. It is the record of which
@@ -68,7 +70,7 @@ func NewPostgres(db *sql.DB) *PostgresStore {
 // List returns all API key definitions.
 func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email
+		`SELECT name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email, attributes
 		 FROM api_keys ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("listing api keys: %w", err)
@@ -93,14 +95,15 @@ func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 // taken.
 func (s *PostgresStore) Create(ctx context.Context, def Definition) error {
 	roles, _ := json.Marshal(def.Roles)
+	attributes, _ := json.Marshal(orEmptyAttributes(def.Attributes))
 
 	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO api_keys
-		 (name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+		 (name, key_hash, email, description, roles, expires_at, created_by, created_at, user_email, attributes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
 		 ON CONFLICT (name) DO NOTHING`,
 		def.Name, def.KeyHash, def.Email, def.Description,
-		roles, def.ExpiresAt, def.CreatedBy, def.UserEmail,
+		roles, def.ExpiresAt, def.CreatedBy, def.UserEmail, attributes,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting api key: %w", err)
@@ -149,9 +152,18 @@ func authKeys(defs []Definition) []auth.APIKey {
 			Roles:       d.Roles,
 			ExpiresAt:   d.ExpiresAt,
 			UserEmail:   d.UserEmail,
+			Attributes:  d.Attributes,
 		})
 	}
 	return keys
+}
+
+// orEmptyAttributes stores a key with no attributes as {}, never null.
+func orEmptyAttributes(a map[string]string) map[string]string {
+	if a == nil {
+		return map[string]string{}
+	}
+	return a
 }
 
 // Delete removes an API key definition by name.
@@ -174,11 +186,14 @@ func (s *PostgresStore) Delete(ctx context.Context, name string) error {
 // scanDefinition scans a row into an Definition.
 func scanDefinition(rows *sql.Rows) (Definition, error) {
 	var d Definition
-	var roles []byte
+	var roles, attributes []byte
 	var expiresAt sql.NullTime
 	if err := rows.Scan(&d.Name, &d.KeyHash, &d.Email, &d.Description,
-		&roles, &expiresAt, &d.CreatedBy, &d.CreatedAt, &d.UserEmail); err != nil {
+		&roles, &expiresAt, &d.CreatedBy, &d.CreatedAt, &d.UserEmail, &attributes); err != nil {
 		return d, fmt.Errorf("scanning api key: %w", err)
+	}
+	if err := json.Unmarshal(attributes, &d.Attributes); err != nil {
+		return d, fmt.Errorf("unmarshaling api key attributes: %w", err)
 	}
 	if expiresAt.Valid {
 		d.ExpiresAt = &expiresAt.Time

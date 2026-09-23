@@ -719,6 +719,25 @@ table is not broken and is not dropped, so a report built on it keeps running;
 it is behind, and the platform will not move a pinned table forward on its
 own.
 
+**A pinned table stays on one version because every version has a directory
+of its own.** A table reads every file in the directory it points at, so
+pinning is only as good as that directory holding one version. A portal edit,
+a resource revision, a script's `platform.export` and the export tools each
+write a version as one file in a directory of its own: a script
+output's versions sit at `scripts/<script>/<asset>/<run>/content.<ext>`, so
+the next run's file lands beside nothing a table reads (#1851). Script outputs
+written before that shared one directory per output, `<asset>/<run>.<ext>`. A
+table pinned over one of those reads every version written into that
+directory, and a later write says so in place of the pinned sentence -
+`... is pinned, but it does not read the version it was registered over alone:
+earlier versions of this file were written into the directory it reads ...` -
+rather than calling the table pinned to one version or followed. The files
+are left where they are, since a report may depend on what it returns;
+registering the table again points it at the current version, alone in its
+own directory. Such an output's head, while every version still shares its
+directory, is refused for a new registration naming the version beside it;
+the script's next run writes a version that registers.
+
 A managed resource cannot be overwritten in place: every `replace_content` is
 a revision, which is what keeps a referenced file's history restorable. So a
 [managed script](../scripts/running.md) keeping a table current writes the

@@ -4,7 +4,9 @@ import type { ScriptParam } from "@/api/portal/hooks/scripts";
 import {
   boundParams,
   declaresConnection,
+  listValues,
   missingRequired,
+  orderedParams,
   ScriptParameterForm,
   valuesFrom,
 } from "./ScriptParameterForm";
@@ -189,5 +191,67 @@ describe("ScriptParameterForm: three forms on one page", () => {
     const ids = [...container.querySelectorAll("[id^='script-param-']")].map((el) => el.id);
     expect(ids).toEqual(["script-param-run-day", "script-param-draft-day"]);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+// #1844: list and date_range parameters, and the form metadata.
+describe("ScriptParameterForm: lists, ranges and form metadata", () => {
+  const listParam: ScriptParam = { name: "ids", type: "list", items: "string", required: true };
+  const regions: ScriptParam = {
+    name: "regions", type: "list", items: "enum", values: ["west", "east"], required: false,
+    label: "Regions", group: "Filters",
+  };
+  const period: ScriptParam = { name: "period", type: "date_range", required: true, order: -1 };
+
+  it("sends a list as an array and a date range as {from, to}", () => {
+    expect(
+      boundParams([listParam, regions, period], {
+        ids: "a, b,\nc", regions: "west", period: "2026-09-01..2026-09-30",
+      }),
+    ).toEqual({ ids: ["a", "b", "c"], regions: ["west"], period: { from: "2026-09-01", to: "2026-09-30" } });
+    expect(boundParams([period], { period: ".." })).toEqual({});
+  });
+
+  it("seeds a form from stored list and range bindings", () => {
+    expect(valuesFrom({ ids: ["a", "b"], period: { from: "2026-09-01", to: "2026-09-02" } })).toEqual({
+      ids: "a, b", period: "2026-09-01..2026-09-02",
+    });
+    expect(listValues(" a ,, b ")).toEqual(["a", "b"]);
+  });
+
+  it("orders by order, then as declared", () => {
+    expect(orderedParams([listParam, regions, period]).map((p) => p.name)).toEqual(["period", "ids", "regions"]);
+  });
+
+  it("renders a label, a group heading, checkboxes for an enum list and two dates for a range", () => {
+    const onChange = vi.fn();
+    render(
+      <ScriptParameterForm params={[listParam, regions, period]} values={{ regions: "west" }} disabled={false} onChange={onChange} form="run" />,
+    );
+    expect(screen.getByText("Filters")).toBeInTheDocument();
+    expect(screen.getByText("Regions (optional)")).toBeInTheDocument();
+    expect(screen.getByText("Several string values, separated by commas.")).toBeInTheDocument();
+    const east = screen.getByRole("checkbox", { name: "east" });
+    fireEvent.click(east);
+    expect(onChange).toHaveBeenCalledWith("regions", "west, east");
+    fireEvent.change(screen.getByLabelText("to"), { target: { value: "2026-09-30" } });
+    expect(onChange).toHaveBeenCalledWith("period", "..2026-09-30");
+    fireEvent.change(screen.getByLabelText("from"), { target: { value: "2026-09-01" } });
+    expect(onChange).toHaveBeenCalledWith("period", "2026-09-01..");
+  });
+});
+
+describe("ScriptParameterForm: caller-bound parameters", () => {
+  const tenant: ScriptParam = { name: "tenant", type: "string", required: true, bind: "caller.tenant" };
+  const region: ScriptParam = { name: "region", type: "string", required: false };
+
+  it("offers no field, sends no value and never calls it missing", () => {
+    const { container } = render(
+      <ScriptParameterForm params={[tenant]} values={{}} disabled={false} onChange={vi.fn()} form="run" />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(orderedParams([tenant, region]).map((p) => p.name)).toEqual(["region"]);
+    expect(boundParams([tenant, region], { tenant: "globex", region: "west" })).toEqual({ region: "west" });
+    expect(missingRequired([tenant], {})).toEqual([]);
   });
 });
