@@ -8,6 +8,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 )
 
 // wrapErrorContract wraps a leaf handler with the error-contract middleware and
@@ -134,4 +136,34 @@ func TestErrorContract_IgnoresNonToolsCall(t *testing.T) {
 	_, err := wrapErrorContract(t, leaf)(context.Background(), "tools/list", createAuditTestRequest(t, "x", nil))
 	require.NoError(t, err)
 	assert.True(t, called)
+}
+
+// TestErrorContract_AnUnreachableUpstreamIsCategorized holds #1859: a result a
+// toolkit stamped as a transport failure or an upstream timeout carries
+// upstream_unavailable, which a managed script's host records as retryable,
+// and any other outcome keeps the generic code.
+func TestErrorContract_AnUnreachableUpstreamIsCategorized(t *testing.T) {
+	for outcome, want := range map[string]string{
+		"transport_err":    upstreamretry.CodeUnavailable,
+		"upstream_timeout": upstreamretry.CodeUnavailable,
+		"upstream_5xx":     CodeToolError,
+	} {
+		t.Run(outcome, func(t *testing.T) {
+			leaf := func(context.Context, string, mcp.Request) (mcp.Result, error) {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{&mcp.TextContent{Text: "upstream request: i/o timeout"}},
+					Meta:    mcp.Meta{"audit_outcome": outcome},
+				}, nil
+			}
+			req := createAuditTestRequest(t, "api_export", nil)
+			res, err := wrapErrorContract(t, leaf)(context.Background(), methodToolsCall, req)
+			require.NoError(t, err)
+			p := envelope(t, mustCTR(t, res))
+			assert.Equal(t, want, p.Code)
+			if want == upstreamretry.CodeUnavailable {
+				assert.Equal(t, upstreamretry.CategoryUnavailable, p.Category)
+			}
+		})
+	}
 }

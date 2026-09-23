@@ -572,6 +572,14 @@ calls:
   exclude_personas:
     - ingest-service
 
+# Managed scripts: one run may hold 128 MiB of values (#1861). The dev
+# replicas run on the host with no container memory limit, so the default
+# share of that limit would set no budget at all; an absolute one is what lets
+# the acceptance suite hold a run to it.
+scripts:
+  worker:
+    max_run_memory: 128MiB
+
 # Observability: the PromQL query proxy that powers the admin Dashboard's
 # "API Gateway" activity tab. Points at the dev Prometheus (docker-compose
 # service "prometheus", mapped to host :9091), which scrapes the platform's

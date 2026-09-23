@@ -50,7 +50,8 @@ WHAT IS AVAILABLE
       pass it through float() before arithmetic:
       sum([float(r["total"]) for r in rows]).
   platform.export(name, rows, format="csv", destination="portal", key=None,
-                  register=None, references=None, tags=None, metadata=None)
+                  register=None, references=None, tags=None, metadata=None,
+                  append=False)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
@@ -167,6 +168,17 @@ WHAT IS AVAILABLE
       destination and key must be passed BY NAME. Only name, rows and format may
       be positional, because where a script writes has to be readable from its
       source.
+      append=True adds rows to an output the run builds across calls, so a
+      paged API or a large query becomes one file and one registered table
+      without holding every page: each page is serialized when it arrives,
+      and the script keeps only what the next page needs. The first call to a
+      name and destination starts the output and fixes its key, register=,
+      tags= and metadata=; every later call passes append=True and adds rows.
+      It takes csv or jsonl (a CSV keeps its first page's header, and a later
+      page with a column the header lacks fails the call). The call returns
+      the rows and bytes the output holds so far, with appending True; the
+      output is written once, when the script finishes, and a run that fails
+      part-way writes none of it.
       In a draft run this writes nothing, wherever it was addressed, and
       reports the shape and size the output would have: the content is
       serialized in the declared format to measure it, so the size is the one
@@ -233,6 +245,17 @@ WHAT IS AVAILABLE
       resource= to keep a managed file instead; any other write made by tool
       call is in the audit log only.
       The result byte cap applies to every call.
+      An api_invoke_endpoint or api_export answer carrying
+      upstream_retryable -- a 429, or a 503 to a GET or HEAD -- is issued
+      again by the host after the interval the upstream named in
+      retry_after_seconds (1s, 2s, then 4s when it named none), at most 3
+      times and never past the run's deadline, each wait written to the run
+      log. The script then has the upstream's last answer as data: its
+      status (upstream_status, or status for api_invoke_endpoint), its
+      headers, and for an api_export into a resource resource_unchanged, so
+      a script can record a throttled day and carry on. An upstream that
+      times out or cannot be reached fails the call, and the run is recorded
+      with cause upstream and retryable true.
       A tool that answers with plain text rather than a structured object
       arrives as {"text": "..."}; decode it yourself if it is JSON.
       args is a dict of the tool's own arguments, passed through unchanged:
@@ -630,22 +653,34 @@ func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTo
 		"dialect":      DialectContract,
 		"capabilities": scriptrun.Capabilities,
 		"limits": map[string]any{
-			"draft_max_steps":  scriptrun.DraftMaxSteps,
-			"draft_timeout":    scriptrun.DraftTimeout.String(),
-			"draft_max_rows":   scriptrun.DraftMaxRows,
-			"run_max_steps":    h.runLimits.MaxSteps,
-			"run_timeout":      h.runLimits.Timeout.String(),
-			"run_max_rows":     h.runLimits.MaxRows,
-			"run_result_bytes": h.runLimits.ResultMaxBytes,
-			"log_bytes":        scriptrun.MaxLogBytes,
-			"max_source_bytes": script.MaxSourceBytes,
-			"state_bytes":      script.MaxStateBytes,
+			"draft_max_steps":      scriptrun.DraftMaxSteps,
+			"draft_timeout":        scriptrun.DraftTimeout.String(),
+			"draft_max_rows":       scriptrun.DraftMaxRows,
+			"run_max_steps":        h.runLimits.MaxSteps,
+			"run_timeout":          h.runLimits.Timeout.String(),
+			"run_max_rows":         h.runLimits.MaxRows,
+			"run_result_bytes":     h.runLimits.ResultMaxBytes,
+			"run_max_memory_bytes": h.runLimits.MaxMemoryBytes,
+			"log_bytes":            scriptrun.MaxLogBytes,
+			"max_source_bytes":     script.MaxSourceBytes,
+			"state_bytes":          script.MaxStateBytes,
 			"note": "A draft run is bounded more tightly than a platform run; the run_ limits are the ones a " +
 				"saved script meets on this deployment. A tool a run calls keeps its own ceiling as well: " +
 				"a trino_export or api_export inside a run is bounded by that tool's timeout. " +
 				"A script error is deterministic, so it is never retried. A rate-limit refusal of a " +
 				"call is not a script error: the host waits the refusal's interval within the run's " +
-				"deadline and issues the call again, and the wait is written to the run's log.",
+				"deadline and issues the call again, and the wait is written to the run's log; an " +
+				"upstream's 429 (upstream_retryable) is waited on the same way, at most 3 times. " +
+				"A failed run carries cause (script, upstream, memory, worker_lost, platform, " +
+				"state_conflict) and retryable, which is true only when running it again is expected " +
+				"to succeed. run_max_memory_bytes is the memory one run may hold " +
+				"(scripts.worker.max_run_memory; 0 is no budget), measured at every host call over the " +
+				"values the script can still reach. A page of rows costs far more once decoded than on the " +
+				"wire: a 9 MB page of JSON rows allocates about 14 times its size while it is decoded and " +
+				"holds about 4.5 times it afterwards, so page the work and export each page with " +
+				"platform.export(..., append=True). A run over the budget fails with " +
+				"cause memory and is not retried; run_draft and a run's metrics report " +
+				"peak_memory_bytes.",
 		},
 		"examples":        names,
 		"read_an_example": "Call get with name=" + examples[0].name + " to read one.",

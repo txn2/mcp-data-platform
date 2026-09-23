@@ -26,9 +26,9 @@ type stubRuns struct {
 	cancelErr  error
 }
 
-func (s *stubRuns) CancelRun(ctx context.Context, id, by string) (string, error) {
+func (s *stubRuns) CancelRun(ctx context.Context, id, by string) (prior, now string, err error) {
 	if s.cancelErr != nil {
-		return "", s.cancelErr
+		return "", "", s.cancelErr
 	}
 	return s.memRuns.CancelRun(ctx, id, by)
 }

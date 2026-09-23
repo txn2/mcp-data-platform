@@ -141,8 +141,13 @@ func waitFor(w http.ResponseWriter, r *http.Request) (time.Duration, bool) {
 // cancelResponse is what a cancel did.
 type cancelResponse struct {
 	RunID string `json:"run_id" example:"run_a1b2c3d4"`
+	// Status is the run's status after the request: canceled when it ended
+	// here, running while its worker is still to stop it.
+	Status string `json:"status" example:"running"`
 	// Outcome is canceled (it had not started and will not), requested (it
-	// is running and ends canceled within seconds) or already_finished.
+	// is running and ends canceled within seconds), canceled_orphaned (its
+	// worker had stopped reporting, so it was ended directly, #1860) or
+	// already_finished.
 	Outcome string `json:"outcome" example:"requested"`
 	Message string `json:"message"`
 }
@@ -167,7 +172,7 @@ func (h *Handler) portalCancelRun(w http.ResponseWriter, r *http.Request, user *
 	if !ok {
 		return
 	}
-	prior, err := h.deps.Runs.CancelRun(r.Context(), run.ID, user.owner())
+	prior, now, err := h.deps.Runs.CancelRun(r.Context(), run.ID, user.owner())
 	if errors.Is(err, script.ErrRunNotFound) {
 		httpjson.WriteError(w, http.StatusNotFound, errRunNot)
 		return
@@ -177,7 +182,8 @@ func (h *Handler) portalCancelRun(w http.ResponseWriter, r *http.Request, user *
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, cancelResponse{
-		RunID: run.ID, Outcome: string(runcontrol.OutcomeOf(prior)), Message: runcontrol.CancelMessage(prior),
+		RunID: run.ID, Status: now,
+		Outcome: string(runcontrol.OutcomeOf(prior, now)), Message: runcontrol.CancelMessage(prior, now),
 	})
 }
 

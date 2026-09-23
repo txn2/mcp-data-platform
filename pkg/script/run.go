@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 )
 
 // Run lifecycle statuses.
@@ -72,6 +74,11 @@ type RunMetrics struct {
 	DurationMS int64  `json:"duration_ms"`
 	Queries    int    `json:"queries"`
 	Exports    int    `json:"exports"`
+	// PeakMemoryBytes is the most the run was measured holding (#1861): the
+	// Starlark values reachable from its frames and globals, sized at each
+	// host call. It is an estimate of the interpreter's heap, not the
+	// process's, and is what a run's memory budget is enforced against.
+	PeakMemoryBytes int64 `json:"peak_memory_bytes,omitempty"`
 }
 
 // RunOutput is one persisted output of a run: where it went, and what landed
@@ -195,6 +202,24 @@ type Run struct {
 	Attempt     int        `json:"attempt"`
 	LockedUntil *time.Time `json:"locked_until,omitempty"`
 	LockedBy    string     `json:"locked_by,omitempty"`
+	// Reclaims counts the claims that took this run over from a worker whose
+	// lease expired (#1860), apart from Attempt, which also counts the
+	// platform's own retries. The claim refuses a run whose reclaims are
+	// spent, and the worker fails it instead of executing it again.
+	Reclaims int `json:"reclaims"`
+	// ClaimedAt is when the current attempt was claimed and HeartbeatAt when
+	// its worker last reported. Together with LockedUntil they say whether
+	// the run is being executed (see Liveness).
+	ClaimedAt   *time.Time `json:"claimed_at,omitempty"`
+	HeartbeatAt *time.Time `json:"heartbeat_at,omitempty"`
+	// Attempts is how each ended attempt ended, oldest first.
+	Attempts []runstate.Attempt `json:"attempts,omitempty"`
+	// Cause is why a failed run failed, one of the runstate.Cause* values,
+	// and empty on every other status (#1859).
+	Cause string `json:"cause,omitempty"`
+	// Reclaimed is set on a run a Claim took over from a worker whose lease
+	// expired, for the worker to count; it is not stored.
+	Reclaimed bool `json:"-"`
 
 	Error        string      `json:"error,omitempty"`
 	Log          string      `json:"log,omitempty"`
@@ -293,6 +318,10 @@ type RunResult struct {
 	// it set none (#1845), and Progress its last platform.progress report.
 	Result   json.RawMessage
 	Progress *RunProgress
+	// Cause is why a failed run failed, one of the runstate.Cause* values;
+	// empty on success. A failed result with no cause is recorded as the
+	// script's.
+	Cause string
 }
 
 // RefuseRun reports why the platform must not execute this script, or nil when
@@ -369,6 +398,9 @@ type RunFilter struct {
 	// RequestedBy scopes the listing to the runs one caller asked for (#1848):
 	// an application reading back the outputs of the runs it started.
 	RequestedBy string
+	// Live scopes the listing to runs that have not ended: pending and
+	// running (#1860).
+	Live bool
 	// Limit caps the rows returned; zero means the store default.
 	Limit int
 }
@@ -390,8 +422,17 @@ type RunStore interface {
 	ListRuns(ctx context.Context, filter RunFilter) ([]Run, error)
 
 	// Claim takes the next due run for worker, holding it for lease. It
-	// returns ErrNoWork when nothing is due.
-	Claim(ctx context.Context, worker string, lease time.Duration) (*Run, error)
+	// returns ErrNoWork when nothing is due. A running run whose lease
+	// expired is due only while its reclaims are under maxReclaims; one
+	// taken over that way comes back with Reclaimed set and the dead
+	// attempt recorded in its history.
+	Claim(ctx context.Context, worker string, lease time.Duration, maxReclaims int) (*Run, error)
+
+	// FailAbandoned fails every running run whose lease expired with its
+	// reclaims spent (#1860), recording the dead holder, and returns them. It
+	// is the half of the reclaim cap no surviving worker of the run has to
+	// perform: any worker's loop does it.
+	FailAbandoned(ctx context.Context, maxReclaims int) ([]Run, error)
 
 	// RecordOutput appends one persisted output to the run. It is written as
 	// soon as the output exists, not at the end of the run, so a reclaimed run
@@ -402,9 +443,10 @@ type RunStore interface {
 	Finish(ctx context.Context, lease RunLease, res RunResult) error
 
 	// Retry returns the claimed run to pending, due after backoff, recording
-	// the cause. Reserved for infrastructure failures: a script error is
-	// deterministic and retrying it changes nothing.
-	Retry(ctx context.Context, lease RunLease, cause string, backoff time.Duration) error
+	// how the attempt ended (runstate.AttemptRetried, AttemptReleased or
+	// AttemptShed) and why. Reserved for infrastructure failures: a script
+	// error is deterministic and retrying it changes nothing.
+	Retry(ctx context.Context, lease RunLease, outcome, reason string, backoff time.Duration) error
 
 	// PurgeRuns deletes terminal runs older than retention, returning the
 	// number removed.
@@ -417,8 +459,11 @@ type RunStore interface {
 
 	// CancelRun stops a run on behalf of by: a pending run becomes canceled
 	// and is never claimed, a running one is marked for its worker to stop,
-	// and a finished one is left as it is. It returns the status the run had
-	// when the request arrived, which is what says which of the three
-	// happened, or ErrRunNotFound for an unknown id.
-	CancelRun(ctx context.Context, id, by string) (prior string, err error)
+	// and a finished one is left as it is. A running run whose worker is gone
+	// -- its lease expired, or it has not reported for
+	// runstate.HeartbeatStaleAfter -- is canceled directly, since no worker
+	// will observe the mark (#1860). It returns the status the run had when
+	// the request arrived and the status it has now, or ErrRunNotFound for an
+	// unknown id.
+	CancelRun(ctx context.Context, id, by string) (prior, now string, err error)
 }

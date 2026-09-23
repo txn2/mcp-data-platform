@@ -29,10 +29,13 @@
 // its push-down into the query belong to platform.query, which is the reason
 // that helper exists: a script that calls the query tool through platform.call
 // is handed the tool's own result, its truncation flag included, and reads it
-// itself. Neither
-// starlark-go nor any comparable embedded interpreter offers a hard MEMORY cap,
-// so a pathological script can still grow the process heap. That residual risk
-// is recorded in docs/scripts/security.md rather than papered over.
+// itself. Neither starlark-go nor any comparable embedded interpreter offers a
+// hard MEMORY cap, so memory is measured instead (#1861): at every host call
+// the values the run can still reach are sized (internal/platform/scriptguard)
+// and a run over its budget fails there. A script that grows its heap between
+// host calls is measured at the next one, and the worker's lone-run guard
+// stops what a budget misses before the kernel does; both are recorded in
+// docs/scripts/security.md.
 package scriptrun
 
 import (
@@ -49,7 +52,10 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/scriptsum"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
@@ -114,6 +120,10 @@ type PlatformLimits struct {
 	// ResultMaxBytes caps the value platform.result hands back (#1845);
 	// zero is scriptlive.DefaultMaxResultBytes.
 	ResultMaxBytes int
+	// MaxMemoryBytes is the memory one run may hold (#1861); zero sets no
+	// budget. It has no default here: the default is a share of the
+	// container's limit, which only the composition root can read.
+	MaxMemoryBytes int64
 }
 
 // WithDefaults fills every unset limit.
@@ -144,6 +154,7 @@ func RunLimits(l PlatformLimits) Options {
 		MaxRows:        l.MaxRows,
 		MaxResultBytes: RunMaxResultBytes,
 		MaxLogBytes:    MaxLogBytes,
+		MaxMemoryBytes: l.MaxMemoryBytes,
 	}
 }
 
@@ -251,6 +262,9 @@ type Options struct {
 	MaxRows        int
 	MaxResultBytes int
 	MaxLogBytes    int
+	// MaxMemoryBytes is the memory the run may hold, measured at every host
+	// call (#1861). Zero sets no budget; the peak is measured either way.
+	MaxMemoryBytes int64
 }
 
 // withDefaults fills unset limits with the draft defaults.
@@ -370,14 +384,23 @@ type ExportRequest struct {
 	Metadata map[string]any
 	// Workbook is the xlsx arm (#1849): the sheets, checked. Nil otherwise.
 	Workbook *tablexlsx.Workbook
+	// Append is append=True (#1861): the rows are a page of an output the run
+	// builds across calls. Spooled holds the pages serialized so far, and is
+	// the content of the request that writes the output when the run ends.
+	Append  bool
+	Spooled *scriptout.Spool
 }
 
 // RowCount is the data rows the output carries: its rows, or every sheet's.
 func (r ExportRequest) RowCount() int {
-	if r.Workbook != nil {
+	switch {
+	case r.Workbook != nil:
 		return r.Workbook.RowCount()
+	case r.Spooled != nil:
+		return r.Spooled.Rows()
+	default:
+		return len(r.Rows)
 	}
-	return len(r.Rows)
 }
 
 // Sheets is a workbook's sheets and their row counts, nil for any other output.
@@ -411,63 +434,8 @@ type ExportResult struct {
 	TableChanges []string
 }
 
-// ExportRecord is what one platform.export call did, in call order on the run's
-// Result. A record with Preview set measured the output and wrote nothing,
-// which is what a draft run does; otherwise it names the asset version written
-// or the object delivered.
-type ExportRecord struct {
-	Name string `json:"name"`
-	// Destination is the name the script wrote, so a run that sends one result
-	// to two places reads as two records rather than as a repeat.
-	Destination string `json:"destination"`
-	Format      string `json:"format"`
-	RowCount    int    `json:"row_count"`
-	// Document marks an output written verbatim from a string body, whose
-	// RowCount is therefore not a fact about it: without the marker a surface
-	// rendering "N rows as html" would describe a dashboard as an empty table.
-	Document bool `json:"document,omitempty"`
-	// Refresh marks a platform.publish_data call: the run replaced the data
-	// region of an existing asset rather than writing a whole output, and
-	// Bytes is the payload spliced in, not the document around it.
-	Refresh bool `json:"refresh,omitempty"`
-	// Bytes is the serialized length of the output in its declared format. A
-	// preview serializes to measure rather than estimating, so the number is
-	// the same one a real run would report for the same rows.
-	Bytes int `json:"bytes"`
-	// Preview is true when nothing was persisted.
-	Preview      bool   `json:"preview"`
-	AssetID      string `json:"asset_id,omitempty"`
-	AssetVersion int    `json:"asset_version,omitempty"`
-	Bucket       string `json:"bucket,omitempty"`
-	Key          string `json:"key,omitempty"`
-	// ResourceID, ResourceRef, ResourceURI and ResourceVersion name the managed
-	// resource a library output landed in (#1663). A script reads the reference
-	// and the uri off the record to cite the file it just wrote, and they are
-	// the same ones the next run reports.
-	ResourceID      string `json:"resource_id,omitempty"`
-	ResourceRef     string `json:"reference,omitempty"`
-	ResourceURI     string `json:"uri,omitempty"`
-	ResourceVersion int    `json:"version,omitempty"`
-	// TableChanges is what the version did to the tables registered over the
-	// output's file (#1536): one sentence per table, saying it followed onto
-	// the version or is pinned and now behind it. The same sentences are
-	// printed into the run log, so the run's history says the table moved, or
-	// did not, without the script having to print anything.
-	//
-	// It is a change report, not the `tables` a fetched reference carries,
-	// and is named apart from them for that reason (#1666).
-	TableChanges []string `json:"table_changes,omitempty"`
-	// Table is the registration the export's register= argument made over
-	// the written file (#1820), or the one a draft would have made.
-	Table *exporttable.Table `json:"table,omitempty"`
-	// References is what references= declared, or a draft would have, and [] a
-	// clearing (omitzero keeps it apart from absent). UndeclaredReferences is
-	// each reference a portal document names that it did not list (#1834).
-	References           []string `json:"references,omitzero"`
-	UndeclaredReferences []string `json:"undeclared_references,omitempty"`
-	// Sheets is an xlsx output's sheets and the data rows in each (#1849).
-	Sheets []tablexlsx.SheetShape `json:"sheets,omitempty"`
-}
+// ExportRecord is what one platform.export call did; see exportrecord.Record.
+type ExportRecord = exportrecord.Record
 
 // Result reports one completed execution.
 type Result struct {
@@ -502,6 +470,10 @@ type Result struct {
 	// platform.progress report, each absent when the script made none.
 	Return   stdjson.RawMessage  `json:"result,omitempty"`
 	Progress *script.RunProgress `json:"progress,omitempty"`
+	// PeakMemory is the most the run was measured holding (#1861), which a
+	// draft reports so its author sees how close it came to the budget
+	// before a scheduled run does.
+	PeakMemory int64 `json:"peak_memory_bytes"`
 }
 
 // WriteRecord is one persisting platform.call a run made.
@@ -545,8 +517,9 @@ var fileOptions = &syntax.FileOptions{
 // and the returned Result still carries whatever log and metrics the run
 // produced before failing, because that log is exactly what the author needs.
 //
-// Failures here are deterministic by construction: the same source on the same
-// inputs fails the same way. Callers must not retry them.
+// A failure here is the script's unless it wraps one of the causes
+// scriptguard.Cause reads: an upstream that did not answer, or a memory budget
+// the run exceeded. Only the first is expected to succeed on a retry.
 func Run(ctx context.Context, opts Options) (*Result, error) {
 	opts = opts.withDefaults()
 
@@ -557,7 +530,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if log == nil {
 		log = scriptlive.New(opts.MaxLogBytes, 0)
 	}
-	host := &hostState{opts: opts, ctx: runCtx, log: log}
+	host := &hostState{opts: opts, ctx: runCtx, log: log, mem: scriptguard.NewMeter(opts.MaxMemoryBytes)}
 	var overStep atomic.Bool
 
 	thread := &starlark.Thread{
@@ -582,7 +555,13 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	go watchCancel(runCtx, thread, done)
 
 	started := time.Now()
-	_, execErr := starlark.ExecFileOptions(fileOptions, thread, opts.Name, opts.Source, predeclared(host))
+	globals, execErr := starlark.ExecFileOptions(fileOptions, thread, opts.Name, opts.Source, predeclared(host))
+	host.mem.Settle(globals)
+	if execErr == nil {
+		// An appended output is written once, and only by a run that got to
+		// the end: its pages are the whole file only then (#1861).
+		execErr = host.landAppended()
+	}
 	logText, logTruncated := log.Log()
 	result := &Result{
 		Log:          logText,
@@ -596,6 +575,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		State:        host.state,
 		Writes:       host.writes,
 		RefusedWrite: host.refused,
+		PeakMemory:   host.mem.Peak(),
 	}
 	if execErr != nil {
 		return result, classifyExecError(runCtx, execErr, overStep.Load(), opts.MaxSteps)
@@ -627,16 +607,29 @@ func classifyExecError(ctx context.Context, err error, overStep bool, maxSteps u
 	if errors.As(err, &evalErr) {
 		detail = evalErr.Backtrace()
 	}
+	failure := &execError{detail: detail, cause: err}
 	switch {
 	case overStep:
-		return fmt.Errorf("halted: %w of %d steps; simplify the script or move the work into SQL: %s",
-			ErrStepLimit, maxSteps, detail)
+		return fmt.Errorf("halted: %w of %d steps; simplify the script or move the work into SQL: %w",
+			ErrStepLimit, maxSteps, failure)
 	case ctx.Err() != nil:
-		return fmt.Errorf("halted: %w: %s", ErrTimeout, detail)
+		return fmt.Errorf("halted: %w: %w", ErrTimeout, failure)
 	default:
-		return errors.New(detail)
+		return failure
 	}
 }
+
+// execError is an interpreter failure as the author reads it -- the
+// backtrace -- still wrapping the error a host binding returned, so the cause
+// a run is recorded under (scriptguard.Cause) is read from the failure itself
+// rather than from its text.
+type execError struct {
+	detail string
+	cause  error
+}
+
+func (e *execError) Error() string { return e.detail }
+func (e *execError) Unwrap() error { return e.cause }
 
 // PredeclaredNames are the globals the platform adds on top of the Starlark
 // universe, in the order the dialect contract introduces them.
@@ -658,13 +651,13 @@ func predeclared(host *hostState) starlark.StringDict {
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
 			Members: starlark.StringDict{
-				"query":        starlark.NewBuiltin(CapabilityQuery, host.query),
-				"export":       starlark.NewBuiltin(CapabilityExport, host.export),
-				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.publishData),
-				"call":         starlark.NewBuiltin(CapabilityCall, host.call),
-				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.saveState),
-				"notify":       starlark.NewBuiltin(CapabilityNotify, host.notify),
-				"publish":      starlark.NewBuiltin(CapabilityPublish, host.publish),
+				"query":        starlark.NewBuiltin(CapabilityQuery, host.guarded(host.query)),
+				"export":       starlark.NewBuiltin(CapabilityExport, host.guarded(host.export)),
+				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.guarded(host.publishData)),
+				"call":         starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
+				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
+				"notify":       starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
+				"publish":      starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
 				"progress":     host.log.Bindings()["progress"],
 				"result":       host.log.Bindings()["result"],
 			},

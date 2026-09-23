@@ -1,6 +1,7 @@
 package toolwrite
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -360,4 +361,23 @@ func TestActionRules_WritesDoNotChangeClassification(t *testing.T) {
 	got := classify("manage_table", map[string]any{"action": "never_heard_of_it"})
 	assert.True(t, got.Writes)
 	assert.True(t, got.Declared)
+}
+
+// TestDecision_Refusal: a declared write asks whether the author meant to
+// persist; an undeclared one says the platform cannot tell. Both name the
+// call and the way to let the draft write.
+func TestDecision_Refusal(t *testing.T) {
+	declared := Decision{Writes: true, Call: "manage_asset action=update", Declared: true}.Refusal()
+	undeclared := Decision{Writes: true, Call: "mcptest__echo"}.Refusal()
+	for _, msg := range []string{declared, undeclared} {
+		if !strings.Contains(msg, "allow_writes") {
+			t.Errorf("refusal %q does not name allow_writes", msg)
+		}
+	}
+	if !strings.Contains(declared, "manage_asset action=update persists outside this run") {
+		t.Errorf("declared refusal = %q", declared)
+	}
+	if !strings.Contains(undeclared, "cannot tell whether mcptest__echo persists") {
+		t.Errorf("undeclared refusal = %q", undeclared)
+	}
 }

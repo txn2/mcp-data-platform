@@ -19,9 +19,11 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/txn2/mcp-data-platform/internal/formdata"
 	"github.com/txn2/mcp-data-platform/internal/inlinefit"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -137,6 +139,10 @@ type InvokeOutput struct {
 	// is the rendered result, which max_inline_bytes bounds and which a
 	// cut body may make smaller than this (issue #1606).
 	BodyBytes int64 `json:"body_bytes"`
+	// Advice says whether the upstream's answer is worth asking for again
+	// and after how long (#1859): set on a 429, and on a 503 to a GET or
+	// HEAD. A managed script's host waits and retries on it.
+	upstreamretry.Advice
 	// ExportArguments is set when Body was cut by the inline budget
 	// (issue #1587): the api_export arguments that stream this same
 	// call into a portal asset. The caller adds a name.
@@ -590,7 +596,7 @@ func appendQueryValue(q url.Values, key string, val any) {
 
 // scalarToString renders one JSON scalar as the text a wire format
 // carries it in. Shared by query-string assembly, multipart field
-// encoding, and the page walk's page parameter, so a number reaching the
+// encoding (internal/formdata), and the page walk's page parameter, so a number reaching the
 // upstream reads the same whichever side of the request it travels on.
 func scalarToString(val any) string {
 	return pagewalk.ScalarString(val)
@@ -625,6 +631,16 @@ type encodedBody struct {
 	data          []byte
 	contentType   string
 	authoritative bool
+}
+
+// encodeFormData assembles a multipart/form-data body (internal/formdata),
+// whose generated boundary is authoritative over a caller's Content-Type.
+func encodeFormData(body any) (encodedBody, error) {
+	data, contentType, err := formdata.Encode(body)
+	if err != nil {
+		return encodedBody{}, err //nolint:wrapcheck // the encoder's sentence is written for the caller
+	}
+	return encodedBody{data: data, contentType: contentType, authoritative: true}, nil
 }
 
 // encodeBody serializes the body for an outbound HTTP request and
@@ -674,8 +690,8 @@ func encodeBody(method string, body any, declaredContentTypes []string, callerHe
 		return encodeBodyTypeDriven(body)
 	case pick == applicationJSON:
 		return encodeBodyForJSONOperation(body)
-	case isMultipartFormData(pick):
-		return encodeMultipartBody(body)
+	case formdata.Is(pick):
+		return encodeFormData(body)
 	}
 	if s, ok := body.(string); ok {
 		return encodedBody{data: []byte(s), contentType: pick}, nil
@@ -691,8 +707,8 @@ func encodeBody(method string, body any, declaredContentTypes []string, callerHe
 // what issue #1296 showed does not survive — so the gateway encodes the
 // object and its own boundary replaces the caller's.
 func encodeBodyWithCallerType(contentType string, body any) (encodedBody, error) {
-	if _, isObject := body.(map[string]any); isObject && isMultipartFormData(contentType) {
-		return encodeMultipartBody(body)
+	if _, isObject := body.(map[string]any); isObject && formdata.Is(contentType) {
+		return encodeFormData(body)
 	}
 	return encodeBodyTypeDriven(body)
 }
@@ -1258,6 +1274,7 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		Pagination:    detectPagination(resp.Header, jsonBody),
 		Hint:          dec.note,
 		DurationMs:    time.Since(start).Milliseconds(),
+		Advice:        upstreamretry.Advise(p.req.Method, resp.StatusCode, resp.Header, time.Now()),
 	}
 	if truncated {
 		// A cut body cannot parse, so the decode note on a truncated

@@ -61,6 +61,26 @@ type Decision struct {
 	Declared bool
 }
 
+// Refusal states why a draft did not make this call, in the words the author
+// needs to act on it.
+//
+// A tool the platform classifies and a tool it does not get different sentences,
+// because the author's next move differs: the first is a decision about whether
+// this draft should persist, the second is the platform saying it cannot tell,
+// which a reader must not mistake for a judgment about the tool.
+func (decision Decision) Refusal() string {
+	if decision.Declared {
+		return fmt.Sprintf(
+			"%s persists outside this run, and a draft run does not write. "+
+				"Run the draft with allow_writes to let it write for real, and it will report what it wrote.",
+			decision.Call)
+	}
+	return fmt.Sprintf(
+		"the platform cannot tell whether %s persists, so a draft run does not make it. "+
+			"Run the draft with allow_writes to let it write for real, and it will report what it wrote.",
+		decision.Call)
+}
+
 // MethodResolver reports the HTTP method an api_invoke_endpoint operation_id is
 // invoked with. The api gateway holds the parsed specs that answer it, so the
 // composition root supplies this; a caller with none leaves the operation_id

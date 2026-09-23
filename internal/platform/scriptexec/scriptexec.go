@@ -144,6 +144,11 @@ type Config struct {
 	// its memory and CPU by default, or a fixed number (#1843).
 	Admission scriptadmit.Admission
 
+	// MaxReclaims is how many times a run is taken over from a worker whose
+	// lease expired before it is failed instead (#1860); zero is
+	// runstate.DefaultMaxReclaims.
+	MaxReclaims int
+
 	// WorkerDisabled leaves this replica serving without ever claiming from the
 	// run queue. run_script still enqueues and still waits on the result, which
 	// a separate deployment of the same binary with the worker on produces, so
@@ -274,15 +279,16 @@ func New(cfg Config) *Handle {
 		h.closer = enq.Close
 	}
 	h.worker = newWorker(workerConfig{
-		runs:      stores.runs,
-		scripts:   stores.scripts,
-		versions:  stores.versions,
-		runner:    newRunner(stores.runs, cfg),
-		retention: orDefaultRetention(cfg.RunRetention),
-		notifier:  notifier,
-		metrics:   cfg.Metrics,
-		lease:     LeaseFor(cfg.Limits.WithDefaults().Timeout),
-		admission: cfg.Admission,
+		runs:        stores.runs,
+		scripts:     stores.scripts,
+		versions:    stores.versions,
+		runner:      newRunner(stores.runs, cfg),
+		retention:   orDefaultRetention(cfg.RunRetention),
+		notifier:    notifier,
+		metrics:     cfg.Metrics,
+		lease:       LeaseFor(cfg.Limits.WithDefaults().Timeout),
+		admission:   cfg.Admission,
+		maxReclaims: cfg.MaxReclaims,
 	})
 	// Materializing where the worker runs, for the same reason the listener
 	// does: a replica that will not claim gains nothing by producing rows for

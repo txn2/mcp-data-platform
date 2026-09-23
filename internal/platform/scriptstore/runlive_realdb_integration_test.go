@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -33,7 +34,7 @@ func TestRealDB_ProgressAndLogAreReadableWhileTheRunExecutes(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 	enqueued(ctx, t, s, "dpx_live")
-	run, err := s.Claim(ctx, "worker-a", time.Minute)
+	run, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 
 	done, total := int64(3), int64(10)
@@ -76,7 +77,7 @@ func TestRealDB_FinishKeepsTheResultAndTheLastProgress(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 	enqueued(ctx, t, s, "dpx_result")
-	run, err := s.Claim(ctx, "worker-a", time.Minute)
+	run, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 
 	done := int64(10)
@@ -93,7 +94,7 @@ func TestRealDB_FinishKeepsTheResultAndTheLastProgress(t *testing.T) {
 	assert.Nil(t, got.Progress.Total)
 
 	enqueued(ctx, t, s, "dpx_noresult")
-	run, err = s.Claim(ctx, "worker-a", time.Minute)
+	run, err = s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	require.NoError(t, s.Finish(ctx, run.Lease(), script.RunResult{Status: script.RunStatusSucceeded}))
 	got, err = s.GetRun(ctx, "dpx_noresult")
@@ -111,30 +112,33 @@ func TestRealDB_CancelActsOnWhatTheRunWas(t *testing.T) {
 	ctx := context.Background()
 
 	enqueued(ctx, t, s, "dpx_queued")
-	prior, err := s.CancelRun(ctx, "dpx_queued", "jane@example.com")
+	prior, now, err := s.CancelRun(ctx, "dpx_queued", "jane@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusPending, prior)
+	assert.Equal(t, script.RunStatusCanceled, now)
 	queued, err := s.GetRun(ctx, "dpx_queued")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusCanceled, queued.Status)
 	assert.Equal(t, "canceled by jane@example.com", queued.Error)
 	assert.NotNil(t, queued.FinishedAt)
-	_, err = s.Claim(ctx, "worker-a", time.Minute)
+	_, err = s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.ErrorIs(t, err, script.ErrNoWork, "a canceled run is never claimed")
 
 	enqueued(ctx, t, s, "dpx_running")
-	run, err := s.Claim(ctx, "worker-a", time.Minute)
+	run, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
-	prior, err = s.CancelRun(ctx, "dpx_running", "sam@example.com")
+	prior, now, err = s.CancelRun(ctx, "dpx_running", "sam@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusRunning, prior)
+	assert.Equal(t, script.RunStatusRunning, now)
 	requested, by, err := s.RecordProgress(ctx, run.Lease(), script.RunLive{Unchanged: true})
 	require.NoError(t, err)
 	assert.True(t, requested)
 	assert.Equal(t, "sam@example.com", by)
-	prior, err = s.CancelRun(ctx, "dpx_running", "someone-else@example.com")
+	prior, now, err = s.CancelRun(ctx, "dpx_running", "someone-else@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusRunning, prior)
+	assert.Equal(t, script.RunStatusRunning, now)
 	_, by, err = s.RecordProgress(ctx, run.Lease(), script.RunLive{Unchanged: true})
 	require.NoError(t, err)
 	assert.Equal(t, "sam@example.com", by, "the first request is the one recorded")
@@ -145,11 +149,12 @@ func TestRealDB_CancelActsOnWhatTheRunWas(t *testing.T) {
 	finished, err := s.GetRun(ctx, "dpx_running")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusCanceled, finished.Status, "the status check admits canceled")
-	prior, err = s.CancelRun(ctx, "dpx_running", "jane@example.com")
+	prior, now, err = s.CancelRun(ctx, "dpx_running", "jane@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusCanceled, prior)
+	assert.Equal(t, script.RunStatusCanceled, now)
 
-	_, err = s.CancelRun(ctx, "dpx_nope", "jane@example.com")
+	_, _, err = s.CancelRun(ctx, "dpx_nope", "jane@example.com")
 	require.ErrorIs(t, err, script.ErrRunNotFound)
 
 	purged, err := s.PurgeRuns(ctx, -time.Hour)

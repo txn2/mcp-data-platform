@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -216,7 +217,10 @@ func (p *reporter) report(ctx context.Context) {
 //
 // Every outcome here is terminal. The interpreter has run, which means the
 // script may already have queried, exported, or both, and re-running it would
-// repeat those effects to chase an error that reproduces exactly.
+// repeat those effects. A failure is recorded with its cause (#1859): an
+// upstream that did not answer is retryable -- by the next scheduled fire or
+// by whoever runs it again, never by the platform re-executing a script that
+// may have written half its outputs -- and every other cause is not.
 func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 	out := attempt{result: script.RunResult{Status: script.RunStatusSucceeded}}
 	if result != nil {
@@ -227,6 +231,8 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 			DurationMS: result.Duration.Milliseconds(),
 			Queries:    result.Queries,
 			Exports:    len(result.Exports),
+			// What the run was measured holding at its peak (#1861).
+			PeakMemoryBytes: result.PeakMemory,
 		}
 		// Staged state travels with the result whatever the outcome; the store
 		// applies it only to a succeeded run, so a failed run leaves the state
@@ -239,6 +245,7 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 	if runErr != nil {
 		out.result.Status = script.RunStatusFailed
 		out.result.Error = runErr.Error()
+		out.result.Cause = scriptguard.Cause(runErr)
 	}
 	return out
 }

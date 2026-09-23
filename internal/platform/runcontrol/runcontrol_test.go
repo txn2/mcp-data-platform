@@ -14,12 +14,15 @@ import (
 )
 
 func TestOutcomeOfAndCancelMessage(t *testing.T) {
-	assert.Equal(t, CanceledQueued, OutcomeOf(script.RunStatusPending))
-	assert.Equal(t, CancelRequested, OutcomeOf(script.RunStatusRunning))
-	assert.Equal(t, CancelAlreadyFinished, OutcomeOf(script.RunStatusSucceeded))
-	assert.Contains(t, CancelMessage(script.RunStatusPending), "will not run")
-	assert.Contains(t, CancelMessage(script.RunStatusRunning), "within seconds")
-	assert.Equal(t, "The run had already finished (failed); nothing was changed.", CancelMessage(script.RunStatusFailed))
+	assert.Equal(t, CanceledQueued, OutcomeOf(script.RunStatusPending, script.RunStatusCanceled))
+	assert.Equal(t, CancelRequested, OutcomeOf(script.RunStatusRunning, script.RunStatusRunning))
+	assert.Equal(t, CanceledOrphaned, OutcomeOf(script.RunStatusRunning, script.RunStatusCanceled))
+	assert.Equal(t, CancelAlreadyFinished, OutcomeOf(script.RunStatusSucceeded, script.RunStatusSucceeded))
+	assert.Contains(t, CancelMessage(script.RunStatusPending, script.RunStatusCanceled), "will not run")
+	assert.Contains(t, CancelMessage(script.RunStatusRunning, script.RunStatusRunning), "within seconds")
+	assert.Contains(t, CancelMessage(script.RunStatusRunning, script.RunStatusCanceled), "stopped reporting")
+	assert.Equal(t, "The run had already finished (failed); nothing was changed.",
+		CancelMessage(script.RunStatusFailed, script.RunStatusFailed))
 }
 
 // sequence answers GetRun from a list of statuses, one per read.

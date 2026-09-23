@@ -215,7 +215,37 @@ func (h *Handle) handleGet(ctx context.Context, input manageScriptInput) (*mcp.C
 		}
 		return errResult, nil, nil
 	}
-	return jsonResult(scriptFields(sc))
+	fields := scriptFields(sc)
+	fields["live_runs"] = h.liveRuns(ctx, sc)
+	return jsonResult(fields)
+}
+
+// liveRunsLimit caps the runs a script lists as not yet ended.
+const liveRunsLimit = 20
+
+// liveRuns lists the script's runs that have not ended, with who holds each
+// and whether that worker is still reporting (#1860), so an orphaned or
+// looping run is seen by anyone looking at the script, not only by someone who
+// already knows its run id. A read that fails lists none rather than failing
+// the script's own read.
+func (h *Handle) liveRuns(ctx context.Context, sc *script.Script) []map[string]any {
+	out := []map[string]any{}
+	if h.runs == nil {
+		return out
+	}
+	runs, err := h.runs.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID, Live: true, Limit: liveRunsLimit})
+	if err != nil {
+		slog.Warn("failed to list a script's live runs", fieldName, sc.Name, logKeyError, err)
+		return out
+	}
+	for i := range runs {
+		summary := runSummary(sc, &runs[i])
+		if msg := livenessMessage(&runs[i], time.Now()); msg != "" {
+			summary["message"] = msg
+		}
+		out = append(out, summary)
+	}
+	return out
 }
 
 // scriptFields renders one script for a get response.

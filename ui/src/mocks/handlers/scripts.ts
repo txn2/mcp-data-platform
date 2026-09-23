@@ -902,20 +902,35 @@ export const scriptHandlers = [
     return HttpResponse.json({ data: list, total: list.length });
   }),
 
-  http.get(`${PORTAL_BASE}/scripts/:id/runs`, ({ params }) => {
-    const list = mockScriptRuns[String(params.id)] ?? [];
+  http.get(`${PORTAL_BASE}/scripts/:id/runs`, ({ params, request }) => {
+    let list = mockScriptRuns[String(params.id)] ?? [];
+    // live=true is the runs that have not ended (#1860).
+    if (new URL(request.url).searchParams.get("live") === "true") {
+      list = list.filter((run) => run.status === "pending" || run.status === "running");
+    }
     return HttpResponse.json({ data: list, total: list.length });
   }),
 
-  // Canceling a run (#1847). Every mocked run has already finished, which is
-  // what the route answers for one: nothing changed, and it says why.
+  // Canceling a run (#1847). A run whose worker stopped reporting is ended at
+  // once (#1860); every other mocked run has already finished, which is what
+  // the route answers for one: nothing changed, and it says why.
   http.post(`${PORTAL_BASE}/scripts/:id/runs/:runID/cancel`, ({ params }) => {
     const run = mockScriptRunDetails[String(params.runID)];
     if (!run || run.script_id !== String(params.id)) {
       return HttpResponse.json({ detail: "run not found" }, { status: 404 });
     }
+    if (run.status === "running" && run.liveness !== "executing") {
+      return HttpResponse.json({
+        run_id: run.id,
+        status: "canceled",
+        outcome: "canceled_orphaned",
+        message:
+          "Canceled. The worker executing this run had stopped reporting, so no worker would have stopped it; it was ended directly, keeping the outputs it already wrote.",
+      });
+    }
     return HttpResponse.json({
       run_id: run.id,
+      status: run.status,
       outcome: "already_finished",
       message: `The run had already finished (${run.status}); nothing was changed.`,
     });

@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/procload"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -206,14 +207,44 @@ func TestWorker_ShedsTheNewestRunUnderMemoryPressure(t *testing.T) {
 	load.set(memory(95))
 	w.maybeShed()
 	require.Eventually(t, func() bool { return g.canceled.Load() == 1 }, 2*time.Second, 5*time.Millisecond)
-	w.maybeShed() // one run left: never shed
+	load.set(memory(50))
+	w.maybeShed() // back under the threshold: the last run is left alone
 
 	close(g.open)
 	w.wg.Wait()
 	require.Len(t, runs.retried, 1)
 	assert.Contains(t, runs.retried[0], "memory pressure")
+	require.Len(t, runs.ends, 1)
+	assert.Equal(t, runstate.AttemptShed, runs.ends[0].outcome, "a shed run's history says it was shed")
 	require.Len(t, runs.results(), 1)
 	assert.Equal(t, script.RunStatusSucceeded, runs.results()[0].Status)
+}
+
+// TestWorker_FailsTheOnlyRunPastTheShedThreshold holds #1861's last-resort
+// guard: with one run left and memory still past the threshold, requeueing it
+// would rebuild the same heap elsewhere, and leaving it would let the kernel
+// kill the replica, so the run fails on memory and is not retried.
+func TestWorker_FailsTheOnlyRunPastTheShedThreshold(t *testing.T) {
+	load := &switchLoad{}
+	g := newGateExecutor(1)
+	w, runs := queueWorker(t, 1, scriptadmit.Admission{Fixed: 1}, load, g)
+	w.drain()
+	waitEntered(t, g, 1)
+
+	load.set(memory(95))
+	w.maybeShed()
+	require.Eventually(t, func() bool { return g.canceled.Load() == 1 }, 2*time.Second, 5*time.Millisecond)
+	w.maybeShed() // already stopped: not counted again
+
+	close(g.open)
+	w.wg.Wait()
+	assert.Empty(t, runs.retried, "a run over the line on its own is not requeued")
+	require.Len(t, runs.results(), 1)
+	res := runs.results()[0]
+	assert.Equal(t, script.RunStatusFailed, res.Status)
+	assert.Equal(t, runstate.CauseMemory, res.Cause)
+	assert.Contains(t, res.Error, "the only one executing")
+	assert.Equal(t, int32(1), g.canceled.Load())
 }
 
 // TestWorker_RecordsAdmissionAndQueueWait reads the two #1843 series back from

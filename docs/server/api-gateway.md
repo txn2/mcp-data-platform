@@ -159,7 +159,7 @@ Rules worth knowing before you wire one up:
 - `scope` defaults to the caller's own library. A `persona` or `global` library is named explicitly and takes the matching administrator role, checked before the upstream is called.
 - `name` is the file's display name, and `description` and `tags` label it. They are recorded when the file is created and left alone by later landings, so a file people have since renamed or re-tagged in the portal is not re-labelled by tonight's refresh. A call with no description gets one naming the connection and operation it came from.
 - `idempotency_key` and `create_public_link` are refused with this destination: the first answers a repeat call with the asset the first one made, which is the opposite of re-versioning one file, and a public share link is a portal asset's.
-- An upstream that answers anything but a 2xx is **not** landed. The call fails naming the status, and the file keeps serving the version it had. An asset destination still keeps a failed response, where a new file every time makes it evidence rather than a corrupted dataset.
+- An upstream that answers anything but a 2xx is **not** landed, and the file keeps serving the version it had. The answer is the result rather than an error (#1859): `upstream_status`, the upstream's `upstream_headers`, `resource_unchanged: true` and a message naming the status and the file, so a caller -- a managed script especially, which cannot catch an error -- reads the status and decides what to do. An asset destination still keeps a failed response, where a new file every time makes it evidence rather than a corrupted dataset.
 - The size ceiling is the library's own, [`resources.managed.max_upload_bytes`](configuration.md#managed-resources), not `portal.export.max_bytes`: a file this platform would refuse at its upload form is one it refuses here, at the same size. Nothing is written when the ceiling is passed.
 
 `paginate` works the same way at this destination: the merged array is streamed into the file as pages arrive, and the result reports both what the walk did and what the write did to the file.
@@ -235,6 +235,24 @@ The `body` argument is a JSON value, and the connection's catalog decides how it
 | none matched | object or array | JSON; a string goes out as `text/plain` |
 
 An explicit `Content-Type` in `headers` overrides catalog negotiation and sends the bytes as typed — the exception is multipart, below.
+
+## Answers worth asking for again
+
+An upstream that refuses a request for its rate, or is briefly unavailable to a
+read, is expected to admit the same request later. `api_invoke_endpoint` and a
+resource-destination `api_export` say so on the result (#1859):
+`upstream_retryable: true` on a 429, whatever the method, and on a 503 to a GET
+or HEAD, with `retry_after_seconds` when the upstream sent `Retry-After` (in
+either form RFC 9110 allows). A 503 to a write is not marked: the service may
+have acted on part of it before it answered. A caller can wait the interval and
+repeat the call; a managed script's host does exactly that, up to three times,
+before handing the script the last answer
+([Running a script](../scripts/running.md#failures)).
+
+An upstream the gateway could not reach, or that did not answer within the
+call's timeout, is a tool error whose structured `error.code` is
+`upstream_unavailable` and category `upstream`, which tells a caller the same
+call made later is expected to succeed.
 
 ## Response bodies
 

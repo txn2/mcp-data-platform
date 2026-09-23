@@ -226,6 +226,11 @@ type Payload struct {
 	Message string `json:"message,omitempty"`
 	// Link is the absolute portal deep link for the item.
 	Link string `json:"link,omitempty"`
+	// Cause is why a KindScriptRun run failed, one of the script.Cause*
+	// values (#1859), which decides whether the alert tells the owner to fix
+	// the script or that the next run should succeed. Empty for every other
+	// kind, and on a row enqueued before the cause was recorded.
+	Cause string `json:"cause,omitempty"`
 	// Review carries the review-queue rollup of a KindReviewQueue alert and
 	// is nil for every other kind.
 	Review *ReviewQueue `json:"review,omitempty"`

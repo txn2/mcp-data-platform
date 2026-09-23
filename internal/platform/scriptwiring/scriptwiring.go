@@ -72,6 +72,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 		RunRetention:          deps.RunRetention,
 		Limits:                runLimits(deps.Worker),
 		Admission:             admission(deps.Worker),
+		MaxReclaims:           deps.Worker.MaxReclaims,
 		WorkerDisabled:        !deps.WorkerEnabled,
 		NotificationsDisabled: !deps.NotificationsEnabled,
 		DigestHourUTC:         deps.DigestHourUTC,
@@ -150,11 +151,13 @@ type Deps struct {
 }
 
 // runLimits is a platform run's configured ceilings; unset fields take the
-// engine's defaults where the limits are applied.
+// engine's defaults where the limits are applied. The memory budget is
+// resolved against this process's memory limit (#1861), which a draft on this
+// replica and a run on it share.
 func runLimits(c scriptadmit.Config) scriptrun.PlatformLimits {
 	return scriptrun.PlatformLimits{
 		Timeout: c.RunTimeout, MaxSteps: uint64(max(c.MaxSteps, 0)), MaxRows: c.MaxQueryRows,
-		ResultMaxBytes: c.ResultMaxBytes,
+		ResultMaxBytes: c.ResultMaxBytes, MaxMemoryBytes: c.ProcessRunMemoryBudget(),
 	}
 }
 

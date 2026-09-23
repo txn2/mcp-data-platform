@@ -233,6 +233,21 @@ run, which then never starts, and Stop run for an executing one, which ends canc
 within seconds and keeps what it already wrote (#1847). A run that handed a value back
 with `platform.result` shows it as Result (#1845).
 
+A failed run says, under its error, whether running it again is expected to help (#1859):
+a service it called that was briefly unavailable reads "Temporary: ... the next run should
+succeed", a run that held too much memory says to page the work, and a script error keeps
+only its own message, because it is the script that needs the fix. Opening a run shows the
+most memory it held under Cost (#1861).
+
+A running run whose worker has stopped reporting -- a replica that was killed, most often
+by running out of memory -- does not read as running (#1860). Its badge is **worker not
+responding** (the worker holds the lease but has been silent for 30 seconds) or **worker
+gone** (the lease has ended), with a line saying what happens next. Opening it shows who
+holds it, when its lease ends, when the worker last reported, and, when an earlier attempt
+did not finish, how each one ended. Stopping it ends it at once, since no worker would.
+Runs that have not ended are also listed under **Running now** above the history, so a run
+whose worker died is found even when it is older than the history's first page.
+
 It sits directly under the code, because an error here is answered by the text above it,
 and nothing in it holds the page open sideways: a failure message wraps to as many lines
 as it needs rather than running off the edge.

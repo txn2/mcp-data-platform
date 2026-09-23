@@ -308,6 +308,7 @@ export const mockConnectionNames: string[] = [
 // ---------------------------------------------------------------------------
 
 const hoursAgo = (n: number) => new Date(now.getTime() - n * 3_600_000).toISOString();
+const minutesAgo = (n: number) => new Date(now.getTime() - n * 60_000).toISOString();
 const hoursAhead = (n: number) => new Date(now.getTime() + n * 3_600_000).toISOString();
 
 export const mockScriptSchedules: Record<string, ScriptSchedule> = {
@@ -387,6 +388,47 @@ export const mockScriptRuns: Record<string, ScriptRun[]> = {
     },
   ],
   "script-002": [],
+  // A run whose worker stopped reporting (#1860), a run failed by an upstream
+  // that was briefly unavailable (#1859), and a success. The newest is still
+  // running, so the listing does not count the script as failing.
+  "script-004": [
+    {
+      id: "run-201",
+      status: "running",
+      trigger: "schedule",
+      version: 1,
+      fire_time: minutesAgo(24),
+      started_at: minutesAgo(24),
+      duration_ms: 0,
+      output_count: 0,
+      liveness: "unresponsive",
+    },
+    {
+      id: "run-200",
+      status: "failed",
+      trigger: "schedule",
+      version: 1,
+      fire_time: hoursAgo(24),
+      started_at: hoursAgo(24),
+      finished_at: hoursAgo(24),
+      duration_ms: 54_000,
+      error: "in platform.call: upstream request: context deadline exceeded (Client.Timeout exceeded while awaiting headers)",
+      output_count: 0,
+      cause: "upstream",
+      retryable: true,
+    },
+    {
+      id: "run-199",
+      status: "succeeded",
+      trigger: "schedule",
+      version: 1,
+      fire_time: hoursAgo(48),
+      started_at: hoursAgo(48),
+      finished_at: hoursAgo(48),
+      duration_ms: 41_000,
+      output_count: 1,
+    },
+  ],
   "script-003": [
     // Its most recent run failed, which is what the listing's health line
     // counts and the one number a person opens that page to find (#1795). A
@@ -427,6 +469,74 @@ wrote asset version 42
 `;
 
 export const mockScriptRunDetails: Record<string, ScriptRunDetail> = {
+  // The run whose worker stopped reporting: taken over once already, its
+  // second holder silent for six minutes with twelve left on its lease.
+  "run-201": {
+    id: "run-201",
+    script_id: "script-004",
+    version: 1,
+    status: "running",
+    trigger: "schedule",
+    duration_ms: 0,
+    output_count: 0,
+    fire_time: minutesAgo(24),
+    scheduled_for: minutesAgo(24),
+    started_at: minutesAgo(24),
+    params: {},
+    log: "",
+    metrics: { steps: 0, duration_ms: 0, queries: 0, exports: 0 },
+    outputs: [],
+    attempt: 2,
+    liveness: "unresponsive",
+    reclaims: 1,
+    locked_by: "worker-7f3a91c2d4e5b608",
+    locked_until: minutesAgo(-12),
+    claimed_at: minutesAgo(8),
+    heartbeat_at: minutesAgo(6),
+    attempts: [
+      {
+        attempt: 1,
+        worker: "worker-0c1d2e3f4a5b6c7d",
+        claimed_at: minutesAgo(24),
+        ended_at: minutesAgo(9),
+        outcome: "lease_expired",
+      },
+    ],
+    created_at: minutesAgo(24),
+  },
+  "run-200": {
+    id: "run-200",
+    script_id: "script-004",
+    version: 1,
+    status: "failed",
+    trigger: "schedule",
+    duration_ms: 54_000,
+    output_count: 0,
+    fire_time: hoursAgo(24),
+    scheduled_for: hoursAgo(24),
+    started_at: hoursAgo(24),
+    finished_at: hoursAgo(24),
+    params: {},
+    error: "in platform.call: upstream request: context deadline exceeded (Client.Timeout exceeded while awaiting headers)",
+    cause: "upstream",
+    retryable: true,
+    log: "upstream answered 429 Too Many Requests to api_export; waited 1s and retried (1 of 3)\n",
+    metrics: { steps: 910, duration_ms: 54_000, queries: 0, exports: 0, peak_memory_bytes: 48_234_496 },
+    outputs: [],
+    attempt: 1,
+    reclaims: 0,
+    attempts: [
+      {
+        attempt: 1,
+        worker: "worker-7f3a91c2d4e5b608",
+        claimed_at: hoursAgo(24),
+        ended_at: hoursAgo(24),
+        outcome: "finished",
+        error: "in platform.call: upstream request: context deadline exceeded",
+      },
+    ],
+    created_at: hoursAgo(24),
+  },
   "run-001": {
     id: "run-001",
     script_id: "script-001",

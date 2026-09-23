@@ -15,6 +15,8 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   usePortalScriptVersions: vi.fn(),
   useScriptRuns: vi.fn(),
   useScriptRun: vi.fn(),
+  // The runs that have not ended (#1860); none unless a test says otherwise.
+  useScriptLiveRuns: vi.fn(() => ({ data: { data: [], total: 0 }, isLoading: false, error: null })),
   // The schedule editor's hooks. The editor has its own tests; here they only
   // have to answer, so the page composes with the one section that mutates.
   useScriptSchedule: vi.fn(),
@@ -599,6 +601,49 @@ describe("ScriptDetailPage: the run history", () => {
     fireEvent.click(screen.getByRole("row", { name: /running/ }));
     expect(screen.getByText(/as jane@example.com asked/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Stop run|Cancel run/ })).not.toBeInTheDocument();
+  });
+
+  // #1860: a run whose worker stopped reporting never reads as running. Its
+  // row says the worker is gone, and opening it names the holder, the lease,
+  // and how the earlier attempt ended.
+  it("shows a run whose worker stopped reporting, with its holder and attempts", () => {
+    const orphan = {
+      ...runs[0]!, id: "run-o", status: "running", duration_ms: 0, liveness: "unresponsive" as const,
+    };
+    mockRuns.mockReturnValue(query({ data: [orphan], total: 1 }));
+    mockRun.mockReturnValue(query({
+      ...runDetail, ...orphan, outputs: [], log: undefined, attempt: 2, reclaims: 1,
+      locked_by: "worker-7f3a91c2d4e5b608", locked_until: "2026-08-14T09:12:00Z",
+      heartbeat_at: "2026-08-14T08:54:00Z",
+      attempts: [{ attempt: 1, worker: "worker-0c1d", ended_at: "2026-08-14T08:51:00Z", outcome: "lease_expired" }],
+    }));
+    renderPage();
+
+    expect(screen.getByText("worker not responding")).toBeInTheDocument();
+    expect(screen.getAllByText(/stopped reporting/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("row", { name: /worker not responding/ }));
+    expect(screen.getByText("worker-7f3a91c2d4e5b608")).toBeInTheDocument();
+    expect(screen.getByText(/worker stopped reporting \(lease expired\)/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop run" })).toBeInTheDocument();
+  });
+
+  // #1859: a failure caused by an upstream that was briefly unavailable says
+  // the next run should succeed, and a run reports the memory it held (#1861).
+  it("says an upstream failure is temporary and reports the peak memory", () => {
+    const failed = {
+      ...runs[0]!, id: "run-u", status: "failed", error: "upstream request: context deadline exceeded",
+      cause: "upstream" as const, retryable: true,
+    };
+    mockRuns.mockReturnValue(query({ data: [failed], total: 1 }));
+    mockRun.mockReturnValue(query({
+      ...runDetail, ...failed, outputs: [],
+      metrics: { ...runDetail.metrics, peak_memory_bytes: 48 * 1024 * 1024 },
+    }));
+    renderPage();
+
+    expect(screen.getByText(/the next run should succeed/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("row", { name: /failed/ }));
+    expect(screen.getByText(/peak 48 MiB held/)).toBeInTheDocument();
   });
 
   // #1845: the value a run handed back is shown with the run, and a finished

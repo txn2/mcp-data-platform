@@ -905,6 +905,18 @@ Starlark error on the same inputs reproduces exactly, and a script that has
 already queried or written must not be replayed on the chance that its last
 call was a transient fault.
 
+What a final failure is recorded AS is read from the error's type, not its text
+(#1859, `internal/platform/scriptguard`): a tool result the error contract
+categorized `upstream_unavailable` (an upstream the gateway could not reach or
+that timed out, from the outcome the toolkit stamps for audit) becomes an
+`upstream` cause, a memory budget a `memory` cause, and everything else the
+script's. The cause decides the message and whether the run is marked
+`retryable`; it never re-queues a run. The one re-issue the host makes is of a
+single call an upstream answered with `upstream_retryable` (a 429, or a 503 to a
+read), which it waits out a bounded number of times before handing the answer to
+the script as data; a write answered 503 is not repeated, since the service may
+have acted on part of it.
+
 ### Isolating execution from serving
 
 Which replica executes a run is a security control, not only a capacity one.
@@ -920,7 +932,10 @@ stated honestly](#resource-limits-stated-honestly)), so a pathological script
 pushes on the memory of whichever pod runs it. On a split deployment the worst
 case is a restarted worker, while sessions, the portal, and the admin API are
 untouched — and the run itself is not lost, because a killed worker's lease
-expires and another claims it.
+expires and another claims it. That take-over is capped
+(`scripts.worker.max_reclaims`, #1860): a run that keeps killing its worker is
+failed by the claim path rather than carried from replica to replica, so one
+oversized run cannot become a crash loop across every replica.
 
 The worker adds no attack surface of its own: it accepts no request and takes
 work only from the queue, and its calls go through the same assembled MCP
@@ -977,6 +992,8 @@ safety or determinism.
 | Result size | Hard row and byte caps on every `platform.query` result, with the row cap pushed down into the query; the byte cap also applies to a `platform.call` result, which has no row axis to push down | `scriptrun.DraftMaxRows`, `RunMaxRows`, `DraftMaxResultBytes`, `hostState.queryResult`, `hostState.call` |
 | Output size | Cap on one serialized output, matching the portal export ceiling and applied by the serializer, so a draft is refused on the same terms a platform run is | `scriptrun.MaxOutputBytes`, `FormatOutput` |
 | Concurrency | Adaptive admission: a run is claimed only while the replica's memory and CPU are under their thresholds and fewer than the ceiling execute; past the shed threshold the newest run is stopped and requeued. A fixed `concurrency` (1 for one at a time) replaces it | `internal/platform/scriptadmit`, `internal/platform/scriptexec/worker.go`, `internal/procload` |
+| Memory held | The values a run can reach are sized at every host call; over `scripts.worker.max_run_memory` the run fails, and a run alone past the shed threshold is stopped and failed rather than left to the kernel | `internal/platform/scriptguard`, `hostState.guarded`, `Admitter.OverShed` |
+| Take-overs | A run whose worker died is taken over at most `scripts.worker.max_reclaims` times, then failed by any worker's loop | `Store.Claim`, `Store.FailAbandoned` |
 | Blast radius | Which replicas execute at all, so the memory a script can reach belongs to a pod nothing is talking to | `scripts.worker.enabled` |
 | Truncation | A result the engine truncated at the cap FAILS the run rather than being handed over as complete | `hostState.queryResult`, `truncated` |
 | Log size | Bounded capture, head kept, tail dropped with a marker | `scriptrun.MaxLogBytes`, `logBuffer` |
@@ -985,15 +1002,18 @@ safety or determinism.
 
 **There is no hard memory cap.** Neither starlark-go nor any comparable
 embedded interpreter offers one, and this document does not pretend otherwise.
-A pathological script can grow the process heap despite the step limit, because
-allocation per step is unbounded. The mitigations in place are the step limit,
-the wall-clock deadline, the host-side result caps, the worker's memory-aware
-admission and shedding, and `GOMEMLIMIT` at the process level. Admission reads
-memory before a claim and cannot see a run that grows afterwards, which is what
-the shed threshold is for; a single run is never shed, so one script's own heap
-past the container limit still ends the pod. It is recorded in [Residual
-risks](#residual-risks), and the control that bounds what an out-of-memory
-condition costs is [isolating execution from
+What the platform does instead is measure (#1861): at every host call the
+Starlark values the run can still reach are sized and a run over
+`scripts.worker.max_run_memory` fails there. That is a measure at the points the
+script stops, not an allocation ceiling: values built between two host calls
+are counted at the next one, a value held only in a closure's captured cell is
+not reached, and the size is an estimate calibrated against the Go runtime.
+The other mitigations are the step limit, the wall-clock deadline, the
+host-side result caps, the worker's memory-aware admission and shedding, and
+`GOMEMLIMIT` at the process level. Past the shed threshold with one run left,
+the worker stops that run and fails it rather than let the kernel end the pod.
+It is recorded in [Residual risks](#residual-risks), and the control that
+bounds what an out-of-memory condition costs is [isolating execution from
 serving](#isolating-execution-from-serving).
 
 ### SQL parameters are bound, never spliced
@@ -1217,7 +1237,8 @@ what makes a run explainable after the fact from its own record, and what makes
 ## Residual risks
 
 1. **No hard memory cap.** Described above under resource limits. Mitigated by
-   the step limit, deadline, result caps, and `GOMEMLIMIT`; not eliminated.
+   the per-run budget measured at host calls, the lone-run guard, the step
+   limit, deadline, result caps, and `GOMEMLIMIT`; not eliminated.
    What bounds the damage rather than the allocation is
    [isolating execution from serving](#isolating-execution-from-serving):
    `scripts.worker.enabled: false` on the serving replicas plus a worker

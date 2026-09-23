@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -127,9 +128,9 @@ func TestRealDB_ARetryCannotUnpinTheFire(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, script.MaterializedRun, outcome)
 
-	claimed, err := s.Claim(ctx, "worker-a", time.Minute)
+	claimed, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
-	require.NoError(t, s.Retry(ctx, claimed.Lease(), "the warehouse was unreachable", time.Hour))
+	require.NoError(t, s.Retry(ctx, claimed.Lease(), runstate.AttemptRetried, "the warehouse was unreachable", time.Hour))
 
 	moved, err := s.GetRun(ctx, run.ID)
 	require.NoError(t, err)
@@ -174,7 +175,7 @@ func TestRealDB_AnOverlappingFireIsRecordedAsASkip(t *testing.T) {
 
 	// And the skipped row does not itself hold the schedule open: once the
 	// first run finishes, the fire after it materializes normally.
-	claimed, err := s.Claim(ctx, "worker-a", time.Minute)
+	claimed, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	require.Equal(t, "dpx_first", claimed.ID, "a skipped row is never claimed")
 	require.NoError(t, s.Finish(ctx, claimed.Lease(), script.RunResult{Status: script.RunStatusSucceeded}))

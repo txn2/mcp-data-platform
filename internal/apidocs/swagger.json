@@ -19539,6 +19539,12 @@
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "Only runs that have not ended: pending and running",
+                        "name": "live",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Maximum rows to return",
                         "name": "per_page",
@@ -25376,11 +25382,19 @@
                     "description": "ResolvedPath is the concrete request path an operation_id call\nresolved to, after the catalog's base-path prefix and any\npath_params substitution. Populated only for operation_id\naddressing: in the method+path form the caller wrote the path\nitself and echoing it back says nothing.\n\nIt is here because the resolved path is the one input to the\nupstream request the caller never sees, so a misconfigured\ncatalog prefix surfaces only as a generic upstream 400 whose\ncause is invisible from the response (issue #1298). api_export\nalready reports it in its result message; this is the same\nsignal for the buffered path.",
                     "type": "string"
                 },
+                "retry_after_seconds": {
+                    "description": "RetryAfterSeconds is how long the upstream asked to be left alone, when\nit said; zero when it did not.",
+                    "type": "integer"
+                },
                 "status": {
                     "type": "integer"
                 },
                 "stopped_by": {
                     "type": "string"
+                },
+                "upstream_retryable": {
+                    "description": "Retryable is set on an answer the same request is expected to get past\nlater (see Retryable).",
+                    "type": "boolean"
                 }
             }
         },
@@ -31685,6 +31699,31 @@
                 }
             }
         },
+        "runstate.Attempt": {
+            "type": "object",
+            "properties": {
+                "attempt": {
+                    "type": "integer"
+                },
+                "claimed_at": {
+                    "type": "string"
+                },
+                "ended_at": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error is the failure or reason the attempt ended on, when it had one.",
+                    "type": "string"
+                },
+                "outcome": {
+                    "description": "Outcome is one of the Attempt* values.",
+                    "type": "string"
+                },
+                "worker": {
+                    "type": "string"
+                }
+            }
+        },
         "script.Contract": {
             "type": "object",
             "properties": {
@@ -32076,6 +32115,10 @@
                 "exports": {
                     "type": "integer"
                 },
+                "peak_memory_bytes": {
+                    "description": "PeakMemoryBytes is the most the run was measured holding (#1861): the\nStarlark values reachable from its frames and globals, sized at each\nhost call. It is an estimate of the interpreter's heap, not the\nprocess's, and is what a run's memory budget is enforced against.",
+                    "type": "integer"
+                },
                 "queries": {
                     "type": "integer"
                 },
@@ -32430,6 +32473,11 @@
                     "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
                     "type": "boolean"
                 },
+                "cause": {
+                    "description": "Cause is why a failed run failed and Retryable whether running it again\nis expected to succeed (#1859); both absent on any other status.",
+                    "type": "string",
+                    "example": "upstream"
+                },
                 "duration_ms": {
                     "type": "integer",
                     "example": 1840
@@ -32448,6 +32496,11 @@
                     "type": "string",
                     "example": "run_a1b2c3d4"
                 },
+                "liveness": {
+                    "description": "Liveness is what a running run's worker is doing (#1860): executing,\nunresponsive (it stopped reporting), or lease_expired. Absent on any\nother status, so a run whose worker is gone never reads as running.",
+                    "type": "string",
+                    "example": "executing"
+                },
                 "output_count": {
                     "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
                     "type": "integer",
@@ -32465,6 +32518,9 @@
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
                     "type": "string",
                     "example": "jane@example.com"
+                },
+                "retryable": {
+                    "type": "boolean"
                 },
                 "script_id": {
                     "type": "string"
@@ -32513,13 +32569,18 @@
                     "type": "string"
                 },
                 "outcome": {
-                    "description": "Outcome is canceled (it had not started and will not), requested (it\nis running and ends canceled within seconds) or already_finished.",
+                    "description": "Outcome is canceled (it had not started and will not), requested (it\nis running and ends canceled within seconds), canceled_orphaned (its\nworker had stopped reporting, so it was ended directly, #1860) or\nalready_finished.",
                     "type": "string",
                     "example": "requested"
                 },
                 "run_id": {
                     "type": "string",
                     "example": "run_a1b2c3d4"
+                },
+                "status": {
+                    "description": "Status is the run's status after the request: canceled when it ended\nhere, running while its worker is still to stop it.",
+                    "type": "string",
+                    "example": "running"
                 }
             }
         },
@@ -32800,6 +32861,11 @@
                     "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
                     "type": "boolean"
                 },
+                "cause": {
+                    "description": "Cause is why a failed run failed and Retryable whether running it again\nis expected to succeed (#1859); both absent on any other status.",
+                    "type": "string",
+                    "example": "upstream"
+                },
                 "duration_ms": {
                     "type": "integer",
                     "example": 1840
@@ -32818,6 +32884,11 @@
                     "type": "string",
                     "example": "run_a1b2c3d4"
                 },
+                "liveness": {
+                    "description": "Liveness is what a running run's worker is doing (#1860): executing,\nunresponsive (it stopped reporting), or lease_expired. Absent on any\nother status, so a run whose worker is gone never reads as running.",
+                    "type": "string",
+                    "example": "executing"
+                },
                 "output_count": {
                     "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
                     "type": "integer",
@@ -32835,6 +32906,9 @@
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
                     "type": "string",
                     "example": "jane@example.com"
+                },
+                "retryable": {
+                    "type": "boolean"
                 },
                 "started_at": {
                     "type": "string"
@@ -32859,12 +32933,26 @@
                 "attempt": {
                     "type": "integer"
                 },
+                "attempts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/runstate.Attempt"
+                    }
+                },
                 "cancel_requested": {
                     "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
                     "type": "boolean"
                 },
                 "cancel_requested_by": {
                     "description": "CancelRequestedBy is who asked a run to stop, on a run that was asked.",
+                    "type": "string"
+                },
+                "cause": {
+                    "description": "Cause is why a failed run failed and Retryable whether running it again\nis expected to succeed (#1859); both absent on any other status.",
+                    "type": "string",
+                    "example": "upstream"
+                },
+                "claimed_at": {
                     "type": "string"
                 },
                 "created_at": {
@@ -32884,9 +32972,24 @@
                 "fire_time": {
                     "type": "string"
                 },
+                "heartbeat_at": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string",
                     "example": "run_a1b2c3d4"
+                },
+                "liveness": {
+                    "description": "Liveness is what a running run's worker is doing (#1860): executing,\nunresponsive (it stopped reporting), or lease_expired. Absent on any\nother status, so a run whose worker is gone never reads as running.",
+                    "type": "string",
+                    "example": "executing"
+                },
+                "locked_by": {
+                    "type": "string",
+                    "example": "worker-1a2b3c4d5e6f7a8b"
+                },
+                "locked_until": {
+                    "type": "string"
                 },
                 "log": {
                     "description": "Log is the run's own account of itself, bounded at capture time, so\nreturning it whole is bounded too. On a running run it is the log so\nfar, written every few seconds (#1847).",
@@ -32921,6 +33024,10 @@
                         }
                     ]
                 },
+                "reclaims": {
+                    "description": "Reclaims, the holder and Attempts are the run's queue history (#1860):\nhow many times it was taken over from a worker that stopped reporting,\nwho holds it now and until when, when that worker last reported, and\nhow each earlier attempt ended.",
+                    "type": "integer"
+                },
                 "requested_by": {
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
                     "type": "string",
@@ -32929,6 +33036,9 @@
                 "result": {
                     "description": "Result is the value the run handed back with platform.result (#1845),\nabsent when it set none.",
                     "type": "object"
+                },
+                "retryable": {
+                    "type": "boolean"
                 },
                 "scheduled_for": {
                     "type": "string"
@@ -33072,6 +33182,11 @@
                     "description": "CancelRequested marks a running run somebody has asked to stop; it ends\ncanceled within seconds.",
                     "type": "boolean"
                 },
+                "cause": {
+                    "description": "Cause is why a failed run failed and Retryable whether running it again\nis expected to succeed (#1859); both absent on any other status.",
+                    "type": "string",
+                    "example": "upstream"
+                },
                 "duration_ms": {
                     "type": "integer",
                     "example": 1840
@@ -33090,6 +33205,11 @@
                     "type": "string",
                     "example": "run_a1b2c3d4"
                 },
+                "liveness": {
+                    "description": "Liveness is what a running run's worker is doing (#1860): executing,\nunresponsive (it stopped reporting), or lease_expired. Absent on any\nother status, so a run whose worker is gone never reads as running.",
+                    "type": "string",
+                    "example": "executing"
+                },
                 "output_count": {
                     "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
                     "type": "integer",
@@ -33107,6 +33227,9 @@
                     "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
                     "type": "string",
                     "example": "jane@example.com"
+                },
+                "retryable": {
+                    "type": "boolean"
                 },
                 "script_id": {
                     "type": "string",

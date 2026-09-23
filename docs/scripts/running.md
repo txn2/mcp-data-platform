@@ -509,6 +509,12 @@ the page offers the same as a Cancel or Stop control on a run still in flight:
   when it next writes the run's progress, stops the interpreter at its next
   step, and records the run with the outputs it had already written. A run that
   reported success as the request landed stays succeeded.
+- A running run whose worker has stopped reporting (#1860) is canceled at
+  once, with outcome `canceled_orphaned`: no worker will ever read the request,
+  so the store ends the run itself and clears its lease, which fences out a
+  worker that was only slow. A worker is "stopped reporting" when its lease has
+  expired or it has not written the run for 30 seconds; a live worker writes
+  every two seconds whatever the script is doing.
 - A finished run is left as it is, and the answer says so.
 
 Whoever may read a run may stop it: the script's owner, an administrator, and
@@ -897,8 +903,14 @@ between `max_memory_percent` and `shed_memory_percent` is the headroom for
 that. Past `shed_memory_percent`, the worker stops the most recently started
 run (it has the least work to lose) and puts it back on the queue with "the
 worker was under memory pressure". That is a platform fault, not a script
-failure, so it spends the platform's retry budget, never the script's, and the
-worker never stops its last run.
+failure, so it spends the platform's retry budget, never the script's.
+
+The last run is different (#1861). With one run executing and memory still past
+`shed_memory_percent`, requeueing it would rebuild the same heap wherever it ran
+next, and leaving it would let the kernel kill the container with every session
+on it. The worker stops it and fails it with cause `memory` instead; it is not
+retried. This applies under a fixed `concurrency` as well as adaptive
+admission, and never where memory cannot be measured.
 
 ```yaml
 scripts:
@@ -912,6 +924,8 @@ scripts:
     run_timeout: 15m          # wall-clock cap for one platform run
     max_steps: 20000000       # interpreter steps for one platform run
     max_query_rows: 20000     # rows one platform.query may return
+    max_run_memory: 50%       # what one run may hold: a share of the memory limit, a size, or unlimited
+    max_reclaims: 2           # take-overs from a dead worker before the run is failed
 ```
 
 Every value is optional; zero or a negative number takes the default, and a
@@ -929,12 +943,77 @@ timeout, so a larger result than `max_query_rows` allows goes through
 five minutes), so a longer run is never claimed a second time while it is still
 executing.
 
-Three series show whether capacity or load is what holds work back:
+### How much memory one run may hold
+
+A run is measured, not trusted (#1861). At every host call (`platform.query`,
+`platform.call`, `platform.export` and the rest) the platform sizes the Starlark
+values the script can still reach, from its frames and its globals, and adds the
+result the call is about to hand back. A run holding more than
+`scripts.worker.max_run_memory` fails there, not retried, with cause `memory`
+and an error naming the budget, what it held, and the tool results it had been
+handed:
+
+```text
+in platform.call: the run exceeded its 256 MiB memory budget, holding about 301 MiB
+of values after 7 api_invoke_endpoint results. ...
+```
+
+`max_run_memory` is a size (`300MiB`, `1GiB`, `500MB`), a share of the
+container's memory limit (`40%`), or `unlimited`. Left unset it is half the
+limit the replica runs under (the smaller of the cgroup limit and `GOMEMLIMIT`);
+a replica with neither sets no budget. A draft on the same replica meets the
+same budget. Every run is measured whether or not there is a budget, and the
+peak is recorded as `metrics.peak_memory_bytes` on the run and as
+`peak_memory_bytes` on a `run_draft` answer, so an author sees how close a
+draft came before a scheduled run does.
+
+The measure is an estimate of the interpreter's heap, calibrated against the
+Go runtime: it matches the live heap of values a script builds, and a page of
+rows decoded from a tool result measured about 1.65 times its live heap, which
+errs toward stopping a run early. Values built between two host calls are
+measured at the next one.
+
+What the budget exists to catch is holding a whole dataset at once. A page of
+JSON rows costs several times its wire size once decoded: measured, a 9 MB page
+allocates about 14 times its size while it is decoded and holds about 4.5 times
+it afterwards. Page the work and write each page as it arrives with
+[`platform.export(..., append=True)`](#paging-into-one-output), keeping only
+what the next page needs.
+
+### A worker that dies
+
+A worker killed mid-run (an out-of-memory kill, a lost node) leaves its run
+marked `running` under a lease nobody renews. When the lease expires the next
+claim takes the run over and executes it again from the top; the outputs the
+dead attempt already recorded are not written twice. A run that killed its
+worker usually kills the next one the same way, so take-overs are capped
+(#1860): once a run has been taken over `scripts.worker.max_reclaims` times
+(default 2) and its lease expires again, no claim takes it, and any worker's
+loop fails it with cause `worker_lost` and an error naming the last holder:
+
+```text
+the worker executing this run stopped without reporting a result 3 times (last held by
+worker-7f3a91c2d4e5b608 until 2026-09-23T10:14:00Z); it is not run again, ...
+```
+
+Until then the run never reads as plainly running. `get_run`, `runs`, the
+portal's run detail and `manage_script get` report its `liveness`
+(`executing`, `unresponsive` when its worker has not reported for 30 seconds,
+`lease_expired`), the holder (`locked_by`), `locked_until`, `heartbeat_at`,
+`attempt`, `reclaims`, and `attempts`: how each ended attempt ended
+(`finished`, `retried`, `released` at shutdown, `shed`, `lease_expired`,
+`unresponsive`). `manage_script get` and the script's page list the runs that
+have not ended (`live_runs`, and a **Running now** panel), so a run whose
+worker died is visible without knowing its id, and stopping it ends it at once.
+
+Four series show whether capacity or load is what holds work back:
 `script_runs_running` (runs executing on each replica),
 `script_run_admission_refusals_total` by `reason` (`ceiling`, `memory`, `cpu`,
-counted when the queue held work the replica declined), and
+counted when the queue held work the replica declined),
 `script_run_queue_wait_seconds` (how long a run waited between becoming due and
-being claimed).
+being claimed), and `script_run_reclaims_total` by `outcome` (`reexecuted` when
+another worker took a dead worker's run over, `failed` when its take-overs were
+spent). A rising `failed` count is a run that kills its worker.
 
 ## What a run produces
 
@@ -1312,6 +1391,50 @@ print(out["reference"], out["uri"], out["version"])
   measure it and nothing is written. A draft run with `allow_writes` writes it,
   into the caller's library.
 
+### Paging into one output
+
+`platform.export(..., append=True)` adds a page of rows to an output the run
+builds across calls (#1861), so a paged API or a large query becomes one file,
+and one registered table, without the script holding every page:
+
+```python
+cursor = None
+for _ in range(200):
+    page = platform.call("api_invoke_endpoint", {
+        "connection": "billing", "method": "GET", "path": "/v1/invoices",
+        "query_params": {"limit": 5000, "cursor": cursor},
+    })
+    if page["status"] != 200:
+        platform.progress("stopped at HTTP %d" % page["status"])
+        break
+    out = platform.export(
+        name="Invoices",
+        rows=page["body"]["data"],
+        format="jsonl",
+        destination="resources",
+        key="billing/invoices.jsonl",
+        register={"connection": "scratch", "table_name": "invoices"},
+        append=True,
+    )
+    cursor = page["body"].get("next_cursor")
+    if not cursor:
+        break
+```
+
+Each page is serialized when it arrives and only the bytes are kept, so the
+Starlark values of a page are the script's to drop before the next one. The
+first call to a name and destination starts the output and fixes its key,
+`register=`, `tags=` and `metadata=`; every later call passes `append=True` and
+adds rows. It takes `csv` or `jsonl`: a CSV keeps its first page's header, and a
+later page with a column the header lacks fails the call. Each call returns the
+rows and bytes the output holds so far, with `appending: True`.
+
+The output is written once, when the script finishes, as one version and one
+recorded output, and its table is registered then. A run that fails part-way
+writes none of it, because a partial file under a registered table is a
+dataset that silently lost its tail. The output ceiling applies to the whole
+file, and a draft measures it as it measures any output.
+
 ### From rows to a table a query can read
 
 A script that loads API results into a warehouse table writes the rows to a
@@ -1497,10 +1620,43 @@ save, a disable and an ownership transfer, and it is deleted with the script.
 
 ## Failures
 
-A script failure is **never retried**. The same version, on the same inputs,
-fails the same way, so retrying multiplies the cost and changes nothing; the
-run is marked failed and carries the Starlark backtrace. The fix is to correct
-the script, dry-run it, and save the correction.
+A failed run carries its `cause` and whether it is `retryable`, meaning whether
+running it again unchanged is expected to succeed (#1859). The owner's failure
+email says the same thing in words.
+
+| Cause | What failed | Retryable |
+|---|---|---|
+| `script` | The script: an evaluation error, `fail()`, an argument a binding refused, a step or time limit | no |
+| `upstream` | A service the script called: it timed out, dropped the connection, or could not be reached | yes |
+| `memory` | The run held more than its budget, or more than its replica had with it the only run executing | no |
+| `worker_lost` | Its workers kept stopping without a result until its take-overs were spent | no |
+| `platform` | The run's session or its script could not be opened or read, past the attempt budget | no |
+| `state_conflict` | Another run of the script saved its state first; the outputs stand | yes |
+
+The platform never re-executes a failed run on its own, whatever the cause: a
+run that already queried or wrote must not be replayed on the chance that its
+last call was a transient fault. A retryable failure is one the next scheduled
+fire, or whoever runs it again, is expected to get past; a script failure is
+one that fails the same way until the script is corrected, dry-run, and saved.
+
+An upstream's own refusals are handled before they fail anything. When
+`api_invoke_endpoint` or `api_export` is answered with a 429, or with a 503 to a
+GET or HEAD, the result carries `upstream_retryable: true` and the interval the
+upstream asked for in `retry_after_seconds`. Inside a run the host waits that
+interval (1s, 2s, then 4s when the upstream named none) and issues the call
+again, at most three times and never past the run's deadline, writing each wait
+to the log:
+
+```text
+upstream answered 429 Too Many Requests to api_export; waited 1s and retried (1 of 3)
+```
+
+After that the script has the upstream's last answer as data and decides what
+to do with it. `api_export` into a managed resource answers a non-2xx upstream
+with the status, the upstream's headers and `resource_unchanged: true` rather
+than an error: the resource keeps its previous version, and a script can record
+a bad day and carry on with the next item. Only an upstream that did not answer
+at all fails the call, and the run, with cause `upstream`.
 
 The rate limit is not a script failure either. Every call a script makes
 crosses the [tool-call rate limiter](../server/configuration.md#tool-call-rate-limiting),
@@ -1540,7 +1696,8 @@ A worker that dies mid-run does not strand it. Each claim carries a lease; when
 the lease expires the run becomes claimable again, and the worker that lost it
 can no longer write to it. An output the lost run had already written is not
 written twice: the run records each output as it lands, and a reclaimed run
-skips what it already produced.
+skips what it already produced. How many times a run is taken over is capped;
+see [a worker that dies](#a-worker-that-dies).
 
 ## Seeing what happened
 
@@ -1552,7 +1709,11 @@ last run went.
 history with each version's author and the roles a run of it presents, and its
 run history with each run's trigger, duration, outputs, the result it handed
 back, and the log it printed, and, for a run still in flight, how far it has got
-and a control to stop it.
+and a control to stop it. A failed run says whether it is expected to succeed
+when run again; a running run whose worker stopped reporting reads **worker not
+responding** or **worker gone** rather than running, and opening it shows the
+holder, the lease, the last report and how each earlier attempt ended. Runs
+that have not ended are listed under **Running now** at the top.
 See the [portal guide](../portal/scripts.md).
 
 A run is the owner's and the administrator's to read, plus whoever requested

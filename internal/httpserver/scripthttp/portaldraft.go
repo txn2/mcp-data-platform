@@ -11,7 +11,9 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -295,22 +297,30 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 	if outcome.Failed() {
 		out.Status = script.RunStatusFailed
 		out.Error = outcome.Err.Error()
-		out.Message = dryRunFailureMessage(out.RefusedWrite)
+		out.Message = dryRunFailureMessage(out.RefusedWrite, scriptguard.Cause(outcome.Err))
 	}
 	return out
 }
 
-// dryRunFailureMessage separates the two failures an author acts on
-// differently: a script that is wrong, and a script that is right but wanted to
-// write.
-func dryRunFailureMessage(refused *scriptrun.WriteRecord) string {
-	if refused != nil {
+// dryRunFailureMessage separates the failures an author acts on differently: a
+// script that is wrong, a script that is right but wanted to write, an
+// upstream that was briefly unavailable, and a run that held too much (#1859).
+func dryRunFailureMessage(refused *scriptrun.WriteRecord, cause string) string {
+	switch {
+	case refused != nil:
 		return "The dry run stopped at a call that persists (refused_write), because a dry run does not " +
 			"write. Run it again with allow_writes to let it write for real, and it will report every " +
 			"write it made."
+	case cause == runstate.CauseUpstream:
+		return "A service the script called was temporarily unavailable; there is nothing in the script to " +
+			"fix. Dry-run it again in a moment."
+	case cause == runstate.CauseMemory:
+		return "The dry run held more memory than a run is allowed. Page the work and export each page " +
+			"with platform.export(..., append=True), and keep only what the next page needs."
+	default:
+		return "A script failure is deterministic: the same source on the same inputs fails " +
+			"the same way, so running it again changes nothing. Fix the script and dry-run it again."
 	}
-	return "A script failure is deterministic: the same source on the same inputs fails " +
-		"the same way, so running it again changes nothing. Fix the script and dry-run it again."
 }
 
 // draftMetrics projects the engine's result into the metrics shape every other
@@ -322,6 +332,8 @@ func draftMetrics(result *scriptrun.Result) script.RunMetrics {
 		DurationMS: result.Duration.Milliseconds(),
 		Queries:    result.Queries,
 		Exports:    len(result.Exports),
+		// What the draft was measured holding at its peak (#1861).
+		PeakMemoryBytes: result.PeakMemory,
 	}
 }
 

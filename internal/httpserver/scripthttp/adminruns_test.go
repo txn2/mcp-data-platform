@@ -33,15 +33,16 @@ func (*adminRunStore) GetRun(context.Context, string) (*script.Run, error) {
 	return nil, script.ErrRunNotFound
 }
 func (*adminRunStore) Enqueue(context.Context, *script.Run) error { return nil }
-func (*adminRunStore) Claim(context.Context, string, time.Duration) (*script.Run, error) {
+func (*adminRunStore) Claim(context.Context, string, time.Duration, int) (*script.Run, error) {
 	return nil, script.ErrNoWork
 }
+func (*adminRunStore) FailAbandoned(context.Context, int) ([]script.Run, error) { return nil, nil }
 
 func (*adminRunStore) RecordOutput(context.Context, script.RunLease, script.RunOutput) error {
 	return nil
 }
 func (*adminRunStore) Finish(context.Context, script.RunLease, script.RunResult) error { return nil }
-func (*adminRunStore) Retry(context.Context, script.RunLease, string, time.Duration) error {
+func (*adminRunStore) Retry(context.Context, script.RunLease, string, string, time.Duration) error {
 	return nil
 }
 func (*adminRunStore) PurgeRuns(context.Context, time.Duration) (int64, error) { return 0, nil }
@@ -49,8 +50,8 @@ func (*adminRunStore) RecordProgress(context.Context, script.RunLease, script.Ru
 	return false, "", nil
 }
 
-func (*adminRunStore) CancelRun(context.Context, string, string) (string, error) {
-	return "", script.ErrRunNotFound
+func (*adminRunStore) CancelRun(context.Context, string, string) (prior, now string, err error) {
+	return "", "", script.ErrRunNotFound
 }
 
 func adminRunDeps(store *adminRunStore) Deps {

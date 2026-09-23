@@ -125,6 +125,7 @@ const (
 	// an operator can tell capacity from load as what holds work back.
 	instScriptAdmissionRefusals = "script_run_admission_refusals"
 	instScriptQueueWait         = "script_run_queue_wait"
+	instScriptRunReclaims       = "script_run_reclaims"
 
 	instTrinoQueries        = "trino_queries"
 	instTrinoQueryDuration  = "trino_query_duration"
@@ -306,6 +307,7 @@ type Metrics struct {
 	scriptRunsRunning metric.Int64UpDownCounter
 	scriptMissedFires metric.Int64Counter
 	scriptRefusals    metric.Int64Counter
+	scriptReclaims    metric.Int64Counter
 	scriptQueueWait   metric.Float64Histogram
 
 	trinoQueriesTotal    metric.Int64Counter
@@ -577,6 +579,12 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 				metric.WithDescription("Times a replica's run worker declined to claim another run while the queue held work, labeled by reason (ceiling, memory, cpu). A steady rate is a replica at capacity; the runs wait queued for this one or another replica."))
 			m.scriptRefusals = v
 			return wrapReg(instScriptAdmissionRefusals, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instScriptRunReclaims,
+				metric.WithDescription("Managed-script runs found with an expired lease and no worker reporting, labeled by outcome: reexecuted (taken over by another worker) or failed (its reclaims were spent). A rising failed count is a run that kills its worker, most often by running out of memory."))
+			m.scriptReclaims = v
+			return wrapReg(instScriptRunReclaims, err)
 		},
 		func() error {
 			v, err := meter.Float64Histogram(instScriptQueueWait,
@@ -970,6 +978,23 @@ func (m *Metrics) RecordScriptAdmissionRefused(ctx context.Context, reason strin
 		return
 	}
 	m.scriptRefusals.Add(ctx, 1, metric.WithAttributes(attribute.String(attrReason, reason)))
+}
+
+// Reclaim outcomes, as RecordScriptRunReclaim labels them (#1860).
+const (
+	// ReclaimReexecuted is a run another worker took over and executes again.
+	ReclaimReexecuted = "reexecuted"
+	// ReclaimFailed is a run failed because its reclaims were spent.
+	ReclaimFailed = "failed"
+)
+
+// RecordScriptRunReclaim counts one run found with its lease expired and no
+// worker reporting, by what became of it (#1860). Nil-safe.
+func (m *Metrics) RecordScriptRunReclaim(ctx context.Context, outcome string) {
+	if m == nil {
+		return
+	}
+	m.scriptReclaims.Add(ctx, 1, metric.WithAttributes(attribute.String(attrOutcome, outcome)))
 }
 
 // RecordScriptQueueWait records how long a claimed run waited after it became

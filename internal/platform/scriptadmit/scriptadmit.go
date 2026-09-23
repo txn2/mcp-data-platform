@@ -157,6 +157,25 @@ func (a Admitter) Shed(live int) bool {
 	return s.MemoryKnown && s.MemoryPercent >= a.ShedMemoryPercent
 }
 
+// OverShed reports whether the replica's memory is past the shed threshold,
+// with a sentence saying so for the run the worker stops (#1861). It answers
+// under every admission, because it is what stands between the only run a
+// replica is executing and the kernel killing the container: Shed never stops
+// the last run, since requeueing it would rebuild the same heap elsewhere, so
+// the last run over the line is failed instead. A replica whose memory the
+// platform cannot measure is never over.
+func (a Admitter) OverShed() (over bool, reason string) {
+	s := a.load.Sample()
+	if !s.MemoryKnown || s.MemoryPercent < a.ShedMemoryPercent {
+		return false, ""
+	}
+	return true, fmt.Sprintf("the run was stopped because its replica's memory reached %.0f%% of its limit "+
+		"(scripts.worker.shed_memory_percent is %.0f) with this run the only one executing; left to grow, the "+
+		"container would have been killed with every session on it. Page the work and export each page "+
+		"(platform.export with append=True), or hold less of each result at once",
+		s.MemoryPercent, a.ShedMemoryPercent)
+}
+
 // concurrencyAdaptive is the Config.Concurrency value that follows the load.
 const concurrencyAdaptive = "adaptive"
 
@@ -186,7 +205,99 @@ type Config struct {
 	// ResultMaxBytes caps the value a run hands back with platform.result
 	// (#1845, default 1 MiB).
 	ResultMaxBytes int `yaml:"result_max_bytes"`
+	// MaxReclaims is how many times a run is taken over from a worker whose
+	// lease expired before it is failed instead (#1860, default 2).
+	MaxReclaims int `yaml:"max_reclaims"`
+	// MaxRunMemory is how much memory one run may hold (#1861): an absolute
+	// size ("300MiB", "1GiB"), a share of the container's memory limit
+	// ("50%"), or "unlimited". Empty is DefaultRunMemoryPercent of the limit
+	// where the platform can read one, and no budget where it cannot.
+	MaxRunMemory string `yaml:"max_run_memory"`
 }
+
+// DefaultRunMemoryPercent is the share of the container's memory limit one
+// run may hold when scripts.worker.max_run_memory is unset (#1861). Half
+// leaves the other half for the runs beside it, the sessions the replica
+// serves, and the garbage collector's headroom.
+const DefaultRunMemoryPercent = 50
+
+// runMemoryUnlimited is the MaxRunMemory value that sets no budget.
+const runMemoryUnlimited = "unlimited"
+
+// sizeUnits are the suffixes MaxRunMemory accepts, longest first so "MiB" is
+// matched before "B".
+var sizeUnits = []struct {
+	suffix string
+	bytes  int64
+}{
+	{"GiB", 1 << 30},
+	{"MiB", 1 << 20},
+	{"KiB", 1 << 10},
+	{"GB", 1_000_000_000},
+	{"MB", 1_000_000},
+	{"KB", 1_000},
+	{"B", 1},
+}
+
+// RunMemoryBudget is the bytes one run may hold, given the container's memory
+// limit (0 when none is known), or 0 for no budget. A value it cannot read is
+// refused, so a misspelling fails at startup rather than quietly running
+// without a budget.
+func (c Config) RunMemoryBudget(limit int64) (int64, error) {
+	raw := strings.TrimSpace(c.MaxRunMemory)
+	switch {
+	case raw == "":
+		return limit * DefaultRunMemoryPercent / percentScale, nil
+	case strings.EqualFold(raw, runMemoryUnlimited):
+		return 0, nil
+	case strings.HasSuffix(raw, "%"):
+		return c.memoryShare(raw, limit)
+	default:
+		return c.memorySize(raw)
+	}
+}
+
+// memoryShare reads "40%" as that share of limit.
+func (c Config) memoryShare(raw string, limit int64) (int64, error) {
+	pct, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(raw, "%")), floatBits)
+	if err != nil || pct <= 0 || pct > percentScale {
+		return 0, fmt.Errorf("scripts.worker.max_run_memory: %q is not a share of the container's memory between 0%% and 100%%", c.MaxRunMemory)
+	}
+	return int64(float64(limit) * pct / percentScale), nil
+}
+
+// memorySize reads "300MiB" as that many bytes.
+func (c Config) memorySize(raw string) (int64, error) {
+	for _, u := range sizeUnits {
+		number, found := strings.CutSuffix(raw, u.suffix)
+		if !found {
+			continue
+		}
+		if n, err := strconv.ParseFloat(strings.TrimSpace(number), floatBits); err == nil && n > 0 {
+			return int64(n * float64(u.bytes)), nil
+		}
+		break
+	}
+	return 0, fmt.Errorf("scripts.worker.max_run_memory: %q is neither a size (\"300MiB\", \"1GiB\"), a share of the container's memory (\"50%%\"), nor %q",
+		c.MaxRunMemory, runMemoryUnlimited)
+}
+
+// floatBits is the precision a configured number is read at.
+const floatBits = 64
+
+// ProcessRunMemoryBudget is RunMemoryBudget against this process's memory
+// limit, which a platform run and a draft on this replica share. A value it
+// cannot read sets no budget; Config validation refuses one at startup.
+func (c Config) ProcessRunMemoryBudget() int64 {
+	budget, err := c.RunMemoryBudget(procload.MemoryLimit())
+	if err != nil {
+		return 0
+	}
+	return budget
+}
+
+// percentScale is what a percentage is a share of.
+const percentScale = 100
 
 // Admission reads the configured admission. A Concurrency that is neither
 // "adaptive" nor a whole number is refused, so a misspelling fails at startup

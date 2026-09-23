@@ -2,6 +2,7 @@ package procload
 
 import (
 	"io/fs"
+	"os"
 	"testing"
 	"time"
 
@@ -104,4 +105,8 @@ func TestNew_ReadsThisProcess(t *testing.T) {
 	s := New()
 	assert.NotPanics(t, func() { _ = s.Sample() })
 	assert.Positive(t, goMemory())
+}
+
+func TestMemoryLimit_IsTheSmallestLimitInForce(t *testing.T) {
+	assert.Equal(t, memoryLimit(os.ReadFile), MemoryLimit())
 }

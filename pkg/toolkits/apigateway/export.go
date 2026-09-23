@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -252,7 +253,13 @@ type exportOutput struct {
 	// what the write did to the tables registered over the file. Set instead of
 	// asset_id, never beside it.
 	Resource *toolkit.ResourceLanding `json:"resource,omitempty"`
-	Message  string                   `json:"message"`
+	// ResourceUnchanged, UpstreamHeaders and the advice are set instead of
+	// Resource when the upstream did not answer a resource export
+	// successfully: nothing landed, and this is what it said (#1859).
+	ResourceUnchanged bool                `json:"resource_unchanged,omitempty"`
+	UpstreamHeaders   map[string][]string `json:"upstream_headers,omitempty"`
+	upstreamretry.Advice
+	Message string `json:"message"`
 	// WalkStats is set on a page walk; nil on a single-page export.
 	*WalkStats
 }
@@ -374,7 +381,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 	out, runErr := t.runExport(ctx, args)
 	if runErr != nil {
-		return toolkit.ErrorResult(runErr.Error()), nil, nil
+		return budgetOrErrorResult(runErr), nil, nil
 	}
 	return toolkit.JSONResult(out), out, nil
 }
@@ -453,7 +460,7 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	// SSRF guards as api_invoke_endpoint, same #nosec rationale.
 	resp, err := client.Do(req) //nolint:bodyclose // closed below
 	if err != nil {
-		return nil, fmt.Errorf("upstream request: %s", scrubTransportError(err))
+		return nil, &transportError{msg: "upstream request: " + scrubTransportError(err)}
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
@@ -471,10 +478,8 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 		return nil, fmt.Errorf("upstream response (%d bytes) exceeds api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", resp.ContentLength, deps.Config.MaxBytes)
 	}
 
-	if in.Resource != nil {
-		if err := refuseUnsuccessfulLanding(resp.StatusCode, exportDestinationOf(in)); err != nil {
-			return nil, err
-		}
+	if in.Resource != nil && !successful(resp.StatusCode) {
+		return unchangedResource(in, resp), nil
 	}
 
 	declaredType := resp.Header.Get("Content-Type")

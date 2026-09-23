@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -23,8 +24,20 @@ var runSelectColumns = []string{
 	"locked_until", "locked_by", "error", "log_text", "log_truncated", "metrics", "outputs",
 	"schedule_id", "state_revision", "state_read", "state_written", "state_revision_written",
 	"result", "progress_message", "progress_done", "progress_total", "progress_at",
-	"cancel_requested_at", "cancel_requested_by", "created_at", "updated_at",
+	"cancel_requested_at", "cancel_requested_by", "reclaims", "attempts", "claimed_at",
+	"heartbeat_at", "failure_cause", "created_at", "updated_at",
 }
+
+// Positions in runSelectColumns the tests below set.
+const (
+	colReclaims     = 32
+	colAttempts     = 33
+	colFailureCause = 36
+)
+
+// claimColumns is what a claim hands back: the run, then whether it took the
+// run over from a worker whose lease expired.
+var claimColumns = append(append([]string{}, runSelectColumns...), "reclaimed")
 
 // runRow returns one full run row in runColumns order.
 func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolint:unparam // attempt is part of the row shape these cases assert against
@@ -36,7 +49,8 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		[]byte(`{"day":"2026-08-12"}`), rowTime, "jane@example.com", rowTime, nil, nil, attempt,
 		nil, "worker-a", "", "", false, []byte(`{"steps":10}`), outputs,
 		"", int64(0), []byte("{}"), nil, nil,
-		nil, "", nil, nil, nil, nil, "", rowTime, rowTime,
+		nil, "", nil, nil, nil, nil, "", 0, []byte("[]"), nil,
+		nil, "", rowTime, rowTime,
 	}
 }
 
@@ -242,21 +256,80 @@ func TestListRuns_QueryFailureIsWrapped(t *testing.T) {
 func TestClaim_TakesTheRunAndStampsTheLease(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).
-		WithArgs("worker-a", 900).
-		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(runRow(script.RunStatusRunning, 1, nil)...))
+		WithArgs("worker-a", 900, runstate.DefaultMaxReclaims).
+		WillReturnRows(sqlmock.NewRows(claimColumns).AddRow(append(runRow(script.RunStatusRunning, 1, nil), false)...))
 
-	run, err := s.Claim(context.Background(), "worker-a", 15*time.Minute)
+	run, err := s.Claim(context.Background(), "worker-a", 15*time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusRunning, run.Status)
 	assert.Equal(t, script.RunLease{RunID: "dpx_1", Worker: "worker-a", Attempt: 1}, run.Lease())
+	assert.False(t, run.Reclaimed, "a pending run is claimed, not taken over")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClaim_ReportsATakeOver pins the flag a claim of a dead worker's run
+// carries, which is what the worker counts, and that the cap is in the claim
+// statement itself.
+func TestClaim_ReportsATakeOver(t *testing.T) {
+	s, mock := newMock(t)
+	row := append(runRow(script.RunStatusRunning, 2, nil), true)
+	row[colReclaims] = 1
+	row[colAttempts] = []byte(`[{"attempt":1,"worker":"worker-gone","outcome":"lease_expired"}]`)
+	mock.ExpectQuery(regexp.QuoteMeta("AND reclaims < $3")).WithArgs("worker-a", 60, 2).
+		WillReturnRows(sqlmock.NewRows(claimColumns).AddRow(row...))
+
+	run, err := s.Claim(context.Background(), "worker-a", time.Minute, 2)
+	require.NoError(t, err)
+	assert.True(t, run.Reclaimed)
+	assert.Equal(t, 1, run.Reclaims)
+	require.Len(t, run.Attempts, 1)
+	assert.Equal(t, runstate.AttemptLeaseExpired, run.Attempts[0].Outcome)
+	assert.Equal(t, "worker-gone", run.Attempts[0].Worker)
+}
+
+// TestFailAbandoned_FailsRunsWhoseReclaimsAreSpent pins the sweep: it fails
+// only running rows with an expired lease and spent reclaims, clears the
+// lease so a slow holder is fenced out, and returns what it failed.
+func TestFailAbandoned_FailsRunsWhoseReclaimsAreSpent(t *testing.T) {
+	s, mock := newMock(t)
+	row := runRow(script.RunStatusFailed, 3, nil)
+	row[colFailureCause] = runstate.CauseWorkerLost
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE status = 'running' AND locked_until < NOW() AND reclaims >= $1")).
+		WithArgs(2, abandonedLimit).
+		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(row...))
+	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	failed, err := s.FailAbandoned(context.Background(), 2)
+	require.NoError(t, err)
+	require.Len(t, failed, 1)
+	assert.Equal(t, runstate.CauseWorkerLost, failed[0].Cause)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFailAbandoned_NothingAbandonedAndFailures(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).WillReturnRows(sqlmock.NewRows(runSelectColumns))
+	failed, err := s.FailAbandoned(context.Background(), 2)
+	require.NoError(t, err)
+	assert.Empty(t, failed)
+	assert.NotNil(t, failed, "an empty sweep is an empty list")
+
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).WillReturnError(errors.New("boom"))
+	_, err = s.FailAbandoned(context.Background(), 2)
+	require.ErrorContains(t, err, "failing abandoned script runs")
+
+	bad := runRow(script.RunStatusFailed, 3, nil)
+	bad[6] = []byte("{not json")
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(bad...))
+	_, err = s.FailAbandoned(context.Background(), 2)
+	require.ErrorContains(t, err, "unmarshal run params")
 }
 
 func TestClaim_NoDueRunIsNotAFailure(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).WillReturnRows(sqlmock.NewRows(runSelectColumns))
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).WillReturnRows(sqlmock.NewRows(claimColumns))
 
-	_, err := s.Claim(context.Background(), "worker-a", time.Minute)
+	_, err := s.Claim(context.Background(), "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	assert.ErrorIs(t, err, script.ErrNoWork)
 }
 
@@ -264,7 +337,7 @@ func TestClaim_FailureIsWrapped(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE script_runs")).WillReturnError(errors.New("boom"))
 
-	_, err := s.Claim(context.Background(), "worker-a", time.Minute)
+	_, err := s.Claim(context.Background(), "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "claim script run")
 }
@@ -286,7 +359,8 @@ func TestLeaseFencing(t *testing.T) {
 			return s.Finish(context.Background(), testLease, script.RunResult{Status: script.RunStatusSucceeded})
 		}, "finish script run"},
 		{"retry", "UPDATE script_runs", func(s *Store) error {
-			return s.Retry(context.Background(), testLease, "trino unreachable", time.Minute)
+			return s.Retry(context.Background(), testLease,
+				runstate.AttemptRetried, "trino unreachable", time.Minute)
 		}, "retry script run"},
 	}
 	for _, w := range writes {
@@ -329,7 +403,7 @@ func TestFinish_WritesTheResultAndWakesWaiters(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
 		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "log line", false, sqlmock.AnyArg(), nil, nil,
-			nil, "", nil, nil, nil).
+			nil, "", nil, nil, nil, runstate.CauseScript).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
 		WithArgs(NotifyChannel, "dpx_1").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -375,6 +449,7 @@ func TestScanRun_MalformedJSONIsReported(t *testing.T) {
 		{"params", func(row []driver.Value) { row[6] = []byte("{not json") }, "unmarshal run params"},
 		{"metrics", func(row []driver.Value) { row[18] = []byte("{not json") }, "unmarshal run metrics"},
 		{"outputs", func(row []driver.Value) { row[19] = []byte("{not json") }, "unmarshal run outputs"},
+		{"attempts", func(row []driver.Value) { row[colAttempts] = []byte("{not json") }, "unmarshal run attempts"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

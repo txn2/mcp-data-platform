@@ -1,6 +1,7 @@
 package scriptlayer
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
@@ -205,16 +207,73 @@ func runResult(sc *script.Script, run *script.Run) map[string]any {
 	if run.Result != nil {
 		out["result"] = run.Result
 	}
+	out["metrics"] = run.Metrics
 	switch run.Status {
 	case script.RunStatusFailed:
+		// Why it failed decides whether running it again helps (#1859).
+		cause := cmp.Or(run.Cause, runstate.CauseScript)
 		out["error"] = run.Error
-		out["retryable"] = false
-		out["message"] = "A script failure is deterministic: the same version on the same inputs fails the same way, so the platform does not retry it. Fix the script with run_draft and save the fix."
+		out["cause"] = cause
+		out["retryable"] = runstate.CauseRetryable(cause)
+		out["message"] = failureMessages[cause]
+	case script.RunStatusRunning:
+		if msg := livenessMessage(run, time.Now()); msg != "" {
+			out["message"] = msg
+		}
 	case script.RunStatusCanceled:
 		out["error"] = run.Error
 		out["message"] = "The run was canceled. The outputs it wrote before it stopped are listed and stand."
 	}
 	return out
+}
+
+// failureMessages says, for each cause a run fails with, what it means for
+// whoever reads the run: whether there is something in the script to fix, and
+// whether running it again is expected to succeed (#1859, #1860, #1861).
+var failureMessages = map[string]string{
+	runstate.CauseScript: "A script failure is deterministic: the same version on the same inputs fails the same way, " +
+		"so the platform does not retry it. Fix the script with run_draft and save the fix.",
+	runstate.CauseUpstream: "The run failed because a service it called was temporarily unavailable: it timed out, " +
+		"dropped the connection, or kept refusing after the platform waited and retried. This is usually temporary " +
+		"and there is nothing in the script to fix; run it again later, and a schedule tries again at its next fire.",
+	runstate.CauseMemory: "The run held more memory than it is allowed (scripts.worker.max_run_memory), or more than " +
+		"its replica had, and fails the same way until it holds less. Page the work, export each page with " +
+		"platform.export(..., append=True), and keep only what the next page needs; metrics.peak_memory_bytes is " +
+		"what it reached.",
+	runstate.CauseWorkerLost: "The worker executing this run stopped without reporting a result each time it was " +
+		"tried, most often because the run used more memory than its replica has, so it is not run again. Page the " +
+		"work and export each page with platform.export(..., append=True).",
+	runstate.CausePlatform: "The platform could not execute the run: its session or its script could not be read. " +
+		"There is nothing in the script to fix; run it again.",
+	runstate.CauseStateConflict: "Another run of this script saved its state first, so this run's platform.save_state " +
+		"was refused; the outputs it wrote stand. Run it again and it reads the state the other run saved.",
+}
+
+// livenessMessage says what is happening to a running run whose worker is not
+// reporting, so it never reads as a run being executed (#1860). Empty for a
+// run whose worker is.
+func livenessMessage(run *script.Run, now time.Time) string {
+	switch run.Liveness(now) {
+	case runstate.LivenessUnresponsive:
+		return fmt.Sprintf("The worker executing this run (%s) stopped reporting at %s and is most likely gone, "+
+			"a replica that was killed or restarted. The run is taken over when its lease ends at %s, or failed if "+
+			"its reclaims are spent; cancel_run ends it now.",
+			run.LockedBy, timeText(run.HeartbeatAt), timeText(run.LockedUntil))
+	case runstate.LivenessLeaseExpired:
+		return fmt.Sprintf("The worker that held this run (%s) stopped reporting and its lease ended at %s. The next "+
+			"worker to claim it takes it over, or fails it if its reclaims are spent; cancel_run ends it now.",
+			run.LockedBy, timeText(run.LockedUntil))
+	default:
+		return ""
+	}
+}
+
+// timeText renders a time a message names, or "an unknown time".
+func timeText(t *time.Time) string {
+	if t == nil {
+		return "an unknown time"
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // pendingResult renders a run that outlived the caller's wait, or one the
@@ -260,7 +319,25 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 	if run.CancelRequestedAt != nil && !run.Terminal() {
 		out["cancel_requested_by"] = run.CancelRequestedBy
 	}
+	holderFields(out, run)
 	return out
+}
+
+// holderFields adds who holds a run and how each earlier attempt ended
+// (#1860), so an orphaned or looping run is visible without the run table.
+func holderFields(out map[string]any, run *script.Run) {
+	out["reclaims"] = run.Reclaims
+	if len(run.Attempts) > 0 {
+		out["attempts"] = run.Attempts
+	}
+	if run.Status != script.RunStatusRunning {
+		return
+	}
+	out["liveness"] = run.Liveness(time.Now())
+	out["locked_by"] = run.LockedBy
+	out["locked_until"] = run.LockedUntil
+	out["heartbeat_at"] = run.HeartbeatAt
+	out["claimed_at"] = run.ClaimedAt
 }
 
 // orEmptyOutputs normalizes a nil output slice so a response carries a list

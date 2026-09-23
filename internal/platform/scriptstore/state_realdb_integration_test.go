@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -33,7 +34,7 @@ func queued(ctx context.Context, t *testing.T, s *Store, sc *script.Script, v *s
 // claimed claims the next due run for worker.
 func claimed(ctx context.Context, t *testing.T, s *Store, worker string) *script.Run {
 	t.Helper()
-	run, err := s.Claim(ctx, worker, time.Minute)
+	run, err := s.Claim(ctx, worker, time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	return run
 }

@@ -243,4 +243,19 @@ print("preview", out["preview"])
 func TestWithExports_OnANilRunner(t *testing.T) {
 	var runner *Runner
 	assert.Nil(t, runner.WithExports(nil))
+	assert.Nil(t, runner.WithMemoryBudget(1))
+}
+
+// TestRun_HoldsADraftToTheMemoryBudget holds #1861 on the draft path: a draft
+// runs on a serving replica and meets the budget a platform run does, and
+// reports the peak it reached.
+func TestRun_HoldsADraftToTheMemoryBudget(t *testing.T) {
+	outcome, err := New(server(t), nil).WithMemoryBudget(64<<10).Run(context.Background(), Request{
+		Source: "held = [\"x\" * 1024 + str(i) for i in range(200)]\nplatform.call(\"echo\", {})\n",
+		Name:   "big", Identity: jane,
+	})
+	require.NoError(t, err)
+	require.True(t, outcome.Failed())
+	assert.Contains(t, outcome.Err.Error(), "64 KiB memory budget")
+	assert.Positive(t, outcome.Result.PeakMemory)
 }
