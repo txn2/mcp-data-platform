@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -79,13 +80,13 @@ func TestRealDB_ClaimIsExclusiveAcrossWorkers(t *testing.T) {
 		}))
 	}
 
-	first, err := s.Claim(ctx, "worker-a", time.Minute)
+	first, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
-	second, err := s.Claim(ctx, "worker-b", time.Minute)
+	second, err := s.Claim(ctx, "worker-b", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	assert.NotEqual(t, first.ID, second.ID, "two workers must not take the same run")
 
-	_, err = s.Claim(ctx, "worker-c", time.Minute)
+	_, err = s.Claim(ctx, "worker-c", time.Minute, runstate.DefaultMaxReclaims)
 	assert.ErrorIs(t, err, script.ErrNoWork, "a leased run is not due for anyone else")
 }
 
@@ -105,10 +106,10 @@ func TestRealDB_ExpiredLeaseIsReclaimedAndFencesTheOldWorker(t *testing.T) {
 
 	// A zero lease expires the instant it is taken, which is the state a worker
 	// that died mid-run leaves behind.
-	crashed, err := s.Claim(ctx, "worker-a", 0)
+	crashed, err := s.Claim(ctx, "worker-a", 0, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 
-	reclaimed, err := s.Claim(ctx, "worker-b", time.Minute)
+	reclaimed, err := s.Claim(ctx, "worker-b", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	assert.Equal(t, crashed.ID, reclaimed.ID)
 	assert.Equal(t, crashed.Attempt+1, reclaimed.Attempt, "reclaiming counts as another attempt")
@@ -140,7 +141,7 @@ func TestRealDB_RecordOutputAppendsAndRetryRequeues(t *testing.T) {
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,
 	}))
-	run, err := s.Claim(ctx, "worker-a", time.Minute)
+	run, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 
 	require.NoError(t, s.RecordOutput(ctx, run.Lease(), script.RunOutput{
@@ -166,7 +167,7 @@ func TestRealDB_RecordOutputAppendsAndRetryRequeues(t *testing.T) {
 	require.NotNil(t, stored.Output("daily", "acme-drop"))
 	assert.Equal(t, "weekly/daily.csv", stored.Output("daily", "acme-drop").Key)
 
-	require.NoError(t, s.Retry(ctx, run.Lease(), "trino unreachable", 0))
+	require.NoError(t, s.Retry(ctx, run.Lease(), runstate.AttemptRetried, "trino unreachable", 0))
 	requeued, err := s.GetRun(ctx, "dpx_a")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusPending, requeued.Status)
@@ -188,7 +189,7 @@ func TestRealDB_PurgeLeavesLiveWorkAlone(t *testing.T) {
 			Trigger: script.TriggerTool,
 		}))
 	}
-	done, err := s.Claim(ctx, "worker-a", time.Minute)
+	done, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	require.NoError(t, s.Finish(ctx, done.Lease(), script.RunResult{Status: script.RunStatusSucceeded}))
 
@@ -260,11 +261,11 @@ func TestRealDB_RetryMovesTheDueTimeAndNeverTheFireTime(t *testing.T) {
 		ID: "dpx_a", ScriptID: sc.ID, VersionID: version.ID, Version: version.Version,
 		Trigger: script.TriggerTool,
 	}))
-	run, err := s.Claim(ctx, "worker-a", time.Minute)
+	run, err := s.Claim(ctx, "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	fireTime := run.FireTime
 
-	require.NoError(t, s.Retry(ctx, run.Lease(), "trino unreachable", time.Hour))
+	require.NoError(t, s.Retry(ctx, run.Lease(), runstate.AttemptRetried, "trino unreachable", time.Hour))
 	requeued, err := s.GetRun(ctx, "dpx_a")
 	require.NoError(t, err)
 
@@ -274,7 +275,7 @@ func TestRealDB_RetryMovesTheDueTimeAndNeverTheFireTime(t *testing.T) {
 
 	// A run that is not due is not claimable, which is what makes the backoff a
 	// backoff rather than an immediate retry storm.
-	_, err = s.Claim(ctx, "worker-b", time.Minute)
+	_, err = s.Claim(ctx, "worker-b", time.Minute, runstate.DefaultMaxReclaims)
 	assert.ErrorIs(t, err, script.ErrNoWork)
 }
 

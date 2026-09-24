@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlex"
+	"github.com/txn2/mcp-data-platform/internal/scriptdest"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -101,12 +102,12 @@ type Report struct {
 // invisible there and is reported by report.DynamicDestinations instead: its
 // address is not readable from the source, so there is nothing to check.
 //
-// The refusal is ResolveDestination's, so validate and the run say the same
+// The refusal is scriptdest.Resolve's, so validate and the run say the same
 // thing about the same script.
 func CheckDestinations(report Report, declared []script.Destination) []Finding {
 	var findings []Finding
 	for _, name := range report.Destinations {
-		if _, err := ResolveDestination(name, declared); err != nil {
+		if _, err := scriptdest.Resolve(name, declared); err != nil {
 			findings = append(findings, Finding{
 				Severity: SeverityError,
 				Message:  err.Error(),

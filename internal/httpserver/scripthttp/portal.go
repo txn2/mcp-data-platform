@@ -1,6 +1,7 @@
 package scripthttp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -211,11 +213,26 @@ type portalRun struct {
 	// CancelRequested marks a running run somebody has asked to stop; it ends
 	// canceled within seconds.
 	CancelRequested bool `json:"cancel_requested,omitempty"`
+	// Cause is why a failed run failed and Retryable whether running it again
+	// is expected to succeed (#1859); both absent on any other status.
+	Cause     string `json:"cause,omitempty" example:"upstream"`
+	Retryable bool   `json:"retryable,omitempty"`
+	// Liveness is what a running run's worker is doing (#1860): executing,
+	// unresponsive (it stopped reporting), or lease_expired. Absent on any
+	// other status, so a run whose worker is gone never reads as running.
+	Liveness string `json:"liveness,omitempty" example:"executing"`
 }
 
 // summarizeRun projects a run for a listing.
 func summarizeRun(r *script.Run) portalRun {
+	var cause string
+	if r.Status == script.RunStatusFailed {
+		cause = cmp.Or(r.Cause, runstate.CauseScript)
+	}
 	return portalRun{
+		Cause:       cause,
+		Retryable:   runstate.CauseRetryable(cause),
+		Liveness:    r.Liveness(time.Now()),
 		ID:          r.ID,
 		Status:      r.Status,
 		Trigger:     r.Trigger,
@@ -607,11 +624,10 @@ type portalRunListResponse struct {
 // portalRunDetail is one run in full, as a reader needs it: what it was given,
 // what it cost, what it wrote, and what it printed.
 //
-// It is a projection rather than the stored row. A run row is also a queue
-// entry, and the lease fields on it — which worker holds it, until when — are
-// how the platform recovers from a crash, not something a reader of a report's
-// history has any use for. Returning the row whole would put worker hostnames
-// on a page that is otherwise about a script.
+// It is a projection rather than the stored row. The lease fields are in it
+// (#1860): which worker holds the run, until when, when it last reported, and
+// how every earlier attempt ended are what show a run whose worker died, and
+// a worker is named by a random per-process token, not a host.
 type portalRunDetail struct {
 	portalRun
 	ScriptID     string         `json:"script_id"`
@@ -639,6 +655,16 @@ type portalRunDetail struct {
 	// CancelRequestedBy is who asked a run to stop, on a run that was asked.
 	CancelRequestedBy string    `json:"cancel_requested_by,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
+	// Reclaims, the holder and Attempts are the run's queue history (#1860):
+	// how many times it was taken over from a worker that stopped reporting,
+	// who holds it now and until when, when that worker last reported, and
+	// how each earlier attempt ended.
+	Reclaims    int                `json:"reclaims"`
+	LockedBy    string             `json:"locked_by,omitempty" example:"worker-1a2b3c4d5e6f7a8b"`
+	LockedUntil *time.Time         `json:"locked_until,omitempty"`
+	ClaimedAt   *time.Time         `json:"claimed_at,omitempty"`
+	HeartbeatAt *time.Time         `json:"heartbeat_at,omitempty"`
+	Attempts    []runstate.Attempt `json:"attempts,omitempty"`
 }
 
 // detailRun projects one run for the detail route.
@@ -660,6 +686,12 @@ func detailRun(r *script.Run) portalRunDetail {
 		Result:               r.Result,
 		CancelRequestedBy:    r.CancelRequestedBy,
 		CreatedAt:            r.CreatedAt,
+		Reclaims:             r.Reclaims,
+		LockedBy:             r.LockedBy,
+		LockedUntil:          r.LockedUntil,
+		ClaimedAt:            r.ClaimedAt,
+		HeartbeatAt:          r.HeartbeatAt,
+		Attempts:             r.Attempts,
 	}
 }
 
@@ -812,6 +844,7 @@ func scriptNames(scripts []script.Script) map[string]string {
 // @Produce      json
 // @Param        id        path   string  true   "Script ID"
 // @Param        status    query  string  false  "Filter by run status"
+// @Param        live      query  bool    false  "Only runs that have not ended: pending and running"
 // @Param        per_page  query  int     false  "Maximum rows to return"
 // @Success      200  {object}  portalRunListResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
@@ -832,6 +865,7 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 	runs, err := h.deps.Runs.ListRuns(r.Context(), script.RunFilter{
 		ScriptID: sc.ID,
 		Status:   r.URL.Query().Get("status"),
+		Live:     r.URL.Query().Get("live") == "true",
 		Limit:    limit,
 	})
 	if err != nil {

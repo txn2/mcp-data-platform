@@ -280,27 +280,8 @@ func TestExtractItems(t *testing.T) {
 	}
 }
 
-func TestParseRetryAfter(t *testing.T) {
+func TestRetryAfterPause(t *testing.T) {
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	cases := []struct {
-		in   string
-		want time.Duration
-		ok   bool
-	}{
-		{"2", 2 * time.Second, true},
-		{" 0 ", 0, true},
-		{"-1", 0, false},
-		{"", 0, false},
-		{"soon", 0, false},
-		{now.Add(90 * time.Second).Format(http.TimeFormat), 90 * time.Second, true},
-		{now.Add(-time.Minute).Format(http.TimeFormat), 0, true},
-	}
-	for _, tc := range cases {
-		got, ok := parseRetryAfter(tc.in, now)
-		if got != tc.want || ok != tc.ok {
-			t.Errorf("parseRetryAfter(%q) = (%s, %v); want (%s, %v)", tc.in, got, ok, tc.want, tc.ok)
-		}
-	}
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Retry-After": {"5"}}}
 	if _, ok := retryAfterPause(resp, now); ok {
 		t.Error("a 200 with Retry-After paused the walk")

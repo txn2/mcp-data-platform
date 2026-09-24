@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -182,22 +183,79 @@ func TestExportChecksTheDestinationBeforeCallingTheUpstream(t *testing.T) {
 }
 
 // An upstream that did not answer successfully is not landed: the file at that
-// path has readers, and an error page must not become its next version.
-func TestExportRefusesToLandAnUnsuccessfulResponse(t *testing.T) {
-	res, _, lander := exportToResource(t, http.StatusServiceUnavailable, "text/html",
+// path has readers, and an error page must not become its next version. The
+// answer is the result rather than an error (#1859), so a script can read the
+// status and carry on.
+func TestExportReturnsAnUnsuccessfulResponseWithoutLandingIt(t *testing.T) {
+	res, payload, lander := exportToResource(t, http.StatusServiceUnavailable, "text/html",
 		"<html>Service Unavailable</html>", exportInput{Resource: ordersDestination()})
 
-	if res == nil || !res.IsError {
-		t.Fatal("a 503 was landed in the library")
+	if res == nil || res.IsError {
+		t.Fatalf("a 503 was reported as a tool error: %s", textContent(res))
 	}
-	text := textContent(res)
+	out, _ := payload.(*exportOutput)
+	if out == nil || out.Status != http.StatusServiceUnavailable || !out.ResourceUnchanged || out.Resource != nil {
+		t.Fatalf("the result does not report an unchanged resource and the status: %+v", out)
+	}
+	if !out.Retryable {
+		t.Error("a GET answered 503 is not marked retryable")
+	}
+	if got := out.UpstreamHeaders["Content-Type"]; len(got) != 1 || got[0] != "text/html" {
+		t.Errorf("the upstream's headers are not reported: %v", out.UpstreamHeaders)
+	}
 	for _, want := range []string{"503", "datasets/orders.csv", "unchanged"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the refusal does not say %q: %s", want, text)
+		if !strings.Contains(out.Message, want) {
+			t.Errorf("the message does not say %q: %s", want, out.Message)
 		}
 	}
 	if len(lander.landed) != 0 {
 		t.Error("the library was written to anyway")
+	}
+}
+
+// A 429 carries the interval the upstream asked for, which a script's host
+// waits before asking again.
+func TestExportReportsTheUpstreamsRetryAfter(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(upstream.Close)
+	deps := defaultExportDeps(&fakeExportAssetStore{}, &fakeExportVersionStore{}, &fakeExportS3Client{})
+	deps.ResourceLander = newFakeLander()
+	tk := buildExportTestToolkit(t, upstream.URL, &deps)
+	_, payload, err := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
+		Connection: "crm", Method: "POST", Path: "/v1/orders", Name: "orders", Resource: ordersDestination(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := payload.(*exportOutput)
+	if out == nil || !out.Retryable || out.RetryAfterSeconds != 7 {
+		t.Fatalf("a 429 with Retry-After 7 = %+v; want retryable after 7 seconds, whatever the method", out)
+	}
+}
+
+// A connection the upstream refuses is a transport failure, stamped with the
+// outcome the error contract reads as an upstream that did not answer.
+func TestExportStampsATransportFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := upstream.URL
+	upstream.Close()
+	deps := defaultExportDeps(&fakeExportAssetStore{}, &fakeExportVersionStore{}, &fakeExportS3Client{})
+	deps.ResourceLander = newFakeLander()
+	tk := buildExportTestToolkit(t, url, &deps)
+	res, _, err := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
+		Connection: "crm", Method: "GET", Path: "/v1/orders", Name: "orders", Resource: ordersDestination(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || !res.IsError {
+		t.Fatal("an unreachable upstream was not a tool error")
+	}
+	if got := res.Meta[observability.MetaAuditOutcome]; got != observability.OutcomeTransportErr {
+		t.Errorf("audit outcome = %v; want %s", got, observability.OutcomeTransportErr)
 	}
 }
 

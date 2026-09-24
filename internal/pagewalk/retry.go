@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 )
 
 // retryAfterPause reads the pause an upstream asks for on a 429 or 503.
@@ -18,25 +18,7 @@ func retryAfterPause(resp *http.Response, now time.Time) (wait time.Duration, ok
 	if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable {
 		return 0, false
 	}
-	return parseRetryAfter(resp.Header.Get("Retry-After"), now)
-}
-
-// parseRetryAfter reads a Retry-After value in either form RFC 9110
-// allows: a delay in seconds or an HTTP date. A date in the past is a
-// zero wait.
-func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, false
-	}
-	if secs, err := strconv.Atoi(value); err == nil && secs >= 0 {
-		return time.Duration(secs) * time.Second, true
-	}
-	at, err := http.ParseTime(value)
-	if err != nil {
-		return 0, false
-	}
-	return max(at.Sub(now), 0), true
+	return upstreamretry.After(resp.Header.Get("Retry-After"), now)
 }
 
 // waitRetryAfter pauses the walk for the upstream's interval, bounded by

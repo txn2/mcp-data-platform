@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // MCPErrorContractMiddleware guarantees that every tools/call error result is
@@ -92,7 +95,21 @@ func enrichBareErrorResult(ctr *mcp.CallToolResult) *mcp.CallToolResult {
 	if category := ErrorCategory(ctr.GetError()); category != "" {
 		pe.Category = category
 	}
+	if upstreamUnavailable(ctr) {
+		pe.Code, pe.Category = upstreamretry.CodeUnavailable, upstreamretry.CategoryUnavailable
+	}
 	return BuildErrorResult(pe)
+}
+
+// upstreamUnavailable reports whether a failed result says, in the outcome a
+// toolkit stamps for audit, that its upstream timed out or could not be
+// reached (#1859). The api gateway stamps every result it returns, and those
+// two outcomes are exactly the ones where the same call made later is expected
+// to succeed, which is what the upstream category tells a caller -- a managed
+// script's host records a run ended by one as retryable.
+func upstreamUnavailable(ctr *mcp.CallToolResult) bool {
+	outcome, _ := ctr.Meta[observability.MetaAuditOutcome].(string)
+	return outcome == observability.OutcomeTransportErr || outcome == observability.OutcomeUpstreamTimeout
 }
 
 const (

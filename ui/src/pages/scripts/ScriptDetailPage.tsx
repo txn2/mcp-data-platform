@@ -22,6 +22,7 @@ import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
 import { ScriptProducedPanel } from "./ScriptProducedPanel";
 import { ScriptRunHistory } from "./ScriptRunHistory";
+import { ScriptLiveRuns } from "./ScriptRunAttempts";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptGrantsCard } from "./ScriptGrantsCard";
@@ -155,6 +156,9 @@ function ScriptDetail({
             source={source ?? ""}
             draftParams={draftParamsOf(data)}
           />
+          {/* Runs that have not ended, above the history (#1860): a run whose
+              worker died can be older than the history's first page. */}
+          <ScriptLiveRuns scriptId={scriptId} />
           <ScriptRunHistory
             scriptId={scriptId}
             openRunId={openRunId}

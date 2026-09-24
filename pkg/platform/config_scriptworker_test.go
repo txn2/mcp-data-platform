@@ -60,3 +60,27 @@ func TestConfigValidate_RefusesAMisspelledConcurrency(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "scripts.worker.concurrency")
 }
+
+// TestScriptsWorker_ReclaimsAndMemoryFromYAML reads #1860 and #1861's
+// settings the way an operator writes them, and refuses a budget it cannot
+// read at startup.
+func TestScriptsWorker_ReclaimsAndMemoryFromYAML(t *testing.T) {
+	cfg, err := LoadConfigFromBytes([]byte(`
+scripts:
+  worker:
+    max_reclaims: 4
+    max_run_memory: 300MiB
+`))
+	require.NoError(t, err)
+	assert.Equal(t, 4, cfg.Scripts.Worker.MaxReclaims)
+	budget, err := cfg.Scripts.Worker.RunMemoryBudget(0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(300<<20), budget)
+
+	bad := &Config{Scripts: ScriptsConfig{Worker: ScriptsWorkerConfig{
+		Config: scriptadmit.Config{MaxRunMemory: "a lot"},
+	}}}
+	err = bad.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scripts.worker.max_run_memory")
+}

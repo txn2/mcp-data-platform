@@ -10,6 +10,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -32,7 +33,8 @@ const runColumns = `id, script_id, script_version_id, version, trigger_kind, sta
 	locked_until, locked_by, error, log_text, log_truncated, metrics, outputs,
 	COALESCE(schedule_id::text, ''), state_revision, state_read, state_written,
 	state_revision_written, result, progress_message, progress_done, progress_total,
-	progress_at, cancel_requested_at, cancel_requested_by, created_at, updated_at`
+	progress_at, cancel_requested_at, cancel_requested_by, reclaims, attempts, claimed_at,
+	heartbeat_at, failure_cause, created_at, updated_at`
 
 // stateAtCreation is the VALUES fragment every run insert carries for the two
 // state columns pinned at creation (#1537): the revision the script's state
@@ -48,11 +50,27 @@ const stateAtCreation = `COALESCE((SELECT revision FROM script_state WHERE scrip
 const runSelect = "SELECT " + runColumns + " FROM script_runs"
 
 // dueClause matches rows a worker may claim: pending rows whose schedule has
-// arrived, plus running rows whose lease expired. Folding crashed-worker
-// recovery into the claim predicate is what lets every replica run a worker
-// with no reaper and no leader election.
+// arrived, plus running rows whose lease expired while their reclaims are
+// under the cap ($3). Folding crashed-worker recovery into the claim predicate
+// is what lets every replica run a worker with no reaper and no leader
+// election; the cap is what keeps a run that kills its worker from killing
+// every worker in turn (#1860). A row past the cap is never claimed, and
+// FailAbandoned ends it.
 const dueClause = `((status = 'pending' AND scheduled_for <= NOW())
-	OR (status = 'running' AND locked_until < NOW()))`
+	OR (status = 'running' AND locked_until < NOW() AND reclaims < $3))`
+
+// attemptOpen begins the JSONB array of one history entry for the attempt the
+// row currently records: its number, holder and claim time. Every write that
+// ends an attempt appends one, closing it with the end time, the outcome and
+// the error (#1860). It is a constant so every statement built from it is one
+// the prepare gate reads as text.
+const attemptOpen = `jsonb_build_array(jsonb_build_object(
+	'attempt', attempt, 'worker', locked_by, 'claimed_at', claimed_at, `
+
+// leaseExpiredEntry is the entry for an attempt whose worker stopped without
+// reporting a result: it ended when its lease did.
+const leaseExpiredEntry = attemptOpen + `'ended_at', locked_until, 'outcome', '` +
+	runstate.AttemptLeaseExpired + `', 'error', ''))`
 
 // liveColumns are the columns a run reports while it executes and hands back
 // when it ends (#1845, #1847), read as their nullable forms.
@@ -87,6 +105,7 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 	var (
 		paramsJSON, metricsJSON, outputsJSON []byte
 		stateRead, stateWritten              []byte
+		attemptsJSON                         []byte
 		revisionWritten                      sql.NullInt64
 		live                                 liveColumns
 	)
@@ -95,11 +114,15 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		&r.Attempt, &r.LockedUntil, &r.LockedBy, &r.Error, &r.Log, &r.LogTruncated,
 		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.StateRevision, &stateRead, &stateWritten,
 		&revisionWritten, &live.result, &live.message, &live.done, &live.total, &live.at,
-		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.CreatedAt, &r.UpdatedAt)
+		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.Reclaims, &attemptsJSON, &r.ClaimedAt,
+		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
 	live.apply(r)
+	if err := json.Unmarshal(attemptsJSON, &r.Attempts); err != nil {
+		return nil, fmt.Errorf("unmarshal run attempts: %w", err)
+	}
 	if err := json.Unmarshal(paramsJSON, &r.Params); err != nil {
 		return nil, fmt.Errorf("unmarshal run params: %w", err)
 	}
@@ -275,6 +298,9 @@ func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
 	if filter.RequestedBy != "" {
 		q.add("requested_by = $%d", filter.RequestedBy)
 	}
+	if filter.Live {
+		q.where = append(q.where, "status IN ('pending', 'running')")
+	}
 	query = runSelect
 	if len(q.where) > 0 {
 		query += " WHERE " + joinAnd(q.where)
@@ -293,27 +319,111 @@ func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
 // FOR UPDATE SKIP LOCKED, marks it running, increments the attempt, and stamps
 // the lease. Concurrent workers on other replicas skip each other's locked rows
 // rather than blocking, and a run whose worker died is picked up by the next
-// claim once its lease expires.
-func (s *Store) Claim(ctx context.Context, worker string, lease time.Duration) (*script.Run, error) {
-	r, err := scanRun(s.db.QueryRowContext(ctx, `
+// claim once its lease expires -- while its reclaims are under maxReclaims.
+// Taking one over counts the reclaim and records the dead attempt in the run's
+// history, in the same statement, so no worker of the dead one has to survive
+// to say what happened (#1860).
+func (s *Store) Claim(ctx context.Context, worker string, lease time.Duration, maxReclaims int) (*script.Run, error) {
+	var reclaimed bool
+	r, err := scanRun(runAndFlag{
+		row: s.db.QueryRowContext(ctx, `
+		WITH due AS (
+		    SELECT id AS due_id, status AS prior_status FROM script_runs
+		     WHERE `+dueClause+`
+		     ORDER BY scheduled_for, created_at
+		     LIMIT 1
+		     FOR UPDATE SKIP LOCKED)
 		UPDATE script_runs
 		   SET status = 'running', attempt = attempt + 1, locked_by = $1,
 		       locked_until = NOW() + ($2 || ' seconds')::INTERVAL,
+		       reclaims = reclaims + CASE WHEN due.prior_status = 'running' THEN 1 ELSE 0 END,
+		       attempts = CASE WHEN due.prior_status = 'running'
+		                       THEN attempts || `+leaseExpiredEntry+`
+		                       ELSE attempts END,
+		       claimed_at = NOW(), heartbeat_at = NOW(),
 		       started_at = COALESCE(started_at, NOW()), updated_at = NOW()
-		 WHERE id = (
-		     SELECT id FROM script_runs
-		      WHERE `+dueClause+`
-		      ORDER BY scheduled_for, created_at
-		      LIMIT 1
-		      FOR UPDATE SKIP LOCKED)
-		 RETURNING `+runColumns, worker, int(lease.Seconds())))
+		  FROM due
+		 WHERE id = due.due_id
+		 RETURNING `+runColumns+`, due.prior_status = 'running'`, worker, int(lease.Seconds()), maxReclaims),
+		flag: &reclaimed,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, script.ErrNoWork
 	}
 	if err != nil {
 		return nil, fmt.Errorf("claim script run: %w", err)
 	}
+	r.Reclaimed = reclaimed
 	return r, nil
+}
+
+// runAndFlag scans a row of the run columns followed by one boolean, which is
+// how a claim reports whether it took the run over from a dead worker without
+// a second query.
+type runAndFlag struct {
+	row  *sql.Row
+	flag *bool
+}
+
+// Scan reads the run columns into dest and the trailing flag into flag.
+func (f runAndFlag) Scan(dest ...any) error {
+	return f.row.Scan(append(dest, f.flag)...) //nolint:wrapcheck // scanRun wraps it
+}
+
+// abandonedLimit bounds how many abandoned runs one sweep fails, so a backlog
+// is worked through across ticks rather than in one long statement.
+const abandonedLimit = 50
+
+// failAbandonedSQL fails the running runs whose lease expired with their
+// reclaims spent ($1), at most $2 of them.
+const failAbandonedSQL = `
+		UPDATE script_runs
+		   SET status = 'failed', failure_cause = '` + runstate.CauseWorkerLost + `',
+		       error = 'the worker executing this run stopped without reporting a result ' || (reclaims + 1)
+		               || ' times (last held by ' || locked_by || ' until '
+		               || to_char(locked_until AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		               || '); it is not run again, because a run that stops its worker stops the next one too. '
+		               || 'The last attempts usually ran out of memory: page the work and export each page, '
+		               || 'or ask for a larger memory limit',
+		       attempts = attempts || ` + leaseExpiredEntry + `,
+		       finished_at = NOW(), locked_until = NULL, locked_by = '', updated_at = NOW()
+		 WHERE id IN (
+		     SELECT id FROM script_runs
+		      WHERE status = 'running' AND locked_until < NOW() AND reclaims >= $1
+		      ORDER BY locked_until
+		      LIMIT $2
+		      FOR UPDATE SKIP LOCKED)
+		 RETURNING ` + runColumns
+
+// FailAbandoned fails every running run whose lease expired with its reclaims
+// spent (#1860), and returns them for the caller to count and report.
+//
+// The error names how many times a worker stopped without reporting a result
+// and the last holder, which is what an operator needs to find the replica
+// that was killed. The lease is cleared, so a holder that was only slow and
+// not dead is fenced out of every later write exactly as a reclaim fences it.
+func (s *Store) FailAbandoned(ctx context.Context, maxReclaims int) ([]script.Run, error) {
+	rows, err := s.db.QueryContext(ctx, failAbandonedSQL, maxReclaims, abandonedLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failing abandoned script runs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []script.Run{}
+	for rows.Next() {
+		r, scanErr := scanRun(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, *r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate abandoned script runs: %w", err)
+	}
+	if len(out) > 0 {
+		// Wake anything waiting on these runs' completion.
+		_, _ = s.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, NotifyChannel, out[0].ID)
+	}
+	return out, nil
 }
 
 // leaseClause fences a write to the worker that currently holds the run. A
@@ -390,7 +500,7 @@ func (s *Store) finishWithState(ctx context.Context, lease script.RunLease, resu
 		case errors.As(err, &conflict):
 			// The interleaving is the run's failure, recorded on its row. Its
 			// outputs are already recorded; nothing here touches them.
-			result.Status, result.Error = script.RunStatusFailed, conflict.Error()
+			result.Status, result.Error, result.Cause = script.RunStatusFailed, conflict.Error(), runstate.CauseStateConflict
 			return finishRow(ctx, tx, terminalRow{lease: lease, result: result, metrics: metrics})
 		case err != nil:
 			return err
@@ -439,15 +549,36 @@ func finishRow(ctx context.Context, db execer, row terminalRow) error {
 		       progress_done = CASE WHEN $14::timestamptz IS NULL THEN progress_done ELSE $13 END,
 		       progress_total = CASE WHEN $14::timestamptz IS NULL THEN progress_total ELSE $15 END,
 		       progress_at = COALESCE($14::timestamptz, progress_at),
+		       failure_cause = $16,
+		       attempts = attempts || `+finishedEntry+`,
 		       finished_at = NOW(), locked_until = NULL, updated_at = NOW()`+leaseClause,
 		row.lease.RunID, row.lease.Worker, row.lease.Attempt,
 		row.result.Status, row.result.Error, row.result.Log, row.result.LogTruncated, row.metrics,
 		stateWritten, revisionWritten, nullJSON(row.result.Result),
-		p.message, p.done, p.at, p.total)
+		p.message, p.done, p.at, p.total, failureCause(row.result))
 	if err != nil {
 		return fmt.Errorf("finish script run: %w", err)
 	}
 	return requireLease(res, row.lease)
+}
+
+// finishedEntry is the history entry for an attempt that recorded the run's
+// verdict; its error is the result's ($5).
+const finishedEntry = attemptOpen + `'ended_at', NOW(), 'outcome', '` +
+	runstate.AttemptFinished + `', 'error', $5::text))`
+
+// failureCause is the cause a result is recorded with: its own, or the
+// script's for a failure that names none, since every failure that reaches
+// the interpreter and is not classified otherwise is the script's. A result
+// that did not fail records none.
+func failureCause(r script.RunResult) string {
+	if r.Status != script.RunStatusFailed {
+		return ""
+	}
+	if r.Cause == "" {
+		return runstate.CauseScript
+	}
+	return r.Cause
 }
 
 // nullJSON binds an absent JSON value as NULL rather than as an empty string,
@@ -464,7 +595,8 @@ func nullJSON(v []byte) any {
 // (#1847). It is one statement, fenced on the lease like every other write a
 // worker makes, so the report and the cancel check cannot come from different
 // moments and a worker that lost its run neither writes nor learns anything.
-// An unchanged report leaves the row as it is and only answers the check.
+// An unchanged report leaves what the run reported as it is, and still stamps
+// heartbeat_at: the report is also the worker saying it is alive (#1860).
 func (s *Store) RecordProgress(ctx context.Context, lease script.RunLease, live script.RunLive) (requested bool, by string, err error) {
 	p := progressArgs(live.Progress)
 	var cancelAt *time.Time
@@ -476,7 +608,7 @@ func (s *Store) RecordProgress(ctx context.Context, lease script.RunLease, live 
 		       progress_done = CASE WHEN $10 OR $8::timestamptz IS NULL THEN progress_done ELSE $7 END,
 		       progress_total = CASE WHEN $10 OR $8::timestamptz IS NULL THEN progress_total ELSE $9 END,
 		       progress_at = CASE WHEN $10 THEN progress_at ELSE COALESCE($8::timestamptz, progress_at) END,
-		       updated_at = NOW()`+leaseClause+`
+		       heartbeat_at = NOW(), updated_at = NOW()`+leaseClause+`
 		 RETURNING cancel_requested_at, cancel_requested_by`,
 		lease.RunID, lease.Worker, lease.Attempt, live.Log, live.LogTruncated,
 		p.message, p.done, p.at, p.total, live.Unchanged).Scan(&cancelAt, &by)
@@ -513,19 +645,35 @@ func progressArgs(p *script.RunProgress) progressColumns {
 	return out
 }
 
-// CancelRun stops a run for by (#1847) and returns the status the run had
-// when the request arrived. The row is locked first and that status read under
-// the lock, so it is the one the update acted on: a pending run is finished as canceled in the same statement, so it
-// cannot be claimed in between; a running run is marked, and its worker stops
-// it at its next report; anything else has already ended and is left alone.
-func (s *Store) CancelRun(ctx context.Context, id, by string) (string, error) {
-	var prior string
-	err := s.db.QueryRowContext(ctx, `
-		WITH prior AS (SELECT id, status FROM script_runs WHERE id = $1 FOR UPDATE)
+// CancelRun stops a run for by (#1847) and reports the status it had when
+// the request arrived and the status it has now. The row is locked first and
+// that status read under the lock, so it is the one the update acted on: a
+// pending run is finished as canceled in the same statement, so it cannot be
+// claimed in between; a running run is marked, and its worker stops it at its
+// next report; anything else has already ended and is left alone.
+//
+// A running run whose worker is gone -- its lease expired, or it has not
+// reported for runstate.HeartbeatStaleAfter -- is canceled here instead (#1860):
+// no worker will ever read the mark, and waiting for one is how an orphaned
+// run went on reading as running. Its lease is cleared with it, so a holder
+// that was only slow finds every later write refused.
+func (s *Store) CancelRun(ctx context.Context, id, by string) (prior, now string, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		WITH prior AS (
+		    SELECT id, status,
+		           status = 'running' AND (locked_until IS NULL OR locked_until < NOW()
+		               OR COALESCE(heartbeat_at, claimed_at, started_at) < NOW() - ($3 || ' seconds')::INTERVAL) AS orphaned
+		      FROM script_runs WHERE id = $1 FOR UPDATE)
 		UPDATE script_runs r
-		   SET status = CASE WHEN prior.status = 'pending' THEN 'canceled' ELSE r.status END,
-		       finished_at = CASE WHEN prior.status = 'pending' THEN NOW() ELSE r.finished_at END,
-		       error = CASE WHEN prior.status = 'pending' THEN 'canceled by ' || $2 ELSE r.error END,
+		   SET status = CASE WHEN prior.status = 'pending' OR prior.orphaned THEN 'canceled' ELSE r.status END,
+		       finished_at = CASE WHEN prior.status = 'pending' OR prior.orphaned THEN NOW() ELSE r.finished_at END,
+		       error = CASE WHEN prior.status = 'pending' THEN 'canceled by ' || $2
+		                    WHEN prior.orphaned THEN 'canceled by ' || $2 || '; the worker executing it had stopped '
+		                         || 'reporting, so the run was ended directly'
+		                    ELSE r.error END,
+		       attempts = CASE WHEN prior.orphaned THEN r.attempts || `+orphanedEntry+` ELSE r.attempts END,
+		       locked_until = CASE WHEN prior.orphaned THEN NULL ELSE r.locked_until END,
+		       locked_by = CASE WHEN prior.orphaned THEN '' ELSE r.locked_by END,
 		       cancel_requested_at = CASE WHEN prior.status IN ('pending', 'running')
 		                                  THEN COALESCE(r.cancel_requested_at, NOW())
 		                                  ELSE r.cancel_requested_at END,
@@ -534,32 +682,47 @@ func (s *Store) CancelRun(ctx context.Context, id, by string) (string, error) {
 		       updated_at = NOW()
 		  FROM prior
 		 WHERE r.id = prior.id
-		 RETURNING prior.status`,
-		id, by).Scan(&prior)
+		 RETURNING prior.status, r.status`,
+		id, by, int(runstate.HeartbeatStaleAfter.Seconds())).Scan(&prior, &now)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", script.ErrRunNotFound
+		return "", "", script.ErrRunNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("cancel script run: %w", err)
+		return "", "", fmt.Errorf("cancel script run: %w", err)
 	}
-	return prior, nil
+	return prior, now, nil
 }
 
-// Retry returns the claimed run to pending, due after backoff. It is for
-// infrastructure failures only: a script error is deterministic and the same
-// source on the same inputs fails the same way, so the worker never routes one
-// here.
-func (s *Store) Retry(ctx context.Context, lease script.RunLease, cause string, backoff time.Duration) error {
+// orphanedEntry is the history entry for the attempt a cancel ended because
+// its worker was gone: lease_expired when the lease had run out, unresponsive
+// when it still ran but the worker had stopped reporting. The columns are the
+// row's (r), since the statement joins the locked prior row.
+const orphanedEntry = `jsonb_build_array(jsonb_build_object(
+	'attempt', r.attempt, 'worker', r.locked_by, 'claimed_at', r.claimed_at, 'ended_at', NOW(),
+	'outcome', CASE WHEN r.locked_until IS NULL OR r.locked_until < NOW()
+	                THEN '` + runstate.AttemptLeaseExpired + `' ELSE '` + runstate.AttemptUnresponsive + `' END,
+	'error', 'canceled by ' || $2))`
+
+// Retry returns the claimed run to pending, due after backoff, recording how
+// the attempt ended in the run's history. It is for infrastructure failures
+// only: a script error is deterministic and the same source on the same inputs
+// fails the same way, so the worker never routes one here.
+func (s *Store) Retry(ctx context.Context, lease script.RunLease, outcome, reason string, backoff time.Duration) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE script_runs
 		   SET status = 'pending', locked_until = NULL, error = $4,
+		       attempts = attempts || `+retriedEntry+`,
 		       scheduled_for = NOW() + ($5 || ' seconds')::INTERVAL, updated_at = NOW()`+leaseClause,
-		lease.RunID, lease.Worker, lease.Attempt, cause, int(backoff.Seconds()))
+		lease.RunID, lease.Worker, lease.Attempt, reason, int(backoff.Seconds()), outcome)
 	if err != nil {
 		return fmt.Errorf("retry script run: %w", err)
 	}
 	return requireLease(res, lease)
 }
+
+// retriedEntry is the history entry for an attempt that returned the run to
+// the queue: outcome $6, reason $4.
+const retriedEntry = attemptOpen + `'ended_at', NOW(), 'outcome', $6::text, 'error', $4::text))`
 
 // requireLease turns a zero-row update into ErrLeaseLost, which is the signal
 // that another worker reclaimed this run while this one was still working.

@@ -1,4 +1,9 @@
-package apigateway
+// Package formdata assembles a multipart/form-data request body from an object
+// of form fields (#1296): the encoder the api gateway sends an operation that
+// takes form data through, with the boundary generated here and authoritative
+// over any Content-Type a caller supplied. It knows nothing about connections
+// or operations, only the value-shape rules a body object follows.
+package formdata
 
 import (
 	"bytes"
@@ -11,13 +16,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 )
 
-// multipartFormData is the media type this encoder answers for. An
-// operation whose catalog entry declares it (or a caller who pins it in
-// headers) gets a body assembled by mime/multipart rather than
-// json.Marshal (issue #1296).
-const multipartFormData = "multipart/form-data"
+// MediaType is the media type this encoder answers for. An operation whose
+// catalog entry declares it (or a caller who pins it in headers) gets a body
+// assembled by mime/multipart rather than json.Marshal (issue #1296).
+const MediaType = "multipart/form-data"
 
 // octetStream is the part Content-Type used for a file part that does
 // not name one. RFC 7578 section 4.4 makes it the default for a part
@@ -45,22 +51,21 @@ const (
 //nolint:gochecknoglobals // compiled once; used on every part header
 var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
 
-// isMultipartFormData reports whether contentType names multipart/form-data,
+// Is reports whether contentType names multipart/form-data,
 // ignoring any parameters (a boundary) and casing. An unparseable value
 // falls back to comparing the text before the first ";" so a caller's
 // malformed header still routes to the multipart encoder rather than
 // being silently JSON-encoded under a multipart header.
-func isMultipartFormData(contentType string) bool {
+func Is(contentType string) bool {
 	mt, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		mt = strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
 	}
-	return mt == multipartFormData
+	return mt == MediaType
 }
 
-// encodeMultipartBody assembles a multipart/form-data body from an
-// object body and returns it with the Content-Type carrying the
-// gateway-generated boundary.
+// Encode assembles a multipart/form-data body from an object body and
+// returns it with the Content-Type carrying the generated boundary.
 //
 // The body must be a JSON object; each key is one form field:
 //
@@ -79,10 +84,10 @@ func isMultipartFormData(contentType string) bool {
 // here and a caller-supplied Content-Type header must not survive,
 // because a boundary that does not match these bytes yields a body the
 // upstream parses as zero parts (issue #1296).
-func encodeMultipartBody(body any) (encodedBody, error) {
+func Encode(body any) (data []byte, contentType string, err error) {
 	fields, ok := body.(map[string]any)
 	if !ok {
-		return encodedBody{}, fmt.Errorf(
+		return nil, "", fmt.Errorf(
 			"apigateway: this operation takes multipart/form-data, so body must be an object of form fields, not %T. "+
 				"A file part is {\"filename\": \"data.csv\", \"content\": \"...\"} (or \"content_base64\" for binary); "+
 				"every other value is sent as a text field. The gateway generates the multipart boundary, so do not "+
@@ -98,17 +103,17 @@ func encodeMultipartBody(body any) (encodedBody, error) {
 	w := multipart.NewWriter(&buf)
 	for _, name := range names {
 		if err := writeMultipartField(w, name, fields[name]); err != nil {
-			return encodedBody{}, err
+			return nil, "", err
 		}
 	}
 	if err := w.Close(); err != nil {
-		return encodedBody{}, fmt.Errorf("apigateway: finishing multipart body: %w", err)
+		return nil, "", fmt.Errorf("apigateway: finishing multipart body: %w", err)
 	}
-	return encodedBody{data: buf.Bytes(), contentType: w.FormDataContentType(), authoritative: true}, nil
+	return buf.Bytes(), w.FormDataContentType(), nil
 }
 
 // writeMultipartField writes the part(s) one body key produces. See
-// encodeMultipartBody for the value-shape rules.
+// Encode for the value-shape rules.
 func writeMultipartField(w *multipart.Writer, name string, value any) error {
 	if err := rejectHeaderBreak(name, "field name", name); err != nil {
 		return err
@@ -121,7 +126,7 @@ func writeMultipartField(w *multipart.Writer, name string, value any) error {
 	case map[string]any:
 		return writeMultipartObject(w, name, v)
 	default:
-		return writeMultipartText(w, name, scalarToString(v))
+		return writeMultipartText(w, name, pagewalk.ScalarString(v))
 	}
 }
 
@@ -220,7 +225,7 @@ func writeMultipartPart(w *multipart.Writer, name string, spec map[string]any) e
 	header := textproto.MIMEHeader{}
 	header.Set("Content-Disposition", partDisposition(name, filename))
 	if contentType != "" {
-		header.Set(headerContentType, contentType)
+		header.Set("Content-Type", contentType)
 	}
 	pw, err := w.CreatePart(header)
 	if err != nil {

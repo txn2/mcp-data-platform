@@ -1683,10 +1683,20 @@ definitions:
           already reports it in its result message; this is the same
           signal for the buffered path.
         type: string
+      retry_after_seconds:
+        description: |-
+          RetryAfterSeconds is how long the upstream asked to be left alone, when
+          it said; zero when it did not.
+        type: integer
       status:
         type: integer
       stopped_by:
         type: string
+      upstream_retryable:
+        description: |-
+          Retryable is set on an answer the same request is expected to get past
+          later (see Retryable).
+        type: boolean
     type: object
   apigateway.PaginateInput:
     properties:
@@ -6690,6 +6700,24 @@ definitions:
           type: string
         type: array
     type: object
+  runstate.Attempt:
+    properties:
+      attempt:
+        type: integer
+      claimed_at:
+        type: string
+      ended_at:
+        type: string
+      error:
+        description: Error is the failure or reason the attempt ended on, when it
+          had one.
+        type: string
+      outcome:
+        description: Outcome is one of the Attempt* values.
+        type: string
+      worker:
+        type: string
+    type: object
   script.Contract:
     properties:
       category:
@@ -7038,6 +7066,13 @@ definitions:
         type: integer
       exports:
         type: integer
+      peak_memory_bytes:
+        description: |-
+          PeakMemoryBytes is the most the run was measured holding (#1861): the
+          Starlark values reachable from its frames and globals, sized at each
+          host call. It is an estimate of the interpreter's heap, not the
+          process's, and is what a run's memory budget is enforced against.
+        type: integer
       queries:
         type: integer
       steps:
@@ -7351,6 +7386,12 @@ definitions:
           CancelRequested marks a running run somebody has asked to stop; it ends
           canceled within seconds.
         type: boolean
+      cause:
+        description: |-
+          Cause is why a failed run failed and Retryable whether running it again
+          is expected to succeed (#1859); both absent on any other status.
+        example: upstream
+        type: string
       duration_ms:
         example: 1840
         type: integer
@@ -7366,6 +7407,13 @@ definitions:
         type: string
       id:
         example: run_a1b2c3d4
+        type: string
+      liveness:
+        description: |-
+          Liveness is what a running run's worker is doing (#1860): executing,
+          unresponsive (it stopped reporting), or lease_expired. Absent on any
+          other status, so a run whose worker is gone never reads as running.
+        example: executing
         type: string
       output_count:
         description: |-
@@ -7387,6 +7435,8 @@ definitions:
           nobody requested.
         example: jane@example.com
         type: string
+      retryable:
+        type: boolean
       script_id:
         type: string
       started_at:
@@ -7425,11 +7475,19 @@ definitions:
       outcome:
         description: |-
           Outcome is canceled (it had not started and will not), requested (it
-          is running and ends canceled within seconds) or already_finished.
+          is running and ends canceled within seconds), canceled_orphaned (its
+          worker had stopped reporting, so it was ended directly, #1860) or
+          already_finished.
         example: requested
         type: string
       run_id:
         example: run_a1b2c3d4
+        type: string
+      status:
+        description: |-
+          Status is the run's status after the request: canceled when it ended
+          here, running while its worker is still to stop it.
+        example: running
         type: string
     type: object
   scripthttp.connectionChoicesResponse:
@@ -7677,6 +7735,12 @@ definitions:
           CancelRequested marks a running run somebody has asked to stop; it ends
           canceled within seconds.
         type: boolean
+      cause:
+        description: |-
+          Cause is why a failed run failed and Retryable whether running it again
+          is expected to succeed (#1859); both absent on any other status.
+        example: upstream
+        type: string
       duration_ms:
         example: 1840
         type: integer
@@ -7692,6 +7756,13 @@ definitions:
         type: string
       id:
         example: run_a1b2c3d4
+        type: string
+      liveness:
+        description: |-
+          Liveness is what a running run's worker is doing (#1860): executing,
+          unresponsive (it stopped reporting), or lease_expired. Absent on any
+          other status, so a run whose worker is gone never reads as running.
+        example: executing
         type: string
       output_count:
         description: |-
@@ -7713,6 +7784,8 @@ definitions:
           nobody requested.
         example: jane@example.com
         type: string
+      retryable:
+        type: boolean
       started_at:
         type: string
       status:
@@ -7729,6 +7802,10 @@ definitions:
     properties:
       attempt:
         type: integer
+      attempts:
+        items:
+          $ref: '#/definitions/runstate.Attempt'
+        type: array
       cancel_requested:
         description: |-
           CancelRequested marks a running run somebody has asked to stop; it ends
@@ -7737,6 +7814,14 @@ definitions:
       cancel_requested_by:
         description: CancelRequestedBy is who asked a run to stop, on a run that was
           asked.
+        type: string
+      cause:
+        description: |-
+          Cause is why a failed run failed and Retryable whether running it again
+          is expected to succeed (#1859); both absent on any other status.
+        example: upstream
+        type: string
+      claimed_at:
         type: string
       created_at:
         type: string
@@ -7753,8 +7838,22 @@ definitions:
         type: string
       fire_time:
         type: string
+      heartbeat_at:
+        type: string
       id:
         example: run_a1b2c3d4
+        type: string
+      liveness:
+        description: |-
+          Liveness is what a running run's worker is doing (#1860): executing,
+          unresponsive (it stopped reporting), or lease_expired. Absent on any
+          other status, so a run whose worker is gone never reads as running.
+        example: executing
+        type: string
+      locked_by:
+        example: worker-1a2b3c4d5e6f7a8b
+        type: string
+      locked_until:
         type: string
       log:
         description: |-
@@ -7787,6 +7886,13 @@ definitions:
         description: |-
           Progress is the run's latest platform.progress report (#1847): how far a
           running run has got, or the last thing a finished one said.
+      reclaims:
+        description: |-
+          Reclaims, the holder and Attempts are the run's queue history (#1860):
+          how many times it was taken over from a worker that stopped reporting,
+          who holds it now and until when, when that worker last reported, and
+          how each earlier attempt ended.
+        type: integer
       requested_by:
         description: |-
           RequestedBy is who asked for the run, empty for a scheduled one, which
@@ -7798,6 +7904,8 @@ definitions:
           Result is the value the run handed back with platform.result (#1845),
           absent when it set none.
         type: object
+      retryable:
+        type: boolean
       scheduled_for:
         type: string
       script_id:
@@ -7928,6 +8036,12 @@ definitions:
           CancelRequested marks a running run somebody has asked to stop; it ends
           canceled within seconds.
         type: boolean
+      cause:
+        description: |-
+          Cause is why a failed run failed and Retryable whether running it again
+          is expected to succeed (#1859); both absent on any other status.
+        example: upstream
+        type: string
       duration_ms:
         example: 1840
         type: integer
@@ -7943,6 +8057,13 @@ definitions:
         type: string
       id:
         example: run_a1b2c3d4
+        type: string
+      liveness:
+        description: |-
+          Liveness is what a running run's worker is doing (#1860): executing,
+          unresponsive (it stopped reporting), or lease_expired. Absent on any
+          other status, so a run whose worker is gone never reads as running.
+        example: executing
         type: string
       output_count:
         description: |-
@@ -7964,6 +8085,8 @@ definitions:
           nobody requested.
         example: jane@example.com
         type: string
+      retryable:
+        type: boolean
       script_id:
         example: script_a1b2c3d4
         type: string
@@ -22174,6 +22297,10 @@ paths:
         in: query
         name: status
         type: string
+      - description: 'Only runs that have not ended: pending and running'
+        in: query
+        name: live
+        type: boolean
       - description: Maximum rows to return
         in: query
         name: per_page

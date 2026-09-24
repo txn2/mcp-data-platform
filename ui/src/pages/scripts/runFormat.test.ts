@@ -1,7 +1,12 @@
 import type { ScriptRun } from "@/api/portal/hooks/scripts";
 import { describe, it, expect } from "vitest";
 import {
+  attemptOutcomeLabel,
+  causeNote,
   dryRunOutputPhrase,
+  formatBytes,
+  livenessNote,
+  runBadge,
   executionState,
   formatWhen,
   outputLink,
@@ -221,5 +226,62 @@ describe("outputLink for an export tool's file", () => {
     });
     expect(link.href).toBe("/assets/a1");
     expect(link.detail).toMatch(/via trino_export$/);
+  });
+});
+
+describe("runBadge", () => {
+  it("names a run whose worker stopped reporting instead of reading as running (#1860)", () => {
+    expect(runBadge({ status: "running", liveness: "unresponsive" })).toEqual({
+      label: "worker not responding",
+      variant: "warning",
+    });
+    expect(runBadge({ status: "running", liveness: "lease_expired" })).toEqual({
+      label: "worker gone",
+      variant: "warning",
+    });
+    expect(runBadge({ status: "running", liveness: "executing" })).toEqual({ label: "running", variant: "info" });
+    expect(runBadge({ status: "skipped_overlap" })).toEqual({ label: "Skipped (overlap)", variant: "warning" });
+  });
+});
+
+describe("livenessNote", () => {
+  it("explains a missing worker and says nothing for one that is executing", () => {
+    expect(livenessNote({ status: "running", liveness: "unresponsive" })).toContain("stopped reporting");
+    expect(livenessNote({ status: "running", liveness: "lease_expired" })).toContain("lease has ended");
+    expect(livenessNote({ status: "running", liveness: "executing" })).toBe("");
+    expect(livenessNote({ status: "failed", liveness: "unresponsive" })).toBe("");
+  });
+});
+
+describe("causeNote", () => {
+  it("says a temporary failure needs no fix and a script error needs its own message (#1859)", () => {
+    expect(causeNote({ status: "failed", cause: "upstream" })).toContain("next run should succeed");
+    expect(causeNote({ status: "failed", cause: "state_conflict" })).toContain("newer state");
+    expect(causeNote({ status: "failed", cause: "memory" })).toContain("append=True");
+    expect(causeNote({ status: "failed", cause: "worker_lost" })).toContain("not run again");
+    expect(causeNote({ status: "failed", cause: "platform" })).toContain("run it again");
+    expect(causeNote({ status: "failed", cause: "script" })).toBe("");
+    expect(causeNote({ status: "succeeded", cause: "upstream" })).toBe("");
+  });
+});
+
+describe("attemptOutcomeLabel", () => {
+  it("names every way an attempt ends, and passes an unknown one through", () => {
+    expect(attemptOutcomeLabel("finished")).toBe("finished");
+    expect(attemptOutcomeLabel("retried")).toContain("platform fault");
+    expect(attemptOutcomeLabel("released")).toContain("shutdown");
+    expect(attemptOutcomeLabel("shed")).toContain("memory");
+    expect(attemptOutcomeLabel("lease_expired")).toContain("lease expired");
+    expect(attemptOutcomeLabel("unresponsive")).toContain("stopped reporting");
+    expect(attemptOutcomeLabel("something-new")).toBe("something-new");
+  });
+});
+
+describe("formatBytes", () => {
+  it("writes a size in the unit a budget is written in", () => {
+    expect(formatBytes(512)).toBe("512 bytes");
+    expect(formatBytes(4 * 1024)).toBe("4 KiB");
+    expect(formatBytes(128 * 1024 * 1024)).toBe("128 MiB");
+    expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe("3.0 GiB");
   });
 });

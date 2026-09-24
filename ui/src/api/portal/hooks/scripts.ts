@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Script, ScriptVersion } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
 import { scriptsKey } from "./scriptKeys";
+import { RUN_POLL_MS, hasRunInFlight } from "./scriptRuns";
 
 // Portal script hooks (#1290): the surface for the people who own the
 // scripts. Saving a version makes it the version that runs, and the
@@ -56,6 +57,38 @@ export interface ScriptRun {
   // cancel_requested marks a running run somebody asked to stop; it ends
   // canceled within seconds.
   cancel_requested?: boolean;
+  // cause is why a failed run failed, and retryable whether running it again
+  // is expected to succeed (#1859): an upstream that was briefly unavailable
+  // is, a script error is not.
+  cause?: ScriptRunCause;
+  retryable?: boolean;
+  // liveness is what a running run's worker is doing (#1860): executing, or
+  // gone -- stopped reporting while its lease still runs, or past its lease.
+  liveness?: ScriptRunLiveness;
+}
+
+// ScriptRunCause is why a failed run failed.
+export type ScriptRunCause =
+  | "script"
+  | "upstream"
+  | "memory"
+  | "worker_lost"
+  | "platform"
+  | "state_conflict";
+
+// ScriptRunLiveness is what a running run's worker is doing.
+export type ScriptRunLiveness = "executing" | "unresponsive" | "lease_expired";
+
+// ScriptRunAttempt is one ended attempt of a run and how it ended (#1860):
+// finished, retried on a platform fault, released at shutdown, shed to relieve
+// memory, or lease_expired / unresponsive when its worker stopped reporting.
+export interface ScriptRunAttempt {
+  attempt: number;
+  worker: string;
+  claimed_at?: string;
+  ended_at?: string;
+  outcome: string;
+  error?: string;
 }
 
 // ScriptRunProgress is one platform.progress report. done and total are
@@ -133,7 +166,18 @@ export interface ScriptRunDetail extends ScriptRun {
     duration_ms: number;
     queries: number;
     exports: number;
+    // peak_memory_bytes is the most the run was measured holding (#1861).
+    peak_memory_bytes?: number;
   };
+  // The run's queue history (#1860): how many times it was taken over from a
+  // worker that stopped reporting, who holds it now and until when, when that
+  // worker last reported, and how each earlier attempt ended.
+  reclaims?: number;
+  locked_by?: string;
+  locked_until?: string;
+  claimed_at?: string;
+  heartbeat_at?: string;
+  attempts?: ScriptRunAttempt[];
   outputs?: ScriptRunOutput[];
   // The state the run read at creation (an input beside its parameters) and,
   // on a succeeded run that saved, what it wrote and the revision (#1537).
@@ -252,6 +296,20 @@ export {
   type ScriptDryRunWrite,
   type ScriptValidation,
 } from "./scriptDrafts";
+
+// A script's runs (#1290, #1847, #1860) live in scriptRuns.ts.
+export {
+  LIVE_RUNS,
+  RUN_PAGE_SIZE,
+  RUN_POLL_MS,
+  hasRunInFlight,
+  isRunInFlight,
+  useCancelScriptRun,
+  useScriptLiveRuns,
+  useScriptRun,
+  useScriptRuns,
+  type ScriptRunCancelled,
+} from "./scriptRuns";
 
 // Who other than the owner may run a script (#1846) lives in scriptGrants.ts.
 export {
@@ -395,43 +453,6 @@ export function usePortalScriptVersions(
   });
 }
 
-// RUN_PAGE_SIZE is how many runs the history asks for. The page states when a
-// result fills it, so a script that runs every half hour never reads as though
-// its history began this morning.
-export const RUN_PAGE_SIZE = 25;
-
-// RUN_POLL_MS is how often the history re-reads itself while a run is still
-// going. A run asked for on the page (#1363) is queued and executed by a
-// worker, so the answer arrives after the request that started it; without this
-// the person who pressed Run would watch a row that says "pending" until they
-// reloaded the page themselves.
-//
-// The poll stops the moment nothing is in flight, so a page of finished runs
-// costs one request.
-export const RUN_POLL_MS = 3_000;
-
-export function useScriptRuns(scriptID: string | null, owned: boolean) {
-  return useQuery({
-    queryKey: [...scriptsKey, scriptID, "runs", RUN_PAGE_SIZE],
-    queryFn: () =>
-      apiFetch<ListResponse<ScriptRun>>(
-        `/scripts/${scriptID}/runs?per_page=${RUN_PAGE_SIZE}`,
-      ),
-    enabled: !!scriptID && owned,
-    refetchInterval: (query) =>
-      hasRunInFlight(query.state.data) ? RUN_POLL_MS : false,
-  });
-}
-
-// hasRunInFlight reports whether any run in the history has yet to finish.
-// Those two statuses are the queue's, not the outcome's: everything else is a
-// run that has stopped moving.
-export function hasRunInFlight(
-  data: { data: ScriptRun[] } | undefined,
-): boolean {
-  return (data?.data ?? []).some(isRunInFlight);
-}
-
 // useScriptSchedule reads an owned script's cadence in full, including the
 // parameters every fire binds — which the contract deliberately does not carry,
 // because it is the document every surface renders and these are the owner's
@@ -482,48 +503,6 @@ export function useSetScriptSchedulePaused(scriptID: string) {
           method: "POST",
         },
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
-  });
-}
-
-// useScriptRun reads one run in full. While the run is still queued or
-// executing it is re-read on the history's interval, so an open run shows its
-// progress and the log so far as the worker writes them (#1847) rather than
-// the state it was in when it was opened.
-export function useScriptRun(scriptID: string | null, runID: string | null) {
-  return useQuery({
-    queryKey: [...scriptsKey, scriptID, "runs", runID],
-    queryFn: () =>
-      apiFetch<ScriptRunDetail>(`/scripts/${scriptID}/runs/${runID}`),
-    enabled: !!scriptID && !!runID,
-    refetchInterval: (query) =>
-      isRunInFlight(query.state.data) ? RUN_POLL_MS : false,
-  });
-}
-
-// isRunInFlight reports whether one run has yet to finish.
-export function isRunInFlight(run: { status: string } | undefined): boolean {
-  return run?.status === "pending" || run?.status === "running";
-}
-
-// ScriptRunCancelled is what a cancel did: canceled (it had not started and
-// will not), requested (it is running and ends canceled within seconds) or
-// already_finished.
-export interface ScriptRunCancelled {
-  run_id: string;
-  outcome: "canceled" | "requested" | "already_finished";
-  message: string;
-}
-
-// useCancelScriptRun stops a run (#1847). Every script query is invalidated,
-// because the run's status, the history row and the listing all change.
-export function useCancelScriptRun(scriptID: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (runID: string) =>
-      apiFetch<ScriptRunCancelled>(`/scripts/${scriptID}/runs/${runID}/cancel`, {
-        method: "POST",
-      }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }

@@ -1,6 +1,7 @@
 package scriptlayer
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -123,27 +125,58 @@ func (m *memRuns) ListRuns(_ context.Context, filter script.RunFilter) ([]script
 		if filter.Status != "" && r.Status != filter.Status {
 			continue
 		}
+		if filter.Live && r.Terminal() {
+			continue
+		}
 		out = append(out, *r)
 	}
 	return out, nil
 }
 
-func (m *memRuns) Claim(_ context.Context, worker string, lease time.Duration) (*script.Run, error) {
+// Claim models the real store: a pending run, or a running one whose lease
+// expired while its reclaims are under the cap.
+func (m *memRuns) Claim(_ context.Context, worker string, lease time.Duration, maxReclaims int) (*script.Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.claims++
+	now := time.Now()
 	for _, id := range m.order {
 		r := m.byID[id]
-		if r.Status != script.RunStatusPending {
+		reclaim := r.Status == script.RunStatusRunning && r.LockedUntil != nil && r.LockedUntil.Before(now) &&
+			r.Reclaims < maxReclaims
+		if r.Status != script.RunStatusPending && !reclaim {
 			continue
 		}
-		until := time.Now().Add(lease)
+		if reclaim {
+			r.Reclaims++
+		}
+		until := now.Add(lease)
 		r.Status, r.LockedBy, r.LockedUntil = script.RunStatusRunning, worker, &until
+		r.ClaimedAt, r.HeartbeatAt = &now, &now
 		r.Attempt++
 		out := *r
+		out.Reclaimed = reclaim
 		return &out, nil
 	}
 	return nil, script.ErrNoWork
+}
+
+// FailAbandoned models the real store: running rows whose lease expired with
+// their reclaims spent are failed.
+func (m *memRuns) FailAbandoned(_ context.Context, maxReclaims int) ([]script.Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []script.Run{}
+	now := time.Now()
+	for _, id := range m.order {
+		r := m.byID[id]
+		if r.Status != script.RunStatusRunning || r.LockedUntil == nil || !r.LockedUntil.Before(now) || r.Reclaims < maxReclaims {
+			continue
+		}
+		r.Status, r.Cause, r.LockedBy, r.LockedUntil = script.RunStatusFailed, runstate.CauseWorkerLost, "", nil
+		out = append(out, *r)
+	}
+	return out, nil
 }
 
 // held enforces the fencing token, as the real store's WHERE clause does.
@@ -175,6 +208,9 @@ func (m *memRuns) Finish(_ context.Context, lease script.RunLease, res script.Ru
 	}
 	finished := time.Now().UTC()
 	r.Status, r.Error, r.Log, r.LogTruncated = res.Status, res.Error, res.Log, res.LogTruncated
+	if res.Status == script.RunStatusFailed {
+		r.Cause = cmp.Or(res.Cause, runstate.CauseScript)
+	}
 	r.Metrics, r.FinishedAt = res.Metrics, &finished
 	r.Result = res.Result
 	if res.Progress != nil {
@@ -183,7 +219,7 @@ func (m *memRuns) Finish(_ context.Context, lease script.RunLease, res script.Ru
 	if res.State != nil && res.Status == script.RunStatusSucceeded && m.states != nil {
 		revision, err := m.states.writeRunState(r.ScriptID, r.ID, r.StateRevision, res.State.Value)
 		if err != nil {
-			r.Status, r.Error = script.RunStatusFailed, err.Error()
+			r.Status, r.Error, r.Cause = script.RunStatusFailed, err.Error(), runstate.CauseStateConflict
 			return nil
 		}
 		r.StateWritten, r.StateRevisionWritten = res.State.Value, revision
@@ -191,14 +227,15 @@ func (m *memRuns) Finish(_ context.Context, lease script.RunLease, res script.Ru
 	return nil
 }
 
-func (m *memRuns) Retry(_ context.Context, lease script.RunLease, cause string, _ time.Duration) error {
+func (m *memRuns) Retry(_ context.Context, lease script.RunLease, outcome, reason string, _ time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, err := m.held(lease)
 	if err != nil {
 		return err
 	}
-	r.Status, r.Error = script.RunStatusPending, cause
+	r.Attempts = append(r.Attempts, runstate.Attempt{Attempt: r.Attempt, Worker: r.LockedBy, Outcome: outcome, Error: reason})
+	r.Status, r.Error = script.RunStatusPending, reason
 	return nil
 }
 
@@ -213,6 +250,8 @@ func (m *memRuns) RecordProgress(_ context.Context, lease script.RunLease, live 
 	if heldErr != nil {
 		return false, "", heldErr
 	}
+	now := time.Now()
+	r.HeartbeatAt = &now
 	if !live.Unchanged {
 		r.Log, r.LogTruncated = live.Log, live.LogTruncated
 		if live.Progress != nil {
@@ -222,27 +261,29 @@ func (m *memRuns) RecordProgress(_ context.Context, lease script.RunLease, live 
 	return r.CancelRequestedAt != nil, r.CancelRequestedBy, nil
 }
 
-// CancelRun models the real store's transition from the run's prior status.
-func (m *memRuns) CancelRun(_ context.Context, id, by string) (string, error) {
+// CancelRun models the real store's transition from the run's prior status,
+// ending a running run whose worker is gone directly.
+func (m *memRuns) CancelRun(_ context.Context, id, by string) (prior, now string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.byID[id]
 	if !ok {
-		return "", script.ErrRunNotFound
+		return "", "", script.ErrRunNotFound
 	}
-	prior := r.Status
-	switch prior {
-	case script.RunStatusPending:
-		now := time.Now().UTC()
-		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &now, "canceled by "+by
-		r.CancelRequestedAt, r.CancelRequestedBy = &now, by
-	case script.RunStatusRunning:
-		if r.CancelRequestedAt == nil {
-			now := time.Now().UTC()
-			r.CancelRequestedAt, r.CancelRequestedBy = &now, by
-		}
+	prior = r.Status
+	at := time.Now().UTC()
+	switch {
+	case prior == script.RunStatusPending:
+		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &at, "canceled by "+by
+		r.CancelRequestedAt, r.CancelRequestedBy = &at, by
+	case prior == script.RunStatusRunning && r.Liveness(at) != runstate.LivenessExecuting:
+		r.Status, r.FinishedAt = script.RunStatusCanceled, &at
+		r.Error = "canceled by " + by + "; the worker executing it had stopped reporting, so the run was ended directly"
+		r.LockedBy, r.LockedUntil = "", nil
+	case prior == script.RunStatusRunning && r.CancelRequestedAt == nil:
+		r.CancelRequestedAt, r.CancelRequestedBy = &at, by
 	}
-	return prior, nil
+	return prior, r.Status, nil
 }
 
 // memAssets, memVersions and memS3 stand in for the portal persistence the

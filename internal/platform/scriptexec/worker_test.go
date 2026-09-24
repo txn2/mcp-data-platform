@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -44,6 +45,8 @@ type fakeRuns struct {
 	purgeErr    error
 	// reports are the live snapshots a running run wrote (#1847).
 	reports []script.RunLive
+	// ends are how each requeued attempt ended (#1860).
+	ends []attemptEnd
 }
 
 func (f *fakeRuns) Enqueue(_ context.Context, r *script.Run) error {
@@ -76,23 +79,61 @@ func (*fakeRuns) ListRuns(context.Context, script.RunFilter) ([]script.Run, erro
 	return nil, nil
 }
 
-func (f *fakeRuns) Claim(_ context.Context, worker string, _ time.Duration) (*script.Run, error) {
+// Claim models the real store: a due pending run, or a running one whose
+// lease expired while its reclaims are under the cap, which counts the
+// reclaim and records the dead attempt.
+func (f *fakeRuns) Claim(_ context.Context, worker string, lease time.Duration, maxReclaims int) (*script.Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.claims++
 	if f.claimErr != nil {
 		return nil, f.claimErr
 	}
+	now := time.Now()
 	for _, r := range f.queue {
-		if r.Status != script.RunStatusPending || !f.due(r) {
+		reclaim := r.Status == script.RunStatusRunning && leaseExpired(r, now) && r.Reclaims < maxReclaims
+		if !reclaim && (r.Status != script.RunStatusPending || !f.due(r)) {
 			continue
 		}
-		r.Status, r.LockedBy = script.RunStatusRunning, worker
+		if reclaim {
+			r.Reclaims++
+			r.Attempts = append(r.Attempts, runstate.Attempt{
+				Attempt: r.Attempt, Worker: r.LockedBy, EndedAt: r.LockedUntil, Outcome: runstate.AttemptLeaseExpired,
+			})
+		}
+		until := now.Add(lease)
+		r.Status, r.LockedBy, r.LockedUntil = script.RunStatusRunning, worker, &until
 		r.Attempt++
 		out := *r
+		out.Reclaimed = reclaim
 		return &out, nil
 	}
 	return nil, script.ErrNoWork
+}
+
+// leaseExpired reports whether a running row's lease has run out.
+func leaseExpired(r *script.Run, now time.Time) bool {
+	return r.LockedUntil != nil && r.LockedUntil.Before(now)
+}
+
+// FailAbandoned models the real store: running rows whose lease expired with
+// their reclaims spent are failed and returned.
+func (f *fakeRuns) FailAbandoned(_ context.Context, maxReclaims int) ([]script.Run, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []script.Run{}
+	now := time.Now()
+	for _, r := range f.queue {
+		if r.Status != script.RunStatusRunning || !leaseExpired(r, now) || r.Reclaims < maxReclaims {
+			continue
+		}
+		r.Status, r.Cause = script.RunStatusFailed, runstate.CauseWorkerLost
+		r.Error = fmt.Sprintf("the worker executing this run stopped without reporting a result %d times (last held by %s)",
+			r.Reclaims+1, r.LockedBy)
+		r.LockedUntil, r.LockedBy = nil, ""
+		out = append(out, *r)
+	}
+	return out, nil
 }
 
 // held reports whether the lease still matches the stored row.
@@ -133,7 +174,11 @@ func (f *fakeRuns) Finish(_ context.Context, lease script.RunLease, res script.R
 	return nil
 }
 
-func (f *fakeRuns) Retry(ctx context.Context, lease script.RunLease, cause string, backoff time.Duration) error {
+// attemptEnd is how one requeued attempt ended, as Retry recorded it.
+type attemptEnd struct{ outcome, reason string }
+
+func (f *fakeRuns) Retry(ctx context.Context, lease script.RunLease, outcome, reason string, backoff time.Duration) error {
+	cause := reason
 	if f.blocked() {
 		<-ctx.Done()
 		return fmt.Errorf("the database never answered: %w", ctx.Err())
@@ -153,6 +198,7 @@ func (f *fakeRuns) Retry(ctx context.Context, lease script.RunLease, cause strin
 		}
 	}
 	f.retried = append(f.retried, cause)
+	f.ends = append(f.ends, attemptEnd{outcome: outcome, reason: reason})
 	return nil
 }
 
@@ -173,27 +219,28 @@ func (f *fakeRuns) RecordProgress(_ context.Context, lease script.RunLease, live
 	return false, "", nil
 }
 
-// CancelRun models the real store's transition from the run's prior status.
-func (f *fakeRuns) CancelRun(_ context.Context, id, by string) (string, error) {
+// CancelRun models the real store's transition from the run's prior status,
+// ending a running run whose worker is gone directly.
+func (f *fakeRuns) CancelRun(_ context.Context, id, by string) (prior, now string, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.find(id)
 	if !ok {
-		return "", script.ErrRunNotFound
+		return "", "", script.ErrRunNotFound
 	}
-	prior := r.Status
-	switch prior {
-	case script.RunStatusPending:
-		now := time.Now().UTC()
-		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &now, "canceled by "+by
-		r.CancelRequestedAt, r.CancelRequestedBy = &now, by
-	case script.RunStatusRunning:
-		if r.CancelRequestedAt == nil {
-			now := time.Now().UTC()
-			r.CancelRequestedAt, r.CancelRequestedBy = &now, by
-		}
+	prior = r.Status
+	at := time.Now().UTC()
+	switch {
+	case prior == script.RunStatusPending:
+		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &at, "canceled by "+by
+		r.CancelRequestedAt, r.CancelRequestedBy = &at, by
+	case prior == script.RunStatusRunning && r.Liveness(at) != runstate.LivenessExecuting:
+		r.Status, r.FinishedAt, r.Error = script.RunStatusCanceled, &at, "canceled by "+by+"; the worker had stopped reporting"
+		r.LockedUntil, r.LockedBy = nil, ""
+	case prior == script.RunStatusRunning && r.CancelRequestedAt == nil:
+		r.CancelRequestedAt, r.CancelRequestedBy = &at, by
 	}
-	return prior, nil
+	return prior, r.Status, nil
 }
 
 // find returns the stored row for id. The caller holds the lock.
@@ -637,7 +684,7 @@ func TestWorker_AClaimThatRacedTheStopIsReleasedNotExecuted(t *testing.T) {
 // re-execute a script that had already done its work.
 func TestWorker_ARunThatSucceededAsTheCancelLandedIsRecorded(t *testing.T) {
 	w, runs, _ := newTestWorker(t, nil, succeeded)
-	run, err := runs.Claim(context.Background(), w.id, time.Minute)
+	run, err := runs.Claim(context.Background(), w.id, time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 
 	w.cancelRun()

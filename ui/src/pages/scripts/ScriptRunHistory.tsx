@@ -20,15 +20,18 @@ import {
 } from "@/components/ui/table";
 import { formatDuration } from "@/lib/formatDuration";
 import {
+  causeNote,
+  formatBytes,
   formatWhen,
+  livenessNote,
   outputLink,
   progressText,
-  runStatusLabel,
-  runStatusVariant,
+  runBadge,
   runWhen,
   successRate,
   summarize,
 } from "./runFormat";
+import { RunAttempts, RunHolder } from "./ScriptRunAttempts";
 
 // ScriptRunHistory is the refresh history of one script: every run, what
 // triggered it, how it ended, and what it produced. A recurring script writes
@@ -192,7 +195,7 @@ function RunRows({
             column at the width this page has. */}
         <TableCell>
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
+            <Badge variant={runBadge(run).variant}>{runBadge(run).label}</Badge>
             <span className="text-xs">{runWhen(run)}</span>
           </div>
           <div className="text-xs text-muted-foreground">
@@ -216,6 +219,9 @@ function RunRows({
             className="pt-0 text-xs break-words whitespace-normal text-red-700 dark:text-red-300"
           >
             {run.error}
+            {causeNote(run) && (
+              <div className="pt-1 text-muted-foreground">{causeNote(run)}</div>
+            )}
           </TableCell>
         </TableRow>
       )}
@@ -276,12 +282,15 @@ function RunDetail({
   return (
     <div className="space-y-3">
       <RunControl scriptId={scriptId} run={run} />
+      <RunHolder run={run} />
       <RunFacts run={run} />
       {run.error && (
         <pre className="overflow-x-auto rounded-md border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-700 dark:text-red-300">
           {run.error}
         </pre>
       )}
+      {causeNote(run) && <p className="text-xs text-muted-foreground">{causeNote(run)}</p>}
+      <RunAttempts run={run} />
       <RunResult run={run} />
       <RunOutputs run={run} onNavigate={onNavigate} />
       <RunLog run={run} />
@@ -296,10 +305,12 @@ function RunDetail({
 function RunProgressLine({ run }: { run: ScriptRun }) {
   if (!isRunInFlight(run)) return null;
   const text = progressText(run.progress);
-  if (!text && !run.cancel_requested) return null;
+  const note = livenessNote(run);
+  if (!text && !run.cancel_requested && !note) return null;
   return (
     <div className="text-xs break-words whitespace-normal text-muted-foreground">
       {run.cancel_requested ? "Stopping" + (text ? ` · ${text}` : "") : text}
+      {note && <div className="text-amber-700 dark:text-amber-300">{note}</div>}
     </div>
   );
 }
@@ -370,6 +381,8 @@ function RunFacts({ run }: { run: ScriptRunDetail }) {
         <dt className="text-muted-foreground">Cost</dt>
         <dd>
           {run.metrics.steps} steps · {run.metrics.queries} queries · {run.metrics.exports} exports
+          {(run.metrics.peak_memory_bytes ?? 0) > 0 &&
+            ` · peak ${formatBytes(run.metrics.peak_memory_bytes ?? 0)} held`}
         </dd>
       </div>
       <div className="sm:col-span-3">

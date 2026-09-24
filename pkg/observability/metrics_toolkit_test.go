@@ -215,6 +215,22 @@ func TestScriptRecorders_NilSafe(*testing.T) {
 	m.ScriptRunFinished(ctx)
 	m.RecordScriptAdmissionRefused(ctx, "memory")
 	m.RecordScriptQueueWait(ctx, time.Second)
+	m.RecordScriptRunReclaim(ctx, ReclaimFailed)
+}
+
+// TestScriptRunReclaims reads the #1860 series back from the exporter: a run
+// found with its worker gone, by what became of it.
+func TestScriptRunReclaims(t *testing.T) {
+	m := newEnabledMetrics(t)
+	ctx := context.Background()
+	m.RecordScriptRunReclaim(ctx, ReclaimReexecuted)
+	m.RecordScriptRunReclaim(ctx, ReclaimFailed)
+	body := scrapeMetrics(t, m.Handler())
+	for _, want := range []string{"script_run_reclaims_total", `outcome="reexecuted"`, `outcome="failed"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
 }
 
 // TestScriptAdmissionInstruments reads the run worker's admission series back

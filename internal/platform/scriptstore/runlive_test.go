@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -44,23 +45,25 @@ func TestRecordProgress_Failures(t *testing.T) {
 	require.ErrorContains(t, err, "record script run progress")
 }
 
-func TestCancelRun_ReturnsThePriorStatus(t *testing.T) {
+func TestCancelRun_ReturnsThePriorAndCurrentStatus(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("RETURNING prior.status")).WithArgs("dpx_1", "jane@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(script.RunStatusRunning))
-	got, err := s.CancelRun(context.Background(), "dpx_1", "jane@example.com")
+	mock.ExpectQuery(regexp.QuoteMeta("RETURNING prior.status, r.status")).
+		WithArgs("dpx_1", "jane@example.com", int(runstate.HeartbeatStaleAfter.Seconds())).
+		WillReturnRows(sqlmock.NewRows([]string{"prior", "now"}).AddRow(script.RunStatusRunning, script.RunStatusCanceled))
+	prior, now, err := s.CancelRun(context.Background(), "dpx_1", "jane@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, script.RunStatusRunning, got)
+	assert.Equal(t, script.RunStatusRunning, prior)
+	assert.Equal(t, script.RunStatusCanceled, now)
 }
 
 func TestCancelRun_Failures(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("RETURNING prior.status")).WillReturnRows(sqlmock.NewRows([]string{"status"}))
-	_, err := s.CancelRun(context.Background(), "dpx_1", "jane@example.com")
+	mock.ExpectQuery(regexp.QuoteMeta("RETURNING prior.status")).WillReturnRows(sqlmock.NewRows([]string{"prior", "now"}))
+	_, _, err := s.CancelRun(context.Background(), "dpx_1", "jane@example.com")
 	require.ErrorIs(t, err, script.ErrRunNotFound)
 
 	mock.ExpectQuery(regexp.QuoteMeta("RETURNING prior.status")).WillReturnError(errors.New("boom"))
-	_, err = s.CancelRun(context.Background(), "dpx_1", "jane@example.com")
+	_, _, err = s.CancelRun(context.Background(), "dpx_1", "jane@example.com")
 	require.ErrorContains(t, err, "cancel script run")
 }
 

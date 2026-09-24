@@ -286,6 +286,8 @@ platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 	require.False(t, isErr, ran)
 	assert.Equal(t, "succeeded", ran["status"], ran["error"])
 	assert.EqualValues(t, 1, ran["queries"])
+	peak, _ := ran["peak_memory_bytes"].(float64)
+	assert.Positive(t, peak, "a draft reports the memory it held at its peak (#1861)")
 
 	log, _ := ran["log"].(string)
 	assert.Contains(t, log, "reporting on ")

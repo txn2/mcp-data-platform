@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -73,8 +75,8 @@ func checkResourceDestination(ctx context.Context, deps *ExportDeps, in exportIn
 	return nil
 }
 
-// refuseUnsuccessfulLanding refuses to land a response the upstream did not
-// answer successfully.
+// unchangedResource answers a resource export the upstream did not answer
+// successfully: nothing is landed, and the upstream's answer is the result.
 //
 // An asset destination keeps a failed response, and should: it is a new file
 // every time, the status is in the result, and a recorded error body is
@@ -82,16 +84,31 @@ func checkResourceDestination(ctx context.Context, deps *ExportDeps, in exportIn
 // readers -- an asset referencing the file, a table registered over it, a
 // citation naming it -- so landing an error page there would publish
 // "<html>Service Unavailable</html>" as this week's dataset and move a
-// registered table onto it. The previous version stays the head instead, and
-// the call says what the upstream answered.
-func refuseUnsuccessfulLanding(status int, dest toolkit.ResourceDestination) error {
-	if status >= http.StatusOK && status < http.StatusMultipleChoices {
-		return nil
+// registered table onto it. The previous version stays the head instead.
+//
+// It is data rather than an error (#1859): a managed script has no try/except,
+// so an error here ended every run on the first throttled request, with the
+// progress it had made unsaved. The status, the upstream's headers and
+// whether asking again is expected to help let the caller decide, and a
+// script's host waits and retries on that advice before the script sees it.
+func unchangedResource(in exportInput, resp *http.Response) *exportOutput {
+	dest := exportDestinationOf(in)
+	method, _ := validateMethod(in.Method)
+	return &exportOutput{
+		Status:            resp.StatusCode,
+		UpstreamHeaders:   selectResponseHeaders(resp.Header),
+		ResourceUnchanged: true,
+		Advice:            upstreamretry.Advise(method, resp.StatusCode, resp.Header, time.Now()),
+		Message: fmt.Sprintf("The upstream answered %d %s to %s %s, and a managed-resource destination lands only "+
+			"a successful response: %s/%s is unchanged. Call api_invoke_endpoint to read what the upstream said "+
+			"about the failure, or export to a portal asset if you want the failed response kept as a file.",
+			resp.StatusCode, http.StatusText(resp.StatusCode), method, in.Path, dest.Path, dest.Filename),
 	}
-	return fmt.Errorf("upstream answered %d %s, and a managed-resource destination lands only a successful "+
-		"response: %s/%s is unchanged. Call api_invoke_endpoint to read what the upstream said about the "+
-		"failure, or export to a portal asset if you want the failed response kept as a file",
-		status, http.StatusText(status), dest.Path, dest.Filename)
+}
+
+// successful reports whether an upstream status is one a resource lands.
+func successful(status int) bool {
+	return status >= http.StatusOK && status < http.StatusMultipleChoices
 }
 
 // upstreamAnswer is the response a landing streams: the body, the type it is

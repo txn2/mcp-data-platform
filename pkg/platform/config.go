@@ -2040,6 +2040,9 @@ func (c *Config) Validate() error {
 	if _, err := c.Scripts.Worker.Admission(); err != nil {
 		errs = append(errs, err.Error())
 	}
+	if _, err := c.Scripts.Worker.RunMemoryBudget(0); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if msg := portalcfg.MaxVersionsError(c.Portal.MaxVersions); msg != "" {
 		errs = append(errs, msg)
 	}

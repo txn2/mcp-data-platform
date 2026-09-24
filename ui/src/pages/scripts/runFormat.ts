@@ -29,6 +29,85 @@ export function runStatusLabel(status: string): string {
   return status === "skipped_overlap" ? "Skipped (overlap)" : status;
 }
 
+// runBadge is the badge a run row carries: its status, except that a running
+// run whose worker has stopped reporting says so (#1860) rather than reading as
+// a run being executed.
+export function runBadge(run: Pick<ScriptRun, "status" | "liveness">): {
+  label: string;
+  variant: "success" | "danger" | "warning" | "info" | "muted";
+} {
+  if (run.status === "running" && run.liveness === "unresponsive") {
+    return { label: "worker not responding", variant: "warning" };
+  }
+  if (run.status === "running" && run.liveness === "lease_expired") {
+    return { label: "worker gone", variant: "warning" };
+  }
+  return { label: runStatusLabel(run.status), variant: runStatusVariant(run.status) };
+}
+
+// livenessNote says what happens to a running run whose worker has stopped
+// reporting, and empty for one whose worker is executing it.
+export function livenessNote(run: Pick<ScriptRun, "status" | "liveness">): string {
+  if (run.status !== "running") return "";
+  switch (run.liveness) {
+    case "unresponsive":
+      return "The worker executing this run stopped reporting, most likely a replica that was killed. It is taken over when its lease ends, or failed if it has been taken over too often; stopping it ends it now.";
+    case "lease_expired":
+      return "The worker that held this run stopped reporting and its lease has ended. The next worker takes it over, or fails it if it has been taken over too often; stopping it ends it now.";
+    default:
+      return "";
+  }
+}
+
+// causeNote says what a failure means for the owner (#1859): only a script
+// error asks for a fix, and a temporary one says the next run should succeed.
+// Empty for a script error, whose message is the error itself.
+export function causeNote(run: Pick<ScriptRun, "status" | "cause">): string {
+  if (run.status !== "failed") return "";
+  switch (run.cause) {
+    case "upstream":
+      return "Temporary: a service the script called was unavailable. Nothing in the script needs fixing, and the next run should succeed.";
+    case "state_conflict":
+      return "Temporary: another run saved the script's state first. Its outputs stand, and the next run reads the newer state.";
+    case "memory":
+      return "The run held more memory than it is allowed. Page the work and export each page with append=True.";
+    case "worker_lost":
+      return "Its workers kept stopping without a result, most often from running out of memory, so it is not run again.";
+    case "platform":
+      return "The platform could not execute it. Nothing in the script needs fixing; run it again.";
+    default:
+      return "";
+  }
+}
+
+// attemptOutcomeLabel names how one attempt of a run ended.
+export function attemptOutcomeLabel(outcome: string): string {
+  switch (outcome) {
+    case "finished":
+      return "finished";
+    case "retried":
+      return "retried after a platform fault";
+    case "released":
+      return "released at shutdown";
+    case "shed":
+      return "requeued to relieve memory";
+    case "lease_expired":
+      return "worker stopped reporting (lease expired)";
+    case "unresponsive":
+      return "worker stopped reporting";
+    default:
+      return outcome;
+  }
+}
+
+// formatBytes renders a size in the unit a memory budget is written in.
+export function formatBytes(n: number): string {
+  if (n >= 1 << 30) return `${(n / (1 << 30)).toFixed(1)} GiB`;
+  if (n >= 1 << 20) return `${Math.round(n / (1 << 20))} MiB`;
+  if (n >= 1 << 10) return `${Math.round(n / (1 << 10))} KiB`;
+  return `${n} bytes`;
+}
+
 // progressText renders a platform.progress report as one line: the count when
 // the script gave one, then its message (#1847).
 export function progressText(progress?: { message: string; done?: number; total?: number }): string {

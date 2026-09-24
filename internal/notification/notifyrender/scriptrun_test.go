@@ -39,13 +39,43 @@ func TestScriptRunBody(t *testing.T) {
 	if item.Message != "" {
 		t.Error("the failure detail must not render as a quotation")
 	}
-	for _, want := range []string{"dpx_1", "division by zero", "never retried"} {
+	for _, want := range []string{"dpx_1", "division by zero", "not retried", "corrected"} {
 		if !strings.Contains(item.Body, want) {
 			t.Errorf("body must carry %q, got %q", want, item.Body)
 		}
 	}
 	if got := Subject(n); !strings.Contains(got, "daily-sales") {
 		t.Errorf("the shared summary line must name the script, got %q", got)
+	}
+}
+
+// TestScriptRunBodyByCause holds #1859: only a script error tells the owner to
+// fix the script. An upstream that was briefly unavailable says the next run
+// should succeed, and the memory causes say how to hold less.
+func TestScriptRunBodyByCause(t *testing.T) {
+	cases := map[string]struct {
+		want, never string
+	}{
+		"upstream":       {want: "temporarily unavailable", never: "corrected"},
+		"memory":         {want: "append=True", never: "corrected"},
+		"worker_lost":    {want: "stopped without reporting a result", never: "corrected"},
+		"platform":       {want: "nothing in the script to fix", never: "corrected"},
+		"state_conflict": {want: "saved its state first", never: "corrected"},
+		"script":         {want: "corrected", never: "temporarily"},
+		"":               {want: "corrected", never: "temporarily"},
+	}
+	for cause, tc := range cases {
+		t.Run("cause "+cause, func(t *testing.T) {
+			n := scriptRunNotification()
+			n.Payload.Cause = cause
+			body := buildItem(n).Body
+			if !strings.Contains(body, tc.want) {
+				t.Errorf("body for cause %q does not say %q: %s", cause, tc.want, body)
+			}
+			if strings.Contains(body, tc.never) {
+				t.Errorf("body for cause %q says %q: %s", cause, tc.never, body)
+			}
+		})
 	}
 }
 

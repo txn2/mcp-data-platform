@@ -56,6 +56,8 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 		// repeatedly failing automation is throttled and its neighbors are not.
 		Actor:   sc.Principal(),
 		Message: alertDetail(res),
+		// Why it failed decides what the alert tells the owner to do (#1859).
+		Cause: res.Cause,
 	}
 	// The run is already recorded, so this write outlives the cancellation that
 	// may have raced it, and is bounded so a wedged database cannot hold the

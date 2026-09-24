@@ -1,6 +1,7 @@
 package scriptexec
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -109,6 +111,10 @@ type executor interface {
 type attempt struct {
 	result    script.RunResult
 	retryable bool
+	// requeue is how a retryable attempt that goes back on the queue is
+	// recorded in the run's history: retried by default, shed for a run
+	// stopped to relieve memory (#1860).
+	requeue string
 }
 
 // workerConfig is what the run worker needs to drain the queue.
@@ -127,6 +133,9 @@ type workerConfig struct {
 	pollEvery   time.Duration
 	lease       time.Duration
 	maxAttempts int
+	// maxReclaims is how many times a run is taken over from a worker whose
+	// lease expired before it is failed instead (#1860).
+	maxReclaims int
 	// admission decides whether another run may be claimed (#1843); load is
 	// what adaptive admission reads, procload when nil.
 	admission scriptadmit.Admission
@@ -170,9 +179,10 @@ type worker struct {
 	// run is stopped to relieve memory without stopping the others.
 	slotsMu sync.Mutex
 	slots   map[string]*slot
-	// lastPurge throttles the retention sweep. Only the loop goroutine reads
-	// it.
-	lastPurge time.Time
+	// lastPurge throttles the retention sweep and lastAbandoned the sweep of
+	// runs whose reclaims are spent. Only the loop goroutine reads them.
+	lastPurge     time.Time
+	lastAbandoned time.Time
 	// queueHadWork records whether the last claim found a run, so a refusal
 	// is counted only when there was work to refuse.
 	queueHadWork bool
@@ -185,6 +195,10 @@ type slot struct {
 	// shed is set when the worker stopped the run to relieve memory, which
 	// turns its outcome into a requeue rather than a failure.
 	shed atomic.Bool
+	// overMemory holds why the worker stopped the run as the only one
+	// executing past the shed threshold (#1861), which turns its outcome into
+	// a memory failure: there is no smaller replica to requeue it for.
+	overMemory atomic.Pointer[string]
 }
 
 // newWorker creates a run worker, applying defaults for zero config values.
@@ -197,6 +211,9 @@ func newWorker(cfg workerConfig) *worker {
 	}
 	if cfg.maxAttempts <= 0 {
 		cfg.maxAttempts = defaultMaxAttempts
+	}
+	if cfg.maxReclaims <= 0 {
+		cfg.maxReclaims = runstate.DefaultMaxReclaims
 	}
 	if cfg.retention <= 0 {
 		cfg.retention = DefaultRunRetention
@@ -349,6 +366,7 @@ func (w *worker) run() {
 func (w *worker) drain() {
 	ctx := w.runCtx
 	w.maybePurge(ctx)
+	w.maybeFailAbandoned(ctx)
 	for {
 		select {
 		case <-w.stopCh:
@@ -383,9 +401,45 @@ func (w *worker) maybePurge(ctx context.Context) {
 	}
 }
 
+// maybeFailAbandoned fails the runs whose workers kept dying, at most once per
+// poll interval (#1860).
+//
+// A run whose lease expired with its reclaims spent is never claimed again, so
+// nothing would ever end it; any worker's loop does, which is what lets the
+// cap hold with no survivor of the run's own workers. Each one is counted and
+// its owner alerted, as a run failed any other way is.
+func (w *worker) maybeFailAbandoned(ctx context.Context) {
+	if time.Since(w.lastAbandoned) < w.cfg.pollEvery {
+		return
+	}
+	w.lastAbandoned = time.Now()
+	failed, err := w.cfg.runs.FailAbandoned(ctx, w.cfg.maxReclaims)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("scripts: failing runs whose workers stopped failed", logKeyError, err)
+		}
+		return
+	}
+	for i := range failed {
+		run := &failed[i]
+		slog.Warn("scripts: failed a run whose workers kept stopping without a result", // #nosec G706 -- structured slog call; error sanitized
+			logKeyRunID, run.ID, "reclaims", run.Reclaims, logKeyError, logsan.SanitizeForLog(run.Error))
+		w.cfg.metrics.RecordScriptRunReclaim(ctx, observability.ReclaimFailed)
+		sc, readErr := w.cfg.scripts.GetByID(ctx, run.ScriptID)
+		if readErr != nil {
+			slog.Warn("scripts: reading the script of an abandoned run failed", logKeyRunID, run.ID, logKeyError, readErr)
+		}
+		result := script.RunResult{Status: script.RunStatusFailed, Error: run.Error, Log: run.Log, Cause: runstate.CauseWorkerLost}
+		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
+			Script: scriptName(sc, run), Trigger: run.Trigger, Status: script.RunStatusFailed,
+		}, 0)
+		w.notifyFailure(ctx, run, sc, result)
+	}
+}
+
 // processNext claims and executes one run, reporting whether more may remain.
 func (w *worker) processNext(ctx context.Context) bool {
-	run, err := w.cfg.runs.Claim(ctx, w.id, w.cfg.lease)
+	run, err := w.cfg.runs.Claim(ctx, w.id, w.cfg.lease, w.cfg.maxReclaims)
 	w.queueHadWork = err == nil
 	if errors.Is(err, script.ErrNoWork) {
 		return false
@@ -409,6 +463,12 @@ func (w *worker) processNext(ctx context.Context) bool {
 		w.release(releaseCtx, run)
 		return false
 	default:
+	}
+	if run.Reclaimed {
+		// The worker that held it stopped without reporting a result.
+		slog.Warn("scripts: took over a run whose worker stopped without a result",
+			logKeyRunID, run.ID, "attempt", run.Attempt, "reclaims", run.Reclaims)
+		w.cfg.metrics.RecordScriptRunReclaim(ctx, observability.ReclaimReexecuted)
 	}
 	w.cfg.metrics.RecordScriptQueueWait(ctx, queueWait(run))
 	w.launch(run)
@@ -455,6 +515,12 @@ func (w *worker) launch(run *script.Run) {
 //
 // A run already stopped is not counted: it is on its way out, and counting it
 // would shed the last run still executing.
+//
+// The last run is not requeued: a run over the line on its own is that
+// script's own size, and would rebuild the same heap wherever it ran next. It
+// is failed instead (#1861), because the alternative is the kernel killing the
+// replica with every session on it -- and a failed run is recoverable where a
+// killed replica, whose run is then reclaimed onto the next one, is not.
 func (w *worker) maybeShed() {
 	w.slotsMu.Lock()
 	defer w.slotsMu.Unlock()
@@ -464,7 +530,7 @@ func (w *worker) maybeShed() {
 		live     int
 	)
 	for id, s := range w.slots {
-		if s.shed.Load() {
+		if s.shed.Load() || s.overMemory.Load() != nil {
 			continue
 		}
 		live++
@@ -472,7 +538,18 @@ func (w *worker) maybeShed() {
 			newest, newestID = s, id
 		}
 	}
-	if newest == nil || !w.admit.Shed(live) {
+	if newest == nil {
+		return
+	}
+	if live == 1 {
+		if over, reason := w.admit.OverShed(); over {
+			slog.Warn("scripts: stopping the only run executing; the replica is out of memory", logKeyRunID, newestID)
+			newest.overMemory.Store(&reason)
+			newest.cancel()
+		}
+		return
+	}
+	if !w.admit.Shed(live) {
 		return
 	}
 	slog.Warn("scripts: stopping a run to relieve memory", logKeyRunID, newestID)
@@ -507,9 +584,19 @@ func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) {
 	}
 	// A run stopped to relieve memory has not failed: it goes back on the
 	// queue, spending the platform's retry budget rather than the script's.
-	// One that reported success as the cancel landed finished.
-	if s.shed.Load() && outcome.result.Status != script.RunStatusSucceeded {
-		outcome = *retryable(shedReason)
+	// One stopped as the only run executing past the threshold has nowhere
+	// smaller to go, and fails on memory. Either that reported success as the
+	// cancel landed finished.
+	if outcome.result.Status != script.RunStatusSucceeded {
+		if reason := s.overMemory.Load(); reason != nil {
+			outcome.result.Status, outcome.result.Error, outcome.result.Cause = script.RunStatusFailed, *reason, runstate.CauseMemory
+			outcome.retryable = false
+		} else if s.shed.Load() {
+			outcome = attempt{
+				result:    script.RunResult{Status: script.RunStatusFailed, Error: shedReason, Cause: runstate.CauseMemory},
+				retryable: true, requeue: runstate.AttemptShed,
+			}
+		}
 	}
 	// The alert is raised only for a run that was actually recorded as failed.
 	// A run released by a shutdown, or one returned to the queue for a retry,
@@ -546,29 +633,34 @@ func (w *worker) load(ctx context.Context, run *script.Run) (*script.Script, *sc
 		return nil, nil, retryable("reading the script failed: " + err.Error())
 	}
 	if sc == nil {
-		return nil, nil, terminal("the script this run belongs to no longer exists")
+		return nil, nil, terminal("the script this run belongs to no longer exists", runstate.CausePlatform)
 	}
 	v, err := w.cfg.versions.GetVersionByID(ctx, run.VersionID)
 	if err != nil {
 		return sc, nil, retryable("reading the script version failed: " + err.Error())
 	}
 	if v == nil {
-		return sc, nil, terminal("the version this run was queued against no longer exists")
+		return sc, nil, terminal("the version this run was queued against no longer exists", runstate.CausePlatform)
 	}
 	if refusal := script.RefuseRun(sc); refusal != nil {
-		return sc, v, terminal(refusal.Error())
+		return sc, v, terminal(refusal.Error(), runstate.CauseScript)
 	}
 	return sc, v, nil
 }
 
-// terminal builds a failed, non-retryable attempt.
-func terminal(reason string) *attempt {
-	return &attempt{result: script.RunResult{Status: script.RunStatusFailed, Error: reason}}
+// terminal builds a failed, non-retryable attempt with the cause it is
+// recorded under.
+func terminal(reason, cause string) *attempt {
+	return &attempt{result: script.RunResult{Status: script.RunStatusFailed, Error: reason, Cause: cause}}
 }
 
-// retryable builds a failed attempt the worker should try again.
+// retryable builds a failed attempt the worker should try again: a platform
+// fault, recorded as one if the attempt budget runs out first.
 func retryable(reason string) *attempt {
-	return &attempt{result: script.RunResult{Status: script.RunStatusFailed, Error: reason}, retryable: true}
+	return &attempt{
+		result:    script.RunResult{Status: script.RunStatusFailed, Error: reason, Cause: runstate.CausePlatform},
+		retryable: true, requeue: runstate.AttemptRetried,
+	}
 }
 
 // resolve writes the attempt's outcome: a terminal result, or a return to the
@@ -603,7 +695,8 @@ func (w *worker) resolve(run *script.Run, a attempt) bool {
 		backoff := computeBackoff(run.Attempt)
 		slog.Warn("scripts: run failed on a platform fault; retrying",
 			logKeyRunID, run.ID, "attempt", run.Attempt, "backoff", backoff, logKeyError, a.result.Error)
-		if err := w.cfg.runs.Retry(ctx, run.Lease(), a.result.Error, backoff); err != nil {
+		outcome := cmp.Or(a.requeue, runstate.AttemptRetried)
+		if err := w.cfg.runs.Retry(ctx, run.Lease(), outcome, a.result.Error, backoff); err != nil {
 			logLeaseAware("scripts: returning a run to the queue failed", run, err)
 		}
 		return false
@@ -623,7 +716,8 @@ func (w *worker) resolve(run *script.Run, a attempt) bool {
 // the write.
 func (w *worker) release(ctx context.Context, run *script.Run) {
 	slog.Info("scripts: releasing a run at shutdown", logKeyRunID, run.ID, "attempt", run.Attempt)
-	if err := w.cfg.runs.Retry(ctx, run.Lease(), "the worker executing this run shut down; it was requeued", 0); err != nil {
+	if err := w.cfg.runs.Retry(ctx, run.Lease(), runstate.AttemptReleased,
+		"the worker executing this run shut down; it was requeued", 0); err != nil {
 		// Nothing more to do: the lease expires on its own and another replica
 		// reclaims the run, which is the slower path to the same place.
 		logLeaseAware("scripts: releasing a run at shutdown failed", run, err)

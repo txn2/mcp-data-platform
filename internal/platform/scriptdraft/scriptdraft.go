@@ -155,6 +155,18 @@ type Runner struct {
 	// (#1822). Nil previews every export, which is what a deployment with no
 	// store for outputs can honestly do.
 	exports Exports
+	// memoryBudget is the memory one draft may hold (#1861), the same budget a
+	// platform run on this replica meets: a draft runs on a serving replica,
+	// where an out-of-memory kill costs every session on it. Zero sets none.
+	memoryBudget int64
+}
+
+// WithMemoryBudget returns the Runner with the memory one draft may hold.
+func (r *Runner) WithMemoryBudget(budget int64) *Runner {
+	if r != nil {
+		r.memoryBudget = budget
+	}
+	return r
 }
 
 // Exports builds the writer one draft's outputs are persisted through when its
@@ -255,9 +267,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		// caller who asked is owed the list. Both surfaces that reach a draft
 		// pass the request through here, so this is one decision rather than
 		// one per surface.
-		Writes:     barrierFor(req.AllowWrites),
-		Classifier: r.classifier,
-		Exporter:   r.exporterFor(req, runID, caller),
+		Writes:         barrierFor(req.AllowWrites),
+		Classifier:     r.classifier,
+		Exporter:       r.exporterFor(req, runID, caller),
+		MaxMemoryBytes: r.memoryBudget,
 	})
 	return &Outcome{RunID: runID, Result: result, Err: runErr, AllowWrites: req.AllowWrites}, nil
 }

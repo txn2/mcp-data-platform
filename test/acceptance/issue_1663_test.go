@@ -121,13 +121,14 @@ func TestIssue1663_APIExportLandsAFileAtAPathAndVersionsIt(t *testing.T) {
 }
 
 // TestIssue1663_AnUnsuccessfulResponseIsNotLanded: the file at that path has
-// readers, so an error page must not become its next version.
+// readers, so an error page must not become its next version. Since #1859 the
+// upstream's answer is the result, not an error, so a script can handle it.
 func TestIssue1663_AnUnsuccessfulResponseIsNotLanded(t *testing.T) {
 	c := connect(t)
 	filename := fmt.Sprintf("acc-1663-status-%d.json", time.Now().UnixNano())
 	first := issue1663Landing(t, issue1663Export(c, filename, nil))
 
-	res, text, err := c.callRaw("api_export", map[string]any{
+	answer := c.call("api_export", map[string]any{
 		"connection": issue1587FixtureConn,
 		"method":     "GET",
 		"path":       "/v1/there-is-no-such-endpoint",
@@ -135,14 +136,11 @@ func TestIssue1663_AnUnsuccessfulResponseIsNotLanded(t *testing.T) {
 		"resource":   issue1663Destination(filename),
 		"purpose":    issue1663Purpose,
 	})
-	if err != nil {
-		t.Fatalf("api_export: transport error: %v", err)
+	if _, landed := answer["resource"]; landed || answer["resource_unchanged"] != true {
+		t.Fatalf("an unsuccessful upstream response was landed in the library: %v", answer)
 	}
-	if !res.IsError {
-		t.Fatalf("an unsuccessful upstream response was landed in the library: %s", text)
-	}
-	if !strings.Contains(text, "404") || !strings.Contains(text, filename) {
-		t.Errorf("the refusal does not name the status and the file: %s", text)
+	if msg, _ := answer["message"].(string); !strings.Contains(msg, "404") || !strings.Contains(msg, filename) {
+		t.Errorf("the answer does not name the status and the file: %s", msg)
 	}
 
 	// The file still serves what it served before: the next successful export

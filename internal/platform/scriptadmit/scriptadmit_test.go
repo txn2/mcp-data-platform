@@ -109,3 +109,60 @@ func TestConfig_Admission(t *testing.T) {
 	_, err := Config{Concurrency: "adpative"}.Admission()
 	require.ErrorContains(t, err, "scripts.worker.concurrency")
 }
+
+// TestAdmitter_OverShed holds #1861's last-resort guard: past the shed
+// threshold the only run executing is stopped, under every admission, and a
+// reading the platform cannot take never stops one.
+func TestAdmitter_OverShed(t *testing.T) {
+	adm := Admission{}.WithDefaults()
+	over, reason := NewAdmitter(adm, fakeLoad{memory(95)}).OverShed()
+	assert.True(t, over)
+	assert.Contains(t, reason, "95%")
+	assert.Contains(t, reason, "the only one executing")
+	over, _ = NewAdmitter(Admission{Fixed: 1}.WithDefaults(), fakeLoad{memory(95)}).OverShed()
+	assert.True(t, over, "a fixed admission is guarded too")
+	over, _ = NewAdmitter(adm, fakeLoad{memory(80)}).OverShed()
+	assert.False(t, over)
+	over, _ = NewAdmitter(adm, fakeLoad{}).OverShed()
+	assert.False(t, over, "an unknown reading never stops a run")
+}
+
+func TestConfig_RunMemoryBudget(t *testing.T) {
+	const limit = int64(512 << 20)
+	cases := map[string]struct {
+		in   string
+		want int64
+	}{
+		"unset is half the limit": {"", limit / 2},
+		"a share of the limit":    {"25%", limit / 4},
+		"mebibytes":               {"300MiB", 300 << 20},
+		"gibibytes with a space":  {"1.5 GiB", 3 << 29},
+		"kibibytes":               {"512KiB", 512 << 10},
+		"megabytes":               {"200MB", 200_000_000},
+		"gigabytes":               {"1GB", 1_000_000_000},
+		"kilobytes":               {"10KB", 10_000},
+		"bytes":                   {"4096B", 4096},
+		"unlimited":               {"Unlimited", 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := Config{MaxRunMemory: tc.in}.RunMemoryBudget(limit)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+	unset, err := Config{}.RunMemoryBudget(0)
+	require.NoError(t, err)
+	assert.Zero(t, unset, "no limit read and none set is no budget")
+
+	for _, bad := range []string{"lots", "0%", "150%", "-5MiB", "MiB", "x%"} {
+		_, err := Config{MaxRunMemory: bad}.RunMemoryBudget(limit)
+		require.ErrorContains(t, err, "scripts.worker.max_run_memory", bad)
+	}
+}
+
+func TestConfig_ProcessRunMemoryBudget(t *testing.T) {
+	assert.Equal(t, int64(300<<20), Config{MaxRunMemory: "300MiB"}.ProcessRunMemoryBudget())
+	assert.Zero(t, Config{MaxRunMemory: "unlimited"}.ProcessRunMemoryBudget())
+	assert.Zero(t, Config{MaxRunMemory: "nonsense"}.ProcessRunMemoryBudget(), "unreadable is no budget; validation refuses it at startup")
+}

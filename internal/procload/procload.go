@@ -75,6 +75,12 @@ func New() *Sampler {
 	return newSampler(memoryLimit(os.ReadFile), cpuCapacity(os.ReadFile), time.Now, processCPUTime, goMemory)
 }
 
+// MemoryLimit is the smallest memory limit in force on this process: the
+// container's cgroup limit or GOMEMLIMIT, in bytes. Zero means none is set.
+// It is what a limit stated as a share of the container's memory is a share
+// of (#1861).
+func MemoryLimit() int64 { return memoryLimit(os.ReadFile) }
+
 // newSampler builds a sampler over the given sources, which is what a test
 // substitutes.
 func newSampler(memLimit int64, capacity float64, now func() time.Time,

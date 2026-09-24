@@ -100,14 +100,14 @@ func (h *Handle) handleCancelRun(ctx context.Context, input manageScriptInput) (
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	prior, err := h.runs.CancelRun(ctx, run.ID, resolveEmail(ctx))
+	prior, now, err := h.runs.CancelRun(ctx, run.ID, resolveEmail(ctx))
 	if err != nil {
 		slog.Error("failed to cancel a script run", "run_id", run.ID, logKeyError, err)
 		return errorResult("failed to cancel the run"), nil, nil
 	}
 	return jsonResult(map[string]any{
-		fieldName: sc.Name, "run_id": run.ID, "outcome": string(runcontrol.OutcomeOf(prior)),
-		"message": runcontrol.CancelMessage(prior),
+		fieldName: sc.Name, "run_id": run.ID, "status": now,
+		"outcome": string(runcontrol.OutcomeOf(prior, now)), "message": runcontrol.CancelMessage(prior, now),
 	})
 }
 

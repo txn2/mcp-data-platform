@@ -67,21 +67,24 @@ func (s *stubRuns) LatestRuns(_ context.Context, ids []string) (map[string]scrip
 }
 
 func (*stubRuns) Enqueue(context.Context, *script.Run) error { return nil }
-func (*stubRuns) Claim(context.Context, string, time.Duration) (*script.Run, error) {
+func (*stubRuns) Claim(context.Context, string, time.Duration, int) (*script.Run, error) {
 	return nil, script.ErrNoWork
 }
+func (*stubRuns) FailAbandoned(context.Context, int) ([]script.Run, error)              { return nil, nil }
 func (*stubRuns) RecordOutput(context.Context, script.RunLease, script.RunOutput) error { return nil }
 func (*stubRuns) Finish(context.Context, script.RunLease, script.RunResult) error       { return nil }
-func (*stubRuns) Retry(context.Context, script.RunLease, string, time.Duration) error   { return nil }
-func (*stubRuns) PurgeRuns(context.Context, time.Duration) (int64, error)               { return 0, nil }
+func (*stubRuns) Retry(context.Context, script.RunLease, string, string, time.Duration) error {
+	return nil
+}
+func (*stubRuns) PurgeRuns(context.Context, time.Duration) (int64, error) { return 0, nil }
 func (*stubRuns) RecordProgress(context.Context, script.RunLease, script.RunLive) (requested bool, by string, err error) {
 	return false, "", nil
 }
 
 // CancelRun records the request and answers with the configured outcome.
-func (s *stubRuns) CancelRun(_ context.Context, id, by string) (string, error) {
+func (s *stubRuns) CancelRun(_ context.Context, id, by string) (prior, now string, err error) {
 	s.canceled = append(s.canceled, id+" by "+by)
-	return s.cancelPrior, s.cancelErr
+	return s.cancelPrior, s.cancelPrior, s.cancelErr
 }
 
 // stubContracts serves the detail route's contract document.

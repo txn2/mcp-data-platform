@@ -107,7 +107,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
 	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
-		WithExports(h.draftExports).Run(ctx, scriptdraft.Request{
+		WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).Run(ctx, scriptdraft.Request{
 		Source: source, Name: sc.Name, Script: sc, Params: params,
 		// The live state, so the draft reads what a platform run created now
 		// would read. Nothing is written back: what the draft would have saved
@@ -210,6 +210,9 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out["steps"] = result.Steps
 		out["duration_ms"] = result.Duration.Milliseconds()
 		out["queries"] = result.Queries
+		// How close the draft came to the memory budget, before a scheduled
+		// run finds out (#1861).
+		out["peak_memory_bytes"] = result.PeakMemory
 		out["exports"] = orEmptyExports(result.Exports)
 		out["writes"] = orEmptyWrites(result.Writes)
 		// A draft reports what a platform run would hand back and its last

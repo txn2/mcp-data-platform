@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -45,7 +46,7 @@ func liveRunner(t *testing.T, source string) liveRun {
 	v.Source = source
 	runs := &fakeRuns{}
 	require.NoError(t, runs.Enqueue(context.Background(), run))
-	claimed, err := runs.Claim(context.Background(), "worker-a", time.Minute)
+	claimed, err := runs.Claim(context.Background(), "worker-a", time.Minute, runstate.DefaultMaxReclaims)
 	require.NoError(t, err)
 	r := newRunner(runs, Config{
 		Server: identityServer(t, &seen),
@@ -103,7 +104,7 @@ func TestRunner_ACancelRequestStopsTheRun(t *testing.T) {
 	live := liveRunner(t, longLoop)
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		_, _ = live.runs.CancelRun(context.Background(), live.run.ID, "sam@example.com")
+		_, _, _ = live.runs.CancelRun(context.Background(), live.run.ID, "sam@example.com")
 	}()
 	started := time.Now()
 	out := live.execute()

@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -174,5 +175,27 @@ func budgetOrErrorResult(err error) *mcp.CallToolResult {
 	if errors.As(err, &be) {
 		return be.result()
 	}
-	return toolkit.ErrorResult(err.Error())
+	res := toolkit.ErrorResult(err.Error())
+	var te *transportError
+	if errors.As(err, &te) {
+		// The same outcome an api_invoke_endpoint transport failure is
+		// stamped with, which the error contract reads as an upstream that
+		// did not answer (#1859).
+		res.Meta = mcp.Meta{observability.MetaAuditOutcome: te.outcome()}
+	}
+	return res
+}
+
+// transportError is an upstream that could not be reached or did not answer
+// in time, as opposed to one that answered with a failure.
+type transportError struct{ msg string }
+
+func (e *transportError) Error() string { return e.msg }
+
+// outcome is the audit outcome the failure is classified as.
+func (e *transportError) outcome() string {
+	if isTimeoutErrorMessage(e.msg) {
+		return observability.OutcomeUpstreamTimeout
+	}
+	return observability.OutcomeTransportErr
 }

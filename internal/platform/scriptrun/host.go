@@ -9,14 +9,17 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+	"github.com/txn2/mcp-data-platform/internal/scriptdest"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportmeta"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -131,12 +134,9 @@ const minStateEntryBytes = 5
 // the binding's signature and the static read of it cannot drift apart.
 const callArgsPosition = 2
 
-// Field counts for the dicts the host bindings return, named so the allocation
-// hint and the number of SetKey calls below it cannot drift apart.
-const (
-	queryResultFields  = 3
-	exportRecordFields = 20
-)
+// queryResultFields is the field count of the dict platform.query returns,
+// named so the allocation hint and the SetKey calls cannot drift apart.
+const queryResultFields = 3
 
 // TextResultKey is the single field a tool result arrives under when the tool
 // returned no structured object: the text it produced, verbatim (SessionCaller.
@@ -179,6 +179,36 @@ type hostState struct {
 	// state is what platform.save_state staged, nil until it is called. A
 	// second call replaces the first: the run's write is one write.
 	state *script.StateWrite
+	// mem measures what the run holds at every host call against its
+	// memory budget, and keeps the peak (#1861).
+	mem *scriptguard.Meter
+	// appended are the outputs the run appends to with append=True, in the
+	// order they were started; each is written once, when the run succeeds.
+	appended []*ExportRequest
+}
+
+// hostFunc is the signature of a host binding.
+type hostFunc = func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error)
+
+// guarded measures what the run holds before a host binding runs and after it
+// hands its result back, and refuses the call once the run is over its memory
+// budget (#1861). A host call is where memory arrives -- a decoded result
+// costs far more than its size on the wire -- and the one point the script is
+// paused, which is when its frames can be read.
+func (h *hostState) guarded(fn hostFunc) hostFunc {
+	return func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		if err := h.mem.Check(thread, b.Name()); err != nil {
+			return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
+		}
+		v, err := fn(thread, b, args, kwargs)
+		if err != nil {
+			return nil, err
+		}
+		if err := h.mem.Handed(thread, b.Name(), v); err != nil {
+			return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
+		}
+		return v, nil
+	}
 }
 
 // saveState implements platform.save_state: stage the whole state object the
@@ -243,45 +273,7 @@ func stateObject(value *starlark.Dict) (map[string]any, error) {
 // one takes effect on the next run. A draft resolves through the same set, so
 // a destination a real run would refuse fails while the author is iterating.
 func (h *hostState) resolveDestination(name string) (script.Destination, error) {
-	return ResolveDestination(name, h.opts.Destinations)
-}
-
-// ResolveDestination turns a destination name into the address it stands for,
-// against the set a deployment declares. The portal is built in; every other
-// name comes from the scripts.destinations configuration.
-//
-// It is exported because the run is no longer the only caller: validate
-// reports a script that names a destination this deployment does not declare
-// (#1415), and the two must refuse in the same words for the same reason. A
-// script whose export was accepted by validate and then refused at run time
-// had already executed its queries by the time it learned.
-func ResolveDestination(name string, declared []script.Destination) (script.Destination, error) {
-	switch name {
-	case script.DestinationPortal:
-		return script.PortalDestination(), nil
-	case script.DestinationResources:
-		return script.ResourcesDestination(), nil
-	}
-	for _, d := range declared {
-		if d.Name == name {
-			return d, nil
-		}
-	}
-	if len(declared) == 0 {
-		return script.Destination{}, fmt.Errorf("destination %q is not configured: this deployment declares no bucket destinations, so %q and %q are the only places a script can write",
-			name, script.DestinationPortal, script.DestinationResources)
-	}
-	return script.Destination{}, fmt.Errorf("destination %q is not configured; this deployment declares %s, and %q and %q are always available",
-		name, strings.Join(destinationNames(declared), ", "), script.DestinationPortal, script.DestinationResources)
-}
-
-// destinationNames lists the configured destinations for a refusal.
-func destinationNames(destinations []script.Destination) []string {
-	out := make([]string, 0, len(destinations))
-	for _, d := range destinations {
-		out = append(out, d.Name)
-	}
-	return out
+	return scriptdest.Resolve(name, h.opts.Destinations) //nolint:wrapcheck // the refusal is the author's to read, in validate's words
 }
 
 // runValue builds the frozen run record — the script's ONLY source of time and
@@ -457,7 +449,7 @@ func (h *hostState) admitCall(b *starlark.Builtin, tool string, args map[string]
 		return decision, nil
 	}
 	h.refused = &WriteRecord{Tool: tool, Call: decision.Call}
-	return decision, fmt.Errorf("in %s: %s", b.Name(), refusedWriteMessage(decision))
+	return decision, fmt.Errorf("in %s: %s", b.Name(), decision.Refusal())
 }
 
 // declare classifies one call, falling back to what the tool says about itself
@@ -505,26 +497,6 @@ func (h *hostState) declaresRead(declarer ReadOnlyDeclarer, tool string) bool {
 	}
 	h.declared[tool] = answer
 	return answer
-}
-
-// refusedWriteMessage states why one call was not made, in the words the author
-// needs to act on it.
-//
-// A tool the platform classifies and a tool it does not get different sentences,
-// because the author's next move differs: the first is a decision about whether
-// this draft should persist, the second is the platform saying it cannot tell,
-// which a reader must not mistake for a judgment about the tool.
-func refusedWriteMessage(decision toolwrite.Decision) string {
-	if decision.Declared {
-		return fmt.Sprintf(
-			"%s persists outside this run, and a draft run does not write. "+
-				"Run the draft with allow_writes to let it write for real, and it will report what it wrote.",
-			decision.Call)
-	}
-	return fmt.Sprintf(
-		"the platform cannot tell whether %s persists, so a draft run does not make it. "+
-			"Run the draft with allow_writes to let it write for real, and it will report what it wrote.",
-		decision.Call)
 }
 
 // tableSentences reads the table report a file-writing tool's result carries:
@@ -633,6 +605,9 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if err != nil {
 		return nil, err
 	}
+	if req.Append || h.appending(req.Name, req.Destination.Name) != nil {
+		return h.appendExport(b, req)
+	}
 	if err := h.admitOutput(b, req.Name, req.Destination.Name); err != nil {
 		return nil, err
 	}
@@ -649,7 +624,7 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 		}
 	}
 	h.exports = append(h.exports, record)
-	return exportValue(record), nil
+	return exportrecord.Value(record), nil
 }
 
 // registerOutput makes the table an export's register= argument asked for,
@@ -757,7 +732,7 @@ func (h *hostState) publishData(_ *starlark.Thread, b *starlark.Builtin, args st
 		return nil, err
 	}
 	h.exports = append(h.exports, record)
-	return exportValue(record), nil
+	return exportrecord.Value(record), nil
 }
 
 // publishPayload converts the data argument to the Go value the payload
@@ -878,6 +853,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 		references  starlark.Value
 		tags        starlark.Value
 		metadata    starlark.Value
+		appendRows  bool
 	)
 	// destination and key must be NAMED. The static validator reads keyword
 	// arguments, so a destination passed by position would be invisible to it —
@@ -891,7 +867,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"name", &name, "rows", &rows, "format?", &format,
 		"destination?", &destination, "key?", &key, "register?", &register,
-		"references?", &references, "tags?", &tags, "metadata?", &metadata); err != nil {
+		"references?", &references, "tags?", &tags, "metadata?", &metadata, "append?", &appendRows); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	if format == "" {
@@ -919,6 +895,7 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	}
 	req := ExportRequest{
 		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Destination: resolved, Key: key,
+		Append: appendRows,
 	}
 	if err := exportContent(b, format, rows, &req); err != nil {
 		return ExportRequest{}, err
@@ -1090,65 +1067,6 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 		func() (*ExportResult, error) { return h.opts.Exporter.Export(h.ctx, req) })
 }
 
-// exportValue renders one export record as the dict the script receives. Where
-// the output went decides which part of the record is present: an asset version
-// for the portal, an object for a bucket, the file's reference and version for
-// the library.
-func exportValue(record ExportRecord) starlark.Value {
-	out := starlark.NewDict(exportRecordFields)
-	_ = out.SetKey(starlark.String("preview"), starlark.Bool(record.Preview))
-	_ = out.SetKey(starlark.String("name"), starlark.String(record.Name))
-	_ = out.SetKey(starlark.String("destination"), starlark.String(record.Destination))
-	_ = out.SetKey(starlark.String("format"), starlark.String(record.Format))
-	_ = out.SetKey(starlark.String("row_count"), starlark.MakeInt(record.RowCount))
-	_ = out.SetKey(starlark.String("document"), starlark.Bool(record.Document))
-	_ = out.SetKey(starlark.String("refresh"), starlark.Bool(record.Refresh))
-	_ = out.SetKey(starlark.String("bytes"), starlark.MakeInt(record.Bytes))
-	if record.AssetID != "" {
-		_ = out.SetKey(starlark.String("asset_id"), starlark.String(record.AssetID))
-		_ = out.SetKey(starlark.String("asset_version"), starlark.MakeInt(record.AssetVersion))
-	}
-	if record.Bucket != "" {
-		_ = out.SetKey(starlark.String("bucket"), starlark.String(record.Bucket))
-	}
-	if record.Key != "" {
-		_ = out.SetKey(starlark.String("key"), starlark.String(record.Key))
-	}
-	if record.ResourceID != "" {
-		_ = out.SetKey(starlark.String("resource_id"), starlark.String(record.ResourceID))
-		_ = out.SetKey(starlark.String("reference"), starlark.String(record.ResourceRef))
-		_ = out.SetKey(starlark.String("uri"), starlark.String(record.ResourceURI))
-		_ = out.SetKey(starlark.String("version"), starlark.MakeInt(record.ResourceVersion))
-	}
-	if record.Table != nil {
-		if table, err := starlarkconv.ToStarlark(record.Table.Map()); err == nil {
-			_ = out.SetKey(starlark.String("table"), table)
-		}
-	}
-	if len(record.TableChanges) > 0 {
-		_ = out.SetKey(starlark.String("table_changes"), stringList(record.TableChanges))
-	}
-	if record.References != nil { // [] cleared them, which absence did not
-		_ = out.SetKey(starlark.String("references"), stringList(record.References))
-	}
-	if len(record.UndeclaredReferences) > 0 {
-		_ = out.SetKey(starlark.String("undeclared_references"), stringList(record.UndeclaredReferences))
-	}
-	if record.Sheets != nil {
-		_ = out.SetKey(starlark.String("sheets"), scriptout.SheetsValue(record.Sheets))
-	}
-	return out
-}
-
-// stringList converts a list of strings to a Starlark list.
-func stringList(values []string) *starlark.List {
-	list := make([]starlark.Value, 0, len(values))
-	for _, v := range values {
-		list = append(list, starlark.String(v))
-	}
-	return starlark.NewList(list)
-}
-
 // truncated reports whether the query tool says it stopped short of the full
 // result. A tool that reports no stats at all is treated as complete: this is a
 // positive signal, and inventing truncation from its absence would fail every
@@ -1186,6 +1104,8 @@ type OutputIdentity = scriptout.Identity
 // by the request's content: a workbook, a string body, or rows.
 func FormatOutput(req ExportRequest) ([]byte, OutputIdentity, error) {
 	switch {
+	case req.Spooled != nil:
+		return req.Spooled.Data() //nolint:wrapcheck // names the output
 	case req.Workbook != nil:
 		return scriptout.Workbook(req.Name, req.Workbook) //nolint:wrapcheck // names the output
 	case req.Body != nil:
