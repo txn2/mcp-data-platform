@@ -438,18 +438,19 @@ export function useSaveScriptMetadata(scriptID: string) {
   });
 }
 
-// usePortalScriptVersions reads a script's version history. It is owner and
-// admin reading, so it is requested only when the listing said the caller owns
-// the script; a caller who does not is answered as though it did not exist.
+// usePortalScriptVersions reads a script's version history, which every
+// caller may read (#1866); the route leaves out the roles each version's
+// author held for a caller who does not own the script. enabled is the
+// caller's to set: the history is fetched once somebody opens it.
 export function usePortalScriptVersions(
   scriptID: string | null,
-  owned: boolean,
+  enabled: boolean,
 ) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "versions"],
     queryFn: () =>
       apiFetch<ListResponse<ScriptVersion>>(`/scripts/${scriptID}/versions`),
-    enabled: !!scriptID && owned,
+    enabled: !!scriptID && enabled,
   });
 }
 

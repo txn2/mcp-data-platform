@@ -15,17 +15,25 @@ import { libraryCopy, targetKey, type MoveTarget } from "../scopes";
  * one click apart, and the difference between them is who else can read the
  * file. A picker that stated only the names would make that difference
  * invisible at the moment it is chosen.
+ *
+ * A persona library the caller belongs to and cannot upload into is named
+ * under it, with the role that grants the upload and the move that gets a file
+ * there without it (#1866): silently leaving it out gave the caller no way to
+ * tell a permission boundary from a missing feature.
  */
 export function DestinationPicker({
   choices,
   value,
   onChange,
   disabled,
+  withheld = [],
 }: {
   choices: MoveTarget[];
   value: string;
   onChange: (key: string) => void;
   disabled: boolean;
+  /** Persona libraries the caller belongs to and may not upload into. */
+  withheld?: string[];
 }) {
   const picked = choices.find((c) => targetKey(c) === value);
   return (
@@ -46,6 +54,13 @@ export function DestinationPicker({
       {picked && (
         <p className="text-xs text-muted-foreground">{libraryCopy(picked).audience}</p>
       )}
+      {withheld.map((name) => (
+        <p key={name} className="text-xs text-muted-foreground" data-testid="upload-withheld-persona">
+          The {name} persona library is not offered: adding a file to it takes a role ending in{" "}
+          <code className="font-mono">persona-admin:{name}</code>. Upload it here, then open it and move
+          it with Edit details &gt; Library.
+        </p>
+      ))}
     </div>
   );
 }

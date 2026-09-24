@@ -680,3 +680,132 @@ func TestRender_AnUnreachableRendererIsTellableFromABadDocument(t *testing.T) {
 		t.Fatalf("a document's own failure = %v; it must not read as the renderer being unavailable", err)
 	}
 }
+
+// TestRender_TheTimelineIsStoppedBeforeLoadAndSettledBeforeCapture holds
+// #1868 at the protocol: the page's animation timeline is stopped and reduced
+// motion asked for before it navigates, and every frame of the page is
+// settled, in an isolated world of its own, before the capture.
+func TestRender_TheTimelineIsStoppedBeforeLoadAndSettledBeforeCapture(t *testing.T) {
+	fb := newFakeBrowser(t, happy(map[string]func(call) answer{
+		"Page.getFrameTree": func(call) answer {
+			return ok(map[string]any{"frameTree": map[string]any{
+				"frame":       map[string]any{"id": "top"},
+				"childFrames": []any{map[string]any{"frame": map[string]any{"id": "sandboxed"}}},
+			}})
+		},
+		"Page.createIsolatedWorld": func(c call) answer {
+			if c.Params["frameId"] == "sandboxed" {
+				return ok(map[string]any{"executionContextId": 7})
+			}
+			return ok(map[string]any{"executionContextId": 3})
+		},
+	}))
+	if _, err := New(fb.endpoint(), nil).Render(context.Background(), tile()); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	calls := fb.waitFor(func(c []call) bool { return has(c, "Target.disposeBrowserContext") })
+
+	nav := indexOf(calls, "Page.navigate", "page1")
+	for _, m := range []string{"Animation.enable", "Animation.setPlaybackRate"} {
+		if i := indexOf(calls, m, "page1"); i < 0 || i > nav {
+			t.Errorf("%s was not issued before the page navigated: %v", m, methods(calls))
+		}
+	}
+	if rate := find(t, calls, "Animation.setPlaybackRate", "page1").Params["playbackRate"]; rate != float64(0) {
+		t.Errorf("playbackRate = %v, want the timeline stopped", rate)
+	}
+	features, _ := find(t, calls, "Emulation.setEmulatedMedia", "page1").Params["features"].([]any)
+	reduced := false
+	for _, f := range features {
+		if m, _ := f.(map[string]any); m["name"] == "prefers-reduced-motion" && m["value"] == "reduce" {
+			reduced = true
+		}
+	}
+	if !reduced {
+		t.Errorf("reduced motion was not asked for: %v", features)
+	}
+
+	shot := indexOf(calls, "Page.captureScreenshot", "page1")
+	var settled []float64
+	for i, c := range calls {
+		if c.Method != "Runtime.evaluate" || c.Params["contextId"] == nil {
+			continue
+		}
+		if i > shot {
+			t.Errorf("a frame was settled after the capture")
+		}
+		if expr, _ := c.Params["expression"].(string); expr != snapAnimations {
+			t.Errorf("evaluated %q in a frame's world, want the settle", expr)
+		}
+		id, _ := c.Params["contextId"].(float64)
+		settled = append(settled, id)
+	}
+	if len(settled) != 2 || settled[0] != 3 || settled[1] != 7 {
+		t.Errorf("settled the worlds %v, want the top frame's and the sandboxed frame's", settled)
+	}
+	if w := find(t, calls, "Page.createIsolatedWorld", "page1"); w.Params["worldName"] != snapWorld {
+		t.Errorf("the settle runs in world %v", w.Params["worldName"])
+	}
+}
+
+// TestRender_AFrameThatCannotBeSettledIsDrawnFrozen: a frame tree or world the
+// renderer will not give is a frame drawn as its stopped timeline left it,
+// not a failed render.
+func TestRender_AFrameThatCannotBeSettledIsDrawnFrozen(t *testing.T) {
+	for _, method := range []string{"Page.getFrameTree", "Page.createIsolatedWorld"} {
+		fb := newFakeBrowser(t, happy(map[string]func(call) answer{method: func(call) answer { return refused("no") }}))
+		if _, err := New(fb.endpoint(), nil).Render(context.Background(), tile()); err != nil {
+			t.Errorf("%s refused: Render = %v, want the picture drawn", method, err)
+		}
+	}
+}
+
+// TestRender_ATeardownTheRendererDoesNotConfirmIsUnavailable holds #1868: a
+// renderer that does not confirm it disposed of the page may still be busy
+// with it, so the render is reported unavailable and its picture is not used;
+// beside a render that failed on its own, the render's failure is kept.
+func TestRender_ATeardownTheRendererDoesNotConfirmIsUnavailable(t *testing.T) {
+	refuse := func(call) answer { return refused("busy") }
+	fb := newFakeBrowser(t, happy(map[string]func(call) answer{"Target.disposeBrowserContext": refuse}))
+	picture, err := New(fb.endpoint(), nil).Render(context.Background(), tile())
+	if !errors.Is(err, ErrUnavailable) || !contains(err.Error(), "did not release the page") {
+		t.Fatalf("Render = %v, want the renderer unavailable for not releasing the page", err)
+	}
+	if picture != nil {
+		t.Error("a picture was returned from a renderer that did not release its page")
+	}
+
+	fb = newFakeBrowser(t, happy(map[string]func(call) answer{
+		"Target.disposeBrowserContext": refuse,
+		"Runtime.evaluate": func(call) answer {
+			return ok(map[string]any{"result": map[string]any{"value": "a referenced file did not load"}})
+		},
+	}))
+	_, err = New(fb.endpoint(), nil).Render(context.Background(), tile())
+	if err == nil || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Render = %v, want the document's own failure, not the teardown's", err)
+	}
+	if !contains(err.Error(), "a referenced file did not load") || !contains(err.Error(), "did not release the page") {
+		t.Errorf("Render = %q, want both named", err)
+	}
+}
+
+// TestArm_AFramesTimelineIsStoppedAndItIsSettledLater: a frame in its own
+// process has its own timeline, stopped when it is armed and recorded for the
+// settle; a worker has no document and is neither.
+func TestArm_AFramesTimelineIsStoppedAndItIsSettledLater(t *testing.T) {
+	rs, fb := harness(t, nil, nil)
+	rs.onEvent(event("page1", "Target.attachedToTarget", map[string]any{"sessionId": "frame1", "targetInfo": map[string]any{"type": "iframe"}}))
+	rs.onEvent(event("page1", "Target.attachedToTarget", map[string]any{"sessionId": "w1", "targetInfo": map[string]any{"type": "worker"}}))
+	calls := fb.recorded()
+	release := indexOf(calls, "Runtime.runIfWaitingForDebugger", "frame1")
+	if i := indexOf(calls, "Animation.setPlaybackRate", "frame1"); i < 0 || i > release {
+		t.Errorf("the frame's timeline was not stopped before it ran: %v", methods(calls))
+	}
+	if indexOf(calls, "Animation.setPlaybackRate", "w1") >= 0 {
+		t.Error("a worker was sent an animation command")
+	}
+	if got := rs.frameSessions(); len(got) != 1 || got[0] != "frame1" {
+		t.Errorf("sessions to settle = %v, want the frame alone", got)
+	}
+}

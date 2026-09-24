@@ -206,7 +206,7 @@ func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mc
 // built-in example resolves here too, so an author reads a worked script with
 // the same command they read their own with.
 func (h *Handle) handleGet(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.viewable(ctx, input)
 	if errResult != nil {
 		// A built-in example answers only when no stored script does, so a real
 		// script named after an example is never shadowed by it.
@@ -216,7 +216,11 @@ func (h *Handle) handleGet(ctx context.Context, input manageScriptInput) (*mcp.C
 		return errResult, nil, nil
 	}
 	fields := scriptFields(sc)
-	fields["live_runs"] = h.liveRuns(ctx, sc)
+	// The runs are the owner's: what a run returned and logged was produced
+	// with its author's roles (#1866).
+	if h.ownsOrAdmin(ctx, sc) {
+		fields["live_runs"] = h.liveRuns(ctx, sc)
+	}
 	return jsonResult(fields)
 }
 
@@ -313,7 +317,7 @@ func (h *Handle) contentVerb(
 	input manageScriptInput,
 	build func(body string) (map[string]any, error),
 ) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.viewable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}

@@ -393,10 +393,24 @@ describe("ScriptDetailPage: the details", () => {
 });
 
 describe("ScriptDetailPage: what an owner may read", () => {
-  it("hides the source and the runs from a caller who does not own the script", () => {
-    mockContract.mockReturnValue(query({ contract, owned: false }));
+  // #1866: a script's definition is readable by everyone, because it is how a
+  // resource they were given was produced; acting on it stays the owner's.
+  it("shows a caller who does not own the script its source read only, and nothing to act with", () => {
+    mockContract.mockReturnValue(
+      query({ contract, owned: false, source: "rows = platform.query(sql)\n" }),
+    );
+    mockVersions.mockReturnValue(query({ data: [version], total: 1 }));
     renderPage();
-    expect(screen.queryByText("Version history")).not.toBeInTheDocument();
+    const readOnly = screen.getByTestId("script-source-readonly");
+    expect(readOnly).toHaveTextContent("rows = platform.query(sql)");
+    expect(readOnly).toHaveTextContent("Read only.");
+    // The history is the definition over time; the author's roles are not
+    // shown, because the route withholds them from this reader.
+    fireEvent.click(screen.getByRole("button", { name: /Version history/ }));
+    fireEvent.click(screen.getByText("v2"));
+    expect(screen.queryByText(/the roles its author held at the save/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/deny-all persona/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Validate|Run now|Save/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Run history")).not.toBeInTheDocument();
     // The state is the runs' input and belongs to the same reader (#1537).
     expect(screen.queryByRole("heading", { name: "State" })).not.toBeInTheDocument();

@@ -155,8 +155,22 @@ What platform execution DOES add, and what this document does not minimize:
   running it is still `run_script` under the run gate. What the surfaces return
   is the script's contract — name, description, owner, typed parameters,
   whether a run would be admitted, cadence, last successful run — never its
-  source, which stays behind `manage_script get` and the portal script page,
-  both the owner's and the administrator's.
+  source, which is read with `manage_script get` and on the portal script page.
+
+  A script's definition is readable by everyone signed in (#1866): its source,
+  its parameters and its version history, with `manage_script` `get`,
+  `get_content`, `outline`, `stats`, `locate`, `diff` and `versions` naming the
+  owner in `owner_email`, and read-only on the portal script page. A script is
+  how a resource or an asset was produced, and somebody given the output can
+  read how it was made. Reading the code grants nothing: a run still presents
+  the roles its author captured, and running, scheduling, changing it, its
+  state and its runs stay with the owner and an administrator, with a run grant
+  (#1846) letting another principal run it. The roles a version's author held
+  are that person's and are shown to the owner and an administrator only.
+  Everyone who can sign in can read the source, so it must not carry a
+  credential. A save refuses the credential forms that get pasted (a private
+  key, an AWS access key id, a GitHub or Slack token, a JSON Web Token, a URL
+  with a password in it) and warns about an assignment named like a credential.
 
 `middleware.SourceScript` is a label on a call, not a capability. It records how
 the call arrived so audit can separate populations, and it selects three
@@ -593,38 +607,34 @@ exactly as private as that comparison is specific. A script whose owner cannot
 be established belongs to nobody: it is visible only to administrators, and the
 owner transfer is how it gets an owner.
 
-**Three tiers, one rule each, applied by every surface.** The first tier is
-the widest, and since #1404 it is still one person: a script is its owner's,
-and an administrator's.
+**What each reader gets, applied by every surface.** Reading a script is open;
+acting on it, and reading what it did, is its owner's and an administrator's.
 
 | What | Who | Why |
 |---|---|---|
-| That a script exists, and its contract: name, owner, typed parameters, whether a run would be admitted, cadence, and the outputs of its last successful run | Its owner (`Script.OwnedBy`), and administrators | This is what makes a script discoverable and usable to the person whose script it is, and it is what `search`, `fetch`, and a prompt reference serve them |
-| Its source, its run history, and the values its schedule BINDS | The script's owner, and administrators | The source is the code; a run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
+| That a script exists, its contract, its source, its parameters and its version history | Everyone signed in, on the portal listing and a script's page and through `manage_script` `list`, `get`, `get_content`, `outline`, `stats`, `locate`, `diff` and `versions` (#1795, #1866). `search`, `fetch` and a prompt reference serve the contract to its owner and administrators (`Script.OwnedBy`, a store predicate) | A script is how a resource or an asset was produced, and somebody given the output can read how it was made. Reading the code grants nothing: a run still presents its author's captured roles |
+| The roles each version's author held at the save | The script's owner, and administrators | They are that person's identity data; `versions` and the portal history leave them out for everyone else |
+| Its run history, its live runs, what it produced, its state, and the values its schedule BINDS | The script's owner, and administrators | A run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
 | One run in particular | The above, plus whoever requested that run | The result was handed to them when they asked for it, so a run id they hold stays followable |
-| Setting, re-timing, pausing, and resuming its cadence | The script's owner, and administrators | A cadence is not an authority: the run gate and the persona filter are re-read at every fire, so re-timing reaches nothing new |
+| Running it, changing it, deleting it, and setting, re-timing, pausing, and resuming its cadence | The script's owner, and administrators; a run grant (#1846) lets another principal run it from the portal | A cadence is not an authority: the run gate and the persona filter are re-read at every fire, so re-timing reaches nothing new |
 
-The listing applies the first rule as a store predicate rather than as a filter
-over the answer, exactly as `search` does; a script the caller may not see never
-reaches the response. The second and third rules answer "not yours" and "no such
-script" identically, so the difference cannot be used to learn that something
-exists. An administrator is unrestricted here, which is the same authority the
-admin API already gives them.
+A portal route that serves the third or fourth rows answers "not yours" and "no
+such script" identically. `manage_script` names the rule when a command that
+acts on a script names another person's. An administrator is unrestricted here,
+which is the same authority the admin API already gives them.
 
 **What is embedded is the contract, never the source.** A script's description
 card is embedded off the request path by the scripts consumer of the shared
 index-jobs framework (`internal/platform/scriptindex`), so a script is found by
 what it does and not only by the words it was named with. The text is
 `script.IndexText`: the title, the description, the parameter names, the tags,
-and the one line stating whether anything will execute it. It is exactly the
-first tier of the table above, and it is the same text a caller is shown as the
-search snippet. The source is excluded because it belongs to a narrower tier:
-one vector per script row cannot be split along a line that admits the contract
-to the owner and the source only to the owner and to administrators, and a
-vector built partly from source would let code a caller may not read decide how
-their results rank. The store applies the same ownership predicate to both the
-semantic and the lexical arm before ranking, so a script the caller does not own
-reaches neither.
+and the one line stating whether anything will execute it. It is the contract the
+first row of the table above describes, and it is the same text a caller is
+shown as the search snippet. The source is excluded: it churns on every code
+edit while a description changes rarely, so indexing it would re-embed the
+corpus for changes that do not alter what the script is for. The store applies
+the same ownership predicate to both the semantic and the lexical arm before
+ranking, so a script the caller does not own reaches neither.
 
 **`show_scripts` performs no data work.** It is presentation-only, following
 the `show_prompts` split. It returns a confirmation and, where the deployment

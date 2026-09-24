@@ -109,6 +109,20 @@ export function uploadTargets(
 }
 
 /**
+ * withheldUploadPersonas lists the persona libraries this caller belongs to but
+ * may not upload into (#1866): membership is enough to move a file they own
+ * into the library (CanMoveToLibrary), and not to add a new one to it
+ * (CanWriteScope), which takes the persona's admin role. The upload dialogs
+ * name them, so a library missing from the destination list reads as a
+ * permission boundary with a way through it rather than a missing feature.
+ */
+export function withheldUploadPersonas(user: UserProfile | null): string[] {
+  if (!user?.persona || isPlatformAdmin(user)) return [];
+  const persona = user.persona;
+  return holdsScope(user, { scope: "persona", scope_id: persona }) ? [] : [persona];
+}
+
+/**
  * canUpload answers whether the Upload control is offered for the view in
  * hand: write authority over the one library it names, or over any library at
  * all when it names none.

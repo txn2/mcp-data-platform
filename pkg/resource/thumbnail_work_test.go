@@ -37,6 +37,10 @@ var resourceCols = []string{
 	"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
 }
 
+// claimCols is what the claim returns: a resource row and the attempts it
+// has been charged.
+var claimCols = append(append([]string{}, resourceCols...), "thumbnail_attempts")
+
 func TestBuildThumbnailClaim_BindsWhatTheStatementNames(t *testing.T) {
 	_, args := buildThumbnailClaim(1, 2*time.Minute, 4)
 	if len(args) != 7 {
@@ -54,8 +58,11 @@ func TestClaimThumbnailWork_ReturnsTheClaimedResources(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	rows := sqlmock.NewRows(resourceCols).AddRow(resourceRow("r1", "First")...).AddRow(resourceRow("r2", "Second")...)
-	mock.ExpectQuery("UPDATE resources SET thumbnail_claimed_until").WillReturnRows(rows)
+	rows := sqlmock.NewRows(claimCols).
+		AddRow(append(resourceRow("r1", "First"), 1)...).
+		AddRow(append(resourceRow("r2", "Second"), 3)...)
+	mock.ExpectQuery("UPDATE resources SET thumbnail_claimed_until = now\\(\\) \\+ make_interval\\(secs => \\$1\\),\\s+" +
+		"thumbnail_attempts = thumbnail_attempts \\+ 1").WillReturnRows(rows)
 
 	got, err := workStore(t, db).ClaimThumbnailWork(context.Background(), 1, time.Minute, 4)
 	if err != nil {
@@ -63,6 +70,9 @@ func TestClaimThumbnailWork_ReturnsTheClaimedResources(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].ID != "r1" || got[1].ID != "r2" {
 		t.Fatalf("claimed %+v", got)
+	}
+	if got[0].ThumbnailAttempts != 1 || got[1].ThumbnailAttempts != 3 {
+		t.Errorf("attempts = %d, %d; the claim returns the count it charged", got[0].ThumbnailAttempts, got[1].ThumbnailAttempts)
 	}
 
 	// No room claims nothing and runs nothing.
@@ -86,7 +96,7 @@ func TestClaimThumbnailWork_EachFailureIsReported(t *testing.T) {
 			m.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		}},
 		{"the cursor", func(m sqlmock.Sqlmock) {
-			m.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows(resourceCols).AddRow(resourceRow("r1", "First")...).RowError(0, errWorkDB))
+			m.ExpectQuery("UPDATE resources").WillReturnRows(sqlmock.NewRows(claimCols).AddRow(append(resourceRow("r1", "First"), 1)...).RowError(0, errWorkDB))
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -113,7 +123,7 @@ func TestRecordThumbnailFailure(t *testing.T) {
 	store := workStore(t, db)
 	at := time.Now()
 
-	mock.ExpectExec("UPDATE resources\\s+SET thumbnail_failure = \\$1, thumbnail_failed_at = \\$2, thumbnail_claimed_until = NULL").
+	mock.ExpectExec("UPDATE resources\\s+SET thumbnail_failure = \\$1, thumbnail_failed_at = \\$2, thumbnail_claimed_until = NULL,\\s+thumbnail_attempts = 0").
 		WithArgs("the image could not be decoded", at, "r1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.RecordThumbnailFailure(context.Background(), "r1", "the image could not be decoded", at); err != nil {
@@ -159,5 +169,35 @@ func TestBuildThumbnailClaim_BoundsTheSourceSizePerFamily(t *testing.T) {
 	}
 	if got != large {
 		t.Errorf("$3 binds %v, want the large-source families %v", got, large)
+	}
+}
+
+// TestHoldThumbnailWork holds #1868: ending a claim sets the hold and the
+// attempts the file carries into the next claim; no hold and no attempts is
+// the release after a drawn tile.
+func TestHoldThumbnailWork(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	store := workStore(t, db)
+
+	hold := `UPDATE resources\s+SET thumbnail_claimed_until = now\(\) \+ make_interval\(secs => \$1\),\s+` +
+		`thumbnail_attempts = \$2\s+WHERE id = \$3`
+	mock.ExpectExec(hold).WithArgs(240.0, 2, "r1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(hold).WithArgs(0.0, 0, "r2").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(hold).WillReturnError(errWorkDB)
+	if err := store.HoldThumbnailWork(context.Background(), "r1", 4*time.Minute, 2); err != nil {
+		t.Fatalf("a held attempt: %v", err)
+	}
+	if err := store.HoldThumbnailWork(context.Background(), "r2", 0, 0); err != nil {
+		t.Fatalf("a release: %v", err)
+	}
+	if err := store.HoldThumbnailWork(context.Background(), "r3", time.Minute, 1); err == nil || !strings.Contains(err.Error(), "holding thumbnail work") {
+		t.Errorf("a failed hold = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }

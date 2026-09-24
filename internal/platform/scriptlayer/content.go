@@ -113,7 +113,7 @@ func (h *Handle) handlePatch(ctx context.Context, input manageScriptInput) (*mcp
 // compares the live version against the one before it, which is the question a
 // reader of a recent edit actually has.
 func (h *Handle) handleDiff(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.viewable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -199,7 +199,7 @@ func versionSource(ctx context.Context, versions script.VersionStore, history []
 // every version's would turn one call into the complete edit history of the
 // file; the body of an earlier version is read through command=diff.
 func (h *Handle) handleVersions(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.viewable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -211,9 +211,12 @@ func (h *Handle) handleVersions(ctx context.Context, input manageScriptInput) (*
 		slog.Error("failed to list script versions", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the version history"), nil, nil
 	}
+	// The roles each version was saved with are its author's identity data,
+	// shown to the owner and an administrator (#1866).
+	withRoles := h.ownsOrAdmin(ctx, sc)
 	entries := make([]map[string]any, 0, len(history))
 	for i := range history {
-		entries = append(entries, versionFields(&history[i]))
+		entries = append(entries, versionFields(&history[i], withRoles))
 	}
 	return jsonResult(map[string]any{
 		fieldName: sc.Name, "owner_email": sc.OwnerEmail,
@@ -222,12 +225,16 @@ func (h *Handle) handleVersions(ctx context.Context, input manageScriptInput) (*
 }
 
 // versionFields renders one version for a history response: what was saved,
-// who saved it, and the authority they held at that save.
-func versionFields(v *script.Version) map[string]any {
-	return map[string]any{
-		fieldVersion: v.Version, "author": v.Author, "author_roles": orEmpty(v.AuthorRoles),
+// who saved it, and, when withRoles, the authority they held at that save.
+func versionFields(v *script.Version, withRoles bool) map[string]any {
+	fields := map[string]any{
+		fieldVersion: v.Version, "author": v.Author,
 		fieldStatus: v.Status, "created_at": v.CreatedAt.UTC(),
 		"display_name": v.DisplayName, "description": v.Description,
 		"category": v.Category, "tags": orEmpty(v.Tags),
 	}
+	if withRoles {
+		fields["author_roles"] = orEmpty(v.AuthorRoles)
+	}
+	return fields
 }

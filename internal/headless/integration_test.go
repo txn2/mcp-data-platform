@@ -389,3 +389,61 @@ func TestRendererIntegration_NoLayerLetsADocumentReachTheNetwork_RealDB(t *testi
 		})
 	}
 }
+
+// animatedFrame is the shape of the document that held the renderer at its CPU
+// limit for hours (#1868): an infinite pulse on a box-shadow and an SVG blur,
+// drawn in a sandboxed frame as the tile page draws HTML, beside a finite
+// fade-in that a picture should show finished. A script in the frame records,
+// in the colour of a marker, whether its infinite animation advanced while the
+// page was loading: green if the timeline was stopped, red if it ran.
+const animatedFrame = `<!DOCTYPE html><html><head><style>
+html,body{margin:0;overflow:hidden}iframe{display:block;width:100vw;height:100vh;border:0}
+</style></head><body><iframe sandbox="allow-scripts" srcdoc="<!DOCTYPE html><style>
+body{margin:0;background:#fff}
+.fade{position:absolute;left:0;top:0;width:640px;height:480px;background:#1d4ed8;animation:fade 30s forwards}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.pulse{position:absolute;left:640px;top:0;width:640px;height:480px;background:#f59e0b;filter:url(#blur);animation:pulse 2s infinite}
+@keyframes pulse{0%{background:#dc2626;box-shadow:0 0 0 0 #000}50%{background:#16a34a;box-shadow:0 0 80px 40px #000}}
+.marker{position:absolute;left:0;top:480px;width:1280px;height:480px;background:#6b7280}
+</style><svg width=0 height=0><filter id=blur><feGaussianBlur stdDeviation=12 /></filter></svg>
+<div class=fade></div><div class=pulse></div><div class=marker id=m></div>
+<script>setTimeout(function(){var a=document.getAnimations().filter(function(x){return x.animationName==='pulse'})[0];
+document.getElementById('m').style.background=(a&&a.currentTime<100)?'#22c55e':'#ef4444'},1500)</script>"></iframe></body></html>`
+
+// TestRendererIntegration_AnAnimatedDocumentIsFrozenAndDrawnSettled holds
+// #1868 against the real renderer: the timeline of a document in a sandboxed
+// frame is stopped from the start, the picture shows a finite animation ended
+// and an infinite one removed, and the renderer answers the moment each render
+// returns, in both schemes.
+func TestRendererIntegration_AnAnimatedDocumentIsFrozenAndDrawnSettled_RealDB(t *testing.T) {
+	r := New(startRenderer(t, nil, nil), nil)
+	blue := color.RGBA{R: 0x1d, G: 0x4e, B: 0xd8}
+	amber := color.RGBA{R: 0xf5, G: 0x9e, B: 0x0b}
+	green := color.RGBA{R: 0x22, G: 0xc5, B: 0x5e}
+	for _, dark := range []bool{false, true} {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		page := tilePage(animatedFrame)
+		page.Dark = dark
+		data, err := r.Render(ctx, page)
+		cancel()
+		if err != nil {
+			t.Fatalf("Render dark=%v: %v", dark, err)
+		}
+		img := decode(t, data)
+		if got := share(img, image.Rect(20, 20, 380, 280), blue, 8); got < 0.95 {
+			t.Errorf("dark=%v: the fade-in shows %.1f%% finished; a picture shows it ended", dark, 100*got)
+		}
+		// The blur softens the pulse's edges, so its middle is measured.
+		if got := share(img, image.Rect(460, 60, 740, 240), amber, 8); got < 0.95 {
+			t.Errorf("dark=%v: the pulse's element shows its own background over %.1f%%; the infinite animation was not removed", dark, 100*got)
+		}
+		if got := share(img, image.Rect(20, 320, 780, 580), green, 8); got < 0.95 {
+			t.Errorf("dark=%v: the marker is green over %.1f%%; the pulse advanced while the page loaded", dark, 100*got)
+		}
+		pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := r.Ping(pctx); err != nil {
+			t.Errorf("dark=%v: the renderer does not answer right after the render: %v", dark, err)
+		}
+		pcancel()
+	}
+}

@@ -392,24 +392,27 @@ func thumbnailColumns(variant string) (keyCol, atCol string) {
 }
 
 // setThumbnailQuery records a tile of one variant. A drawn tile also clears
-// any failure recorded against the file and ends the lease the replica that
-// drew it held (#1787).
+// any failure recorded against the file (#1787). It leaves the renderer's
+// claim alone: a file has a tile per variant, and the claim ends once every
+// variant is drawn or one could not be, through HoldThumbnailWork (#1868).
 func setThumbnailQuery(variant string) string {
 	keyCol, atCol := thumbnailColumns(variant)
 	// #nosec G201 -- the column names come from thumbnailColumns, a closed set
 	// of constants; the values are bound.
 	return fmt.Sprintf(`UPDATE resources SET %s = $1, %s = $2, thumbnail_renderer = $3,
-		thumbnail_failure = '', thumbnail_failed_at = NULL, thumbnail_claimed_until = NULL
+		thumbnail_failure = '', thumbnail_failed_at = NULL
 		WHERE id = $4`, keyCol, atCol)
 }
 
-// clearThumbnailQuery forgets a tile of one variant and any failure recorded
-// against the file, which puts it back in the renderer's claim.
+// clearThumbnailQuery forgets a tile of one variant, any failure recorded
+// against the file and the attempts that led to it, which puts it back in the
+// renderer's claim. The lease is left alone: a worker may be drawing it now.
 func clearThumbnailQuery(variant string) string {
 	keyCol, atCol := thumbnailColumns(variant)
 	// #nosec G201 -- closed set of column names, as above.
 	return fmt.Sprintf(`UPDATE resources SET %s = '', %s = NULL,
-		thumbnail_failure = '', thumbnail_failed_at = NULL WHERE id = $1`, keyCol, atCol)
+		thumbnail_failure = '', thumbnail_failed_at = NULL,
+		thumbnail_attempts = 0 WHERE id = $1`, keyCol, atCol)
 }
 
 // SetThumbnail records a capture against the resource.

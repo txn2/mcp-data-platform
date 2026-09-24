@@ -14,11 +14,9 @@
 // directly: a script IS its own indexing unit. SourceID is the script id; each
 // unit yields exactly one Item whose text is script.IndexText.
 //
-// What is embedded is the script's description card and never its Starlark.
-// docs/scripts/security.md admits the contract to the script's owner and the
-// source to that owner and to administrators; one vector per row,
-// stored inline, cannot be split along that line, so a vector built partly from
-// source would let code a caller may not read decide how their results rank.
+// What is embedded is the script's description card and never its Starlark,
+// for the reason script.IndexText gives: the source churns on every code edit
+// while what the script is for rarely changes.
 //
 // Every enabled script is indexed regardless of lifecycle status, mirroring
 // prompts: ranked search decides visibility at query time — the store's Search

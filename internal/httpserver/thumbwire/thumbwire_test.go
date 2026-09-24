@@ -48,6 +48,10 @@ func (a workingAssets) ClaimThumbnailWork(context.Context, int, time.Duration, i
 	return nil, nil
 }
 
+func (workingAssets) HoldThumbnailWork(context.Context, string, time.Duration, int) error {
+	return nil
+}
+
 type workingCollections struct {
 	portal.CollectionStore
 	c *claims
@@ -62,6 +66,14 @@ func (workingCollections) RecordCollectionThumbnail(context.Context, string, str
 	return nil
 }
 
+func (workingCollections) RecordCollectionThumbnailFailure(context.Context, string, string, string) error {
+	return nil
+}
+
+func (workingCollections) HoldCollectionThumbnailWork(context.Context, string, time.Duration, int) error {
+	return nil
+}
+
 type workingResources struct {
 	resource.Store
 	c *claims
@@ -73,6 +85,10 @@ func (r workingResources) ClaimThumbnailWork(context.Context, int, time.Duration
 }
 
 func (workingResources) RecordThumbnailFailure(context.Context, string, string, time.Time) error {
+	return nil
+}
+
+func (workingResources) HoldThumbnailWork(context.Context, string, time.Duration, int) error {
 	return nil
 }
 
@@ -197,8 +213,12 @@ func TestBuild_NoWorkerWithoutSomethingToDraw(t *testing.T) {
 	off := false
 	disabled := &fakeSource{assets: workingAssets{c: newClaims()}, assetBlobs: blobs{}}
 	disabled.cfg.Thumbnails.Enabled = &off
+	// A section Config.Validate refuses is refused here too (#1868).
+	untunable := &fakeSource{assets: workingAssets{c: newClaims()}, assetBlobs: blobs{}}
+	untunable.cfg.Thumbnails.Concurrency = -1
 	for name, src := range map[string]*fakeSource{
 		"turned off":                      disabled,
+		"a section that does not tune":    untunable,
 		"an asset store that cannot work": {assets: struct{ portal.AssetStore }{}, assetBlobs: blobs{}},
 		"no asset storage":                {assets: workingAssets{c: newClaims()}},
 	} {

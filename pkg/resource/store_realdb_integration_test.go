@@ -10,7 +10,6 @@ package resource
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
@@ -336,7 +335,10 @@ func TestResourceStore_ThumbnailClaim_RealDB(t *testing.T) {
 	assert.Contains(t, claim(), "res_c_failed", "a file that changed after its failure is tried again")
 	release()
 
-	// Drawing the tile clears the failure and the lease.
+	// Drawing the tile clears the failure. The claim is the worker's to end
+	// once every variant is drawn (#1868), so a drawn variant leaves it, and
+	// a release with no hold and no attempts ends it.
+	require.Contains(t, claim(), "res_c_failed")
 	fresh, err := store.Get(ctx, failed.ID)
 	require.NoError(t, err)
 	require.NoError(t, work.SetThumbnail(ctx, failed.ID, ThumbnailCapture{
@@ -346,9 +348,74 @@ func TestResourceStore_ThumbnailClaim_RealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, drawn.ThumbnailFailure)
 	assert.Nil(t, drawn.ThumbnailFailedAt)
-	var leased sql.NullTime
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT thumbnail_claimed_until FROM resources WHERE id = $1`, failed.ID).Scan(&leased))
-	assert.False(t, leased.Valid, "the lease survived the drawn tile")
+	var leased bool
+	var attempts int
+	state := func() {
+		t.Helper()
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT COALESCE(thumbnail_claimed_until > now(), false), thumbnail_attempts FROM resources WHERE id = $1`, failed.ID).
+			Scan(&leased, &attempts))
+	}
+	state()
+	assert.True(t, leased, "a drawn variant ended a claim another variant may still be owed under")
+	assert.Positive(t, attempts)
+	require.NoError(t, work.HoldThumbnailWork(ctx, failed.ID, 0, 0))
+	state()
+	assert.False(t, leased)
+	assert.Zero(t, attempts)
 
 	assert.Error(t, work.RecordThumbnailFailure(ctx, "res_c_missing", "x", time.Now()))
+}
+
+// TestResourceStore_ThumbnailAttempts_RealDB holds #1868 for resources: the
+// claim charges an attempt and returns the count, a hold keeps the file out
+// with its count until it passes, a clear starts the count over without
+// ending a lease, a recorded failure clears it, and new content starts over.
+func TestResourceStore_ThumbnailAttempts_RealDB(t *testing.T) {
+	db := testdb.New(t)
+	store := NewPostgresStore(db)
+	work := store.(ThumbnailWork)
+	ctx := context.Background()
+	require.NoError(t, store.Insert(ctx, Resource{
+		ID: "res_gone", Scope: ScopeGlobal, Path: "visual", Filename: "gone.png", DisplayName: "gone",
+		MIMEType: "image/png", SizeBytes: 100, S3Key: "resources/res_gone/gone.png", URI: "mcp://global/visual/gone.png",
+	}))
+	claim := func() []Resource {
+		t.Helper()
+		out, err := work.ClaimThumbnailWork(ctx, thumbnailTestRenderer, time.Minute, 100)
+		require.NoError(t, err)
+		return out
+	}
+	attempts := func() (int, bool) {
+		t.Helper()
+		var n int
+		var leased bool
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT thumbnail_attempts, COALESCE(thumbnail_claimed_until > now(), false) FROM resources WHERE id = 'res_gone'`).
+			Scan(&n, &leased))
+		return n, leased
+	}
+
+	first := claim()
+	require.Len(t, first, 1)
+	assert.Equal(t, 1, first[0].ThumbnailAttempts)
+	require.NoError(t, work.HoldThumbnailWork(ctx, "res_gone", time.Hour, 1))
+	assert.Empty(t, claim(), "a held file was claimed before its hold passed")
+
+	require.NoError(t, work.HoldThumbnailWork(ctx, "res_gone", 0, 1))
+	second := claim()
+	require.Len(t, second, 1)
+	assert.Equal(t, 2, second[0].ThumbnailAttempts)
+
+	require.NoError(t, store.ClearThumbnail(ctx, "res_gone", ThumbnailVariantLight))
+	n, leased := attempts()
+	assert.Zero(t, n)
+	assert.True(t, leased, "a clear ended a worker's lease")
+
+	require.NoError(t, work.HoldThumbnailWork(ctx, "res_gone", 0, 5))
+	require.NoError(t, work.RecordThumbnailFailure(ctx, "res_gone", "the stored file could not be read", second[0].UpdatedAt))
+	n, leased = attempts()
+	assert.Zero(t, n)
+	assert.False(t, leased)
+	assert.Empty(t, claim(), "a file recorded as not drawable left the queue")
 }

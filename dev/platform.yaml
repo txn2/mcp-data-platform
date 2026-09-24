@@ -512,6 +512,11 @@ portal:
 # the platform in its own pod, at http://127.0.0.1:9222.
 thumbnails:
   renderer_url: "http://127.0.0.1:${DEV_RENDERER_PORT:-9222}"
+  # Short pacing so a document whose attempts never finish is recorded within
+  # seconds on the dev stack rather than the production defaults' hour and a
+  # half (#1868); test/acceptance/issue_1868_test.go is stated against these.
+  max_attempts: 2
+  retry_backoff: 5s
 
 # Managed resources share the portal bucket in dev. Without this block they
 # default to a "resources" bucket the dev SeaweedFS never creates, and every

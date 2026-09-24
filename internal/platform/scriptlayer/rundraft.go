@@ -132,14 +132,14 @@ func (h *Handle) draftScript(ctx context.Context, input manageScriptInput) (*scr
 	// A prospective script is the caller's own: one addressed under another
 	// owner is only ever a saved one.
 	if input.Name == "" || input.Source == "" || input.OwnerEmail != "" {
-		return h.readable(ctx, input)
+		return h.owned(ctx, input)
 	}
-	saved, err := h.resolveScript(ctx, input.Name, input.OwnerEmail)
+	saved, err := h.resolveScript(ctx, input.Name, input.OwnerEmail, false)
 	if err != nil {
 		return nil, errorResult(err.Error())
 	}
 	if saved != nil {
-		return h.readable(ctx, input)
+		return h.owned(ctx, input)
 	}
 	prospective := &script.Script{
 		Name: input.Name, OwnerEmail: resolveEmail(ctx), Params: input.Params, Enabled: true,
@@ -160,7 +160,7 @@ func (h *Handle) draftSource(ctx context.Context, input manageScriptInput) (stri
 	if input.Source != "" {
 		return input.Source, nil
 	}
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.owned(ctx, input)
 	if errResult != nil {
 		return "", errResult
 	}

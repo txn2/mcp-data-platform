@@ -44,28 +44,30 @@ type target struct {
 }
 
 // drawVariants renders and stores each variant in turn. It stops at the first
-// variant that fails: retry means the renderer or storage was unavailable and
-// the lease should lapse; a reason is the document's and is recorded, with the
-// variants already stored kept.
-func (w *Worker) drawVariants(ctx context.Context, t target, variants []string) (stored []drawn, reason string, retry bool) {
+// variant that fails: unfinished is why the attempt did not finish -- the
+// renderer or storage was unavailable -- and reason is a failure the document
+// owns, which is recorded. Either way the variants already stored are kept.
+func (w *Worker) drawVariants(ctx context.Context, t target, variants []string) (stored []drawn, reason string, unfinished error) {
 	for _, v := range variants {
 		src := t.src
 		src.dark = v == portaldomain.ThumbnailVariantDark
 		png, err := w.render(ctx, w.tilePage(src))
-		if r, why := outcome(err); r || why != "" {
-			return stored, why, r
+		if retry, why := outcome(err); retry || why != "" {
+			if retry {
+				return stored, "", err
+			}
+			return stored, why, nil
 		}
 		key := t.keyFor(v)
 		sctx, cancel := context.WithTimeout(ctx, storageTimeout)
 		err = t.blobs.PutObject(sctx, t.bucket, key, png, tileContentType)
 		cancel()
 		if err != nil {
-			slog.Warn("thumbnails: storing a tile failed", "key", logsan.SanitizeForLog(key), logKeyError, logsan.SanitizeForLog(err.Error()))
-			return stored, "", true
+			return stored, "", fmt.Errorf("storing the tile: %w", err)
 		}
 		stored = append(stored, drawn{variant: v, key: key})
 	}
-	return stored, "", false
+	return stored, "", nil
 }
 
 // render draws one page, bounded by the render timeout, and refuses a result
@@ -94,14 +96,22 @@ func readObject(ctx context.Context, blobs Blobs, bucket, key string) ([]byte, e
 	return data, nil
 }
 
+// unreadable is a document's stored file that could not be read. It is
+// counted against the document like a renderer that stopped answering: a file
+// that is gone never becomes readable, and one that is briefly unreachable is
+// read on a later attempt (#1868).
+func unreadable(err error) error {
+	return fmt.Errorf("the stored file could not be read: %w", err)
+}
+
 // drawAsset draws an asset's tiles and records them against the version it
 // claimed. An asset rewritten while it was drawn records the older version and
-// stays owed, so its new content is drawn next.
-func (w *Worker) drawAsset(ctx context.Context, a portaldomain.Asset) {
+// stays owed, so its new content is drawn next. It returns why the attempt did
+// not finish, having recorded any variant it drew without ending the claim.
+func (w *Worker) drawAsset(ctx context.Context, a portaldomain.Asset) error {
 	data, err := readObject(ctx, w.deps.AssetBlobs, a.S3Bucket, a.S3Key)
 	if err != nil {
-		slog.Warn("thumbnails: reading an asset failed", "asset", logsan.SanitizeForLog(a.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
-		return
+		return unreadable(err)
 	}
 	// The head is taken before the references are rewritten, so a document
 	// drawn from its head is scanned for references over the bytes that reach
@@ -110,16 +120,17 @@ func (w *Worker) drawAsset(ctx context.Context, a portaldomain.Asset) {
 	if !isBinary(a.ContentType) {
 		data = w.rewriteRefs(ctx, a.ID, a.ContentType, data)
 	}
-	stored, reason, retry := w.drawVariants(ctx, target{
+	stored, reason, unfinished := w.drawVariants(ctx, target{
 		src:    tileSource{contentType: a.ContentType, content: data, name: a.Name},
 		bucket: a.S3Bucket,
 		blobs:  w.deps.AssetBlobs,
 		keyFor: func(v string) string { return portaldomain.DeriveThumbnailKeyVariant(a.S3Key, v) },
 	}, variantsOf(a.ContentType))
-	if retry && len(stored) == 0 {
-		return
+	if unfinished != nil && len(stored) == 0 {
+		return unfinished
 	}
-	w.recordAsset(ctx, a, stored, reason)
+	w.recordAsset(ctx, a, stored, reason, unfinished == nil)
+	return unfinished
 }
 
 // rewriteRefs points a document's declared references at the platform's
@@ -141,12 +152,13 @@ func (w *Worker) rewriteRefs(ctx context.Context, assetID, contentType string, d
 
 // recordAsset writes what was drawn: the stored variants, and either the
 // renderer generation with any earlier failure cleared, or the reason drawing
-// stopped. The lease ends with the write. A superseded tile object is removed
-// after the row stops naming it, so a failed delete leaves an orphan rather
-// than an asset with no tile.
-func (w *Worker) recordAsset(ctx context.Context, a portaldomain.Asset, stored []drawn, reason string) {
+// stopped. When the attempt finished the claim ends with the write; when it
+// did not, the claim is left for the attempt to end, with its count. A
+// superseded tile object is removed after the row stops naming it, so a
+// failed delete leaves an orphan rather than an asset with no tile.
+func (w *Worker) recordAsset(ctx context.Context, a portaldomain.Asset, stored []drawn, reason string, finished bool) {
 	version := a.CurrentVersion
-	u := portaldomain.AssetUpdate{ReleaseThumbnailClaim: true}
+	u := portaldomain.AssetUpdate{ReleaseThumbnailClaim: finished}
 	for i := range stored {
 		key := stored[i].key
 		if stored[i].variant == portaldomain.ThumbnailVariantDark {
@@ -186,14 +198,16 @@ func (*Worker) removeSuperseded(ctx context.Context, blobs Blobs, bucket, old, c
 }
 
 // drawResource draws a file's tiles and dates them by the file as it stood
-// when claimed, so a file written while it was drawn stays owed.
-func (w *Worker) drawResource(ctx context.Context, r resource.Resource) {
+// when claimed, so a file written while it was drawn stays owed. It ends the
+// claim once every variant is drawn or the file's own failure is recorded, and
+// otherwise returns why the attempt did not finish, having recorded any
+// variant it drew.
+func (w *Worker) drawResource(ctx context.Context, r resource.Resource) error {
 	data, err := readObject(ctx, w.deps.ResourceBlobs, w.deps.ResourceBucket, r.S3Key)
 	if err != nil {
-		slog.Warn("thumbnails: reading a resource failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
-		return
+		return unreadable(err)
 	}
-	stored, reason, retry := w.drawVariants(ctx, target{
+	stored, reason, unfinished := w.drawVariants(ctx, target{
 		src:    tileSource{contentType: r.MIMEType, content: headFor(r.MIMEType, data), name: r.DisplayName},
 		bucket: w.deps.ResourceBucket,
 		blobs:  w.deps.ResourceBlobs,
@@ -204,63 +218,84 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) {
 			Variant: d.variant, S3Key: d.key, CapturedAt: r.UpdatedAt, Renderer: Renderer,
 		}); err != nil {
 			slog.Error("thumbnails: recording a resource's tile failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
-			return
+			return nil
 		}
 	}
-	if reason != "" && !retry {
+	switch {
+	case unfinished != nil:
+		return unfinished
+	case reason != "":
 		if err := w.deps.Resources.RecordThumbnailFailure(ctx, r.ID, reason, r.UpdatedAt); err != nil {
 			slog.Error("thumbnails: recording a resource's failure failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
+	default:
+		if err := w.deps.Resources.HoldThumbnailWork(ctx, r.ID, 0, 0); err != nil {
+			slog.Warn("thumbnails: ending a resource's claim failed; it lapses with its lease", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		}
 	}
+	return nil
 }
 
 // drawCollection composes a collection's mosaics from the member tiles its
 // source names -- a light one from their light tiles and a dark one from their
 // dark tiles, a member without one lending its light tile -- or clears the
 // mosaics it holds when no member has a tile. Both are stored before the row
-// is written, so a recorded key always has its dark neighbor (#1789).
-func (w *Worker) drawCollection(ctx context.Context, c portaldomain.CollectionThumbnailWork) {
+// is written, so a recorded key always has its dark neighbor (#1789). A
+// mosaic the renderer refuses is recorded as not composable from this source
+// (#1868); one that did not finish returns why.
+func (w *Worker) drawCollection(ctx context.Context, c portaldomain.CollectionThumbnailWork) error {
 	if c.Source == "" {
 		w.clearCollection(ctx, c)
-		return
+		return nil
 	}
 	light, dark := w.memberTiles(ctx, c.Source)
 	if len(light) == 0 {
-		return
+		return errNoMemberTile
 	}
 	for _, v := range []struct {
 		variant string
 		tiles   [][]byte
 	}{{portaldomain.ThumbnailVariantLight, light}, {portaldomain.ThumbnailVariantDark, dark}} {
-		if !w.storeMosaic(ctx, c.ID, v.variant, v.tiles) {
-			return
+		reason, unfinished := w.storeMosaic(ctx, c.ID, v.variant, v.tiles)
+		if unfinished != nil {
+			return unfinished
+		}
+		if reason != "" {
+			if err := w.deps.Collections.RecordCollectionThumbnailFailure(ctx, c.ID, c.Source, reason); err != nil {
+				slog.Error("thumbnails: recording a collection's failure failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			}
+			return nil
 		}
 	}
 	key := portaldomain.CollectionThumbnailKey(c.ID, portaldomain.ThumbnailVariantLight)
 	if err := w.deps.Collections.RecordCollectionThumbnail(ctx, c.ID, key, c.Source); err != nil {
 		slog.Error("thumbnails: recording a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
+	return nil
 }
 
-// storeMosaic composes one variant of a collection's mosaic and stores it,
-// reporting whether it was stored.
-func (w *Worker) storeMosaic(ctx context.Context, id, variant string, tiles [][]byte) bool {
+// errNoMemberTile is a collection whose source names member tiles none of
+// which could be read.
+var errNoMemberTile = errors.New("none of the member tiles its mosaic is composed from could be read")
+
+// storeMosaic composes one variant of a collection's mosaic and stores it. It
+// returns the renderer's refusal, which is the mosaic's, or why the attempt
+// did not finish.
+func (w *Worker) storeMosaic(ctx context.Context, id, variant string, tiles [][]byte) (reason string, unfinished error) {
 	png, err := w.render(ctx, mosaicPage(tiles))
-	if retry, reason := outcome(err); retry || reason != "" {
-		if reason != "" {
-			slog.Warn("thumbnails: composing a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(id), "reason", logsan.SanitizeForLog(reason))
-		}
-		return false
+	if retry, why := outcome(err); retry {
+		return "", err
+	} else if why != "" {
+		return why, nil
 	}
 	key := portaldomain.CollectionThumbnailKey(id, variant)
 	sctx, cancel := context.WithTimeout(ctx, storageTimeout)
 	err = w.deps.AssetBlobs.PutObject(sctx, w.deps.CollectionBucket, key, png, tileContentType)
 	cancel()
 	if err != nil {
-		slog.Warn("thumbnails: storing a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(id), logKeyError, logsan.SanitizeForLog(err.Error()))
-		return false
+		return "", fmt.Errorf("storing the mosaic: %w", err)
 	}
-	return true
+	return "", nil
 }
 
 func (w *Worker) clearCollection(ctx context.Context, c portaldomain.CollectionThumbnailWork) {

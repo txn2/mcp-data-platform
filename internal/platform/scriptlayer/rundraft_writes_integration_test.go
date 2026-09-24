@@ -325,7 +325,7 @@ func TestIntegration_AnUnsavedDraftIsRefusedWhatASavedOneWouldBe(t *testing.T) {
 		{"another owner's name", map[string]any{
 			"command": "run_draft", "name": "ok", "source": `print(1)`,
 			"owner_email": "someone@example.com",
-		}, "your own scripts"},
+		}, "only a script's owner or an administrator"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			out, isErr := callTool(ctx, t, session, tt.args)

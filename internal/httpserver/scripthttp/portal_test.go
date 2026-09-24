@@ -324,12 +324,38 @@ func TestPortalListVersions_OwnerReadsTheSource(t *testing.T) {
 	assert.Equal(t, reportSource, body.Data[0].Source)
 }
 
-// The source is the owner's and the administrator's. A caller who may see the
-// script gets the same answer as one who may not: not found.
-func TestPortalListVersions_RefusedForANonOwner(t *testing.T) {
-	rec := servePortal(t, portalDeps(portalStore(), nil, nil, stranger), "/api/v1/portal/scripts/script_2/versions")
-	require.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Contains(t, rec.Body.String(), errScriptNot)
+// versionRoles reads the author roles each version of script_1 carried for
+// who.
+func versionRoles(t *testing.T, store *stubStore, who *PortalIdentity) [][]string {
+	t.Helper()
+	rec := servePortal(t, portalDeps(store, nil, nil, who), "/api/v1/portal/scripts/script_1/versions")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body versionListResponse
+	decodeInto(t, rec, &body)
+	roles := make([][]string, 0, len(body.Data))
+	for _, v := range body.Data {
+		roles = append(roles, v.AuthorRoles)
+	}
+	return roles
+}
+
+// The history is the definition over time, readable by everyone (#1866); the
+// roles each version's author held are that person's, shown to the owner and
+// an administrator only.
+func TestPortalListVersions_ReadableByEveryoneWithoutTheAuthorsRoles(t *testing.T) {
+	rec := servePortal(t, portalDeps(portalStore(), nil, nil, stranger), "/api/v1/portal/scripts/script_1/versions")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body versionListResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, reportSource, body.Data[0].Source, "the source is the definition")
+	assert.Empty(t, body.Data[0].AuthorRoles, "the roles are the author's")
+
+	assert.Equal(t, [][]string{{"analyst"}}, versionRoles(t, portalStore(), owner))
+	assert.Equal(t, [][]string{{"analyst"}}, versionRoles(t, portalStore(), admin))
+
+	rec = servePortal(t, portalDeps(portalStore(), nil, nil, stranger), "/api/v1/portal/scripts/nope/versions")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestPortalListVersions_AdminIsUnrestricted(t *testing.T) {
@@ -352,13 +378,12 @@ func TestPortalListVersions_ScriptReadFailure(t *testing.T) {
 }
 
 // An owner with no email cannot be matched by an unidentified caller: the
-// empty-matches-empty hole the scope rule closes is closed here too.
+// empty-matches-empty hole the scope rule closes is closed here too, so the
+// caller reads the history as a stranger does.
 func TestPortalListVersions_AnonymousOwnerIsNotEveryone(t *testing.T) {
 	store := portalStore()
 	store.scripts[0].OwnerEmail = ""
-	rec := servePortal(t, portalDeps(store, nil, nil, &PortalIdentity{UserID: "u9"}),
-		"/api/v1/portal/scripts/script_1/versions")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, [][]string{nil}, versionRoles(t, store, &PortalIdentity{UserID: "u9"}))
 }
 
 // The cross-script listing (#1405): an owner reads the runs of everything they
@@ -620,11 +645,8 @@ func TestPortalIdentity_EmaillessCallersAreDistinct(t *testing.T) {
 	sarah := &PortalIdentity{UserID: "oidc|sarah", Persona: "analyst"}
 	marcus := &PortalIdentity{UserID: "oidc|marcus", Persona: "analyst"}
 
-	rec := servePortal(t, portalDeps(store, nil, nil, sarah), "/api/v1/portal/scripts/script_1/versions")
-	assert.Equal(t, http.StatusOK, rec.Code, "the owner reads their own script")
-
-	rec = servePortal(t, portalDeps(store, nil, nil, marcus), "/api/v1/portal/scripts/script_1/versions")
-	assert.Equal(t, http.StatusNotFound, rec.Code, "another email-less caller is not the same person")
+	assert.Equal(t, [][]string{{"analyst"}}, versionRoles(t, store, sarah), "the owner reads their own script as its owner")
+	assert.Equal(t, [][]string{nil}, versionRoles(t, store, marcus), "another email-less caller is not the same person")
 
 	// And the listing scopes on that identity rather than on an empty string.
 	servePortal(t, portalDeps(store, nil, nil, sarah), "/api/v1/portal/scripts")
@@ -636,9 +658,7 @@ func TestPortalIdentity_EmaillessCallersAreDistinct(t *testing.T) {
 func TestPortalIdentity_UnnamedCallerOwnsNothing(t *testing.T) {
 	store := portalStore()
 	store.scripts[0].OwnerEmail = ""
-	rec := servePortal(t, portalDeps(store, nil, nil, &PortalIdentity{Persona: "analyst"}),
-		"/api/v1/portal/scripts/script_1/versions")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, [][]string{nil}, versionRoles(t, store, &PortalIdentity{Persona: "analyst"}))
 }
 
 func TestPortalGetRun_RefusedForANonOwner(t *testing.T) {
@@ -676,12 +696,11 @@ func TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner(t *testing.T
 		"the contract document's parameters pass through unchanged")
 }
 
-// TestPortalGetScript_WithholdsAnotherPersonsCode draws the line where #1795
-// put it: a caller who does not own a script sees that it exists, whose it is
-// and what it says about itself, and gets neither its code nor the parameters
-// its editor binds. The listing lists it, so the page it opens must not be a
-// not-found.
-func TestPortalGetScript_WithholdsAnotherPersonsCode(t *testing.T) {
+// TestPortalGetScript_ShowsAnotherPersonsCode draws the line where #1866 put
+// it: a caller who does not own a script reads its definition -- whose it is,
+// what it says about itself, its code and the parameters its code declares --
+// and owned is false, which is what closes every action on the page.
+func TestPortalGetScript_ShowsAnotherPersonsCode(t *testing.T) {
 	store := portalStore()
 	store.scripts[1].Source = "x = 1\n"
 	store.scripts[1].Params = []script.Param{{Name: "region", Type: script.ParamTypeString}}
@@ -698,6 +717,7 @@ func TestPortalGetScript_WithholdsAnotherPersonsCode(t *testing.T) {
 	assert.Equal(t, "carols-report", seen.Contract.Name)
 	assert.Equal(t, "carol@example.com", seen.Contract.OwnerEmail)
 	assert.False(t, seen.Owned)
-	assert.Empty(t, seen.Source, "the code is the owner's")
-	assert.Empty(t, seen.DraftParams)
+	assert.Equal(t, "x = 1\n", seen.Source, "the code is the definition")
+	require.Len(t, seen.DraftParams, 1)
+	assert.Equal(t, "region", seen.DraftParams[0].Name)
 }

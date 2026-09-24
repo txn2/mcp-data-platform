@@ -10,7 +10,7 @@ import { ModalShell } from "@/components/ModalShell";
 import { parseTags } from "@/lib/tags";
 import { PathField } from "../parts/PathField";
 import { pathProblem } from "../parts/pathRules";
-import { libraryCopy, targetKey, uploadTargets, type ScopeTarget } from "../scopes";
+import { libraryCopy, targetKey, uploadTargets, withheldUploadPersonas, type ScopeTarget } from "../scopes";
 import { DestinationPicker } from "./DestinationPicker";
 import { BulkSources } from "./bulk/BulkSources";
 import { BulkFileList } from "./bulk/BulkFileList";
@@ -132,7 +132,13 @@ export function BulkUploadModal({
             <p className="text-xs text-muted-foreground">{libraryCopy(destination).audience}</p>
           </div>
         ) : (
-          <DestinationPicker choices={choices} value={chosen} onChange={setChosen} disabled={batch.running} />
+          <DestinationPicker
+            choices={choices}
+            value={chosen}
+            onChange={setChosen}
+            disabled={batch.running}
+            withheld={withheldUploadPersonas(user)}
+          />
         )}
         <PathField label="Base folder" value={base} onChange={setBase} folders={folders} disabled={batch.running} />
       </div>

@@ -76,6 +76,11 @@ type Resource struct {
 	// visible.
 	ThumbnailFailure  string     `json:"thumbnail_failure,omitempty"`
 	ThumbnailFailedAt *time.Time `json:"thumbnail_failed_at,omitempty"`
+	// ThumbnailAttempts is how many claims the renderer has taken on this
+	// file since its last recorded tile or failure, counting the claim it
+	// was returned by. It is filled only by ThumbnailWork.ClaimThumbnailWork
+	// (#1868).
+	ThumbnailAttempts int `json:"-"`
 }
 
 // Sort names an ordering for the list path.

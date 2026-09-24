@@ -531,7 +531,7 @@ func TestUpdate_Authorization(t *testing.T) {
 		Command: cmdUpdate, Name: "daily", OwnerEmail: "jane@example.com", DisplayName: "x",
 	})
 	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "only address your own")
+	assert.Contains(t, resultText(res), "only a script's owner or an administrator can run, schedule, change")
 
 	// The lifecycle status is admin-only even for the owner.
 	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Status: script.StatusDeprecated})
@@ -773,23 +773,61 @@ func listedNames(t *testing.T, fields map[string]any) []string {
 	return names
 }
 
-// TestRead_HidesAnotherPersonsScript keeps the read path and the list path
-// answering the same question, with a message that does not confirm the script
-// exists, and proves an administrator is not held to it.
-func TestRead_HidesAnotherPersonsScript(t *testing.T) {
+// TestRead_AnotherPersonsDefinitionIsReadable holds #1866: a script's
+// definition, its source and history included, is readable by every caller
+// who names its owner, and what it did and does -- its runs, its state, a run
+// of it, an edit -- stays with the owner and an administrator.
+func TestRead_AnotherPersonsDefinitionIsReadable(t *testing.T) {
 	h, _ := newHandle()
-	call(t, h, callerCtx("bob@example.com", "data-engineer"), manageScriptInput{
-		Command: cmdCreate, Name: "bobs-report", Source: "x = 1",
-	})
+	bob := callerCtx("bob@example.com", "data-engineer")
+	call(t, h, bob, manageScriptInput{Command: cmdCreate, Name: "bobs-report", Source: "x = 1\n"})
+	call(t, h, bob, manageScriptInput{Command: cmdUpdate, Name: "bobs-report", Source: "x = 2\n"})
 
+	// A name is its owner's; without owner_email the caller's own is meant.
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "bobs-report"})
 	require.True(t, res.IsError)
 	assert.Contains(t, resultText(res), "not found")
 
-	res = call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdGet, Name: "bobs-report", OwnerEmail: "bob@example.com",
-	})
-	assert.False(t, res.IsError, resultText(res))
+	named := manageScriptInput{Name: "bobs-report", OwnerEmail: "bob@example.com"}
+	read := func(command string) map[string]any {
+		t.Helper()
+		in := named
+		in.Command = command
+		res := call(t, h, authorCtx(), in)
+		require.False(t, res.IsError, "%s: %s", command, resultText(res))
+		return resultFields(t, res)
+	}
+	got := read(cmdGet)
+	assert.Equal(t, "x = 2\n", got[fieldSource])
+	assert.NotContains(t, got, "live_runs", "the runs are the owner's")
+	assert.Contains(t, read(cmdGetContent)["content"], "x = 2")
+	assert.Contains(t, fmt.Sprint(read(cmdDiff)), "x = 1")
+	versions, _ := read(cmdVersions)["versions"].([]any)
+	require.Len(t, versions, 2)
+	for _, v := range versions {
+		assert.NotContains(t, v, "author_roles", "the roles a version was saved with are its author's")
+	}
+
+	// A run's reads are held the same way, where a deployment keeps runs
+	// (TestRunReads_AreTheOwnersAndTheAdmins).
+	for _, command := range []string{cmdState, cmdUpdate, cmdDelete, cmdScheduleSet} {
+		in := named
+		in.Command, in.DisplayName = command, "x"
+		res := call(t, h, authorCtx(), in)
+		require.True(t, res.IsError, command)
+		assert.Contains(t, resultText(res), "only a script's owner or an administrator", command)
+	}
+
+	// The owner and an administrator see the runs and the roles.
+	for _, ctx := range []context.Context{bob, adminCtx()} {
+		in := named
+		in.Command = cmdGet
+		assert.Contains(t, resultFields(t, call(t, h, ctx, in)), "live_runs")
+		in.Command = cmdVersions
+		owned, _ := resultFields(t, call(t, h, ctx, in))["versions"].([]any)
+		require.NotEmpty(t, owned)
+		assert.Contains(t, owned[0], "author_roles")
+	}
 }
 
 func TestUnknownCommand(t *testing.T) {

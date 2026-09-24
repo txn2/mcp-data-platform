@@ -76,7 +76,7 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 	if errResult := refuseReentrantRun(ctx, ToolNameRunScript); errResult != nil {
 		return errResult, nil, nil
 	}
-	sc, errResult := h.readable(ctx, manageScriptInput{Name: input.Name, OwnerEmail: input.OwnerEmail})
+	sc, errResult := h.owned(ctx, manageScriptInput{Name: input.Name, OwnerEmail: input.OwnerEmail})
 	if errResult != nil {
 		return errResult, nil, nil
 	}

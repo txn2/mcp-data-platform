@@ -183,7 +183,7 @@ func TestMeter_NilMeasuresNothing(t *testing.T) {
 	require.NoError(t, m.Handed(nil, "x", starlark.String("v")))
 	m.Called("tool")
 	m.Holding(10)
-	m.Settle(starlark.StringDict{"a": starlark.String("b")})
+	require.NoError(t, m.Settle(starlark.StringDict{"a": starlark.String("b")}))
 	assert.Zero(t, m.Peak())
 	require.NoError(t, NewMeter(10).Check(nil, "x"), "no thread is nothing to measure")
 }
@@ -244,8 +244,92 @@ func TestMeter_HoldingCountsMemoryOutsideTheInterpreter(t *testing.T) {
 
 func TestMeter_SettleRecordsWhatTheScriptEndedHolding(t *testing.T) {
 	m := NewMeter(0)
-	m.Settle(starlark.StringDict{"rows": starlark.String(strings.Repeat("r", 8*kib))})
+	require.NoError(t, m.Settle(starlark.StringDict{"rows": starlark.String(strings.Repeat("r", 8*kib))}))
 	assert.Greater(t, m.Peak(), int64(8*kib))
+}
+
+// TestMeter_SettleRefusesARunThatEndedOverItsBudget holds #1867: a script
+// that built past its budget after its last host call fails the budget at the
+// end, rather than succeeding with a peak above it.
+func TestMeter_SettleRefusesARunThatEndedOverItsBudget(t *testing.T) {
+	m := NewMeter(4 * kib)
+	err := m.Settle(starlark.StringDict{"rows": starlark.String(strings.Repeat("r", 8*kib))})
+	require.ErrorIs(t, err, ErrMemoryBudget)
+	assert.Contains(t, err.Error(), "in the code after its last host call: the run exceeded its 4 KiB memory budget")
+	assert.Greater(t, m.Peak(), int64(8*kib))
+
+	require.NoError(t, NewMeter(64*kib).Settle(starlark.StringDict{"rows": starlark.String("r")}))
+}
+
+// TestMeter_CatchesGrowthFasterThanTheClock holds #1867: with the clock
+// frozen, so no walk is ever due by time, a function that builds past the
+// budget between host calls is still refused at a host call, because what the
+// process allocated since the last walk could take it over.
+func TestMeter_CatchesGrowthFasterThanTheClock(t *testing.T) {
+	m := NewMeter(1 << 20)
+	frozen := time.Unix(100, 0)
+	m.now = func() time.Time { return frozen }
+	calls := 0
+	var checked error
+	err := runScript(t, `
+def grow():
+    held = []
+    for i in range(34):
+        held.append("x" * (128 * 1024) + str(i))
+        probe()
+    return len(held)
+
+grow()
+`, func(th *starlark.Thread) (starlark.Value, error) {
+		calls++
+		checked = m.Check(th, "platform.query")
+		if checked != nil {
+			return nil, checked
+		}
+		return starlark.None, m.Handed(th, "platform.query", starlark.None)
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, checked, ErrMemoryBudget)
+	assert.Less(t, calls, 34, "refused as the run crossed the budget, not at the end")
+	assert.GreaterOrEqual(t, calls, 8, "not refused before it held a megabyte")
+	assert.Greater(t, m.Peak(), int64(1<<20), "the refusal was confirmed by a walk")
+}
+
+// TestMeter_WalksOnlyWhenGrowthCouldCrossTheBudget: an allocation counter that
+// has not moved far enough to reach the budget leaves the last walk standing;
+// one that has triggers a walk.
+func TestMeter_WalksOnlyWhenGrowthCouldCrossTheBudget(t *testing.T) {
+	m := NewMeter(64 * kib)
+	frozen := time.Unix(100, 0)
+	m.now = func() time.Time { return frozen }
+	var counter int64
+	m.allocated = func() int64 { return counter }
+	var walkedAt []int64
+	require.NoError(t, runScript(t, "probe()\nprobe()\nprobe()\n", func(th *starlark.Thread) (starlark.Value, error) {
+		if err := m.Check(th, "platform.query"); err != nil {
+			return nil, err
+		}
+		walkedAt = append(walkedAt, m.allocatedAtWalk)
+		counter += 40 * kib
+		return starlark.None, nil
+	}))
+	// The first call walks (there is no walk yet); the second finds 40 KiB
+	// allocated since, which cannot take the run over, and keeps that walk;
+	// the third finds 80 KiB, which could, and walks.
+	assert.Equal(t, []int64{0, 0, 80 * kib}, walkedAt)
+}
+
+// TestMeter_PeakIsConfirmedOnly holds #1867: a running estimate over the
+// budget that a walk then finds is not held is never reported as the peak.
+func TestMeter_PeakIsConfirmedOnly(t *testing.T) {
+	m := NewMeter(32 * kib)
+	require.NoError(t, runScript(t, "probe()\n", func(th *starlark.Thread) (starlark.Value, error) {
+		m.estimate, m.fresh = 0, false
+		m.add(64 * kib)
+		assert.Zero(t, m.Peak(), "an estimate is not a measurement")
+		return starlark.None, m.Check(th, "platform.query")
+	}))
+	assert.Less(t, m.Peak(), int64(32*kib))
 }
 
 func TestMeter_ResultSummaryWithNoResults(t *testing.T) {

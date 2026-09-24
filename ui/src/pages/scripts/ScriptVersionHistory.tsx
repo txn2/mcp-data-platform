@@ -7,9 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { SourceView } from "./DiffView";
 import { formatWhen } from "./runFormat";
 
-// ScriptVersionHistory is the owner's view of what has been written: every
-// version with its author and the roles they held, which are the roles a run
-// of that version presents.
+// ScriptVersionHistory is what has been written: every version with its
+// author, and for the owner and an administrator the roles that author held,
+// which are the roles a run of that version presents. Everyone else reads the
+// history without them (#1866): the roles are the author's.
 //
 // It is folded into the Source section behind a reveal (#1406) rather than
 // standing as a section of its own. The editor above it already holds the
@@ -19,9 +20,12 @@ import { formatWhen } from "./runFormat";
 export function ScriptVersionHistory({
   scriptId,
   contract,
+  owned = true,
 }: {
   scriptId: string;
   contract: ScriptContract;
+  /** Whether the reader owns the script, and is shown its authors' roles. */
+  owned?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -39,7 +43,7 @@ export function ScriptVersionHistory({
         )}
         Version history
       </button>
-      {open && <VersionList scriptId={scriptId} contract={contract} />}
+      {open && <VersionList scriptId={scriptId} contract={contract} owned={owned} />}
     </div>
   );
 }
@@ -50,7 +54,15 @@ export function ScriptVersionHistory({
 // Nothing opens by default. The version that runs is the text in the editor
 // directly above, so opening it here would put the same source on the page
 // twice; the versions worth expanding are the earlier ones.
-function VersionList({ scriptId, contract }: { scriptId: string; contract: ScriptContract }) {
+function VersionList({
+  scriptId,
+  contract,
+  owned,
+}: {
+  scriptId: string;
+  contract: ScriptContract;
+  owned: boolean;
+}) {
   const { data, isLoading, error } = usePortalScriptVersions(scriptId, true);
   const [openVersion, setOpenVersion] = useState<number | null>(null);
 
@@ -72,6 +84,7 @@ function VersionList({ scriptId, contract }: { scriptId: string; contract: Scrip
           <li key={v.id} className="rounded-md border p-3">
             <VersionRow
               version={v}
+              owned={owned}
               executing={v.version === contract.version}
               open={openVersion === v.version}
               onToggle={() => setOpenVersion(openVersion === v.version ? null : v.version)}
@@ -85,11 +98,13 @@ function VersionList({ scriptId, contract }: { scriptId: string; contract: Scrip
 
 function VersionRow({
   version,
+  owned,
   executing,
   open,
   onToggle,
 }: {
   version: ScriptVersion;
+  owned: boolean;
   executing: boolean;
   open: boolean;
   onToggle: () => void;
@@ -133,7 +148,7 @@ function VersionRow({
       </div>
       {open && (
         <div className="mt-3 space-y-3">
-          <AuthorityLine version={version} />
+          {owned && <AuthorityLine version={version} />}
           <SourceView source={version.source} />
         </div>
       )}

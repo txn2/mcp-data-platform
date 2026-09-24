@@ -20,11 +20,13 @@ two counts are the server's, over every script the filters match rather than ove
 rows this page happened to load, so the line says "showing 200" beside the total when the
 listing was capped.
 
-A script is visible to everyone; what is *readable* is not. The **Mine / All** tabs decide
-which you are looking at, and the page opens on Mine. A row you do not own tells you the
-script exists, who owns it, what it says about itself and when it runs — and nothing else:
-no source, no run history, no actions. An administrator can move a script to another owner,
-which is how one arrives in Mine that you did not write.
+A script is visible to everyone, and so is how it is written. The **Mine / All** tabs
+decide which you are looking at, and the page opens on Mine. A script you do not own opens
+on its details, what it says about itself, when it runs, and its source and version
+history, read only (#1866): a script is how a resource or a report you were given was
+produced. Its run history, its state and every action stay with its owner. An
+administrator can move a script to another owner, which is how one arrives in Mine that
+you did not write.
 
 Each row states what is worth knowing at a glance: what the script is called, its
 schedule and next fire, and how its most recent run ended. A script that will execute
@@ -200,8 +202,9 @@ nobody has dry-run says so.
 
 ## Version history
 
-Folded into the Source section is every version of the script, each with its author and
-the roles they held at the save, which are the roles a run of that version presents. It
+Folded into the Source section is every version of the script, each with its author and,
+on a script you own, the roles they held at the save, which are the roles a run of that
+version presents. It
 opens on a reveal rather than standing as a section of its own: the editor above it
 already holds the version that runs, so what the history adds is the versions before
 that one.
@@ -266,9 +269,9 @@ asset's version history is the history of what the dashboard has been showing. A
 delivered to a bucket names where it was written and is not a link: those bytes left the
 platform, and nothing here will serve them back.
 
-The schedule controls, the source, and the run history of a script belong to its owner
-and to administrators. A script you can see but do not own shows its details and what it
-says about itself, and nothing else.
+The schedule controls and the run history of a script belong to its owner and to
+administrators. A script you do not own shows its details, what it says about itself, and
+its source and versions to read, and nothing to run or change.
 
 
 ## Files written

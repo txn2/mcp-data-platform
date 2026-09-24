@@ -311,6 +311,25 @@ func TestPostgresAssetStoreUpdate(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestPostgresAssetStoreUpdate_ThumbnailAttempts holds #1868: a recorded
+// result ends the lease and clears the attempts; a request to draw the tile
+// again clears the attempts and leaves the lease a worker may hold.
+func TestPostgresAssetStoreUpdate_ThumbnailAttempts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresAssetStore(db, nil)
+
+	mock.ExpectExec(`UPDATE portal_assets SET thumbnail_claimed_until = \$1, thumbnail_attempts = \$2 WHERE`).
+		WithArgs(nil, 0, "a1").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, store.Update(context.Background(), "a1", portaldomain.AssetUpdate{ReleaseThumbnailClaim: true}))
+
+	mock.ExpectExec(`UPDATE portal_assets SET thumbnail_attempts = \$1 WHERE`).
+		WithArgs(0, "a2").WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, store.Update(context.Background(), "a2", portaldomain.AssetUpdate{ResetThumbnailAttempts: true}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPostgresAssetStoreUpdateAllFields(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

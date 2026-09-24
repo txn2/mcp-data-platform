@@ -300,6 +300,13 @@ func TestAssetUpdateIsThumbnailOnly(t *testing.T) {
 			want:   true,
 		},
 		{
+			// A request to draw the tile again starts its attempts over
+			// (#1868), which is no change to the asset either.
+			name:   "attempts cleared",
+			update: AssetUpdate{ResetThumbnailAttempts: true},
+			want:   true,
+		},
+		{
 			name:   "an update with nothing set is not a capture",
 			update: AssetUpdate{},
 			want:   false,
@@ -329,6 +336,8 @@ func TestAssetUpdateFieldsAreClassified(t *testing.T) {
 		"ThumbnailFailure":       true,
 		"ThumbnailFailedVersion": true,
 		"ReleaseThumbnailClaim":  true,
+		// The attempts a request to draw it again clears (#1868).
+		"ResetThumbnailAttempts": true,
 	}
 	authored := map[string]bool{
 		"Name":        true,

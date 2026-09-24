@@ -946,12 +946,19 @@ executing.
 ### How much memory one run may hold
 
 A run is measured, not trusted (#1861). At every host call (`platform.query`,
-`platform.call`, `platform.export` and the rest) the platform sizes the Starlark
-values the script can still reach, from its frames and its globals, and adds the
-result the call is about to hand back. A run holding more than
-`scripts.worker.max_run_memory` fails there, not retried, with cause `memory`
-and an error naming the budget, what it held, and the tool results it had been
-handed:
+`platform.call`, `platform.export` and the rest) the platform checks what the
+run holds against its budget, and adds the result the call is about to hand
+back. Sizing the Starlark values the script can still reach, from its frames and
+its globals, is a walk of everything it holds, so it is done at most once a
+second, and between walks the estimate is the last walk plus the results
+handed since. What the script builds itself between calls is not in that
+estimate, so the platform also reads how much the process has allocated since
+the last walk: a script cannot have come to hold more than was allocated, so
+while the last walk plus that growth fits the budget the run is inside it, and
+once it does not the platform walks at that call, however fast the run grew
+(#1867). A run holding more than `scripts.worker.max_run_memory` fails there,
+not retried, with cause `memory` and an error naming the budget, what it held,
+and the tool results it had been handed:
 
 ```text
 in platform.call: the run exceeded its 256 MiB memory budget, holding about 301 MiB
@@ -965,13 +972,22 @@ a replica with neither sets no budget. A draft on the same replica meets the
 same budget. Every run is measured whether or not there is a budget, and the
 peak is recorded as `metrics.peak_memory_bytes` on the run and as
 `peak_memory_bytes` on a `run_draft` answer, so an author sees how close a
-draft came before a scheduled run does.
+draft came before a scheduled run does. The peak is only ever a measurement --
+a walk, the pages an appended output holds, or what the script ended holding --
+never the running estimate between walks, which can only overstate.
+
+A run is measured once more when it ends: what its globals hold after its last
+host call. A run that ends over its budget fails with cause `memory`, in the
+same words, naming `the code after its last host call` as where it was
+measured, rather than succeeding with a peak above the budget. Its appended
+outputs are not written and its state is not saved, as for any failed run;
+what it exported at an earlier call stays written.
 
 The measure is an estimate of the interpreter's heap, calibrated against the
 Go runtime: it matches the live heap of values a script builds, and a page of
 rows decoded from a tool result measured about 1.65 times its live heap, which
 errs toward stopping a run early. Values built between two host calls are
-measured at the next one.
+measured at the next one, or when the run ends.
 
 What the budget exists to catch is holding a whole dataset at once. A page of
 JSON rows costs several times its wire size once decoded: measured, a 9 MB page

@@ -205,15 +205,24 @@ func (h *Handle) isAdminPersona(ctx context.Context) bool {
 	return pc.PersonaName == h.adminPersona
 }
 
+// errNotYours refuses a command that acts on a script, or reads its runs or
+// state, when the caller named someone else's. Reading a script's definition
+// is open to everyone (#1866); acting on it is its owner's and an
+// administrator's.
+var errNotYours = errors.New("only a script's owner or an administrator can run, schedule, change or read the runs " +
+	"and state of it; its definition is readable by everyone with command=get, versions, diff or get_content")
+
 // resolveScript finds the script a command names. A name is unique only within
-// its owner, so every lookup names one: the caller, or the person an admin
-// addressed explicitly. Returns nil, nil when nothing matches.
-func (h *Handle) resolveScript(ctx context.Context, name, ownerEmail string) (*script.Script, error) {
+// its owner, so every lookup names one: the caller, or the person the caller
+// addressed with owner_email. anyOwner is a read of the definition, which
+// anyone may address; otherwise only an administrator may name another owner.
+// Returns nil, nil when nothing matches.
+func (h *Handle) resolveScript(ctx context.Context, name, ownerEmail string, anyOwner bool) (*script.Script, error) {
 	caller := resolveEmail(ctx)
 	owner := caller
 	if ownerEmail != "" {
-		if ownerEmail != caller && !h.isAdminPersona(ctx) {
-			return nil, errors.New("you can only address your own scripts")
+		if ownerEmail != caller && !anyOwner && !h.isAdminPersona(ctx) {
+			return nil, errNotYours
 		}
 		owner = ownerEmail
 	}
@@ -282,23 +291,26 @@ func (h *Handle) DraftExports() scriptdraft.Exports {
 	return h.draftExports
 }
 
-// readable resolves the script a read command names and checks the caller may
-// see it.
-func (h *Handle) readable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
-	if input.Name == "" {
-		return nil, errorResult("name is required")
-	}
-	sc, err := h.resolveScript(ctx, input.Name, input.OwnerEmail)
-	if err != nil {
-		return nil, errorResult(err.Error())
-	}
-	if sc == nil {
-		return nil, errorResult(fmt.Sprintf("script %q not found", input.Name))
+// viewable resolves the script a read of its definition names: get, the
+// content verbs, versions and diff. A script is how a resource or asset was
+// produced, and knowledge pages cite scripts, so its definition -- the source
+// included -- is readable by every authenticated caller, who names another
+// person's script with owner_email (#1866).
+func (h *Handle) viewable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
+	return h.lookup(ctx, input, true)
+}
+
+// owned resolves the script a command that acts on it names -- a run, a
+// schedule, its state, its runs -- and checks the caller is its owner or an
+// administrator. A script is personal: what it does, it does with its
+// author's roles, so acting on it stays with the author.
+func (h *Handle) owned(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
+	sc, errResult := h.lookup(ctx, input, false)
+	if errResult != nil {
+		return nil, errResult
 	}
 	if !h.isAdminPersona(ctx) && !sc.OwnedBy(resolveEmail(ctx)) {
-		// "Not found" rather than "not yours": naming the difference would
-		// confirm the script exists to a caller who may not see it.
-		return nil, errorResult(fmt.Sprintf("script %q not found", input.Name))
+		return nil, errorResult(errNotYours.Error())
 	}
 	return sc, nil
 }
@@ -307,15 +319,26 @@ func (h *Handle) readable(ctx context.Context, input manageScriptInput) (*script
 // change it. It is the one place that rule is applied, so update, patch, and
 // delete cannot drift apart.
 func (h *Handle) editable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
-	sc, errResult := h.readable(ctx, input)
-	if errResult != nil {
-		return nil, errResult
+	return h.owned(ctx, input)
+}
+
+// lookup resolves the script input names, or answers why it cannot.
+func (h *Handle) lookup(ctx context.Context, input manageScriptInput, anyOwner bool) (*script.Script, *mcp.CallToolResult) {
+	if input.Name == "" {
+		return nil, errorResult("name is required")
 	}
-	if h.isAdminPersona(ctx) {
-		return sc, nil
+	sc, err := h.resolveScript(ctx, input.Name, input.OwnerEmail, anyOwner)
+	if err != nil {
+		return nil, errorResult(err.Error())
 	}
-	if !sc.OwnedBy(resolveEmail(ctx)) {
-		return nil, errorResult("you can only change scripts you own")
+	if sc == nil {
+		return nil, errorResult(fmt.Sprintf("script %q not found", input.Name))
 	}
 	return sc, nil
+}
+
+// ownsOrAdmin reports whether the caller may act on sc, for a read that shows
+// the owner more than it shows everyone else.
+func (h *Handle) ownsOrAdmin(ctx context.Context, sc *script.Script) bool {
+	return h.isAdminPersona(ctx) || sc.OwnedBy(resolveEmail(ctx))
 }

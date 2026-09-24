@@ -3104,6 +3104,10 @@ func TestClearThumbnailClearsARecordedFailure(t *testing.T) {
 	assert.Empty(t, *store.lastUpdate.ThumbnailFailure)
 	require.NotNil(t, store.lastUpdate.ThumbnailFailedVersion)
 	assert.Zero(t, *store.lastUpdate.ThumbnailFailedVersion)
+	// It starts the renderer's attempts over and leaves a lease alone: a
+	// worker may be drawing it now (#1868).
+	assert.True(t, store.lastUpdate.ResetThumbnailAttempts)
+	assert.False(t, store.lastUpdate.ReleaseThumbnailClaim)
 }
 
 // Both variants go together: the reader asking for the tile again means the

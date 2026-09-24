@@ -1088,6 +1088,9 @@ func (h *Handler) clearThumbnail(w http.ResponseWriter, r *http.Request) {
 		ThumbnailS3Key: &cleared, ThumbnailVersion: &zero,
 		ThumbnailDarkS3Key: &cleared, ThumbnailDarkVersion: &zero,
 		ThumbnailFailure: &cleared, ThumbnailFailedVersion: &zero,
+		// A request to draw it again starts its attempts over (#1868). The
+		// lease is left alone: a worker may be drawing it now.
+		ResetThumbnailAttempts: true,
 	}
 	if err := h.deps.AssetStore.Update(r.Context(), r.PathValue(pathKeyID), updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
