@@ -70,6 +70,10 @@ export interface ResourceVersion {
   // change_summary says why the content changed, for a revision the platform
   // wrote on the uploader's behalf. Absent for a revision somebody uploaded.
   change_summary?: string;
+  // content_sha256 is the SHA-256 of the revision's bytes, which is how an
+  // upload of the same file again is recognized and skipped (#1862). Absent on
+  // a revision recorded before the platform kept it.
+  content_sha256?: string;
   created_at: string;
 }
 

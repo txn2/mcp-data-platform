@@ -3412,6 +3412,71 @@ export const handlers = [
     });
   }),
 
+  // Creating a resource, one file per request (#1862). With
+  // if_exists=skip_unchanged an address that already holds a file answers 200
+  // with outcome "unchanged" when the bytes match and "revised" when they
+  // differ; an address with nothing there is created (201). Without it a taken
+  // address is the 409 it always was. A denied extension is refused the way
+  // resource.SanitizeFilename refuses it, which is what gives the bulk dialog a
+  // failure to show under the mocks.
+  http.post("/api/v1/resources", async ({ request }) => {
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return HttpResponse.json({ error: "file is required" }, { status: 400 });
+    }
+    const filename = file.name.toLowerCase().split(" ").join("-");
+    const ext = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : "";
+    if ([".exe", ".sh", ".bat", ".cmd", ".ps1", ".msi", ".com", ".scr"].includes(ext)) {
+      return HttpResponse.json({ error: `invalid filename: file extension "${ext}" is not allowed` }, { status: 400 });
+    }
+    const scope = String(form.get("scope") ?? "user") as "global" | "persona" | "user";
+    const scopeID = String(form.get("scope_id") ?? "");
+    const path = String(form.get("path") ?? "");
+    const text = await file.text();
+    const existing = mockResources.resources.find(
+      (r) => r.scope === scope && r.scope_id === scopeID && r.path === path && r.filename === filename,
+    );
+    if (existing) {
+      if (form.get("if_exists") !== "skip_unchanged") {
+        return HttpResponse.json(
+          { error: "a resource with this library, folder, and filename already exists" },
+          { status: 409 },
+        );
+      }
+      if (mockResources.content[existing.id] === text) {
+        return HttpResponse.json({ ...existing, outcome: "unchanged" });
+      }
+      mockResources.content[existing.id] = text;
+      existing.size_bytes = file.size;
+      existing.updated_at = new Date().toISOString();
+      return HttpResponse.json({ ...existing, outcome: "revised" });
+    }
+    const now = new Date().toISOString();
+    const id = `res-bulk-${mockResources.resources.length + 1}`;
+    const created = {
+      id,
+      scope,
+      scope_id: scopeID,
+      path,
+      filename,
+      display_name: String(form.get("display_name") ?? filename),
+      description: String(form.get("description") ?? ""),
+      mime_type: file.type || "application/octet-stream",
+      size_bytes: file.size,
+      s3_key: `resources/${scope}/${scopeID || "global"}/${id}/${filename}`,
+      uri: `mcp://${scope}/${scopeID ? scopeID + "/" : ""}${path}/${filename}`,
+      tags: form.getAll("tags").map(String),
+      uploader_sub: "mock-user",
+      uploader_email: "sarah.chen@example.com",
+      created_at: now,
+      updated_at: now,
+    };
+    mockResources.resources.push(created);
+    mockResources.content[id] = text;
+    return HttpResponse.json({ ...created, outcome: "created" }, { status: 201 });
+  }),
+
   http.get("/api/v1/resources/:id/thumbnail", ({ params, request }) => {
     const id = params.id as string;
     const resource = mockResources.resources.find((r) => r.id === id);

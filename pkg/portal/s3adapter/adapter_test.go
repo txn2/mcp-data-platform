@@ -49,15 +49,15 @@ func TestCountingReader_PartialReads(t *testing.T) {
 
 // fakeS3API is an in-memory API for exercising the adapter without a real S3
 // endpoint. It drains the streamed body so the test can assert the bytes that
-// would have been uploaded, records the last PutObject input, and can inject
+// would have been uploaded and can inject
 // an error per method to exercise the adapter's error-wrapping paths.
 type fakeS3API struct {
-	streamErr  error
-	streamed   []byte
-	streamedCT string
-
-	putErr   error
-	putInput *s3client.PutObjectInput
+	streamErr    error
+	streamed     []byte
+	streamedCT   string
+	streamCalls  int
+	streamBucket string
+	streamKey    string
 
 	getErr  error
 	getBody []byte
@@ -73,16 +73,10 @@ type fakeS3API struct {
 	listMax    int32
 }
 
-func (f *fakeS3API) PutObject(_ context.Context, in *s3client.PutObjectInput) (*s3client.PutObjectOutput, error) {
-	f.putInput = in
-	if f.putErr != nil {
-		return nil, f.putErr
-	}
-	return &s3client.PutObjectOutput{}, nil
-}
-
 func (f *fakeS3API) PutObjectStream(_ context.Context, in *s3client.PutObjectStreamInput) (*s3client.PutObjectOutput, error) {
 	b, _ := io.ReadAll(in.Body) // drains through the adapter's countingReader
+	f.streamCalls++
+	f.streamBucket, f.streamKey = in.Bucket, in.Key
 	f.streamed = b
 	f.streamedCT = in.ContentType
 	if f.streamErr != nil {
@@ -153,6 +147,9 @@ func TestNew(t *testing.T) {
 	}
 }
 
+// A buffered write goes through the multipart uploader, the one path that
+// splits a body a backend would refuse as a single chunk (#1863). The bytes,
+// the address and the type all arrive there intact.
 func TestS3ClientAdapter_PutObject(t *testing.T) {
 	fake := &fakeS3API{}
 	adapter := &ClientAdapter{client: fake}
@@ -161,19 +158,19 @@ func TestS3ClientAdapter_PutObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PutObject: %v", err)
 	}
-	if fake.putInput == nil {
-		t.Fatal("PutObject did not reach the underlying client")
+	if fake.streamCalls != 1 {
+		t.Fatalf("PutObject reached the multipart uploader %d times; want 1", fake.streamCalls)
 	}
-	if fake.putInput.Bucket != "bucket" || fake.putInput.Key != "key" {
-		t.Errorf("PutObject input = %q/%q; want bucket/key", fake.putInput.Bucket, fake.putInput.Key)
+	if fake.streamBucket != "bucket" || fake.streamKey != "key" {
+		t.Errorf("PutObject address = %q/%q; want bucket/key", fake.streamBucket, fake.streamKey)
 	}
-	if string(fake.putInput.Body) != "payload" || fake.putInput.ContentType != "text/plain" {
-		t.Errorf("PutObject body/CT = %q/%q; want payload/text/plain", fake.putInput.Body, fake.putInput.ContentType)
+	if string(fake.streamed) != "payload" || fake.streamedCT != "text/plain" {
+		t.Errorf("PutObject body/CT = %q/%q; want payload/text/plain", fake.streamed, fake.streamedCT)
 	}
 }
 
 func TestS3ClientAdapter_PutObject_Error(t *testing.T) {
-	fake := &fakeS3API{putErr: errors.New("s3 unavailable")}
+	fake := &fakeS3API{streamErr: errors.New("s3 unavailable")}
 	adapter := &ClientAdapter{client: fake}
 
 	err := adapter.PutObject(context.Background(), "bucket", "key", []byte("x"), "text/plain")

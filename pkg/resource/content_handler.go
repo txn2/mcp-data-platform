@@ -199,7 +199,15 @@ type RevisionUpload struct {
 	// ChangeSummary says why the content changed, for a revision written on the
 	// uploader's behalf. Empty for an upload the uploader picked themselves.
 	ChangeSummary string
+	// SkipIfSHA256, when set, is the hash of the content the resource holds
+	// now. Bytes that hash the same are not recorded: the blob just written is
+	// removed and ReviseContent answers errContentUnchanged (#1862).
+	SkipIfSHA256 string
 }
+
+// errContentUnchanged reports a revision that was not recorded because its
+// bytes are the ones the resource already holds.
+var errContentUnchanged = errors.New("the content is the one the resource already holds")
 
 // ReviseContent writes the bytes to a fresh per-revision key, records the
 // revision (which moves the head), prunes beyond the retention cap, and returns
@@ -224,20 +232,25 @@ func ReviseContent(
 	// The size is the write's own count, for the reason a create's is: a
 	// streamed body has no declared length, so what reached storage is the
 	// only account of it.
-	size, err := storeContent(ctx, deps, key, up.Content, up.MIMEType)
+	stored, err := storeContent(ctx, deps, key, up.Content, up.MIMEType)
 	if err != nil {
 		return nil, nil, contentWriteError("resource revision", err)
+	}
+	if up.SkipIfSHA256 != "" && stored.sha256 == up.SkipIfSHA256 {
+		_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key)
+		return res, nil, errContentUnchanged
 	}
 
 	version, err := deps.Versions.AddRevision(ctx, Revision{
 		ResourceID:    res.ID,
 		MIMEType:      up.MIMEType,
-		SizeBytes:     size,
+		SizeBytes:     stored.size,
 		S3Key:         key,
 		UploaderSub:   claims.Sub,
 		UploaderEmail: PersonAddress(*claims),
 		RestoredFrom:  up.RestoredFrom,
 		ChangeSummary: up.ChangeSummary,
+		ContentSHA256: stored.sha256,
 	})
 	if err != nil {
 		_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key)

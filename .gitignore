@@ -95,6 +95,8 @@ ui/.claude/
 
 # Resolved dev ports written by dev/start.sh (auto-relocation)
 dev/.dev-ports.env
+# Bot token and ids dev/seed-mattermost.sh writes on every seed.
+dev/.mattermost-env
 # Self-signed certificate dev/start.sh generates for the api-test TLS terminator.
 dev/.tls/
 __pycache__/

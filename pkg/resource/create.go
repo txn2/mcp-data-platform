@@ -3,6 +3,8 @@ package resource
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -57,11 +59,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 		return nil, fmt.Errorf("generating ID: %w", err)
 	}
 
-	scheme := deps.URIScheme
-	if scheme == "" {
-		scheme = DefaultURIScheme
-	}
-	uri := BuildURI(scheme, in.Scope, in.ScopeID, in.Path, in.Filename)
+	uri := BuildURI(schemeOf(deps), in.Scope, in.ScopeID, in.Path, in.Filename)
 	s3Key := BuildS3Key(in.Scope, in.ScopeID, id, in.Filename)
 
 	// A stored type that disagrees with what the client sent is the one thing
@@ -79,7 +77,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 	// The size is what the write reported, not what the caller declared: a
 	// streamed body carries no length, so the bytes that reached storage are
 	// the only account of how big the file is.
-	size, err := storeContent(ctx, deps, s3Key, in.Content, in.MIMEType)
+	stored, err := storeContent(ctx, deps, s3Key, in.Content, in.MIMEType)
 	if err != nil {
 		return nil, contentWriteError("resource upload", err)
 	}
@@ -94,7 +92,7 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 		ID: id, Scope: in.Scope, ScopeID: in.ScopeID,
 		Path: in.Path, Filename: in.Filename,
 		DisplayName: in.DisplayName, Description: in.Description,
-		MIMEType: in.MIMEType, SizeBytes: size,
+		MIMEType: in.MIMEType, SizeBytes: stored.size,
 		S3Key: s3Key, URI: uri, Tags: in.Tags,
 		UploaderSub: claims.Sub, UploaderEmail: PersonAddress(*claims),
 	}
@@ -112,9 +110,17 @@ func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 	}
 
 	saved := readBackCreated(ctx, deps, id, res)
-	recordInitialVersion(ctx, deps, saved, claims)
+	recordInitialVersion(ctx, deps, saved, claims, stored.sha256)
 	noteProducer(ctx, deps, claims, producedby.Write{TargetID: saved.ID, Created: true, Version: 1})
 	return saved, nil
+}
+
+// schemeOf is the URI scheme a deployment files its resources under.
+func schemeOf(deps Deps) string {
+	if deps.URIScheme == "" {
+		return DefaultURIScheme
+	}
+	return deps.URIScheme
 }
 
 // readBackCreated re-reads the inserted row so the caller sees the stored
@@ -137,7 +143,7 @@ func readBackCreated(ctx context.Context, deps Deps, id string, written Resource
 // surfaced: the upload succeeded and the resource is usable; the migration's
 // backfill shape (a v1 row derived from the resource row) is exactly what a
 // later repair would write.
-func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims *Claims) {
+func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims *Claims, sha string) {
 	if deps.Versions == nil {
 		return
 	}
@@ -148,35 +154,49 @@ func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims 
 		S3Key:         res.S3Key,
 		UploaderSub:   claims.Sub,
 		UploaderEmail: PersonAddress(*claims),
+		ContentSHA256: sha,
 	}); err != nil {
 		slog.Warn("resource upload: recording initial version failed", msgError, err,
 			logKeyResourceID, res.ID) // #nosec G706 -- server-generated ID
 	}
 }
 
+// storedContent is what one write put in blob storage: how many bytes, and
+// their hex SHA-256.
+type storedContent struct {
+	size   int64
+	sha256 string
+}
+
 // storeContent streams content to blob storage under key and reports the
-// number of bytes it wrote.
+// number of bytes it wrote and their hash.
 //
 // A deployment with no blob client stores nothing, and still draws the body to
 // its end and counts it: the caller's reader is a request body either way, and
 // a record whose size disagreed with the content it was created from would be
 // wrong in the one place nothing can recompute.
-func storeContent(ctx context.Context, deps Deps, key string, body io.Reader, mimeType string) (int64, error) {
+//
+// The hash is taken from the bytes as the write draws them, so a file is
+// hashed without being held: it is what tells a re-uploaded file from the one
+// already stored (#1862).
+func storeContent(ctx context.Context, deps Deps, key string, body io.Reader, mimeType string) (storedContent, error) {
 	if body == nil {
 		body = bytes.NewReader(nil)
 	}
+	digest := sha256.New()
+	body = io.TeeReader(body, digest)
 	if deps.S3Client == nil {
 		n, err := io.Copy(io.Discard, body)
 		if err != nil {
-			return 0, fmt.Errorf("reading the content: %w", err)
+			return storedContent{}, fmt.Errorf("reading the content: %w", err)
 		}
-		return n, nil
+		return storedContent{size: n, sha256: hex.EncodeToString(digest.Sum(nil))}, nil
 	}
 	written, err := deps.S3Client.PutObjectStream(ctx, deps.S3Bucket, key, body, mimeType)
 	if err != nil {
-		return 0, err //nolint:wrapcheck // classified by contentWriteError, which needs the cause intact
+		return storedContent{}, err //nolint:wrapcheck // classified by contentWriteError, which needs the cause intact
 	}
-	return written, nil
+	return storedContent{size: written, sha256: hex.EncodeToString(digest.Sum(nil))}, nil
 }
 
 // contentWriteError separates the two ways a streamed write ends badly, which

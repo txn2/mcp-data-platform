@@ -60,6 +60,7 @@ func (f *fakeVersions) AddRevision(_ context.Context, rev Revision) (*Version, e
 		// does too: dropping it here would let a route stop sending one while
 		// every test went on passing.
 		ChangeSummary: rev.ChangeSummary,
+		ContentSHA256: rev.ContentSHA256,
 		CreatedAt:     time.Now().UTC(),
 	}
 	f.byResource[rev.ResourceID] = append(f.byResource[rev.ResourceID], v)

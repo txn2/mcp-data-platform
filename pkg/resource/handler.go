@@ -213,6 +213,10 @@ type createInput struct {
 	displayName string
 	description string
 	tags        []string
+	// skipUnchanged is if_exists=skip_unchanged: an address that already
+	// holds a resource takes these bytes as its next version, or nothing when
+	// they are the bytes it holds.
+	skipUnchanged bool
 }
 
 // validateCreateInput parses and validates the form fields for resource creation.
@@ -242,6 +246,10 @@ func validateCreateInput(fields url.Values) (*createInput, error) {
 	if tags == nil {
 		tags = []string{}
 	}
+	skipUnchanged, err := parseIfExists(fields.Get(ifExistsField))
+	if err != nil {
+		return nil, err
+	}
 
 	return &createInput{
 		scope:       scope,
@@ -250,6 +258,8 @@ func validateCreateInput(fields url.Values) (*createInput, error) {
 		displayName: displayName,
 		description: description,
 		tags:        tags,
+
+		skipUnchanged: skipUnchanged,
 	}, nil
 }
 
@@ -550,7 +560,9 @@ type facetsResponse struct { //nolint:unused // swagger model
 // @Param        path         formData  string  true   "Folder path inside the library (e.g. runbooks, datasets/media-manager)"
 // @Param        description  formData  string  false  "Optional description"
 // @Param        tags         formData  []string false  "Optional tags" collectionFormat(multi)
-// @Success      201  {object}  resource.Resource
+// @Param        if_exists    formData  string  false  "What happens when this library, folder and filename already hold a resource: fail (the default) answers 409; skip_unchanged answers 200 with outcome unchanged when the bytes are the ones stored (nothing is written) and otherwise records them as that resource's next version (outcome revised), leaving its name, description and tags as they are"  Enums(fail, skip_unchanged)
+// @Success      201  {object}  resource.createdResource
+// @Success      200  {object}  resource.createdResource
 // @Failure      400  {object}  resource.errorResponse
 // @Failure      401  {object}  resource.errorResponse
 // @Failure      403  {object}  resource.errorResponse
@@ -590,6 +602,12 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "insufficient permissions for scope")
 		return
 	}
+	if input.skipUnchanged {
+		uri := BuildURI(schemeOf(h.deps), input.scope, input.scopeID, input.path, file.filename)
+		if h.reviseOccupant(w, r, claims, occupantUpload{uri: uri, file: file, limit: limit}) {
+			return
+		}
+	}
 
 	res, err := CreateResource(r.Context(), h.deps, claims, NewResource{
 		Scope: input.scope, ScopeID: input.scopeID,
@@ -599,24 +617,10 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Content: file.body, MIMEType: file.mimeType, DeclaredMIMEType: file.declaredMIMEType,
 	})
 	if err != nil {
-		if refusal, caller := uploadRefusal(err, limit); caller {
-			writeError(w, http.StatusBadRequest, refusal)
-			return
-		}
-		var ce *conflictError
-		if errors.As(err, &ce) {
-			writeError(w, http.StatusConflict, ce.Error())
-			return
-		}
-		var se *storageError
-		if errors.As(err, &se) {
-			writeError(w, http.StatusServiceUnavailable, se.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeUploadError(w, err, limit)
 		return
 	}
-	writeJSON(w, http.StatusCreated, res)
+	writeJSON(w, http.StatusCreated, createdResource{Resource: res, Outcome: outcomeCreated})
 	h.notifyCreate(res)
 }
 

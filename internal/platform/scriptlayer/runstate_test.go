@@ -160,3 +160,13 @@ func TestHelp_ReportsTheMemoryBudget(t *testing.T) {
 	assert.Contains(t, note, "peak_memory_bytes")
 	assert.Contains(t, note, "upstream_retryable")
 }
+
+// TestHelp_ReportsTheOutputCeiling: the help names the size one export may
+// reach, so a script meets it as a stated limit rather than as a refusal
+// (#1863).
+func TestHelp_ReportsTheOutputCeiling(t *testing.T) {
+	h := New(Config{Store: newMemStore()})
+	got := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHelp}))
+	limits, _ := got["limits"].(map[string]any)
+	assert.EqualValues(t, 100<<20, limits["output_max_bytes"])
+}

@@ -21982,13 +21982,29 @@
                         "description": "Optional tags",
                         "name": "tags",
                         "in": "formData"
+                    },
+                    {
+                        "enum": [
+                            "fail",
+                            "skip_unchanged"
+                        ],
+                        "type": "string",
+                        "description": "What happens when this library, folder and filename already hold a resource: fail (the default) answers 409; skip_unchanged answers 200 with outcome unchanged when the bytes are the ones stored (nothing is written) and otherwise records them as that resource's next version (outcome revised), leaving its name, description and tags as they are",
+                        "name": "if_exists",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.createdResource"
+                        }
+                    },
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                            "$ref": "#/definitions/resource.createdResource"
                         }
                     },
                     "400": {
@@ -31386,6 +31402,11 @@
                     "type": "string",
                     "example": "put 3 rows back onto one line"
                 },
+                "content_sha256": {
+                    "description": "ContentSHA256 is the hex SHA-256 of the version's bytes, taken while they\nstreamed to storage. It is how an upload told to skip unchanged files\nknows a file is the one already held (#1862). Empty for a version\nwritten before hashes were recorded.",
+                    "type": "string",
+                    "example": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -31421,6 +31442,130 @@
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "resource.createdResource": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Step-by-step procedures for ETL pipeline operations"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "ETL Runbook"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "etl-runbook.md"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "res_01HK7R9F"
+                },
+                "last_read_at": {
+                    "description": "LastReadAt is when the resource's content was last served through any\nsurface, stamped by the read recorder. NULL means never read since the\ndeployment began auditing reads (#1014). It is the durable answer, unlike\nthe audit-derived Usage.LastReadAt, which is bounded by audit retention.",
+                    "type": "string"
+                },
+                "mime_type": {
+                    "type": "string",
+                    "example": "text/markdown"
+                },
+                "outcome": {
+                    "description": "Outcome is created, revised (the address held a resource and these\nbytes are its next version) or unchanged (the address held these exact\nbytes, and nothing was written).",
+                    "type": "string",
+                    "example": "created"
+                },
+                "path": {
+                    "description": "Path is the slash-separated folder path this resource is filed under\ninside its library, and the tail of its URI ahead of the filename. A\none-segment path is what every resource carried before folders (#1529).",
+                    "type": "string",
+                    "example": "runbooks/etl"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "resources/res_01HK7R9F/etl-runbook.md"
+                },
+                "scope": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ],
+                    "example": "persona"
+                },
+                "scope_id": {
+                    "description": "persona name or user sub; empty for global",
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 34000
+                },
+                "table_changes": {
+                    "description": "TableChanges is what a revision did to the tables registered over the\nfile, as the replace-content route reports it. Absent otherwise.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "thumbnail_captured_at": {
+                    "description": "ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was\ntaken. A capture older than the resource's UpdatedAt is behind the file it\ncame from, which is what the pending list is built on; see migration\n000134 for why this is a timestamp rather than a version.",
+                    "type": "string"
+                },
+                "thumbnail_dark_captured_at": {
+                    "type": "string"
+                },
+                "thumbnail_dark_s3_key": {
+                    "type": "string"
+                },
+                "thumbnail_failed_at": {
+                    "type": "string"
+                },
+                "thumbnail_failure": {
+                    "description": "ThumbnailFailure is why the renderer could not draw this file's tile,\nand ThumbnailFailedAt the UpdatedAt of the file it tried. The failure\nholds until the file changes or the tile is asked for again, so a file\nthe renderer cannot draw is not retried forever and the reason is\nvisible.",
+                    "type": "string"
+                },
+                "thumbnail_renderer": {
+                    "description": "ThumbnailRenderer is the generation of the renderer that drew the tile.\nA tile from an older generation still serves and is drawn again (#1787).\nA reader puts it in the tile's URL: a redraw by a new generation keeps\nthe capture time, and without it a browser would show the old picture\nfor the hour it is cached for (#1789).",
+                    "type": "integer"
+                },
+                "thumbnail_s3_key": {
+                    "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "uploader_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "uploader_sub": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "uri": {
+                    "type": "string",
+                    "example": "mcp://persona/data-engineer/runbooks/etl-runbook.md"
+                },
+                "usage": {
+                    "description": "Usage is the audit-derived read activity of this resource. It is not a\nstored column: the detail read fills it from the audit rollup, and it is\nabsent everywhere the rollup was not consulted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Usage"
+                        }
+                    ]
                 }
             }
         },

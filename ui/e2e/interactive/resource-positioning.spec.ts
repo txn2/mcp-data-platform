@@ -17,7 +17,7 @@ const ADMIN_RESOURCES = "/portal/admin/resources";
 async function openAdminResources(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto(ADMIN_RESOURCES);
-  await expect(page.getByRole("button", { name: "Upload" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
 }
 
 test.describe("Resources positioning copy", () => {
@@ -46,7 +46,7 @@ test.describe("Resources positioning copy", () => {
 
   test("the upload dialog states the split and what each seed folder means", async ({ page }) => {
     await openAdminResources(page);
-    await page.getByRole("button", { name: "Upload" }).click();
+    await page.getByRole("button", { name: "Upload", exact: true }).click();
 
     const dialog = page.getByRole("heading", { name: "Upload Resource" }).locator("../..");
     await expect(dialog).toContainText(RESOURCE_POSITIONING);

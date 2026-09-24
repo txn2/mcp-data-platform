@@ -24,6 +24,18 @@ Uploading opens a modal for the file plus its folder, display name, description,
 
 ![Upload resource](../images/screenshots/light/user-resource-upload-light.webp#only-light)![Upload resource](../images/screenshots/dark/user-resource-upload-dark.webp#only-dark)
 
+### Uploading many files at once
+
+**Upload many**, beside Upload, loads a set of files in one action: several picked at once, a whole folder, files and folders dropped onto the dialog, or a `.zip` archive, which is unpacked in the browser. A picked folder's subfolders, and an archive's, become folders beneath the one you choose, so a brand kit that arrives as `logos/color/` and `logos/reversed/` is filed the same way. System files (`.DS_Store`, `__MACOSX/`, `Thumbs.db` and other dotfiles) are left out.
+
+What is shared is set once for the whole batch: the library, the base folder, the tags, and a description with `{name}` standing for each file's display name. Each file's display name defaults to its file name without the extension and can be changed in the list before the upload starts. The list shows where each file will be filed and marks the ones a generated document can reference directly as an image (PNG, JPEG, GIF, WebP, AVIF and SVG); source art such as EPS and PDF is stored as uploaded and is not converted.
+
+A batch holds at most 5,000 files, each within the deployment's upload ceiling (`resources.managed.max_upload_bytes`, 100 MB unless it is set), and an archive at most 1 GiB. A file over a limit, a blocked type, or two files that would land at the same folder and name are listed as not sent before anything is uploaded. Files are sent four at a time, each as its own upload, so a file that fails leaves the ones already stored in place; the list shows each file's progress and result, and **Retry failed** sends the failures again.
+
+Sending a folder a second time does not file a second copy of it. A file whose folder and name already hold a resource is compared with it by content: the same bytes are reported **Unchanged** and nothing is written, and different bytes become that resource's next version, keeping its id, address, name, description and tags. A resource uploaded before content hashes were recorded has nothing to compare against, so its first re-upload is recorded as a new version.
+
+The portal does this through the create route every upload uses, `POST /api/v1/resources`, with the form field `if_exists=skip_unchanged` ahead of the file part. The answer carries `outcome`: `created` (201), `revised` or `unchanged` (200). Without the field, or with `if_exists=fail`, an address that is taken is refused with 409 as before. Each version records the SHA-256 of its bytes as `content_sha256` in the version history.
+
 A library this page does not upload to says who fills it instead, in the control's place, so a reader who opens the Global library is told the material there is published by platform administrators rather than being left at a page with a missing button.
 
 ## Folders

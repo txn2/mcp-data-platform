@@ -13,7 +13,8 @@ import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import type { Resource } from "@/api/resources/types";
-import { ScopeBadge } from "./badges";
+import { ScopeBadge, WebImageBadge } from "./badges";
+import { isWebImage } from "../bulk/webImage";
 import { dragResources } from "./drag";
 import { neverRead } from "./groups";
 import type { Selection } from "./selection";
@@ -102,7 +103,10 @@ function ResourceRow({
         <div className="flex items-center gap-2">
           <File className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <span className="block truncate font-medium">{r.display_name}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-medium">{r.display_name}</span>
+              {isWebImage(r.mime_type) && <WebImageBadge />}
+            </span>
             <span className="block truncate text-xs text-muted-foreground">
               {markdownToPlainText(r.description)}
             </span>

@@ -1,4 +1,4 @@
-import { FileUp, LayoutGrid, List } from "lucide-react";
+import { FileUp, FolderUp, LayoutGrid, List } from "lucide-react";
 import { FilterSelect, type FilterOption } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
@@ -43,6 +43,7 @@ export function ResourceFilterBar({
   onViewModeChange,
   canUpload,
   onUpload,
+  onBulkUpload,
   readOnlyNote,
 }: {
   libraries: LibraryChoice[];
@@ -61,6 +62,8 @@ export function ResourceFilterBar({
   onViewModeChange: (mode: ViewMode) => void;
   canUpload: boolean;
   onUpload: () => void;
+  /** Opens the many-files upload, offered wherever Upload is (#1862). */
+  onBulkUpload: () => void;
   /**
    * Where this library's material comes from, set only when the caller may not
    * add to it. It replaces the Upload control rather than sitting beside it, so
@@ -109,10 +112,16 @@ export function ResourceFilterBar({
         options={VIEW_OPTIONS}
       />
       {canUpload ? (
-        <Button onClick={onUpload}>
-          <FileUp />
-          Upload
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onBulkUpload}>
+            <FolderUp />
+            Upload many
+          </Button>
+          <Button onClick={onUpload}>
+            <FileUp />
+            Upload
+          </Button>
+        </div>
       ) : (
         readOnlyNote && (
           <p data-testid="scope-read-only" className="text-xs text-muted-foreground">

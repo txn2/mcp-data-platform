@@ -1,8 +1,10 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -337,13 +339,45 @@ func putObject(ctx context.Context, client s3tools.S3Client, in objectInput, max
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	output, err := client.PutObject(ctx, &s3client.PutObjectInput{
+	output, err := writeObject(ctx, client, &s3client.PutObjectInput{
 		Bucket: in.Bucket, Key: in.Key, Body: body, ContentType: contentType, Metadata: in.Metadata,
 	})
 	if err != nil {
 		return s3tools.ErrorResultf("failed to put object: %v", err), nil
 	}
 	return nil, &s3tools.PutObjectResult{Bucket: in.Bucket, Key: in.Key, Size: int64(len(body)), ETag: output.ETag, VersionID: output.VersionID}
+}
+
+// streamingClient is a connection client that can upload through the
+// multipart uploader. mcp-s3's *client.Client is one; the tool-layer interface
+// does not name the method, so it is asked for here.
+type streamingClient interface {
+	PutObjectStream(ctx context.Context, input *s3client.PutObjectStreamInput) (*s3client.PutObjectOutput, error)
+}
+
+// writeObject stores one object, through the multipart uploader when the
+// client has one. A single PutObject sends the body as one signed chunk, which
+// a backend that bounds a chunk refuses for a large body (MinIO: "chunk too
+// big: choose chunk size <= 16MiB"), and a managed script delivers its
+// exports through this action (#1863). A body under one part size still goes
+// as one PutObject.
+func writeObject(ctx context.Context, client s3tools.S3Client, in *s3client.PutObjectInput) (*s3client.PutObjectOutput, error) {
+	sc, ok := client.(streamingClient)
+	if !ok {
+		out, err := client.PutObject(ctx, in)
+		if err != nil {
+			return nil, fmt.Errorf("put object: %w", err)
+		}
+		return out, nil
+	}
+	out, err := sc.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
+		Bucket: in.Bucket, Key: in.Key, Body: bytes.NewReader(in.Body),
+		ContentType: in.ContentType, Metadata: in.Metadata,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("put object stream: %w", err)
+	}
+	return out, nil
 }
 
 func copyObject(ctx context.Context, client s3tools.S3Client, in objectInput) (res *mcp.CallToolResult, out any) {
