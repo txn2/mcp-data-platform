@@ -29,6 +29,9 @@ type mockStore struct {
 	// lastListFilter records the filter passed to the most recent List call so
 	// tests can assert the handler forwards parsed pagination params.
 	lastListFilter Filter
+	// insertErr and getByURIErr fail those calls, for the error paths.
+	insertErr   error
+	getByURIErr error
 }
 
 func newMockStore() *mockStore {
@@ -36,6 +39,9 @@ func newMockStore() *mockStore {
 }
 
 func (m *mockStore) Insert(_ context.Context, r Resource) error {
+	if m.insertErr != nil {
+		return m.insertErr
+	}
 	m.resources[r.ID] = &r
 	return nil
 }
@@ -61,6 +67,9 @@ func (m *mockStore) GetByIDs(_ context.Context, ids []string) (map[string]*Resou
 }
 
 func (m *mockStore) GetByURI(_ context.Context, uri string) (*Resource, error) {
+	if m.getByURIErr != nil {
+		return nil, m.getByURIErr
+	}
 	for _, r := range m.resources {
 		if r.URI == uri {
 			return r, nil

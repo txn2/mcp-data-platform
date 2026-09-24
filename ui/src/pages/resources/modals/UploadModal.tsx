@@ -7,13 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
@@ -22,13 +15,8 @@ import { scopeLabel } from "../shared";
 import { PathField } from "../parts/PathField";
 import { pathProblem } from "../parts/pathRules";
 import { UploadTargets } from "./UploadTargets";
-import {
-  libraryCopy,
-  targetKey,
-  uploadTargets,
-  type MoveTarget,
-  type ScopeTarget,
-} from "../scopes";
+import { DestinationPicker } from "./DestinationPicker";
+import { libraryCopy, targetKey, uploadTargets, type ScopeTarget } from "../scopes";
 
 // DEFAULT_MAX_BYTES is what the dialog assumes when the server has not told it
 // otherwise -- an older server, or a session bootstrapped before the field
@@ -352,47 +340,5 @@ export function UploadModal({
         </div>
       </div>
     </ModalShell>
-  );
-}
-
-/**
- * Which library an upload lands in, for a view that names none.
- *
- * The audience line under it is the point: "Mine" and a persona's library are
- * one click apart, and the difference between them is who else can read the
- * file. A picker that stated only the names would make that difference
- * invisible at the moment it is chosen.
- */
-function DestinationPicker({
-  choices,
-  value,
-  onChange,
-  disabled,
-}: {
-  choices: MoveTarget[];
-  value: string;
-  onChange: (key: string) => void;
-  disabled: boolean;
-}) {
-  const picked = choices.find((c) => targetKey(c) === value);
-  return (
-    <div className="space-y-1" data-testid="upload-destination-picker">
-      <Label className="text-xs text-muted-foreground">Destination</Label>
-      <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger aria-label="Destination" className="w-full">
-          <SelectValue placeholder="Choose a library" />
-        </SelectTrigger>
-        <SelectContent>
-          {choices.map((c) => (
-            <SelectItem key={targetKey(c)} value={targetKey(c)}>
-              {c.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {picked && (
-        <p className="text-xs text-muted-foreground">{libraryCopy(picked).audience}</p>
-      )}
-    </div>
   );
 }

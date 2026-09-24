@@ -661,6 +661,7 @@ func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTo
 			"run_max_rows":         h.runLimits.MaxRows,
 			"run_result_bytes":     h.runLimits.ResultMaxBytes,
 			"run_max_memory_bytes": h.runLimits.MaxMemoryBytes,
+			"output_max_bytes":     scriptrun.MaxOutputBytes,
 			"log_bytes":            scriptrun.MaxLogBytes,
 			"max_source_bytes":     script.MaxSourceBytes,
 			"state_bytes":          script.MaxStateBytes,

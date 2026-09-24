@@ -62,3 +62,22 @@ export function ScopeBadge({ scope, scopeId }: { scope: string; scopeId: string 
     </Badge>
   );
 }
+
+/**
+ * WebImageBadge marks a file a generated document can reference directly: an
+ * image type the browser draws (#1862). A brand kit keeps EPS and PDF source
+ * art beside the PNG, and nothing converts it, so the library says which of
+ * the formats a document or a deck can point at.
+ */
+export function WebImageBadge() {
+  return (
+    <Badge
+      variant="success"
+      className="px-1.5"
+      title="A document or deck can reference this image directly"
+      data-testid="web-image-badge"
+    >
+      Web image
+    </Badge>
+  );
+}

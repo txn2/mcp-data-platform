@@ -12,6 +12,7 @@ import type { Resource } from "@/api/resources/types";
 import { BulkActionModal, type BulkAction } from "./modals/BulkActionModal";
 import { FolderMoveModal } from "./modals/FolderMoveModal";
 import { UploadModal } from "./modals/UploadModal";
+import { BulkUploadModal } from "./modals/BulkUploadModal";
 import { FolderBreadcrumbs } from "./parts/FolderBreadcrumbs";
 import { tagOptions } from "./parts/groups";
 import { RecentResources } from "./parts/RecentResources";
@@ -45,6 +46,7 @@ interface Props {
 /** What dialog the library currently has open, if any. */
 type Dialog =
   | { kind: "upload" }
+  | { kind: "bulkUpload" }
   | { kind: "bulk"; action: BulkAction; to?: string }
   | { kind: "folder"; from: string; to?: string }
   | null;
@@ -176,6 +178,7 @@ export function ResourcesPage({ admin = false, location, onNavigate }: Props) {
         onViewModeChange={changeViewMode}
         canUpload={writable}
         onUpload={() => setDialog({ kind: "upload" })}
+        onBulkUpload={() => setDialog({ kind: "bulkUpload" })}
         readOnlyNote={readOnlyNote}
       />
 
@@ -266,8 +269,8 @@ function headingFor(
 }
 
 /**
- * Whichever dialog the library has open: the upload form, one action over a
- * selection, or a folder move.
+ * Whichever dialog the library has open: the upload form, the many-files
+ * upload, one action over a selection, or a folder move.
  *
  * Together rather than inline because they share what they act on -- the
  * library in view, its folders, the files picked -- and because a page whose
@@ -294,9 +297,11 @@ function LibraryDialogs({
   onClose: () => void;
   onBulkDone: () => void;
 }) {
-  if (dialog?.kind === "upload") {
+  const many = manyFiles(dialog);
+  if (many !== null) {
     return (
-      <UploadModal
+      <UploadDialog
+        many={many}
         onClose={onClose}
         admin={admin}
         personaNames={personaNames}
@@ -339,4 +344,30 @@ function LibraryDialogs({
     );
   }
   return null;
+}
+
+/** Which upload dialog is open: many files, one file, or neither (null). */
+function manyFiles(dialog: Dialog): boolean | null {
+  if (dialog?.kind === "bulkUpload") return true;
+  return dialog?.kind === "upload" ? false : null;
+}
+
+/**
+ * The upload dialog the library opened: one file, with the administrator's
+ * fan-out across libraries, or many files into the library in view (#1862).
+ */
+function UploadDialog({
+  many,
+  admin,
+  ...props
+}: {
+  many: boolean;
+  onClose: () => void;
+  admin: boolean;
+  personaNames: string[];
+  destination: ScopeTarget | null;
+  folder: string;
+  folders: string[];
+}) {
+  return many ? <BulkUploadModal {...props} /> : <UploadModal admin={admin} {...props} />;
 }

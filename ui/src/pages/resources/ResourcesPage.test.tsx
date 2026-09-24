@@ -25,6 +25,7 @@ vi.mock("@/api/resources/hooks", () => ({
     fetchNextPage: vi.fn(),
   })),
   useUploadResource: vi.fn(() => ({ mutateAsync: uploadResource })),
+  useInvalidateResources: vi.fn(() => async () => {}),
   useUpdateResource: vi.fn(() => ({ mutateAsync: updateResource })),
   useDeleteResource: vi.fn(() => ({ mutateAsync: deleteResource })),
   useMoveFolder: vi.fn(() => ({ mutateAsync: moveFolder, isPending: false })),
@@ -269,6 +270,25 @@ describe("the upload dialog states where the file will land", () => {
     expect(screen.getByRole("combobox", { name: "Folder" }).textContent).toContain(
       "data/media-manager",
     );
+  });
+});
+
+// The many-files upload sits beside Upload and is withheld where Upload is
+// (#1862): it files into the same library and folder the single dialog would.
+describe("the many-files upload", () => {
+  it("opens on the library and folder in view", () => {
+    renderPage({ start: "/resources/lib/user/data/media-manager" });
+    fireEvent.click(screen.getByRole("button", { name: "Upload many" }));
+
+    expect(screen.getByTestId("upload-destination").textContent).toContain("My Resources");
+    expect(screen.getByRole("combobox", { name: "Base folder" }).textContent).toContain("data/media-manager");
+    expect(screen.getByTestId("bulk-empty")).toBeTruthy();
+  });
+
+  it("is withheld where the caller may not add", () => {
+    renderPage();
+    selectLibrary("Global");
+    expect(screen.queryByRole("button", { name: "Upload many" })).toBeNull();
   });
 });
 

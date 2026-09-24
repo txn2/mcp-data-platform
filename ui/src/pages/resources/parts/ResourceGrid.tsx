@@ -7,7 +7,8 @@ import { resourceThumbnailSrc } from "@/lib/thumbnailSupport";
 import { cn } from "@/lib/utils";
 import { useResolvedDark } from "@/stores/theme";
 import type { Resource } from "@/api/resources/types";
-import { ScopeBadge } from "./badges";
+import { ScopeBadge, WebImageBadge } from "./badges";
+import { isWebImage } from "../bulk/webImage";
 import { dragResources } from "./drag";
 import { neverRead } from "./groups";
 import type { Selection } from "./selection";
@@ -107,6 +108,7 @@ function ResourceCard({
       )}
       <div className="mb-2 flex flex-wrap gap-1.5">
         <ContentTypeBadge contentType={r.mime_type} />
+        {isWebImage(r.mime_type) && <WebImageBadge />}
         {admin && <ScopeBadge scope={r.scope} scopeId={r.scope_id} />}
         {tags.slice(0, 3).map((t) => (
           <Badge key={t} variant="muted" className="px-1.5">

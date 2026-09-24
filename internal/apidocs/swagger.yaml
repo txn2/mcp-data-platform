@@ -6445,6 +6445,14 @@ definitions:
           find the operation that caused it.
         example: put 3 rows back onto one line
         type: string
+      content_sha256:
+        description: |-
+          ContentSHA256 is the hex SHA-256 of the version's bytes, taken while they
+          streamed to storage. It is how an upload told to skip unchanged files
+          knows a file is the one already held (#1862). Empty for a version
+          written before hashes were recorded.
+        example: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+        type: string
       created_at:
         type: string
       mime_type:
@@ -6475,6 +6483,126 @@ definitions:
       version:
         example: 3
         type: integer
+    type: object
+  resource.createdResource:
+    properties:
+      created_at:
+        type: string
+      description:
+        example: Step-by-step procedures for ETL pipeline operations
+        type: string
+      display_name:
+        example: ETL Runbook
+        type: string
+      filename:
+        example: etl-runbook.md
+        type: string
+      id:
+        example: res_01HK7R9F
+        type: string
+      last_read_at:
+        description: |-
+          LastReadAt is when the resource's content was last served through any
+          surface, stamped by the read recorder. NULL means never read since the
+          deployment began auditing reads (#1014). It is the durable answer, unlike
+          the audit-derived Usage.LastReadAt, which is bounded by audit retention.
+        type: string
+      mime_type:
+        example: text/markdown
+        type: string
+      outcome:
+        description: |-
+          Outcome is created, revised (the address held a resource and these
+          bytes are its next version) or unchanged (the address held these exact
+          bytes, and nothing was written).
+        example: created
+        type: string
+      path:
+        description: |-
+          Path is the slash-separated folder path this resource is filed under
+          inside its library, and the tail of its URI ahead of the filename. A
+          one-segment path is what every resource carried before folders (#1529).
+        example: runbooks/etl
+        type: string
+      s3_key:
+        example: resources/res_01HK7R9F/etl-runbook.md
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        example: persona
+      scope_id:
+        description: persona name or user sub; empty for global
+        example: data-engineer
+        type: string
+      size_bytes:
+        example: 34000
+        type: integer
+      table_changes:
+        description: |-
+          TableChanges is what a revision did to the tables registered over the
+          file, as the replace-content route reports it. Absent otherwise.
+        items:
+          type: string
+        type: array
+      tags:
+        items:
+          type: string
+        type: array
+      thumbnail_captured_at:
+        description: |-
+          ThumbnailCapturedAt and ThumbnailDarkCapturedAt are when each capture was
+          taken. A capture older than the resource's UpdatedAt is behind the file it
+          came from, which is what the pending list is built on; see migration
+          000134 for why this is a timestamp rather than a version.
+        type: string
+      thumbnail_dark_captured_at:
+        type: string
+      thumbnail_dark_s3_key:
+        type: string
+      thumbnail_failed_at:
+        type: string
+      thumbnail_failure:
+        description: |-
+          ThumbnailFailure is why the renderer could not draw this file's tile,
+          and ThumbnailFailedAt the UpdatedAt of the file it tried. The failure
+          holds until the file changes or the tile is asked for again, so a file
+          the renderer cannot draw is not retried forever and the reason is
+          visible.
+        type: string
+      thumbnail_renderer:
+        description: |-
+          ThumbnailRenderer is the generation of the renderer that drew the tile.
+          A tile from an older generation still serves and is drawn again (#1787).
+          A reader puts it in the tile's URL: a redraw by a new generation keeps
+          the capture time, and without it a browser would show the old picture
+          for the hour it is cached for (#1789).
+        type: integer
+      thumbnail_s3_key:
+        description: |-
+          ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside
+          the resource's own object, empty until one is taken (#1554). The library
+          used to draw the original file scaled down instead, which meant a
+          non-image had no tile at all and an image cost its full size to show.
+        type: string
+      updated_at:
+        type: string
+      uploader_email:
+        example: marcus.johnson@example.com
+        type: string
+      uploader_sub:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      uri:
+        example: mcp://persona/data-engineer/runbooks/etl-runbook.md
+        type: string
+      usage:
+        allOf:
+        - $ref: '#/definitions/resource.Usage'
+        description: |-
+          Usage is the audit-derived read activity of this resource. It is not a
+          stored column: the detail read fills it from the audit rollup, and it is
+          absent everywhere the rollup was not consulted.
     type: object
   resource.errorResponse:
     properties:
@@ -23995,13 +24123,28 @@ paths:
           type: string
         name: tags
         type: array
+      - description: 'What happens when this library, folder and filename already
+          hold a resource: fail (the default) answers 409; skip_unchanged answers
+          200 with outcome unchanged when the bytes are the ones stored (nothing is
+          written) and otherwise records them as that resource''s next version (outcome
+          revised), leaving its name, description and tags as they are'
+        enum:
+        - fail
+        - skip_unchanged
+        in: formData
+        name: if_exists
+        type: string
       produces:
       - application/json
       responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.createdResource'
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+            $ref: '#/definitions/resource.createdResource'
         "400":
           description: Bad Request
           schema:

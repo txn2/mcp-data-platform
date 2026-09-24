@@ -124,6 +124,17 @@ export function useResource(id: string) {
   });
 }
 
+/**
+ * useInvalidateResources refreshes every resource query, for a writer that does
+ * not go through a mutation here: the many-files upload sends its own requests
+ * so it can report progress, and refreshes the library once the batch is done
+ * rather than once per file (#1862).
+ */
+export function useInvalidateResources(): () => Promise<void> {
+  const qc = useQueryClient();
+  return () => qc.invalidateQueries({ queryKey: ["resources"] });
+}
+
 export function useUploadResource() {
   const qc = useQueryClient();
   return useMutation({

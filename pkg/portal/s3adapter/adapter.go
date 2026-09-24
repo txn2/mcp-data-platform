@@ -5,6 +5,7 @@
 package s3adapter
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -17,7 +18,6 @@ import (
 // adapter be exercised with an in-memory fake in tests without standing up a
 // real S3 endpoint.
 type API interface {
-	PutObject(ctx context.Context, input *s3client.PutObjectInput) (*s3client.PutObjectOutput, error)
 	PutObjectStream(ctx context.Context, input *s3client.PutObjectStreamInput) (*s3client.PutObjectOutput, error)
 	GetObject(ctx context.Context, bucket, key string) (*s3client.ObjectContent, error)
 	GetObjectRange(ctx context.Context, bucket, key string, offset, length int64) (*s3client.ObjectContent, error)
@@ -49,11 +49,18 @@ func New(client *s3client.Client) *ClientAdapter {
 }
 
 // PutObject uploads data to the given bucket and key.
+//
+// It goes through the multipart uploader, as PutObjectStream does. A single
+// PutObject sends the body as one signed chunk, and a backend that bounds a
+// chunk refuses a large one: MinIO answers "chunk too big: choose chunk size
+// <= 16MiB" (#1863, and #1631 for resource uploads). The uploader sends a body
+// under one part size as one PutObject and a larger one in parts, so a small
+// write costs what it did before.
 func (a *ClientAdapter) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {
-	_, err := a.client.PutObject(ctx, &s3client.PutObjectInput{
+	_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
 		Bucket:      bucket,
 		Key:         key,
-		Body:        data,
+		Body:        bytes.NewReader(data),
 		ContentType: contentType,
 	})
 	if err != nil {
