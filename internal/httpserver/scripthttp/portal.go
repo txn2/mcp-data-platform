@@ -27,9 +27,12 @@ import (
 // these routes the humans the feature is for can work with their own
 // automations only by asking an agent to call a tool.
 //
-// One visibility rule applies throughout: a script is its owner's. What it is,
-// what it did, and what it is made of are all read by the person who owns it
-// and by an administrator, and by nobody else.
+// Two rules apply throughout. A script's definition -- what it is, its code
+// and its version history -- is read by everyone signed in (#1866): a script
+// is how a resource or an asset was produced. Everything else is its owner's
+// and an administrator's: what it did (its runs and what it produced), its
+// state, and every change to it or its schedule; a run grant (#1846) lets
+// another principal run it and read the runs they started.
 
 // portalRunListLimit caps a portal run listing that names no limit. The store
 // clamps to its own ceiling above this, so a caller cannot widen it.
@@ -547,24 +550,13 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
 		return
 	}
-	// A script is visible to everyone; what is READABLE is not (#1795). This
-	// route used to answer not-found for a script the caller did not own,
-	// which the widened listing turns into a dead row: it lists the script,
-	// and the click it invites landed on "no such script".
-	//
-	// What a non-owner gets is the projection the listing already applies --
-	// the contract, so they can see that the script exists, whose it is, what
-	// it says about itself and when it runs. `owned` is false, so liveRecord
-	// below withholds the source and the draft parameters, and the page gates
-	// every editor, the run history and every action on the same flag. The
-	// version history and the runs are separate routes and still refuse a
-	// non-owner outright.
-	//
-	// `manage_script command=get` is unchanged and still refuses somebody
-	// else's script, because it answers WITH the source. The line is the
-	// source, not the script's existence.
+	// A script's definition, its source included, is readable by everyone
+	// (#1866): a script is how a resource or an asset was produced, and
+	// knowledge pages cite scripts. `owned` gates what acting on it takes --
+	// every editor, a run, the run history, its state, grants and schedule --
+	// which the page reads from the same flag and the routes enforce.
 	owned := user.IsAdmin || ownsEmail(contract.OwnerEmail, user.owner())
-	source, draftParams := h.liveRecord(r, contract.ID, owned)
+	source, draftParams := h.liveRecord(r, contract.ID)
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptResponse{
 		Contract:    *contract,
 		Owned:       owned,
@@ -574,13 +566,9 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 }
 
 // liveRecord is the script's current code and the parameter contract that
-// code was written against, read for the owner alone. A read that fails leaves
-// the editor closed rather than failing the whole page: the contract above it
-// is still worth showing.
-func (h *Handler) liveRecord(r *http.Request, id string, owned bool) (string, []script.Param) {
-	if !owned {
-		return "", nil
-	}
+// code was written against. A read that fails leaves the source empty rather
+// than failing the whole page: the contract above it is still worth showing.
+func (h *Handler) liveRecord(r *http.Request, id string) (string, []script.Param) {
 	sc, err := h.deps.Scripts.GetByID(r.Context(), id)
 	if err != nil || sc == nil {
 		return "", nil
@@ -588,10 +576,13 @@ func (h *Handler) liveRecord(r *http.Request, id string, owned bool) (string, []
 	return sc.Source, sc.Params
 }
 
-// portalListVersions returns an owned script's version history.
+// portalListVersions returns a script's version history. The history is the
+// definition over time and is readable by everyone (#1866); the roles each
+// version's author held are that person's identity data and go to the owner
+// and administrators only.
 //
 // @Summary      List a script's versions
-// @Description  Returns every version of a script the caller owns, with its source, its author, and the roles that author held. Restricted to the script's owner and to administrators.
+// @Description  Returns every version of a script, with its source and its author. The roles the author held at each save are included for the script's owner and administrators only.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
@@ -603,7 +594,7 @@ func (h *Handler) liveRecord(r *http.Request, id string, owned bool) (string, []
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/versions [get]
 func (h *Handler) portalListVersions(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	sc, ok := h.ownedScript(w, r, user)
+	sc, ok := h.anyScript(w, r)
 	if !ok {
 		return
 	}
@@ -611,6 +602,11 @@ func (h *Handler) portalListVersions(w http.ResponseWriter, r *http.Request, use
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, errListVersions)
 		return
+	}
+	if !ownsScript(sc, user) {
+		for i := range versions {
+			versions[i].AuthorRoles = nil
+		}
 	}
 	httpjson.WriteJSON(w, http.StatusOK, versionListResponse{Data: versions, Total: len(versions)})
 }
@@ -975,6 +971,22 @@ func (h *Handler) portalListProduced(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, producedListResponse{Data: items, Total: len(items)})
+}
+
+// anyScript resolves the script named by the path for a read of its
+// definition, which every caller may make, writing the error response when
+// there is none.
+func (h *Handler) anyScript(w http.ResponseWriter, r *http.Request) (*script.Script, bool) {
+	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)
+		return nil, false
+	}
+	if sc == nil {
+		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
+		return nil, false
+	}
+	return sc, true
 }
 
 // ownedScript resolves the script named by the path and refuses a caller who

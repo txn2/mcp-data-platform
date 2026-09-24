@@ -331,7 +331,7 @@ func manageScriptSchema() any {
 				"bind: \"caller.<claim>\" takes the value from the calling identity (an API key's attribute, an OIDC claim) instead of the arguments: an argument for it is refused, a caller without the claim cannot run the script, and it cannot be scheduled.",
 			keyItems: map[string]any{keyType: valObject},
 		},
-		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script; admins use it to address another person's script."},
+		"owner_email": map[string]any{keyType: valString, keyDescription: "Owner of the script, to address another person's. Anyone may read another person's script this way with get, get_content, outline, stats, locate, diff and versions; only an admin may run, schedule, change it or read its runs and state."},
 		"tags": map[string]any{
 			keyType: valArray, keyItems: map[string]any{keyType: valString},
 			keyDescription: "Free-form tags. On list they narrow the result to the scripts carrying any of them.",

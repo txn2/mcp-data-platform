@@ -437,7 +437,17 @@ WHO OWNS IT AND WHO WROTE IT
   called itself then. The roles are the authority a run of that version
   presents, and the oldest entry names whoever created the script, so a
   transfer never loses the author. It carries no source; read an earlier
-  version's code with command=diff.`
+  version's code with command=diff.
+
+READING ANOTHER PERSON'S SCRIPT
+  A script is how a resource or an asset was produced, so its definition is
+  readable by everyone: name its owner with owner_email and get,
+  get_content, outline, stats, locate, diff and versions answer as they do for
+  your own. manage_script list names every script and its owner. Running it,
+  scheduling it, changing it, and reading its runs and its state stay with its
+  owner and administrators (a run grant lets someone else run it from the
+  portal); a version's author roles are shown to the owner and administrators
+  only.`
 
 // example is one built-in worked script, retrievable by name through get.
 type example struct {

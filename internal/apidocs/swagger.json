@@ -20355,7 +20355,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every version of a script the caller owns, with its source, its author, and the roles that author held. Restricted to the script's owner and to administrators.",
+                "description": "Returns every version of a script, with its source and its author. The roles the author held at each save are included for the script's owner and administrators only.",
                 "produces": [
                     "application/json"
                 ],

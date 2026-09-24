@@ -128,6 +128,43 @@ platform.query(sql="SELECT 1")
 	assert.Greater(t, result.PeakMemory, int64(2000*1024))
 }
 
+// TestRun_FailsARunThatGrowsFasterThanAWalk holds #1867 at the engine: the
+// ticket's shape, a list built inside a function with a fast host call after
+// each append, fails its budget with cause memory however quickly it grew.
+func TestRun_FailsARunThatGrowsFasterThanAWalk(t *testing.T) {
+	result, err := Run(context.Background(), Options{
+		Source: `def grow():
+    held = []
+    for i in range(34):
+        held.append("x" * (256 * 1024) + str(i))
+        platform.query(sql="SELECT 1 AS one")
+    return len(held)
+
+platform.result({"held_kib": grow() * 256})
+`,
+		Name: "test", FireTime: fireTime, Caller: &recordingCaller{}, MaxMemoryBytes: 2 << 20,
+	})
+	require.Error(t, err)
+	assert.Equal(t, runstate.CauseMemory, scriptguard.Cause(err))
+	assert.Contains(t, err.Error(), "in platform.query: the run exceeded its 2 MiB memory budget")
+	assert.Greater(t, result.PeakMemory, int64(2<<20))
+	assert.Less(t, result.PeakMemory, int64(4<<20), "stopped as it crossed the budget")
+}
+
+// TestRun_FailsARunThatEndsOverItsBudget holds #1867: what a script builds
+// after its last host call is measured when it ends, and a run that ends over
+// its budget fails rather than reporting a peak above it.
+func TestRun_FailsARunThatEndsOverItsBudget(t *testing.T) {
+	result, err := Run(context.Background(), Options{
+		Source: `held = ["x" * 1024 + str(i) for i in range(2000)]`,
+		Name:   "test", FireTime: fireTime, Caller: &recordingCaller{}, MaxMemoryBytes: 1 << 20,
+	})
+	require.Error(t, err)
+	assert.Equal(t, runstate.CauseMemory, scriptguard.Cause(err))
+	assert.Contains(t, err.Error(), "in the code after its last host call: the run exceeded its 1 MiB memory budget")
+	assert.Greater(t, result.PeakMemory, int64(2000*1024))
+}
+
 // TestRun_ReportsThePeakWithNoBudget: every run is measured, budget or not,
 // including what it built after its last host call.
 func TestRun_ReportsThePeakWithNoBudget(t *testing.T) {

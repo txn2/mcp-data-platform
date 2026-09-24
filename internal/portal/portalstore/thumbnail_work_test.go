@@ -45,7 +45,8 @@ func TestBuildThumbnailClaim_BindsTheLeaseFirstAndTheLimitLast(t *testing.T) {
 	assert.InDelta(t, 120.0, args[0], 0, "the lease is $1, in seconds")
 	assert.Equal(t, 4, args[len(args)-1], "the limit is the last placeholder")
 	assert.Contains(t, stmt, "FOR UPDATE SKIP LOCKED")
-	assert.Contains(t, stmt, "RETURNING "+strings.Join(assetListColumns(), ", "))
+	assert.Contains(t, stmt, "RETURNING "+strings.Join(assetListColumns(), ", ")+", thumbnail_attempts")
+	assert.Contains(t, stmt, "thumbnail_attempts = thumbnail_attempts + 1", "the claim charges an attempt (#1868)")
 	assert.NotContains(t, stmt, "?", "every placeholder is numbered")
 }
 
@@ -54,9 +55,9 @@ func TestClaimThumbnailWork_ReturnsTheClaimedAssets(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	rows := sqlmock.NewRows(assetSearchCols)
-	addAssetRow(rows, "a1", "Deck")
-	addAssetRow(rows, "a2", "Report")
+	rows := sqlmock.NewRows(claimedAssetCols)
+	addAssetRow(rows, "a1", "Deck", driverValueList{1})
+	addAssetRow(rows, "a2", "Report", driverValueList{4})
 	mock.ExpectQuery("UPDATE portal_assets SET thumbnail_claimed_until").WillReturnRows(rows)
 
 	got, err := claimAssets(t, db).ClaimThumbnailWork(context.Background(), 1, time.Minute, 4)
@@ -64,6 +65,8 @@ func TestClaimThumbnailWork_ReturnsTheClaimedAssets(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, "a1", got[0].ID)
 	assert.Equal(t, "Report", got[1].Name)
+	assert.Equal(t, 1, got[0].ThumbnailAttempts)
+	assert.Equal(t, 4, got[1].ThumbnailAttempts)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -91,8 +94,8 @@ func TestClaimThumbnailWork_EachFailureIsReported(t *testing.T) {
 			m.ExpectQuery("UPDATE portal_assets").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("a1"))
 		}, "scanning claimed asset"},
 		{"the cursor", func(m sqlmock.Sqlmock) {
-			rows := sqlmock.NewRows(assetSearchCols)
-			addAssetRow(rows, "a1", "Deck")
+			rows := sqlmock.NewRows(claimedAssetCols)
+			addAssetRow(rows, "a1", "Deck", driverValueList{1})
 			m.ExpectQuery("UPDATE portal_assets").WillReturnRows(rows.RowError(0, errClaimDB))
 		}, "reading claimed assets"},
 	} {
@@ -116,15 +119,78 @@ func TestClaimCollectionThumbnailWork_ReturnsEachWithItsSource(t *testing.T) {
 
 	mock.ExpectQuery("WITH member_tiles").
 		WithArgs(120.0, 4).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "thumbnail_s3_key", "source"}).
-			AddRow("c1", "", "a1:2:1,a2:1:1").
-			AddRow("c2", "portal/collections/c2/thumbnail.png", ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "thumbnail_s3_key", "source", "thumbnail_attempts"}).
+			AddRow("c1", "", "a1:2:1,a2:1:1", 1).
+			AddRow("c2", "portal/collections/c2/thumbnail.png", "", 2))
 
 	got, err := claimCollections(t, db).ClaimCollectionThumbnailWork(context.Background(), 2*time.Minute, 4)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "a1:2:1,a2:1:1", got[0].Source)
 	assert.Equal(t, "portal/collections/c2/thumbnail.png", got[1].ThumbnailS3Key)
+	assert.Equal(t, 2, got[1].Attempts)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// claimedAssetCols is what the asset claim returns: a listing row and the
+// attempts it has been charged.
+var claimedAssetCols = append(append([]string{}, assetSearchCols...), "thumbnail_attempts")
+
+// TestBuildCollectionThumbnailClaim_LeavesAFailedSourceAlone holds #1868: a
+// mosaic that could not be composed from a source is not owed again until the
+// source changes, and a collection with no failure is owed as before, clearing
+// included.
+func TestBuildCollectionThumbnailClaim_LeavesAFailedSourceAlone(t *testing.T) {
+	stmt := buildCollectionThumbnailClaim()
+	assert.Contains(t, stmt, "AND (c.thumbnail_failure = '' OR COALESCE(g.source, '') <> c.thumbnail_failed_source)")
+	assert.Contains(t, stmt, "thumbnail_attempts = c.thumbnail_attempts + 1")
+}
+
+// TestThumbnailHolds holds #1868 for assets and collections: ending a claim
+// sets the hold and the attempts the row carries into the next claim.
+func TestThumbnailHolds(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	assets, collections := claimAssets(t, db), claimCollections(t, db)
+	ctx := context.Background()
+
+	hold := func(table string) string {
+		return `UPDATE ` + table + `\s+SET thumbnail_claimed_until = now\(\) \+ make_interval\(secs => \$1\),\s+` +
+			`thumbnail_attempts = \$2\s+WHERE id = \$3`
+	}
+	mock.ExpectExec(hold("portal_assets")).WithArgs(60.0, 3, "a1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(hold("portal_assets")).WithArgs(0.0, 0, "a2").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(hold("portal_assets")).WillReturnError(errClaimDB)
+	mock.ExpectExec(hold("portal_collections")).WithArgs(240.0, 2, "c1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(hold("portal_collections")).WillReturnError(errClaimDB)
+
+	require.NoError(t, assets.HoldThumbnailWork(ctx, "a1", time.Minute, 3))
+	require.NoError(t, assets.HoldThumbnailWork(ctx, "a2", 0, 0))
+	require.ErrorContains(t, assets.HoldThumbnailWork(ctx, "a3", time.Minute, 1), "holding thumbnail work")
+	require.NoError(t, collections.HoldCollectionThumbnailWork(ctx, "c1", 4*time.Minute, 2))
+	require.ErrorContains(t, collections.HoldCollectionThumbnailWork(ctx, "c2", time.Minute, 0), "holding collection thumbnail work")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestRecordCollectionThumbnailFailure: a failure is held against the source
+// it was composed from and ends the lease; a collection that is gone is an
+// error rather than a silent success.
+func TestRecordCollectionThumbnailFailure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := claimCollections(t, db)
+	ctx := context.Background()
+
+	record := `UPDATE portal_collections\s+SET thumbnail_failure = \$1, thumbnail_failed_source = \$2, thumbnail_claimed_until = NULL,\s+thumbnail_attempts = 0`
+	mock.ExpectExec(record).WithArgs("the renderer did not answer", "a1:1:1:2", "c1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(record).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(record).WillReturnError(errClaimDB)
+
+	require.NoError(t, store.RecordCollectionThumbnailFailure(ctx, "c1", "a1:1:1:2", "the renderer did not answer"))
+	require.ErrorContains(t, store.RecordCollectionThumbnailFailure(ctx, "gone", "s", "r"), "collection not found or deleted: gone")
+	require.ErrorContains(t, store.RecordCollectionThumbnailFailure(ctx, "c3", "s", "r"), "recording collection thumbnail failure")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

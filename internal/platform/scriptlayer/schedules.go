@@ -22,7 +22,7 @@ import (
 // could not already reach. Nothing narrower would be justified, and nothing
 // wider exists — a script is one person's.
 func (h *Handle) schedulable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
-	return h.readable(ctx, input)
+	return h.owned(ctx, input)
 }
 
 // handleScheduleSet creates or replaces a script's schedule.
@@ -159,7 +159,7 @@ func (h *Handle) visibleScripts(ctx context.Context, limit int) (map[string]*scr
 
 // oneSchedule answers the listing for a single named script.
 func (h *Handle) oneSchedule(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.owned(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}

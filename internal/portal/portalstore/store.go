@@ -575,7 +575,8 @@ func applyScalarUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (
 		changed = true
 	}
 	if updates.HasContent {
-		qb = qb.Set("size_bytes", updates.SizeBytes)
+		// The renderer's attempts were spent on the old content (#1868).
+		qb = qb.Set("size_bytes", updates.SizeBytes).Set("thumbnail_attempts", 0)
 		changed = true
 	}
 	qb, thumbnailChanged := applyThumbnailUpdates(qb, updates)
@@ -621,6 +622,9 @@ func applyThumbnailUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate
 	}
 	if updates.ReleaseThumbnailClaim {
 		qb = qb.Set("thumbnail_claimed_until", nil)
+	}
+	if updates.ReleaseThumbnailClaim || updates.ResetThumbnailAttempts {
+		qb = qb.Set("thumbnail_attempts", 0)
 		changed = true
 	}
 	return qb, changed

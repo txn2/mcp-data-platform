@@ -91,6 +91,13 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 		deps.ResourceBlobs = p.ResourceS3Client()
 		deps.ResourceBucket = cfg.Resources.Managed.S3Bucket
 	}
-	log.Printf("Thumbnails drawn by the renderer at %s", cfg.Thumbnails.EffectiveRendererURL())
-	return thumbworker.New(thumbworker.Tuning{}, deps)
+	// Config.Validate refused a section that does not tune at startup; this
+	// is the same answer.
+	tuning, err := cfg.Thumbnails.Tuning()
+	if err != nil {
+		log.Printf("Thumbnails disabled: %v", err)
+		return nil
+	}
+	log.Printf("Thumbnails drawn by the renderer at %s, %d at a time", cfg.Thumbnails.EffectiveRendererURL(), tuning.Concurrency)
+	return thumbworker.New(tuning, deps)
 }

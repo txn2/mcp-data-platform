@@ -82,6 +82,26 @@ var scrubOnNewDocument = step{"Page.addScriptToEvaluateOnNewDocument", map[strin
 // armed.
 var pauseChildren = step{"Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}}
 
+// freezeAnimations stops the animation timeline of every document a frame
+// loads. A tile is one picture, and a page whose infinite CSS animation is
+// painted in software never goes idle: it held the renderer at its CPU limit
+// for hours and starved its DevTools endpoint (#1868). The animations are put
+// where a picture wants them before the capture, by snapAnimations.
+var freezeAnimations = []step{
+	{"Animation.enable", nil},
+	{"Animation.setPlaybackRate", map[string]any{"playbackRate": 0}},
+}
+
+// snapAnimations is evaluated in every frame before the capture: an animation
+// that ends is shown ended, and one that never does is removed, which shows
+// the element as it is styled without it. With the timeline stopped each stays
+// where it is put.
+const snapAnimations = `(()=>{for(const a of document.getAnimations()){try{const t=a.effect&&a.effect.getComputedTiming();if(t&&Number.isFinite(t.endTime)){a.currentTime=t.endTime}else{a.cancel()}}catch(e){}}})()`
+
+// snapWorld names the isolated world snapAnimations runs in, which reaches a
+// sandboxed frame's animations the page's own world cannot.
+const snapWorld = "tile-snap"
+
 // File is one same-origin file a page loads.
 type File struct {
 	Body        []byte
@@ -149,15 +169,21 @@ type render struct {
 
 	mu       sync.Mutex
 	sessions map[string]bool
-	armErr   error
+	// frames are the sessions that hold documents -- the page and each frame
+	// it started in its own process -- as against workers.
+	frames []string
+	armErr error
 }
 
 // Render draws p and returns the screenshot as a PNG.
 //
 // It returns when the page reports itself ready or ctx ends. A page whose
 // script never lets it settle is abandoned at ctx's deadline, and its browser
-// context -- with every frame and worker in it -- is disposed either way.
-func (r *Renderer) Render(ctx context.Context, p Page) ([]byte, error) {
+// context -- with every frame and worker in it -- is disposed either way. A
+// renderer that does not confirm the disposal fails the render as
+// unavailable, so a caller does not draw the next page in a browser still
+// busy with this one (#1868).
+func (r *Renderer) Render(ctx context.Context, p Page) (png []byte, err error) {
 	rs := &render{r: r, page: p, host: originHost(), sessions: map[string]bool{}}
 	c, err := dial(ctx, r.endpoint, rs.onEvent)
 	if err != nil {
@@ -176,7 +202,7 @@ func (r *Renderer) Render(ctx context.Context, p Page) ([]byte, error) {
 	if err := c.call(ctx, "", "Target.createBrowserContext", contextParams, &bc); err != nil {
 		return nil, err
 	}
-	defer rs.dispose(ctx, bc.BrowserContextID)
+	defer func() { png, err = afterTeardown(png, err, rs.dispose(ctx, bc.BrowserContextID)) }()
 
 	session, err := rs.openPage(ctx, bc.BrowserContextID)
 	if err != nil {
@@ -191,6 +217,7 @@ func (r *Renderer) Render(ctx context.Context, p Page) ([]byte, error) {
 	if err := rs.failedArming(); err != nil {
 		return nil, err
 	}
+	rs.snap(ctx)
 	return rs.screenshot(ctx, session)
 }
 
@@ -221,6 +248,7 @@ func (rs *render) openPage(ctx context.Context, browserContext string) (string, 
 		return "", err
 	}
 	rs.own(att.SessionID)
+	rs.addFrame(att.SessionID)
 
 	scheme := "light"
 	if rs.page.Dark {
@@ -230,11 +258,18 @@ func (rs *render) openPage(ctx context.Context, browserContext string) (string, 
 		fetchAll,
 		{"Page.enable", nil},
 		rs.scrubStep(scrubOnNewDocument),
+		freezeAnimations[0],
+		freezeAnimations[1],
 		{"Emulation.setDeviceMetricsOverride", map[string]any{
 			"width": rs.page.Width, "height": rs.page.Height, "deviceScaleFactor": paintDensity(rs.page.Scale), "mobile": false,
 		}},
+		// A document that honors reduced motion draws its settled state
+		// without being frozen into it.
 		{"Emulation.setEmulatedMedia", map[string]any{
-			"features": []map[string]string{{"name": "prefers-color-scheme", "value": scheme}},
+			"features": []map[string]string{
+				{"name": "prefers-color-scheme", "value": scheme},
+				{"name": "prefers-reduced-motion", "value": "reduce"},
+			},
 		}},
 		// A document taller than the viewport would otherwise put a scrollbar
 		// in the picture, the frame's and the page's alike.
@@ -325,13 +360,78 @@ func (rs *render) screenshot(ctx context.Context, session string) ([]byte, error
 	return reduce(png, rs.page.Width, rs.page.Height, rs.page.Scale)
 }
 
+// snap evaluates snapAnimations in every frame of every document session, in
+// an isolated world of its own so a sandboxed frame is reached too. A frame
+// it cannot reach is drawn as its frozen timeline left it, which is a picture
+// rather than a failure.
+func (rs *render) snap(ctx context.Context) {
+	for _, session := range rs.frameSessions() {
+		var tree struct {
+			FrameTree frameTree `json:"frameTree"`
+		}
+		if rs.c.call(ctx, session, "Page.getFrameTree", nil, &tree) != nil {
+			continue
+		}
+		for _, id := range tree.FrameTree.ids() {
+			var world struct {
+				ExecutionContextID int `json:"executionContextId"`
+			}
+			if rs.c.call(ctx, session, "Page.createIsolatedWorld", map[string]any{"frameId": id, "worldName": snapWorld}, &world) != nil {
+				continue
+			}
+			_ = rs.c.call(ctx, session, "Runtime.evaluate", map[string]any{ //nolint:errcheck // a frame not snapped is drawn frozen
+				"expression": snapAnimations, "contextId": world.ExecutionContextID,
+			}, nil)
+		}
+	}
+}
+
+// frameTree is the part of Page.getFrameTree snap reads.
+type frameTree struct {
+	Frame struct {
+		ID string `json:"id"`
+	} `json:"frame"`
+	ChildFrames []frameTree `json:"childFrames"`
+}
+
+// ids is every frame in the tree, the root first.
+func (t frameTree) ids() []string {
+	out := []string{t.Frame.ID}
+	for _, c := range t.ChildFrames {
+		out = append(out, c.ids()...)
+	}
+	return out
+}
+
+// afterTeardown is a render's result once its page has been disposed of: as it
+// was when the renderer confirmed the disposal; the teardown's failure, and no
+// picture, when a render that succeeded was not confirmed; and a failed
+// render's own failure, which is what the caller acts on, with the teardown's
+// kept beside it.
+func afterTeardown(png []byte, err, teardown error) ([]byte, error) {
+	switch {
+	case teardown == nil:
+		return png, err
+	case err == nil:
+		return nil, teardown
+	default:
+		return nil, fmt.Errorf("headless: %w; teardown: %v", err, teardown) //nolint:errorlint // the render's failure is the one to unwrap
+	}
+}
+
 // dispose tears down the render's browser context, closing every page, frame
-// and worker in it. It runs after Render's own deadline may have passed, so
-// it takes its own.
-func (rs *render) dispose(ctx context.Context, browserContext string) {
+// and worker in it, and reports a renderer that did not confirm it: that
+// renderer may still be busy with the page, and is unavailable until it
+// answers again. The context is disposeOnDetach as well, so closing the
+// connection is a second path to the same end. It runs after Render's own
+// deadline may have passed, so it takes its own.
+func (rs *render) dispose(ctx context.Context, browserContext string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), disposeTimeout)
 	defer cancel()
-	_ = rs.c.call(ctx, "", "Target.disposeBrowserContext", map[string]any{"browserContextId": browserContext}, nil) //nolint:errcheck // best-effort teardown; the context is disposeOnDetach as well
+	if err := rs.c.call(ctx, "", "Target.disposeBrowserContext", map[string]any{"browserContextId": browserContext}, nil); err != nil {
+		return fmt.Errorf("headless: the renderer did not release the page: %w: %w", err, ErrUnavailable)
+	}
+	return nil
 }
 
 // scrubStep is s, or a no-op in its place when the scrub layer is switched off.
@@ -346,6 +446,20 @@ func (rs *render) own(session string) {
 	rs.mu.Lock()
 	rs.sessions[session] = true
 	rs.mu.Unlock()
+}
+
+// addFrame records a session that holds a document.
+func (rs *render) addFrame(session string) {
+	rs.mu.Lock()
+	rs.frames = append(rs.frames, session)
+	rs.mu.Unlock()
+}
+
+// frameSessions is every session that holds a document.
+func (rs *render) frameSessions() []string {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return append([]string(nil), rs.frames...)
 }
 
 func (rs *render) owns(session string) bool {
@@ -405,7 +519,8 @@ func (rs *render) arm(m message) {
 		// needs of its own is the scrub, before its script runs.
 		rs.scrubStep(step{"Runtime.evaluate", map[string]any{"expression": scrub}}),
 	}
-	if p.TargetInfo.Type == "iframe" || p.TargetInfo.Type == "page" {
+	document := p.TargetInfo.Type == "iframe" || p.TargetInfo.Type == "page"
+	if document {
 		required = []step{fetchAll, rs.scrubStep(scrubOnNewDocument), pauseChildren}
 	}
 	for _, s := range required {
@@ -413,6 +528,14 @@ func (rs *render) arm(m message) {
 			rs.noteArmErr(fmt.Errorf("headless: a %s the page started could not be secured: %w", p.TargetInfo.Type, err))
 			return
 		}
+	}
+	if document {
+		// A frame in its own process has its own timeline. One that cannot
+		// be frozen is drawn as it runs, which is a picture, not a breach.
+		for _, s := range freezeAnimations {
+			_ = rs.c.call(ctx, p.SessionID, s.method, s.params, nil) //nolint:errcheck // best effort, as above
+		}
+		rs.addFrame(p.SessionID)
 	}
 	_ = rs.c.call(ctx, p.SessionID, "Runtime.runIfWaitingForDebugger", nil, nil) //nolint:errcheck // a child that is not waiting has nothing to release
 }

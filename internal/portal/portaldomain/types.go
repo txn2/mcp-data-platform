@@ -77,10 +77,14 @@ type Asset struct {
 	// and ThumbnailFailedVersion the version it tried. The failure holds until
 	// the content changes or the tile is asked for again, so a document the
 	// renderer cannot draw is not retried forever and the reason is visible.
-	ThumbnailFailure       string   `json:"thumbnail_failure,omitempty" example:"the document did not finish drawing before the deadline"`
-	ThumbnailFailedVersion int      `json:"thumbnail_failed_version" example:"0"`
-	SizeBytes              int64    `json:"size_bytes" example:"4200"`
-	Tags                   []string `json:"tags"`
+	ThumbnailFailure       string `json:"thumbnail_failure,omitempty" example:"the document did not finish drawing before the deadline"`
+	ThumbnailFailedVersion int    `json:"thumbnail_failed_version" example:"0"`
+	// ThumbnailAttempts is how many claims the renderer has taken on this
+	// asset since its last recorded tile or failure, counting the claim it
+	// was returned by. It is filled only by the thumbnail claim (#1868).
+	ThumbnailAttempts int      `json:"-"`
+	SizeBytes         int64    `json:"size_bytes" example:"4200"`
+	Tags              []string `json:"tags"`
 	// Provenance is the asset's record of what produced it. A listing never
 	// carries it -- it grows by one capture per write and is unbounded, and
 	// carrying it made a library of 52 assets a megabyte of JSON (#1623). A
@@ -571,9 +575,14 @@ type AssetUpdate struct {
 	ThumbnailFailedVersion *int    `json:"-"`
 	// ReleaseThumbnailClaim ends the lease a replica took to render this
 	// asset's tile, so the next change to it is picked up at once rather than
-	// when the lease lapses.
+	// when the lease lapses, and clears the attempts counted against it
+	// (#1868). Every recorded result sets it.
 	ReleaseThumbnailClaim bool `json:"-"`
-	HasContent            bool `json:"-"` // set when content replacement provides SizeBytes (even if 0)
+	// ResetThumbnailAttempts clears the attempts counted against the asset's
+	// tile without touching the lease, for a request to draw it again: a
+	// worker may be drawing it now (#1868).
+	ResetThumbnailAttempts bool `json:"-"`
+	HasContent             bool `json:"-"` // set when content replacement provides SizeBytes (even if 0)
 	// MaxVersions sets the asset's version-retention cap; nil leaves the
 	// column as it is. Zero is a legitimate value (keep every version), which
 	// is why this is a pointer and why clearing the override back to "inherit
@@ -601,7 +610,7 @@ func (u AssetUpdate) hasThumbnailField() bool {
 	return u.ThumbnailS3Key != nil || u.ThumbnailDarkS3Key != nil ||
 		u.ThumbnailVersion != nil || u.ThumbnailDarkVersion != nil ||
 		u.ThumbnailRenderer != nil || u.ThumbnailFailure != nil || u.ThumbnailFailedVersion != nil ||
-		u.ReleaseThumbnailClaim
+		u.ReleaseThumbnailClaim || u.ResetThumbnailAttempts
 }
 
 // hasAuthoredField reports whether an update sets any column recording a
@@ -1173,4 +1182,7 @@ type CollectionThumbnailWork struct {
 	ID             string
 	ThumbnailS3Key string
 	Source         string
+	// Attempts is how many claims have been taken on the collection since
+	// its last recorded mosaic or failure, counting this one (#1868).
+	Attempts int
 }

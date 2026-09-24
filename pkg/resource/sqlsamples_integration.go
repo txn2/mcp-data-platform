@@ -92,6 +92,7 @@ func SQLSamples() map[string]string {
 		"clearThumbnailLight":     clearThumbnailQuery(ThumbnailVariantLight),
 		"clearThumbnailDark":      clearThumbnailQuery(ThumbnailVariantDark),
 		"recordThumbnailFailure":  recordThumbnailFailureQuery,
+		"holdThumbnailWork":       holdThumbnailWorkQuery,
 		"buildFolders/all":        foldersAll,
 	}
 }

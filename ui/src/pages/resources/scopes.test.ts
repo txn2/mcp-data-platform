@@ -13,6 +13,7 @@ import {
   targetForTab,
   targetKey,
   uploadTargets,
+  withheldUploadPersonas,
   PERSON_TARGET,
 } from "./scopes";
 
@@ -329,6 +330,27 @@ describe("where an upload may land", () => {
     expect(keys).toContain("persona:ops");
     expect(keys).toContain("global:");
     expect(keys).toContain(`user:${PERSON_TARGET}`);
+  });
+});
+
+// #1866: the persona library a member cannot upload into is named, so its
+// absence from the destinations reads as a boundary rather than a gap.
+describe("the persona libraries an upload is withheld from", () => {
+  it("names the persona a reader belongs to and does not administer", () => {
+    expect(withheldUploadPersonas(reader())).toEqual(["analyst"]);
+  });
+
+  it("names nothing once the caller administers that persona", () => {
+    expect(withheldUploadPersonas(reader({ roles: ["dp_persona-admin:analyst"] }))).toEqual([]);
+  });
+
+  it("names nothing for an administrator, who may upload anywhere", () => {
+    expect(withheldUploadPersonas(reader({ is_admin: true }))).toEqual([]);
+  });
+
+  it("names nothing for a caller with no persona or no session", () => {
+    expect(withheldUploadPersonas(reader({ persona: undefined }))).toEqual([]);
+    expect(withheldUploadPersonas(null)).toEqual([]);
   });
 });
 

@@ -136,6 +136,25 @@ describe("how the upload dialog names the library it failed to write to", () => 
   });
 });
 
+// #1866: on the All view the dialog offered a persona member only their own
+// library and said nothing of the persona library they belong to.
+describe("the persona library the dialog does not offer", () => {
+  it("is named with the role that grants it and the move that gets a file there", () => {
+    signIn();
+    renderModal(false, null);
+    const note = screen.getByTestId("upload-withheld-persona");
+    expect(note).toHaveTextContent("The ops persona library is not offered");
+    expect(note).toHaveTextContent("persona-admin:ops");
+    expect(note).toHaveTextContent("Edit details > Library");
+  });
+
+  it("is not named to a caller who may upload into it", () => {
+    signIn({ roles: ["dp_persona-admin:ops"] });
+    renderModal(false, null);
+    expect(screen.queryByTestId("upload-withheld-persona")).not.toBeInTheDocument();
+  });
+});
+
 // Issue #1628: the dialog held its own copy of the 100 MB constant, in the
 // label, in the refusal, and in the check behind it. A deployment that raised
 // resources.managed.max_upload_bytes had a file chooser still announcing the

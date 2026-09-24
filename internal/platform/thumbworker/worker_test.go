@@ -91,11 +91,46 @@ func (b *fakeBlobs) DeleteObject(_ context.Context, bucket, key string) error {
 	return nil
 }
 
+// hold is one claim ended without a result.
+type hold struct {
+	hold     time.Duration
+	attempts int
+}
+
 type fakeAssets struct {
 	mu      sync.Mutex
 	claims  [][]portaldomain.Asset
 	byID    map[string]*portaldomain.Asset
 	updates map[string]portaldomain.AssetUpdate
+	holds   map[string]hold
+	holdErr error
+}
+
+func (f *fakeAssets) HoldThumbnailWork(_ context.Context, id string, d time.Duration, attempts int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.holdErr != nil {
+		return f.holdErr
+	}
+	if f.holds == nil {
+		f.holds = map[string]hold{}
+	}
+	f.holds[id] = hold{d, attempts}
+	return nil
+}
+
+func (f *fakeAssets) update(id string) (portaldomain.AssetUpdate, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.updates[id]
+	return u, ok
+}
+
+func (f *fakeAssets) held(id string) (hold, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, ok := f.holds[id]
+	return h, ok
 }
 
 func (f *fakeAssets) ClaimThumbnailWork(context.Context, int, time.Duration, int) ([]portaldomain.Asset, error) {
@@ -136,7 +171,28 @@ func (f fakeRefs) ListByAsset(context.Context, string) ([]assetrefs.Ref, error) 
 type fakeCollections struct {
 	claims    []portaldomain.CollectionThumbnailWork
 	recorded  map[string][2]string
+	failures  map[string][2]string
+	holds     map[string]hold
 	recordErr error
+}
+
+func (f *fakeCollections) RecordCollectionThumbnailFailure(_ context.Context, id, source, reason string) error {
+	if f.recordErr != nil {
+		return f.recordErr
+	}
+	if f.failures == nil {
+		f.failures = map[string][2]string{}
+	}
+	f.failures[id] = [2]string{source, reason}
+	return nil
+}
+
+func (f *fakeCollections) HoldCollectionThumbnailWork(_ context.Context, id string, d time.Duration, attempts int) error {
+	if f.holds == nil {
+		f.holds = map[string]hold{}
+	}
+	f.holds[id] = hold{d, attempts}
+	return nil
 }
 
 func (f *fakeCollections) ClaimCollectionThumbnailWork(context.Context, time.Duration, int) ([]portaldomain.CollectionThumbnailWork, error) {
@@ -157,13 +213,32 @@ func (f *fakeCollections) RecordCollectionThumbnail(_ context.Context, id, key, 
 }
 
 type fakeResources struct {
+	mu       sync.Mutex
 	claims   []resource.Resource
 	captures []resource.ThumbnailCapture
+	holds    []hold
 	failure  string
 	failedAt time.Time
 	setErr   error
 	failErr  error
 	claimErr error
+	holdErr  error
+}
+
+func (f *fakeResources) HoldThumbnailWork(_ context.Context, _ string, d time.Duration, attempts int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.holdErr != nil {
+		return f.holdErr
+	}
+	f.holds = append(f.holds, hold{d, attempts})
+	return nil
+}
+
+func (f *fakeResources) captured() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.captures)
 }
 
 func (f *fakeResources) ClaimThumbnailWork(context.Context, int, time.Duration, int) ([]resource.Resource, error) {
@@ -184,6 +259,8 @@ func (f *fakeResources) RecordThumbnailFailure(_ context.Context, _, reason stri
 }
 
 func (f *fakeResources) SetThumbnail(_ context.Context, _ string, t resource.ThumbnailCapture) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -317,25 +394,51 @@ func TestDrawAsset_ALightTileSurvivesADarkFailure(t *testing.T) {
 	}
 }
 
-func TestDrawAsset_NothingIsRecordedWhileItCannotBeDrawn(t *testing.T) {
+// An attempt that does not finish records nothing itself and says why, for
+// the attempt to hold the asset back or give up on it (#1868).
+func TestDrawAsset_AnUnfinishedAttemptSaysWhyAndRecordsNothing(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		setup func(*fakeDrawer, *fakeBlobs)
+		want  string
 	}{
-		{"the renderer went away", func(d *fakeDrawer, _ *fakeBlobs) { d.results = []error{headless.ErrUnavailable} }},
-		{"the document cannot be read", func(_ *fakeDrawer, b *fakeBlobs) { b.getErr = errors.New("s3 down") }},
-		{"the tile cannot be stored", func(_ *fakeDrawer, b *fakeBlobs) { b.putErr = errors.New("s3 down") }},
+		{"the renderer went away", func(d *fakeDrawer, _ *fakeBlobs) { d.results = []error{headless.ErrUnavailable} }, "not available"},
+		{"the document cannot be read", func(_ *fakeDrawer, b *fakeBlobs) { b.getErr = errors.New("NoSuchKey") }, "the stored file could not be read"},
+		{"the tile cannot be stored", func(_ *fakeDrawer, b *fakeBlobs) { b.putErr = errors.New("s3 down") }, "storing the tile"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
 			a := asset("a5", "text/html", 1)
 			blobs.objects[bucket+"/"+a.S3Key] = []byte("<p>x</p>")
 			tc.setup(d, blobs)
-			worker(d, assets, blobs).drawAsset(context.Background(), a)
+			err := worker(d, assets, blobs).drawAsset(context.Background(), a)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("drawAsset = %v, want it to say %q", err, tc.want)
+			}
 			if _, ok := assets.updates["a5"]; ok {
-				t.Fatal("a transient failure was recorded; the lease must lapse so it is tried again")
+				t.Fatal("an unfinished attempt recorded a result")
 			}
 		})
+	}
+}
+
+// A light tile drawn before the dark one could not be is kept, and the claim
+// is left for the attempt to end: releasing it here would clear the count
+// that stops a document pinning the renderer forever (#1868).
+func TestDrawAsset_ALightTileBeforeAnUnfinishedDarkOneKeepsTheClaim(t *testing.T) {
+	d := &fakeDrawer{results: []error{nil, fmt.Errorf("headless: %w", headless.ErrUnavailable)}}
+	assets, blobs := &fakeAssets{}, newBlobs()
+	a := asset("a6", "text/html", 2)
+	blobs.objects[bucket+"/"+a.S3Key] = []byte("<p>x</p>")
+	if err := worker(d, assets, blobs).drawAsset(context.Background(), a); !errors.Is(err, headless.ErrUnavailable) {
+		t.Fatalf("drawAsset = %v, want the dark variant's reason", err)
+	}
+	u := assets.updates["a6"]
+	if u.ThumbnailS3Key == nil || u.ThumbnailDarkS3Key != nil || u.ThumbnailFailure == nil || *u.ThumbnailFailure != "" {
+		t.Fatalf("want the light tile recorded and no failure: %+v", u)
+	}
+	if u.ReleaseThumbnailClaim {
+		t.Error("the claim was released with the attempt unfinished")
 	}
 }
 
@@ -530,6 +633,10 @@ func TestDrawResource_DatesTheTileByTheFileAsClaimed(t *testing.T) {
 			t.Errorf("capture %+v: want it dated by the file's UpdatedAt, the renderer generation and the variant's key", c)
 		}
 	}
+	// Both variants drawn, the claim ends with no hold and no attempts.
+	if len(res.holds) != 1 || res.holds[0] != (hold{}) {
+		t.Errorf("holds = %v, want the claim released once", res.holds)
+	}
 }
 
 func TestDrawResource_AFailureIsRecordedAgainstTheFile(t *testing.T) {
@@ -543,11 +650,14 @@ func TestDrawResource_AFailureIsRecordedAgainstTheFile(t *testing.T) {
 		t.Fatalf("failure %q at %v, captures %d", res.failure, res.failedAt, len(res.captures))
 	}
 
-	blobs.getErr = errors.New("s3 down")
+	blobs.getErr = errors.New("NoSuchKey")
 	res2 := &fakeResources{}
-	New(Tuning{}, Deps{Drawer: &fakeDrawer{}, Resources: res2, ResourceBlobs: blobs, ResourceBucket: "b"}).drawResource(context.Background(), r)
-	if res2.failure != "" || len(res2.captures) != 0 {
-		t.Error("a file that could not be read must be left for the lease to lapse, not recorded")
+	err := New(Tuning{}, Deps{Drawer: &fakeDrawer{}, Resources: res2, ResourceBlobs: blobs, ResourceBucket: "b"}).drawResource(context.Background(), r)
+	if err == nil || !strings.Contains(err.Error(), "the stored file could not be read: reading resources/r2/x.html: NoSuchKey") {
+		t.Errorf("drawResource = %v, want the unreadable file named for the attempt", err)
+	}
+	if res2.failure != "" || len(res2.captures) != 0 || len(res2.holds) != 0 {
+		t.Error("an unfinished attempt recorded a result or ended its own claim")
 	}
 }
 
@@ -663,7 +773,7 @@ func TestWorker_StartDrainsWorkAndStops(t *testing.T) {
 		assets.mu.Lock()
 		_, drawnAsset := assets.updates["a10"]
 		assets.mu.Unlock()
-		if drawnAsset && len(res.captures) > 0 {
+		if drawnAsset && res.captured() > 0 {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -697,10 +807,6 @@ func TestOutcomeAndReason(t *testing.T) {
 	}
 	if _, reason := outcome(errors.New("headless: nul\x00 and \xff bad")); reason != "nul and  bad" {
 		t.Errorf("reason = %q, want the bytes a text column refuses removed", reason)
-	}
-	c := Tuning{}.withDefaults()
-	if c.Poll != defaultPoll || c.Lease != defaultLease || c.Batch != defaultBatch || c.RenderTimeout != defaultRenderTimeout {
-		t.Errorf("defaults = %+v", c)
 	}
 }
 

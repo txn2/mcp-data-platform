@@ -296,9 +296,9 @@ func TestVersions_SurvivesAnOwnerTransfer(t *testing.T) {
 	assert.Equal(t, "jane@example.com", first["author"], "the author of the first version does not move with the script")
 }
 
-// TestVersions_NotTheOwnerGetsTheGetRefusal holds the history to the visibility
-// get already applies, in the same words: naming the difference would confirm
-// the script exists to somebody who may not see it.
+// TestVersions_NotTheOwnerGetsTheGetRefusal holds the history to the lookup
+// get applies, in the same words: a name without owner_email is the caller's
+// own, which a stranger does not have.
 func TestVersions_NotTheOwnerGetsTheGetRefusal(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)

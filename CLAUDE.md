@@ -198,7 +198,7 @@ mcp-data-platform/
 │   ├── connid/                     # Connection identity: the instance a connection is stored under, the name a call binds it by, the toolkit serving it, and which half of the config owns it — one Resolver, distinct types
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 158 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 159 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -479,7 +479,10 @@ version, presenting the roles its author held at the save, and the persona
 filter authorizes every call at run time. A script is personal: its owner sees
 it, edits it, runs it, and schedules it, administrators do all four on every
 script, and an administrator can move a script to another owner (which
-re-captures the run identity from the administrator making the move). The knobs
+re-captures the run identity from the administrator making the move). Its
+definition -- source and version history, without the authors' roles -- is
+readable by everyone signed in (#1866); acting on it and reading its runs stay
+the owner's and an administrator's. The knobs
 are how long the record of a run is kept, whether this replica executes runs at
 all, and which bucket destinations a script's output may be delivered to.
 
@@ -514,7 +517,9 @@ are under `max_memory_percent`/`max_cpu_percent` of the container's limits,
 between `min_concurrency` and `max_concurrency`, and stops and requeues its
 newest run past `shed_memory_percent`, failing the run instead when it is the
 only one executing (#1861); see `docs/scripts/running.md`. A run is measured at
-every host call and fails with cause `memory` past `max_run_memory`; a run whose
+every host call -- walked whenever the process's heap growth since the last
+walk could cross the budget, and once more when it ends (#1867) -- and fails
+with cause `memory` past `max_run_memory`; a run whose
 worker died is taken over at most `max_reclaims` times, then failed with cause
 `worker_lost` (#1860). A failed run records its `cause` (`script`, `upstream`,
 `memory`, `worker_lost`, `platform`, `state_conflict`) and whether it is
@@ -537,7 +542,7 @@ thumbnails:
   renderer_url: "http://127.0.0.1:9222" # default
 ```
 
-The platform dials the renderer and answers every request a page makes (its own routes in-process, public URLs through `internal/egressguard`); the renderer is never given an address to call. With no renderer answering, tiles keep their content-type icons. A document that cannot be drawn is recorded (`thumbnail_failure`) and held until it changes or its owner clears the tile. `make dev` runs the renderer as the `renderer` service in `dev/docker-compose.yml`.
+The platform dials the renderer and answers every request a page makes (its own routes in-process, public URLs through `internal/egressguard`); the renderer is never given an address to call. With no renderer answering, tiles keep their content-type icons. A document that cannot be drawn is recorded (`thumbnail_failure`) and held until it changes or its owner clears the tile. Every claim charges an attempt (`thumbnail_attempts`); an attempt that does not finish (renderer gone mid-render, stored file unreadable) holds the row back with backoff and, at `max_attempts`, records it as not drawable (#1868). Pages load with their animation timeline stopped and are settled before capture. `concurrency`, `render_timeout`, `batch`, `lease`, `poll`, `max_attempts` and `retry_backoff` pace the worker. `make dev` runs the renderer as the `renderer` service in `dev/docker-compose.yml`.
 
 ### Progress, Client Logging, Icons & Elicitation
 

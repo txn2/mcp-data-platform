@@ -556,7 +556,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	started := time.Now()
 	globals, execErr := starlark.ExecFileOptions(fileOptions, thread, opts.Name, opts.Source, predeclared(host))
-	host.mem.Settle(globals)
+	if settled := host.mem.Settle(globals); execErr == nil && settled != nil {
+		execErr = settled
+	}
 	if execErr == nil {
 		// An appended output is written once, and only by a run that got to
 		// the end: its pages are the whole file only then (#1861).

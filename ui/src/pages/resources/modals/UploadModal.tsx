@@ -16,7 +16,7 @@ import { PathField } from "../parts/PathField";
 import { pathProblem } from "../parts/pathRules";
 import { UploadTargets } from "./UploadTargets";
 import { DestinationPicker } from "./DestinationPicker";
-import { libraryCopy, targetKey, uploadTargets, type ScopeTarget } from "../scopes";
+import { libraryCopy, targetKey, uploadTargets, withheldUploadPersonas, type ScopeTarget } from "../scopes";
 
 // DEFAULT_MAX_BYTES is what the dialog assumes when the server has not told it
 // otherwise -- an older server, or a session bootstrapped before the field
@@ -273,6 +273,7 @@ export function UploadModal({
             value={chosen}
             onChange={setChosen}
             disabled={uploading}
+            withheld={withheldUploadPersonas(user)}
           />
         )}
         <PathField

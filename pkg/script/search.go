@@ -26,11 +26,7 @@ const (
 // what the script IS FOR. A script in service is something to run; a disabled
 // or retired one is not, and reading a result should not leave that ambiguous.
 //
-// The source code is deliberately absent. docs/scripts/security.md admits the
-// contract to anyone the scope rules admit and the source only to the owner and
-// to administrators; one vector per row cannot be split along that line, so a
-// vector built partly from source would let code a caller may not read decide
-// how their results rank. The source also churns on every code edit while a
+// The source code is deliberately absent. It churns on every code edit while a
 // description changes rarely, so indexing it would re-embed the corpus for
 // changes that do not alter what the script is for.
 //

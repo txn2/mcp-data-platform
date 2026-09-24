@@ -103,8 +103,9 @@ func TestPortalRunScript_AGranteeRunsAScriptItDoesNotOwn(t *testing.T) {
 	require.NotNil(t, runs.queued)
 	assert.Equal(t, "apikey:reporting-app", runs.queued.RequestedBy, "the run is the grantee's to follow")
 
-	// The source stays the owner's.
-	rec = servePortalRequest(t, deps, http.MethodGet, "/api/v1/portal/scripts/script_2/versions", "")
+	// A grant opens running, not the script's run history, which is still the
+	// owner's.
+	rec = servePortalRequest(t, deps, http.MethodGet, "/api/v1/portal/scripts/script_2/runs", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 

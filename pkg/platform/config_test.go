@@ -2663,3 +2663,20 @@ server:
 		t.Errorf("Calls.ExcludePersonas = %v, want empty", cfg.Calls.ExcludePersonas)
 	}
 }
+
+// TestConfig_Validate_RefusesThumbnailPacingThatCannotWork holds #1868 at
+// startup: a thumbnails section the worker could not be paced by is refused
+// with the key named, rather than drawing with a lease its batch outlasts.
+func TestConfig_Validate_RefusesThumbnailPacingThatCannotWork(t *testing.T) {
+	cfg := &Config{}
+	cfg.Thumbnails.Batch = 4
+	cfg.Thumbnails.Lease = 2 * time.Minute
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "thumbnails: lease 2m0s is shorter than drawing a batch of 4") {
+		t.Fatalf("Validate() = %v, want the short lease refused", err)
+	}
+	cfg.Thumbnails = ThumbnailsConfig{Concurrency: 2}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want a section that tunes accepted", err)
+	}
+}

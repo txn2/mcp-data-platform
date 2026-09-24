@@ -16,6 +16,7 @@ import (
 // nothing.
 type ThumbnailWork interface {
 	ClaimThumbnailWork(ctx context.Context, renderer int, lease time.Duration, limit int) ([]Resource, error)
+	HoldThumbnailWork(ctx context.Context, id string, hold time.Duration, attempts int) error
 	RecordThumbnailFailure(ctx context.Context, id, reason string, at time.Time) error
 	SetThumbnail(ctx context.Context, id string, t ThumbnailCapture) error
 }
@@ -36,7 +37,8 @@ var _ ThumbnailWork = (*postgresStore)(nil)
 // library's files, not a person reading one.
 func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query string, args []any) {
 	query = `
-		UPDATE resources SET thumbnail_claimed_until = now() + make_interval(secs => $1)
+		UPDATE resources SET thumbnail_claimed_until = now() + make_interval(secs => $1),
+		       thumbnail_attempts = thumbnail_attempts + 1
 		WHERE id IN (
 			SELECT id FROM resources
 			WHERE mime_type ILIKE ANY($2)
@@ -62,7 +64,7 @@ func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query st
 			LIMIT $6
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING ` + selectColumns
+		RETURNING ` + selectColumns + `, thumbnail_attempts`
 	args = []any{
 		lease.Seconds(),
 		pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable)),
@@ -76,8 +78,10 @@ func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query st
 }
 
 // ClaimThumbnailWork leases up to limit resources the renderer owes a tile
-// for lease and returns them. Recording a tile or a failure releases the
-// lease; it lapses on its own if the replica that took it dies mid-render.
+// for lease and returns them, each charged one attempt (#1868). Recording a
+// failure, or ending the claim with HoldThumbnailWork, releases the lease; it
+// lapses on its own if the replica that took it dies mid-render, with the
+// attempt still charged.
 func (s *postgresStore) ClaimThumbnailWork(ctx context.Context, renderer int, lease time.Duration, limit int) ([]Resource, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -91,11 +95,13 @@ func (s *postgresStore) ClaimThumbnailWork(ctx context.Context, renderer int, le
 
 	var out []Resource
 	for rows.Next() {
-		r, err := s.scanRow(rows)
-		if err != nil {
-			return nil, err
+		var r Resource
+		var sc resourceScan
+		if err := rows.Scan(append(sc.dest(&r), &r.ThumbnailAttempts)...); err != nil {
+			return nil, fmt.Errorf("scanning claimed resource: %w", err)
 		}
-		out = append(out, *r)
+		sc.finish(&r)
+		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("reading claimed resources: %w", err)
@@ -103,9 +109,30 @@ func (s *postgresStore) ClaimThumbnailWork(ctx context.Context, renderer int, le
 	return out, nil
 }
 
-// recordThumbnailFailureQuery records a failure and ends the lease.
+// holdThumbnailWorkQuery ends a claim: the file stays out of the claim until
+// the hold passes, with the attempts counted against it.
+const holdThumbnailWorkQuery = `UPDATE resources
+	SET thumbnail_claimed_until = now() + make_interval(secs => $1),
+	    thumbnail_attempts = $2
+	WHERE id = $3`
+
+// HoldThumbnailWork ends the renderer's claim on the file (#1868): it is not
+// claimed again until hold has passed, and attempts is the count it carries
+// into the next claim. A drawn file is released with no hold and no attempts;
+// an attempt that could not finish is held back and keeps its count; a file
+// claimed and never tried gets its attempt back.
+func (s *postgresStore) HoldThumbnailWork(ctx context.Context, id string, hold time.Duration, attempts int) error {
+	if _, err := s.db.ExecContext(ctx, holdThumbnailWorkQuery, hold.Seconds(), attempts, id); err != nil {
+		return fmt.Errorf("holding thumbnail work: %w", err)
+	}
+	return nil
+}
+
+// recordThumbnailFailureQuery records a failure, ends the lease and clears
+// the attempts that led to it.
 const recordThumbnailFailureQuery = `UPDATE resources
-	SET thumbnail_failure = $1, thumbnail_failed_at = $2, thumbnail_claimed_until = NULL
+	SET thumbnail_failure = $1, thumbnail_failed_at = $2, thumbnail_claimed_until = NULL,
+	    thumbnail_attempts = 0
 	WHERE id = $3`
 
 // RecordThumbnailFailure records that the renderer could not draw the file as

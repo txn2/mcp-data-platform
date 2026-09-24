@@ -20,7 +20,7 @@ func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.
 	if h.runs == nil {
 		return errorResult("this deployment keeps no script runs"), nil, nil
 	}
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.owned(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -170,7 +170,7 @@ func (h *Handle) handleState(ctx context.Context, input manageScriptInput) (*mcp
 	if h.states == nil {
 		return errorResult("this deployment keeps no script state"), nil, nil
 	}
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.owned(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}

@@ -27,6 +27,8 @@ import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptGrantsCard } from "./ScriptGrantsCard";
 import { ScriptStateCard } from "./ScriptStateCard";
+import { SourceView } from "./DiffView";
+import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
 // will execute it, on what schedule, and — for its owner — everything it has
@@ -183,6 +185,8 @@ function ScriptDetail({
         </>
       )}
 
+      {!owned && <ScriptSourceReadOnly scriptId={scriptId} contract={contract} source={source} />}
+
       {isAdmin && <ScriptOwnerTransfer scriptId={scriptId} contract={contract} />}
 
       {/* Removing the script (#1575), the last thing on the page because it is
@@ -195,6 +199,33 @@ function ScriptDetail({
         <ScriptDelete scriptId={scriptId} contract={contract} onDeleted={onBack} />
       )}
     </div>
+  );
+}
+
+// ScriptSourceReadOnly is a script's definition for a reader who does not own
+// it (#1866): the code and its history, with nothing to run or change. A
+// script is how a resource or an asset was produced, so its code is readable
+// by everyone; running, scheduling and editing it stay with its owner.
+function ScriptSourceReadOnly({
+  scriptId,
+  contract,
+  source,
+}: {
+  scriptId: string;
+  contract: ScriptContract;
+  source?: string;
+}) {
+  return (
+    <SectionCard title="Source">
+      <div className="space-y-3" data-testid="script-source-readonly">
+        <p className="text-xs text-muted-foreground">
+          Read only. Running, scheduling and changing this script are{" "}
+          {contract.owner_email || "its owner"}'s and an administrator's.
+        </p>
+        <SourceView source={source ?? ""} />
+        <ScriptVersionHistory scriptId={scriptId} contract={contract} owned={false} />
+      </div>
+    </SectionCard>
   );
 }
 

@@ -168,6 +168,8 @@ describe("BulkUploadModal", () => {
     const { send, sent } = answerBy({});
     renderModal(send, null);
     expect(screen.getByTestId("upload-destination-picker")).toBeInTheDocument();
+    // #1866: the persona library the caller belongs to is named, not omitted.
+    expect(screen.getByTestId("upload-withheld-persona")).toHaveTextContent("persona-admin:ops");
     await pick(["a.png"]);
     await upload("Upload 1 file");
     await waitFor(() => expect(sent).toHaveLength(1));

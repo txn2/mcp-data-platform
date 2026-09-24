@@ -29,6 +29,7 @@ type Blobs interface {
 // AssetWork is what the worker asks of the asset store.
 type AssetWork interface {
 	ClaimThumbnailWork(ctx context.Context, renderer int, lease time.Duration, limit int) ([]portaldomain.Asset, error)
+	HoldThumbnailWork(ctx context.Context, id string, hold time.Duration, attempts int) error
 	Update(ctx context.Context, id string, u portaldomain.AssetUpdate) error
 	Get(ctx context.Context, id string) (*portaldomain.Asset, error)
 }
@@ -37,6 +38,8 @@ type AssetWork interface {
 type CollectionWork interface {
 	ClaimCollectionThumbnailWork(ctx context.Context, lease time.Duration, limit int) ([]portaldomain.CollectionThumbnailWork, error)
 	RecordCollectionThumbnail(ctx context.Context, id, key, source string) error
+	RecordCollectionThumbnailFailure(ctx context.Context, id, source, reason string) error
+	HoldCollectionThumbnailWork(ctx context.Context, id string, hold time.Duration, attempts int) error
 }
 
 // RefLister lists the references an asset declared.

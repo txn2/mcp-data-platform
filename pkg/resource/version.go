@@ -173,11 +173,14 @@ const insertRevisionQuery = `
 // matching the old file's terms, and clearing content_indexed_at is what
 // re-opens the content gap the index worker fills off the request path — on the
 // job AddRevision enqueues, with the reconciler as the backstop (#1012, #1256).
+// The renderer's attempts were spent on the old file, so the new one starts
+// with none (#1868).
 const updateHeadQuery = `
 	UPDATE resources
 	   SET mime_type = $1, size_bytes = $2, s3_key = $3, updated_at = $4,
 	       content_text = '', content_indexed_at = NULL,
-	       embedding = NULL, embedding_model = '', embedding_text_hash = NULL
+	       embedding = NULL, embedding_model = '', embedding_text_hash = NULL,
+	       thumbnail_attempts = 0
 	 WHERE id = $5`
 
 func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version, error) { //nolint:revive // interface impl

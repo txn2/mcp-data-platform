@@ -512,10 +512,11 @@ func TestPostgresStore_SetAndClearThumbnail(t *testing.T) {
 	now := time.Now()
 
 	// A tile writes the key, the moment and the renderer that drew it, ends any
-	// failure and lease, and touches nothing else: bumping updated_at here would
-	// mark the tile behind the row it came from.
+	// failure, and touches nothing else: bumping updated_at here would mark the
+	// tile behind the row it came from, and the claim is the worker's to end
+	// once every variant is drawn (#1868).
 	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = \\$1, thumbnail_captured_at = \\$2, thumbnail_renderer = \\$3, "+
-		"thumbnail_failure = '', thumbnail_failed_at = NULL, thumbnail_claimed_until = NULL WHERE id = \\$4").
+		"thumbnail_failure = '', thumbnail_failed_at = NULL\\s+WHERE id = \\$4").
 		WithArgs("k/light.png", now, 1, "id-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.SetThumbnail(context.Background(), "id-1", ThumbnailCapture{
@@ -534,10 +535,11 @@ func TestPostgresStore_SetAndClearThumbnail(t *testing.T) {
 		t.Fatalf("SetThumbnail dark: %v", err)
 	}
 
-	// A clear takes a recorded failure with it: asking for the tile again is
-	// asking the renderer to try again.
+	// A clear takes a recorded failure with it, and the attempts behind it:
+	// asking for the tile again is asking the renderer to try again (#1868).
+	// The lease is not touched.
 	mock.ExpectExec("UPDATE resources SET thumbnail_s3_key = '', thumbnail_captured_at = NULL,\\s+" +
-		"thumbnail_failure = '', thumbnail_failed_at = NULL WHERE id = \\$1").
+		"thumbnail_failure = '', thumbnail_failed_at = NULL,\\s+thumbnail_attempts = 0 WHERE id = \\$1").
 		WithArgs("id-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	if err := store.ClearThumbnail(context.Background(), "id-1", ThumbnailVariantLight); err != nil {

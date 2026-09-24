@@ -412,3 +412,120 @@ func TestCollectionThumbnailClaim_RealDB_AMosaicFollowsItsMembers(t *testing.T) 
 
 	assert.Error(t, colls.RecordCollectionThumbnail(ctx, "c_missing", "", ""))
 }
+
+// attemptsOf reads an asset's attempts and whether it is leased or held.
+func attemptsOf(t *testing.T, db *sql.DB, id string) (int, bool) {
+	t.Helper()
+	var attempts int
+	var held bool
+	require.NoError(t, db.QueryRowContext(context.Background(),
+		`SELECT thumbnail_attempts, COALESCE(thumbnail_claimed_until > now(), false) FROM portal_assets WHERE id = $1`, id).
+		Scan(&attempts, &held))
+	return attempts, held
+}
+
+// TestThumbnailClaim_RealDB_AttemptsAreChargedHeldAndCleared holds #1868
+// against PostgreSQL: the claim charges an attempt and returns the count, a
+// hold keeps the asset out of the claim with its count until the hold passes,
+// a recorded result ends the claim and clears the count, a request to draw it
+// again clears the count without ending a lease, and new content starts over.
+func TestThumbnailClaim_RealDB_AttemptsAreChargedHeldAndCleared(t *testing.T) {
+	db := testdb.New(t)
+	store := &postgresAssetStore{db: db}
+	ctx := context.Background()
+	seedPendingAsset(t, db, store, "asset_tried", "text/html", 100, 1, thumbState{})
+
+	claimed, err := store.ClaimThumbnailWork(ctx, testRenderer, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, 1, claimed[0].ThumbnailAttempts)
+
+	require.NoError(t, store.HoldThumbnailWork(ctx, "asset_tried", time.Hour, 1))
+	attempts, held := attemptsOf(t, db, "asset_tried")
+	assert.Equal(t, 1, attempts)
+	assert.True(t, held)
+	again, err := store.ClaimThumbnailWork(ctx, testRenderer, time.Minute, 10)
+	require.NoError(t, err)
+	assert.Empty(t, again, "a held asset was claimed before its hold passed")
+
+	// A hold that has passed is claimed again, as its next attempt.
+	require.NoError(t, store.HoldThumbnailWork(ctx, "asset_tried", 0, 1))
+	next, err := store.ClaimThumbnailWork(ctx, testRenderer, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	assert.Equal(t, 2, next[0].ThumbnailAttempts)
+
+	// A request to draw it again clears the count and leaves the lease.
+	require.NoError(t, store.Update(ctx, "asset_tried", portaldomain.AssetUpdate{ResetThumbnailAttempts: true}))
+	attempts, held = attemptsOf(t, db, "asset_tried")
+	assert.Zero(t, attempts)
+	assert.True(t, held, "a request to draw it again ended a worker's lease")
+
+	// A recorded failure ends the claim and clears the count.
+	reason, version := "the renderer could not finish drawing this after 5 attempts", 1
+	require.NoError(t, store.HoldThumbnailWork(ctx, "asset_tried", time.Minute, 5))
+	require.NoError(t, store.Update(ctx, "asset_tried", portaldomain.AssetUpdate{
+		ThumbnailFailure: &reason, ThumbnailFailedVersion: &version, ReleaseThumbnailClaim: true,
+	}))
+	attempts, held = attemptsOf(t, db, "asset_tried")
+	assert.Zero(t, attempts)
+	assert.False(t, held)
+	assert.Empty(t, pendingIDs(t, store), "a document recorded as not drawable left the queue")
+
+	// New content starts its attempts over and is owed again.
+	_, err = db.ExecContext(ctx, `UPDATE portal_assets SET thumbnail_attempts = 3 WHERE id = 'asset_tried'`)
+	require.NoError(t, err)
+	size := int64(200)
+	require.NoError(t, store.Update(ctx, "asset_tried", portaldomain.AssetUpdate{HasContent: true, SizeBytes: size}))
+	attempts, _ = attemptsOf(t, db, "asset_tried")
+	assert.Zero(t, attempts)
+}
+
+// TestCollectionThumbnailClaim_RealDB_AFailedMosaicWaitsForItsSource holds
+// #1868 for collections: a mosaic recorded as not composable is not claimed
+// again until its source changes, and a hold keeps it out with its count.
+func TestCollectionThumbnailClaim_RealDB_AFailedMosaicWaitsForItsSource(t *testing.T) {
+	db := testdb.New(t)
+	assets := &postgresAssetStore{db: db}
+	colls, ok := NewPostgresCollectionStore(db, nil).(*postgresCollectionStore)
+	require.True(t, ok)
+	ctx := context.Background()
+
+	seedPendingAsset(t, db, assets, "m_one", "text/html", 100, 1, current(1))
+	seedPendingAsset(t, db, assets, "m_two", "text/html", 100, 1, current(1))
+	require.NoError(t, colls.Insert(ctx, portaldomain.Collection{ID: "c_fail", OwnerID: pendingOwner, OwnerEmail: "u@example.com", Name: "c_fail"}))
+	require.NoError(t, colls.SetSections(ctx, "c_fail", []portaldomain.CollectionSection{{
+		ID: "s1", Items: []portaldomain.CollectionItem{{ID: "i1", AssetID: "m_one"}},
+	}}))
+
+	work, err := colls.ClaimCollectionThumbnailWork(ctx, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	assert.Equal(t, 1, work[0].Attempts)
+
+	require.NoError(t, colls.HoldCollectionThumbnailWork(ctx, "c_fail", time.Hour, 1))
+	held, err := colls.ClaimCollectionThumbnailWork(ctx, time.Minute, 10)
+	require.NoError(t, err)
+	assert.Empty(t, held, "a held collection was claimed before its hold passed")
+
+	require.NoError(t, colls.RecordCollectionThumbnailFailure(ctx, "c_fail", work[0].Source, "none of the member tiles could be read"))
+	failed, err := colls.ClaimCollectionThumbnailWork(ctx, time.Minute, 10)
+	require.NoError(t, err)
+	assert.Empty(t, failed, "a mosaic that failed from this source was claimed again")
+
+	require.NoError(t, colls.SetSections(ctx, "c_fail", []portaldomain.CollectionSection{{
+		ID: "s1", Items: []portaldomain.CollectionItem{{ID: "i1", AssetID: "m_one"}, {ID: "i2", AssetID: "m_two"}},
+	}}))
+	changed, err := colls.ClaimCollectionThumbnailWork(ctx, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, changed, 1, "a new member makes a failed mosaic owed again")
+	assert.Equal(t, 1, changed[0].Attempts, "the failure cleared the count")
+
+	require.NoError(t, colls.RecordCollectionThumbnail(ctx, "c_fail", "portal/collections/c_fail/thumbnail.png", changed[0].Source))
+	var failure string
+	var attempts int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT thumbnail_failure, thumbnail_attempts FROM portal_collections WHERE id = 'c_fail'`).Scan(&failure, &attempts))
+	assert.Empty(t, failure, "a composed mosaic clears the failure")
+	assert.Zero(t, attempts)
+	assert.Error(t, colls.RecordCollectionThumbnailFailure(ctx, "c_missing", "", "x"))
+}
