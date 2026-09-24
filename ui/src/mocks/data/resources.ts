@@ -1144,3 +1144,11 @@ export const mockResources = {
   total: resources.length,
   content: mockResourceContent,
 };
+
+/**
+ * Folders stored with nothing filed in them yet (#1872). A folder in use is
+ * derived from the resources above; these are the ones a person created empty.
+ */
+export const mockResourceFolders: { scope: string; scope_id: string; path: string; created_at: string }[] = [
+  { scope: "global", scope_id: "", path: "templates/drafts", created_at: "2026-09-20T15:00:00Z" },
+];

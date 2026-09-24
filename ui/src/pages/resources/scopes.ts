@@ -42,24 +42,45 @@ export function isPlatformAdmin(user: UserProfile | null): boolean {
   return user.is_admin || roles.includes("admin") || roles.includes("platform-admin");
 }
 
-/** One entry in the library picker: the key a view is addressed by, and its name. */
-export interface LibraryChoice {
+/**
+ * A top-level folder of the Resources page (#1872): My Resources, Global, one
+ * per persona the caller can read, and -- for a platform administrator -- one
+ * per person under People.
+ *
+ * Each is a scope internally; the page never calls it anything but a folder.
+ */
+export interface ResourceRoot {
+  /** The key the address names it by: "user", "global", a persona, or "person:<id>". */
   key: string;
+  /** What the tree, the path bar and every location call it. */
   label: string;
+  /** Where a write lands: an upload, a new folder, a folder move. */
+  target: ScopeTarget;
+  /**
+   * What a read is narrowed by. My Resources names no id, so the server reads
+   * every key the caller's own files are stored under (subject and address).
+   */
+  params: { scope: string; scope_id?: string };
 }
 
-/** The key of the unnarrowed library, which is what a page opens on. */
-export const ALL_LIBRARIES = "all";
+/** The key prefix of a person's folder under People. */
+export const PERSON_PREFIX = "person:";
+
+/** The top-level folder a page opens on. */
+export const DEFAULT_ROOT = "user";
+
+/** The label of the administrator's folder of people. */
+export const PEOPLE_LABEL = "People";
 
 /**
- * personasFor is the personas a caller sees a library for: the one they are
+ * personasFor is the personas a caller sees a folder for: the one they are
  * resolved to, the ones they administer, and -- for a platform administrator --
  * every persona the deployment defines.
  *
  * An administrator's list is the whole deployment because their authority is
  * the whole deployment: CanWriteScope lets them upload into any persona and
- * ListScopes lets them list any persona, so a picker built from membership
- * alone would hide libraries they own material in (#1553).
+ * ListScopes lets them list any persona, so a tree built from membership alone
+ * would hide folders they own material in (#1553).
  */
 function personasFor(user: UserProfile | null, personaNames: string[]): string[] {
   if (!user) return [];
@@ -68,25 +89,70 @@ function personasFor(user: UserProfile | null, personaNames: string[]): string[]
   return [...new Set(all)].sort((a, b) => a.localeCompare(b));
 }
 
+function personaRoot(name: string): ResourceRoot {
+  return {
+    key: name,
+    label: name,
+    target: { scope: "persona", scope_id: name },
+    params: { scope: "persona", scope_id: name },
+  };
+}
+
 /**
- * libraryChoices is what the library picker offers, in the order it offers
- * them: everything the caller can reach, their own, each persona, then the
- * global one.
- *
- * All heads the list and is where a page opens. A reader's libraries are few
- * and mostly full of other people's material, so the useful first view is all
- * of it at once; narrowing to one is the deliberate act.
+ * rootsFor is the top-level folders in the order the tree lists them: the
+ * caller's own, Global, then each persona. People is not among them: it is a
+ * folder of folders, loaded when it is opened.
  */
-export function libraryChoices(
-  user: UserProfile | null,
-  personaNames: string[],
-): LibraryChoice[] {
+export function rootsFor(user: UserProfile | null, personaNames: string[]): ResourceRoot[] {
   return [
-    { key: ALL_LIBRARIES, label: "All" },
-    { key: "user", label: "Mine" },
-    ...personasFor(user, personaNames).map((name) => ({ key: name, label: name })),
-    { key: "global", label: "Global" },
+    {
+      key: "user",
+      label: "My Resources",
+      target: { scope: "user", scope_id: user?.user_id ?? "" },
+      params: { scope: "user" },
+    },
+    {
+      key: "global",
+      label: "Global",
+      target: { scope: "global", scope_id: "" },
+      params: { scope: "global" },
+    },
+    ...personasFor(user, personaNames).map(personaRoot),
   ];
+}
+
+/** personRoot is one person's folder under People, named by their address. */
+export function personRoot(scopeID: string, email = ""): ResourceRoot {
+  return {
+    key: PERSON_PREFIX + scopeID,
+    label: email || scopeID,
+    target: { scope: "user", scope_id: scopeID },
+    params: { scope: "user", scope_id: scopeID },
+  };
+}
+
+/**
+ * rootFor resolves the key an address names. A persona the tree does not list
+ * is still resolved, because the persona list arrives after the page does and a
+ * pasted link has to keep its place.
+ */
+export function rootFor(key: string, roots: ResourceRoot[], emailOf?: (id: string) => string): ResourceRoot {
+  const listed = roots.find((r) => r.key === key);
+  if (listed) return listed;
+  if (key.startsWith(PERSON_PREFIX)) {
+    const id = key.slice(PERSON_PREFIX.length);
+    return personRoot(id, emailOf?.(id) ?? "");
+  }
+  return personaRoot(key);
+}
+
+/**
+ * displayPath writes a location the way the page shows it: a path from the
+ * top-level folder, `/Global/data/weekly`, with a person's folder under People.
+ */
+export function displayPath(root: ResourceRoot, path: string): string {
+  const head = root.key.startsWith(PERSON_PREFIX) ? `/${PEOPLE_LABEL}/${root.label}` : `/${root.label}`;
+  return path ? `${head}/${path}` : head;
 }
 
 /**
@@ -120,31 +186,6 @@ export function withheldUploadPersonas(user: UserProfile | null): string[] {
   if (!user?.persona || isPlatformAdmin(user)) return [];
   const persona = user.persona;
   return holdsScope(user, { scope: "persona", scope_id: persona }) ? [] : [persona];
-}
-
-/**
- * canUpload answers whether the Upload control is offered for the view in
- * hand: write authority over the one library it names, or over any library at
- * all when it names none.
- */
-export function canUpload(
-  user: UserProfile | null,
-  target: ScopeTarget | null,
-  personaNames: string[],
-): boolean {
-  if (target) return canWriteScope(user, target);
-  return uploadTargets(user, personaNames).length > 0;
-}
-
-/**
- * targetForTab names the library a picker entry is showing. The All entry
- * spans every library and names none, so it resolves to null.
- */
-export function targetForTab(tab: string, user: UserProfile | null): ScopeTarget | null {
-  if (tab === ALL_LIBRARIES) return null;
-  if (tab === "global") return { scope: "global", scope_id: "" };
-  if (tab === "user") return { scope: "user", scope_id: user?.user_id ?? "" };
-  return { scope: "persona", scope_id: tab };
 }
 
 /**
@@ -217,7 +258,7 @@ export function libraryCopy(target: ScopeTarget | null): LibraryCopy {
   return {
     name: "My Resources",
     audience: "Only you can see it.",
-    source: "Only you can add to your own library.",
+    source: "Only you can add to My Resources.",
   };
 }
 
@@ -289,7 +330,7 @@ export function moveTargets(user: UserProfile | null, personaNames: string[]): M
     targets.push({
       scope: "user",
       scope_id: PERSON_TARGET,
-      label: "A person's library...",
+      label: "A person's folder...",
     });
   }
   return targets;

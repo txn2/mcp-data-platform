@@ -41,7 +41,7 @@ export function DestinationPicker({
       <Label className="text-xs text-muted-foreground">Destination</Label>
       <Select value={value} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger aria-label="Destination" className="w-full">
-          <SelectValue placeholder="Choose a library" />
+          <SelectValue placeholder="Choose a top-level folder" />
         </SelectTrigger>
         <SelectContent>
           {choices.map((c) => (

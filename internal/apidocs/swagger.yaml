@@ -6346,6 +6346,11 @@ definitions:
         description: Path is the folder's full slash-separated path inside its library.
         example: data/media-manager
         type: string
+      updated_at:
+        description: |-
+          UpdatedAt is the latest change beneath the folder: the newest update
+          of a file in it, or when it was created if that is later.
+        type: string
     type: object
   resource.FolderMove:
     properties:
@@ -6368,6 +6373,26 @@ definitions:
       path:
         type: string
       uri:
+        type: string
+    type: object
+  resource.Person:
+    properties:
+      count:
+        description: Count is the resources in the library.
+        example: 12
+        type: integer
+      email:
+        description: |-
+          Email is the address the library belongs to: the scope id when it is
+          one, else the address the owner uploaded under. Empty when neither is
+          known.
+        example: marcus.johnson@example.com
+        type: string
+      scope_id:
+        description: |-
+          ScopeID is the key the library is stored under: a subject, or an
+          address when the files were scoped to one.
+        example: 550e8400-e29b-41d4-a716-446655440000
         type: string
     type: object
   resource.Scope:
@@ -6637,6 +6662,19 @@ definitions:
         example: data/shows
         type: string
     type: object
+  resource.folderRequest:
+    properties:
+      path:
+        example: data/weekly
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        example: user
+      scope_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
   resource.listResponse:
     properties:
       resources:
@@ -6646,6 +6684,13 @@ definitions:
       total:
         example: 42
         type: integer
+    type: object
+  resource.peopleResponse:
+    properties:
+      people:
+        items:
+          $ref: '#/definitions/resource.Person'
+        type: array
     type: object
   resource.revisedResource:
     properties:
@@ -24042,7 +24087,12 @@ paths:
       - description: Ordering (default updated)
         enum:
         - updated
+        - updated_asc
         - last_read
+        - name
+        - name_desc
+        - size
+        - size_desc
         in: query
         name: sort
         type: string
@@ -24755,10 +24805,12 @@ paths:
   /resources/facets:
     get:
       description: The folders of the libraries the caller may read, each with the
-        exact number of resources filed under it at every depth, and the distinct
-        tags those resources carry. Both are derived from the rows rather than stored,
-        so this is what a tree and a tag filter are drawn from; deriving them from
-        a page of the listing could only ever report what had arrived.
+        exact number of resources filed under it at every depth and when anything
+        beneath it last changed, and the distinct tags those resources carry. A folder
+        is listed because a resource is filed under it or because it is stored (created
+        empty, or kept after its last file left), so this is what a tree is drawn
+        from; deriving it from a page of the listing could only ever report what had
+        arrived.
       parameters:
       - description: Filter by scope
         enum:
@@ -24791,6 +24843,99 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List a library's facets
+      tags:
+      - Resources
+  /resources/folders:
+    delete:
+      consumes:
+      - application/json
+      description: 'Removes a folder and the folders beneath it. Refused with 409
+        while any resource is filed at or beneath it: each file is deleted through
+        its own route first, which removes its stored object and its versions.'
+      parameters:
+      - description: The library and the folder's path
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resource.folderRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete an empty folder
+      tags:
+      - Resources
+    post:
+      consumes:
+      - application/json
+      description: Records an empty folder, and any ancestor it lacks, in one library.
+        The folder stays until it is deleted, whether or not anything is filed in
+        it. Requires the authority to add files to the library.
+      parameters:
+      - description: The library and the folder's path
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resource.folderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/resource.folderRequest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a folder
       tags:
       - Resources
   /resources/folders/move:
@@ -24843,6 +24988,40 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Move or rename a folder
+      tags:
+      - Resources
+  /resources/people:
+    get:
+      description: Every person's library that holds a resource or a folder, with
+        the address it belongs to and how many resources it holds. It is the People
+        folder a platform administrator's Resources tree shows; anyone else is refused.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.peopleResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List people's libraries
       tags:
       - Resources
   /table-connections:

@@ -121,8 +121,8 @@ describe("how the upload dialog names the library it failed to write to", () => 
     const text = await submitAndReadAlert(container);
 
     // Both halves of a fan-out are reported, so both have to be identifiable.
-    expect(text).toContain("one@example.com's library");
-    expect(text).toContain("two@example.com's library");
+    expect(text).toContain("one@example.com's resources");
+    expect(text).toContain("two@example.com's resources");
   });
 
   it("names a persona library the caller was sent to", async () => {

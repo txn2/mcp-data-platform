@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,6 +17,7 @@ import { BulkFileList } from "./bulk/BulkFileList";
 import { summarize, summaryText } from "../bulk/progress";
 import { useBulkUpload, type Sender } from "../bulk/useBulkUpload";
 import type { Unzip } from "../bulk/collect";
+import type { SourceFile } from "../bulk/plan";
 
 // The ceiling the dialog assumes when the server has not reported one, which
 // is resource.MaxUploadBytes, as in the single-file dialog.
@@ -38,6 +39,7 @@ export function BulkUploadModal({
   destination,
   folder,
   folders,
+  initial,
   send,
   unzip,
 }: {
@@ -48,6 +50,11 @@ export function BulkUploadModal({
   /** The folder the person is standing in, the batch's default base folder. */
   folder: string;
   folders: string[];
+  /**
+   * Files dropped onto the page from the desktop, added to the batch when the
+   * dialog opens (#1872). Absent opens it empty.
+   */
+  initial?: SourceFile[];
   /** Injected by a test; the XMLHttpRequest sender otherwise. */
   send?: Sender;
   unzip?: Unzip;
@@ -62,6 +69,13 @@ export function BulkUploadModal({
   const [template, setTemplate] = useState("{name}");
   const [unpack, setUnpack] = useState(true);
   const [error, setError] = useState("");
+  const added = useRef(false);
+  useEffect(() => {
+    if (added.current || !initial?.length) return;
+    added.current = true;
+    void batch.add(initial, unpack);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial]);
 
   const target: ScopeTarget | null =
     destination ?? choices.find((c) => targetKey(c) === chosen) ?? choices[0] ?? null;
@@ -80,7 +94,7 @@ export function BulkUploadModal({
   }).length;
 
   const start = async (onlyFailed: boolean) => {
-    const problem = !target ? "Choose a library to upload into." : pathProblem(base);
+    const problem = !target ? "Choose a folder to upload into." : pathProblem(base);
     if (problem || !target) {
       setError(problem ?? "");
       return;

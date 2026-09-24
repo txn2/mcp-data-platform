@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { USER_RESOURCES, gotoFolder, openNamed } from "../screenshots/helpers/resources";
 
 // Interactive coverage for prompt resource attachments (#1013). Runs against
 // MSW, whose attachment handlers are stateful, so attach / reorder / detach are
@@ -117,16 +118,11 @@ test.describe("Prompt attachments panel", () => {
 test.describe("Resource dependency view", () => {
   test("the resource detail lists the prompts that attach it", async ({ page }) => {
     await authenticate(page);
-    await page.goto("/portal/resources");
-    // The page opens on All; the seeded attachment is a global one, and this
-    // narrows to it. The picker is one listbox now (#1553).
-    await page.getByRole("combobox", { name: "Library" }).click();
-    await page.getByRole("option", { name: "Global", exact: true }).click();
-
-    // A library is a tree (#1530), so the file is inside the folder it is filed
-    // in; the search spans the whole library and reaches it from the root.
-    await page.getByLabel("Search resources").fill("SQL Style Guide");
-    await page.getByText("SQL Style Guide").first().click();
+    // The seeded attachment is a Global file, reached from the tree (#1872)
+    // and by a search, which spans the whole top-level folder.
+    await gotoFolder(page, USER_RESOURCES, "user");
+    await page.getByTestId("tree-node-global:").click();
+    await openNamed(page, "SQL Style Guide");
     const usedBy = page.getByTestId("resource-used-by-prompts");
     await expect(usedBy).toBeVisible();
     await expect(usedBy).toContainText("Attached to 1 prompt");

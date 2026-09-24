@@ -184,13 +184,27 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 	if r.Tags == nil {
 		r.Tags = []string{}
 	}
-	_, err := s.db.ExecContext(ctx, query,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning insert: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, query,
 		r.ID, string(r.Scope), scopeID, r.Path, r.Filename, r.DisplayName,
 		r.Description, r.MIMEType, r.SizeBytes, r.S3Key, r.URI,
 		pq.Array(r.Tags), r.UploaderSub, r.UploaderEmail,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting resource: %w", err)
+	}
+	// The folder is recorded with the file, so it stays when the file moves
+	// out or is deleted (#1872).
+	lib := ScopeFilter{Scope: r.Scope, ScopeID: r.ScopeID}
+	if err := recordFolderChain(ctx, tx, lib, r.Path, r.UploaderEmail); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing insert: %w", err)
 	}
 	s.index.NotifyWrite(ctx, r.ID)
 	return nil
@@ -454,23 +468,53 @@ func (s *postgresStore) ClearThumbnail(ctx context.Context, id, variant string) 
 // rendering to a real PostgreSQL to parse and plan (#1512).
 func buildFolders(filter Filter) (query string, args []any) {
 	where, args := buildScopeWhere(filter)
+	// The stored folders (#1872) are read under the same library predicate,
+	// numbered on from the resources' own bindings. They count nothing: a
+	// folder's count is the files beneath it, and a stored row is what keeps
+	// an emptied folder on the list.
+	stored, storedArgs, _ := storedFolderVisibility(filter, len(args)+1)
+	args = append(args, storedArgs...)
 	// generate_subscripts walks the path's segments; array_to_string rebuilds
 	// the prefix ending at each one. A path is validated to at most 8 segments,
 	// so the expansion is bounded.
-	// #nosec G202 -- the only interpolation is the scope predicate above, whose
-	// values are bound as parameters.
+	// #nosec G202 -- the only interpolation is the scope predicates above,
+	// whose values are bound as parameters.
 	query = `
-		SELECT chain.folder, COUNT(*) AS count
-		FROM resources r
-		CROSS JOIN LATERAL (
-			SELECT array_to_string(parts[1:i], '/') AS folder
-			FROM (SELECT string_to_array(r.path, '/') AS parts) AS p,
-			     generate_subscripts(p.parts, 1) AS i
-		) AS chain
-		WHERE ` + where + `
-		GROUP BY chain.folder
-		ORDER BY chain.folder`
+		SELECT folder, SUM(n) AS count, MAX(changed) AS updated_at FROM (
+			SELECT chain.folder, 1 AS n, r.updated_at AS changed
+			FROM resources r
+			CROSS JOIN LATERAL (
+				SELECT array_to_string(parts[1:i], '/') AS folder
+				FROM (SELECT string_to_array(r.path, '/') AS parts) AS p,
+				     generate_subscripts(p.parts, 1) AS i
+			) AS chain
+			WHERE ` + where + `
+			UNION ALL
+			SELECT chain.folder, 0, f.created_at
+			FROM resource_folders f
+			CROSS JOIN LATERAL (
+				SELECT array_to_string(parts[1:i], '/') AS folder
+				FROM (SELECT string_to_array(f.path, '/') AS parts) AS p,
+				     generate_subscripts(p.parts, 1) AS i
+			) AS chain
+			WHERE ` + stored + `
+		) AS held
+		GROUP BY folder
+		ORDER BY folder`
 	return query, args
+}
+
+// storedFolderVisibility is the library predicate over resource_folders. A
+// listing narrowed by tag or text names files, and a stored folder carries
+// neither, so a narrowed facet reads the resources alone.
+func storedFolderVisibility(filter Filter, start int) (where string, args []any, next int) {
+	if filter.Tag != "" || filter.Query != "" {
+		return "FALSE", nil, start
+	}
+	if filter.AllScopes {
+		return unrestrictedVisibility, nil, start
+	}
+	return scopeVisibilityWhere(filter.Scopes, start)
 }
 
 // Folders returns every folder the filter admits, with the exact number of
@@ -492,7 +536,8 @@ func (s *postgresStore) Folders(ctx context.Context, filter Filter) ([]Folder, e
 	var folders []Folder
 	for rows.Next() {
 		var f Folder
-		if err := rows.Scan(&f.Path, &f.Count); err != nil {
+		var changed sql.NullTime
+		if err := rows.Scan(&f.Path, &f.Count, &changed); err != nil {
 			return nil, fmt.Errorf("scanning folder row: %w", err)
 		}
 		// A resource with an empty path has no folder to report. Validation
@@ -500,6 +545,10 @@ func (s *postgresStore) Folders(ctx context.Context, filter Filter) ([]Folder, e
 		// rather than an expected shape.
 		if f.Path == "" {
 			continue
+		}
+		if changed.Valid {
+			t := changed.Time
+			f.UpdatedAt = &t
 		}
 		folders = append(folders, f)
 	}
@@ -546,13 +595,8 @@ func (s *postgresStore) Move(ctx context.Context, moves []Move) error { //nolint
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := parkAddresses(ctx, tx, moves); err != nil {
+	if err := applyMoves(ctx, tx, moves); err != nil {
 		return err
-	}
-	for _, m := range moves {
-		if err := applyMove(ctx, tx, m); err != nil {
-			return err
-		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -568,6 +612,24 @@ func (s *postgresStore) Move(ctx context.Context, moves []Move) error { //nolint
 	// by text hash, so the notify costs a hash compare and no embed call.
 	for _, m := range moves {
 		s.index.NotifyWrite(ctx, m.ID)
+	}
+	return nil
+}
+
+// applyMoves relocates each resource of a batch and records the folder each
+// now sits in, so the folder outlives the file if it later moves on (#1872).
+func applyMoves(ctx context.Context, tx *sql.Tx, moves []Move) error {
+	if err := parkAddresses(ctx, tx, moves); err != nil {
+		return err
+	}
+	for _, m := range moves {
+		if err := applyMove(ctx, tx, m); err != nil {
+			return err
+		}
+		lib := ScopeFilter{Scope: m.Scope, ScopeID: m.ScopeID}
+		if err := recordFolderChain(ctx, tx, lib, m.Path, ""); err != nil {
+			return err
+		}
 	}
 	return nil
 }

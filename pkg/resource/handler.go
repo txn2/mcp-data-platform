@@ -82,6 +82,14 @@ type Deps struct {
 	// is never failed by it. Nil on a deployment that cannot register tables.
 	OnRevised func(ctx context.Context, id string, version int) []string
 
+	// Folders stores folders as rows of their own (#1872). Absent on a store
+	// that does not implement FolderStore, which leaves the folder create and
+	// delete routes answering 503 and a folder move rewriting resources alone.
+	Folders FolderStore
+	// People lists every person's library, for an administrator's People
+	// folder. Absent answers 503 on that route.
+	People PeopleLister
+
 	// Versions records content revisions. Absent on a deployment whose store
 	// does not implement VersionStore, which disables the revision and version
 	// routes (503) and leaves create, metadata edits, and reads unaffected.
@@ -192,6 +200,9 @@ func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/resources/{id}/thumbnail", h.handleGetThumbnail)
 	mux.HandleFunc("DELETE /api/v1/resources/{id}/thumbnail", h.handleClearThumbnail)
 	mux.HandleFunc("POST /api/v1/resources/folders/move", h.handleFolderMove)
+	mux.HandleFunc("POST /api/v1/resources/folders", h.handleFolderCreate)
+	mux.HandleFunc("DELETE /api/v1/resources/folders", h.handleFolderDelete)
+	mux.HandleFunc("GET /api/v1/resources/people", h.handlePeople)
 	mux.HandleFunc("GET /api/v1/resources", h.handleList)
 	mux.HandleFunc("GET /api/v1/resources/{id}", h.handleGet)
 	mux.HandleFunc("GET /api/v1/resources/{id}/content", h.handleGetContent)
@@ -638,7 +649,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 // @Param        direct   query  bool    false  "With path, only the resources filed directly at it, none beneath it"
 // @Param        tag      query  string  false  "Filter by tag"
 // @Param        q        query  string  false  "Search display_name and description"
-// @Param        sort     query  string  false  "Ordering (default updated)"  Enums(updated, last_read)
+// @Param        sort     query  string  false  "Ordering (default updated)"  Enums(updated, updated_asc, last_read, name, name_desc, size, size_desc)
 // @Param        limit    query  int     false  "Max results to return (default 100, max 200)"
 // @Param        offset   query  int     false  "Pagination offset (default 0)"
 // @Success      200  {object}  resource.listResponse
@@ -703,7 +714,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 // handleFacets handles GET /api/v1/resources/facets.
 //
 // @Summary      List a library's facets
-// @Description  The folders of the libraries the caller may read, each with the exact number of resources filed under it at every depth, and the distinct tags those resources carry. Both are derived from the rows rather than stored, so this is what a tree and a tag filter are drawn from; deriving them from a page of the listing could only ever report what had arrived.
+// @Description  The folders of the libraries the caller may read, each with the exact number of resources filed under it at every depth and when anything beneath it last changed, and the distinct tags those resources carry. A folder is listed because a resource is filed under it or because it is stored (created empty, or kept after its last file left), so this is what a tree is drawn from; deriving it from a page of the listing could only ever report what had arrived.
 // @Tags         Resources
 // @Produce      json
 // @Param        scope    query  string  false  "Filter by scope"  Enums(global, persona, user)

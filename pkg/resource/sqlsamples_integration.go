@@ -73,6 +73,21 @@ func SQLSamples() map[string]string {
 	// RETURNED. The tile writes are the statements the store runs, not copies.
 	claim, _ := buildThumbnailClaim(1, time.Minute, 25)
 	foldersAll, _ := buildFolders(Filter{AllScopes: true})
+	// A narrowed facet reads no stored folder, so the second arm is FALSE and
+	// binds nothing (#1872).
+	foldersTagged, _ := buildFolders(Filter{Scopes: scopes, Tag: "finance"})
+	persona := ScopeFilter{Scope: ScopePersona, ScopeID: "analyst"}
+	global := ScopeFilter{Scope: ScopeGlobal}
+	resourcesUnder, _ := buildFolderRowsUnder("resources", persona, "data/weekly")
+	foldersUnder, _ := buildFolderRowsUnder("resource_folders", global, "data")
+	deleteFolders, _ := buildDeleteFolders(persona, "data/weekly")
+	selectFolders, _ := buildSelectFolders(global, "data")
+	byName := filter
+	byName.Sort = SortName
+	_, byNamePage, _ := buildList(byName)
+	bySize := filter
+	bySize.Sort = SortSizeDesc
+	_, bySizePage, _ := buildList(bySize)
 
 	return map[string]string{
 		"buildHybridSearch":       hybrid,
@@ -94,5 +109,14 @@ func SQLSamples() map[string]string {
 		"recordThumbnailFailure":  recordThumbnailFailureQuery,
 		"holdThumbnailWork":       holdThumbnailWorkQuery,
 		"buildFolders/all":        foldersAll,
+		"buildFolders/tagged":     foldersTagged,
+		"countUnder/resources":    resourcesUnder,
+		"countUnder/folders":      foldersUnder,
+		"buildDeleteFolders":      deleteFolders,
+		"buildSelectFolders":      selectFolders,
+		"buildList/page.name":     byNamePage,
+		"buildList/page.sizeDesc": bySizePage,
+		"insertFolder":            insertFolder,
+		"selectPeople":            selectPeople,
 	}
 }

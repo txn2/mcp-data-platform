@@ -165,12 +165,31 @@ func TestBuildFolders_ExpandsThePathAndBindsTheScopes(t *testing.T) {
 	if !strings.Contains(query, "generate_subscripts") {
 		t.Errorf("query does not expand the path into its ancestors: %s", query)
 	}
-	if !strings.Contains(query, "GROUP BY chain.folder") {
+	if !strings.Contains(query, "GROUP BY folder") {
 		t.Errorf("query does not group by the folder: %s", query)
 	}
-	// The two scopes: global binds its name, the user scope its name and id.
-	if len(args) != 3 {
-		t.Fatalf("expected 3 args, got %d: %v", len(args), args)
+	if !strings.Contains(query, "FROM resource_folders f") {
+		t.Errorf("query does not read the stored folders (#1872): %s", query)
+	}
+	// The two scopes, once per table: global binds its name, the user scope
+	// its name and id, and the stored-folder arm is numbered on from $4.
+	if len(args) != 6 {
+		t.Fatalf("expected 6 args, got %d: %v", len(args), args)
+	}
+	if !strings.Contains(query, "scope = $4 AND scope_id IS NULL") {
+		t.Errorf("stored-folder predicate not renumbered: %s", query)
+	}
+}
+
+// TestBuildFolders_ANarrowedFacetReadsNoStoredFolder: a stored folder carries
+// no tag and no text, so a narrowed rollup's second arm is FALSE.
+func TestBuildFolders_ANarrowedFacetReadsNoStoredFolder(t *testing.T) {
+	query, args := buildFolders(Filter{Scopes: []ScopeFilter{{Scope: ScopeGlobal}}, Tag: "x"})
+	if !strings.Contains(query, "WHERE FALSE") {
+		t.Errorf("expected the stored arm to be FALSE: %s", query)
+	}
+	if len(args) != 2 {
+		t.Errorf("expected 2 args, got %v", args)
 	}
 }
 

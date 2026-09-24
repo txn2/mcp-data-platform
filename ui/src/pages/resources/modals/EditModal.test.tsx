@@ -5,7 +5,7 @@ import { useAuthStore, type UserProfile } from "@/stores/auth";
 import type { Resource } from "@/api/resources/types";
 import { EditModal } from "./EditModal";
 
-// A resource's library used to be chosen once, on the upload form, and never
+// A resource's resources used to be chosen once, on the upload form, and never
 // again (#1502). It is now a field on the edit dialog, offering the libraries
 // this caller may move to and nothing else -- so the form never asks for a move
 // the server will refuse.
@@ -79,7 +79,7 @@ afterEach(() => {
 });
 
 async function openLibraryPicker() {
-  fireEvent.click(screen.getByRole("combobox", { name: "Library" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Top-level folder" }));
   await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
 }
 
@@ -135,14 +135,14 @@ describe("the library field on the edit dialog", () => {
   it("is absent when there is nowhere to move the file", () => {
     signIn({ persona: undefined, roles: [] });
     renderModal();
-    expect(screen.queryByRole("combobox", { name: "Library" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Top-level folder" })).toBeNull();
   });
 
-  it("asks an administrator for the address when they pick a person's library", async () => {
+  it("asks an administrator for the address when they pick a person's resources", async () => {
     signIn({ is_admin: true });
     renderModal();
 
-    await pickLibrary("A person's library...");
+    await pickLibrary("A person's folder...");
     fireEvent.click(screen.getByText("Save"));
     // Nothing is sent until the person is named.
     expect(patched).toBeNull();

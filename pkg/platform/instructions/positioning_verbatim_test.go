@@ -55,11 +55,11 @@ func TestResourcePositioningIsVerbatim(t *testing.T) {
 func TestPortalResourceSurfacesRenderTheSharedConstant(t *testing.T) {
 	root := repoRoot(t)
 
-	// The two portal surfaces that state the split: the empty resources library,
+	// The two portal surfaces that state the split: an empty Resources folder,
 	// and the dialog someone uploads through. Both render the constant; neither
 	// may restate the words.
 	for _, rel := range []string{
-		"ui/src/pages/resources/parts/ResourceResults.tsx",
+		"ui/src/pages/resources/browser/Chrome.tsx",
 		"ui/src/pages/resources/modals/UploadModal.tsx",
 	} {
 		body, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // test reads project sources

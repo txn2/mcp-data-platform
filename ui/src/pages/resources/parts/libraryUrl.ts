@@ -1,12 +1,30 @@
-export type ResourceSort = "updated" | "last_read";
+import type { ResourceSort } from "@/api/resources/types";
 
-/** Where the library is standing, and what it is narrowed to. */
+export type { ResourceSort } from "@/api/resources/types";
+
+/** The order a folder opens in: by name, as a file manager lists one (#1872). */
+export const DEFAULT_SORT: ResourceSort = "name";
+
+const SORTS: readonly ResourceSort[] = [
+  "updated",
+  "updated_asc",
+  "last_read",
+  "name",
+  "name_desc",
+  "size",
+  "size_desc",
+];
+
+/** The key an address from before the tree names for "every folder" (#1872). */
+const RETIRED_ALL = "all";
+
+/** Where the page is standing, and what it is narrowed to. */
 export interface LibraryView {
-  /** The library tab in view. */
+  /** The top-level folder in view: "user", "global", a persona, or "person:<id>". */
   tab: string;
-  /** The folder inside it, "" for the library's root. */
+  /** The folder inside it, "" for its root. */
   path: string;
-  /** The free-text filter, already debounced. It spans the whole library. */
+  /** The free-text filter, already debounced. It spans the whole top-level folder. */
   q: string;
   /** The single tag the view is narrowed to, or "" for every tag. */
   tag: string;
@@ -54,8 +72,12 @@ export function readLibraryView(
     // An unrecognized order is the default one: this comes off the address bar,
     // where anything at all can be typed, and the sort feeds a query parameter
     // the server validates for itself.
-    sort: sp.get("sort") === "last_read" ? "last_read" : "updated",
+    sort: readSort(sp.get("sort")),
   };
+}
+
+function readSort(raw: string | null): ResourceSort {
+  return SORTS.find((s) => s === raw) ?? DEFAULT_SORT;
 }
 
 /** splitLocation separates an in-app path from its query string and hash. */
@@ -87,7 +109,9 @@ function readLocation(
     .map(decodeURIComponent)
     .filter((s) => s !== "");
   const [tab, ...folders] = parts;
-  if (!tab) return { tab: defaultTab, path: "" };
+  // The All view had no place in a tree and was retired (#1872); a link to it
+  // opens the default top-level folder.
+  if (!tab || tab === RETIRED_ALL) return { tab: defaultTab, path: "" };
   return { tab, path: folders.join("/") };
 }
 
@@ -96,7 +120,7 @@ export function libraryPath(basePath: string, view: LibraryView, defaultTab: str
   const sp = new URLSearchParams();
   if (view.q) sp.set("q", view.q);
   if (view.tag) sp.set("tag", view.tag);
-  if (view.sort !== "updated") sp.set("sort", view.sort);
+  if (view.sort !== DEFAULT_SORT) sp.set("sort", view.sort);
   const qs = sp.toString();
 
   // The plain section path is the default library at its root, so it stays the

@@ -25,6 +25,6 @@ export function scopeLabel(scope: string, scopeId: string, viewer?: UserProfile 
   if (scope === "global") return "Global";
   if (scope === "persona") return scopeId;
   if (viewer && scopeId !== "" && scopeId === viewer.user_id) return "My Resources";
-  if (scopeId.includes("@")) return `${scopeId}'s library`;
-  return viewer ? "Another person's library" : "My Resources";
+  if (scopeId.includes("@")) return `${scopeId}'s resources`;
+  return viewer ? "Another person's resources" : "My Resources";
 }
