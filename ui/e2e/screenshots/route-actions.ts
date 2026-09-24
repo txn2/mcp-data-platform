@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import { openResourceNamed } from "./route-actions-library";
+import { openResourceNamed, openTopLevelFolder } from "./route-actions-library";
 
 /**
  * Capture actions that more than one route in the manifest performs, or that
@@ -223,7 +223,7 @@ export async function openKnowledgeGraphCorpus(page: Page): Promise<void> {
 }
 
 /**
- * openResourceDetail opens the resources table's revision-trail fixture, which
+ * openResourceDetail opens the revision-trail fixture, filed in Global, which
  * is the only one carrying both a read-activity rollup and a version history.
  */
 export async function openResourceDetail(page: Page): Promise<void> {
@@ -251,21 +251,21 @@ export async function openResourceLifecycle(page: Page): Promise<void> {
 
 /**
  * openResourceMove opens the edit dialog on the resource detail page and picks a
- * library to move the file into (#1502).
+ * top-level folder to move the file into (#1502).
  *
- * The picked library matters: the destination note only appears once the
+ * The picked folder matters: the destination note only appears once the
  * selection differs from where the file is, and that note -- who will be able to
  * see the file, and that its address changes while the address already written
  * down keeps resolving -- is the whole point of the capture.
  */
 export async function openResourceMove(page: Page): Promise<void> {
-  // A resource in one person's own library, rather than the revision-trail
-  // fixture the other captures open: the file this documents is one whose
-  // library is about to widen, and the global fixture is already where the
-  // widest move would land.
-  await openResourceNamed(page, "Query Templates");
+  // A file in one person's own folder, reached under People, rather than the
+  // revision-trail fixture the other captures open: the file this documents is
+  // one whose audience is about to widen, and the global fixture is already
+  // where the widest move would land.
+  await openResourceNamed(page, "Query Templates", "person:marcus-engineer");
   await page.getByRole("button", { name: "Edit" }).first().click({ timeout: 3_000 });
-  await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
+  await page.getByRole("combobox", { name: "Top-level folder" }).click({ timeout: 3_000 });
   await page.getByRole("option", { name: "Global" }).click({ timeout: 3_000 });
   // Waited on rather than timed out: the note appears only once the selection
   // differs from where the file is, so a swallowed click would publish the
@@ -275,22 +275,14 @@ export async function openResourceMove(page: Page): Promise<void> {
 }
 
 /**
- * openPersonaScopeTab switches a resources table to the data-engineer persona
- * scope, which is the one the fixtures populate. Both the user and admin
- * resources captures want it, so it lives here rather than twice in the
- * manifest. The tab is absent on a deployment with no persona resources, which
- * is why its visibility is checked rather than assumed.
+ * openPersonaScopeTab opens the data-engineer persona's top-level folder from
+ * the tree (#1872), which is the one the fixtures populate most. Both the user
+ * and admin resources captures want it, so it lives here rather than twice in
+ * the manifest.
  */
 export async function openPersonaScopeTab(page: Page): Promise<void> {
-  // The library is one listbox now rather than a strip of tabs (#1553).
-  await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
-  const option = page.getByRole("option", { name: "data-engineer", exact: true });
-  if (await option.isVisible()) {
-    await option.click();
-    await page.waitForTimeout(500);
-    return;
-  }
-  await page.keyboard.press("Escape");
+  await openTopLevelFolder(page, "data-engineer");
+  await page.waitForTimeout(500);
 }
 
 /**
@@ -395,7 +387,8 @@ export async function openTableRegisterForm(page: Page): Promise<void> {
  * registered-table panel (#1441).
  */
 export async function openStoreListResourceTables(page: Page): Promise<void> {
-  await openResourceNamed(page, "Store List");
+  // Filed in one person's own folder, which an administrator reaches under People.
+  await openResourceNamed(page, "Store List", "person:david-director");
   await showTablesPanel(page);
 }
 

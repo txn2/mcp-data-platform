@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { gotoFolder, openNamed } from "../screenshots/helpers/resources";
 
 // Viewing a PDF used to let the PDF act on the reader (#1783).
 //
@@ -43,9 +44,10 @@ async function printCount(page: Page): Promise<number> {
 async function openPdf(page: Page): Promise<void> {
   await trapPrint(page);
   await authenticate(page);
-  await page.goto(RESOURCES);
-  await page.getByLabel("Search resources").fill(RESOURCE);
-  await page.getByText(RESOURCE, { exact: true }).first().click();
+  // res-003 is filed in Global (#1872: reached by a search there, opened with a
+  // double-click).
+  await gotoFolder(page, RESOURCES, "global");
+  await openNamed(page, RESOURCE);
   // The page indicator only appears once the document is open and paginated,
   // so waiting for it is waiting for a rendered document rather than a frame.
   await expect(page.getByTestId("pdf-page-indicator")).toBeVisible({ timeout: 30_000 });

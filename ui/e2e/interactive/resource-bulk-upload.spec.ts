@@ -1,20 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { ADMIN_RESOURCES, chooseUpload, gotoFolder } from "../screenshots/helpers/resources";
 
 // The many-files upload (#1862), driven against MSW, whose create handler
 // answers if_exists=skip_unchanged the way the server does: the same bytes at
 // an address are left alone, different bytes become a new version, and an
-// empty address is created. The "admin" persona library is empty in the mock
-// fixture, so every file this spec uploads is its own.
-
-const ADMIN_RESOURCES = "/portal/admin/resources";
+// empty address is created. The "admin" persona folder is empty in the mock
+// fixture, so every file this spec uploads is its own. The upload is started
+// from the file manager's Upload menu (#1872), in that top-level folder.
 
 async function openBulkUpload(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto(ADMIN_RESOURCES);
-  await page.getByRole("combobox", { name: "Library" }).click();
-  await page.getByRole("option", { name: "admin", exact: true }).click();
-  await page.getByRole("button", { name: "Upload many" }).click();
+  await gotoFolder(page, ADMIN_RESOURCES, "admin");
+  await chooseUpload(page, "Many files or a folder...");
   await expect(page.getByTestId("bulk-empty")).toBeVisible();
 }
 

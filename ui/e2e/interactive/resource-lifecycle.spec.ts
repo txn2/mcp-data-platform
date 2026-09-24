@@ -1,27 +1,30 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { ADMIN_RESOURCES, gotoFolder, openNamed, rowNamed, searchFor } from "../screenshots/helpers/resources";
 
 // Interactive coverage for the managed-resource lifecycle surfaces (#1014):
 // version history with replace and restore, the usage panel, and the admin
-// table's last-read column and ordering. Runs against MSW, whose resource
+// listing's last-read column and ordering. Runs against MSW, whose resource
 // handlers answer the version, replace, restore, and version-download routes,
 // so each action is exercised as a real request-response round trip.
 //
 // res-001 ("SQL Style Guide") is the fixture with a three-revision trail (the
 // newest a restore of v1) and read activity; res-002 has neither, which is what
-// gives the never-read state something to render.
+// gives the never-read state something to render. Both are filed in Global.
 
-const ADMIN_RESOURCES = "/portal/admin/resources";
-
-// A library is a tree (#1530), so a file is not on the page the library opens
-// at -- it is inside whichever folder it is filed in. Searching reaches it from
-// anywhere in the library, which is what the whole-library search is for.
+// A file is inside whichever folder it is filed in, so it is reached by a
+// search, which spans the whole top-level folder (#1872), and opened on its
+// own page with a double-click.
 async function openResourceDetail(page: Page, name: string): Promise<void> {
   await authenticate(page);
-  await page.goto(ADMIN_RESOURCES);
-  await page.getByLabel("Search resources").fill(name);
-  await page.getByText(name, { exact: true }).first().click();
+  await gotoFolder(page, ADMIN_RESOURCES, "global");
+  await openNamed(page, name);
   await expect(page.getByTestId("resource-versions")).toBeVisible();
+}
+
+/** The Last read cell of a file's row, which is the listing's last column. */
+function lastRead(page: Page, id: string) {
+  return page.getByTestId(`row-${id}`).locator("td").last();
 }
 
 test.describe("Resource version history", () => {
@@ -118,43 +121,51 @@ test.describe("Resource usage", () => {
   });
 });
 
-test.describe("Admin resources table", () => {
+test.describe("Admin resources listing", () => {
   test("shows last-read recency, flagging what has never been read", async ({ page }) => {
     await authenticate(page);
-    // The column belongs to a folder's own table, and the two fixtures are
+    // The column belongs to a folder's own listing, and the two fixtures are
     // filed in different folders (#1530), so each is read where it lives.
-    await page.goto(`${ADMIN_RESOURCES}/lib/all/documentation`);
-    // The library is drawn as tiles by default (#1553); the columns this is
-    // about are the table's, so it asks for rows.
-    await page.getByRole("button", { name: "Table view" }).click();
+    await gotoFolder(page, ADMIN_RESOURCES, "global", "documentation");
     await expect(page.getByRole("columnheader", { name: "Last read" })).toBeVisible();
     // res-001 has read activity.
-    await expect(page.getByTestId("resource-last-read-res-001")).not.toHaveText("Never");
+    await expect(lastRead(page, "res-001")).not.toHaveText("Never");
 
     // res-002 has none and is old enough to flag.
-    await page.goto(`${ADMIN_RESOURCES}/lib/all/templates/reporting`);
-    await expect(page.getByTestId("resource-last-read-res-002")).toHaveText("Never");
+    await gotoFolder(page, ADMIN_RESOURCES, "global", "templates/reporting");
+    await expect(lastRead(page, "res-002")).toHaveText("Never");
   });
 
-  test("sorting by recently read asks the server for that order", async ({ page }) => {
+  test("sorting by a column header asks the server for that order", async ({ page }) => {
     await authenticate(page);
-    await page.goto(ADMIN_RESOURCES);
+    await gotoFolder(page, ADMIN_RESOURCES, "global", "documentation/architecture");
 
-    // The sort facet is a Radix listbox, not a native <select>: the order is
-    // chosen by opening the trigger and clicking the option.
-    await page.getByRole("combobox", { name: "Sort resources" }).click();
+    // Size starts largest first, as a file manager's does, and the order is
+    // the server's: the listing is paged, so a client-side sort would order
+    // only the page in hand.
     const [resp] = await Promise.all([
-      page.waitForResponse((r) => r.url().includes("sort=last_read")),
-      page.getByRole("option", { name: "Recently read" }).click(),
+      page.waitForResponse((r) => r.url().includes("/api/v1/resources?") && r.url().includes("sort=size_desc")),
+      page.getByTestId("sort-size").click(),
     ]);
     expect(resp.status()).toBe(200);
+    await expect(page).toHaveURL(/sort=size_desc/);
+    await expect(page.getByTestId("sort-size")).toHaveAttribute("aria-sort", "descending");
 
-    // The most recently read resource leads the library. The tree groups by
-    // folder, so the order is read off a search spanning the whole library --
-    // which is where the sort is visible at all.
-    await page.getByLabel("Search resources").fill("e");
-    await expect(page.getByTestId("search-hits").locator("li").first()).toContainText(
-      "SQL Style Guide",
-    );
+    const sizes = await page
+      .getByTestId("listing")
+      .locator("tbody tr[data-key]:not([data-key^='d:'])")
+      .evaluateAll((rows) => rows.map((r) => r.getAttribute("data-key")));
+    const body = (await resp.json()) as { resources: { id: string; size_bytes: number }[] };
+    const expected = [...body.resources].sort((a, b) => b.size_bytes - a.size_bytes).map((r) => r.id);
+    expect(sizes).toEqual(expected);
+  });
+
+  test("a search lists every hit in the top-level folder with where it is", async ({ page }) => {
+    await authenticate(page);
+    await gotoFolder(page, ADMIN_RESOURCES, "global", "onboarding");
+    // Typed inside one folder, the search spans all of Global.
+    await searchFor(page, "Guide");
+    await expect(rowNamed(page, "SQL Style Guide")).toContainText("/Global/documentation");
+    await expect(rowNamed(page, "Onboarding Guide")).toContainText("/Global/onboarding");
   });
 });

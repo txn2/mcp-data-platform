@@ -92,14 +92,37 @@ const (
 	// SortLastRead orders by most recently read, never-read resources last.
 	// It is what a curator hunting dead weight sorts by.
 	SortLastRead Sort = "last_read"
+	// SortUpdatedAsc orders by least recently updated first. It and the sorts
+	// below are the file manager's column sorts (#1872): a folder is paged, so
+	// a column header sorts on the server or it sorts only what has arrived.
+	SortUpdatedAsc Sort = "updated_asc"
+	// SortName orders by display name, A to Z.
+	SortName Sort = "name"
+	// SortNameDesc orders by display name, Z to A.
+	SortNameDesc Sort = "name_desc"
+	// SortSize orders by size, smallest first.
+	SortSize Sort = "size"
+	// SortSizeDesc orders by size, largest first.
+	SortSizeDesc Sort = "size_desc"
 )
+
+// sortOrders maps each sort to its SQL ordering. Every ordering ends on id, so
+// two rows that tie keep one order from page to page.
+var sortOrders = map[Sort]string{
+	SortLastRead:   "last_read_at DESC NULLS LAST, updated_at DESC",
+	SortUpdatedAsc: "updated_at ASC, id",
+	SortName:       "lower(display_name) ASC, id",
+	SortNameDesc:   "lower(display_name) DESC, id",
+	SortSize:       "size_bytes ASC, id",
+	SortSizeDesc:   "size_bytes DESC, id",
+}
 
 // orderByClause maps a sort to its SQL ordering. An unknown value falls back to
 // the default so a malformed query parameter degrades to the normal list rather
 // than failing or reaching the SQL.
 func (s Sort) orderByClause() string {
-	if s == SortLastRead {
-		return "last_read_at DESC NULLS LAST, updated_at DESC"
+	if o, ok := sortOrders[s]; ok {
+		return o
 	}
 	return "updated_at DESC"
 }
@@ -137,15 +160,18 @@ type Filter struct {
 
 // Folder is one folder of a library and how much it holds.
 //
-// A folder is not a stored row: it exists because a resource is filed under it
-// and stops existing when the last one leaves. Count is everything beneath it
-// at every depth, which is what makes the number on a folder mean something to
-// somebody deciding whether to open it.
+// A folder exists because it was created or because a resource was filed
+// under it, and it stays when its last file leaves (#1872). Count is everything
+// beneath it at every depth, which is what makes the number on a folder mean
+// something to somebody deciding whether to open it.
 type Folder struct {
 	// Path is the folder's full slash-separated path inside its library.
 	Path string `json:"path" example:"data/media-manager"`
 	// Count is the resources filed at this path and beneath it.
 	Count int `json:"count" example:"12"`
+	// UpdatedAt is the latest change beneath the folder: the newest update
+	// of a file in it, or when it was created if that is later.
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // ScopeFilter identifies a single scope+id pair for visibility filtering.

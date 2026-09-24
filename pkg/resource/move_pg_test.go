@@ -42,6 +42,11 @@ func TestPostgresStore_MoveWritesTheRowAndTheAliasTogether(t *testing.T) {
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").
 		WithArgs(m.URI).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	// The folder the file now sits in is recorded in the same transaction, so
+	// it stays if the file moves on (#1872).
+	mock.ExpectExec("INSERT INTO resource_folders").
+		WithArgs("persona", sqlmock.AnyArg(), "templates", "", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	if err := NewPostgresStore(db).Move(context.Background(), []Move{m}); err != nil {
@@ -65,6 +70,7 @@ func TestPostgresStore_MoveRecordsNoAliasWhenTheAddressIsUnchanged(t *testing.T)
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE resources SET scope").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	if err := NewPostgresStore(db).Move(context.Background(), []Move{m}); err != nil {
@@ -178,6 +184,7 @@ func TestPostgresStore_MoveReportsANonConflictCommitFailure(t *testing.T) {
 	mock.ExpectExec("UPDATE resources SET scope").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit().WillReturnError(errors.New("connection refused"))
 
 	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
@@ -212,6 +219,7 @@ func TestPostgresStore_MoveConflictOnCommit(t *testing.T) {
 	mock.ExpectExec("UPDATE resources SET scope").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit().WillReturnError(errors.New("duplicate key value violates unique constraint"))
 
 	err = NewPostgresStore(db).Move(context.Background(), []Move{movedRow()})
@@ -351,10 +359,13 @@ func TestPostgresStore_MoveVacatesEveryAddressBeforeTakingAny(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE resources SET uri = ").
 		WillReturnResult(sqlmock.NewResult(0, 2))
-	for range moves {
+	for _, m := range moves {
 		mock.ExpectExec("UPDATE resources SET").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+		for range folderChain(m.Path) {
+			mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
+		}
 	}
 	mock.ExpectCommit()
 
@@ -380,6 +391,7 @@ func TestPostgresStore_MoveOfOneRowDoesNotPark(t *testing.T) {
 	mock.ExpectExec("UPDATE resources SET\\s+scope").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM resource_uri_aliases").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	if err := NewPostgresStore(db).Move(context.Background(), []Move{movedRow()}); err != nil {

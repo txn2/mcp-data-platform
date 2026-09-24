@@ -466,6 +466,13 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	if vs, ok := deps.Store.(resource.VersionStore); ok {
 		deps.Versions = vs
 	}
+	// Stored folders (#1872) are a capability of the store in the same way.
+	if fs, ok := deps.Store.(resource.FolderStore); ok {
+		deps.Folders = fs
+	}
+	if pl, ok := deps.Store.(resource.PeopleLister); ok {
+		deps.People = pl
+	}
 	// Read audit and usage stats are gated on the audit store existing, which is
 	// the same switch that gates audit everywhere else. The writes go through the
 	// store directly rather than the platform's async writer: this surface serves

@@ -42,17 +42,19 @@ This is the collection half of the same authority the asset view carries, and it
 
 ## Resources (Admin)
 
-The admin Resources page shows managed resources across all personas and scopes.
+The admin Resources page is the same file manager as the reader's [Resources](resources.md) page, over every top-level folder in the deployment.
 
 ![Admin Resources](../images/screenshots/light/admin-admin-resources-light.webp#only-light)![Admin Resources](../images/screenshots/dark/admin-admin-resources-dark.webp#only-dark)
 
-Features:
+What it adds:
 
-- **Scope tabs** — All Resources, Global, and per-persona tabs (admin, data-engineer, finance-executive, etc.)
-- **Search and filter** — Text search and category dropdown
-- **Upload** button — Upload new resources scoped to any persona, to a named user, or to the global library, chosen on the form. This page is the one that offers the choice: the reader's own [Resources](resources.md) page files an upload into the tab it was started from, which for a platform administrator is any of them.
-- **Resource table** — Name, scope badge, MIME type, tags, file size, uploader email, and last updated date, for the files in the folder in view. Clicking a folder row opens the folder; clicking a file row opens that resource at `/admin/resources/{id}`, the same page the reader's section serves at `/resources/{id}` — content at the page's width, everything else in a sidebar beside it. See [Resources](resources.md).
-- **Library** — On a resource's Edit dialog: moves the file to any persona, to the global library, or to a named person's library, addressed by email. The dialog offers what the person opening it may file the resource into, which for a platform administrator is that full set here and on the reader's own page alike. See [Moving a resource to another library](resources.md#moving-a-resource-to-another-library).
+- **Every persona** as a top-level folder, whether or not the administrator is a member
+- **People** in the folder tree: one folder per person whose resources exist, named by their address and read when People is opened (`GET /api/v1/resources/people`, platform administrators only). It is how an administrator browses, moves and deletes another person's files.
+- **Last read** as a column of the listing, sortable, so a curator can find the files nothing reads
+- **Upload** into any top-level folder, Global and a person's folder included; the single-file upload also offers filing one file into several at once, a named person's included
+- **Top-level folder** on a resource's Edit dialog: moves the file to any persona, to Global, or to a named person's folder, addressed by email. See [Moving a resource to another library](resources.md#moving-a-resource-to-another-library).
+
+Opening a file shows it at `/admin/resources/{id}`, the same page the reader's section serves at `/resources/{id}`.
 
 ## Prompts (Admin)
 

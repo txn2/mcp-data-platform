@@ -160,10 +160,7 @@ type readFile func(name string) ([]byte, error)
 // GOMEMLIMIT. Zero means none is set, and memory is then not measured.
 func memoryLimit(read readFile) int64 {
 	var limits []int64
-	if v, ok := readLimit(read, cgroupRoot+"/memory.max"); ok {
-		limits = append(limits, v)
-	}
-	if v, ok := readLimit(read, cgroupRoot+"/memory/memory.limit_in_bytes"); ok && v < unlimitedV1 {
+	if v := containerLimit(read); v > 0 {
 		limits = append(limits, v)
 	}
 	if v := debug.SetMemoryLimit(-1); v > 0 && v < math.MaxInt64 {
@@ -173,6 +170,53 @@ func memoryLimit(read readFile) int64 {
 		return 0
 	}
 	return slices.Min(limits)
+}
+
+// containerLimit is the smaller of the cgroup v2 and v1 memory limits, zero
+// when neither is set.
+func containerLimit(read readFile) int64 {
+	var limits []int64
+	if v, ok := readLimit(read, cgroupRoot+"/memory.max"); ok {
+		limits = append(limits, v)
+	}
+	if v, ok := readLimit(read, cgroupRoot+"/memory/memory.limit_in_bytes"); ok && v < unlimitedV1 {
+		limits = append(limits, v)
+	}
+	if len(limits) == 0 {
+		return 0
+	}
+	return slices.Min(limits)
+}
+
+// softLimitShare is the share of the container's memory limit the runtime's
+// soft limit is set to when the deployment set none: the rest is room for
+// what the runtime does not account (thread stacks outside the heap, cgo, the
+// kernel's page cache charged to the cgroup).
+const softLimitShare = 0.9
+
+// SetSoftLimit gives the Go runtime a soft memory limit of 90% of the
+// container's memory limit when the process has none, and returns the limit
+// it set. It returns zero, changing nothing, when a soft limit is already in
+// force (GOMEMLIMIT, or an earlier call) or no container limit is found.
+//
+// Without a soft limit the collector runs at GOGC alone and lets the heap
+// reach about twice the live set, so a process whose live set is half the
+// container's limit is killed by the kernel before it collects (#1871). A
+// managed-script run is allowed to hold a share of this limit by default.
+func SetSoftLimit() int64 { return softLimitFrom(os.ReadFile, debug.SetMemoryLimit) }
+
+// softLimitFrom is SetSoftLimit over substitutable sources.
+func softLimitFrom(read readFile, set func(int64) int64) int64 {
+	if current := set(-1); current > 0 && current < math.MaxInt64 {
+		return 0
+	}
+	limit := containerLimit(read)
+	if limit <= 0 {
+		return 0
+	}
+	soft := int64(float64(limit) * softLimitShare)
+	set(soft)
+	return soft
 }
 
 // readLimit reads one integer limit file, reporting false for an absent file,

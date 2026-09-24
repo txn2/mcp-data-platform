@@ -7,10 +7,10 @@ import {
 import { resourceFetch, resourceFetchRaw } from "./client";
 import type {
   FacetsResponse,
-  FolderMoveRequest,
-  FolderMoveResult,
+  PeopleResponse,
   Resource,
   ResourceListResponse,
+  ResourceSort,
   ResourceUpdate,
   ResourceVersionListResponse,
 } from "./types";
@@ -29,8 +29,9 @@ interface ResourceQuery {
   tag?: string;
   q?: string;
   // sort orders the list; "last_read" puts the most recently read first and
-  // never-read resources last, which is how a curator finds dead weight.
-  sort?: "updated" | "last_read";
+  // never-read resources last, which is how a curator finds dead weight, and
+  // the rest are the file manager's column sorts (#1872).
+  sort?: ResourceSort;
   // limit caps the page. Absent, the server applies its own default (100), and
   // a caller that renders one page has to compare what it got against the
   // envelope's total to know whether it saw everything.
@@ -59,18 +60,36 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
  * until the last page arrived, and the tag filter offered only the tags that
  * page happened to mention (#1555). One request answers both exactly.
  */
-export function useFacets(params?: { scope?: string; scope_id?: string }) {
+export function useFacets(params?: { scope?: string; scope_id?: string }, enabled = true) {
   const sp = new URLSearchParams();
   if (params?.scope) sp.set("scope", params.scope);
   if (params?.scope_id) sp.set("scope_id", params.scope_id);
   const qs = sp.toString();
 
+  // Under the "resources" key, so every write that invalidates the listing
+  // redraws the folder tree and its counts too.
   return useQuery({
-    queryKey: ["resource-facets", qs],
+    queryKey: ["resources", "facets", qs],
     queryFn: () =>
       resourceFetch<FacetsResponse>(`/facets${qs ? `?${qs}` : ""}`),
+    enabled,
   });
 }
+
+/**
+ * usePeople lists every person's resources, for the administrator's People
+ * folder (#1872). It is asked only once that folder is opened.
+ */
+export function usePeople(enabled: boolean) {
+  return useQuery({
+    queryKey: ["resources", "people"],
+    queryFn: () => resourceFetch<PeopleResponse>("/people"),
+    enabled,
+  });
+}
+
+
+
 
 export function useResources(params?: ResourceQuery) {
   const qs = resourceParams(params).toString();
@@ -283,26 +302,6 @@ export function useRestoreVersion() {
       }
       return res.json() as Promise<Resource>;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["resources"] });
-    },
-  });
-}
-
-// useMoveFolder renames a folder, or nests it under another one.
-//
-// It is a request of its own rather than one PATCH per file because the server
-// rewrites the whole subtree in one transaction: a half-renamed folder is not a
-// state anyone should be able to observe, and a browser loop over the files
-// could not offer that. A refusal means nothing moved.
-export function useMoveFolder() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (req: FolderMoveRequest) =>
-      resourceFetch<FolderMoveResult>("/folders/move", {
-        method: "POST",
-        body: JSON.stringify(req),
-      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["resources"] });
     },

@@ -1,7 +1,13 @@
+import { chooseUpload } from "./helpers/resources";
 import {
+  openResourceContextMenu,
+  openResourceEmptyFolder,
+  openResourceMultiSelect,
+  openResourcePreview,
   openResourceSearch,
   openResourceSelection,
   openResourceSubfolder,
+  openTopLevelFolder,
 } from "./route-actions-library";
 import {
   openCorrectedVersion,
@@ -32,36 +38,17 @@ export const userResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openPersonaScopeTab,
   },
   {
-    // The library as it opens (#1553): every library the reader can reach at
-    // once, the ten files that changed last above the folders, and each file
-    // as a card rather than a row. It is the default view, so it is captured
-    // with nothing done to it.
-    slug: "resources-recent",
-    path: "/portal/resources",
-    category: "user",
-    beforeCapture: async (page) => {
-      await page
-        .getByTestId("recent-resources")
-        .waitFor({ state: "visible", timeout: 5_000 })
-        .catch(() => {});
-      await page.waitForTimeout(400);
-    },
-  },
-  {
-    // The global library on the reader's own Resources page, where a platform
-    // administrator is offered Upload (#1527). The control follows the caller's
-    // authority rather than which section the page was mounted in, so the
-    // library an administrator can publish to says so on the page they were
-    // already reading it on.
+    // The Global top-level folder on the reader's own Resources page, where a
+    // platform administrator is offered New folder and Upload (#1527). The
+    // controls follow the caller's authority rather than which section the
+    // page was mounted in.
     slug: "resources-global",
     path: "/portal/resources",
     category: "user",
     beforeCapture: async (page) => {
-      await page.getByRole("combobox", { name: "Library" }).click({ timeout: 3_000 });
-      await page.getByRole("option", { name: "Global", exact: true }).click({ timeout: 3_000 });
+      await openTopLevelFolder(page, "global");
       // Waited on rather than timed out: a swallowed click would ship the
-      // caller's own library captioned as the global one, which is the opposite
-      // of what this documents.
+      // caller's own folder captioned as the global one.
       await page
         .getByRole("button", { name: "Upload", exact: true })
         .waitFor({ state: "visible", timeout: 5_000 });
@@ -69,21 +56,50 @@ export const userResourceRoutes: ScreenshotRoute[] = [
     },
   },
   {
-    // Resource upload modal.
+    // The single-file upload dialog, from the path bar's Upload menu.
     slug: "resource-upload",
     path: "/portal/resources",
     category: "user",
     beforeCapture: async (page) => {
-      // Open the Upload modal via the always-visible header "Upload" button
-      // (the empty-state "Upload Resource" button is absent once resources
-      // are populated, which previously left this capture showing the list).
+      await chooseUpload(page, "A file...");
       await page
-        .getByRole("button", { name: "Upload", exact: true })
-        .first()
-        .click({ timeout: 3_000 })
-        .catch(() => {});
-      await page.waitForTimeout(700);
+        .getByRole("dialog", { name: "Upload Resource" })
+        .waitFor({ state: "visible", timeout: 5_000 });
+      await page.waitForTimeout(500);
     },
+  },
+  {
+    // One file selected (#1872): a single click previews it in the pane beside
+    // the listing -- its tile, where it is, its URI, its tags, and Open,
+    // Download and Copy URI -- without leaving the folder.
+    slug: "resources-preview",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: openResourcePreview,
+  },
+  {
+    // Several files picked with Shift-click (#1872): the selection bar with
+    // Move to, Tag and Delete over all of them, and the pane's count and total
+    // size.
+    slug: "resources-multi-select",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: openResourceMultiSelect,
+  },
+  {
+    // The context menu on a file (#1872), at the pointer.
+    slug: "resources-context-menu",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: openResourceContextMenu,
+  },
+  {
+    // A folder stored with nothing in it (#1872): it is listed, it opens, and
+    // it says where a drop or an upload into it is filed.
+    slug: "resources-empty-folder",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: openResourceEmptyFolder,
   },
 ];
 
@@ -95,16 +111,17 @@ export const userResourceRoutes: ScreenshotRoute[] = [
 // state sits next to the others of the same page.
 export const adminResourceRoutes: ScreenshotRoute[] = [
   {
-    // The library as a tree (#1530). It was one expandable section per flat
-    // category with every file in the section, which at a thousand files is
-    // six unbounded lists and a search box.
+    // The file manager as it opens (#1530, #1872): the folder tree on the
+    // left, the caller's own folders in the listing, and the preview pane
+    // describing the folder in view.
     slug: "resource-tree",
     path: "/portal/admin/resources",
     category: "admin",
   },
   {
-    // Two levels in. Each level is an address of its own, so this view can be
-    // linked to and Back steps out one folder rather than out of the library.
+    // Two levels in: the tree with the folder open and its ancestors expanded,
+    // and the path bar naming each level. Each level is an address of its own,
+    // so this view can be linked to and Back steps out one folder.
     slug: "resource-folder",
     path: "/portal/admin/resources",
     category: "admin",
@@ -119,8 +136,9 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openResourceSelection,
   },
   {
-    // Search across the whole library: hits from more than one folder, each
-    // naming the path it was found at. Captured with a term that MATCHES --
+    // A search typed inside one folder spans the whole top-level folder: hits
+    // from more than one folder, each naming where it is, with Show in folder.
+    // Captured with a term that MATCHES --
     // the sentence this illustrates is about what a hit shows, which a
     // no-result search cannot demonstrate.
     slug: "resource-search",
@@ -160,9 +178,9 @@ export const adminResourceRoutes: ScreenshotRoute[] = [
     beforeCapture: openResourceThumbnail,
   },
   {
-    // The library a resource is filed in, as an editable field (#1502). It was
-    // chosen once on the upload form and never again, so the only route from a
-    // personal library to a shared one was to upload the file a second time --
+    // The top-level folder a resource is filed in, as an editable field
+    // (#1502). It was chosen once on the upload form and never again, so the
+    // only route from a personal folder to a shared one was to upload the file a second time --
     // which mints a second id, a second URI and a second blob, and leaves every
     // asset and prompt that referenced the first one referencing it.
     slug: "resource-move",

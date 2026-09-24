@@ -1,5 +1,15 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import {
+  ADMIN_RESOURCES,
+  USER_RESOURCES,
+  chooseUpload,
+  gotoFolder,
+  openNamed,
+  rowNamed,
+  searchBox,
+  searchFor,
+} from "../screenshots/helpers/resources";
 
 // A managed resource opens at a route of its own (#1470). It used to open in a
 // 32rem dialog over the library, which meant it could not be linked to,
@@ -8,35 +18,25 @@ import { authenticate } from "../screenshots/helpers/auth";
 //
 // res-001 ("SQL Style Guide") is the fixture that makes the case: MSW answers
 // its content route, so the content region renders, and it is the one resource
-// carrying both a read-activity rollup and a three-revision trail.
+// carrying both a read-activity rollup and a three-revision trail. It is filed
+// in Global.
 
-const ADMIN_RESOURCES = "/portal/admin/resources";
-const USER_RESOURCES = "/portal/resources";
 const RESOURCE = "SQL Style Guide";
 
 function panel(page: Page): Locator {
   return page.getByTestId("modal-panel");
 }
 
-// selectLibrary picks a library from the picker, which is one listbox now
-// rather than a strip of tabs (#1553).
-async function selectLibrary(page: Page, name: string): Promise<void> {
-  await page.getByRole("combobox", { name: "Library" }).click();
-  await page.getByRole("option", { name, exact: true }).click();
-}
-
-// openNamed reaches one file in a library by searching for it. A library is a
-// tree (#1530), so a file is not on the page the library opens at -- it is
-// inside whichever folder it is filed in, and searching reaches it from
-// anywhere in the library.
-async function openNamed(page: Page, name: string): Promise<void> {
-  await page.getByLabel("Search resources").fill(name);
-  await page.getByText(name, { exact: true }).first().click();
+// openTopLevel opens a top-level folder from the tree (#1872), which is where
+// the page's own Global lives now that there is no library picker.
+async function openTopLevel(page: Page, root: string): Promise<void> {
+  await page.getByTestId(`tree-node-${root}:`).click();
+  await expect(page.getByTestId(`tree-node-${root}:`)).toHaveAttribute("aria-current", "location");
 }
 
 async function openDetail(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto(ADMIN_RESOURCES);
+  await gotoFolder(page, ADMIN_RESOURCES, "global");
   await openNamed(page, RESOURCE);
   await expect(page.getByTestId("resource-versions")).toBeVisible();
 }
@@ -55,7 +55,7 @@ async function expectWithinViewport(target: Locator, height: number): Promise<vo
 // unscoped one matches the rendered document's <h1> as well and trips
 // Playwright's strict mode.
 test.describe("A resource has an address", () => {
-  test("opening one from the library puts it in the address bar", async ({ page }) => {
+  test("opening one from the file manager puts it in the address bar", async ({ page }) => {
     await openDetail(page);
     await expect(page).toHaveURL(/\/portal\/admin\/resources\/res-001$/);
     await expect(page.getByRole("heading", { name: RESOURCE }).first()).toBeVisible();
@@ -79,53 +79,103 @@ test.describe("A resource has an address", () => {
     await expect(page.getByText("There is no page at this address.")).toHaveCount(0);
   });
 
-  test("the page's own Back arrow returns to the library as it was left", async ({ page }) => {
+  test("the page's own Back arrow returns to the folder as it was left", async ({ page }) => {
     await authenticate(page);
-    await page.goto(USER_RESOURCES);
-    await selectLibrary(page, "Global");
-    // The library is a route segment now, and the search a query parameter on
-    // it (#1530).
+    await gotoFolder(page, USER_RESOURCES, "user");
+    await openTopLevel(page, "global");
+    // The top-level folder is a route segment, and the search a query
+    // parameter on it (#1530, #1872).
     await expect(page).toHaveURL(/\/portal\/resources\/lib\/global$/);
-    await page.getByLabel("Search resources").fill("SQL");
+    await searchFor(page, "SQL");
     await expect(page).toHaveURL(/q=SQL/);
 
-    await page.getByText(RESOURCE, { exact: true }).first().click();
+    await rowNamed(page, RESOURCE).click();
+    await page.getByTestId("preview-file").getByRole("button", { name: "Open", exact: true }).click();
     await expect(page).toHaveURL(/\/portal\/resources\/res-001$/);
 
     // The arrow, not the browser button: it used to navigate to a bare
     // /resources, which dropped the scope and the filters (#1470).
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(page.getByRole("combobox", { name: "Library" })).toContainText("Global");
-    await expect(page.getByLabel("Search resources")).toHaveValue("SQL");
+    await expect(page).toHaveURL(/\/portal\/resources\/lib\/global\?q=SQL$/);
+    await expect(page.getByTestId("crumb-root")).toHaveText("Global");
+    await expect(searchBox(page)).toHaveValue("SQL");
+    await expect(rowNamed(page, RESOURCE)).toBeVisible();
   });
 
-  test("the Back arrow on a cold deep link falls back to the library", async ({ page }) => {
+  test("the Back arrow on a cold deep link falls back to the file manager", async ({ page }) => {
     await authenticate(page);
     // No entry to return to: this document was loaded at the resource.
     await page.goto("/portal/resources/res-001");
     await page.getByRole("button", { name: "Back", exact: true }).click();
 
     await expect(page).toHaveURL(/\/portal\/resources$/);
-    // The picker's own default, which is where a fallback lands.
-    await expect(page.getByRole("combobox", { name: "Library" })).toContainText("All");
+    // The page's own default, which is where a fallback lands: My Resources.
+    await expect(page.getByTestId("tree-node-user:")).toHaveAttribute("aria-current", "location");
+    await expect(page.getByTestId("crumb-root")).toHaveText("My Resources");
   });
 
-  test("Back returns to the library with its scope and its search intact", async ({ page }) => {
+  test("Back returns to the folder with its scope and its search intact", async ({ page }) => {
     await authenticate(page);
-    await page.goto(USER_RESOURCES);
+    await gotoFolder(page, USER_RESOURCES, "user");
 
-    // The library opens on All; the case is about one library in particular.
-    await selectLibrary(page, "Global");
+    // The page opens on My Resources; the case is about Global in particular.
+    await openTopLevel(page, "global");
     await expect(page).toHaveURL(/\/portal\/resources\/lib\/global$/);
-    await page.getByLabel("Search resources").fill("SQL");
+    await searchFor(page, "SQL");
     await expect(page).toHaveURL(/q=SQL/);
 
-    await page.getByText(RESOURCE, { exact: true }).first().click();
+    // Enter opens the selected file, as a file manager's does.
+    await rowNamed(page, RESOURCE).click();
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/portal\/resources\/res-001$/);
 
     await page.goBack();
-    await expect(page.getByRole("combobox", { name: "Library" })).toContainText("Global");
-    await expect(page.getByLabel("Search resources")).toHaveValue("SQL");
+    await expect(page.getByTestId("crumb-root")).toHaveText("Global");
+    await expect(searchBox(page)).toHaveValue("SQL");
+    await expect(rowNamed(page, RESOURCE)).toBeVisible();
+  });
+
+  test("a folder opened inside the file manager is its own address", async ({ page }) => {
+    await authenticate(page);
+    await gotoFolder(page, USER_RESOURCES, "global");
+    // A folder opens on a single click; a file does not.
+    await page.getByTestId("row-d:documentation").click();
+    await expect(page).toHaveURL(/\/portal\/resources\/lib\/global\/documentation$/);
+    await page.getByTestId("row-res-001").click();
+    await expect(page.getByTestId("preview-file")).toContainText(RESOURCE);
+    await expect(page).toHaveURL(/\/portal\/resources\/lib\/global\/documentation$/);
+
+    await page.reload();
+    await expect(page.getByTestId("tree-node-global:documentation")).toHaveAttribute("aria-current", "location");
+    await expect(page.getByTestId("row-res-001")).toBeVisible();
+  });
+
+  // A double-click is two clicks at one point. The first selects the file, and
+  // selecting shows the selection bar above the listing, which moves every row
+  // down by its height; the second click then lands on whatever is now under
+  // the pointer (the row above, or a column header) rather than the file.
+  test("a double-click on a file opens it", async ({ page }) => {
+    await authenticate(page);
+    await gotoFolder(page, USER_RESOURCES, "global", "documentation");
+    const row = page.getByTestId("row-res-001");
+    const before = await row.boundingBox();
+    await row.dblclick();
+    await expect(page, `row moved from y=${before?.y} after the first click`).toHaveURL(
+      /\/portal\/resources\/res-001$/,
+    );
+  });
+
+  // A search adds a Location column. In the administrator's listing, which
+  // also carries Last read, the fixed-width columns beside the preview pane
+  // leave the auto-width Name column nothing, so a hit is listed without its
+  // name.
+  test("a search hit shows its name in the administrator's listing", async ({ page }) => {
+    await authenticate(page);
+    await gotoFolder(page, ADMIN_RESOURCES, "global");
+    await searchFor(page, RESOURCE);
+    const name = rowNamed(page, RESOURCE).getByText(RESOURCE, { exact: true });
+    const box = await name.boundingBox();
+    expect(box?.width ?? 0, "the Name cell of a search hit is drawn with no width").toBeGreaterThan(40);
   });
 });
 
@@ -155,7 +205,7 @@ test.describe("What the resource page offers", () => {
 
   test("carries the table registration panel on a CSV", async ({ page }) => {
     await authenticate(page);
-    await page.goto(ADMIN_RESOURCES);
+    await gotoFolder(page, ADMIN_RESOURCES, "global");
     // The panel is absent unless the file is a CSV, which res-001 is not.
     await openNamed(page, "Business Glossary Export");
 
@@ -170,8 +220,10 @@ test.describe("What the resource page offers", () => {
   // box, so this is asserted in a real browser.
   test("keeps a registration refusal inside the column it is shown in", async ({ page }) => {
     await authenticate(page);
-    await page.goto(ADMIN_RESOURCES);
-    // The fixture whose cells carry line breaks, which is refused (#1441).
+    // The fixture whose cells carry line breaks, which is refused (#1441). It
+    // is filed in one person's own folder, which an administrator reaches
+    // under People.
+    await gotoFolder(page, ADMIN_RESOURCES, "person:david-director");
     await openNamed(page, "Store List");
 
     await page.getByTestId("tables-panel").scrollIntoViewIfNeeded();
@@ -214,9 +266,9 @@ test.describe("Resource form modal geometry", () => {
   test("keeps Upload reachable in the upload form on a short viewport", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 420 });
     await authenticate(page);
-    await page.goto(ADMIN_RESOURCES);
+    await gotoFolder(page, ADMIN_RESOURCES, "global", "documentation");
 
-    await page.getByRole("button", { name: "Upload", exact: true }).first().click();
+    await chooseUpload(page, "A file...");
     await expect(page.getByRole("dialog", { name: "Upload Resource" })).toBeVisible();
 
     await expectWithinViewport(panel(page), 420);

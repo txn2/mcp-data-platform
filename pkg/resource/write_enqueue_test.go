@@ -54,7 +54,10 @@ func testResource() Resource {
 func TestResourceInsertEnqueuesIndexJob(t *testing.T) {
 	store, mock, enq := indexedResourceStore(t)
 
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO resources").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO resource_folders").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	require.NoError(t, store.Insert(context.Background(), testResource()))
 	require.Len(t, enq.keys, 1)

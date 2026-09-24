@@ -22,6 +22,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 	"github.com/txn2/mcp-data-platform/internal/httpserver"
+	"github.com/txn2/mcp-data-platform/internal/procload"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -133,6 +134,7 @@ func run() error {
 	}
 
 	ctx := setupSignalHandler()
+	applySoftMemoryLimit(procload.SetSoftLimit)
 
 	result, err := createServer(opts)
 	if err != nil {
@@ -143,6 +145,15 @@ func run() error {
 	applyConfigOverrides(result.platform, &opts)
 
 	return startServer(ctx, result.mcpServer, result.platform, opts)
+}
+
+// applySoftMemoryLimit sets the Go runtime's soft memory limit from the
+// container's when the deployment set none, and says so (#1871).
+func applySoftMemoryLimit(set func() int64) {
+	if soft := set(); soft > 0 {
+		slog.Info("GOMEMLIMIT is not set; set the runtime soft memory limit to 90% of the container memory limit",
+			"soft_limit_bytes", soft)
+	}
 }
 
 func closeServer(result *serverResult) {

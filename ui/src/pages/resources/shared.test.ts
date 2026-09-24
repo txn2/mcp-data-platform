@@ -21,8 +21,8 @@ describe("naming the library a resource is filed in", () => {
   // A raw subject identifier names nobody, so a library keyed by one is
   // described rather than printed.
   it("names somebody else's library by address, and describes one keyed by an identifier", () => {
-    expect(scopeLabel("user", "her@example.com", viewer("sub-1"))).toBe("her@example.com's library");
-    expect(scopeLabel("user", "sub-9", viewer("sub-1"))).toBe("Another person's library");
+    expect(scopeLabel("user", "her@example.com", viewer("sub-1"))).toBe("her@example.com's resources");
+    expect(scopeLabel("user", "sub-9", viewer("sub-1"))).toBe("Another person's resources");
   });
 
   it("leaves a user library undecided with nobody signed in", () => {

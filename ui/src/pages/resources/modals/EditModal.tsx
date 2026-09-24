@@ -36,10 +36,10 @@ function moveFields(
   to: MoveTarget | undefined,
   personEmail: string,
 ): Pick<ResourceUpdate, "scope" | "scope_id"> | { error: string } {
-  if (!to) return { error: "That library is no longer available." };
+  if (!to) return { error: "That folder is no longer available." };
   if (to.scope_id !== PERSON_TARGET) return { scope: to.scope, scope_id: to.scope_id };
   const address = personEmail.trim();
-  if (address === "") return { error: "Name the person whose library this moves to." };
+  if (address === "") return { error: "Name the person whose resources this moves to." };
   return { scope: to.scope, scope_id: address };
 }
 

@@ -15,9 +15,8 @@ import (
 // success.
 const MaxFolderMoveResources = 500
 
-// ErrFolderEmpty is returned when no resource in the library lies under the
-// folder being moved. Folders are derived from the paths in use (#1529), so a
-// folder with nothing under it does not exist and cannot be renamed.
+// ErrFolderEmpty is returned when the library holds no folder at the path:
+// no resource is filed under it and none is stored there (#1872).
 var ErrFolderEmpty = errors.New("no resources are filed under that folder")
 
 // folderMoveError reports a folder move refused whole, carrying the sentence the
@@ -104,7 +103,15 @@ func MoveFolder(ctx context.Context, deps Deps, claims *Claims, move FolderRenam
 		return nil, err
 	}
 	if len(found) == 0 {
-		return nil, ErrFolderEmpty
+		// An empty folder moves when it is stored (#1872); only a path that
+		// names nothing at all is refused.
+		stored, err := folderStored(ctx, deps, lib, from)
+		if err != nil {
+			return nil, err
+		}
+		if !stored {
+			return nil, ErrFolderEmpty
+		}
 	}
 	if len(found) > MaxFolderMoveResources {
 		return nil, &folderMoveError{msg: fmt.Sprintf(
@@ -132,7 +139,7 @@ func writeFolderMove(
 		return nil, err
 	}
 
-	if err := deps.Store.Move(ctx, moves); err != nil {
+	if err := moveTree(ctx, deps, FolderRename{Library: p.lib, From: p.from, To: p.to}, moves); err != nil {
 		if errors.Is(err, ErrURIConflict) {
 			return nil, &folderMoveError{msg: fmt.Sprintf(
 				"another resource already answers at an address under %q; nothing was moved", p.to)}
@@ -290,6 +297,92 @@ func checkFolderTargets(ctx context.Context, deps Deps, moves []Move) error {
 		}
 		return &folderMoveError{msg: fmt.Sprintf(
 			"%q already answers at %s; nothing was moved", existing.DisplayName, m.URI)}
+	}
+	return nil
+}
+
+// folderStored reports whether a folder is stored at the path. A deployment
+// whose store keeps no folders has none.
+func folderStored(ctx context.Context, deps Deps, lib ScopeFilter, path string) (bool, error) {
+	if deps.Folders == nil {
+		return false, nil
+	}
+	ok, err := deps.Folders.FolderExists(ctx, lib, path)
+	if err != nil {
+		return false, fmt.Errorf("reading folder: %w", err)
+	}
+	return ok, nil
+}
+
+// moveTree writes a folder move: the resources and the stored folders in one
+// transaction where the store keeps folders, the resources alone where not.
+func moveTree(ctx context.Context, deps Deps, tree FolderRename, moves []Move) error {
+	var err error
+	if deps.Folders != nil {
+		err = deps.Folders.MoveFolderTree(ctx, tree, moves)
+	} else {
+		err = deps.Store.Move(ctx, moves)
+	}
+	if err != nil {
+		return fmt.Errorf("writing folder move: %w", err)
+	}
+	return nil
+}
+
+// NewFolder names a folder to create in one library.
+type NewFolder struct {
+	Library ScopeFilter
+	Path    string
+}
+
+// CreateFolder records an empty folder (#1872). The caller must be able to add
+// files to the library, which is what a folder is for.
+func CreateFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) error {
+	if deps.Folders == nil {
+		return ErrFoldersUnsupported
+	}
+	if err := validateFolderTarget(f.Library, f.Path); err != nil {
+		return err
+	}
+	if !CanWriteScope(*claims, f.Library.Scope, f.Library.ScopeID) {
+		return ErrMoveForbidden
+	}
+	if err := deps.Folders.CreateFolder(ctx, f.Library, f.Path, PersonAddress(*claims)); err != nil {
+		return fmt.Errorf("creating folder: %w", err)
+	}
+	return nil
+}
+
+// DeleteFolder removes an empty folder and the empty folders beneath it
+// (#1872). A folder holding files is refused: each file is deleted through the
+// route that removes its stored object and its versions first.
+func DeleteFolder(ctx context.Context, deps Deps, claims *Claims, f NewFolder) error {
+	if deps.Folders == nil {
+		return ErrFoldersUnsupported
+	}
+	if err := validateFolderTarget(f.Library, f.Path); err != nil {
+		return err
+	}
+	if !CanWriteScope(*claims, f.Library.Scope, f.Library.ScopeID) {
+		return ErrMoveForbidden
+	}
+	if err := deps.Folders.DeleteFolder(ctx, f.Library, f.Path); err != nil {
+		return fmt.Errorf("deleting folder: %w", err)
+	}
+	return nil
+}
+
+// ErrFoldersUnsupported is returned by the folder routes on a store that keeps
+// no folders.
+var ErrFoldersUnsupported = errors.New("this deployment does not store folders")
+
+// validateFolderTarget checks the library and path a folder route names.
+func validateFolderTarget(lib ScopeFilter, path string) error {
+	if err := ValidateScope(lib.Scope, lib.ScopeID); err != nil {
+		return err
+	}
+	if err := ValidatePath(path); err != nil {
+		return &invalidPathError{msg: err.Error()}
 	}
 	return nil
 }

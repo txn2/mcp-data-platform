@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 318
+	migrateTestFileCount    = 320
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -119,6 +119,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000158_resource_version_sha256.down.sql",
 		"000159_thumbnail_attempts.up.sql",
 		"000159_thumbnail_attempts.down.sql",
+		"000160_resource_folders.up.sql",
+		"000160_resource_folders.down.sql",
 	}
 
 	fileNames := make(map[string]bool)

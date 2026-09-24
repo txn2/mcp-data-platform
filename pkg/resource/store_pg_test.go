@@ -19,6 +19,7 @@ func TestPostgresStore_Insert(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := NewPostgresStore(db)
+	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO resources").
 		WithArgs(
 			"id-1", "global", sqlmock.AnyArg(), "samples", "test.csv", "Test",
@@ -26,6 +27,11 @@ func TestPostgresStore_Insert(t *testing.T) {
 			pq.Array([]string{"tag1"}), "sub-1", "user@example.com",
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	// The folder is recorded with the file, in the same transaction (#1872).
+	mock.ExpectExec("INSERT INTO resource_folders").
+		WithArgs("global", sqlmock.AnyArg(), "samples", "user@example.com", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
 	r := Resource{
 		ID: "id-1", Scope: ScopeGlobal, Path: "samples", Filename: "test.csv",

@@ -950,7 +950,8 @@ signal to add replicas is `script_run_queue_wait_seconds` rising while
 `ceiling` mean `max_concurrency` binds before the pod does. Memory is the figure
 to set from measurement: give a worker room for the largest result sets its
 scripts hold at once plus headroom, keep `GOMEMLIMIT` at about 90% of the
-limit, and remember that the per-query result caps (`max_query_rows` and the
+limit (the platform sets it there itself when the deployment does not, #1871),
+and remember that the per-query result caps (`max_query_rows` and the
 byte cap) are what bound one run's share of it.
 
 The worker pods still expose `/healthz`, `/readyz`, and `/metrics`, which is what

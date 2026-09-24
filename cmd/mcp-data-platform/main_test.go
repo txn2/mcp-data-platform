@@ -250,3 +250,20 @@ func TestRunMigrateConfig_UnknownSourceVersion(t *testing.T) {
 		t.Errorf("error = %q, want 'migrating config'", err.Error())
 	}
 }
+
+// TestApplySoftMemoryLimit logs the limit it set and stays quiet when none was.
+func TestApplySoftMemoryLimit(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	var buf strings.Builder
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+
+	applySoftMemoryLimit(func() int64 { return 0 })
+	if buf.Len() != 0 {
+		t.Fatalf("logged with no limit set: %s", buf.String())
+	}
+	applySoftMemoryLimit(func() int64 { return 900 })
+	if !strings.Contains(buf.String(), "soft_limit_bytes=900") || !strings.Contains(buf.String(), "GOMEMLIMIT is not set") {
+		t.Fatalf("log = %s", buf.String())
+	}
+}

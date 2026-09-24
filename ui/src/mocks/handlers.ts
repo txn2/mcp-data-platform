@@ -78,7 +78,7 @@ import {
   mockPromptUsage,
   mockPromptVersions,
 } from "./data/prompts";
-import { mockResources, mockResourceUsage, mockResourceVersions } from "./data/resources";
+import { mockResourceFolders, mockResources, mockResourceUsage, mockResourceVersions } from "./data/resources";
 import { resourceImageBytes } from "./data/resourceImages";
 import { pdfFixtureBytes } from "./data/pdfFixture";
 import {
@@ -3331,27 +3331,75 @@ export const handlers = [
     const url = new URL(request.url);
     const scope = url.searchParams.get("scope");
     const scopeId = url.searchParams.get("scope_id");
+    const inScope = (r: { scope: string; scope_id: string }) =>
+      (!scope || r.scope === scope) && (!scopeId || r.scope_id === scopeId);
 
-    let visible = [...mockResources.resources];
-    if (scope) visible = visible.filter((r) => r.scope === scope);
-    if (scopeId) visible = visible.filter((r) => r.scope_id === scopeId);
-
-    const counts = new Map<string, number>();
+    const visible = mockResources.resources.filter(inScope);
+    const counts = new Map<string, { count: number; updated_at: string }>();
     const tags = new Set<string>();
-    for (const r of visible) {
-      const segments = r.path.split("/").filter(Boolean);
+    const touch = (path: string, n: number, at: string) => {
+      const segments = path.split("/").filter(Boolean);
       for (let i = 1; i <= segments.length; i++) {
         const prefix = segments.slice(0, i).join("/");
-        counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+        const cur = counts.get(prefix) ?? { count: 0, updated_at: "" };
+        counts.set(prefix, { count: cur.count + n, updated_at: at > cur.updated_at ? at : cur.updated_at });
       }
+    };
+    for (const r of visible) {
+      touch(r.path, 1, r.updated_at);
       for (const t of r.tags) tags.add(t);
     }
+    // Folders are stored (#1872): an empty one is listed with a zero count.
+    for (const f of mockResourceFolders.filter(inScope)) touch(f.path, 0, f.created_at);
 
     return HttpResponse.json({
       folders: [...counts.entries()]
-        .map(([path, count]) => ({ path, count }))
+        .map(([path, c]) => ({ path, ...c }))
         .sort((a, b) => a.path.localeCompare(b.path)),
       tags: [...tags].sort(),
+    });
+  }),
+
+  // Stored folders (#1872): create an empty one, delete one once nothing is
+  // filed in it, and the administrator's People list.
+  http.post("/api/v1/resources/folders", async ({ request }) => {
+    const body = (await request.json()) as { scope: string; scope_id?: string; path: string };
+    const scopeId = body.scope_id ?? "";
+    const taken =
+      mockResourceFolders.some((f) => f.scope === body.scope && f.scope_id === scopeId && f.path === body.path) ||
+      mockResources.resources.some(
+        (r) => r.scope === body.scope && r.scope_id === scopeId && (r.path === body.path || r.path.startsWith(body.path + "/")),
+      );
+    if (taken) return HttpResponse.json({ error: "a folder already exists at that path" }, { status: 409 });
+    mockResourceFolders.push({ scope: body.scope, scope_id: scopeId, path: body.path, created_at: new Date().toISOString() });
+    return HttpResponse.json(body, { status: 201 });
+  }),
+
+  http.delete("/api/v1/resources/folders", async ({ request }) => {
+    const body = (await request.json()) as { scope: string; scope_id?: string; path: string };
+    const scopeId = body.scope_id ?? "";
+    const under = (p: string) => p === body.path || p.startsWith(body.path + "/");
+    if (mockResources.resources.some((r) => r.scope === body.scope && r.scope_id === scopeId && under(r.path))) {
+      return HttpResponse.json({ error: "the folder still holds files; delete or move them first" }, { status: 409 });
+    }
+    const before = mockResourceFolders.length;
+    const keep = mockResourceFolders.filter((f) => !(f.scope === body.scope && f.scope_id === scopeId && under(f.path)));
+    mockResourceFolders.splice(0, mockResourceFolders.length, ...keep);
+    if (keep.length === before) return HttpResponse.json({ error: "no folder at that path" }, { status: 404 });
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get("/api/v1/resources/people", () => {
+    const people = new Map<string, number>();
+    for (const r of mockResources.resources) {
+      if (r.scope === "user") people.set(r.scope_id, (people.get(r.scope_id) ?? 0) + 1);
+    }
+    return HttpResponse.json({
+      people: [...people.entries()].map(([scope_id, count]) => ({
+        scope_id,
+        email: scope_id.includes("@") ? scope_id : `${scope_id.split("-")[0]}@example.com`,
+        count,
+      })),
     });
   }),
 
@@ -3370,7 +3418,8 @@ export const handlers = [
     // store applies (pkg/resource/store.go). Matching only the exact path would
     // let a tree test pass here and show an empty folder against the server.
     if (path) {
-      filtered = filtered.filter((r) => r.path === path || r.path.startsWith(path + "/"));
+      const direct = url.searchParams.get("direct") === "true";
+      filtered = filtered.filter((r) => r.path === path || (!direct && r.path.startsWith(path + "/")));
     }
     if (tag) {
       filtered = filtered.filter((r) =>
@@ -3393,7 +3442,18 @@ export const handlers = [
     // resource.Sort.orderByClause (pkg/resource/types.go).
     const byUpdated = (a: { updated_at: string }, b: { updated_at: string }) =>
       b.updated_at.localeCompare(a.updated_at);
-    if (url.searchParams.get("sort") === "last_read") {
+    const sort = url.searchParams.get("sort");
+    // The file manager's column sorts (#1872).
+    const columns: Record<string, (a: (typeof filtered)[number], b: (typeof filtered)[number]) => number> = {
+      name: (a, b) => a.display_name.localeCompare(b.display_name),
+      name_desc: (a, b) => b.display_name.localeCompare(a.display_name),
+      size: (a, b) => a.size_bytes - b.size_bytes,
+      size_desc: (a, b) => b.size_bytes - a.size_bytes,
+      updated_asc: (a, b) => byUpdated(b, a),
+    };
+    if (sort && columns[sort]) {
+      filtered.sort(columns[sort]);
+    } else if (sort === "last_read") {
       filtered.sort((a, b) => {
         if (!a.last_read_at && !b.last_read_at) return byUpdated(a, b);
         if (!a.last_read_at) return 1;
@@ -3579,12 +3639,14 @@ export const handlers = [
     const beneath = inLibrary.filter(
       (r) => r.path === body.from || r.path.startsWith(body.from + "/"),
     );
-    if (beneath.length === 0) {
-      return HttpResponse.json(
-        { error: "no resources are filed under that folder" },
-        { status: 404 },
-      );
+    const under = (p: string) => p === body.from || p.startsWith(body.from + "/");
+    const stored = mockResourceFolders.filter(
+      (f) => f.scope === body.scope && f.scope_id === (body.scope_id ?? "") && under(f.path),
+    );
+    if (beneath.length === 0 && stored.length === 0) {
+      return HttpResponse.json({ error: "no resources are filed under that folder" }, { status: 404 });
     }
+    for (const f of stored) f.path = body.to + f.path.slice(body.from.length);
     const moved = beneath.map((r) => {
       const from_uri = r.uri;
       const next = body.to + r.path.slice(body.from.length);

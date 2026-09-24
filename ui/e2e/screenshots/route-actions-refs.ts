@@ -1,5 +1,5 @@
 import { type Page } from "@playwright/test";
-import { openAssetProvenance, openPersonaScopeTab, openResourceDetail } from "./route-actions";
+import { openAssetProvenance, openResourceDetail } from "./route-actions";
 import { openResourceNamed } from "./route-actions-library";
 
 // The capture actions for the reference surface (#1475, #1488), both ends of
@@ -101,8 +101,7 @@ export async function openAssetThumbnail(page: Page): Promise<void> {
  * where something references it.
  */
 export async function openResourceUsedByAssets(page: Page): Promise<void> {
-  await openPersonaScopeTab(page);
-  await openResourceNamed(page, "Warehouse Floor Plan");
+  await openResourceNamed(page, "Warehouse Floor Plan", "data-engineer");
   await page
     .getByTestId("used-by-assets")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })
@@ -155,8 +154,7 @@ export async function openAssetProducers(page: Page): Promise<void> {
  * file with two writers at all.
  */
 export async function openResourceProducers(page: Page): Promise<void> {
-  await openPersonaScopeTab(page);
-  await openResourceNamed(page, "Warehouse Floor Plan");
+  await openResourceNamed(page, "Warehouse Floor Plan", "data-engineer");
   await page
     .getByTestId("producers-panel")
     .scrollIntoViewIfNeeded({ timeout: 3_000 })

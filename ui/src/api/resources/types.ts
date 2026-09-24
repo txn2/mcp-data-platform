@@ -84,15 +84,41 @@ export interface ResourceVersionListResponse {
   max_versions: number;
 }
 
-// Folder is one folder of a library and how much it holds. A folder is derived
-// from the paths in use rather than stored, and the server derives it: deriving
-// it in the browser from a page of the listing could only ever report what had
-// arrived, which is what "25+" on a folder row used to mean (#1555).
+// Folder is one folder and how much it holds. A folder exists because it was
+// created or because a resource was filed under it, and it stays when its last
+// file leaves (#1872). The server reports it: deriving it in the browser from a
+// page of the listing could only ever report what had arrived, which is what
+// "25+" on a folder row used to mean (#1555).
 export interface Folder {
   path: string;
   // count is the resources filed at this path and beneath it, at every depth.
   count: number;
+  // updated_at is the latest change beneath the folder.
+  updated_at?: string;
 }
+
+// Person is one person's resources, as the administrator's People folder
+// lists them (#1872). scope_id keys the folder; email names it where known.
+export interface Person {
+  scope_id: string;
+  email: string;
+  count: number;
+}
+
+export interface PeopleResponse {
+  people: Person[];
+}
+
+// ResourceSort is the order the listing asks the server for. A folder is paged,
+// so a column header sorts on the server or it sorts only what has arrived.
+export type ResourceSort =
+  | "updated"
+  | "updated_asc"
+  | "last_read"
+  | "name"
+  | "name_desc"
+  | "size"
+  | "size_desc";
 
 // FacetsResponse is what a library holds, for the controls that narrow it: its
 // folders with exact counts, and every tag its resources carry. One request,
@@ -121,16 +147,6 @@ export interface ResourceUpdate {
   // this is not a field to echo back unchanged.
   scope?: "global" | "persona" | "user";
   scope_id?: string;
-}
-
-// FolderMoveRequest renames a folder, or nests it under another one, by
-// rewriting the path prefix of every resource beneath it. The library is named
-// explicitly because a path is only unique inside one.
-export interface FolderMoveRequest {
-  scope: "global" | "persona" | "user";
-  scope_id?: string;
-  from: string;
-  to: string;
 }
 
 // FolderMoveEntry is one resource a folder move carried.

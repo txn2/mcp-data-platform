@@ -968,7 +968,18 @@ of values after 7 api_invoke_endpoint results. ...
 `max_run_memory` is a size (`300MiB`, `1GiB`, `500MB`), a share of the
 container's memory limit (`40%`), or `unlimited`. Left unset it is half the
 limit the replica runs under (the smaller of the cgroup limit and `GOMEMLIMIT`);
-a replica with neither sets no budget. A draft on the same replica meets the
+a replica with neither sets no budget.
+
+That default is only safe with a soft memory limit in force. Without one the Go
+collector lets the heap grow to about twice what is live before it collects, so
+a run holding half the container's limit could take the process past all of it
+and the kernel would kill the replica with every run on it (#1871). When
+`GOMEMLIMIT` is not set and a container memory limit is found, the platform
+therefore sets the runtime's soft limit to 90% of the container's limit at
+startup and logs it (`GOMEMLIMIT is not set; set the runtime soft memory limit
+to 90% of the container memory limit`, with `soft_limit_bytes`). A `GOMEMLIMIT`
+the deployment sets is left alone, and the default budget becomes half of the
+soft limit. A draft on the same replica meets the
 same budget. Every run is measured whether or not there is a budget, and the
 peak is recorded as `metrics.peak_memory_bytes` on the run and as
 `peak_memory_bytes` on a `run_draft` answer, so an author sees how close a

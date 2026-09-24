@@ -2,6 +2,7 @@ package procload
 
 import (
 	"io/fs"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -109,4 +110,40 @@ func TestNew_ReadsThisProcess(t *testing.T) {
 
 func TestMemoryLimit_IsTheSmallestLimitInForce(t *testing.T) {
 	assert.Equal(t, memoryLimit(os.ReadFile), MemoryLimit())
+}
+
+// TestSetSoftLimit sets 90% of the container limit only when no soft limit is
+// in force, and leaves an explicit GOMEMLIMIT alone (#1871).
+func TestSetSoftLimit(t *testing.T) {
+	const unset = int64(math.MaxInt64)
+	cases := map[string]struct {
+		files   map[string]string
+		current int64
+		want    int64
+	}{
+		"container limit, no soft limit": {map[string]string{"/sys/fs/cgroup/memory.max": "536870912"}, unset, 483183820},
+		"cgroup v1 limit":                {map[string]string{"/sys/fs/cgroup/memory/memory.limit_in_bytes": "1000"}, unset, 900},
+		"GOMEMLIMIT already set":         {map[string]string{"/sys/fs/cgroup/memory.max": "536870912"}, 400 << 20, 0},
+		"no container limit":             {map[string]string{"/sys/fs/cgroup/memory.max": "max"}, unset, 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			current := tc.current
+			var set []int64
+			got := softLimitFrom(files(tc.files), func(v int64) int64 {
+				prev := current
+				if v >= 0 {
+					set = append(set, v)
+					current = v
+				}
+				return prev
+			})
+			assert.Equal(t, tc.want, got)
+			if tc.want == 0 {
+				assert.Empty(t, set, "nothing is changed")
+				return
+			}
+			assert.Equal(t, []int64{tc.want}, set)
+		})
+	}
 }

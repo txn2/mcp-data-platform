@@ -14,7 +14,8 @@ describe("reading a library view out of an address", () => {
       path: "",
       q: "",
       tag: "",
-      sort: "updated",
+      // A folder opens by name, as a file manager lists one (#1872).
+      sort: "name",
     });
     expect(readLibraryView("/admin/resources", "/admin/resources", "all").tab).toBe("all");
   });
@@ -51,7 +52,19 @@ describe("reading a library view out of an address", () => {
   });
 
   it("reads an order it does not recognize as the default one", () => {
-    expect(readLibraryView("/resources?sort=whatever", "/resources", "user").sort).toBe("updated");
+    expect(readLibraryView("/resources?sort=whatever", "/resources", "user").sort).toBe("name");
+  });
+
+  it("reads every column order the listing sorts by", () => {
+    for (const sort of ["updated", "updated_asc", "last_read", "name_desc", "size", "size_desc"]) {
+      expect(readLibraryView(`/resources?sort=${sort}`, "/resources", "user").sort).toBe(sort);
+    }
+  });
+
+  // The All view had no place in a tree and was retired (#1872); a bookmark to
+  // it opens the default top-level folder rather than a persona named "all".
+  it("opens a link to the retired All view on the default folder", () => {
+    expect(readLibraryView("/resources/lib/all", "/resources", "user")).toMatchObject({ tab: "user", path: "" });
   });
 
   it("reads a resource's own route as the default library rather than a folder", () => {
@@ -71,7 +84,7 @@ describe("writing a library view into an address", () => {
     path: "",
     q: "",
     tag: "",
-    sort: "updated" as const,
+    sort: "name" as const,
     ...over,
   });
 

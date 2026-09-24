@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  getStoredViewMode,
-  storeViewMode,
-  RESOURCE_VIEW_STORAGE_KEY,
-} from "./listView";
+import { getStoredViewMode, storeViewMode } from "./listView";
+
+// A list that keeps its own layout passes its own key.
+const RESOURCE_VIEW_STORAGE_KEY = "another-list-view-mode";
 
 // The environment has no localStorage of its own, which is also the state a
 // private window and a browser set to block site data leave the page in — so
@@ -37,8 +36,8 @@ describe("the layout a list is drawn in", () => {
     expect(getStoredViewMode()).toBe("grid");
   });
 
-  // A library is a folder tree and the Assets page is a flat gallery, so a
-  // reader who wants rows in one and tiles in the other is not confused (#1553).
+  // Two lists can be different things, so a reader who wants rows in one and
+  // tiles in the other is not confused (#1553).
   it("is remembered per list rather than once for the portal", () => {
     storeViewMode("table", RESOURCE_VIEW_STORAGE_KEY);
 

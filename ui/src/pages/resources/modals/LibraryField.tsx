@@ -53,9 +53,9 @@ export function LibraryField({
 
   return (
     <div className="space-y-1">
-      <Label className="text-xs text-muted-foreground">Library</Label>
+      <Label className="text-xs text-muted-foreground">Top-level folder</Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger aria-label="Library" className="w-full">
+        <SelectTrigger aria-label="Top-level folder" className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

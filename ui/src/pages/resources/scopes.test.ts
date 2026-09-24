@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import type { UserProfile } from "@/stores/auth";
 import {
-  ALL_LIBRARIES,
-  canUpload,
   canWriteScope,
-  libraryChoices,
   currentLibrary,
+  displayPath,
   libraryCopy,
   libraryOptions,
   moveTargets,
   personaAdminNames,
-  targetForTab,
+  personRoot,
+  rootFor,
+  rootsFor,
   targetKey,
   uploadTargets,
   withheldUploadPersonas,
@@ -47,26 +47,38 @@ describe("persona-admin grants read from roles", () => {
   });
 });
 
-describe("the library a scope tab names", () => {
-  it("resolves the caller's own library from their identity, not from the tab key", () => {
-    expect(targetForTab("user", reader())).toEqual({
-      scope: "user",
-      scope_id: "analyst@example.com",
-    });
+describe("the folder a top-level key names", () => {
+  it("writes to the caller's own identity from My Resources, and reads every key they own", () => {
+    const mine = rootFor("user", rootsFor(reader(), []));
+    expect(mine.label).toBe("My Resources");
+    expect(mine.target).toEqual({ scope: "user", scope_id: "analyst@example.com" });
+    // No id: the server reads the subject and the address the caller's files
+    // can be keyed by.
+    expect(mine.params).toEqual({ scope: "user" });
   });
 
-  it("reads any other key as a persona name", () => {
-    expect(targetForTab("finance", reader())).toEqual({ scope: "persona", scope_id: "finance" });
+  it("reads any other key as a persona, listed or not", () => {
+    expect(rootFor("finance", rootsFor(reader(), [])).target).toEqual({ scope: "persona", scope_id: "finance" });
   });
 
-  it("names no single library on the admin all-scopes tab", () => {
-    expect(targetForTab("all", reader())).toBeNull();
+  it("reads a person's key as that person's folder, named by their address", () => {
+    const person = rootFor("person:sub-9", [], () => "nine@example.com");
+    expect(person.label).toBe("nine@example.com");
+    expect(person.params).toEqual({ scope: "user", scope_id: "sub-9" });
+    expect(personRoot("sub-9").label).toBe("sub-9");
+  });
+
+  it("writes a location as a path from the top-level folder", () => {
+    const [mine, global] = rootsFor(reader(), []);
+    expect(displayPath(global!, "data/weekly")).toBe("/Global/data/weekly");
+    expect(displayPath(mine!, "")).toBe("/My Resources");
+    expect(displayPath(personRoot("sub-9", "nine@example.com"), "a")).toBe("/People/nine@example.com/a");
   });
 });
 
 describe("who may add to a library", () => {
   it("lets any reader add to their own", () => {
-    expect(canWriteScope(reader(), targetForTab("user", reader()))).toBe(true);
+    expect(canWriteScope(reader(), rootFor("user", rootsFor(reader(), [])).target)).toBe(true);
   });
 
   it("refuses a reader the global library", () => {
@@ -209,7 +221,7 @@ describe("the library a resource is in now", () => {
 
   it("names another person by the address it is keyed on", () => {
     expect(currentLibrary({ scope: "user", scope_id: "her@example.com" }, reader()).label).toBe(
-      "her@example.com's library",
+      "her@example.com's resources",
     );
   });
 
@@ -218,7 +230,7 @@ describe("the library a resource is in now", () => {
     expect(
       currentLibrary({ scope: "user", scope_id: "550e8400-e29b-41d4-a716-446655440000" }, reader())
         .label,
-    ).toBe("Another person's library");
+    ).toBe("Another person's resources");
   });
 
   it("names a persona and the global library", () => {
@@ -255,25 +267,13 @@ describe("the options the Library picker offers", () => {
   });
 });
 
-describe("the library picker offers the libraries a caller can reach", () => {
-  it("gives a reader All, their own, their persona and the global one", () => {
-    expect(libraryChoices(reader(), []).map((l) => l.key)).toEqual([
-      ALL_LIBRARIES,
-      "user",
-      "analyst",
-      "global",
-    ]);
-  });
-
-  it("opens on All", () => {
-    expect(libraryChoices(reader(), [])[0]!.key).toBe(ALL_LIBRARIES);
+describe("the top-level folders a caller sees", () => {
+  it("gives a reader their own, Global, then their persona", () => {
+    expect(rootsFor(reader(), []).map((r) => r.key)).toEqual(["user", "global", "analyst"]);
   });
 
   it("names a persona the caller only administers, alongside the one they are in", () => {
-    const keys = libraryChoices(
-      reader({ roles: ["dp_analyst", "dp_persona-admin:finance"] }),
-      [],
-    ).map((l) => l.key);
+    const keys = rootsFor(reader({ roles: ["dp_analyst", "dp_persona-admin:finance"] }), []).map((r) => r.key);
     expect(keys).toContain("analyst");
     expect(keys).toContain("finance");
   });
@@ -281,29 +281,20 @@ describe("the library picker offers the libraries a caller can reach", () => {
   // Listing is membership-scoped for an ordinary caller, so a persona they are
   // not in would list nothing; the deployment's persona list is not theirs.
   it("does not hand a reader the deployment's other personas", () => {
-    const keys = libraryChoices(reader(), ["ops", "finance"]).map((l) => l.key);
+    const keys = rootsFor(reader(), ["ops", "finance"]).map((r) => r.key);
     expect(keys).not.toContain("ops");
     expect(keys).not.toContain("finance");
   });
 
   // An administrator may write and list every persona (resource.ListScopes), so
-  // hiding one would hide a library they own material in (#1553).
-  it("gives a platform administrator every persona the deployment defines", () => {
-    const keys = libraryChoices(reader({ is_admin: true }), ["ops", "finance"]).map((l) => l.key);
-    expect(keys).toEqual([ALL_LIBRARIES, "user", "analyst", "finance", "ops", "global"]);
+  // hiding one would hide a folder they own material in (#1553).
+  it("gives a platform administrator every persona the deployment defines, once each", () => {
+    const keys = rootsFor(reader({ is_admin: true }), ["ops", "finance", "analyst"]).map((r) => r.key);
+    expect(keys).toEqual(["user", "global", "analyst", "finance", "ops"]);
   });
 
-  it("names a persona once when the deployment list and the caller's own agree", () => {
-    const keys = libraryChoices(reader({ is_admin: true }), ["analyst"]).map((l) => l.key);
-    expect(keys.filter((k) => k === "analyst")).toHaveLength(1);
-  });
-
-  it("offers nothing to a caller who is not signed in", () => {
-    expect(libraryChoices(null, ["ops"]).map((l) => l.key)).toEqual([
-      ALL_LIBRARIES,
-      "user",
-      "global",
-    ]);
+  it("offers My Resources and Global to a caller who is not signed in", () => {
+    expect(rootsFor(null, ["ops"]).map((r) => r.key)).toEqual(["user", "global"]);
   });
 });
 
@@ -351,20 +342,5 @@ describe("the persona libraries an upload is withheld from", () => {
   it("names nothing for a caller with no persona or no session", () => {
     expect(withheldUploadPersonas(reader({ persona: undefined }))).toEqual([]);
     expect(withheldUploadPersonas(null)).toEqual([]);
-  });
-});
-
-describe("the Upload control on a view that names no library", () => {
-  it("is offered to anyone with a library of their own", () => {
-    expect(canUpload(reader(), null, [])).toBe(true);
-  });
-
-  it("follows the one library when the view names one", () => {
-    expect(canUpload(reader(), targetForTab("user", reader()), [])).toBe(true);
-    expect(canUpload(reader(), targetForTab("global", reader()), [])).toBe(false);
-  });
-
-  it("is withheld from a caller who is not signed in", () => {
-    expect(canUpload(null, null, [])).toBe(false);
   });
 });

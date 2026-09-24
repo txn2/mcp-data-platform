@@ -136,11 +136,6 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
   ["/admin/connections", () => <ConnectionsPanel />],
   ["/admin/personas", () => <PersonasPanel />],
   ["/admin/prompts", (p: PageContext) => <AdminPromptsPage onNavigate={p.navigate} />],
-  // The library's own root. Its folders are routes of their own and are matched
-  // below, because a folder path is not one exact path (#1530).
-  ["/admin/resources", (p: PageContext) => (
-    <ResourcesPage admin location={p.currentPath} onNavigate={p.navigate} />
-  )],
   ["/admin/keys", () => <KeysPage />],
   ["/admin/users", () => <UsersPanel />],
   ["/admin/changelog", () => <ChangelogPage />],
@@ -155,7 +150,11 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
  * and neither can shadow the other.
  */
 function adminResourceRoute(route: string): { viewing?: string; browsing: boolean } {
-  if (route.startsWith("/admin/resources/lib/")) return { browsing: true };
+  // The root and every folder mount the page in one place, so moving between
+  // folders keeps the tree, the selection and the Back/Forward history (#1872).
+  if (route === "/admin/resources" || route.startsWith("/admin/resources/lib/")) {
+    return { browsing: true };
+  }
   const id = route.match(/^\/admin\/resources\/([^/]+)$/)?.[1];
   return { viewing: id === "lib" ? undefined : id, browsing: false };
 }

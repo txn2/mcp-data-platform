@@ -2,6 +2,7 @@ cmd/dev-mcp-mock -> internal/logsan
 cmd/dev-soap-mock -> internal/logsan
 cmd/mcp-data-platform -> internal/buildinfo
 cmd/mcp-data-platform -> internal/httpserver
+cmd/mcp-data-platform -> internal/procload
 cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer

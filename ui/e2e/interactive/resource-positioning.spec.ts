@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
+import { ADMIN_RESOURCES, chooseUpload, fileManager, gotoFolder, searchBox } from "../screenshots/helpers/resources";
 import { RESOURCE_POSITIONING } from "../../src/lib/positioning";
 
 // Interactive coverage for the resources positioning copy (#1015). The
@@ -8,45 +9,45 @@ import { RESOURCE_POSITIONING } from "../../src/lib/positioning";
 // forgets a surface fails here, and a change that forgets the Go constant fails
 // in TestResourcePositioningIsVerbatim.
 //
-// The "admin" persona is the empty scope in the mock fixture (every other
-// persona owns at least one resource), which is what gives the never-uploaded
-// empty state something to render.
+// The empty-folder copy an administrator meets is the drop-zone one: an
+// administrator can write to every top-level folder, so the read-only empty
+// state that carries the statement (#1872: EmptyFolder in
+// src/pages/resources/browser/Chrome.tsx) is not reachable as the mock's
+// signed-in user. Global's `templates/drafts` is the folder the mock stores
+// with nothing in it.
 
-const ADMIN_RESOURCES = "/portal/admin/resources";
-
-async function openAdminResources(page: Page): Promise<void> {
+async function openAdminResources(page: Page, root = "user", path = ""): Promise<void> {
   await authenticate(page);
-  await page.goto(ADMIN_RESOURCES);
-  await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
+  await gotoFolder(page, ADMIN_RESOURCES, root, path);
+  await expect(fileManager(page).getByRole("button", { name: "Upload", exact: true }).first()).toBeVisible();
 }
 
 test.describe("Resources positioning copy", () => {
-  test("the empty scope states what a resource is for", async ({ page }) => {
-    await openAdminResources(page);
-    // The picker is one listbox now (#1553).
-    await page.getByRole("combobox", { name: "Library" }).click();
-    await page.getByRole("option", { name: "admin", exact: true }).click();
+  test("an empty folder says where an upload will be filed and offers one", async ({ page }) => {
+    await openAdminResources(page, "global", "templates/drafts");
 
     const empty = page.getByTestId("resources-empty");
-    await expect(empty).toContainText("Nothing here yet");
-    await expect(empty).toContainText(RESOURCE_POSITIONING);
-    await expect(empty.getByRole("button", { name: "Upload Resource" })).toBeVisible();
+    await expect(empty).toContainText("This folder is empty");
+    await expect(empty).toContainText("They are filed into /Global/templates/drafts");
+    await expect(empty.getByRole("button", { name: "Upload" })).toBeVisible();
+    await expect(page.getByTestId("status-line")).toContainText("0 files");
   });
 
-  test("a filter that matches nothing is not reported as an empty library", async ({ page }) => {
+  test("a search that matches nothing is not reported as an empty folder", async ({ page }) => {
     await openAdminResources(page);
-    await page.getByPlaceholder("Search the whole library...").fill("zzz-no-such-resource");
+    await searchBox(page).fill("zzz-no-such-resource");
 
     const empty = page.getByTestId("resources-empty");
-    await expect(empty).toContainText("No resources match this search");
+    await expect(empty).toContainText("No files in My Resources match");
+    await expect(empty).not.toContainText("This folder is empty");
     await expect(empty).not.toContainText(RESOURCE_POSITIONING);
-    // Nothing to upload here: the file may well already be in the library.
-    await expect(empty.getByRole("button", { name: "Upload Resource" })).toHaveCount(0);
+    // Nothing to upload here: the file may well already be in the folder.
+    await expect(empty.getByRole("button", { name: "Upload" })).toHaveCount(0);
   });
 
   test("the upload dialog states the split and what each seed folder means", async ({ page }) => {
     await openAdminResources(page);
-    await page.getByRole("button", { name: "Upload", exact: true }).click();
+    await chooseUpload(page, "A file...");
 
     const dialog = page.getByRole("heading", { name: "Upload Resource" }).locator("../..");
     await expect(dialog).toContainText(RESOURCE_POSITIONING);
