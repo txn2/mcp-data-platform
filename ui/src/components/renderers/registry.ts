@@ -256,6 +256,29 @@ export function exceedsInlineLimit(contentType: string, sizeBytes: number, fileN
   return sizeBytes > entry.inlineLimit;
 }
 
+/**
+ * How a surface reads a stored file before rendering it, decided by the family's
+ * own limits and nothing else (#1874):
+ *
+ * - `fetch`: read the content as text and hand it to the renderer. Every inline
+ *   family under its `inlineLimit`, and a file under a generic type small
+ *   enough to read, since the text is what detection resolves its family from.
+ * - `too-large`: an inline family past its `inlineLimit`. The surface offers
+ *   the download instead and never requests the content.
+ * - `url`: the renderer loads the content endpoint itself.
+ *
+ * There is no fourth answer, which is the point: a surface that asks this
+ * cannot leave a file neither fetched nor refused, the state that span forever.
+ */
+export type ContentLoad = "fetch" | "too-large" | "url";
+
+export function contentLoad(contentType: string, sizeBytes: number, fileName?: string): ContentLoad {
+  const entry = resolveRenderer({ contentType, fileName });
+  if (entry.kind === "binary") return sizeBytes > TEXT_INLINE_LIMIT ? "url" : "fetch";
+  if (entry.source === "url") return "url";
+  return exceedsInlineLimit(contentType, sizeBytes, fileName) ? "too-large" : "fetch";
+}
+
 /** A short, human-readable name for a content type, for metadata displays. */
 export function familyLabel(contentType: string): string {
   const n = normalizeContentType(contentType);

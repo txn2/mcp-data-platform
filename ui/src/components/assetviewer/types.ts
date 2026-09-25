@@ -11,6 +11,13 @@ export type ViewMode = "preview" | "source";
 export interface AssetViewerProps {
   asset: Asset | undefined;
   content: string | ArrayBuffer | undefined;
+  /**
+   * Why the content read produced no body, when it failed (#1874). The viewer
+   * shows it, with Retry and Download, in place of the loading state.
+   */
+  contentError?: unknown;
+  /** Reads the content again after a failure. */
+  onRetryContent?: () => void;
   isLoading: boolean;
   contentUrl: string;
   onBack: () => void;

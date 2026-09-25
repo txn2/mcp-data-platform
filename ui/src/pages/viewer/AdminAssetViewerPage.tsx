@@ -11,7 +11,7 @@ interface Props {
 
 export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
   const { data: asset, isLoading } = useAdminAsset(assetId);
-  const { data: content } = useAdminAssetContent(assetId, asset?.size_bytes);
+  const { data: content, error: contentError, refetch: refetchContent } = useAdminAssetContent(assetId, asset);
   const updateMutation = useAdminUpdateAsset();
   const deleteMutation = useAdminDeleteAsset();
   const contentUpdateMutation = useAdminUpdateAssetContent();
@@ -29,6 +29,8 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
     <AssetViewer
       asset={asset}
       content={content}
+      contentError={contentError}
+      onRetryContent={() => void refetchContent()}
       isLoading={isLoading}
       contentUrl={`/api/v1/admin/assets/${assetId}/content`}
       onBack={() => onNavigate("/admin/assets")}

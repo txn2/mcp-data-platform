@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportmeta"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
+	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -659,7 +660,7 @@ func (h *hostState) declareReferences(b *starlark.Builtin, req ExportRequest, re
 	if req.Body == nil || !req.Destination.IsPortal() {
 		return nil
 	}
-	if record.UndeclaredReferences = exportrefs.Undeclared(*req.Body, req.References); len(record.UndeclaredReferences) > 0 {
+	if record.UndeclaredReferences = contentrefs.Undeclared(*req.Body, req.References); len(record.UndeclaredReferences) > 0 {
 		h.log.Print(exportrefs.LogLine(record.Name, record.UndeclaredReferences))
 	}
 	if record.References = req.References; req.References == nil || record.Preview {

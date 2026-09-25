@@ -3,6 +3,7 @@ package assetrefs_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -718,4 +719,33 @@ func TestResolveAfterTheFileMovesLibrary(t *testing.T) {
 
 	_, err = d.Resolve(t.Context(), []string{movedURI}, analystAuthor(), "")
 	require.ErrorIs(t, err, assetrefs.ErrRefused)
+}
+
+// TestDeclaredURIs proves a write that leaves the references alone is judged
+// against the declaration the asset holds, in declared order, and that a
+// deployment that cannot record references reports none (#1875).
+func TestDeclaredURIs(t *testing.T) {
+	store := newFakeRefs()
+	d := declarer(store)
+	declared, err := d.Resolve(t.Context(), []string{logoURI}, analystAuthor(), "")
+	require.NoError(t, err)
+	_, err = d.Apply(t.Context(), testAssetID, declared, author)
+	require.NoError(t, err)
+
+	uris, err := d.DeclaredURIs(t.Context(), testAssetID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{logoURI}, uris)
+
+	none, err := d.DeclaredURIs(t.Context(), "asset-with-none")
+	require.NoError(t, err)
+	assert.Empty(t, none)
+
+	var unwired *assetrefs.Declarer
+	uris, err = unwired.DeclaredURIs(t.Context(), testAssetID)
+	require.NoError(t, err)
+	assert.Nil(t, uris)
+
+	store.byAssetErr = errors.New("connection reset")
+	_, err = d.DeclaredURIs(t.Context(), testAssetID)
+	require.ErrorContains(t, err, "connection reset")
 }

@@ -13,7 +13,7 @@ interface Props {
 
 export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
   const { data: asset, isLoading } = useAsset(assetId);
-  const { data: content } = useAssetContent(assetId, asset);
+  const { data: content, error: contentError, refetch: refetchContent } = useAssetContent(assetId, asset);
   const updateMutation = useUpdateAsset();
   const deleteMutation = useDeleteAsset();
   const contentUpdateMutation = useUpdateAssetContent();
@@ -35,6 +35,8 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
     <AssetViewer
       asset={asset}
       content={content}
+      contentError={contentError}
+      onRetryContent={() => void refetchContent()}
       isLoading={isLoading}
       contentUrl={`/api/v1/portal/assets/${assetId}/content`}
       onBack={onBack}

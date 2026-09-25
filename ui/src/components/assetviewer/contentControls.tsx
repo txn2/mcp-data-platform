@@ -1,4 +1,4 @@
-import { Code, Download, Eye, FileWarning, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, Code, Download, Eye, FileWarning, RefreshCw, RotateCcw, Save } from "lucide-react";
 import type { Asset, AssetVersion } from "@/api/portal/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { contentErrorLabel } from "@/lib/contentFetch";
 import { formatBytes } from "@/lib/format";
 import type { ViewMode } from "./types";
 
@@ -207,6 +208,49 @@ export function TooLarge({
         This file is {formatBytes(sizeBytes)}, past the inline preview limit for{" "}
         {asset.content_type}.
       </p>
+    </EmptyState>
+  );
+}
+
+/**
+ * A content read that ended without a body (#1874): the status it failed with,
+ * a way to ask again, and the download, which reads the same endpoint through
+ * the browser and so works whenever the failure was this page's read alone.
+ */
+export function ContentLoadError({
+  asset,
+  error,
+  contentUrl,
+  onRetry,
+}: {
+  asset: Pick<Asset, "name">;
+  error: unknown;
+  contentUrl: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <EmptyState
+      icon={AlertTriangle}
+      className="py-20"
+      action={
+        <div className="flex flex-wrap justify-center gap-2">
+          {onRetry && (
+            <Button variant="outline" onClick={onRetry}>
+              <RefreshCw />
+              Retry
+            </Button>
+          )}
+          <Button asChild>
+            <a href={contentUrl} download={asset.name}>
+              <Download />
+              Download
+            </a>
+          </Button>
+        </div>
+      }
+    >
+      <p className="text-lg font-medium text-foreground">Could not load this file</p>
+      <p className="mt-1">The content request failed ({contentErrorLabel(error)}).</p>
     </EmptyState>
   );
 }

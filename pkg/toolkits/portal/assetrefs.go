@@ -3,10 +3,15 @@ package portal
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -15,9 +20,76 @@ import (
 
 // Result keys the reference declaration adds to a write's response.
 const (
-	fieldReferencesDeclared = "references_declared"
-	fieldReferenceGrant     = "reference_grant"
+	fieldReferencesDeclared   = "references_declared"
+	fieldReferenceGrant       = "reference_grant"
+	fieldUndeclaredReferences = "undeclared_references"
 )
+
+// linkRefusal refuses a body that uses a reference as a link target (#1875),
+// naming each one, or returns nil when it uses none.
+//
+// A reference loads another file's content into the document: the serving
+// rewrite turns it into a URL for the target's bytes, which an <img>, a
+// stylesheet or a fetch can use and a reader cannot follow, since the frame a
+// document renders in blocks navigation. Stored as a link it goes nowhere, so
+// the write is refused before anything is written rather than accepted.
+func linkRefusal(body, contentType string) *mcp.CallToolResult {
+	linked := contentrefs.Linked(body, contentType)
+	if len(linked) == 0 {
+		return nil
+	}
+	return toolkit.ErrorResult(fmt.Sprintf(
+		"links between assets are not supported, and this content uses %s as a link target "+
+			"(an <a href> or a Markdown [text](...) link). A reference loads another file's content into "+
+			"this document, as an <img src>, a stylesheet or a fetch; it cannot be followed. "+
+			"Reference the asset to load its content, or name it in text. Nothing was written.",
+		strings.Join(linked, ", ")))
+}
+
+// undeclaredRefs returns the references body names that the asset does not
+// declare once this write is done (#1875): what the write passed in
+// references, or, when it passed none, what the asset already declares.
+//
+// It reports and never refuses. A failure to read the existing declarations
+// is logged and reports nothing, because naming a reference undeclared that
+// is in fact declared would send the author to fix what is not broken.
+func (t *Toolkit) undeclaredRefs(ctx context.Context, assetID, body string, passed []string) []string {
+	declared := passed
+	if declared == nil && assetID != "" {
+		existing, err := t.contentRefs.DeclaredURIs(ctx, assetID)
+		if err != nil {
+			slog.Warn("undeclared references not checked",
+				"asset_id", logsan.SanitizeForLog(assetID), "error", logsan.SanitizeForLog(err.Error()))
+			return nil
+		}
+		declared = existing
+	}
+	return contentrefs.Undeclared(body, declared)
+}
+
+// undeclaredNotice is the sentence a write's message carries about the
+// references its content names undeclared, in the run log's words; empty when
+// there are none.
+func undeclaredNotice(undeclared []string) string {
+	if len(undeclared) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" The content names %s, which references does not declare, so %s. "+
+		"Add each one the content loads to references.",
+		strings.Join(undeclared, ", "), contentrefs.UndeclaredConsequence)
+}
+
+// addUndeclaredFields reports undeclared references on a map-shaped result:
+// the list, and the notice appended to the message.
+func addUndeclaredFields(result map[string]any, undeclared []string) {
+	if len(undeclared) == 0 {
+		return
+	}
+	result[fieldUndeclaredReferences] = undeclared
+	if msg, ok := result[fieldMessage].(string); ok {
+		result[fieldMessage] = msg + undeclaredNotice(undeclared)
+	}
+}
 
 // resolveRefs validates a write's declared references without recording
 // anything, so a save that names something its author cannot read is refused

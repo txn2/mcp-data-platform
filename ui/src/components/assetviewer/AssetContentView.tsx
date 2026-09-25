@@ -4,7 +4,8 @@ import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { exceedsInlineLimit, readsByRange, rendersFromURL } from "@/components/renderers/registry";
 import { useContentUrl } from "@/lib/useContentUrl";
-import { SaveControls, TooLarge, VersionControls, ViewModeToggle } from "./contentControls";
+import { ContentLoadError, SaveControls, TooLarge, VersionControls, ViewModeToggle } from "./contentControls";
+import { pendingState, type PendingState } from "./pendingState";
 import type { MutationLike, ViewMode } from "./types";
 
 const SourceEditor = lazy(() =>
@@ -14,6 +15,9 @@ const SourceEditor = lazy(() =>
 interface AssetContentViewProps {
   asset: Asset;
   content: string | ArrayBuffer | undefined;
+  /** Why the content read failed, when it did (#1874). */
+  contentError?: unknown;
+  onRetryContent?: () => void;
   contentUrl: string;
   canEditSource: boolean;
   viewingOldVersion: boolean;
@@ -44,6 +48,8 @@ interface AssetContentViewProps {
 export function AssetContentView({
   asset,
   content,
+  contentError,
+  onRetryContent,
   contentUrl,
   canEditSource,
   viewingOldVersion,
@@ -120,6 +126,8 @@ export function AssetContentView({
         <CurrentContent
           asset={asset}
           content={content}
+          contentError={contentError}
+          onRetryContent={onRetryContent}
           contentUrl={contentUrl}
           canEditSource={canEditSource}
           viewMode={viewMode}
@@ -171,6 +179,8 @@ function VersionContent({
 function CurrentContent({
   asset,
   content,
+  contentError,
+  onRetryContent,
   contentUrl,
   canEditSource,
   viewMode,
@@ -181,6 +191,8 @@ function CurrentContent({
 }: {
   asset: Asset;
   content: string | ArrayBuffer | undefined;
+  contentError?: unknown;
+  onRetryContent?: () => void;
   contentUrl: string;
   canEditSource: boolean;
   viewMode: ViewMode;
@@ -196,12 +208,21 @@ function CurrentContent({
   // the whole object into a blob first is what reading by range avoids.
   const media = useContentUrl(contentUrl, fromURL && !readsByRange(asset.content_type, asset.name));
 
-  const pending = pendingState({ asset, content, fromURL, mediaLoading: media.loading });
-  if (pending === "too-large") {
-    return <TooLarge asset={asset} sizeBytes={asset.size_bytes} contentUrl={contentUrl} />;
-  }
-  if (pending === "loading") {
-    return <LoadingIndicator />;
+  // The read that failed is the one this family renders from: the media URL
+  // for a URL family, the text otherwise.
+  const failure = fromURL
+    ? { error: media.error, retry: media.retry }
+    : { error: contentError, retry: onRetryContent };
+  const pending = pendingState({
+    asset,
+    content,
+    fromURL,
+    mediaLoading: media.loading,
+    contentFailed: contentError != null,
+    mediaFailed: media.error != null,
+  });
+  if (pending !== "ready") {
+    return <PendingView pending={pending} asset={asset} contentUrl={contentUrl} {...failure} />;
   }
 
   const showEditor = canEditSource && viewMode === "source";
@@ -234,29 +255,28 @@ function CurrentContent({
   );
 }
 
-/**
- * What, if anything, stands between the viewer and rendering: the asset is past
- * its family's inline limit, its content has not arrived, or its media URL is
- * still being fetched.
- */
-function pendingState({
+/** What the viewer shows in place of content it cannot render yet, or at all. */
+function PendingView({
+  pending,
   asset,
-  content,
-  fromURL,
-  mediaLoading,
+  contentUrl,
+  error,
+  retry,
 }: {
+  pending: Exclude<PendingState, "ready">;
   asset: Asset;
-  content: string | ArrayBuffer | undefined;
-  fromURL: boolean;
-  mediaLoading: boolean;
-}): "too-large" | "loading" | "ready" {
-  if (fromURL) {
-    return mediaLoading ? "loading" : "ready";
+  contentUrl: string;
+  error: unknown;
+  retry?: () => void;
+}) {
+  switch (pending) {
+    case "too-large":
+      return <TooLarge asset={asset} sizeBytes={asset.size_bytes} contentUrl={contentUrl} />;
+    case "failed":
+      return <ContentLoadError asset={asset} error={error} contentUrl={contentUrl} onRetry={retry} />;
+    default:
+      return <LoadingIndicator />;
   }
-  if (content !== undefined) {
-    return "ready";
-  }
-  return exceedsInlineLimit(asset.content_type, asset.size_bytes, asset.name) ? "too-large" : "loading";
 }
 
 /** Content the renderers can take as text; an ArrayBuffer body is not one. */

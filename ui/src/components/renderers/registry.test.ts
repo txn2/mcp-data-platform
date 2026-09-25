@@ -4,6 +4,7 @@ import {
   isEditableContent,
   rendersFromURL,
   exceedsInlineLimit,
+  contentLoad,
   languageForContentType,
   familyLabel,
   TEXT_INLINE_LIMIT,
@@ -162,5 +163,33 @@ describe("a Parquet file", () => {
     expect(entry.source).toBe("url");
     expect(entry.editable).toBe(false);
     expect(entry.inlineLimit).toBeNull();
+  });
+});
+
+describe("contentLoad", () => {
+  const fiveMB = 5 * 1024 * 1024;
+
+  it("fetches a table past the old flat 2 MB, within its family's limit (#1874)", () => {
+    expect(contentLoad("text/csv", fiveMB, "data.csv")).toBe("fetch");
+    expect(contentLoad("text/tab-separated-values", fiveMB)).toBe("fetch");
+    expect(contentLoad("application/x-ndjson", fiveMB)).toBe("fetch");
+    expect(contentLoad("application/json", fiveMB)).toBe("fetch");
+  });
+
+  it("refuses an inline family past its own limit without fetching it", () => {
+    expect(contentLoad("text/csv", VIRTUALIZED_INLINE_LIMIT + 1)).toBe("too-large");
+    expect(contentLoad("text/markdown", TEXT_INLINE_LIMIT + 1)).toBe("too-large");
+    expect(contentLoad("text/markdown", TEXT_INLINE_LIMIT)).toBe("fetch");
+  });
+
+  it("hands a family whose renderer loads the endpoint the endpoint, at any size", () => {
+    expect(contentLoad("image/png", 1024)).toBe("url");
+    expect(contentLoad("application/pdf", 500 * 1024 * 1024)).toBe("url");
+    expect(contentLoad("application/vnd.apache.parquet", 1024)).toBe("url");
+  });
+
+  it("reads a small file under a generic type, so detection can place it", () => {
+    expect(contentLoad("application/octet-stream", 1024)).toBe("fetch");
+    expect(contentLoad("application/octet-stream", TEXT_INLINE_LIMIT + 1)).toBe("url");
   });
 });

@@ -4,6 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
 import { flattenPages, nextOffset, assetKey, sharedKey, useAssetContent } from "./assets";
 import type { Asset, PaginatedResponse, SharedAsset } from "../types";
+import { ContentFetchError } from "@/lib/contentFetch";
 
 function asset(id: string, overrides: Partial<Asset> = {}): Asset {
   return {
@@ -111,26 +112,39 @@ describe("key extractors", () => {
 });
 
 describe("useAssetContent", () => {
-  // The content is read once the record says it is worth reading (#1833):
-  // reading before the size was known meant the large-asset threshold never
-  // applied on the first load, and a Parquet file's viewer reads by range.
-  it("waits for the record, and skips a large file and a range-read family", async () => {
+  const run = (asset?: { size_bytes: number; content_type: string; name: string }) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return renderHook(() => useAssetContent("a1", asset), {
+      wrapper: ({ children }) => createElement(QueryClientProvider, { client: qc }, children),
+    });
+  };
+
+  // The content is read once the record says it is worth reading (#1833), and
+  // "worth reading" is the family's own limit (#1874): a 5 MB CSV is read, as
+  // its virtualized viewer can show it, and one past 32 MB is not.
+  it("waits for the record, reads within the family's limit, skips past it and a range-read family", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response("a,b\n1,2\n", { status: 200 })));
     vi.stubGlobal("fetch", fetchMock);
-    const run = (asset?: { size_bytes: number; content_type: string; name: string }) => {
-      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      return renderHook(() => useAssetContent("a1", asset), {
-        wrapper: ({ children }) => createElement(QueryClientProvider, { client: qc }, children),
-      });
-    };
     run(undefined);
-    run({ size_bytes: 10 * 1024 * 1024, content_type: "text/csv", name: "big.csv" });
+    run({ size_bytes: 40 * 1024 * 1024, content_type: "text/csv", name: "huge.csv" });
     run({ size_bytes: 1024, content_type: "application/vnd.apache.parquet", name: "t.parquet" });
     await new Promise((r) => setTimeout(r, 20));
     expect(fetchMock).not.toHaveBeenCalled();
 
-    const { result } = run({ size_bytes: 12, content_type: "text/csv", name: "small.csv" });
+    const { result } = run({ size_bytes: 5 * 1024 * 1024, content_type: "text/csv", name: "big.csv" });
     await vi.waitFor(() => expect(result.current.data).toBe("a,b\n1,2\n"));
+    vi.unstubAllGlobals();
+  });
+
+  it("fails a read with no body with its status, and a dropped request as a network error", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("denied", { status: 403 }))));
+    const denied = run({ size_bytes: 12, content_type: "text/csv", name: "d.csv" });
+    await vi.waitFor(() => expect(denied.result.current.error).toBeInstanceOf(ContentFetchError));
+    expect((denied.result.current.error as ContentFetchError).status).toBe(403);
+
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    const dropped = run({ size_bytes: 12, content_type: "text/csv", name: "d.csv" });
+    await vi.waitFor(() => expect(dropped.result.current.error?.message).toBe("network error"));
     vi.unstubAllGlobals();
   });
 });

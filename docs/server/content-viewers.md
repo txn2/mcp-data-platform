@@ -268,6 +268,17 @@ The inline preview limit is per family, not global:
 - Families rendered as one continuous block of text keep a 2 MB cutoff, above
   which the viewer offers a download.
 
+The asset page, the preview modal and the admin console's asset viewer all read
+these limits from the one renderer registry, and a file past its family's limit
+is offered as a download without its content being requested. Before #1874 the
+content read was gated at a flat 2 MB of its own, so a CSV or NDJSON asset
+between 2 MB and 32 MB was never fetched and never refused, and the viewer
+waited on it forever.
+
+A content read that ends without a body, an error status or a dropped
+connection, shows **Could not load this file** with the status, a **Retry**
+button and the **Download** link, rather than the loading indicator.
+
 ![A CSV asset registered as a queryable table](../images/screenshots/light/user-asset-table-light.webp#only-light)![A CSV asset registered as a queryable table](../images/screenshots/dark/user-asset-table-dark.webp#only-dark)
 
 A tabular asset can also be registered as a table and queried, rather than

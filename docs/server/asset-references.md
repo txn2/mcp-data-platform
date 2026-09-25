@@ -7,7 +7,7 @@ description: How an asset references a managed resource or another asset instead
 An asset's content can name a managed resource by its `mcp://` URI, or another asset by its `mcp:asset:<id>` reference, instead of carrying the bytes. The stored content keeps the reference; every surface that serves the asset to a reader rewrites it into a URL that resolves to the target.
 
 !!! quote "The rule"
-    Write the reference where the file belongs in your markup and declare it in the same call. The asset stores a reference, not a copy.
+    Write the reference where the content loads the file (an `img` `src`, a `fetch`) and declare it in the same call. The asset stores a reference, not a copy. A reference loads a file; it is not a link.
 
 ## Why an asset should not carry the bytes
 
@@ -36,9 +36,24 @@ Both kinds are one mechanism. They share a declaration, a token, a serving route
 }
 ```
 
-The reference appears twice on purpose. In the markup it is what the reader's browser will follow; in `references` it is the declaration, and only a declared reference is ever rewritten. A reference string that appears in the content but was never declared is served exactly as written and resolves to nothing, so the grant is always the declaration and never a string that happens to appear in the body.
+The reference appears twice on purpose. In the markup it is what the reader's browser will load; in `references` it is the declaration, and only a declared reference is ever rewritten. A reference string that appears in the content but was never declared is served exactly as written and resolves to nothing, so the grant is always the declaration and never a string that happens to appear in the body.
 
-The rewrite is a whole-document replacement over textual content rather than an attribute rewrite, so a reference resolves wherever it is written: an `img` `src`, a `fetch()` inside a `<script>` block, a markdown link.
+The rewrite is a whole-document replacement over textual content rather than an attribute rewrite, so a reference resolves wherever it is written: an `img` `src`, a `<link>` `href`, a `fetch()` inside a `<script>` block, a CSS `url()`, a markdown image.
+
+The same three calls report the references the content names and the asset does not declare once the call is done, as `undeclared_references` in the result, with a sentence on the message saying each is served as written and resolves to nothing. "Declared once the call is done" is the `references` the call passed, or, on an `update` or `patch` that passed none, the asset's existing declaration. The report reads the default `mcp` resource scheme only, as the script path's does.
+
+### A reference is not a link
+
+The rewrite produces a URL that serves the target's bytes. That is what an `img`, a stylesheet or a `fetch` needs, and it is not something a reader can follow: the frame an HTML or JSX asset renders in is `sandbox="allow-scripts"`, which blocks top navigation, popups and downloads, and a file's raw bytes are not a page. The platform has no link between assets.
+
+A write that uses a reference as a link target is refused, naming each reference, and nothing is written:
+
+| Content type | Refused |
+|---|---|
+| HTML, XHTML, JSX, SVG | an `<a>` or `<area>` whose `href` (or SVG `xlink:href`) is a reference, including JSX `href={"..."}` |
+| Markdown | the above in embedded markup, an inline link whose destination is a reference, and an autolink wrapping one; fenced code and inline code are not read |
+
+A markdown image whose source is a reference loads the file and is accepted. To point a reader at another asset, name it in text. A `patch` is judged on the body the patch produces, dry runs included, so a patch that removes such a link from an older asset is accepted.
 
 On `manage_asset`, `references` replaces whatever the asset referenced before:
 
