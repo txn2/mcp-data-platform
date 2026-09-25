@@ -202,27 +202,11 @@ func New(db *sql.DB, cfg Config) (*Handle, error) {
 	}
 
 	connName := s3Connection(cfg)
-	if connName != "" {
-		s3Cfg := toolkitcfg.S3Config(cfg.Toolkits, connName)
-		if s3Cfg == nil {
-			return nil, fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
-		}
-
-		c, err := s3client.New(context.Background(), &s3client.Config{
-			Region:          s3Cfg.Region,
-			Endpoint:        s3Cfg.Endpoint,
-			AccessKeyID:     s3Cfg.AccessKeyID,
-			SecretAccessKey: s3Cfg.SecretKey,
-			Name:            s3Cfg.ConnectionName,
-			UsePathStyle:    s3Cfg.UsePathStyle,
-			// A resource is read whole -- by the registration that takes its
-			// header row, by a download, by the correction that rewrites it --
-			// and the client's one deadline covers that read (#1773).
-			Timeout: toolkitcfg.BlobReadTimeout(s3Cfg.Timeout, cfg.MaxObjectBytes),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)
-		}
+	c, err := OpenS3(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if c != nil {
 		h.s3Client = s3adapter.New(c)
 	} else {
 		slog.Warn("managed resources: no s3_connection configured; blob storage disabled")
@@ -242,6 +226,38 @@ func uriScheme(cfg Config) string {
 		return cfg.URIScheme
 	}
 	return resource.DefaultURIScheme
+}
+
+// OpenS3 builds a client on the S3 connection managed resources are stored
+// through, or returns nil when the deployment configures none. It is the one
+// place that client is built: webhook sources write into the same bucket
+// through a client of their own, which lists and deletes as well as reads and
+// writes (#1870).
+func OpenS3(cfg Config) (*s3client.Client, error) {
+	connName := s3Connection(cfg)
+	if connName == "" {
+		return nil, nil //nolint:nilnil // no connection is an answer, not a failure
+	}
+	s3Cfg := toolkitcfg.S3Config(cfg.Toolkits, connName)
+	if s3Cfg == nil {
+		return nil, fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
+	}
+	c, err := s3client.New(context.Background(), &s3client.Config{
+		Region:          s3Cfg.Region,
+		Endpoint:        s3Cfg.Endpoint,
+		AccessKeyID:     s3Cfg.AccessKeyID,
+		SecretAccessKey: s3Cfg.SecretKey,
+		Name:            s3Cfg.ConnectionName,
+		UsePathStyle:    s3Cfg.UsePathStyle,
+		// A resource is read whole -- by the registration that takes its
+		// header row, by a download, by the correction that rewrites it --
+		// and the client's one deadline covers that read (#1773).
+		Timeout: toolkitcfg.BlobReadTimeout(s3Cfg.Timeout, cfg.MaxObjectBytes),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)
+	}
+	return c, nil
 }
 
 // s3Connection returns the S3 connection name for managed resources: the

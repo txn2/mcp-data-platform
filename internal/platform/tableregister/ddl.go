@@ -100,6 +100,13 @@ func SampleJoinSQL(r Registration) string {
 	if len(r.Columns) == 0 {
 		return ""
 	}
+	if r.SourceKind == KindWebhook {
+		// A webhook table is partitioned by day; today's events, newest first,
+		// is the query a reader starts from (#1870).
+		return "SELECT received_at, event_id, event_type, key, payload FROM " + r.QualifiedName() +
+			"\nWHERE dt = format_datetime(current_timestamp AT TIME ZONE 'UTC', 'yyyy-MM-dd')" +
+			"\nORDER BY received_at DESC"
+	}
 	first := QuoteIdentifier(r.Columns[0].Name)
 	if r.FormatOrDefault() != FormatCSV && !r.AllVarchar {
 		return "SELECT * FROM " + r.QualifiedName() +

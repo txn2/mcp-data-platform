@@ -246,6 +246,10 @@ function RegistrationRow({
   canModify: boolean;
 }) {
   const unregister = useUnregisterTable(kind, id);
+  // A compacted window of a webhook source is one partition of the source's
+  // table (#1870): the table is not registered over this file, so it neither
+  // follows it nor is dropped from here. It goes with the source.
+  const webhook = reg.source_kind === "webhook";
 
   return (
     <li
@@ -272,13 +276,21 @@ function RegistrationRow({
             · registered by {reg.registered_by}
           </p>
           <div className="mt-1 flex flex-wrap gap-1">
-            <FollowBadge reg={reg} />
-            <RepairBadge reg={reg} />
+            {webhook ? (
+              <Badge variant="muted">
+                Part of webhook source {reg.source_id}
+              </Badge>
+            ) : (
+              <>
+                <FollowBadge reg={reg} />
+                <RepairBadge reg={reg} />
+              </>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <CopyButton text={reg.query_table} label="Copy the table name" />
-          {canModify && (
+          {canModify && !webhook && (
             <Button
               type="button"
               variant="ghost"

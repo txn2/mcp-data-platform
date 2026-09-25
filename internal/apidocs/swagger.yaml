@@ -9588,6 +9588,244 @@ definitions:
         example: 4
         type: integer
     type: object
+  webhookapi.AuthInput:
+    properties:
+      algorithm:
+        example: sha256
+        type: string
+      encoding:
+        example: hex
+        type: string
+      header:
+        example: X-Webhook-Token
+        type: string
+      mode:
+        example: hmac
+        type: string
+      prefix:
+        example: sha256=
+        type: string
+      secret:
+        example: whsec_example
+        type: string
+      signature_header:
+        example: X-Signature
+        type: string
+      signed:
+        example: body
+        type: string
+      timestamp_header:
+        example: X-Timestamp
+        type: string
+      tolerance_seconds:
+        example: 300
+        type: integer
+      username:
+        example: sender
+        type: string
+    type: object
+  webhookapi.AuthView:
+    properties:
+      algorithm:
+        type: string
+      encoding:
+        type: string
+      header:
+        type: string
+      mode:
+        type: string
+      prefix:
+        type: string
+      previous_secret_until:
+        type: string
+      secret_set:
+        type: boolean
+      signature_header:
+        type: string
+      signed:
+        type: string
+      timestamp_header:
+        type: string
+      tolerance_seconds:
+        type: integer
+      username:
+        type: string
+    type: object
+  webhookapi.SourceDetail:
+    properties:
+      source:
+        $ref: '#/definitions/webhookapi.SourceView'
+      status:
+        $ref: '#/definitions/whstore.Status'
+    type: object
+  webhookapi.SourceInput:
+    properties:
+      auth:
+        $ref: '#/definitions/webhookapi.AuthInput'
+      config:
+        $ref: '#/definitions/whsource.Config'
+      connection:
+        example: scratch
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      name:
+        example: esp-events
+        type: string
+      rotation_overlap_seconds:
+        description: |-
+          RotationOverlapSeconds keeps the previous secret valid this long when
+          auth.secret replaces it. Zero ends it at once.
+        example: 86400
+        type: integer
+    type: object
+  webhookapi.SourceList:
+    properties:
+      sources:
+        items:
+          $ref: '#/definitions/webhookapi.SourceView'
+        type: array
+    type: object
+  webhookapi.SourceView:
+    properties:
+      auth:
+        $ref: '#/definitions/webhookapi.AuthView'
+      config:
+        $ref: '#/definitions/whsource.Config'
+      connection:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      enabled:
+        type: boolean
+      name:
+        type: string
+      path:
+        description: |-
+          Path is where the sender posts, relative to the platform's address:
+          /hooks/{name}, with the token as a further segment for path_token.
+        example: /hooks/esp-events
+        type: string
+      table:
+        description: Table is what readers query, in the connection's scratch schema.
+        example: webhook_esp_events
+        type: string
+      updated_at:
+        type: string
+    type: object
+  whsource.Config:
+    properties:
+      buffer_limit:
+        type: integer
+      compact_every_minutes:
+        description: |-
+          CompactEveryMinutes is the length of the window a source's events are
+          partitioned and compacted by: 60, the default, compacts each hour once
+          it has ended; a shorter window compacts sooner, into more files. It
+          divides an hour evenly, so windows start on the hour and an hour is
+          always a whole number of them.
+        type: integer
+      compacted_retention_days:
+        description: |-
+          CompactedRetentionDays is how long a compacted window is kept. Nil is
+          the default; zero keeps it forever.
+        type: integer
+      event_id_path:
+        type: string
+      event_type_path:
+        type: string
+      flush_max_bytes:
+        type: integer
+      flush_max_events:
+        type: integer
+      flush_max_interval_ms:
+        type: integer
+      handshake:
+        type: string
+      key_path:
+        type: string
+      max_body_bytes:
+        type: integer
+      persona:
+        description: |-
+          Persona is the persona whose members see the source's compacted windows
+          in Resources and search. Empty is the administrator persona, which keeps
+          them to administrators. Querying
+          the table is governed by the Trino connection, not by this. It is set
+          when the source is created and does not change: windows already written
+          stay where they were written.
+        type: string
+      rate_limit_burst:
+        type: integer
+      rate_limit_per_minute:
+        description: |-
+          RateLimitPerMinute is zero for no limit. The limit is on the source,
+          not on a client address: a sender's requests arrive from whatever
+          addresses its infrastructure has.
+        type: integer
+      raw_retention_days:
+        description: |-
+          RawRetentionDays is how long a raw segment is kept once the window it
+          belongs to is compacted.
+        type: integer
+      split:
+        type: string
+    type: object
+  whstore.Rejection:
+    properties:
+      at:
+        type: string
+      outcome:
+        type: string
+      reason:
+        type: string
+    type: object
+  whstore.Status:
+    properties:
+      failing:
+        description: Failing counts pending windows whose last compaction attempt
+          failed.
+        type: integer
+      last_compacted_window:
+        description: |-
+          LastCompactedWindow is the start of the newest window whose Parquet
+          file holds every event its segments do.
+        type: string
+      last_day:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      last_error:
+        type: string
+      last_hour:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: LastHour and LastDay are request counts by outcome.
+        type: object
+      last_segment_at:
+        description: |-
+          LastSegmentAt is when a segment of accepted events was last written,
+          which is when the source last received an event. A sender that stops
+          produces no error on the receiving side; this is how that shows.
+        type: string
+      oldest_window:
+        description: OldestWindow is the start of the oldest window still held.
+        type: string
+      pending:
+        description: |-
+          Pending counts windows owed a compaction: not yet compacted, or
+          dirtied by a segment written after they were.
+        type: integer
+      rejections:
+        items:
+          $ref: '#/definitions/whstore.Rejection'
+        type: array
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -15791,6 +16029,151 @@ paths:
       summary: Edit a directory user's name
       tags:
       - Users
+  /admin/webhooks/sources:
+    get:
+      description: Returns every inbound webhook source. Secrets are never returned.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/webhookapi.SourceList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List webhook sources
+      tags:
+      - Webhooks
+    post:
+      consumes:
+      - application/json
+      description: Creates a source, its tables and its view on the named connection.
+        The connection's scratch catalog must read the managed-resources bucket and
+        allow register_partition; the source is refused, with the reason, when it
+        does not.
+      parameters:
+      - description: The source
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/webhookapi.SourceInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/webhookapi.SourceView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a webhook source
+      tags:
+      - Webhooks
+  /admin/webhooks/sources/{name}:
+    delete:
+      description: 'Deletes a source and everything it landed: its tables and view,
+        every compacted window''s resource, every raw segment, and its request history.'
+      parameters:
+      - description: Source name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a webhook source
+      tags:
+      - Webhooks
+    get:
+      description: 'Returns one source and its status: request counts by outcome for
+        the last hour and day, when it last received an event, the last compacted
+        hour, hours owed a compaction, the oldest hour held, and the last 50 rejected
+        requests (never their bodies).'
+      parameters:
+      - description: Source name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/webhookapi.SourceDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a webhook source
+      tags:
+      - Webhooks
+    put:
+      consumes:
+      - application/json
+      description: Replaces a source's auth and config. An empty auth.secret keeps
+        the stored secret; a new one rotates it, keeping the previous one valid for
+        rotation_overlap_seconds. The name and connection cannot change.
+      parameters:
+      - description: Source name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The source
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/webhookapi.SourceInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/webhookapi.SourceView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Change a webhook source
+      tags:
+      - Webhooks
   /apis:
     get:
       description: Returns the api-kind connections the caller's persona reaches,
@@ -25054,7 +25437,7 @@ paths:
     get:
       description: |-
         Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.
-        A `connection` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A `kind` outside `resource` and `asset` is dropped rather than passed through.
+        A `connection` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A `kind` outside `resource`, `asset` and `webhook` is dropped rather than passed through.
       parameters:
       - description: Only registrations on this connection
         in: query
@@ -25064,6 +25447,7 @@ paths:
         enum:
         - resource
         - asset
+        - webhook
         in: query
         name: kind
         type: string
@@ -25197,6 +25581,8 @@ tags:
     description: "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."
   - name: "Scripts"
     description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
+  - name: "Webhooks"
+    description: "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."
   - name: "System"
     description: "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."
   - name: "Tools"
@@ -25260,3 +25646,4 @@ x-tagGroups:
       - "System"
       - "Tools"
       - "Users"
+      - "Webhooks"

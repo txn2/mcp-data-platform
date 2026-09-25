@@ -258,7 +258,7 @@ func (m *memStore) BySource(_ context.Context, kind, sourceID string) ([]Registr
 	return newestFirst(out), nil
 }
 
-// newestFirst is the order postgresStore's reads return rows in
+// newestFirst is the order regstore's reads return rows in
 // (`ORDER BY registered_at DESC, id`). Ranging a map returns them in a
 // randomized one, so a fake that handed them back as they came would let a
 // caller that depends on the order pass here and behave differently against

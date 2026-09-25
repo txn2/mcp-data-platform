@@ -304,6 +304,13 @@ const scratchTableSources: Record<
     description:
       "Western region stores with location codes, street addresses, opening dates, and square footage.",
   },
+  // A webhook source's table is created and removed with the source (#1870),
+  // so nobody is offered to unregister it here.
+  "email-events": {
+    name: "email-events",
+    canModify: false,
+    description: "Events posted to /hooks/email-events, one partition per compaction window.",
+  },
 };
 
 // longNamedRegistration is the row that makes #1796's case: a table registered
@@ -367,10 +374,39 @@ const orphanedRegistration: TableRegistration = {
   repair: false,
 };
 
+// webhookRegistration is the table of an inbound webhook source (#1870): a
+// view over every window the source has received, created with the source.
+const webhookColumns = [
+  "received_at", "landed_at", "event_id", "event_type", "key", "content_hash", "replica", "payload", "dt", "hour", "minute",
+];
+const webhookRegistration: TableRegistration = {
+  id: "reg_wh_email",
+  source_kind: "webhook",
+  source_id: "email-events",
+  connection: "acme-scratch-resources",
+  catalog: "scratch_resources",
+  schema: "uploads",
+  table: "webhook_email_events",
+  location: "s3://managed-resources/webhooks/email-events/",
+  columns: webhookColumns.map((name) => ({
+    name,
+    type: name === "received_at" || name === "landed_at" ? "timestamp(6)" : "varchar",
+  })),
+  registered_by: "admin@example.com",
+  registered_at: "2026-09-10T15:20:00Z",
+  query_table: "scratch_resources.uploads.webhook_email_events",
+  sample_sql:
+    "SELECT received_at, event_id, event_type, key, payload FROM scratch_resources.uploads.webhook_email_events\nWHERE dt = format_datetime(current_timestamp AT TIME ZONE 'UTC', 'yyyy-MM-dd')\nORDER BY received_at DESC",
+  stale: false,
+  follow: false,
+  format: "parquet",
+  repair: false,
+};
+
 /** scratchTableRows is every registration the listing spans, newest first. */
 function scratchTableRows(): ScratchTable[] {
   const perSource = Object.values(mockTableRegistrations).flat();
-  const all = [...perSource, longNamedRegistration, orphanedRegistration];
+  const all = [...perSource, longNamedRegistration, orphanedRegistration, webhookRegistration];
   return all
     .map(asScratchTable)
     .sort((a, b) => b.registered_at.localeCompare(a.registered_at));

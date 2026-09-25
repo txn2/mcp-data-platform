@@ -144,6 +144,7 @@ All HTTP surfaces are assembled in one composition root
 | Gateway REST shim | `/api/v1/gateway/{connection}/invoke` | Wrapped by `httpauth.RequireAuth` when auth is enabled; the request runs through an in-memory MCP session so persona and audit apply (`internal/httpserver/gatewayhttp/handler.go`). |
 | Observability PromQL proxy | `/api/v1/observability/query`, `/query_range` | Requires authentication and the `observability:read` capability; unauthenticated 401, unauthorized 403 (`pkg/observability/proxy/handler.go`). |
 | Health | `/healthz`, `/readyz` | Unauthenticated by design (`internal/httpserver/health/health.go`); liveness/readiness only, no data. |
+| Inbound webhooks | `POST /hooks/{source}`, `POST /hooks/{source}/{token}`, `OPTIONS /hooks/{source}` | Not platform authentication: each source authenticates its sender with the mode an administrator configured (`internal/webhook/whauth`). See [Inbound webhooks](#inbound-webhooks). Routed around the CORS layer, since a webhook is posted by a server and the receiver answers `OPTIONS` itself (`internal/httpserver/server.go`, `withoutCORS`). |
 | Managed resources | `POST /api/v1/resources`, `GET /api/v1/resources/{id}/content`, and CRUD | Every handler calls `authenticate` first (401 on failure, 403 on CSRF). This surface authenticates through the portal authenticator but not through the portal handler, so it applies the persona gate in its own claims builder: a caller belonging to no persona is refused 403 (`internal/httpserver/mounts.go`, `buildResourceClaims`). upload checks `CanWriteScope`, and the by-id reads (get, download, patch, delete) check `CanAccessResource` — the caller's visible scopes, OR current write authority over the scope (platform admin, or that persona's admin), so an admin can manage material they may create but do not belong to, while a revoked role revokes the access with it (the grant is re-derived from current claims, never from the stored uploader); uploads are size-bounded via `MaxBytesReader` (`pkg/resource/handler.go`). |
 
 On the HTTP transports, a missing token yields `401` with a
@@ -428,6 +429,46 @@ Reachable surface: the contents of a file registered as a query-engine table
   under an external location and parses it as CSV without erroring, so a stray
   file would otherwise be returned as rows; the refusal is the only protection,
   which is why portal thumbnails are written under hidden names.
+
+### Inbound webhooks
+
+Reachable surface: `/hooks/{source}`, which accepts unauthenticated network
+traffic and writes what it accepts to object storage (see
+[Inbound Webhooks](../server/webhooks.md)).
+
+- Each source proves its sender with one mode, and they prove different
+  things (Spoofing). `hmac` proves the sender holds the secret and that the
+  body is the one it signed; with a timestamp header and `signed:
+  timestamp.body`, it also proves the request is recent, so a captured request
+  replayed after the tolerance window is refused. `hmac` over the body alone,
+  `header_token`, `basic` and `path_token` prove only possession of the
+  secret: a captured request can be replayed, and a `path_token` secret is in
+  every log and proxy that records URLs. Replayed events are delivered twice
+  and removed at compaction by event id, so a replay adds rows only to the raw
+  side of the view until then.
+- Authentication runs before anything is buffered or stored, and every
+  comparison of a secret is constant-time (`crypto/subtle`, `hmac.Equal`). No
+  request that fails verification is answered `2xx`.
+- Unknown and disabled sources answer the same `404` body, so a caller cannot
+  learn which names exist. Metrics count a request to an unknown name under an
+  empty `source` label, so a caller cannot create metric series by inventing
+  names, and such a request writes nothing to the database.
+- A body larger than the source's `max_body_bytes` (at most 64 MiB, default
+  1 MiB) is refused before it is read in full. Each replica holds at most
+  `buffer_limit` events per source in memory and answers `503` beyond it, so a
+  flood fills the sender's retry queue rather than the replica's memory
+  (Denial of service). The optional rate limit is per source, not per client
+  address.
+- Secrets are encrypted at rest with the platform's field encryptor and are
+  write-only in the admin API. Rotation keeps the previous secret valid only
+  until the overlap an administrator chose.
+- Payloads are stored as sent and usually carry personal data (Information
+  disclosure). The table is readable by every persona granted the source's
+  Trino connection, as every table in the scratch schema is; the compacted
+  hours are visible in Resources and search only to the persona the source
+  names, or to administrators when it names none. Retention deletes both,
+  recorded step by step in the platform database.
+- A rejected request is recorded with its outcome and reason, never its body.
 
 ## Mitigations
 

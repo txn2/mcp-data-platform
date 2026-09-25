@@ -1,4 +1,4 @@
-package tableregister
+package regstore
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
@@ -31,10 +33,10 @@ func registrationRows(rows ...[]driver.Value) *sqlmock.Rows {
 
 func assetRow(id, sourceID, table string) []driver.Value {
 	return []driver.Value{
-		id, KindAsset, sourceID, "scratch", "scratch", "uploads", table,
+		id, tableregister.KindAsset, sourceID, "scratch", "scratch", "uploads", table,
 		"s3://portal-assets/artifacts/u1/" + sourceID + "/",
 		[]byte(`[{"name":"store_id","type":"VARCHAR"}]`),
-		"alice@example.com", registeredAt, false, false, "", FormatCSV, false,
+		"alice@example.com", registeredAt, false, false, "", tableregister.FormatCSV, false,
 	}
 }
 
@@ -45,20 +47,20 @@ func TestPostgresStore_InsertAndScan(t *testing.T) {
 
 	store := NewPostgresStore(db)
 	mock.ExpectExec("INSERT INTO table_registrations").
-		WithArgs("reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads",
+		WithArgs("reg_1", tableregister.KindAsset, "asset_1", "scratch", "scratch", "uploads",
 			"analyst_keys", "s3://b/d/", []byte(`[{"name":"id","type":"VARCHAR"}]`),
-			"alice@example.com", true, true, FormatJSONLines, true).
+			"alice@example.com", true, true, tableregister.FormatJSONLines, true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	require.NoError(t, store.Insert(context.Background(), Registration{
-		ID: "reg_1", SourceKind: KindAsset, SourceID: "asset_1",
+	require.NoError(t, store.Insert(context.Background(), tableregister.Registration{
+		ID: "reg_1", SourceKind: tableregister.KindAsset, SourceID: "asset_1",
 		Connection: "scratch", Catalog: "scratch", Schema: "uploads",
 		Table: "analyst_keys", Location: "s3://b/d/",
-		Columns:      []Column{{Name: "id", Type: "VARCHAR"}},
+		Columns:      []tableregister.Column{{Name: "id", Type: "VARCHAR"}},
 		RegisteredBy: "alice@example.com",
 		Follow:       true,
 		Repair:       true,
-		Format:       FormatJSONLines,
+		Format:       tableregister.FormatJSONLines,
 		AllVarchar:   true,
 	}))
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -75,10 +77,10 @@ func TestPostgresStore_InsertEncodesNoColumnsAsAnArray(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			[]byte(`[]`), sqlmock.AnyArg(), false, false, FormatCSV, false).
+			[]byte(`[]`), sqlmock.AnyArg(), false, false, tableregister.FormatCSV, false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	require.NoError(t, NewPostgresStore(db).Insert(context.Background(), Registration{ID: "reg_1"}),
+	require.NoError(t, NewPostgresStore(db).Insert(context.Background(), tableregister.Registration{ID: "reg_1"}),
 		"a registration with no format is written as the CSV every registration was before #1820")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -92,22 +94,22 @@ func TestPostgresStore_Relocate(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	mock.ExpectExec("UPDATE table_registrations SET location = \\$2, columns = \\$3, format = \\$4, follow_error = ''").
-		WithArgs("reg_1", "s3://b/v2/", []byte(`[{"name":"id","type":"VARCHAR"}]`), FormatJSONLines).
+		WithArgs("reg_1", "s3://b/v2/", []byte(`[{"name":"id","type":"VARCHAR"}]`), tableregister.FormatJSONLines).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE table_registrations SET location").
-		WithArgs("gone", "s3://b/v2/", []byte(`[]`), FormatCSV).
+		WithArgs("gone", "s3://b/v2/", []byte(`[]`), tableregister.FormatCSV).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	mock.ExpectExec("UPDATE table_registrations SET location").
-		WithArgs("reg_1", "s3://b/v3/", []byte(`[]`), FormatCSV).
+		WithArgs("reg_1", "s3://b/v3/", []byte(`[]`), tableregister.FormatCSV).
 		WillReturnError(errors.New("connection reset"))
 
 	store := NewPostgresStore(db)
-	require.NoError(t, store.Relocate(context.Background(), "reg_1", "s3://b/v2/", FormatJSONLines,
-		[]Column{{Name: "id", Type: "VARCHAR"}}))
-	assert.ErrorIs(t, store.Relocate(context.Background(), "gone", "s3://b/v2/", "", nil), ErrNotFound,
+	require.NoError(t, store.Relocate(context.Background(), "reg_1", "s3://b/v2/", tableregister.FormatJSONLines,
+		[]tableregister.Column{{Name: "id", Type: "VARCHAR"}}))
+	assert.ErrorIs(t, store.Relocate(context.Background(), "gone", "s3://b/v2/", "", nil), tableregister.ErrNotFound,
 		"a move of a registration that is not there is reported, not swallowed")
-	assert.ErrorContains(t, store.Relocate(context.Background(), "reg_1", "s3://b/v3/", FormatCSV, nil), "relocating registration")
+	assert.ErrorContains(t, store.Relocate(context.Background(), "reg_1", "s3://b/v3/", tableregister.FormatCSV, nil), "relocating registration")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -128,7 +130,7 @@ func TestPostgresStore_RecordFollowFailure(t *testing.T) {
 
 	store := NewPostgresStore(db)
 	require.NoError(t, store.RecordFollowFailure(context.Background(), "reg_1", "the coordinator refused the statement"))
-	assert.ErrorIs(t, store.RecordFollowFailure(context.Background(), "gone", "x"), ErrNotFound)
+	assert.ErrorIs(t, store.RecordFollowFailure(context.Background(), "gone", "x"), tableregister.ErrNotFound)
 	assert.ErrorContains(t, store.RecordFollowFailure(context.Background(), "reg_1", "x"), "recording the follow failure")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -165,8 +167,8 @@ func TestPostgresStore_InsertNameCollision(t *testing.T) {
 	mock.ExpectExec("INSERT INTO table_registrations").
 		WillReturnError(&pq.Error{Code: uniqueViolation})
 
-	err = NewPostgresStore(db).Insert(context.Background(), Registration{ID: "reg_1"})
-	assert.ErrorIs(t, err, ErrNameTaken)
+	err = NewPostgresStore(db).Insert(context.Background(), tableregister.Registration{ID: "reg_1"})
+	assert.ErrorIs(t, err, tableregister.ErrNameTaken)
 }
 
 func TestPostgresStore_Get(t *testing.T) {
@@ -182,14 +184,14 @@ func TestPostgresStore_Get(t *testing.T) {
 	reg, err := store.Get(context.Background(), "reg_1")
 	require.NoError(t, err)
 	assert.Equal(t, "scratch.uploads.analyst_keys", reg.QualifiedName())
-	assert.Equal(t, []Column{{Name: "store_id", Type: "VARCHAR"}}, reg.Columns)
+	assert.Equal(t, []tableregister.Column{{Name: "store_id", Type: "VARCHAR"}}, reg.Columns)
 	assert.Equal(t, registeredAt, reg.RegisteredAt.UTC())
 
 	mock.ExpectQuery("SELECT .* FROM table_registrations WHERE id = ").
 		WithArgs("missing").
 		WillReturnRows(registrationRows())
 	_, err = store.Get(context.Background(), "missing")
-	assert.ErrorIs(t, err, ErrNotFound)
+	assert.ErrorIs(t, err, tableregister.ErrNotFound)
 }
 
 // TestPostgresStore_ByNameFreeNameIsNotAnError: the caller is asking whether
@@ -221,13 +223,13 @@ func TestPostgresStore_BySource(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	mock.ExpectQuery("SELECT .* FROM table_registrations").
-		WithArgs(KindAsset, "asset_1").
+		WithArgs(tableregister.KindAsset, "asset_1").
 		WillReturnRows(registrationRows(
 			assetRow("reg_1", "asset_1", "analyst_keys"),
 			assetRow("reg_2", "asset_1", "analyst_keys_dev"),
 		))
 
-	regs, err := NewPostgresStore(db).BySource(context.Background(), KindAsset, "asset_1")
+	regs, err := NewPostgresStore(db).BySource(context.Background(), tableregister.KindAsset, "asset_1")
 	require.NoError(t, err)
 	assert.Len(t, regs, 2)
 }
@@ -241,20 +243,20 @@ func TestPostgresStore_ForSources(t *testing.T) {
 
 	store := NewPostgresStore(db)
 	mock.ExpectQuery("SELECT .* FROM table_registrations").
-		WithArgs(KindAsset, pq.Array([]string{"asset_1", "asset_2"})).
+		WithArgs(tableregister.KindAsset, pq.Array([]string{"asset_1", "asset_2"})).
 		WillReturnRows(registrationRows(
 			assetRow("reg_1", "asset_1", "analyst_a"),
 			assetRow("reg_2", "asset_2", "analyst_b"),
 			assetRow("reg_3", "asset_1", "analyst_c"),
 		))
 
-	got, err := store.ForSources(context.Background(), KindAsset, []string{"asset_1", "asset_2"})
+	got, err := store.ForSources(context.Background(), tableregister.KindAsset, []string{"asset_1", "asset_2"})
 	require.NoError(t, err)
 	assert.Len(t, got["asset_1"], 2)
 	assert.Len(t, got["asset_2"], 1)
 
 	// No ids means no query at all, not a query matching everything.
-	empty, err := store.ForSources(context.Background(), KindAsset, nil)
+	empty, err := store.ForSources(context.Background(), tableregister.KindAsset, nil)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -275,7 +277,7 @@ func TestPostgresStore_Delete(t *testing.T) {
 
 	mock.ExpectExec("DELETE FROM table_registrations").
 		WithArgs("gone").WillReturnResult(sqlmock.NewResult(0, 0))
-	assert.ErrorIs(t, store.Delete(context.Background(), "gone"), ErrNotFound)
+	assert.ErrorIs(t, store.Delete(context.Background(), "gone"), tableregister.ErrNotFound)
 }
 
 func TestPostgresStore_ReadErrorsAreWrapped(t *testing.T) {
@@ -291,7 +293,7 @@ func TestPostgresStore_ReadErrorsAreWrapped(t *testing.T) {
 	assert.ErrorIs(t, err, boom)
 
 	mock.ExpectQuery("SELECT .* FROM table_registrations").WillReturnError(boom)
-	_, err = store.BySource(context.Background(), KindAsset, "asset_1")
+	_, err = store.BySource(context.Background(), tableregister.KindAsset, "asset_1")
 	assert.ErrorIs(t, err, boom)
 
 	mock.ExpectExec("DELETE FROM table_registrations").WillReturnError(boom)
@@ -304,15 +306,15 @@ func TestPostgresStore_ReadErrorsAreWrapped(t *testing.T) {
 // persona granted nothing binds an empty array -- which matches no row, rather
 // than every row.
 func TestListPredicate_ScopesToTheConnectionsACallerReaches(t *testing.T) {
-	admin, adminArgs := listPredicate(Filter{AllConnections: true})
+	admin, adminArgs := listPredicate(tableregister.Filter{AllConnections: true})
 	assert.Empty(t, admin, "an administrator's listing carries no connection predicate")
 	assert.Empty(t, adminArgs)
 
-	scoped, scopedArgs := listPredicate(Filter{Connections: []string{"scratch"}})
+	scoped, scopedArgs := listPredicate(tableregister.Filter{Connections: []string{"scratch"}})
 	assert.Contains(t, scoped, "connection_name = ANY($1)")
 	assert.Equal(t, []any{pq.Array([]string{"scratch"})}, scopedArgs)
 
-	none, noneArgs := listPredicate(Filter{})
+	none, noneArgs := listPredicate(tableregister.Filter{})
 	assert.Contains(t, none, "connection_name = ANY($1)",
 		"a persona granted no connection still binds the predicate, so it matches nothing")
 	assert.Equal(t, []any{pq.Array([]string(nil))}, noneArgs)
@@ -322,15 +324,15 @@ func TestListPredicate_ScopesToTheConnectionsACallerReaches(t *testing.T) {
 // from whichever facets were named, so the placeholder numbers have to follow
 // the arguments rather than the facet's position in the struct.
 func TestListPredicate_NumbersEveryPlaceholderInOrder(t *testing.T) {
-	where, args := listPredicate(Filter{
-		Connections: []string{"scratch"}, SourceKind: KindResource, Query: "sales",
+	where, args := listPredicate(tableregister.Filter{
+		Connections: []string{"scratch"}, SourceKind: tableregister.KindResource, Query: "sales",
 	})
 
 	assert.Contains(t, where, "connection_name = ANY($1)")
 	assert.Contains(t, where, "source_kind = $2")
 	assert.Contains(t, where, "ILIKE $3")
 	require.Len(t, args, 3)
-	assert.Equal(t, KindResource, args[1])
+	assert.Equal(t, tableregister.KindResource, args[1])
 	assert.Equal(t, "%sales%", args[2])
 }
 
@@ -339,11 +341,11 @@ func TestListPredicate_NumbersEveryPlaceholderInOrder(t *testing.T) {
 // as a wildcard would match tables the reader never searched for, and a lone
 // "%" would list the whole schema.
 func TestListPredicate_NeutralizesLikeMetacharacters(t *testing.T) {
-	_, args := listPredicate(Filter{AllConnections: true, Query: "sales_q1"})
+	_, args := listPredicate(tableregister.Filter{AllConnections: true, Query: "sales_q1"})
 	require.Len(t, args, 1)
 	assert.Equal(t, `%sales\_q1%`, args[0])
 
-	_, args = listPredicate(Filter{AllConnections: true, Query: "%"})
+	_, args = listPredicate(tableregister.Filter{AllConnections: true, Query: "%"})
 	assert.Equal(t, `%\%%`, args[0])
 }
 
@@ -365,7 +367,7 @@ func TestPostgresStore_List(t *testing.T) {
 			assetRow("reg_2", "asset_2", "analyst_b"),
 		))
 
-	page, total, err := NewPostgresStore(db).List(context.Background(), Filter{
+	page, total, err := NewPostgresStore(db).List(context.Background(), tableregister.Filter{
 		Connections: []string{"scratch"}, Limit: 2, Offset: 4,
 	})
 	require.NoError(t, err)
@@ -385,7 +387,7 @@ func TestPostgresStore_ListSkipsThePageWhenNothingMatches(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	page, total, err := NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})
+	page, total, err := NewPostgresStore(db).List(context.Background(), tableregister.Filter{AllConnections: true})
 	require.NoError(t, err)
 	assert.Zero(t, total)
 	assert.Empty(t, page)
@@ -395,10 +397,10 @@ func TestPostgresStore_ListSkipsThePageWhenNothingMatches(t *testing.T) {
 // TestFilterEffectiveLimit keeps a listing bounded: a caller who names no page
 // size gets the default, and one who asks for the whole table gets the cap.
 func TestFilterEffectiveLimit(t *testing.T) {
-	assert.Equal(t, DefaultListLimit, Filter{}.EffectiveLimit())
-	assert.Equal(t, DefaultListLimit, Filter{Limit: -3}.EffectiveLimit())
-	assert.Equal(t, 25, Filter{Limit: 25}.EffectiveLimit())
-	assert.Equal(t, MaxListLimit, Filter{Limit: 100_000}.EffectiveLimit())
+	assert.Equal(t, tableregister.DefaultListLimit, tableregister.Filter{}.EffectiveLimit())
+	assert.Equal(t, tableregister.DefaultListLimit, tableregister.Filter{Limit: -3}.EffectiveLimit())
+	assert.Equal(t, 25, tableregister.Filter{Limit: 25}.EffectiveLimit())
+	assert.Equal(t, tableregister.MaxListLimit, tableregister.Filter{Limit: 100_000}.EffectiveLimit())
 }
 
 // TestPostgresStore_ListReportsFailedReads. A listing that could not be read
@@ -412,7 +414,7 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 
 		mock.ExpectQuery("SELECT COUNT").WillReturnError(errors.New("connection refused"))
 
-		_, _, err = NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})
+		_, _, err = NewPostgresStore(db).List(context.Background(), tableregister.Filter{AllConnections: true})
 		require.Error(t, err)
 	})
 
@@ -426,7 +428,7 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 		mock.ExpectQuery("SELECT .* FROM table_registrations").
 			WillReturnError(errors.New("connection refused"))
 
-		_, _, err = NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})
+		_, _, err = NewPostgresStore(db).List(context.Background(), tableregister.Filter{AllConnections: true})
 		require.Error(t, err)
 	})
 
@@ -439,11 +441,11 @@ func TestPostgresStore_ListReportsFailedReads(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 		mock.ExpectQuery("SELECT .* FROM table_registrations").
 			WillReturnRows(registrationRows([]driver.Value{
-				"reg_1", KindAsset, "asset_1", "scratch", "scratch", "uploads", "t",
-				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, false, "", FormatCSV, false,
+				"reg_1", tableregister.KindAsset, "asset_1", "scratch", "scratch", "uploads", "t",
+				"s3://b/d/", []byte("not json"), "alice@example.com", registeredAt, false, false, "", tableregister.FormatCSV, false,
 			}))
 
-		_, _, err = NewPostgresStore(db).List(context.Background(), Filter{AllConnections: true})
+		_, _, err = NewPostgresStore(db).List(context.Background(), tableregister.Filter{AllConnections: true})
 		require.Error(t, err)
 	})
 }

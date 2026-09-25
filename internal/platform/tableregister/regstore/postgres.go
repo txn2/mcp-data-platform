@@ -1,4 +1,7 @@
-package tableregister
+// Package regstore is the PostgreSQL store table registrations are kept in.
+// It is apart from the registrar so the registrar's package holds the rules
+// and this one holds the SQL.
+package regstore
 
 import (
 	"context"
@@ -9,16 +12,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+
 	"github.com/lib/pq"
 )
 
-// postgresStore is the PostgreSQL implementation of Store.
+// postgresStore is the PostgreSQL implementation of tableregister.Store.
 type postgresStore struct {
 	db *sql.DB
 }
 
 // NewPostgresStore creates a registration store backed by PostgreSQL.
-func NewPostgresStore(db *sql.DB) Store {
+func NewPostgresStore(db *sql.DB) tableregister.Store {
 	return &postgresStore{db: db}
 }
 
@@ -28,17 +33,11 @@ const selectColumns = `id, source_kind, source_id, connection_name, catalog_name
 	schema_name, table_name, location, columns, registered_by, registered_at, follow, repair, follow_error, format,
 	all_varchar`
 
-// ErrNameTaken is returned when the unique index on the table name rejects an
-// insert. The registrar checks for a holder before it writes; this is the race
-// between that check and this write, and it must not surface as a bare
-// constraint violation.
-var ErrNameTaken = errors.New("that table name was registered by someone else while this registration was being made")
-
 // uniqueViolation is the PostgreSQL SQLSTATE for a unique-constraint breach.
 const uniqueViolation = "23505"
 
-// Insert records a registration, reporting a name collision as ErrNameTaken.
-func (s *postgresStore) Insert(ctx context.Context, r Registration) error {
+// Insert records a registration, reporting a name collision as tableregister.ErrNameTaken.
+func (s *postgresStore) Insert(ctx context.Context, r tableregister.Registration) error {
 	cols, err := json.Marshal(nonNilColumns(r.Columns))
 	if err != nil {
 		return fmt.Errorf("encoding registration columns: %w", err)
@@ -53,7 +52,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Registration) error {
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == uniqueViolation {
-			return ErrNameTaken
+			return tableregister.ErrNameTaken
 		}
 		return fmt.Errorf("inserting registration: %w", err)
 	}
@@ -63,20 +62,20 @@ func (s *postgresStore) Insert(ctx context.Context, r Registration) error {
 // nonNilColumns keeps an empty column list encoding as [] rather than null, so
 // the JSONB column never holds a value the NOT NULL default was written to
 // avoid.
-func nonNilColumns(cols []Column) []Column {
+func nonNilColumns(cols []tableregister.Column) []tableregister.Column {
 	if cols == nil {
-		return []Column{}
+		return []tableregister.Column{}
 	}
 	return cols
 }
 
 // Get reads one registration by id.
-func (s *postgresStore) Get(ctx context.Context, id string) (*Registration, error) {
+func (s *postgresStore) Get(ctx context.Context, id string) (*tableregister.Registration, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT `+selectColumns+` FROM table_registrations WHERE id = $1`, id)
 	reg, err := scanRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, tableregister.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading registration: %w", err)
@@ -87,7 +86,7 @@ func (s *postgresStore) Get(ctx context.Context, id string) (*Registration, erro
 // ByName returns the registration holding a name, or nil when it is free. A
 // missing row is not an error here: the caller is asking whether the name is
 // taken, and "no" is an answer.
-func (s *postgresStore) ByName(ctx context.Context, connection, catalog, schema, table string) (*Registration, error) {
+func (s *postgresStore) ByName(ctx context.Context, connection, catalog, schema, table string) (*tableregister.Registration, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT `+selectColumns+` FROM table_registrations
 		 WHERE connection_name = $1 AND catalog_name = $2 AND schema_name = $3 AND table_name = $4`,
@@ -103,7 +102,7 @@ func (s *postgresStore) ByName(ctx context.Context, connection, catalog, schema,
 }
 
 // BySource returns every registration over one resource or asset.
-func (s *postgresStore) BySource(ctx context.Context, kind, sourceID string) ([]Registration, error) {
+func (s *postgresStore) BySource(ctx context.Context, kind, sourceID string) ([]tableregister.Registration, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+selectColumns+` FROM table_registrations
 		 WHERE source_kind = $1 AND source_id = $2
@@ -117,9 +116,9 @@ func (s *postgresStore) BySource(ctx context.Context, kind, sourceID string) ([]
 }
 
 // ForSources returns the registrations of many sources of one kind.
-func (s *postgresStore) ForSources(ctx context.Context, kind string, sourceIDs []string) (map[string][]Registration, error) {
+func (s *postgresStore) ForSources(ctx context.Context, kind string, sourceIDs []string) (map[string][]tableregister.Registration, error) {
 	if len(sourceIDs) == 0 {
-		return map[string][]Registration{}, nil
+		return map[string][]tableregister.Registration{}, nil
 	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+selectColumns+` FROM table_registrations
@@ -134,14 +133,14 @@ func (s *postgresStore) ForSources(ctx context.Context, kind string, sourceIDs [
 	if err != nil {
 		return nil, err
 	}
-	bySource := make(map[string][]Registration, len(sourceIDs))
+	bySource := make(map[string][]tableregister.Registration, len(sourceIDs))
 	for _, reg := range all {
 		bySource[reg.SourceID] = append(bySource[reg.SourceID], reg)
 	}
 	return bySource, nil
 }
 
-// Delete removes one registration, reporting a miss as ErrNotFound.
+// Delete removes one registration, reporting a miss as tableregister.ErrNotFound.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM table_registrations WHERE id = $1`, id)
 	if err != nil {
@@ -156,14 +155,14 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 // Relocate moves a registration onto the directory a follow pointed its table
 // at, with the columns and the format read from the file there, and clears the
 // record of any earlier follow that failed.
-func (s *postgresStore) Relocate(ctx context.Context, id, location, format string, columns []Column) error {
+func (s *postgresStore) Relocate(ctx context.Context, id, location, format string, columns []tableregister.Column) error {
 	cols, err := json.Marshal(nonNilColumns(columns))
 	if err != nil {
 		return fmt.Errorf("encoding registration columns: %w", err)
 	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE table_registrations SET location = $2, columns = $3, format = $4, follow_error = '' WHERE id = $1`,
-		id, location, cols, formatOrDefault(format))
+		id, location, cols, tableregister.Registration{Format: format}.FormatOrDefault())
 	if err != nil {
 		return fmt.Errorf("relocating registration: %w", err)
 	}
@@ -180,13 +179,13 @@ func (s *postgresStore) RecordFollowFailure(ctx context.Context, id, reason stri
 	return oneRowOrNotFound(res)
 }
 
-// oneRowOrNotFound reports a write that matched no row as ErrNotFound. Every
+// oneRowOrNotFound reports a write that matched no row as tableregister.ErrNotFound. Every
 // write here names one registration by id, and silence on an id that was never
 // there would read as success.
 func oneRowOrNotFound(res sql.Result) error {
 	n, err := res.RowsAffected()
 	if err == nil && n == 0 {
-		return ErrNotFound
+		return tableregister.ErrNotFound
 	}
 	return nil
 }
@@ -197,9 +196,9 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanRow(sc rowScanner) (*Registration, error) {
+func scanRow(sc rowScanner) (*tableregister.Registration, error) {
 	var (
-		reg  Registration
+		reg  tableregister.Registration
 		cols []byte
 	)
 	if err := sc.Scan(&reg.ID, &reg.SourceKind, &reg.SourceID, &reg.Connection,
@@ -216,8 +215,8 @@ func scanRow(sc rowScanner) (*Registration, error) {
 	return &reg, nil
 }
 
-func collectRows(rows *sql.Rows) ([]Registration, error) {
-	var out []Registration
+func collectRows(rows *sql.Rows) ([]tableregister.Registration, error) {
+	var out []tableregister.Registration
 	for rows.Next() {
 		reg, err := scanRow(rows)
 		if err != nil {
@@ -239,7 +238,7 @@ func collectRows(rows *sql.Rows) ([]Registration, error) {
 // connection boundary is part of that predicate rather than a pass over the
 // results, because filtering a page after the fact would leave a caller paging
 // through mostly-empty pages of somebody else's tables.
-func (s *postgresStore) List(ctx context.Context, f Filter) ([]Registration, int, error) {
+func (s *postgresStore) List(ctx context.Context, f tableregister.Filter) ([]tableregister.Registration, int, error) {
 	where, args := listPredicate(f)
 
 	var total int
@@ -277,7 +276,7 @@ func (s *postgresStore) List(ctx context.Context, f Filter) ([]Registration, int
 // A filter that lifts the connection boundary and names nothing else yields an
 // empty clause and no arguments, which is the administrator's whole-platform
 // listing.
-func listPredicate(f Filter) (where string, args []any) {
+func listPredicate(f tableregister.Filter) (where string, args []any) {
 	var clauses []string
 	add := func(clause string, arg any) {
 		args = append(args, arg)

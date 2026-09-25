@@ -323,6 +323,9 @@ type Metrics struct {
 	// Background embedding queue instruments (#1837), metrics_indexjobs.go.
 	index indexJobInstruments
 
+	// Inbound webhook instruments (#1870), metrics_webhooks.go.
+	webhook webhookInstruments
+
 	// DB connection-pool instruments, observed at scrape time from each
 	// registered pool's (*sql.DB).Stats(). The five instruments and the
 	// callback are registered exactly once at New(); RegisterDBPool only
@@ -539,6 +542,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerIndexJobInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerWebhookInstruments(meter); err != nil {
 		return err
 	}
 	return m.registerDBPoolInstruments(meter)

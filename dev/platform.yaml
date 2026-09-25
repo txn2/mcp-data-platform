@@ -585,6 +585,18 @@ scripts:
   worker:
     max_run_memory: 128MiB
 
+# Inbound webhooks (#1870). Sources are created in the portal (Admin >
+# Webhooks) on acme-scratch-resources, whose catalog reads the MinIO store the
+# managed resources live in. The compactor polls and applies retention more
+# often than the defaults and waits five seconds after a window ends rather
+# than two minutes, so a source compacting every minute shows its compaction
+# and retention within seconds of their being owed.
+webhooks:
+  compactor:
+    poll: 10s
+    grace: 5s
+    retention_every: 30s
+
 # Observability: the PromQL query proxy that powers the admin Dashboard's
 # "API Gateway" activity tab. Points at the dev Prometheus (docker-compose
 # service "prometheus", mapped to host :9091), which scrapes the platform's

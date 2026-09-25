@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whconfig"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -132,6 +133,7 @@ type Config struct {
 	Resources            ResourcesConfig     `yaml:"resources"`
 	Progress             ProgressConfig      `yaml:"progress"`
 	Thumbnails           ThumbnailsConfig    `yaml:"thumbnails"`
+	Webhooks             whconfig.Config     `yaml:"webhooks"`
 	ClientLogging        ClientLoggingConfig `yaml:"client_logging"`
 	Icons                IconsConfig         `yaml:"icons"`
 	Elicitation          ElicitationConfig   `yaml:"elicitation"`
@@ -2037,19 +2039,17 @@ func (c *Config) Validate() error {
 	errs = c.validateBrowserSession(errs)
 	errs = c.validatePersonas(errs)
 	errs = c.validateScriptDestinations(errs)
-	if _, err := c.Scripts.Worker.Admission(); err != nil {
-		errs = append(errs, err.Error())
-	}
-	if _, err := c.Scripts.Worker.RunMemoryBudget(0); err != nil {
-		errs = append(errs, err.Error())
-	}
-	if _, err := c.Thumbnails.Tuning(); err != nil {
-		errs = append(errs, err.Error())
+	_, admission := c.Scripts.Worker.Admission()
+	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
+	_, thumbs := c.Thumbnails.Tuning()
+	for _, err := range []error{admission, runBudget, thumbs, c.Webhooks.Validate()} {
+		if err != nil {
+			errs = append(errs, err.Error())
+		}
 	}
 	if msg := portalcfg.MaxVersionsError(c.Portal.MaxVersions); msg != "" {
 		errs = append(errs, msg)
 	}
-
 	if err := c.Audit.ValidateDelivery(); err != nil {
 		errs = append(errs, err.Error())
 	}

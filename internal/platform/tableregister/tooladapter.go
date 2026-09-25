@@ -102,7 +102,7 @@ func (a *ToolAdapter) Tables(ctx context.Context, reference string) ([]portaltoo
 	if err != nil {
 		return nil, err
 	}
-	regs, err := a.reg.BySource(ctx, src.Kind, src.ID)
+	regs, err := a.reg.TablesOf(ctx, src.Kind, src.ID)
 	if err != nil {
 		return nil, err
 	}

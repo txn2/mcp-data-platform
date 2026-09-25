@@ -29,6 +29,7 @@ const KIND_OPTIONS = [
   { value: "", label: "All sources" },
   { value: "resource", label: "Resources" },
   { value: "asset", label: "Assets" },
+  { value: "webhook", label: "Webhook sources" },
 ];
 
 export function ScratchTablesPage({ onNavigate }: { onNavigate: (path: string) => void }) {

@@ -12,6 +12,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -25,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/ui"
+	whreceiver "github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -67,6 +69,20 @@ func corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// withoutCORS routes the webhook receiver around cors. A webhook is posted by
+// a server, never a browser, and the receiver answers OPTIONS itself: the
+// CloudEvents handshake is an OPTIONS request, and a source without it must
+// refuse one rather than have it answered 200 here (#1870).
+func withoutCORS(receiver, rest http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, whreceiver.PathPrefix) {
+			receiver.ServeHTTP(w, r)
+			return
+		}
+		rest.ServeHTTP(w, r)
 	})
 }
 
@@ -222,6 +238,12 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p, notify)
 
+	// Inbound webhooks (#1870): the receiver at /hooks/, the source admin
+	// routes, and the compactor, which starts once the mux is complete.
+	hooks := buildWebhooks(p, address)
+	hooks.Mount(mux)
+	mountWebhookAdminAPI(mux, p, hooks)
+
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by
 	// p.WireRuntime (caller), after the gateway integrations it depends
@@ -265,8 +287,11 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	thumbs.Start(ctx)
 	defer thumbs.Stop()
 
+	hooks.Start(ctx)
+	defer hooks.Stop()
+
 	hcfg.mcpServer = mcpServer
-	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), corsMiddleware(mux)), hcfg, hc)
+	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), withoutCORS(mux, corsMiddleware(mux))), hcfg, hc)
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional

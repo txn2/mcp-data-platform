@@ -73,7 +73,7 @@ export function columnTypesText(format: TableFormat | null | undefined): string 
 
 export interface TableRegistration {
   id: string;
-  source_kind: "resource" | "asset";
+  source_kind: ScratchSourceKind;
   source_id: string;
   connection: string;
   catalog: string;
@@ -145,13 +145,19 @@ export interface TableConnectionList {
 // TableSourceKind selects which routes a panel talks to.
 export type TableSourceKind = "resource" | "asset";
 
+// ScratchSourceKind is what a listed table was created for: one of the two
+// kinds of file a panel registers over, or an inbound webhook source, whose
+// table is created with the source rather than registered from a panel
+// (#1870).
+export type ScratchSourceKind = TableSourceKind | "webhook";
+
 // --- the cross-source listing (#1472) ---
 
 // ScratchTableSource names the file a registration was built over. The portal
 // turns kind and id into the address it opens; the server does not know the
 // portal's routes.
 export interface ScratchTableSource {
-  kind: TableSourceKind;
+  kind: ScratchSourceKind;
   id: string;
   name?: string;
   // description is the source record's own description. A table name and a

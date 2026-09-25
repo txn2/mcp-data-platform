@@ -821,6 +821,12 @@ missing window with the parameters that name it. A job written against its own
 new mark, so the fire after downtime covers everything the missed fires would
 have. Backfill still exists for a job that wants a specific window.
 
+A script that reads events an external system posts to an
+[inbound webhook source](../server/webhooks.md) reads the source's table like
+any other, on its own schedule; the patterns for a daily read and for a
+`landed_at` watermark are in
+[Reading the data](../server/webhooks.md#reading-the-data).
+
 **A failed scheduled run is mailed to the person accountable for it** — the
 script's owner — carrying the run id, the failure, and the tail of what the
 script printed. Failures of runs

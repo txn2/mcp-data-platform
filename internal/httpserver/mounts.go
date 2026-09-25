@@ -10,6 +10,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
@@ -947,4 +950,14 @@ func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, e
 		}
 		return c.Label, c.Owner, true
 	}
+}
+
+// mountWebhookAdminAPI registers the webhook source routes, behind the admin
+// API's authentication.
+func mountWebhookAdminAPI(mux *http.ServeMux, p *platform.Platform, hooks *webhookwire.Webhooks) {
+	if p == nil || hooks == nil || !p.Config().Admin.IsEnabled() {
+		return
+	}
+	webhookapi.Register(mux, buildAdminAuth(p), webhookapi.Config{Service: hooks.Service, Author: adminEmail})
+	log.Println("Webhook source admin API enabled on /api/v1/admin/webhooks/sources")
 }

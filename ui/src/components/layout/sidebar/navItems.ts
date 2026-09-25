@@ -2,6 +2,7 @@ import {
   Home,
   Wrench,
   Users,
+  Webhook,
   LayoutGrid,
   Activity,
   FileText,
@@ -80,6 +81,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin/settings", label: "Settings", icon: Settings },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/users", label: "Users", icon: Contact },
+  { path: "/admin/webhooks", label: "Webhooks", icon: Webhook },
 ];
 
 /**

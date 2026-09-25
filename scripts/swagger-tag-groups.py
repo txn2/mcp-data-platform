@@ -101,6 +101,12 @@ TAG_DESCRIPTIONS = {
         "for, and approve a version — which binds the capability grant it executes "
         "under and is the only thing that makes a script executable."
     ),
+    "Webhooks": (
+        "Inbound webhook sources: the addresses external systems post events to at "
+        "/hooks/{source}. Create, change, rotate the secret of, and delete a source, and "
+        "read its status: request counts by outcome, when it last received an event, "
+        "compaction progress, and its recently rejected requests. Secrets are write-only."
+    ),
     "System": (
         "Platform identity, version, runtime feature availability, registered tools, "
         "and toolkit connections."
@@ -197,6 +203,7 @@ TAG_GROUPS = [
             "System",
             "Tools",
             "Users",
+            "Webhooks",
         ],
     },
 ]

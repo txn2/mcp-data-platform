@@ -28,6 +28,8 @@ github.com/txn2/mcp-data-platform/internal/platform/datasetindex
 github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex
 github.com/txn2/mcp-data-platform/internal/platform/sessionview
 github.com/txn2/mcp-data-platform/internal/platform/tableregister
+github.com/txn2/mcp-data-platform/internal/platform/tableregister/regstore
+github.com/txn2/mcp-data-platform/internal/webhook/whtable
 github.com/txn2/mcp-data-platform/pkg/authevents
 github.com/txn2/mcp-data-platform/pkg/indexjobs
 github.com/txn2/mcp-data-platform/pkg/memory
