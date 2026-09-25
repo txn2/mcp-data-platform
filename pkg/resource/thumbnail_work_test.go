@@ -155,7 +155,7 @@ func TestBuildThumbnailClaim_BoundsTheSourceSizePerFamily(t *testing.T) {
 	if !strings.Contains(stmt, want) {
 		t.Errorf("the claim does not carry the per-family bound %q:\n%s", want, stmt)
 	}
-	large, err := pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies)).Value()
+	large, err := pq.Array(thumbtypes.Patterns(thumbtypes.LargeSourceFamilies)).Value()
 	if err != nil {
 		t.Fatal(err)
 	}

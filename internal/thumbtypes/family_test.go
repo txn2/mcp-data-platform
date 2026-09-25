@@ -2,6 +2,7 @@ package thumbtypes
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -31,9 +32,9 @@ func TestFamilyPredicates(t *testing.T) {
 }
 
 // TestThemeableShadowsAgreeWithFirstMatch holds the SQL form of the rule to the
-// Go one. The store asks "a themeable fragment and no shadow"; that equals
-// "the first fragment is themeable" only while every shadow precedes every
-// themeable fragment. A reordering of Capturable that breaks it fails here
+// Go one. The store asks "a themeable pattern and no shadow"; that equals
+// "the first pattern is themeable" only while every shadow precedes every
+// themeable pattern. A reordering of Capturable that breaks it fails here
 // instead of letting the store and the renderer disagree about what is owed.
 func TestThemeableShadowsAgreeWithFirstMatch(t *testing.T) {
 	shadows := ThemeableShadows()
@@ -48,7 +49,7 @@ func TestThemeableShadowsAgreeWithFirstMatch(t *testing.T) {
 		if !isThemeableFamily(f) && i > firstThemeable {
 			for j := firstThemeable; j < len(Capturable); j++ {
 				if isThemeableFamily(Capturable[j]) && j > i {
-					t.Fatalf("non-themeable %q sits between themeable fragments; ThemeableShadows no longer states the rule exactly", f)
+					t.Fatalf("non-themeable %q sits between themeable patterns; ThemeableShadows no longer states the rule exactly", f)
 				}
 			}
 		}
@@ -56,8 +57,9 @@ func TestThemeableShadowsAgreeWithFirstMatch(t *testing.T) {
 	for _, ct := range []string{
 		"image/svg+xml", "text/html", "text/jsx", "application/xml", "text/markdown",
 		"application/json", "text/csv", "image/png", "text/plain; charset=utf-8", "text/x-python",
+		"application/xhtml+xml", "application/atom+xml", XLSX,
 	} {
-		sqlForm := containsAny(ct, Themeable) && !containsAny(ct, shadows)
+		sqlForm := matchesAny(ct, Themeable) && !matchesAny(ct, shadows)
 		if sqlForm != IsThemeable(ct) {
 			t.Errorf("%q: the SQL form says themeable=%v, first-match says %v", ct, sqlForm, IsThemeable(ct))
 		}
@@ -144,6 +146,133 @@ func TestEveryLargeSourceFamilyIsCapturable(t *testing.T) {
 	for _, f := range LargeSourceFamilies {
 		if !slices.Contains(Capturable, f) {
 			t.Errorf("%q has its own source bound but is not capturable", f)
+		}
+	}
+}
+
+func matchesAny(contentType string, patterns []string) bool {
+	return slices.ContainsFunc(patterns, func(p string) bool { return matches(contentType, p) })
+}
+
+// The Office and OpenDocument formats and the archives are zip containers whose
+// type names contain "xml" or a family word. Matched anywhere in the type, the
+// workbook was offered as XML and drawn as the text of its zip bytes (#1882).
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+var neverDrawn = []string{
+	XLSX,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+	"application/vnd.ms-excel.sheet.macroenabled.12",
+	"application/vnd.oasis.opendocument.text",
+	"application/vnd.oasis.opendocument.spreadsheet",
+	"application/vnd.oasis.opendocument.presentation",
+	"application/zip", "application/gzip", "application/x-tar",
+	"application/vnd.apache.parquet", "application/octet-stream",
+	"image/tiff", "image/heic", "audio/mpeg", "video/mp4",
+	// Contain a family word without being that family.
+	"application/x-javascript-bundle+zip", "application/x-sqlite3", "application/vnd.acme.jsonish",
+	// Not a media type at all: nothing to classify.
+	"", "not a media type",
+}
+
+func TestContainersAndBinariesAreNeverDrawn(t *testing.T) {
+	for _, ct := range neverDrawn {
+		if f := family(ct); f != "" {
+			t.Errorf("%q is offered for a tile as %q; nothing can draw it", ct, f)
+		}
+		if IsThemeable(ct) || DrawnAsDocument(ct) || DrawnFromHead(ct) {
+			t.Errorf("%q answers as a drawn family", ct)
+		}
+		if matchesAny(ct, Capturable) {
+			t.Errorf("%q matches the pattern list the stores send as SQL", ct)
+		}
+	}
+}
+
+// The XML family is still drawn: by its registered types, and by any dialect's
+// structured suffix, with or without parameters. SVG and XHTML end in "+xml"
+// too and keep their own families, which is what the order decides.
+func TestXMLIsDrawnByTypeAndSuffix(t *testing.T) {
+	for ct, want := range map[string]string{
+		"application/xml":                         "application/xml",
+		"text/xml; charset=utf-8":                 "application/xml",
+		"application/atom+xml":                    "%+xml",
+		"application/rss+xml; charset=utf-8":      "%+xml",
+		"image/svg+xml":                           "image/svg+xml",
+		"application/svg+xml":                     "image/svg+xml",
+		"application/xhtml+xml":                   "application/xhtml+xml",
+		"application/vnd.acme.report+json":        "%+json",
+		"application/problem+json; charset=utf-8": "application/json",
+		"text/x-yaml":                             "application/yaml",
+		"text/plain; charset=utf-8":               "text/%",
+		"text/x-go":                               "text/%",
+		"text/csv":                                "text/csv",
+	} {
+		if got := family(ct); got != want {
+			t.Errorf("family(%q) = %q, want %q", ct, got, want)
+		}
+	}
+}
+
+// ilike is PostgreSQL's ILIKE for the patterns Patterns writes: '%' is any run
+// of characters and case is ignored.
+func ilike(value, pattern string) bool {
+	v, parts := strings.ToLower(value), strings.Split(strings.ToLower(pattern), "%")
+	if !strings.HasPrefix(v, parts[0]) {
+		return false
+	}
+	v = v[len(parts[0]):]
+	last := len(parts) - 1
+	if last == 0 {
+		return v == ""
+	}
+	for _, part := range parts[1:last] {
+		i := strings.Index(v, part)
+		if i < 0 {
+			return false
+		}
+		v = v[i+len(part):]
+	}
+	return strings.HasSuffix(v, parts[last])
+}
+
+func ilikeAny(value string, patterns []string) bool {
+	return slices.ContainsFunc(patterns, func(p string) bool { return ilike(value, p) })
+}
+
+// TestSQLAndGoClassifyAlike. The stores ask the rule of a column as ILIKE over
+// Patterns; the worker and the tile page ask it of one value. Every type here --
+// canonical, an alias spelling, with parameters, and the containers that must
+// not match -- gets the same three answers both ways.
+func TestSQLAndGoClassifyAlike(t *testing.T) {
+	for _, p := range Patterns(Capturable) {
+		if strings.ContainsAny(p, `_\`) {
+			t.Errorf("pattern %q uses '_' or a backslash, which ILIKE reads as more than a character", p)
+		}
+	}
+	corpus := slices.Concat(neverDrawn, []string{
+		"text/csv", "text/csv; header=present", "application/csv", "text/tsv", "text/tab-separated-values",
+		"text/html", "text/html; charset=utf-8", "text/jsx", "text/babel", "application/xhtml+xml",
+		"text/markdown", "text/x-markdown", "application/json", "text/json", "application/ld+json",
+		"application/x-ndjson", "application/jsonl", "application/vnd.acme+json",
+		"application/yaml", "text/yaml", "application/xml", "text/xml", "application/atom+xml",
+		"application/sql", "text/x-sql", "text/x-python", "text/javascript", "application/javascript",
+		"text/css", "text/plain", "text/plain; charset=utf-8", "text/calendar", "TEXT/X-GO; charset=utf-8",
+		"image/svg+xml", "application/svg+xml",
+		"application/pdf", "application/x-pdf", "image/png", "image/jpg", "image/x-icon",
+	})
+	for _, ct := range corpus {
+		if sql, goForm := ilikeAny(ct, Patterns(Capturable)), family(ct) != ""; sql != goForm {
+			t.Errorf("%q: SQL offers it=%v, Go classifies it=%v", ct, sql, goForm)
+		}
+		sqlThemeable := ilikeAny(ct, Patterns(Themeable)) && !ilikeAny(ct, Patterns(ThemeableShadows()))
+		if sqlThemeable != IsThemeable(ct) {
+			t.Errorf("%q: SQL themeable=%v, Go themeable=%v", ct, sqlThemeable, IsThemeable(ct))
+		}
+		if sql, goForm := ilikeAny(ct, Patterns(LargeSourceFamilies)), SourceLimit(ct) == LargeSourceLimit; sql != goForm {
+			t.Errorf("%q: SQL raises the bound=%v, Go=%v", ct, sql, goForm)
 		}
 	}
 }

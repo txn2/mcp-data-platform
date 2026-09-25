@@ -192,8 +192,8 @@ describe("captureFamily", () => {
     expect(captureFamily("image/svg+xml")).toBe("svg");
   });
 
-  // Every one of these contains "text", which is why the plain-text fragment is
-  // spelled in full.
+  // Every one of these contains "text", and a type is compared whole, so none
+  // of them is plain text.
   it("does not read a specific text family as plain text", () => {
     expect(captureFamily("text/html")).not.toBe("text");
     expect(captureFamily("text/csv")).not.toBe("text");
@@ -228,13 +228,52 @@ describe("captureFamily", () => {
     }
   });
 
-  // An XML type must not be read as SVG markup, and a JavaScript type must not
-  // be run as a JSX artifact: both overlaps are resolved by the table's order.
-  it("keeps the two overlapping fragments in the right order", () => {
+  // SVG and XHTML end in "+xml" and are drawn as what they are rather than as
+  // XML text, which the table's order decides; a JavaScript type is not a JSX
+  // artifact.
+  it("keeps the types that end in +xml in their own families", () => {
     expect(captureFamily("image/svg+xml")).toBe("svg");
     expect(captureFamily("application/xhtml+xml")).toBe("iframe");
     expect(captureFamily("text/jsx")).toBe("iframe");
     expect(captureFamily("text/javascript")).toBe("text");
+  });
+});
+
+// An Office document is a zip container, and every Office Open XML type
+// contains "xml". Matched anywhere in the type, a workbook was offered as XML
+// and its tile was the text of its zip bytes (#1882).
+describe("containers and binaries", () => {
+  it("gets no tile for an Office, OpenDocument or archive type", () => {
+    for (const ct of [
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "application/vnd.oasis.opendocument.spreadsheet",
+      "application/vnd.oasis.opendocument.text",
+      "application/zip",
+      "application/x-sqlite3",
+      "application/vnd.acme.jsonish",
+    ]) {
+      expect(`${ct} -> ${captureFamily(ct)}`).toBe(`${ct} -> null`);
+      expect(isThumbnailSupported(ct)).toBe(false);
+      expect(isThemeable(ct)).toBe(false);
+    }
+  });
+
+  it("still draws XML by its type and by any dialect's +xml suffix", () => {
+    expect(captureFamily("application/xml")).toBe("text");
+    expect(captureFamily("text/xml; charset=utf-8")).toBe("text");
+    expect(captureFamily("application/atom+xml")).toBe("text");
+    expect(captureFamily("application/rss+xml; charset=utf-8")).toBe("text");
+    expect(captureFamily("application/svg+xml")).toBe("svg");
+    expect(captureFamily("TEXT/CSV; header=present")).toBe("csv");
+  });
+
+  // The viewer renders every text/ type it has no family for as plain text.
+  it("draws any other text/ type as plain text", () => {
+    expect(captureFamily("text/calendar")).toBe("text");
+    expect(captureFamily("TEXT/X-GO; charset=utf-8")).toBe("text");
+    expect(captureFamily("text/csv")).toBe("csv");
   });
 });
 

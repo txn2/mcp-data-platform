@@ -750,6 +750,7 @@ internal/server -> pkg/platform
 internal/soap -> internal/xmltree
 internal/tableavail -> pkg/query
 internal/tableparquet -> internal/tabletype
+internal/thumbtypes -> pkg/contenttype
 internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
