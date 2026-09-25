@@ -4,7 +4,8 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import { readsByRange } from "@/components/renderers/registry";
+import { contentLoad } from "@/components/renderers/registry";
+import { fetchContentText } from "@/lib/contentFetch";
 import { apiFetch, apiFetchRaw } from "../client";
 import {
   nextOffset,
@@ -111,36 +112,28 @@ export function useAsset(id: string) {
   });
 }
 
-/**
- * Maximum size in bytes before the viewer skips auto-loading content.
- * Assets larger than this show a "too large to preview" message with a download button.
- * The content can still be fetched explicitly by the user.
- */
-export const LARGE_ASSET_THRESHOLD = 2 * 1024 * 1024; // 2 MB
-
 /** What useAssetContent needs to know about an asset before it reads the bytes. */
 export type AssetContentShape = Pick<Asset, "size_bytes" | "content_type" | "name">;
 
 /**
  * useAssetContent reads an asset's content as text, once its record says the
- * content is worth reading: not over LARGE_ASSET_THRESHOLD, and not a family
- * whose renderer reads the endpoint itself by range (#1833).
+ * content is worth reading: the registry's contentLoad answers `fetch`, which
+ * holds every inline family to its own limit (#1874) and leaves a family whose
+ * renderer reads the endpoint itself to that renderer (#1833).
  *
- * It waits for the record. Reading before the size was known meant the
- * threshold never applied to the first load, which fetched every large asset
- * whole, and a Parquet file of any size with it.
+ * It waits for the record. Reading before the size was known meant the limit
+ * never applied to the first load, which fetched every large asset whole, and a
+ * Parquet file of any size with it.
+ *
+ * A read that produces no body fails with a ContentFetchError naming the
+ * status, which the viewer shows rather than a loading state.
  */
 export function useAssetContent(id: string, asset?: AssetContentShape) {
-  const tooLarge = asset != null && asset.size_bytes > LARGE_ASSET_THRESHOLD;
-  const byRange = asset != null && readsByRange(asset.content_type, asset.name);
+  const fetches = asset != null && contentLoad(asset.content_type, asset.size_bytes, asset.name) === "fetch";
   return useQuery({
     queryKey: ["asset-content", id],
-    queryFn: async () => {
-      const res = await apiFetchRaw(`/assets/${id}/content`);
-      if (!res.ok) throw new Error("Failed to fetch content");
-      return res.text();
-    },
-    enabled: !!id && asset != null && !tooLarge && !byRange,
+    queryFn: () => fetchContentText(() => apiFetchRaw(`/assets/${id}/content`)),
+    enabled: !!id && fetches,
   });
 }
 

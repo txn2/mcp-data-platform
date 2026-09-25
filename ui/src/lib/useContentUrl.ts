@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ContentFetchError } from "@/lib/contentFetch";
 import { useAuthStore } from "@/stores/auth";
 
 /**
@@ -17,14 +18,20 @@ import { useAuthStore } from "@/stores/auth";
  * blob, but the whole object is downloaded first: the cost of a credential
  * that only exists in JavaScript.
  */
-export function useContentUrl(url: string, enabled = true): { src: string; loading: boolean; error: string | null } {
+export function useContentUrl(
+  url: string,
+  enabled = true,
+): { src: string; loading: boolean; error: ContentFetchError | null; retry: () => void } {
   const authMethod = useAuthStore((s) => s.authMethod);
   const apiKey = useAuthStore((s) => s.apiKey);
   const needsFetch = enabled && authMethod === "apikey" && !!apiKey;
 
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ContentFetchError | null>(null);
+  // Bumped by retry, so the effect runs the read again after a failure.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     if (!needsFetch || !url) {
@@ -38,8 +45,11 @@ export function useContentUrl(url: string, enabled = true): { src: string; loadi
     setError(null);
 
     fetch(url, { headers: { "X-API-Key": apiKey as string }, credentials: "include" })
+      .catch(() => {
+        throw new ContentFetchError(undefined);
+      })
       .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load content (${res.status})`);
+        if (!res.ok) throw new ContentFetchError(res.status);
         return res.blob();
       })
       .then((blob) => {
@@ -48,7 +58,7 @@ export function useContentUrl(url: string, enabled = true): { src: string; loadi
         setBlobUrl(objectUrl);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load content");
+        if (!cancelled) setError(err instanceof ContentFetchError ? err : new ContentFetchError(undefined));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -58,8 +68,8 @@ export function useContentUrl(url: string, enabled = true): { src: string; loadi
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [url, needsFetch, apiKey]);
+  }, [url, needsFetch, apiKey, attempt]);
 
-  if (!needsFetch) return { src: url, loading: false, error: null };
-  return { src: blobUrl ?? "", loading, error };
+  if (!needsFetch) return { src: url, loading: false, error: null, retry };
+  return { src: blobUrl ?? "", loading, error, retry };
 }

@@ -7,10 +7,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { apiFetchRaw } from "@/api/portal/client";
-import { LARGE_ASSET_THRESHOLD } from "@/api/portal/hooks";
+import { apiFetchRaw, BASE_URL } from "@/api/portal/client";
+import { ContentLoadError } from "@/components/assetviewer/contentControls";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
+import { contentLoad, readsByRange } from "@/components/renderers/registry";
+import { fetchContentText } from "@/lib/contentFetch";
 import { formatBytes } from "@/lib/format";
+import { useContentUrl } from "@/lib/useContentUrl";
 
 interface Props {
   assetId: string;
@@ -21,8 +24,13 @@ interface Props {
 }
 
 /**
- * Modal overlay that fetches and renders an asset's content for quick preview.
- * Skips loading for assets exceeding LARGE_ASSET_THRESHOLD.
+ * Modal overlay that renders an asset's content for quick preview.
+ *
+ * What it reads is the registry's contentLoad, the rule the asset page and the
+ * admin viewer read too (#1874): an inline family under its own limit is
+ * fetched as text, one past it is offered as a download without being
+ * requested, and a family whose renderer loads the endpoint itself is handed
+ * the endpoint. A read that fails shows its status with Retry and Download.
  *
  * The capped dialog shape keeps the asset's name and type in view while a long
  * document scrolls under them; Escape and the backdrop close it, both from the
@@ -31,32 +39,6 @@ interface Props {
  * a close request goes straight back to them.
  */
 export function AssetPreviewModal({ assetId, assetName, contentType, sizeBytes, onClose }: Props) {
-  const tooLarge = sizeBytes != null && sizeBytes > LARGE_ASSET_THRESHOLD;
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!tooLarge);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (tooLarge) return;
-    let cancelled = false;
-    apiFetchRaw(`/assets/${assetId}/content`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
-        if (!cancelled) {
-          setContent(text);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err.message || "Failed to load content");
-          setLoading(false);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [assetId, tooLarge]);
-
   return (
     <Dialog
       open
@@ -74,34 +56,89 @@ export function AssetPreviewModal({ assetId, assetName, contentType, sizeBytes, 
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          {tooLarge ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-              <FileWarning className="h-10 w-10 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                Too large to preview ({formatBytes(sizeBytes!)})
-              </p>
-              <Button asChild size="sm">
-                <a href={`/api/v1/portal/assets/${assetId}/content`} download={assetName}>
-                  <Download />
-                  Download
-                </a>
-              </Button>
-            </div>
-          ) : loading ? (
-            <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-              Loading...
-            </div>
-          ) : error ? (
-            <div className="flex items-center justify-center py-20 text-destructive text-sm">
-              {error}
-            </div>
-          ) : content !== null ? (
-            <div className="p-4">
-              <ContentRenderer contentType={contentType} content={content} />
-            </div>
-          ) : null}
+          <PreviewBody assetId={assetId} assetName={assetName} contentType={contentType} sizeBytes={sizeBytes} />
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The text read a preview makes for a family that renders from text: nothing
+ * unless `enabled`, and again on retry.
+ */
+function usePreviewText(assetId: string, enabled: boolean) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  // Bumped by retry, so the read runs again after a failure.
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    setContent(null);
+    setError(null);
+    fetchContentText(() => apiFetchRaw(`/assets/${assetId}/content`))
+      .then((text) => {
+        if (!cancelled) setContent(text);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err);
+      });
+    return () => { cancelled = true; };
+  }, [assetId, enabled, attempt]);
+
+  return { content, error, retry: () => setAttempt((n) => n + 1) };
+}
+
+function PreviewBody({ assetId, assetName, contentType, sizeBytes = 0 }: Omit<Props, "onClose">) {
+  const contentUrl = `${BASE_URL}/assets/${assetId}/content`;
+  const load = contentLoad(contentType, sizeBytes, assetName);
+  const text = usePreviewText(assetId, load === "fetch");
+  const media = useContentUrl(contentUrl, load === "url" && !readsByRange(contentType, assetName));
+  // The read that failed is the one this family renders from.
+  const failure = load === "url" ? { error: media.error, retry: media.retry } : text;
+  const waiting = load === "url" ? media.loading : text.content === null;
+
+  if (load === "too-large") {
+    return <PreviewTooLarge name={assetName} sizeBytes={sizeBytes} contentUrl={contentUrl} />;
+  }
+  if (failure.error) {
+    return (
+      <ContentLoadError asset={{ name: assetName }} error={failure.error} contentUrl={contentUrl} onRetry={failure.retry} />
+    );
+  }
+  if (waiting) {
+    return (
+      <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
+        Loading...
+      </div>
+    );
+  }
+  return (
+    <div className="p-4">
+      <ContentRenderer
+        contentType={contentType}
+        content={text.content ?? undefined}
+        fileName={assetName}
+        contentUrl={media.src || contentUrl}
+        sizeBytes={sizeBytes}
+      />
+    </div>
+  );
+}
+
+function PreviewTooLarge({ name, sizeBytes, contentUrl }: { name: string; sizeBytes: number; contentUrl: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <FileWarning className="h-10 w-10 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">Too large to preview ({formatBytes(sizeBytes)})</p>
+      <Button asChild size="sm">
+        <a href={contentUrl} download={name}>
+          <Download />
+          Download
+        </a>
+      </Button>
+    </div>
   );
 }

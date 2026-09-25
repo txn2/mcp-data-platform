@@ -126,9 +126,8 @@ var capabilities = []capability{
 	}},
 	{tool: toolSaveAsset, line: func(map[string]bool) string {
 		return "Name a file, do not carry it. When a document you save needs a logo, an image, or " +
-			"a data table already in the platform, write its reference where the file belongs in " +
-			"the markup and declare it in `references` on `save_asset` instead of embedding the " +
-			"bytes."
+			"a data table already in the platform, write its reference where the content loads it " +
+			"and declare it in `references` on `save_asset`. A reference is not a link."
 	}},
 	{tool: toolTrinoQuery, line: func(map[string]bool) string {
 		return "A short list of outside keys needs no table. Join a pasted list of ids inline " +

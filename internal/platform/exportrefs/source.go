@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 )
 
 // Literal is one reference string a script's source writes that no export
@@ -57,7 +59,7 @@ func InSource(file *syntax.File, exportMember, callMember string) []Literal {
 		if !ok {
 			return true
 		}
-		for _, uri := range Named(s) {
+		for _, uri := range contentrefs.Named(s) {
 			if !declared[uri] && !seen[uri] {
 				seen[uri] = true
 				out = append(out, Literal{URI: uri, Line: int(lit.TokenPos.Line)})

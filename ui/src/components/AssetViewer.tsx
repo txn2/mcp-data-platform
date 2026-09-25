@@ -24,6 +24,8 @@ export type { AssetViewerProps } from "./assetviewer/types";
 export function AssetViewer({
   asset,
   content,
+  contentError,
+  onRetryContent,
   isLoading,
   contentUrl,
   onBack,
@@ -272,6 +274,8 @@ export function AssetViewer({
         <AssetContentView
           asset={asset}
           content={content}
+          contentError={contentError}
+          onRetryContent={onRetryContent}
           contentUrl={contentUrl}
           canEditSource={canEditSource}
           viewingOldVersion={viewingOldVersion}

@@ -247,6 +247,25 @@ func (d *Declarer) Apply(
 	return refs, nil
 }
 
+// DeclaredURIs returns the reference strings an asset declares now, in declared
+// order: what a write that leaves the references alone is judged against when
+// it reports the references its content names undeclared (#1875). A declarer
+// that cannot record references has none to report.
+func (d *Declarer) DeclaredURIs(ctx context.Context, assetID string) ([]string, error) {
+	if !d.Available() {
+		return nil, nil
+	}
+	refs, err := d.refs.ListByAsset(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("reading declared references: %w", err)
+	}
+	uris := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		uris = append(uris, ref.URI)
+	}
+	return uris, nil
+}
+
 // refKey identifies a reference within one asset. The kind is part of it
 // because a resource id and an asset id are separate id spaces: the same string
 // can name both, and carrying one's token over to the other would serve the

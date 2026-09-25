@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { ContentFetchError } from "@/lib/contentFetch";
 import { AssetViewer } from "./AssetViewer";
 
 // One asset is referenced by a knowledge page; every other asset here is not,
@@ -260,5 +261,32 @@ describe("AssetViewer knowledge page references", () => {
   it("shows no button for an asset no page references", () => {
     renderViewer({ versions, onSelectVersion: vi.fn() });
     expect(screen.queryByRole("button", { name: /referenced by/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("AssetViewer content that failed to load (#1874)", () => {
+  it("names the status with Retry and Download instead of the loading indicator", () => {
+    const onRetry = vi.fn();
+    renderViewer({
+      asset: markdownAsset({ content_type: "text/csv", name: "d.csv", size_bytes: 5 * 1024 * 1024 }),
+      content: undefined,
+      contentError: new ContentFetchError(403),
+      onRetryContent: onRetry,
+      contentUrl: "/api/v1/portal/assets/a1/content",
+    });
+    expect(screen.getByText("Could not load this file")).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 403/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Download/ })).toHaveAttribute("href", "/api/v1/portal/assets/a1/content");
+    fireEvent.click(screen.getByRole("button", { name: /Retry/ }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a CSV past its family's limit as too large, not loading", () => {
+    renderViewer({
+      asset: markdownAsset({ content_type: "text/csv", name: "d.csv", size_bytes: 40 * 1024 * 1024 }),
+      content: undefined,
+      contentUrl: "/api/v1/portal/assets/a1/content",
+    });
+    expect(screen.getByText("Too large to preview")).toBeInTheDocument();
   });
 });

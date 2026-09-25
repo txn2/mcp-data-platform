@@ -17,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
+	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -272,6 +273,10 @@ type saveAssetOutput struct {
 	// so a save that referenced nothing reads exactly as it did before.
 	ReferencesDeclared int    `json:"references_declared,omitempty"`
 	ReferenceGrant     string `json:"reference_grant,omitempty"`
+	// UndeclaredReferences are the references the content names that the
+	// save did not declare (#1875), each served as written and resolving to
+	// nothing. Omitted when there are none.
+	UndeclaredReferences []string `json:"undeclared_references,omitempty"`
 }
 
 // Config holds configuration for creating a portal toolkit.
@@ -723,6 +728,9 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err := portal.ValidateContentType(contentType); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
+	if refused := linkRefusal(input.Content, contentType); refused != nil {
+		return refused, nil, nil
+	}
 	s3Key := t.buildS3Key(userID, assetID, contentType)
 
 	if t.s3Client == nil {
@@ -794,6 +802,10 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 	if refCount > 0 {
 		out.ReferencesDeclared = refCount
 		out.ReferenceGrant = assetrefs.GrantNotice
+	}
+	if undeclared := contentrefs.Undeclared(input.Content, input.References); len(undeclared) > 0 {
+		out.UndeclaredReferences = undeclared
+		out.Message += undeclaredNotice(undeclared)
 	}
 	return toolkit.JSONResultTyped(out)
 }
@@ -993,6 +1005,11 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 			return toolkit.ErrorResult(err.Error()), nil, nil
 		}
 	}
+	if hasContent {
+		if refused := linkRefusal(input.Content, updatedContentType(asset, input)); refused != nil {
+			return refused, nil, nil
+		}
+	}
 
 	// Metadata first, content second, because one metadata field changes what
 	// the content write does: creating a version prunes history against the
@@ -1031,7 +1048,21 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 	}
 	addRefFields(result, refCount)
 	addTableFields(result, followed)
+	if hasContent {
+		addUndeclaredFields(result, t.undeclaredRefs(ctx, asset.ID, input.Content, input.References))
+	}
 	return toolkit.JSONResultTyped(result)
+}
+
+// updatedContentType is the type an update's content is stored under, resolved
+// as uploadContentUpdate resolves it: the caller's declaration, else the
+// asset's own type, with a generic one replaced by what the content is.
+func updatedContentType(asset *portal.Asset, input manageAssetInput) string {
+	declared := input.ContentType
+	if declared == "" {
+		declared = asset.ContentType
+	}
+	return portal.ResolveContentType(declared, []byte(input.Content))
 }
 
 // tableFields is what a content write says about the tables over the asset's

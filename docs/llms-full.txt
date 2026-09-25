@@ -2860,7 +2860,7 @@ One shared renderer registry drives every surface: the portal asset viewer, the 
 
 The source editor (assets, managed resources, scripts) has a Wrap toggle that is on from the start when the longest line is wider than the editor, so a single-line HTML asset opens readable, and a Format action for HTML, JSON, JSX/JavaScript, YAML and Markdown (not JSON Lines). Format runs Prettier in the browser, fetched as separate chunks on the first click. Its output replaces the buffer as an unsaved edit that only Save stores as a new version, and opening Source, switching views or reading an old version never writes. HTML keeps Prettier's CSS whitespace rules, and because Prettier cannot see a page's own stylesheet, both versions are laid out in an offscreen script-disabled frame and their rendered text compared first: a difference (an element styled `white-space: pre`) or input that does not parse is refused with a message, and the buffer is left as it was. Stored content is never formatted on the server or when an agent saves.
 
-The inline preview limit is per family, not global. Media and PDF stream from the content endpoint and have no limit; the JSON and tabular viewers virtualize and hold a 32 MB limit, so a multi-megabyte JSON document opens in the tree rather than being refused; families rendered as one continuous block of text keep a 2 MB cutoff with a download fallback.
+The inline preview limit is per family, not global. Media and PDF stream from the content endpoint and have no limit; the JSON and tabular viewers virtualize and hold a 32 MB limit, so a multi-megabyte JSON document opens in the tree rather than being refused; families rendered as one continuous block of text keep a 2 MB cutoff with a download fallback. The asset page, the preview modal and the admin console's asset viewer read these limits from the one renderer registry, and a file past its family's limit is offered as a download without its content being requested; before #1874 the content read was gated at a flat 2 MB of its own, so a CSV or NDJSON asset between 2 MB and 32 MB was never fetched and the viewer waited forever. A content read that ends without a body (an error status or a dropped connection) shows "Could not load this file" with the status, Retry and Download, rather than the loading indicator.
 
 ## Serving raw content
 
@@ -2881,7 +2881,7 @@ A JSX artifact carries a second policy of its own, tighter than the page policy 
 An asset's content can name a managed resource by its `mcp://` URI, or another asset by its `mcp:asset:<id>` reference, instead of carrying the bytes. The stored content keeps the reference; every surface that serves the asset to a reader rewrites it into a URL that resolves to the target.
 
 !!! quote "The rule"
-    Write the reference where the file belongs in your markup and declare it in the same call. The asset stores a reference, not a copy.
+    Write the reference where the content loads the file (an `img` `src`, a `fetch`) and declare it in the same call. The asset stores a reference, not a copy. A reference loads a file; it is not a link.
 
 ## Why an asset should not carry the bytes
 
@@ -2910,9 +2910,24 @@ Both kinds are one mechanism. They share a declaration, a token, a serving route
 }
 ```
 
-The reference appears twice on purpose. In the markup it is what the reader's browser will follow; in `references` it is the declaration, and only a declared reference is ever rewritten. A reference string that appears in the content but was never declared is served exactly as written and resolves to nothing, so the grant is always the declaration and never a string that happens to appear in the body.
+The reference appears twice on purpose. In the markup it is what the reader's browser will load; in `references` it is the declaration, and only a declared reference is ever rewritten. A reference string that appears in the content but was never declared is served exactly as written and resolves to nothing, so the grant is always the declaration and never a string that happens to appear in the body.
 
-The rewrite is a whole-document replacement over textual content rather than an attribute rewrite, so a reference resolves wherever it is written: an `img` `src`, a `fetch()` inside a `<script>` block, a markdown link.
+The rewrite is a whole-document replacement over textual content rather than an attribute rewrite, so a reference resolves wherever it is written: an `img` `src`, a `<link>` `href`, a `fetch()` inside a `<script>` block, a CSS `url()`, a markdown image.
+
+The same three calls report the references the content names and the asset does not declare once the call is done, as `undeclared_references` in the result, with a sentence on the message saying each is served as written and resolves to nothing. "Declared once the call is done" is the `references` the call passed, or, on an `update` or `patch` that passed none, the asset's existing declaration. The report reads the default `mcp` resource scheme only, as the script path's does.
+
+### A reference is not a link
+
+The rewrite produces a URL that serves the target's bytes. That is what an `img`, a stylesheet or a `fetch` needs, and it is not something a reader can follow: the frame an HTML or JSX asset renders in is `sandbox="allow-scripts"`, which blocks top navigation, popups and downloads, and a file's raw bytes are not a page. The platform has no link between assets.
+
+A write that uses a reference as a link target is refused, naming each reference, and nothing is written:
+
+| Content type | Refused |
+|---|---|
+| HTML, XHTML, JSX, SVG | an `<a>` or `<area>` whose `href` (or SVG `xlink:href`) is a reference, including JSX `href={"..."}` |
+| Markdown | the above in embedded markup, an inline link whose destination is a reference, and an autolink wrapping one; fenced code and inline code are not read |
+
+A markdown image whose source is a reference loads the file and is accepted. To point a reader at another asset, name it in text. A `patch` is judged on the body the patch produces, dry runs included, so a patch that removes such a link from an older asset is accepted.
 
 On `manage_asset`, `references` replaces whatever the asset referenced before:
 

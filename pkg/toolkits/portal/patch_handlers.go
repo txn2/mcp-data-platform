@@ -140,12 +140,18 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		return patchmcp.ErrorResult(err), nil, nil
 	}
 
+	if refused := linkRefusal(res.Body, asset.ContentType); refused != nil {
+		return refused, nil, nil
+	}
+
 	summary := patchChangeSummary(input.ChangeSummary, len(input.Edits))
 	result := patchResponse(asset, res, summary)
+	undeclared := t.undeclaredRefs(ctx, asset.ID, res.Body, input.References)
 	if input.DryRun {
 		result["dry_run"] = true
 		result[fieldVersion] = asset.CurrentVersion
 		result[fieldMessage] = "Dry run: no version was created."
+		addUndeclaredFields(result, undeclared)
 		return toolkit.JSONResultTyped(result)
 	}
 
@@ -166,6 +172,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	result[fieldMessage] = fmt.Sprintf("Patched asset; new version %d.", version)
 	addRefFields(result, refCount)
 	addTableFields(result, tableFields(version, tables))
+	addUndeclaredFields(result, undeclared)
 	return toolkit.JSONResultTyped(result)
 }
 

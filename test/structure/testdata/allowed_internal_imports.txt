@@ -308,8 +308,7 @@ internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
 internal/platform/exportadapters -> pkg/toolkits/graphql
 internal/platform/exportadapters -> pkg/toolkits/trino
-internal/platform/exportrefs -> pkg/portal/knowledgepage
-internal/platform/exportrefs -> pkg/resource
+internal/platform/exportrefs -> internal/portal/contentrefs
 internal/platform/exporttable -> pkg/portal/knowledgepage
 internal/platform/graphqlcatalog -> pkg/toolkits/apigateway/catalog
 internal/platform/graphqlcatalog -> pkg/toolkits/graphql
@@ -554,6 +553,7 @@ internal/platform/scriptrun -> internal/platform/scriptout/exportmeta
 internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
+internal/platform/scriptrun -> internal/portal/contentrefs
 internal/platform/scriptrun -> internal/scriptdate
 internal/platform/scriptrun -> internal/scriptdest
 internal/platform/scriptrun -> internal/scriptreserved
@@ -667,6 +667,9 @@ internal/portal/assetrefstore -> internal/portal/assetrefs
 internal/portal/callapi -> internal/httpjson
 internal/portal/callapi -> internal/platform/callrecord
 internal/portal/callapi -> internal/portal/access
+internal/portal/contentrefs -> pkg/contenttype
+internal/portal/contentrefs -> pkg/portal/knowledgepage
+internal/portal/contentrefs -> pkg/resource
 internal/portal/feedbackapi -> internal/httpjson
 internal/portal/feedbackapi -> internal/logsan
 internal/portal/feedbackapi -> internal/portal/access
@@ -1140,7 +1143,9 @@ pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
 pkg/toolkits/memory -> pkg/toolkit
 pkg/toolkits/portal -> internal/httpjson
+pkg/toolkits/portal -> internal/logsan
 pkg/toolkits/portal -> internal/portal/assetrefs
+pkg/toolkits/portal -> internal/portal/contentrefs
 pkg/toolkits/portal -> internal/portal/portaldomain
 pkg/toolkits/portal -> internal/producedby
 pkg/toolkits/portal -> pkg/contenttype

@@ -51,10 +51,28 @@ alone, sending a list replaces them, and sending an empty list removes them
 all. At most 20 per asset; a save above that is refused with the number you
 declared.
 
-Write the reference itself into the content, at the place the file belongs,
-and list the same string in `references`. Only a declared reference is
-rewritten: an `mcp://` URI that appears in the content and was never declared
-is served exactly as written and resolves to nothing.
+Write the reference itself into the content, at the place the content loads
+the file, and list the same string in `references`. Only a declared reference
+is rewritten: an `mcp://` URI that appears in the content and was never
+declared is served exactly as written and resolves to nothing. The write
+reports those back: `save_asset` and `manage_asset` `update` and `patch` return
+`undeclared_references`, every reference the content names that the asset does
+not declare once the call is done (the `references` you passed, or the asset's
+existing declaration when you passed none).
+
+## A reference loads a file; it is not a link
+
+The rewrite turns a reference into a URL serving the target's bytes. An `img`,
+a stylesheet, a `fetch` or a CSS `url()` can use that. A reader cannot follow
+it: the frame an HTML or JSX asset renders in blocks navigation, and a file's
+raw bytes are not a page. Links between assets are not supported.
+
+A write that uses a reference as a link target is refused, naming each one,
+and nothing is written: an `<a href="mcp:asset:...">` (or `<area>`, or an SVG
+`xlink:href` on an `<a>`) in HTML, JSX, SVG or markdown, and a markdown
+`[text](mcp:asset:...)` link or `<mcp:asset:...>` autolink. A markdown image,
+`![alt](mcp:asset:...)`, loads the file and is accepted. To point a reader at
+another asset, name it in text.
 
 ## What this looks like in the assets you actually write
 

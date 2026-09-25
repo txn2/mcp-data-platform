@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
 )
 
 // Keyword is the platform.export argument a declaration is passed as.
@@ -67,5 +69,5 @@ func Args(assetID string, refs []string) map[string]any {
 // not load whether or not the script printed its result.
 func LogLine(output string, undeclared []string) string {
 	return "undeclared_references: " + output + ": " + strings.Join(undeclared, ", ") +
-		" (not declared by this export; unless the asset declares them some other way they are served as written and resolve to nothing)"
+		" (not declared by this export; unless the asset declares them some other way " + contentrefs.UndeclaredConsequence + ")"
 }

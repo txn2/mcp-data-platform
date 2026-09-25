@@ -21,9 +21,11 @@ import {
   assetKey,
   nextOffset,
   useInfiniteResult,
+  type AssetContentShape,
   type InfiniteAssetsResult,
 } from "@/api/portal/hooks/assets";
-import { ADMIN_LARGE_ASSET_THRESHOLD } from "./shared";
+import { contentLoad } from "@/components/renderers/registry";
+import { fetchContentText } from "@/lib/contentFetch";
 
 // ---------------------------------------------------------------------------
 // Personas
@@ -166,18 +168,18 @@ export function useAdminAsset(id: string | null) {
   });
 }
 
-export function useAdminAssetContent(id: string | null, sizeBytes?: number) {
-  const tooLarge = sizeBytes != null && sizeBytes > ADMIN_LARGE_ASSET_THRESHOLD;
+/**
+ * The admin viewer's read of an asset's content, gated by the same registry
+ * rule as the portal's (#1874): an inline family under its own limit is read,
+ * anything else is refused or left to its renderer. A read that produces no
+ * body fails with a ContentFetchError naming the status.
+ */
+export function useAdminAssetContent(id: string | null, asset?: AssetContentShape) {
+  const fetches = asset != null && contentLoad(asset.content_type, asset.size_bytes, asset.name) === "fetch";
   return useQuery({
     queryKey: ["admin", "asset-content", id],
-    queryFn: async () => {
-      const res = await fetch(`/api/v1/admin/assets/${id}/content`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch content");
-      return res.text();
-    },
-    enabled: !!id && !tooLarge,
+    queryFn: () => fetchContentText(() => apiFetchRaw(`/assets/${id}/content`)),
+    enabled: !!id && fetches,
   });
 }
 
