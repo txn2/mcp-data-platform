@@ -57,7 +57,9 @@ func TestPGListen_OnEvent(_ *testing.T) {
 // a live PostgreSQL connection: every notification, including the nil one that
 // signals a reconnect, wakes the workers.
 func TestPGListen_ConsumeWakesOnEveryNotification(t *testing.T) {
-	n := &countingNotifier{ch: make(chan struct{}, 1)}
+	// Room for both wakes: consume can broadcast twice before the first is
+	// read, and a one-slot notifier drops the second (Notify never blocks).
+	n := &countingNotifier{ch: make(chan struct{}, 2)}
 	l := New("dsn-unused", "probe-channel", n)
 	notifications := make(chan *pq.Notification, 2)
 	notifications <- &pq.Notification{Channel: "probe-channel"}

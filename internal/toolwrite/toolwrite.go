@@ -258,8 +258,10 @@ var actionTools = map[string]actionRule{
 	// manage_table: the tables registered over a managed file.
 	"manage_table": {arg: "action", reads: set("list"), writes: set("register", "unregister")},
 	// manage_resource: get reads what is filed at an address and list reports
-	// a folder.
-	"manage_resource": {arg: "action", reads: set("get", "list"), writes: set("create", "replace_content", "delete")},
+	// a folder. extract writes a file per archive member.
+	"manage_resource": {arg: "action", reads: set("get", "list"), writes: set(
+		"create", "replace_content", "delete", "extract",
+	)},
 	// manage_feedback: reply, resolve and the two validation verbs write.
 	"manage_feedback": {arg: "action", reads: set("list", "get"), writes: set(
 		"reply", "resolve", "request_validation", "respond_validation",

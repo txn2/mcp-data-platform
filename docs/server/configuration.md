@@ -1494,6 +1494,11 @@ resources:
     s3_bucket: "managed-resources"
     max_versions: 10          # content revisions kept per resource
     max_upload_bytes: 104857600   # largest file accepted (default 100 MB)
+    extract:                      # manage_resource extract limits (#1879)
+      max_member_bytes: 2147483648  # largest member, uncompressed (default 2 GiB)
+      max_total_bytes: 4294967296   # selected members added up (default 4 GiB)
+      max_members: 10000            # entries an archive may hold (default 10000)
+      max_ratio: 500                # uncompressed / compressed, per member (default 500)
 ```
 
 | Field | Type | Default | Description |
@@ -1505,8 +1510,38 @@ resources:
 | `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
 | `max_upload_bytes` | int | `104857600` (100 MB) | Largest file `POST /api/v1/resources` and `POST /api/v1/resources/{id}/content` accept. Absent, zero, or negative selects the default, so a deployment that sets nothing keeps today's 100 MB. The refusal message and the portal's file chooser both state this deployment's number — the browser reads it from `GET /api/v1/portal/me` rather than holding a copy. It bounds bytes streamed, not bytes held: see below. It is also the size a table registration will read an object by, so a file this deployment accepts is a file it can register a table over (#1634) |
 
+| `extract.max_member_bytes` | int | `2147483648` (2 GiB) | Largest a single archive member may be uncompressed for `manage_resource extract` |
+| `extract.max_total_bytes` | int | `4294967296` (4 GiB) | Most the selected members of one extraction may add up to, uncompressed |
+| `extract.max_members` | int | `10000` | Entries an archive may hold, directories included. A zip's directory is read whole to open it, so this also bounds the memory opening one takes |
+| `extract.max_ratio` | int | `500` | Furthest a member may expand past its compressed size. Checked once a member passes 1 MiB, so a small file of repeated bytes is not refused |
+
 Managed resources require a database. With none configured the block has no
 effect, and the platform runs the read-only templates alone.
+
+### Archive extraction limits
+
+`manage_resource extract` writes the members of a stored zip, gzip or gzipped tar
+out as managed resources, and `resources.managed.extract` bounds it. Each field
+takes its default when absent, zero or negative. The limits are apart from
+`max_upload_bytes` on purpose: an archive is delivered by an upstream rather than
+picked at an upload form, and the file inside a monthly delivery is routinely
+several times the upload ceiling. A member extracted here is not held to
+`max_upload_bytes`.
+
+Extraction streams in both directions: the archive is read from storage by range
+in 8 MiB blocks, and each member goes to storage through the multipart uploader.
+What one extraction holds is two blocks, the decompressor's window and the
+uploader's part buffers, whatever the member's size, so these limits bound what
+an archive may expand to on disk rather than what it costs in memory.
+
+An archive past a limit is refused with the key that stopped it, for example
+`member "feed.csv" is larger than 2 GiB uncompressed (max_member_bytes); raise
+resources.managed.extract.max_member_bytes to allow it`. A zip declares every
+member's size and compression in its directory, and a tar is read through once
+before its members are written, so for both a refusal comes before anything is
+written. A gzip holds one member whose size is only known once it has been read;
+its limits are enforced as it streams, and a gzip that passes one leaves nothing
+stored, because its one write is abandoned.
 
 ### What raising `max_upload_bytes` costs
 

@@ -99,6 +99,8 @@ type manageResourceInput struct {
 	IfExists string `json:"if_exists,omitempty"`
 	// Force deletes past the things still pointing at the file.
 	Force bool `json:"force,omitempty"`
+	// Members is the glob an extract selects archive members with.
+	Members string `json:"members,omitempty"`
 	// Limit and Offset page a listing.
 	Limit  int `json:"limit,omitempty"`
 	Offset int `json:"offset,omitempty"`
@@ -158,9 +160,11 @@ func (t *Toolkit) handleManageResource(
 		return t.handleListResources(ctx, input)
 	case resourceActionDelete:
 		return t.handleDeleteResource(ctx, input)
+	case resourceActionExtract:
+		return t.handleExtractResource(ctx, input)
 	default:
 		return toolkit.ErrorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: create, replace_content, get, list, delete",
+			"invalid action %q: must be one of: create, replace_content, get, list, delete, extract",
 			input.Action)), nil, nil
 	}
 }
@@ -428,8 +432,8 @@ func parseResourceReference(reference string) (string, error) {
 		return "", fmt.Errorf("reference %q is not a reference this platform issues: %s", trimmed, err.Error())
 	}
 	if ref.TargetType != knowledgepage.RefTargetResource {
-		return "", fmt.Errorf("reference %q names a target of type %q, not %q. Only a managed resource has "+
-			"content this tool can replace; a saved asset's content is edited with manage_asset",
+		return "", fmt.Errorf("reference %q names a target of type %q, not %q. This tool acts on managed "+
+			"resources only; a saved asset's content is edited with manage_asset",
 			trimmed, ref.TargetType, knowledgepage.RefTargetResource)
 	}
 	return ref.ResourceID, nil

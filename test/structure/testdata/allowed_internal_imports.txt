@@ -442,10 +442,12 @@ internal/platform/portalstore -> internal/platform/resourcewrite
 internal/platform/portalstore -> internal/portal/assetrefs
 internal/platform/portalstore -> internal/portal/assetrefstore
 internal/platform/portalstore -> internal/producedby
+internal/platform/portalstore -> internal/unarchive
 internal/platform/portalstore -> pkg/embedding
 internal/platform/portalstore -> pkg/indexjobs
 internal/platform/portalstore -> pkg/portal
 internal/platform/portalstore -> pkg/portal/knowledgepage
+internal/platform/portalstore -> pkg/resource
 internal/platform/portalstore -> pkg/toolkits/portal
 internal/platform/promptindex -> pkg/indexjobs
 internal/platform/promptindex -> pkg/prompt
@@ -501,6 +503,7 @@ internal/platform/resourcetemplates -> pkg/query
 internal/platform/resourcetemplates -> pkg/semantic
 internal/platform/resourcetemplates -> pkg/urnbuild
 internal/platform/resourcewrite -> internal/producedby
+internal/platform/resourcewrite -> internal/unarchive
 internal/platform/resourcewrite -> pkg/contenttype
 internal/platform/resourcewrite -> pkg/middleware
 internal/platform/resourcewrite -> pkg/portal/knowledgepage
@@ -971,7 +974,6 @@ pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/resourcetemplates
-pkg/platform -> internal/platform/resourcewrite
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/scriptadmit
 pkg/platform -> internal/platform/scriptdraft
@@ -992,6 +994,7 @@ pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
 pkg/platform -> internal/producedby
 pkg/platform -> internal/toolnames
+pkg/platform -> internal/unarchive
 pkg/platform -> internal/webhook/whconfig
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents

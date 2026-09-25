@@ -227,7 +227,7 @@ func TestManageResourceUnknownAction(t *testing.T) {
 	result := callResource(t, tk, manageResourceInput{Action: "rename"})
 
 	require.True(t, result.IsError)
-	assert.Contains(t, errText(t, result), "create, replace_content, get, list, delete")
+	assert.Contains(t, errText(t, result), "create, replace_content, get, list, delete, extract")
 }
 
 func TestCreateBuildsTheResourceFromTheCall(t *testing.T) {

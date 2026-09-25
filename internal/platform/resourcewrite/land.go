@@ -140,8 +140,29 @@ func (l *Lander) Land(
 	if err != nil {
 		return nil, err
 	}
+	return l.landPlanned(ctx, plan, landInput{
+		dest: dest, content: content, contentType: contentType, claims: claims, ceiling: l.maxBytes,
+	})
+}
+
+// landInput is one landing's inputs past its resolved address.
+type landInput struct {
+	dest        toolkit.ResourceDestination
+	content     io.Reader
+	contentType string
+	claims      resource.Claims
+	// ceiling bounds the stream; non-positive is unbounded.
+	ceiling int64
+}
+
+// landPlanned writes to an address plan already resolved. An extraction plans
+// every member's address before it writes the first, and bounds members by its
+// own limits rather than the upload ceiling, which is why the two halves are
+// apart.
+func (l *Lander) landPlanned(ctx context.Context, plan landing, in landInput) (*toolkit.ResourceLanding, error) {
+	contentType, dest, claims := in.contentType, in.dest, in.claims
 	w := write{
-		content:      &ceilingReader{r: content, max: l.maxBytes},
+		content:      &ceilingReader{r: in.content, max: in.ceiling},
 		mimeType:     plan.mimeType(contentType),
 		declaredType: contentType,
 		dest:         dest,
