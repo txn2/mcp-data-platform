@@ -8,6 +8,9 @@
  */
 
 import type { RendererKind } from "@/components/renderers/registry";
+// Relative, not "@/": vite.config.ts loads the dev mocks, which reach this
+// module, before the "@/" alias exists.
+import { normalizeContentType } from "./contentType";
 
 /** Thumbnail image dimensions, in CSS pixels. */
 export const THUMB_WIDTH = 400;
@@ -49,7 +52,7 @@ export type CaptureFamily = "iframe" | "svg" | "csv" | "json" | "markdown" | "te
  * icon forever (#1754). This is the bridge, over the renderer registry's own
  * kinds rather than over a second list of content types: a kind added there is
  * a missing key here and does not compile, and the test beside it holds the
- * fragments below to what the registry resolves.
+ * types below to what the registry resolves.
  *
  * The kinds that are rendered and deliberately not drawn say why, here, rather
  * than being absent and leaving the reason to be guessed.
@@ -130,19 +133,21 @@ const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
  */
 const LARGE_SOURCE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>(["pdf", "csv"]);
 
-/** One capturable family: how a content type is recognized, and what is done with it. */
-interface CapturableFamily {
+/** One capturable type, and the family it is drawn as. */
+interface CapturableType {
   /**
-   * The fragment of the media type that names this family. A fragment rather
-   * than an exact type because a stored type carries parameters and vendor
-   * prefixes ("text/markdown; charset=utf-8", "application/vnd.acme+json").
+   * A canonical media type, compared whole against a content type's own
+   * canonical form (normalizeContentType: parameters removed, case folded, an
+   * alias settled on the type it spells). Two entries are wider than one
+   * type: "%+json" is every type ending in the structured suffix "+json", and
+   * "text/%" is every type under text/.
    */
-  fragment: string;
+  type: string;
   family: CaptureFamily;
 }
 
 /**
- * Every content family that gets a thumbnail, in the order a content type is
+ * Every content type that gets a thumbnail, in the order a content type is
  * matched against.
  *
  * This is the one browser-side definition. The rule used to be written out in
@@ -151,67 +156,69 @@ interface CapturableFamily {
  * internal/thumbtypes, and a Go test reads this table and the themeable family
  * set above and fails when the two languages disagree.
  *
- * It is written as fragments, rather than resolved through the renderer
- * registry, because the other half of the rule is a SQL query: the server
- * picks the next documents to draw with ILIKE over a content_type column, and
- * cannot resolve a registry. What keeps it from drifting into a subset of what
- * the viewer renders -- which is what it had become (#1754) -- is the test that
- * derives the expectation from CAPTURE_BY_RENDERER_KIND and fails naming the
- * type the two disagree on.
+ * It is written as types, rather than resolved through the renderer registry,
+ * because the other half of the rule is a SQL query: the server picks the next
+ * documents to draw with ILIKE over a content_type column, and cannot resolve a
+ * registry. What keeps it from drifting into a subset of what the viewer
+ * renders -- which is what it had become (#1754) -- is the test that derives the
+ * expectation from CAPTURE_BY_RENDERER_KIND and fails naming the type the two
+ * disagree on.
  *
- * A stored type is canonical: the platform settles a declaration against its
- * alias table when the file is written (#1568), so "text/tsv" is stored as
- * "text/tab-separated-values" and no fragment has to cover both spellings.
+ * The entries were fragments matched anywhere in the type, and every Office
+ * Open XML type contains "xml" ("openxmlformats", "spreadsheetml"): an Excel
+ * workbook was offered as XML and drawn as the text of its zip bytes (#1882).
  *
- * Order is part of the definition, because the first fragment a type contains
- * wins.
+ * Order is part of the definition, because the first entry a type matches
+ * wins: image/svg+xml and application/xhtml+xml end in "+xml" and are drawn as
+ * an SVG and a document, not as XML text.
  *
- * The "json" fragment covers both JSON families: every spelling of
- * newline-delimited JSON contains it ("application/x-ndjson",
- * "application/jsonl"), as do the vendor dialects. Which of the two is drawn is
- * a refinement the tile page makes inside the family. "text/plain" is spelled
- * in full because the bare word is a substring of "text/html", "text/csv" and
- * "text/markdown", each of which is drawn differently.
- *
- * The raster families are named one by one rather than as "image/". A tile of
- * a raster image is the browser decoding it, and TIFF, HEIC and PSD are images
- * no browser decodes: offering one is offering work that fails every time.
+ * The raster families are named one by one rather than as every image/. A
+ * tile of a raster image is the browser decoding it, and TIFF, HEIC and PSD
+ * are images no browser decodes: offering one is offering work that fails
+ * every time.
  */
-const CAPTURABLE_FAMILIES: CapturableFamily[] = [
+const CAPTURABLE_TYPES: CapturableType[] = [
   // SVG and PDF lead: they are the families ahead of a themeable one that are
   // not themeable themselves, which is the shape the server's SQL form of the
   // rule relies on (internal/thumbtypes, ThemeableShadows).
-  { fragment: "svg", family: "svg" },
-  { fragment: "pdf", family: "pdf" },
-  { fragment: "html", family: "iframe" },
-  { fragment: "jsx", family: "iframe" },
-  { fragment: "markdown", family: "markdown" },
-  { fragment: "csv", family: "csv" },
-  { fragment: "tab-separated", family: "csv" },
-  { fragment: "json", family: "json" },
-  // The code families, each a plain text document drawn as one. "svg" above
-  // takes image/svg+xml before "xml" is reached, and "jsx" takes text/jsx
-  // before "javascript" is.
-  { fragment: "yaml", family: "text" },
-  { fragment: "xml", family: "text" },
-  { fragment: "sql", family: "text" },
-  { fragment: "python", family: "text" },
-  { fragment: "javascript", family: "text" },
-  { fragment: "css", family: "text" },
-  { fragment: "text/plain", family: "text" },
-  { fragment: "image/png", family: "image" },
-  { fragment: "image/jpeg", family: "image" },
-  { fragment: "image/gif", family: "image" },
-  { fragment: "image/webp", family: "image" },
-  { fragment: "image/avif", family: "image" },
-  { fragment: "image/bmp", family: "image" },
-  { fragment: "image/x-icon", family: "image" },
-  { fragment: "image/vnd.microsoft.icon", family: "image" },
+  { type: "image/svg+xml", family: "svg" },
+  { type: "application/pdf", family: "pdf" },
+  { type: "application/x-pdf", family: "pdf" },
+  { type: "text/html", family: "iframe" },
+  { type: "application/xhtml+xml", family: "iframe" },
+  { type: "text/jsx", family: "iframe" },
+  { type: "text/markdown", family: "markdown" },
+  { type: "text/csv", family: "csv" },
+  { type: "text/tab-separated-values", family: "csv" },
+  // Both JSON families, and every vendor dialect by its structured suffix.
+  // Which of the two is drawn is a refinement the tile page makes inside the
+  // family.
+  { type: "application/json", family: "json" },
+  { type: "application/x-ndjson", family: "json" },
+  { type: "%+json", family: "json" },
+  // The code families, each a plain text document drawn as one, and after them
+  // every other text/ type, which the viewer renders as plain text.
+  { type: "application/yaml", family: "text" },
+  { type: "application/xml", family: "text" },
+  { type: "%+xml", family: "text" },
+  { type: "application/sql", family: "text" },
+  { type: "text/x-python", family: "text" },
+  { type: "text/javascript", family: "text" },
+  { type: "text/css", family: "text" },
+  { type: "text/%", family: "text" },
+  { type: "image/png", family: "image" },
+  { type: "image/jpeg", family: "image" },
+  { type: "image/gif", family: "image" },
+  { type: "image/webp", family: "image" },
+  { type: "image/avif", family: "image" },
+  { type: "image/bmp", family: "image" },
+  { type: "image/x-icon", family: "image" },
+  { type: "image/vnd.microsoft.icon", family: "image" },
 ];
 
 /** The family a content type is drawn as, or null when nothing draws it. */
 export function captureFamily(contentType: string): CaptureFamily | null {
-  return matchFamily(contentType)?.family ?? null;
+  return matchType(contentType)?.family ?? null;
 }
 
 /**
@@ -228,7 +235,7 @@ export function thumbnailSourceLimit(contentType: string): number {
 
 /** Returns true if the content type supports thumbnail generation. */
 export function isThumbnailSupported(contentType: string): boolean {
-  return matchFamily(contentType) !== undefined;
+  return matchType(contentType) !== undefined;
 }
 
 /**
@@ -244,10 +251,18 @@ export function isThemeable(contentType: string): boolean {
   return family !== null && THEMEABLE_FAMILIES.has(family);
 }
 
-/** The first family whose fragment the type contains. */
-function matchFamily(contentType: string): CapturableFamily | undefined {
-  const ct = contentType.toLowerCase();
-  return CAPTURABLE_FAMILIES.find((f) => ct.includes(f.fragment));
+/** The first entry the type's canonical form matches. */
+function matchType(contentType: string): CapturableType | undefined {
+  const ct = normalizeContentType(contentType);
+  if (ct === "") return undefined;
+  return CAPTURABLE_TYPES.find((t) => typeMatches(ct, t.type));
+}
+
+/** Whether a canonical type is the entry's type, or has its suffix or prefix. */
+function typeMatches(ct: string, entry: string): boolean {
+  if (entry.startsWith("%")) return ct.endsWith(entry.slice(1));
+  if (entry.endsWith("%")) return ct.startsWith(entry.slice(0, -1));
+  return ct === entry;
 }
 
 /**

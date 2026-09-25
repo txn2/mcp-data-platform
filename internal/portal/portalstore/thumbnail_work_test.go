@@ -253,7 +253,7 @@ func TestBuildThumbnailClaim_BoundsTheSourceSizePerFamily(t *testing.T) {
 		`size_bytes <= CASE WHEN content_type ILIKE ANY\(\$\d+\) THEN 33554432::bigint ELSE 1048576::bigint END`,
 		stmt)
 
-	large, err := pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies)).Value()
+	large, err := pq.Array(thumbtypes.Patterns(thumbtypes.LargeSourceFamilies)).Value()
 	require.NoError(t, err)
 	var bound bool
 	for _, a := range args {

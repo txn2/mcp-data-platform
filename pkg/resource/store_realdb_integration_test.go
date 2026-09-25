@@ -163,6 +163,13 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	// offered, so neither can crowd out the ones that would succeed.
 	insert("res_t_zip", "application/zip", 100)
 	insert("res_t_big", "text/markdown", thumbtypes.DefaultSourceLimit+1)
+	// An Office document is a zip container whose type contains "xml"; matched
+	// anywhere in the type, it was drawn as the text of its bytes (#1882). An
+	// XML dialect is still offered by its suffix.
+	insert("res_t_xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 100)
+	insert("res_t_docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 100)
+	insert("res_t_pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", 100)
+	insert("res_t_atom", "application/atom+xml", 100)
 
 	// Claims what the renderer is owed, then releases the leases, so the
 	// criterion can ask more than once.
@@ -188,6 +195,10 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 		"a PDF past the default bound is still within its own, which is why the bound was raised")
 	assert.False(t, ids["res_t_pdf_big"], "past the PDF bound the renderer is never handed the file")
 	assert.False(t, ids["res_t_zip"], "nothing rasterizes an archive, so it is never offered")
+	for _, id := range []string{"res_t_xlsx", "res_t_docx", "res_t_pptx"} {
+		assert.False(t, ids[id], "%s is an Office zip container, and nothing draws it", id)
+	}
+	assert.True(t, ids["res_t_atom"], "an XML dialect is offered by its +xml suffix")
 	assert.False(t, ids["res_t_big"],
 		"past the default bound the renderer is never handed a file of any other family")
 

@@ -67,12 +67,12 @@ func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query st
 		RETURNING ` + selectColumns + `, thumbnail_attempts`
 	args = []any{
 		lease.Seconds(),
-		pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable)),
-		pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies)),
+		pq.Array(thumbtypes.Patterns(thumbtypes.Capturable)),
+		pq.Array(thumbtypes.Patterns(thumbtypes.LargeSourceFamilies)),
 		renderer,
-		pq.Array(thumbtypes.ILikePatterns(thumbtypes.Themeable)),
+		pq.Array(thumbtypes.Patterns(thumbtypes.Themeable)),
 		limit,
-		pq.Array(thumbtypes.ILikePatterns(thumbtypes.ThemeableShadows())),
+		pq.Array(thumbtypes.Patterns(thumbtypes.ThemeableShadows())),
 	}
 	return query, args
 }

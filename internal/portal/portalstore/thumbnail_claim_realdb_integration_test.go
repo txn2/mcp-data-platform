@@ -136,6 +136,29 @@ func TestThumbnailClaim_RealDB_SkipsWhatNoBrowserWillCapture(t *testing.T) {
 		"both bounds are inclusive, and the raised one reaches the PDF family alone")
 }
 
+// TestThumbnailClaim_RealDB_OfficeDocumentsAreNeverOffered. A workbook, a Word
+// document and a presentation are zip containers whose types contain "xml";
+// matched anywhere in the type they were claimed as XML and drawn as the text
+// of their zip bytes (#1882). The XML family is still claimed by its type and by
+// a dialect's +xml suffix, with parameters, and SVG is still owed no dark tile.
+func TestThumbnailClaim_RealDB_OfficeDocumentsAreNeverOffered(t *testing.T) {
+	db := testdb.New(t)
+	store := &postgresAssetStore{db: db}
+
+	seedPendingAsset(t, db, store, "asset_xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_ods", "application/vnd.oasis.opendocument.spreadsheet", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_xml", "application/xml", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_atom", "application/atom+xml; charset=utf-8", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_yaml_alias", "text/x-yaml", 100, 1, thumbState{})
+	seedPendingAsset(t, db, store, "asset_svg_light_only", "image/svg+xml", 100, 2, thumbState{
+		light: "k/x/.thumbnail.png", lightVersion: 2,
+	})
+
+	assert.ElementsMatch(t, []string{"asset_xml", "asset_atom", "asset_yaml_alias"}, pendingIDs(t, store))
+}
+
 // TestThumbnailPending_RealDB_DarkVariant pins that the dark half of the
 // condition is asked only of the types that carry a dark capture, and that it
 // is asked at all: a light pass that landed while the dark one threw leaves the

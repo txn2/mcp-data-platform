@@ -1491,17 +1491,17 @@ func applyAssetFilter(qb sq.SelectBuilder, filter portaldomain.AssetFilter) sq.S
 // here so a document the renderer will not take is never leased.
 func thumbnailOwedPredicate(renderer int) sq.Sqlizer {
 	return sq.And{
-		sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Capturable))),
+		sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.Patterns(thumbtypes.Capturable))),
 		sq.Expr(thumbtypes.SourceLimitExpr("size_bytes", "content_type", "?"),
-			pq.Array(thumbtypes.ILikePatterns(thumbtypes.LargeSourceFamilies))),
+			pq.Array(thumbtypes.Patterns(thumbtypes.LargeSourceFamilies))),
 		sq.Or{
 			variantPendingPredicate(portaldomain.ThumbnailVariantLight),
 			sq.And{
-				sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.ILikePatterns(thumbtypes.Themeable))),
-				// image/svg+xml contains "xml" and is still an SVG, which is
+				sq.Expr("content_type ILIKE ANY(?)", pq.Array(thumbtypes.Patterns(thumbtypes.Themeable))),
+				// image/svg+xml ends in "+xml" and is still an SVG, which is
 				// drawn once: without this every SVG is owed a dark tile nothing
 				// draws, and is claimed forever.
-				sq.Expr("NOT (content_type ILIKE ANY(?))", pq.Array(thumbtypes.ILikePatterns(thumbtypes.ThemeableShadows()))),
+				sq.Expr("NOT (content_type ILIKE ANY(?))", pq.Array(thumbtypes.Patterns(thumbtypes.ThemeableShadows()))),
 				variantPendingPredicate(portaldomain.ThumbnailVariantDark),
 			},
 			sq.Lt{"thumbnail_renderer": renderer},

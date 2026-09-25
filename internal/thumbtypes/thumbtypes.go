@@ -19,51 +19,82 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
-// Capturable are the content families a browser can draw into a tile, as
-// fragments of the media type rather than exact types: a stored type carries
-// parameters and vendor prefixes ("text/markdown; charset=utf-8",
-// "application/vnd.acme+json"), and every spelling of a family contains its
-// fragment.
+// A content type is classified by its canonical media type -- parameters
+// removed, case folded, an alias settled on the type it spells
+// (pkg/contenttype.Normalize) -- compared whole against the types each family
+// names. Two entries are wider than one type: "%+json" is every type ending in
+// the structured suffix "+json", and "text/%" is every type under text/. The
+// stores ask the same of a column in SQL, through Patterns.
 //
-// "json" covers both JSON families at once, newline-delimited included
-// ("application/x-ndjson", "application/jsonl"); which of the two is drawn is a
-// question only the capturer asks. "text/plain" is spelled in full because the
-// bare word is a substring of "text/html", "text/csv" and "text/markdown", each
-// of which is drawn differently.
+// The rule was a list of fragments matched anywhere in the type, and every
+// Office Open XML type contains "xml" ("openxmlformats", "spreadsheetml"): an
+// Excel workbook was offered as XML and drawn as the text of its zip bytes
+// (#1882).
 //
-// The code families -- YAML, XML, SQL, Python, JavaScript, CSS -- and TSV are
-// here because the viewer renders every one of them and a browser that can
-// render it can draw a tile of it; they were absent, and each kept a
-// content-type icon forever (#1754). Order carries the two overlaps: "svg"
-// takes image/svg+xml before "xml" is reached, and "jsx" takes text/jsx before
-// "javascript" is. SVG and PDF lead because they are the families ahead of a
-// themeable one that are not themeable themselves; see ThemeableShadows.
+// The groups below are the families; each list is in the order its entries
+// are tried within Capturable.
+var (
+	// svgTypes and pdfTypes lead Capturable: they are the families ahead of a
+	// themeable one that are not themeable themselves; see ThemeableShadows.
+	// image/svg+xml also ends in "+xml", which is why SVG comes first.
+	svgTypes = []string{"image/svg+xml"}
+
+	// PDF is drawn by the tile page itself rather than by a viewer renderer:
+	// the viewer hands a PDF to the browser's own plugin, which headless-shell
+	// does not ship, and page one is a raster the tile page produces with
+	// pdf.js instead (#1794).
+	pdfTypes = []string{"application/pdf", "application/x-pdf"}
+
+	// documentTypes lay themselves out at page size. XHTML is here, ahead of
+	// the "+xml" suffix, because a browser draws it as the document it is.
+	documentTypes = []string{"text/html", "application/xhtml+xml", "text/jsx"}
+
+	markdownTypes = []string{"text/markdown"}
+
+	tableTypes = []string{"text/csv", "text/tab-separated-values"}
+
+	// Both JSON families, newline-delimited included, and every vendor dialect
+	// by its structured suffix; which of the two is drawn is a question only
+	// the capturer asks.
+	jsonTypes = []string{"application/json", "application/x-ndjson", "%+json"}
+
+	// The code families and every other text/ type: the viewer renders every
+	// one of them, the last as plain text, and a browser that can render it can
+	// draw a tile of it; they were absent, and each kept a content-type icon
+	// forever (#1754). An XML dialect is named by its "+xml" suffix, after SVG
+	// and XHTML have been tried, and "text/%" comes after every text/ type a
+	// family above names.
+	codeTypes = []string{
+		"application/yaml", "application/xml", "%+xml",
+		"application/sql", "text/x-python", "text/javascript", "text/css", "text/%",
+	}
+
+	// The raster families are named one by one rather than as "image/": a
+	// capture DOWNSCALES a raster image by decoding it in the browser, and
+	// TIFF, HEIC and PSD are images a browser cannot decode at all. Offering
+	// one is offering work that fails every time, and the pending query is an
+	// ORDER BY ... LIMIT window, so a bulk upload of them would fill it and
+	// starve the documents behind them of a capture they could actually
+	// complete. These are the families every current browser decodes.
+	rasterTypes = []string{
+		"image/png", "image/jpeg", "image/gif", "image/webp",
+		"image/avif", "image/bmp", "image/x-icon", "image/vnd.microsoft.icon",
+	}
+)
+
+// Capturable names every content type a browser can draw into a tile, in the
+// order the entries are tried: a type belongs to the family of the FIRST entry
+// it matches.
 //
-// The raster families are named one by one rather than as "image/", which is
-// what a bare prefix would have cost: a capture DOWNSCALES a raster image by
-// decoding it in the browser, and TIFF, HEIC and PSD are images a browser
-// cannot decode at all. Offering one is offering work that fails every time,
-// and the pending query is an ORDER BY ... LIMIT window, so a bulk upload of
-// them would fill it and starve the documents behind them of a capture they
-// could actually complete -- the same failure the PDF exclusion exists to
-// prevent. These eight are the families every current browser decodes.
-//
-// PDF is drawn by the tile page itself rather than by a viewer renderer: the
-// viewer hands a PDF to the browser's own plugin, which headless-shell does
-// not ship, and page one is a raster the tile page produces with pdf.js
-// instead (#1794). It sits beside "svg" because it is not themeable and a
-// non-themeable fragment may not follow a themeable one; see ThemeableShadows.
-//
-// Everything else -- spreadsheets, archives, binaries -- has no renderer,
-// keeps its content-type icon, and is never offered for capture.
-var Capturable = []string{
-	"svg", "pdf", "html", "jsx", "markdown", "csv", "tab-separated", "json",
-	"yaml", "xml", "sql", "python", "javascript", "css", "text/plain",
-	"image/png", "image/jpeg", "image/gif", "image/webp",
-	"image/avif", "image/bmp", "image/x-icon", "image/vnd.microsoft.icon",
-}
+// Everything else -- spreadsheets, word-processing documents, presentations,
+// archives, binaries -- has no renderer, keeps its content-type icon, and is
+// never offered for capture.
+var Capturable = slices.Concat(svgTypes, pdfTypes, documentTypes, markdownTypes, tableTypes,
+	jsonTypes, codeTypes, rasterTypes)
 
 // Themeable are the families drawn once per color scheme.
 //
@@ -77,10 +108,7 @@ var Capturable = []string{
 // forever.
 //
 // In Capturable's order, which is what the parity test compares.
-var Themeable = []string{
-	"html", "jsx", "markdown", "csv", "tab-separated", "json",
-	"yaml", "xml", "sql", "python", "javascript", "css", "text/plain",
-}
+var Themeable = slices.Concat(documentTypes, markdownTypes, tableTypes, jsonTypes, codeTypes)
 
 // DefaultSourceLimit is the largest document a tile is drawn from. A tile is
 // drawn by loading the whole document into the renderer beside the platform,
@@ -117,7 +145,7 @@ const LargeSourceLimit = 32 << 20 // 32 MB
 // tile, which is why a family here has one at all. Every other family is held
 // to DefaultSourceLimit, because every other family is laid out in full to be
 // drawn.
-var LargeSourceFamilies = []string{"pdf", "csv", "tab-separated"}
+var LargeSourceFamilies = slices.Concat(pdfTypes, tableTypes)
 
 // HeadDrawnFamilies are the families whose tile is drawn from the head of the
 // document rather than from the whole of it.
@@ -131,12 +159,12 @@ var LargeSourceFamilies = []string{"pdf", "csv", "tab-separated"}
 // PDF is NOT here although only its first page is drawn: its bytes travel to
 // the tile page by URL and pdf.js reads the pages it needs itself, so there is
 // nothing for the worker to cut.
-var HeadDrawnFamilies = []string{"csv", "tab-separated"}
+var HeadDrawnFamilies = tableTypes
 
 // DrawnFromHead reports whether a tile of contentType is drawn from the head
 // of the document, so the worker may hand the tile page a prefix of it.
 //
-// The family is the FIRST Capturable fragment the type contains, as it is
+// The family is the FIRST Capturable entry the type matches, as it is
 // everywhere else here.
 func DrawnFromHead(contentType string) bool {
 	return slices.Contains(HeadDrawnFamilies, family(contentType))
@@ -145,9 +173,9 @@ func DrawnFromHead(contentType string) bool {
 // SourceLimit is the largest document of contentType's family a tile is drawn
 // from.
 //
-// The family is the FIRST Capturable fragment the type contains, as it is
+// The family is the FIRST Capturable entry the type matches, as it is
 // everywhere else here, so a bound is raised for the family a type is actually
-// drawn as rather than for any fragment its name happens to hold.
+// drawn as rather than for any entry it would also match.
 func SourceLimit(contentType string) int64 {
 	if slices.Contains(LargeSourceFamilies, family(contentType)) {
 		return LargeSourceLimit
@@ -157,8 +185,7 @@ func SourceLimit(contentType string) int64 {
 
 // SourceLimitExpr is the same bound as a SQL predicate, over the column
 // holding a row's stored size and the column holding its content type.
-// familiesPlaceholder is where the caller binds LargeSourceFamilies' ILIKE
-// patterns, in the placeholder style its own statement is written in ("?" for
+// familiesPlaceholder is where the caller binds Patterns(LargeSourceFamilies), in the placeholder style its own statement is written in ("?" for
 // a builder that renumbers, "$3" for a hand-numbered statement).
 //
 // The two limits are written into the expression rather than bound, so the
@@ -169,12 +196,25 @@ func SourceLimitExpr(sizeCol, typeCol, familiesPlaceholder string) string {
 		sizeCol, typeCol, familiesPlaceholder, LargeSourceLimit, DefaultSourceLimit)
 }
 
-// ILikePatterns wraps content-type fragments as SQL ILIKE patterns, which is
-// how the substring test the browser applies is asked of a column.
-func ILikePatterns(fragments []string) []string {
-	patterns := make([]string, 0, len(fragments))
-	for _, f := range fragments {
-		patterns = append(patterns, "%"+f+"%")
+// Patterns are the SQL ILIKE patterns that ask of a column what matches asks of
+// one value: every spelling of each type (contenttype.Spellings), bare and with
+// parameters, and each structured suffix likewise. A type is stored canonical,
+// lowercase and parameter-free when the platform writes it, so the other forms
+// cover rows written before it did; ILIKE ignores case either way.
+func Patterns(entries []string) []string {
+	var patterns []string
+	for _, e := range entries {
+		switch {
+		case strings.HasSuffix(e, wildcard):
+			// A prefix already admits whatever follows it, parameters included.
+			patterns = append(patterns, e)
+		case strings.HasPrefix(e, wildcard):
+			patterns = append(patterns, e, e+";%")
+		default:
+			for _, s := range contenttype.Spellings(e) {
+				patterns = append(patterns, s, s+";%")
+			}
+		}
 	}
 	return patterns
 }
@@ -182,20 +222,20 @@ func ILikePatterns(fragments []string) []string {
 // IsThemeable reports whether contentType is drawn on a forced background and
 // so has a tile per color scheme.
 //
-// A content type belongs to the family of the FIRST Capturable fragment it
-// contains, which is how Capturable's order resolves overlaps: image/svg+xml
-// contains both "svg" and "xml", is an SVG, and is drawn as stored. Asking
-// only "does it contain a themeable fragment" would call it themeable, and a
+// A content type belongs to the family of the FIRST Capturable entry it
+// matches, which is how Capturable's order resolves overlaps: image/svg+xml
+// matches both "image/svg+xml" and "%+xml", is an SVG, and is drawn as stored.
+// Asking only "does it match a themeable entry" would call it themeable, and a
 // store asking that would owe every SVG a dark tile nothing ever draws.
 func IsThemeable(contentType string) bool {
 	return isThemeableFamily(family(contentType))
 }
 
-// ThemeableShadows are the fragments that are not themeable and come before
+// ThemeableShadows are the entries that are not themeable and come before
 // the themeable ones in Capturable's order. A content type is themeable
-// exactly when it contains a themeable fragment and none of these, which is
-// the form a store's SQL asks it in. That is exact only while every such
-// fragment precedes all the themeable ones; a test holds the order to it.
+// exactly when it matches a themeable entry and none of these, which is the
+// form a store's SQL asks it in. That is exact only while every such entry
+// precedes all the themeable ones; a test holds the order to it.
 func ThemeableShadows() []string {
 	var out []string
 	for _, f := range Capturable {
@@ -207,34 +247,45 @@ func ThemeableShadows() []string {
 	return out
 }
 
-// family is the first Capturable fragment contentType contains, or "".
+// wildcard marks an entry wider than one type: leading, a structured suffix;
+// trailing, a type prefix. It is also SQL ILIKE's any-run character, which is
+// why Patterns can pass such an entry through.
+const wildcard = "%"
+
+// family is the first Capturable entry contentType matches, or "".
 func family(contentType string) string {
-	ct := strings.ToLower(contentType)
-	for _, f := range Capturable {
-		if strings.Contains(ct, f) {
-			return f
+	for _, e := range Capturable {
+		if matches(contentType, e) {
+			return e
 		}
 	}
 	return ""
 }
 
-func isThemeableFamily(fragment string) bool {
-	return slices.Contains(Themeable, fragment)
+// matches reports whether contentType's canonical type is the one entry
+// names, ends in the structured suffix an entry written "%+suffix" names, or
+// starts with the prefix an entry written "prefix/%" names.
+func matches(contentType, entry string) bool {
+	canonical := contenttype.Normalize(contentType)
+	if canonical == "" {
+		return false
+	}
+	if suffix, ok := strings.CutPrefix(entry, wildcard); ok {
+		return strings.HasSuffix(canonical, suffix)
+	}
+	if prefix, ok := strings.CutSuffix(entry, wildcard); ok {
+		return strings.HasPrefix(canonical, prefix)
+	}
+	return canonical == entry
+}
+
+func isThemeableFamily(entry string) bool {
+	return slices.Contains(Themeable, entry)
 }
 
 // DrawnAsDocument reports whether contentType is a document that lays itself
 // out at page size -- HTML and JSX -- rather than a family the portal lays out
 // on its own tile-sized surface. The two are drawn at different geometries.
 func DrawnAsDocument(contentType string) bool {
-	return containsAny(contentType, []string{"html", "jsx"})
-}
-
-func containsAny(contentType string, fragments []string) bool {
-	ct := strings.ToLower(contentType)
-	for _, f := range fragments {
-		if strings.Contains(ct, f) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(documentTypes, family(contentType))
 }

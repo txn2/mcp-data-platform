@@ -21,7 +21,7 @@ import (
 // although the capturer downscales images (#1568).
 //
 // Each language now keeps one definition -- thumbtypes here,
-// CAPTURABLE_FAMILIES in ui/src/lib/thumbnailSupport.ts -- and this reads the
+// CAPTURABLE_TYPES in ui/src/lib/thumbnailSupport.ts -- and this reads the
 // TypeScript one and fails when the two disagree, on the families, on their
 // order, or on which of them are themeable.
 
@@ -29,18 +29,18 @@ import (
 // entry per line as an object literal with the two fields in a fixed order.
 // A rewrite that breaks that shape matches nothing, which is reported rather
 // than passing vacuously.
-var familyRe = regexp.MustCompile(`\{\s*fragment:\s*"([^"]+)",\s*family:\s*"([^"]+)"\s*\}`)
+var familyRe = regexp.MustCompile(`\{\s*type:\s*"([^"]+)",\s*family:\s*"([^"]+)"\s*\}`)
 
 // themeableRe matches the set of families captured twice, which the browser
 // states once as a property of the family rather than once per content type.
-// The fragments this side calls themeable are DERIVED from it and the table
+// The patterns this side calls themeable are DERIVED from it and the table
 // above, so neither language restates the other's answer (#1754).
 var themeableRe = regexp.MustCompile(
 	`THEMEABLE_FAMILIES:\s*ReadonlySet<CaptureFamily>\s*=\s*new Set<CaptureFamily>\(\[([^\]]*)\]`)
 
 // largeRe matches the set of families held to the raised source bound, which
 // the browser states once as a property of the family as it does the themeable
-// set. The fragments this side raises the bound for are DERIVED from it and
+// set. The patterns this side raises the bound for are DERIVED from it and
 // the table above, so neither language restates the other's answer.
 var largeRe = regexp.MustCompile(
 	`LARGE_SOURCE_FAMILIES:\s*ReadonlySet<CaptureFamily>\s*=\s*new Set<CaptureFamily>\(\[([^\]]*)\]`)
@@ -77,7 +77,7 @@ func browserSource(t *testing.T) string {
 	return string(body)
 }
 
-// browserFamilies is the TypeScript table, read as the fragments it names and
+// browserFamilies is the TypeScript table, read as the patterns it names and
 // the subsets of them whose family the browser captures twice and holds to the
 // raised source bound.
 func browserFamilies(t *testing.T) (capturable, themeable, large []string) {
@@ -167,7 +167,7 @@ func product(t *testing.T, expr string) int64 {
 }
 
 // assertSame compares the two languages' lists element by element, in order:
-// order is part of the definition on the browser side, where the first fragment
+// order is part of the definition on the browser side, where the first pattern
 // a content type contains decides how it is drawn.
 func assertSame(t *testing.T, what string, goList, tsList []string) {
 	t.Helper()
@@ -179,21 +179,6 @@ func assertSame(t *testing.T, what string, goList, tsList []string) {
 		if goList[i] != tsList[i] {
 			t.Errorf("%s family %d disagrees: Go says %q, ui/src/lib/thumbnailSupport.ts says %q",
 				what, i, goList[i], tsList[i])
-		}
-	}
-}
-
-// ILikePatterns is what turns a fragment into the substring test the browser
-// applies, asked of a column.
-func TestILikePatternsWrapEveryFragment(t *testing.T) {
-	got := thumbtypes.ILikePatterns([]string{"csv", "image/"})
-	want := []string{"%csv%", "%image/%"}
-	if len(got) != len(want) {
-		t.Fatalf("ILikePatterns returned %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("pattern %d = %q, want %q", i, got[i], want[i])
 		}
 	}
 }

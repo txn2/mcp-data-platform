@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 322
+	migrateTestFileCount    = 324
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -123,6 +123,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000160_resource_folders.down.sql",
 		"000161_webhooks.up.sql",
 		"000161_webhooks.down.sql",
+		"000162_office_tiles_cleared.up.sql",
+		"000162_office_tiles_cleared.down.sql",
 	}
 
 	fileNames := make(map[string]bool)

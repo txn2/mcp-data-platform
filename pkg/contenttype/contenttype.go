@@ -47,6 +47,7 @@ import (
 	"mime"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -253,6 +254,21 @@ func Normalize(declared string) string {
 		return canonical
 	}
 	return base
+}
+
+// Spellings are every declaration Normalize settles on canonical: canonical
+// itself, then its aliases in lexical order. It is how a rule stated over
+// canonical types is asked of a column holding rows stored before the platform
+// canonicalized types at write time, which SQL cannot pass through Normalize.
+func Spellings(canonical string) []string {
+	var aliased []string
+	for alias, target := range aliases {
+		if target == canonical {
+			aliased = append(aliased, alias)
+		}
+	}
+	slices.Sort(aliased)
+	return append([]string{canonical}, aliased...)
 }
 
 // IsActive reports whether a media type renders as executable markup or script.

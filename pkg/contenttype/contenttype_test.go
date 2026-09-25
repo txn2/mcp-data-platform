@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -720,5 +721,30 @@ func TestParquet(t *testing.T) {
 	}
 	if got := contenttype.TypeForFilename("x.parquet"); got != contenttype.Parquet {
 		t.Errorf("a .parquet name is %q", got)
+	}
+}
+
+// Spellings is how a rule over canonical types is asked of a column that may
+// hold a row stored before types were canonicalized at write time: every one of
+// them must normalize back to the type it was asked for.
+func TestSpellingsNormalizeToTheirCanonicalType(t *testing.T) {
+	got := contenttype.Spellings(contenttype.YAML)
+	want := []string{contenttype.YAML, "application/x-yaml", "application/x-yaml-stream", "text/x-yaml", "text/yaml"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Spellings(%q) = %v, want %v", contenttype.YAML, got, want)
+	}
+	for _, canonical := range []string{contenttype.JSON, contenttype.CSV, contenttype.SVG, "image/jpeg", contenttype.XLSX} {
+		spellings := contenttype.Spellings(canonical)
+		if spellings[0] != canonical {
+			t.Errorf("Spellings(%q) does not lead with the canonical type: %v", canonical, spellings)
+		}
+		for _, s := range spellings {
+			if n := contenttype.Normalize(s); n != canonical {
+				t.Errorf("Spellings(%q) includes %q, which normalizes to %q", canonical, s, n)
+			}
+		}
+	}
+	if got := contenttype.Spellings(contenttype.XLSX); len(got) != 1 {
+		t.Errorf("Spellings(XLSX) = %v, want only the type itself", got)
 	}
 }
