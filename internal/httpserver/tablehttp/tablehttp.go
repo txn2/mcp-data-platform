@@ -179,7 +179,10 @@ func (h *Handler) listTables(w http.ResponseWriter, r *http.Request, kind string
 	if !ok {
 		return
 	}
-	regs, err := h.deps.Registrar.BySource(r.Context(), kind, src.ID)
+	// TablesOf rather than BySource: a managed resource that is one hour of a
+	// webhook source reports the source's table, which is the table that
+	// reads it (#1870).
+	regs, err := h.deps.Registrar.TablesOf(r.Context(), kind, src.ID)
 	if err != nil {
 		problem(w, http.StatusInternalServerError, "could not read the registrations of this file")
 		slog.Warn("table registrations: list failed", "error", logsan.SanitizeForLog(err.Error()))

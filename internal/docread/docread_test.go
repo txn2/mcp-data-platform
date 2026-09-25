@@ -213,6 +213,9 @@ func TestMayHoldText(t *testing.T) {
 		"audio/mpeg":               false,
 		"video/mp4":                false,
 		"font/woff2":               false,
+		// Columnar binary Read renders as nothing (#1870).
+		"application/vnd.apache.parquet": false,
+		"application/x-parquet":          false,
 	}
 	for ct, want := range cases {
 		if got := docread.MayHoldText(ct); got != want {

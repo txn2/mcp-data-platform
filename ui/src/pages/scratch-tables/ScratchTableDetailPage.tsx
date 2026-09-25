@@ -8,7 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useScratchTable, useUnregisterTable, TableApiError } from "@/api/tables/hooks";
-import { formatLabel, type ScratchTable } from "@/api/tables/types";
+import { columnTypesText, formatLabel, type ScratchTable } from "@/api/tables/types";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { CopyButton } from "@/components/provenance/parts";
@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { useAuthStore } from "@/stores/auth";
 import { sourceKindLabel, sourcePath } from "./source";
 
 // ScratchTableDetailPage is one registration at an address of its own
@@ -93,10 +94,7 @@ function Registration({
       <StateNotice row={row} />
 
       <SectionCard title="Query it">
-        <p className="text-xs text-muted-foreground">
-          Every column comes back as text, which is the storage format&rsquo;s rule rather than a
-          choice, so a join to a typed warehouse column needs a cast.
-        </p>
+        <p className="text-xs text-muted-foreground">{queryNote(row)}</p>
         {/* A registration that recorded columns always carries a sample, since
             the platform derives one from them. The fallback is the plain
             select, which is true of any registration and says nothing the
@@ -115,6 +113,9 @@ function Registration({
 
       <ColumnsSection row={row} />
 
+      {row.source.kind === "webhook" ? (
+        <WebhookSourceSection row={row} onNavigate={onNavigate} />
+      ) : (
       <SectionCard title="The file behind this table">
         {/* The description first, because it is the only thing here that says
             what the data IS. The file's name and the directory it is stored
@@ -144,7 +145,50 @@ function Registration({
           </div>
         </dl>
       </SectionCard>
+      )}
     </div>
+  );
+}
+
+// queryNote says what comes back from the table, which is the format's rule:
+// a CSV table's columns are all text, a JSON-lines or Parquet table's carry
+// their types, and a webhook source's table is read window by window (#1870).
+function queryNote(row: ScratchTable): string {
+  if (row.source.kind === "webhook") {
+    return "Each compaction window is read from the events as they arrived until the window is compacted, then from its Parquet file with duplicates removed. Read a field of an event with json_extract_scalar(payload, '$.field').";
+  }
+  if (row.format === "jsonl" || row.format === "parquet") {
+    return `${columnTypesText(row.format)} A join to a warehouse column of the same type needs no cast.`;
+  }
+  return "Every column comes back as text, which is the storage format\u2019s rule rather than a choice, so a join to a typed warehouse column needs a cast.";
+}
+
+// WebhookSourceSection names the webhook source a table was created for. The
+// table is created and removed with its source, so there is no file to point
+// at: what a reader needs is which source, and where it keeps its events.
+function WebhookSourceSection({
+  row,
+  onNavigate,
+}: {
+  row: ScratchTable;
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <SectionCard title="The webhook source behind this table">
+      {row.source.description ? <p className="mb-3 text-sm">{row.source.description}</p> : null}
+      <dl className="grid gap-3 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="text-muted-foreground">Source</dt>
+          <dd className="mt-0.5">
+            <SourceValue row={row} onNavigate={onNavigate} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Stored at</dt>
+          <dd className="mt-0.5 font-mono break-all">{row.location}</dd>
+        </div>
+      </dl>
+    </SectionCard>
   );
 }
 
@@ -202,11 +246,21 @@ function SourceValue({
   onNavigate: (path: string) => void;
 }) {
   const kind = sourceKindLabel(row.source.kind);
-  const path = sourcePath(row.source.kind, row.source.id, row.source.missing);
-  if (!path) {
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const path = sourcePath(row.source.kind, row.source.id, row.source.missing, isAdmin);
+  if (row.source.missing) {
     return (
       <span className="text-muted-foreground">
         {kind} {row.source.id} &mdash; no longer on the platform
+      </span>
+    );
+  }
+  if (!path) {
+    // A source whose page is for administrators is named, not linked.
+    return (
+      <span>
+        {row.source.name || row.source.id}{" "}
+        <span className="text-muted-foreground">({kind})</span>
       </span>
     );
   }
@@ -264,6 +318,10 @@ function StateNotice({ row }: { row: ScratchTable }) {
       </Alert>
     );
   }
+  if (row.source.kind === "webhook") {
+    // Not over one file, so there is no version to follow or be pinned to.
+    return null;
+  }
   if (row.follow) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -291,7 +349,9 @@ function StateNotice({ row }: { row: ScratchTable }) {
 // which is where the rule for who may drop a registration lives, and is absent
 // for a reader that rule would refuse.
 function UnregisterAction({ row, onDone }: { row: ScratchTable; onDone: () => void }) {
-  const unregister = useUnregisterTable(row.source.kind, row.source.id);
+  // A webhook source's table is removed with the source, and the listing
+  // never offers it; the file kinds are the only ones with this route.
+  const unregister = useUnregisterTable(row.source.kind === "asset" ? "asset" : "resource", row.source.id);
   const [confirming, setConfirming] = useState(false);
 
   if (!row.can_unregister) {

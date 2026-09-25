@@ -53,6 +53,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/calls",
   "/admin/keys",
   "/admin/users",
+  "/admin/webhooks",
   "/admin/changelog",
   "/admin/settings",
 ];
@@ -100,6 +101,10 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // blank one.
   /^\/admin\/scripts\/[^/]+$/,
   /^\/admin\/scripts\/[^/]+\/runs\/[^/]+$/,
+  // One webhook source, and its editor; /admin/webhooks/new is the first
+  // shape, which the section tells apart from a source (#1870).
+  /^\/admin\/webhooks\/[^/]+$/,
+  /^\/admin\/webhooks\/[^/]+\/edit$/,
 ];
 
 // ALIASES are paths that named a real surface and no longer do. Each redirects

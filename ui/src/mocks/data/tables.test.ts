@@ -1,3 +1,4 @@
+import { mockWebhookSources } from "./webhooks";
 import { describe, it, expect } from "vitest";
 import { mockAssets } from "./assets";
 import { mockContent } from "./content";
@@ -103,7 +104,9 @@ describe("the cross-source listing", () => {
       const name =
         row.source.kind === "asset"
           ? mockAssets.find((a) => a.id === row.source.id)?.name
-          : mockResources.resources.find((r) => r.id === row.source.id)?.display_name;
+          : row.source.kind === "webhook"
+            ? mockWebhookSources.find((s) => s.name === row.source.id)?.name
+            : mockResources.resources.find((r) => r.id === row.source.id)?.display_name;
       expect(row.source.name).toBe(name);
     }
   });

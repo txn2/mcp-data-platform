@@ -70,6 +70,9 @@ const AdminPromptsPage = lazy(() =>
 const AdminScriptRoutes = lazy(() =>
   import("@/pages/scripts/AdminScriptRoutes").then((m) => ({ default: m.AdminScriptRoutes })),
 );
+const AdminWebhookRoutes = lazy(() =>
+  import("@/pages/webhooks/AdminWebhookRoutes").then((m) => ({ default: m.AdminWebhookRoutes })),
+);
 const KeysPage = lazy(() =>
   import("@/pages/settings/KeysPage").then((m) => ({ default: m.KeysPage })),
 );
@@ -212,6 +215,9 @@ export function AdminPages({
       )}
       {isInSection(route, "/admin/scripts") && (
         <AdminScriptRoutes route={route} onNavigate={navigate} />
+      )}
+      {isInSection(route, "/admin/webhooks") && (
+        <AdminWebhookRoutes route={route} onNavigate={navigate} onBack={onBack} />
       )}
     </>
   );

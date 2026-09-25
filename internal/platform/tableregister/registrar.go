@@ -91,6 +91,11 @@ type Deps struct {
 	Revisers map[string]Reviser
 	Scope    ConnectionScope
 	Audit    AuditLogger
+	// Holders names the webhook source a managed resource is one compacted
+	// window of, so a resource that is part of a source's table reports that
+	// table the way a registered file reports its own. Nil when the
+	// deployment has no webhooks.
+	Holders  WindowHolders
 	NewID    func() (string, error)
 	MaxBytes int64
 }
@@ -866,6 +871,10 @@ func (r *Registrar) mayUnregister(ctx context.Context, caller Caller, id string)
 	if caller.Email == "" {
 		return nil, ErrNoIdentity
 	}
+	if reg.SourceKind == KindWebhook {
+		return nil, refusedf("%s is the table of webhook source %s; it is removed by deleting the source",
+			reg.QualifiedName(), reg.SourceID)
+	}
 	if !caller.IsAdmin && reg.RegisteredBy != caller.Email {
 		return nil, refusedf("%s was registered by %s and only they or an administrator can remove it",
 			reg.QualifiedName(), reg.RegisteredBy)
@@ -921,6 +930,64 @@ func (r *Registrar) ForSources(ctx context.Context, kind string, ids []string) (
 		return nil, nil //nolint:nilnil // no registrations is an answer, not a failure
 	}
 	return r.deps.Store.ForSources(ctx, kind, ids) //nolint:wrapcheck // transparent read pass-through
+}
+
+// TablesFor is ForSources, plus, for managed resources that are compacted
+// hours of a webhook source, that source's table.
+func (r *Registrar) TablesFor(ctx context.Context, kind string, ids []string) (map[string][]Registration, error) {
+	found, err := r.ForSources(ctx, kind, ids)
+	if err != nil || kind != KindResource || r.deps.Holders == nil || len(ids) == 0 {
+		return found, err
+	}
+	return r.withHourTables(ctx, found, ids)
+}
+
+// withHourTables adds, to what TablesFor found, the table of the webhook
+// source each managed resource that is one of its hours belongs to.
+func (r *Registrar) withHourTables(ctx context.Context, found map[string][]Registration, ids []string) (map[string][]Registration, error) {
+	holders, err := r.deps.Holders.SourcesForResources(ctx, ids)
+	if err != nil || len(holders) == 0 {
+		return found, err //nolint:wrapcheck // transparent read pass-through
+	}
+	names := make([]string, 0, len(holders))
+	for _, source := range holders {
+		names = append(names, source)
+	}
+	bySource, err := r.deps.Store.ForSources(ctx, KindWebhook, names)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // transparent read pass-through
+	}
+	if found == nil {
+		found = make(map[string][]Registration, len(holders))
+	}
+	for id, source := range holders {
+		found[id] = append(found[id], bySource[source]...)
+	}
+	return found, nil
+}
+
+// TablesOf is BySource for one file, plus, when the file is a managed
+// resource that is a compacted window of a webhook source, that source's table.
+// It keeps BySource's order, newest first, with the source's table after the
+// file's own registrations.
+func (r *Registrar) TablesOf(ctx context.Context, kind, id string) ([]Registration, error) {
+	regs, err := r.BySource(ctx, kind, id)
+	if err != nil || kind != KindResource || r.deps.Holders == nil {
+		return regs, err
+	}
+	holders, err := r.deps.Holders.SourcesForResources(ctx, []string{id})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // transparent read pass-through
+	}
+	source, ok := holders[id]
+	if !ok {
+		return regs, nil
+	}
+	own, err := r.deps.Store.BySource(ctx, KindWebhook, source)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // transparent read pass-through
+	}
+	return append(regs, own...), nil
 }
 
 // List returns a page of registrations across every source, with the total the

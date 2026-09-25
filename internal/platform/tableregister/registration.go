@@ -34,6 +34,11 @@ const (
 	// KindAsset is a portal asset: a file the platform wrote, typically a
 	// trino_export or a script's output.
 	KindAsset = "asset"
+	// KindWebhook is an inbound webhook source (#1870). Its table is a view
+	// over every window the source has landed, not a table over one file, and
+	// it is created and removed with the source rather than through a
+	// registration.
+	KindWebhook = "webhook"
 )
 
 // Column is one column a registered table declares; see tablecsv.Column.
@@ -214,6 +219,9 @@ func (r Registration) QualifiedName() string {
 // changes what the table returns on the next query, with no re-registration,
 // which is what makes a repeating vendor drop a re-upload rather than a chore.
 func (r Registration) IsStale(bucket, currentHeadKey string) bool {
+	if r.SourceKind == KindWebhook {
+		return false
+	}
 	dir := DirectoryOf(currentHeadKey)
 	if dir == "" {
 		return true
@@ -323,6 +331,12 @@ func (f Filter) EffectiveLimit() int {
 // Errors the registrar returns. Every surface renders these, so the wording a
 // person sees comes from one place.
 var (
+	// ErrNameTaken is returned when the unique index on the table name
+	// rejects an insert. The registrar checks for a holder before it writes;
+	// this is the race between that check and the store's write, and it must
+	// not surface as a bare constraint violation.
+	ErrNameTaken = errors.New("that table name was registered by someone else while this registration was being made")
+
 	// ErrNotFound is returned for a registration id that does not exist.
 	ErrNotFound = errors.New("registration not found")
 

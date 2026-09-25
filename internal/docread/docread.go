@@ -119,6 +119,12 @@ func MayHoldText(mimeType string) bool {
 	if contenttype.IsTextual(norm) {
 		return true
 	}
+	// Parquet is columnar binary that Read renders as nothing, so fetching it
+	// would cost a whole object read per indexing pass for no text. A webhook
+	// source writes one per hour (#1870).
+	if norm == contenttype.Parquet {
+		return false
+	}
 	for _, family := range []string{"image/", "audio/", "video/", "font/"} {
 		if strings.HasPrefix(norm, family) {
 			return false

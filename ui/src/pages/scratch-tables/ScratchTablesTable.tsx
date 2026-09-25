@@ -182,6 +182,11 @@ function StateLine({ row }: { row: ScratchTable }) {
       </Badge>
     );
   }
+  if (row.source.kind === "webhook") {
+    // A webhook source's table is over every window the source has received,
+    // not over one file, so it neither follows nor is pinned (#1870).
+    return <span className="block text-muted-foreground">Webhook source</span>;
+  }
   if (row.follow) {
     return <span className="block text-muted-foreground">Follows the file</span>;
   }

@@ -25,90 +25,11 @@ connection. Registration is for the file that is too big for that.
 
 ## What an operator has to configure
 
-Registration is available on a Trino connection that names a **scratch target**:
-the catalog and schema registrations are written into.
-
-```yaml
-toolkits:
-  trino:
-    enabled: true
-    instances:
-      warehouse:
-        host: trino.example.com
-        user: "${TRINO_READONLY_USER}"
-        catalog: warehouse
-        read_only: true
-      scratch:
-        host: trino.example.com
-        # A DISTINCT Trino identity, whose access-control rules allow DDL only
-        # on the scratch catalog. See "What the scratch schema is" below.
-        user: "${TRINO_SCRATCH_USER}"
-        password: "${TRINO_SCRATCH_PASSWORD}"
-        catalog: scratch
-        schema: uploads
-        read_only: false
-        scratch:
-          catalog: scratch
-          schema: uploads
-```
-
-Both connections above reach the same coordinator over HTTPS. On a coordinator
-that speaks plain HTTP, each connection has to say so with `ssl: false` and its
-port: a connection that never mentions `ssl` is assumed to be HTTPS on 443
-unless it is the one named by `default:` or its host is localhost. See
-[`ssl`](configuration.md#trino).
-
-A connection with no `scratch:` block cannot hold a registration, and the
-surfaces do not offer one on it. Both keys are required: a block naming only
-one is ignored with a warning, because a registration built on it would fail at
-the DDL.
-
-`read_only: false` on the scratch connection is not decoration either. A
-scratch target says *where* a registration writes; it grants nothing. The
-statement that creates the table is write SQL, so a `read_only: true`
-connection refuses it however its target is configured — and such a connection
-is not offered, for the same reason one with no target is not. Naming it
-directly anyway — through `manage_table`, or a form built before an
-administrator flipped the flag — is refused with **400** and the sentence
-*"this connection is read-only, so a table cannot be created on it; ask an
-administrator for a connection that accepts writes"*, the same class of answer
-as a connection with no scratch target. It is not a 500: the connection is
-working exactly as configured, and reporting a configuration fact as a platform
-outage told the person neither which connection nor why. What keeps a
-registration off the warehouse is not this flag but the Trino identity the
-connection authenticates as.
-
-The catalog itself is a Hive connector over the same object store the
-platform's managed resources and portal assets live in. A file metastore is
-enough:
-
-```properties
-# etc/catalog/scratch.properties
-connector.name=hive
-hive.metastore=file
-hive.metastore.catalog.dir=s3://<bucket>/trino-metastore/
-hive.recursive-directories=false
-hive.timestamp-precision=MICROSECONDS
-fs.native-s3.enabled=true
-s3.endpoint=<your object store endpoint>
-s3.path-style-access=true
-s3.region=us-east-1
-s3.aws-access-key=${ENV:SCRATCH_S3_KEY}
-s3.aws-secret-key=${ENV:SCRATCH_S3_SECRET}
-```
-
-Trino needs its own credentials to the bucket. They are separate from the
-platform's S3 connection credentials and are configured on the Trino cluster,
-not here.
-
-`hive.timestamp-precision=MICROSECONDS` is what a Parquet file's timestamps
-read back exactly at. The connector's default, `MILLISECONDS`, truncates a
-microsecond timestamp on every read, and it refuses a column declared at any
-precision but the catalog's: a registration declares every timestamp column
-`TIMESTAMP(6)`, so on a catalog left at the default the `CREATE TABLE` for a
-Parquet file with a timestamp column fails with *"Incorrect timestamp
-precision for timestamp(6); the configured precision is MILLISECONDS"*. CSV
-and JSON-lines registrations declare no timestamp columns and are not affected.
+Registration is available on a Trino connection that names a **scratch
+target**, the catalog and schema registrations are written into, over a Hive
+catalog that reads the store the file is in. Every requirement that
+connection and catalog have is on one page:
+[Scratch Catalog](scratch-catalog.md).
 
 ## Registering
 
@@ -424,8 +345,9 @@ type wide enough, is refused by the connector. So are two columns one apart by c
 `id`), because the reader matches a Parquet column by name without regard to
 case, and a field inside a group whose name the metastore cannot store (see
 [JSON lines](#json-lines)). A timestamp is read at the catalog's precision,
-which is why the catalog sets `hive.timestamp-precision=MICROSECONDS`; a
-nanosecond timestamp reads back at microseconds.
+which is why the catalog sets `hive.timestamp-precision=MICROSECONDS` (see
+[Scratch Catalog](scratch-catalog.md)); a nanosecond timestamp reads back at
+microseconds.
 
 When a new version of a following Parquet file arrives, its footer is read
 again and the table is declared again from it. An added, removed or retyped
@@ -941,13 +863,8 @@ else holds is refused rather than overwritten. Administrators are unrestricted,
 so an administrator does replace another person's table.
 
 What keeps a registration off the warehouse is the Trino identity the scratch
-connection authenticates as. The platform's `read_only` flag is a
-statement-prefix denylist evaluated per connection; nothing in the toolkit
-restricts a catalog or a schema, and `catalog`/`schema` on a connection are
-session defaults rather than bounds. A scratch connection that authenticates as
-the same Trino user as the warehouse connection can write to the warehouse. Give
-it its own Trino user, with access-control rules allowing DDL only on the
-scratch catalog.
+connection authenticates as; see
+[The Trino identity](scratch-catalog.md#the-trino-identity).
 
 ## What is recorded
 
@@ -966,6 +883,10 @@ failure, and so is the statement that put the table back.
 
 ## Related
 
+- [Scratch Catalog](scratch-catalog.md) - the connection and catalog a
+  registration needs.
+- [Inbound Webhooks](webhooks.md) - sources whose events land as a table in the
+  same catalog.
 - [Resources](../portal/resources.md) - uploading the files this registers.
 - [Authorization Model](../concepts/authorization.md) - why the Trino identity
   is the boundary.

@@ -11,6 +11,7 @@ import { ScratchTablesTable } from "./ScratchTablesTable";
 import { ScratchTableDetailPage } from "./ScratchTableDetailPage";
 import { ScratchTablesPage, connectionOptions } from "./ScratchTablesPage";
 import { sourceKindLabel, sourcePath } from "./source";
+import { useAuthStore } from "@/stores/auth";
 
 // The detail page composes two hooks over real components, so every assertion
 // below is what a reader actually sees on the page.
@@ -99,6 +100,16 @@ describe("the scratch table listing", () => {
     expect(screen.getByText("Follows the file")).toBeTruthy();
   });
 
+  it("calls a webhook source's table what it is, neither following nor pinned (#1870)", () => {
+    const webhook = row({
+      follow: false,
+      source: { kind: "webhook", id: "email-events", name: "email-events", missing: false },
+    });
+    render(<ScratchTablesTable rows={[webhook]} isLoading={false} onOpen={vi.fn()} />);
+    expect(screen.getAllByText(/Webhook source/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Pinned")).toBeNull();
+  });
+
   // A pinned table is current only until the file moves, so the listing says
   // it is pinned rather than calling it current; a following one that fell
   // behind carries the reason on the badge (#1536).
@@ -153,6 +164,12 @@ describe("where a source opens", () => {
     expect(sourcePath("asset", "ast-008", true)).toBeNull();
     expect(sourcePath("dataset", "urn:x", false)).toBeNull();
   });
+
+  it("sends only an administrator to a webhook source's page (#1870)", () => {
+    expect(sourcePath("webhook", "email-events", false, true)).toBe("/admin/webhooks/email-events");
+    expect(sourcePath("webhook", "email-events", false)).toBeNull();
+    expect(sourceKindLabel("webhook")).toBe("Webhook source");
+  });
 });
 
 
@@ -187,6 +204,45 @@ describe("one registration at an address of its own", () => {
       />,
     );
   }
+
+  const webhookRow: Partial<ScratchTable> = {
+    source_kind: "webhook",
+    source_id: "email-events",
+    format: "parquet",
+    table: "webhook_email_events",
+    query_table: "scratch_resources.uploads.webhook_email_events",
+    location: "s3://managed-resources/webhooks/email-events/",
+    source: {
+      kind: "webhook",
+      id: "email-events",
+      name: "email-events",
+      description: "Events posted to /hooks/email-events, one partition per compaction window.",
+      missing: false,
+    },
+    can_unregister: false,
+  };
+
+  it("names the webhook source behind a webhook table, linked for an administrator (#1870)", () => {
+    useAuthStore.setState({ user: null });
+    open(webhookRow);
+    expect(screen.getByText("The webhook source behind this table")).toBeTruthy();
+    expect(screen.getByText(/Each compaction window is read from the events as they arrived/)).toBeTruthy();
+    expect(screen.queryByText(/no longer on the platform/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /email-events/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Unregister/ })).toBeNull();
+    expect(screen.queryByText(/Pinned to the version/)).toBeNull();
+    cleanup();
+
+    useAuthStore.setState({ user: { is_admin: true } as unknown as NonNullable<ReturnType<typeof useAuthStore.getState>["user"]> });
+    open(webhookRow);
+    expect(screen.getByRole("button", { name: /email-events/ })).toBeTruthy();
+    useAuthStore.setState({ user: null });
+  });
+
+  it("says a typed table's columns carry their types", () => {
+    open({ format: "parquet" });
+    expect(screen.getByText(/Each column has the type the file declares/)).toBeTruthy();
+  });
 
   it("shows the table to query, its columns with their types, and the directory it reads", () => {
     open();

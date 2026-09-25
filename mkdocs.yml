@@ -131,6 +131,8 @@ nav:
       - Audit Logging: server/audit.md
       - Observability: server/observability.md
       - Email Notifications: server/notifications.md
+      - Inbound Webhooks: server/webhooks.md
+      - Scratch Catalog: server/scratch-catalog.md
       - Gateways:
         - Gateway Toolkit: server/gateway.md
         - API Gateway Toolkit: server/api-gateway.md

@@ -9325,6 +9325,229 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/webhooks/sources": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every inbound webhook source. Secrets are never returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "List webhook sources",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.SourceList"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a source, its tables and its view on the named connection. The connection's scratch catalog must read the managed-resources bucket and allow register_partition; the source is refused, with the reason, when it does not.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Create a webhook source",
+                "parameters": [
+                    {
+                        "description": "The source",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.SourceInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.SourceView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/webhooks/sources/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one source and its status: request counts by outcome for the last hour and day, when it last received an event, the last compacted hour, hours owed a compaction, the oldest hour held, and the last 50 rejected requests (never their bodies).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Get a webhook source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.SourceDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces a source's auth and config. An empty auth.secret keeps the stored secret; a new one rotates it, keeping the previous one valid for rotation_overlap_seconds. The name and connection cannot change.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Change a webhook source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The source",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.SourceInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.SourceView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes a source and everything it landed: its tables and view, every compacted window's resource, every raw segment, and its request history.",
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Delete a webhook source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/apis": {
             "get": {
                 "security": [
@@ -23307,7 +23530,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.\nA ` + "`" + `connection` + "`" + ` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A ` + "`" + `kind` + "`" + ` outside ` + "`" + `resource` + "`" + ` and ` + "`" + `asset` + "`" + ` is dropped rather than passed through.",
+                "description": "Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.\nA ` + "`" + `connection` + "`" + ` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A ` + "`" + `kind` + "`" + ` outside ` + "`" + `resource` + "`" + `, ` + "`" + `asset` + "`" + ` and ` + "`" + `webhook` + "`" + ` is dropped rather than passed through.",
                 "produces": [
                     "application/json"
                 ],
@@ -23325,7 +23548,8 @@ const docTemplate = `{
                     {
                         "enum": [
                             "resource",
-                            "asset"
+                            "asset",
+                            "webhook"
                         ],
                         "type": "string",
                         "description": "Only registrations over this source kind",
@@ -35275,6 +35499,306 @@ const docTemplate = `{
                     "example": 4
                 }
             }
+        },
+        "webhookapi.AuthInput": {
+            "type": "object",
+            "properties": {
+                "algorithm": {
+                    "type": "string",
+                    "example": "sha256"
+                },
+                "encoding": {
+                    "type": "string",
+                    "example": "hex"
+                },
+                "header": {
+                    "type": "string",
+                    "example": "X-Webhook-Token"
+                },
+                "mode": {
+                    "type": "string",
+                    "example": "hmac"
+                },
+                "prefix": {
+                    "type": "string",
+                    "example": "sha256="
+                },
+                "secret": {
+                    "type": "string",
+                    "example": "whsec_example"
+                },
+                "signature_header": {
+                    "type": "string",
+                    "example": "X-Signature"
+                },
+                "signed": {
+                    "type": "string",
+                    "example": "body"
+                },
+                "timestamp_header": {
+                    "type": "string",
+                    "example": "X-Timestamp"
+                },
+                "tolerance_seconds": {
+                    "type": "integer",
+                    "example": 300
+                },
+                "username": {
+                    "type": "string",
+                    "example": "sender"
+                }
+            }
+        },
+        "webhookapi.AuthView": {
+            "type": "object",
+            "properties": {
+                "algorithm": {
+                    "type": "string"
+                },
+                "encoding": {
+                    "type": "string"
+                },
+                "header": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "previous_secret_until": {
+                    "type": "string"
+                },
+                "secret_set": {
+                    "type": "boolean"
+                },
+                "signature_header": {
+                    "type": "string"
+                },
+                "signed": {
+                    "type": "string"
+                },
+                "timestamp_header": {
+                    "type": "string"
+                },
+                "tolerance_seconds": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "webhookapi.SourceDetail": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "$ref": "#/definitions/webhookapi.SourceView"
+                },
+                "status": {
+                    "$ref": "#/definitions/whstore.Status"
+                }
+            }
+        },
+        "webhookapi.SourceInput": {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "$ref": "#/definitions/webhookapi.AuthInput"
+                },
+                "config": {
+                    "$ref": "#/definitions/whsource.Config"
+                },
+                "connection": {
+                    "type": "string",
+                    "example": "scratch"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "name": {
+                    "type": "string",
+                    "example": "esp-events"
+                },
+                "rotation_overlap_seconds": {
+                    "description": "RotationOverlapSeconds keeps the previous secret valid this long when\nauth.secret replaces it. Zero ends it at once.",
+                    "type": "integer",
+                    "example": 86400
+                }
+            }
+        },
+        "webhookapi.SourceList": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/webhookapi.SourceView"
+                    }
+                }
+            }
+        },
+        "webhookapi.SourceView": {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "$ref": "#/definitions/webhookapi.AuthView"
+                },
+                "config": {
+                    "$ref": "#/definitions/whsource.Config"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "description": "Path is where the sender posts, relative to the platform's address:\n/hooks/{name}, with the token as a further segment for path_token.",
+                    "type": "string",
+                    "example": "/hooks/esp-events"
+                },
+                "table": {
+                    "description": "Table is what readers query, in the connection's scratch schema.",
+                    "type": "string",
+                    "example": "webhook_esp_events"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "whsource.Config": {
+            "type": "object",
+            "properties": {
+                "buffer_limit": {
+                    "type": "integer"
+                },
+                "compact_every_minutes": {
+                    "description": "CompactEveryMinutes is the length of the window a source's events are\npartitioned and compacted by: 60, the default, compacts each hour once\nit has ended; a shorter window compacts sooner, into more files. It\ndivides an hour evenly, so windows start on the hour and an hour is\nalways a whole number of them.",
+                    "type": "integer"
+                },
+                "compacted_retention_days": {
+                    "description": "CompactedRetentionDays is how long a compacted window is kept. Nil is\nthe default; zero keeps it forever.",
+                    "type": "integer"
+                },
+                "event_id_path": {
+                    "type": "string"
+                },
+                "event_type_path": {
+                    "type": "string"
+                },
+                "flush_max_bytes": {
+                    "type": "integer"
+                },
+                "flush_max_events": {
+                    "type": "integer"
+                },
+                "flush_max_interval_ms": {
+                    "type": "integer"
+                },
+                "handshake": {
+                    "type": "string"
+                },
+                "key_path": {
+                    "type": "string"
+                },
+                "max_body_bytes": {
+                    "type": "integer"
+                },
+                "persona": {
+                    "description": "Persona is the persona whose members see the source's compacted windows\nin Resources and search. Empty is the administrator persona, which keeps\nthem to administrators. Querying\nthe table is governed by the Trino connection, not by this. It is set\nwhen the source is created and does not change: windows already written\nstay where they were written.",
+                    "type": "string"
+                },
+                "rate_limit_burst": {
+                    "type": "integer"
+                },
+                "rate_limit_per_minute": {
+                    "description": "RateLimitPerMinute is zero for no limit. The limit is on the source,\nnot on a client address: a sender's requests arrive from whatever\naddresses its infrastructure has.",
+                    "type": "integer"
+                },
+                "raw_retention_days": {
+                    "description": "RawRetentionDays is how long a raw segment is kept once the window it\nbelongs to is compacted.",
+                    "type": "integer"
+                },
+                "split": {
+                    "type": "string"
+                }
+            }
+        },
+        "whstore.Rejection": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "whstore.Status": {
+            "type": "object",
+            "properties": {
+                "failing": {
+                    "description": "Failing counts pending windows whose last compaction attempt failed.",
+                    "type": "integer"
+                },
+                "last_compacted_window": {
+                    "description": "LastCompactedWindow is the start of the newest window whose Parquet\nfile holds every event its segments do.",
+                    "type": "string"
+                },
+                "last_day": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_hour": {
+                    "description": "LastHour and LastDay are request counts by outcome.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "last_segment_at": {
+                    "description": "LastSegmentAt is when a segment of accepted events was last written,\nwhich is when the source last received an event. A sender that stops\nproduces no error on the receiving side; this is how that shows.",
+                    "type": "string"
+                },
+                "oldest_window": {
+                    "description": "OldestWindow is the start of the oldest window still held.",
+                    "type": "string"
+                },
+                "pending": {
+                    "description": "Pending counts windows owed a compaction: not yet compacted, or\ndirtied by a segment written after they were.",
+                    "type": "integer"
+                },
+                "rejections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/whstore.Rejection"
+                    }
+                }
+            }
         }
     },
     "securityDefinitions": {
@@ -35289,7 +35813,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "DataHub", "description": "The DataHub catalog surface behind the portal: search and browse entities, read and edit their descriptions, tags, owners, glossary terms and domain, and manage the glossary hierarchy and the governance vocabularies."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "DataHub", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Config", "Connections", "Notifications", "Personas", "Scripts", "Sessions", "Settings", "System", "Tools", "Users"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "API Keys", "description": "The API keys a person issues for their own account. A key authenticates as its owner and carries the roles they hold, so a client that speaks only bearer tokens reaches the platform as the same identity their signed-in session does. A key value is readable once, at creation."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "Webhooks", "description": "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}, {"name": "DataHub", "description": "The DataHub catalog surface behind the portal: search and browse entities, read and edit their descriptions, tags, owners, glossary terms and domain, and manage the glossary hierarchy and the governance vocabularies."}, {"name": "Tables", "description": "Query-engine tables registered against a managed resource or a portal asset, so a file's contents can be queried through the platform's SQL surface."}, {"name": "Gateway", "description": "The API gateway data plane: call a configured upstream connection over REST, enveloped or streamed. This is what a non-MCP client (NiFi, Airflow, curl) uses in place of the api_invoke_endpoint tool."}, {"name": "APIs", "description": "The caller's view of the API catalogs: browse the connections this identity may reach, read an operation's parameters and schemas, and copy the gateway call."}, {"name": "API Catalogs", "description": "Administration of the OpenAPI documents behind API connections. Register a spec inline, by URL, or by upload, refresh it, and manage its embedding jobs."}, {"name": "Portal", "description": "Portal surfaces that are not asset content: navigation, search, and the pages the web UI is assembled from."}, {"name": "Portal Assets", "description": "Asset operations served to the portal UI: references, attachments, versions, and the managed resources an asset's content points at."}, {"name": "Feedback", "description": "Review threads on assets and knowledge: comments, activity, worklists, sign-off, and capturing a thread's conclusion as an insight."}, {"name": "Notifications", "description": "Email notification preferences, delivery history, and per-user unsubscribe. Mail-server settings live under Settings."}, {"name": "Settings", "description": "Deployment settings an administrator edits at runtime: the mail server and the review-queue alert thresholds."}, {"name": "Users", "description": "The directory of known people, keyed by email. Administrative counterpart to the single-identity User tag."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "API Keys", "APIs", "Assets", "Collections", "DataHub", "Feedback", "Gateway", "Knowledge", "Memory", "Portal", "Portal Assets", "Prompts", "Resources", "Shares", "Tables"]}, {"name": "Admin API", "tags": ["API Catalogs", "Audit", "Auth Keys", "Calls", "Config", "Connections", "Notifications", "Personas", "Scripts", "Sessions", "Settings", "System", "Tools", "Users", "Webhooks"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

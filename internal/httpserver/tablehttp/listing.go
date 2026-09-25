@@ -82,11 +82,11 @@ type scratchTableList struct {
 //
 // @Summary      List every registered table this caller can see
 // @Description  Returns a page of the tables registered across every managed resource and portal asset, on the connections this caller's persona is granted; an administrator sees all of them. Each row carries the registration, its fully qualified query name, a sample SELECT, whether it has fallen behind the file, the source record it was built over, and whether this caller is offered the unregister action.
-// @Description  A `connection` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A `kind` outside `resource` and `asset` is dropped rather than passed through.
+// @Description  A `connection` this caller does not reach answers an empty page rather than a refusal, so the listing never confirms that a connection exists. A `kind` outside `resource`, `asset` and `webhook` is dropped rather than passed through.
 // @Tags         Tables
 // @Produce      json
 // @Param        connection  query  string  false  "Only registrations on this connection"
-// @Param        kind        query  string  false  "Only registrations over this source kind"  Enums(resource, asset)
+// @Param        kind        query  string  false  "Only registrations over this source kind"  Enums(resource, asset, webhook)
 // @Param        q           query  string  false  "Case-insensitive substring of the fully qualified catalog.schema.table name"
 // @Param        page        query  int     false  "Page number, 1-based (default: 1)"
 // @Param        per_page    query  int     false  "Rows per page (default: 50, max: 200)"
@@ -205,12 +205,12 @@ func (h *Handler) reach(ctx context.Context, caller tableregister.Caller) (conne
 	return h.deps.Visible(ctx, caller)
 }
 
-// sourceKindParam keeps the kind facet to the two kinds that exist. Anything
+// sourceKindParam keeps the kind facet to the kinds that exist. Anything
 // else is dropped rather than passed through, so a typed parameter cannot
 // silently empty a listing.
 func sourceKindParam(kind string) string {
 	switch kind {
-	case tableregister.KindResource, tableregister.KindAsset:
+	case tableregister.KindResource, tableregister.KindAsset, tableregister.KindWebhook:
 		return kind
 	default:
 		return ""

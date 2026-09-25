@@ -880,8 +880,8 @@ configured — refuses write SQL until its setting is recorded.
 `scratch:` names a target, not a boundary. Nothing in the toolkit restricts a
 catalog or a schema, and `catalog`/`schema` on a connection are session
 defaults; what keeps a registration off the warehouse is the Trino identity the
-connection authenticates as. See
-[Registered Tables](registered-tables.md#what-the-scratch-schema-is).
+connection authenticates as. Every requirement a scratch connection and its
+catalog have is on [Scratch Catalog](scratch-catalog.md).
 
 ### DataHub
 
@@ -1644,6 +1644,46 @@ Every claim is charged to the row as an attempt (#1868). An attempt that does no
 A collection's mosaic is held to the same rule, and one that cannot be composed from its members' tiles is not tried again until a member is added, removed or redrawn.
 
 Animations are stopped for the picture. Every page is loaded with `prefers-reduced-motion: reduce` and its animation timeline stopped, in every frame; just before the capture an animation that ends is shown ended and one that never ends is removed. A document with an infinite CSS animation -- which, painted in software, never lets the renderer go idle -- draws in the time any other does.
+
+## Inbound Webhooks
+
+Webhook sources are administrator-managed records (Admin > Webhooks, or
+`/api/v1/admin/webhooks/sources`); see [Inbound Webhooks](webhooks.md). This
+section decides which replicas receive and which compact, and paces the
+compactor. Both halves are on by default, so a deployment sets nothing.
+
+```yaml
+webhooks:
+  receiver:
+    enabled: true        # only needed to opt out; defaults to true
+    address: ""          # also serve /hooks/ on a listener of its own
+    write_timeout: 30s
+  compactor:
+    enabled: true        # only needed to opt out; defaults to true
+    grace: 2m
+    poll: 30s
+    lease: 10m
+    batch: 4
+    retry_backoff: 1m
+    retention_every: 10m
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `receiver.enabled` | `*bool` | `true` | Serve `/hooks/` on this replica. A deployment that keeps bursts off the replicas serving MCP and the portal turns it off there and runs a receiver-only deployment behind the webhook Ingress. |
+| `receiver.address` | string | empty | Also serve `/hooks/` on this address, so the receiver can sit behind its own Service. The main listener serves it either way. |
+| `receiver.write_timeout` | duration | `30s` | How long writing one segment may take. A request whose segment is not written by then is answered `503`. |
+| `compactor.enabled` | `*bool` | `true` | Compact windows and apply retention on this replica. |
+| `compactor.grace` | duration | `2m` | How long after a window ends the compactor waits for segments still being written into it. |
+| `compactor.poll` | duration | `30s` | How long an idle compactor waits before looking for work. |
+| `compactor.lease` | duration | `10m` | How long a claimed window is held from other replicas. |
+| `compactor.batch` | int | `4` | Windows one pass claims. |
+| `compactor.retry_backoff` | duration | `1m` | How long a failed window is held back, times its attempts, at most an hour. |
+| `compactor.retention_every` | duration | `10m` | How often retention runs. |
+
+A negative value for any of these is refused at startup. A source's table needs
+a scratch connection whose catalog meets the requirements on
+[Scratch Catalog](scratch-catalog.md).
 
 ## Progress Notifications Configuration
 

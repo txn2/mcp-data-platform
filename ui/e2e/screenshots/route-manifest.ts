@@ -448,6 +448,24 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
+    // Inbound webhook sources (#1870): the list, one source with its address,
+    // request counts, compaction and rejections, and the form a source is
+    // created with.
+    slug: "admin-webhooks",
+    path: "/portal/admin/webhooks",
+    category: "admin",
+  },
+  {
+    slug: "admin-webhook-detail",
+    path: "/portal/admin/webhooks/email-events",
+    category: "admin",
+  },
+  {
+    slug: "admin-webhook-new",
+    path: "/portal/admin/webhooks/new",
+    category: "admin",
+  },
+  {
     slug: "admin-changelog",
     path: "/portal/admin/changelog",
     category: "admin",

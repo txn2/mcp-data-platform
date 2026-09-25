@@ -494,3 +494,13 @@ func TestClose(t *testing.T) {
 		t.Errorf("Close on a nil handle = %v, want nil", err)
 	}
 }
+
+func TestOpenS3(t *testing.T) {
+	c, err := OpenS3(Config{})
+	if err != nil || c != nil {
+		t.Fatalf("no connection configured: got %v, %v; want nil, nil", c, err)
+	}
+	if _, err := OpenS3(Config{S3Connection: "missing"}); err == nil {
+		t.Fatal("a named connection that is not configured is an error")
+	}
+}

@@ -113,6 +113,27 @@ describe("registering a stored file as a table", () => {
     });
   });
 
+  it("shows a webhook window's table as the source's, with nothing to drop (#1870)", async () => {
+    const hour = REGISTERED.table_registrations[0]!;
+    stubFetch(CONNECTIONS, {
+      table_registrations: [
+        {
+          ...hour,
+          id: "reg_wh",
+          source_kind: "webhook",
+          source_id: "email-events",
+          query_table: "scratch_resources.uploads.webhook_email_events",
+          format: "parquet",
+          follow: false,
+        },
+      ],
+    });
+    renderPanel({ kind: "resource", id: "res-hour", contentType: "application/vnd.apache.parquet", filename: "03-00.parquet" });
+    expect(await screen.findByText("Part of webhook source email-events")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Drop scratch_resources/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pinned/)).not.toBeInTheDocument();
+  });
+
   it("is offered on a JSON-lines file, which a table reads exactly", async () => {
     renderPanel({ contentType: "application/x-ndjson", filename: "tickets.jsonl" });
     expect(await screen.findByText("Query as a table")).toBeInTheDocument();

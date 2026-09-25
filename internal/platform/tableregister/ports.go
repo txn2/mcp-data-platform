@@ -136,3 +136,9 @@ type SourceRef struct {
 //
 // An id absent from the returned map names a source that is gone.
 type Sources func(ctx context.Context, kind string, ids []string, caller Caller) map[string]SourceRef
+
+// WindowHolders maps managed resources to the webhook source each is a
+// compacted window of. The webhook control store satisfies it.
+type WindowHolders interface {
+	SourcesForResources(ctx context.Context, resourceIDs []string) (map[string]string, error)
+}

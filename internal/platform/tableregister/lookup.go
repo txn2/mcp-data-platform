@@ -38,7 +38,7 @@ func (l *Lookup) TablesFor(
 	index, byKind := indexSubjects(subjects)
 	out := make(map[string][]knowledge.HitTable, len(index))
 	for kind, ids := range byKind {
-		found, err := l.reg.ForSources(ctx, kind, ids)
+		found, err := l.reg.TablesFor(ctx, kind, ids)
 		if err != nil {
 			return nil, err
 		}

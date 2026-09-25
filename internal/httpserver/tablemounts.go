@@ -12,9 +12,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/tablesource"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/connscope"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/platform/tableregister/regstore"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -57,12 +61,15 @@ func buildTableRegistrar(p *platform.Platform) *tableregister.Registrar {
 	}
 
 	return tableregister.New(tableregister.Deps{
-		Store:    tableregister.NewPostgresStore(p.DB()),
+		Store:    regstore.NewPostgresStore(p.DB()),
 		Trino:    exec,
 		Objects:  objects,
 		Revisers: tableRevisers(p),
 		Scope:    connscope.New(connscope.Deps{Registry: p.PersonaRegistry()}),
 		Audit:    auditLogger,
+		// A managed resource that is a compacted window of a webhook source
+		// reports that source's table (#1870).
+		Holders:  whstore.New(p.DB()),
 		NewID:    newRegistrationID,
 		MaxBytes: registrationMaxBytes(p.Config()),
 	})
@@ -461,8 +468,33 @@ func connectionVisibility(lister *connreach.Lister) tablehttp.Visibility {
 // authority over the SOURCE, which is a different and narrower question, and a
 // row is shown either way.
 func tableSourceLookup(p *platform.Platform, adminRoles []string) tableregister.Sources {
-	return tablesource.RefLookup(
+	files := tablesource.RefLookup(
 		p.ResourceStore(), p.Config().Resources.Managed.S3Bucket, p.PortalAssetStore(), adminRoles)
+	hooks := whsource.NewStore(p.DB(), p.RestEncryptor())
+	return func(ctx context.Context, kind string, ids []string, caller tableregister.Caller) map[string]tableregister.SourceRef {
+		if kind == tableregister.KindWebhook {
+			return webhookSourceRefs(ctx, hooks, ids)
+		}
+		return files(ctx, kind, ids, caller)
+	}
+}
+
+// webhookSourceRefs names the webhook sources a page of tables was created
+// for (#1870). A source's table is removed with the source, so nobody is
+// offered to unregister it here.
+func webhookSourceRefs(ctx context.Context, hooks *whsource.Store, ids []string) map[string]tableregister.SourceRef {
+	out := make(map[string]tableregister.SourceRef, len(ids))
+	for _, id := range ids {
+		src, err := hooks.Get(ctx, id)
+		if err != nil {
+			continue
+		}
+		out[id] = tableregister.SourceRef{
+			Name:        src.Name,
+			Description: "Events posted to /hooks/" + src.Name + ", one partition per compaction window.",
+		}
+	}
+	return out
 }
 
 // tableCaller builds the registrar's view of an authenticated portal user.
@@ -482,4 +514,17 @@ func tableCaller(p *platform.Platform, adminRoles []string) func(*portal.User) t
 		}
 		return caller
 	}
+}
+
+// buildWebhooks assembles inbound webhooks (#1870). The source tables are
+// created through the same Trino executor table registrations use.
+func buildWebhooks(p *platform.Platform, address string) *webhookwire.Webhooks {
+	if p == nil {
+		return nil
+	}
+	exec := trinoExecutor(p)
+	if exec == nil {
+		return nil
+	}
+	return webhookwire.Build(p, address, exec)
 }
