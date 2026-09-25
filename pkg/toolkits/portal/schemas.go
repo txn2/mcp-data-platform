@@ -340,17 +340,21 @@ var manageResourceSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["create", "replace_content", "get", "list", "delete"],
-      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), or remove a file and its version history (delete). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
+      "enum": ["create", "replace_content", "get", "list", "delete", "extract"],
+      "description": "What to do: file new content as a managed resource (create), write new content over an existing one (replace_content), read what is filed at a path or a reference without its bytes (get), report the files under a folder (list), remove a file and its version history (delete), or write the files inside a stored zip, gzip or gzipped tar archive out as managed resources of their own (extract). A get finding nothing is an answer and not a failure: an empty address and a reference naming a file that is gone or outside what you can see both report found=false, the same way fetch reports a dangling reference, so a create-or-replace decides on it. A replacement moves every table registered over the file that follows it (the default) onto the new contents, and reports each table in its result; a table registered with follow=false stays on the version it was registered over and is reported as behind."
     },
     "reference": {
       "type": "string",
-      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content. For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
+      "description": "The managed resource to act on, named by the mcp:resource:<id> reference a search hit, a fetch document, or a create reported. Required for replace_content, and for extract, where it names the archive. For get and delete it is the alternative to naming the address (scope + path + filename); pass one or the other, and pass it verbatim."
     },
     "if_exists": {
       "type": "string",
       "enum": ["fail", "replace"],
-      "description": "What a create does when a file is already at that address: fail, the default, refuses it, and replace records the NEXT VERSION of the file that is there, keeping its id, its uri and its filename. Pass replace to make a create idempotent, which is what a script landing one rolling file per source wants: it needs no memory of the id it wrote last time, and the result says which of the two happened."
+      "description": "What a create or an extract does when a file is already at that address: fail, the default, refuses it, and replace records the NEXT VERSION of the file that is there, keeping its id, its uri and its filename. Pass replace to make a create idempotent, which is what a script landing one rolling file per source wants: it needs no memory of the id it wrote last time, and the result says which of the two happened. An extract checks every member's address before it writes any, so without replace an archive with one member whose address is taken writes nothing."
+    },
+    "members": {
+      "type": "string",
+      "description": "Which files of the archive to extract (extract), as a glob: *.csv takes every CSV wherever it is filed in the archive, and a pattern with a slash, such as exports/*.csv, is matched against the member's whole path. Omit it to extract every file. A pattern matching nothing is refused and the refusal lists what the archive holds."
     },
     "force": {
       "type": "boolean",
@@ -378,7 +382,7 @@ var manageResourceSchema = json.RawMessage(`{
     },
     "filename": {
       "type": "string",
-      "description": "Name of the file, for example weather-daily.csv. Required for create, and for a get or a delete that names the address rather than a reference. It is normalized to lowercase with spaces replaced, and it becomes part of the resource's permanent mcp:// uri. replace_content ignores it: a replacement never renames the file, because the name is embedded in every reference to it."
+      "description": "Name of the file, for example weather-daily.csv. Required for create, and for a get or a delete that names the address rather than a reference. It is normalized to lowercase with spaces replaced, and it becomes part of the resource's permanent mcp:// uri. replace_content ignores it: a replacement never renames the file, because the name is embedded in every reference to it. For extract it is optional and names the one selected member's file directly in path, which gives a monthly delivery whose member is called export_2026_10.csv one stable address (delivery.csv, say) to register a table over; without it each member keeps its own name."
     },
     "display_name": {
       "type": "string",
@@ -386,11 +390,11 @@ var manageResourceSchema = json.RawMessage(`{
     },
     "path": {
       "type": "string",
-      "description": "The folder path the file is filed under inside its library, for example datasets or datasets/media-manager/shows. Required for create, and for a get or a delete that names the address rather than a reference; for list it is the folder the listing is rooted at, and everything beneath it at every depth is included (omit it for the whole library). Slash-separated; each folder name is lowercase letters, digits and hyphens starting with a letter, at most 31 characters; at most 8 folders deep and 200 characters overall; no leading or trailing slash. It becomes part of the resource's mcp:// uri. Two files with the same filename in the same folder collide; in two folders they do not."
+      "description": "The folder path the file is filed under inside its library, for example datasets or datasets/media-manager/shows. Required for create and for extract, where the members are filed under it and each member's own folders are created beneath it (a folder name the library cannot hold is converted the way a folder upload converts it: 2026 becomes f-2026). Required too for a get or a delete that names the address rather than a reference; for list it is the folder the listing is rooted at, and everything beneath it at every depth is included (omit it for the whole library). Slash-separated; each folder name is lowercase letters, digits and hyphens starting with a letter, at most 31 characters; at most 8 folders deep and 200 characters overall; no leading or trailing slash. It becomes part of the resource's mcp:// uri. Two files with the same filename in the same folder collide; in two folders they do not."
     },
     "description": {
       "type": "string",
-      "description": "What the file is and what reads it (required for create). It is what a person browsing the library and a search hit both show, so a file with no description is one nobody can place."
+      "description": "What the file is and what reads it (required for create; for extract it labels every member created, and defaults to naming the archive and the member). It is what a person browsing the library and a search hit both show, so a file with no description is one nobody can place."
     },
     "tags": {
       "type": "array",
@@ -408,7 +412,7 @@ var manageResourceSchema = json.RawMessage(`{
     },
     "change_summary": {
       "type": "string",
-      "description": "Why the content changed (replace_content). It is what the file's version history shows beside this revision, so a person reading the history sees the reason without having to find the run that made it."
+      "description": "Why the content changed (replace_content, and an extract that records a member as the next version of a file). It is what the file's version history shows beside this revision, so a person reading the history sees the reason without having to find the run that made it."
     }
   }
 }`)

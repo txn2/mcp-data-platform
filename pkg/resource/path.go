@@ -111,3 +111,29 @@ func RepointPath(p, from, to string) string {
 	}
 	return to + p[len(from):]
 }
+
+// FolderSegment turns a directory name from somewhere outside the library -- a
+// folder a person picked, or a directory inside an archive -- into a folder
+// name: lowercase letters, digits and hyphens, starting with a letter, at most
+// MaxPathSegmentLen characters. A name that starts with a digit (a year folder,
+// say) is prefixed with "f-" rather than refused, so "2024" is filed under
+// "f-2024". It reports false when nothing usable is left.
+//
+// The bulk uploader applies the same rule in the browser
+// (ui/src/pages/resources/bulk/names.ts folderSegment), so an archive extracted
+// here and the same folder uploaded there are filed under the same names.
+func FolderSegment(name string) (string, bool) {
+	seg := strings.Join(strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}), "-")
+	if seg == "" {
+		return "", false
+	}
+	if seg[0] < 'a' || seg[0] > 'z' {
+		seg = "f-" + seg
+	}
+	if len(seg) > MaxPathSegmentLen {
+		seg = strings.TrimRight(seg[:MaxPathSegmentLen], "-")
+	}
+	return seg, true
+}

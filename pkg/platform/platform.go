@@ -53,7 +53,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
-	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
@@ -1918,40 +1917,16 @@ func (p *Platform) initManagedResources() error {
 	// Both layers now exist, so the asset toolkit can declare references (#1474)
 	// and write the files those references point at (#1487).
 	p.portalStore.BindResources(handle.Store(), handle.URIScheme())
-	// The writer is built here rather than inside the portal layer because the
-	// re-registration callback is the platform's: a replacement has to reach
-	// resources/list_changed, or a client that already listed the resource
-	// keeps serving the bytes the replacement moved off. A deployment with no
-	// blob client gets no writer, and manage_resource says so.
-	if w := resourcewrite.New(resourcewrite.Deps{
-		Store:       handle.Store(),
-		Blobs:       handle.S3Client(),
-		Bucket:      p.config.Resources.Managed.S3Bucket,
-		URIScheme:   handle.URIScheme(),
-		MaxVersions: p.config.Resources.Managed.MaxVersions,
-		Registered:  p.RegisterManagedResource,
-		// The counterpart for a delete (#1665): a client that has already
-		// listed goes on offering a file that is gone without it.
-		Unregistered: p.UnregisterManagedResource,
-		// The same record the portal's asset write funnels fill, so an agent's
-		// resource write and its asset write name the same producer (#1569).
-		Producers: p.portalStore.Producers(),
-	}); w != nil {
-		p.portalStore.BindResourceWriter(w)
-		// The same writer, reached by path instead of by id, is the destination
-		// every export tool lands a response in (#1663). The table follower is
-		// the portal layer's, which reaches the registrar the composition root
-		// binds onto the asset toolkit later.
-		lander := resourcewrite.NewLander(resourcewrite.LanderDeps{
-			Writer:         w,
-			MaxUploadBytes: p.config.Resources.Managed.MaxUploadBytes,
-		})
-		lander.SetTableFollower(p.portalStore.FollowResourceTables)
-		p.portalStore.BindResourceLander(lander)
-		// What still points at a file, which a delete puts to its caller
-		// before it breaks anything (#1665).
-		p.portalStore.BindResourceHolds(prompt.AsAttachmentStore(p.PromptStore()))
-	}
+	// The writer, the export lander and the archive extractor over this layer
+	// (#1487, #1663, #1879). The re-registration callbacks are the platform's:
+	// a replacement has to reach resources/list_changed.
+	p.portalStore.BindResourceWrites(portalstore.ResourceWriteDeps{
+		Store: handle.Store(), Blobs: handle.S3Client(), URIScheme: handle.URIScheme(),
+		Bucket: p.config.Resources.Managed.S3Bucket, MaxVersions: p.config.Resources.Managed.MaxVersions,
+		MaxUploadBytes: p.config.Resources.Managed.MaxUploadBytes, Extract: p.config.Resources.Managed.Extract,
+		Registered: p.RegisterManagedResource, Unregistered: p.UnregisterManagedResource,
+		Attachments: prompt.AsAttachmentStore(p.PromptStore()),
+	})
 
 	// The document reader's PDF extractor holds a WebAssembly instance pool
 	// once it has read one (#1657); nothing starts here, because the module

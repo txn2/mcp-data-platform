@@ -108,6 +108,9 @@ const (
 	resourceActionGet    = "get"
 	resourceActionList   = "list"
 	resourceActionDelete = "delete"
+	// Extracting an archive's members is the way a delivered zip becomes
+	// files a table can be registered over (#1879).
+	resourceActionExtract = "extract"
 
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of
@@ -360,6 +363,9 @@ type Toolkit struct {
 	// leaves a delete saying it cannot establish that rather than reporting
 	// that nothing depends on the file.
 	resourceHolds ResourceHoldReader
+	// resourceExtractor writes an archive's members out as managed resources
+	// (#1879). Nil leaves extract reporting that the deployment cannot.
+	resourceExtractor ResourceExtractor
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -501,7 +507,7 @@ const manageTableToolDescription = "Makes a stored CSV, JSON-lines or Parquet fi
 const manageResourceToolDescription = "Manages files in the managed resource library, so an agent or a " +
 	"scheduled script can put data where an asset can reference it, find it again by the path it wrote it " +
 	"to, refresh it, and remove it. " +
-	"Actions: create, replace_content, get, list, delete. " +
+	"Actions: create, replace_content, get, list, delete, extract. " +
 	"'create' files new content and reports the mcp:// uri to hand to save_asset's 'references' argument, " +
 	"plus the mcp:resource:<id> reference every other tool takes. Pass if_exists=replace to make the call " +
 	"idempotent: it records the next version of whatever is already at that path instead of refusing, so " +
@@ -524,6 +530,12 @@ const manageResourceToolDescription = "Manages files in the managed resource lib
 	"application/octet-stream) is re-detected from its bytes. " +
 	"A create defaults to your own user scope; naming a persona scope or the global scope needs " +
 	"administrator authority over it, and a refusal names the scope rather than the file. " +
+	"'extract' writes the files inside a stored archive (zip, gzip, or gzipped tar) out as managed resources, " +
+	"streaming, so a delivery far larger than a tool call can carry becomes files a table can be registered " +
+	"over: name the archive's reference, a path, optionally a members glob such as *.csv, and for one member a " +
+	"filename with if_exists=replace to keep one rolling file whose tables follow each new delivery. Names " +
+	"that climb out of their folder, encrypted members, and archives past the extraction limits are refused " +
+	"before anything is written. " +
 	"Reading a file's contents is 'fetch' on its reference, and making a CSV in it queryable is the " +
 	"separate manage_table tool."
 

@@ -269,6 +269,7 @@ mcp-data-platform/
 │   ├── scriptdest/                 # Resolves the destination a script names for an output to the address configuration declares; the one resolution the run and validate share
 │   ├── upstreamretry/              # The one reading of when an upstream HTTP answer is worth asking again (#1859): 429 any method, 503 to a read, Retry-After in both RFC 9110 forms; the advice the api gateway reports on a result, the host-side wait a script's host makes on it (at most three retries within the deadline), and the upstream_unavailable error code/category. The gateway's page walk pauses by the same Retry-After parse
 │   ├── webhook/                    # Inbound webhook sources (#1870): whsource (the source record, its validation and its Postgres store with encrypted secrets), whauth (hmac/header_token/basic/path_token verification, secret rotation), whevent (a request's JSON as events, and the gzipped JSON-lines segment), whlayout (where a source's objects live), jsonpath (the path subset a source names its id/type/key/split with), receiver (POST /hooks/{source}: verify, buffer, write the segment, answer 202 only after), whstore (per-window compaction state, request counts, rejections), whtable (the raw and compacted tables and the view, partition registration), compactor (one Parquet file per compaction window into a managed resource, dedup, retention), whadmin (create/update/delete a source with its tables), whconfig (the `webhooks:` section)
+│   ├── unarchive/                  # The members of a zip, gzip or gzipped tar as streams (#1879): format by magic bytes, zip-slip/encryption/method refusals, the resources.managed.extract limits (member, total, entries, ratio) checked before the first member where the format allows, and a two-block range-read cache so a zip is opened where it is stored. Knows nothing about where members go; resourcewrite.Extractor lands them
 │   ├── formdata/                   # The multipart/form-data body encoder the api gateway sends an operation that takes form data through (#1296), extracted from pkg/toolkits/apigateway for its size budget
 │   ├── procload/                   # How much of the memory and CPU the container allows this process it is using now: Go runtime memory against the cgroup limit or GOMEMLIMIT, getrusage CPU over a one-second window against the cgroup quota or GOMAXPROCS, and "unknown" where either cannot be read. The managed-script run worker's adaptive admission reads it before every claim (#1843)
 │   ├── resourcetemplates/          # The three read-only MCP resource templates (schema://, glossary://, availability://) and the URI patterns they are addressed by, which the completion layer also matches on. Answers from the two providers and the URN mapping alone and writes nothing, which is why it needed no part of the platform facade; extracted from pkg/platform for its size budget (#1628)
@@ -398,6 +399,11 @@ resources:
     uri_scheme: "mcp"         # URI prefix for resource URIs (default: "mcp")
     s3_connection: "primary"  # name of S3 toolkit instance for blob storage
     s3_bucket: "resources"    # S3 bucket for uploaded files
+    extract:                  # manage_resource extract limits (#1879); independent of max_upload_bytes
+      max_member_bytes: 2147483648  # default 2 GiB
+      max_total_bytes: 4294967296   # default 4 GiB
+      max_members: 10000
+      max_ratio: 500
 ```
 
 ### Export to Asset

@@ -650,6 +650,22 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # internal/unarchive's surface is the five values an extraction is
+      # described by: the limits, the refusal naming one, the source read by
+      # range, a member, and the opened archive (#1879). Folding any of them
+      # into another would put a second concept in one type.
+      - path: internal/unarchive/
+        linters:
+          - revive
+        text: "max-public-structs"
+      # resourcewrite is every way something other than a browser writes a
+      # managed resource: the writer, the export lander and the archive
+      # extractor (#1879), each with the inputs it is assembled from and, for
+      # the extractor, the request and result it answers.
+      - path: internal/platform/resourcewrite/
+        linters:
+          - revive
+        text: "max-public-structs"
       # The managed-script run vocabulary is one concept spread over the types
       # a run needs to be described: the row itself, its metrics, its outputs,
       # the lease a worker holds it under, the result a worker reports, and the

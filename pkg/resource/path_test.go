@@ -130,3 +130,31 @@ func TestRepointPath(t *testing.T) {
 		})
 	}
 }
+
+// TestFolderSegmentMatchesTheBulkUploader holds the Go rule to the cases
+// ui/src/pages/resources/bulk/names.test.ts holds the browser's to.
+func TestFolderSegmentMatchesTheBulkUploader(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"Brand Assets", "brand-assets", true},
+		{"  Logos__Reversed!! ", "logos-reversed", true},
+		{"2024", "f-2024", true},
+		{strings.Repeat("a", 40), strings.Repeat("a", 31), true},
+		{"abcdefghij-abcdefghij-abcdefghi-x", "abcdefghij-abcdefghij-abcdefghi", true},
+		{"***", "", false},
+		{"日本", "", false},
+	} {
+		got, ok := FolderSegment(tc.in)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("FolderSegment(%q) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+		if ok {
+			if err := ValidatePath(got); err != nil {
+				t.Errorf("FolderSegment(%q) = %q, which is not a valid folder: %v", tc.in, got, err)
+			}
+		}
+	}
+}

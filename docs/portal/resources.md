@@ -203,6 +203,33 @@ api_export  connection=acme operation_id=listOrders name="ACME orders"
 
 The response goes from the upstream into storage without being held anywhere whole, so the size a file can be here is the library's own ceiling rather than anything a model or a script could carry. What the write did appears in this Version history like every other revision, and a table registered over the file follows the new version and says so in the result. An upstream that answered with an error is refused rather than landed: the file keeps serving the version it had. See [Landing a response in a managed resource](../server/api-gateway.md#landing-a-response-in-a-managed-resource).
 
+### Files delivered in an archive
+
+An upstream that delivers a monthly `.zip` holding one CSV is loaded in three steps: land the archive, extract its CSV to a stable address, and register that address as a table once. `manage_resource action=extract` writes an archive's members out as managed resources, streaming, so the CSV can be as large as the extraction limits allow rather than anything a script could hold. In a managed script:
+
+```python
+exp = platform.call("api_export", {
+    "connection": "files", "method": "GET", "path": "/deliveries/2026_10.zip",
+    "name": "monthly delivery",
+    "resource": {"path": "pipelines/feed/raw", "filename": "delivery.zip"},
+})
+ext = platform.call("manage_resource", {
+    "action": "extract", "reference": exp["resource"]["reference"],
+    "path": "pipelines/feed/staging", "members": "*.csv",
+    "filename": "delivery.csv", "if_exists": "replace",
+})
+print(ext["members"][0]["uri"], "version", ext["members"][0]["version"])
+```
+
+The first run creates `pipelines/feed/staging/delivery.csv`. Register it once, with `follow` left on:
+
+```
+manage_table action=register reference=<ext["members"][0]["reference"]>
+             connection=acme-scratch-resources table_name=feed_delivery
+```
+
+Every run after that records the next version of the same file, and the table follows it, which the extraction's `table_changes` reports. The warehouse load is then one statement against the table, `INSERT INTO warehouse.feed.deliveries SELECT ... FROM <the table's query name>`, run with `platform.call("trino_execute", ...)` on a connection that can read the scratch schema and write the warehouse. The statement names only tables, so nothing from the delivery is concatenated into it. The archive itself stays in `raw` with its own version history, so the delivery a load came from is still there to read. See [manage_resource](../server/tools.md#manage_resource) for what an extraction refuses and [Archive extraction limits](../server/configuration.md#archive-extraction-limits) for the limits.
+
 ## Querying a CSV resource as a table
 
 A CSV, JSON-lines or Parquet resource carries the same **Query as a table** panel the asset viewer does. A JSON-lines or Parquet file brings every value back exactly, including the line breaks a CSV cell cannot carry, and its columns carry their types; see [CSV, JSON lines or Parquet](../server/registered-tables.md#csv-json-lines-or-parquet). Registering asks for two things: the connection the table is created on, and what to call it. The name is optional and defaults to a slug of the file name; either way your persona is added as a prefix, because the schema it lands in is shared with everyone else who has that connection.

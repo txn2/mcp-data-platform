@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whconfig"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -1183,6 +1184,14 @@ type ManagedResourcesCfg struct {
 	// so a file this deployment accepts is a file it can register over.
 	// See docs/server/configuration.md.
 	MaxUploadBytes int64 `yaml:"max_upload_bytes"`
+	// Extract bounds manage_resource extract (#1879): the largest member, the
+	// most the selected members may add up to, how many entries an archive
+	// may hold, and how far a member may expand past its compressed size.
+	// Each non-positive field takes its default (2 GiB, 4 GiB, 10000, 500).
+	// It is apart from MaxUploadBytes on purpose: an archive is delivered by
+	// an upstream rather than picked at an upload form, and the file inside
+	// it is routinely larger than anything a person uploads.
+	Extract unarchive.Limits `yaml:"extract"`
 }
 
 // CustomResourceDef defines a user-configured static MCP resource.
