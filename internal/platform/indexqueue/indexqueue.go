@@ -96,6 +96,9 @@ type Config struct {
 	// <= 0 disables it (the worker/reaper/reconciler still run, history is never
 	// purged).
 	RetentionDays int
+	// FailedRetentionDays > 0 also deletes failures nobody resolved once
+	// they are that old (#1904).
+	FailedRetentionDays int
 
 	// DSN enables the LISTEN/NOTIFY adapter when non-empty; empty falls back to
 	// the worker's poll tick.
@@ -226,7 +229,8 @@ func New(cfg Config) *Handle {
 	// disables it; the worker/reaper/reconciler still run, history just never
 	// gets purged.
 	if cfg.RetentionDays > 0 {
-		h.retainer = indexjobs.NewRetainer(store, cfg.RetentionDays, 0)
+		h.retainer = indexjobs.NewRetainer(store, cfg.RetentionDays, 0,
+			indexjobs.WithFailedRetention(cfg.FailedRetentionDays))
 	}
 
 	// LISTEN/NOTIFY adapter. Best-effort: if the role lacks LISTEN privilege we

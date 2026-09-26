@@ -428,6 +428,7 @@ func newTestHandlerWithVersions(assets *mockAssetStore, shares *mockShareStore, 
 		ShareStore:    shares,
 		S3Client:      s3,
 		S3Bucket:      "test-bucket",
+		S3Prefix:      "custom/",
 		PublicBaseURL: "https://example.com",
 		RateLimit:     RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 	}
@@ -3715,6 +3716,7 @@ func TestCopyAssetSuccess(t *testing.T) {
 		ShareStore:    &mockShareStore{listByAsset: []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer, Revoked: false}}},
 		S3Client:      &mockS3Client{getData: []byte("hello"), getCT: "text/html"},
 		S3Bucket:      "test-bucket",
+		S3Prefix:      "custom/",
 		PublicBaseURL: "https://example.com",
 	}, testAuthMiddleware(&User{UserID: "u1", Email: "u1@example.com"}))
 
@@ -3732,7 +3734,8 @@ func TestCopyAssetSuccess(t *testing.T) {
 	assert.Equal(t, "desc", result.Description)
 	assert.Equal(t, "text/html", result.ContentType)
 	assert.Equal(t, "test-bucket", result.S3Bucket)
-	assert.Contains(t, result.S3Key, "portal/u1/")
+	// Written under the configured prefix, not a fixed "portal/" (#1903).
+	assert.True(t, strings.HasPrefix(result.S3Key, "custom/u1/"), result.S3Key)
 	assert.Equal(t, int64(5), result.SizeBytes)
 }
 
@@ -4910,7 +4913,7 @@ func TestCreateAssetSuccess(t *testing.T) {
 	assert.Equal(t, "snapshot", asset.Description)
 	assert.Equal(t, "text/markdown", asset.ContentType)
 	assert.Equal(t, "test-bucket", asset.S3Bucket)
-	assert.Contains(t, asset.S3Key, "portal/u1/")
+	assert.True(t, strings.HasPrefix(asset.S3Key, "custom/u1/"), asset.S3Key)
 	assert.Contains(t, asset.S3Key, ".md")
 	assert.Equal(t, int64(len("# Hello")), asset.SizeBytes)
 	assert.Equal(t, []string{"p"}, asset.Tags)

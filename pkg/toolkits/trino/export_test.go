@@ -60,6 +60,13 @@ type mockExportS3Client struct {
 	lastKey    string
 	lastData   []byte
 	putErr     error
+	deleted    []string
+	deleteErr  error
+}
+
+func (m *mockExportS3Client) DeleteObject(_ context.Context, _, key string) error {
+	m.deleted = append(m.deleted, key)
+	return m.deleteErr
 }
 
 func (m *mockExportS3Client) PutObject(_ context.Context, bucket, key string, data []byte, _ string) error {

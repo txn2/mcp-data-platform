@@ -41,6 +41,8 @@ type fakeWindows struct {
 	failures []string
 	err      map[string]error
 	pruned   bool
+	// expiredBefore is the cutoff the last DeleteExpired was given.
+	expiredBefore time.Time
 }
 
 type windowRow struct {
@@ -168,6 +170,13 @@ func (f *fakeWindows) MarkExpired(_ context.Context, h whstore.Window) error {
 func (f *fakeWindows) PruneCounts(context.Context, time.Time) error {
 	f.pruned = true
 	return f.err["prune"]
+}
+
+func (f *fakeWindows) DeleteExpired(_ context.Context, before time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.expiredBefore = before
+	return 0, f.err["delete_expired"]
 }
 
 type fakeSources struct {
@@ -584,6 +593,23 @@ func TestCompactedRetentionResumes(t *testing.T) {
 	assert.Empty(t, r.resources.keys)
 	keys, _ := r.objects.ListKeys(ctx, "", "webhooks/")
 	assert.Empty(t, keys)
+}
+
+// TestRetentionDeletesExpiredWindowRecords covers #1904: the record of an
+// expired window is removed once it is older than the configured age, 90 days
+// unless configured, and a negative age keeps them.
+func TestRetentionDeletesExpiredWindowRecords(t *testing.T) {
+	r := newRig(t)
+	r.w.Retention(ctx)
+	assert.Equal(t, now.Add(-DefaultExpiredWindowsKept), r.windows.expiredBefore)
+
+	r.windows.err["delete_expired"] = errBoom
+	r.w.Retention(ctx) // a failure is logged and does not stop the pass
+
+	kept := newRig(t)
+	kept.w.tuning.ExpiredWindowsKept = -1
+	kept.w.Retention(ctx)
+	assert.True(t, kept.windows.expiredBefore.IsZero(), "a negative age keeps every record")
 }
 
 func TestRetentionForeverKeepsHours(t *testing.T) {

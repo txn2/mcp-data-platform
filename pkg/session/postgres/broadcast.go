@@ -81,13 +81,29 @@ type notifyPayload struct {
 //     MemoryBroadcaster. Local SSE subscribers receive events exactly
 //     as if a same-process Publish had fired.
 type Broadcaster struct {
-	listener *pq.Listener
-	db       *sql.DB
-	channel  string
-	local    *session.MemoryBroadcaster
-	done     chan struct{}
-	closed   atomic.Bool
-	logger   *slog.Logger
+	listener       *pq.Listener
+	db             *sql.DB
+	channel        string
+	local          *session.MemoryBroadcaster
+	done           chan struct{}
+	closed         atomic.Bool
+	logger         *slog.Logger
+	reconnectEvent string
+}
+
+// Option configures a Broadcaster at construction.
+type Option func(*Broadcaster)
+
+// WithReconnectEvent makes the broadcaster publish a local event with the
+// given method to its subscribers each time the LISTEN connection is
+// re-established. A notification sent while the connection was down is never
+// delivered, so a subscriber whose state is carried only by these events uses
+// this one to re-read that state from where it is stored (#1902). The event
+// is delivered in order with the notifications around it and carries no
+// params. Without this option a reconnect is logged and nothing is published,
+// which suits a subscriber that catches up on its own.
+func WithReconnectEvent(method string) Option {
+	return func(b *Broadcaster) { b.reconnectEvent = method }
 }
 
 // NewBroadcaster builds a postgres-backed broadcaster bound to the
@@ -101,7 +117,7 @@ type Broadcaster struct {
 // fails — typically a missing privilege on the role or a syntactically
 // invalid channel name. Does NOT block on initial connectivity to
 // postgres beyond the LISTEN command itself.
-func NewBroadcaster(dsn string, db *sql.DB, channel string, logger *slog.Logger) (*Broadcaster, error) {
+func NewBroadcaster(dsn string, db *sql.DB, channel string, logger *slog.Logger, opts ...Option) (*Broadcaster, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -144,6 +160,9 @@ func NewBroadcaster(dsn string, db *sql.DB, channel string, logger *slog.Logger)
 		done:     make(chan struct{}),
 		logger:   logger,
 	}
+	for _, opt := range opts {
+		opt(b)
+	}
 	go b.run()
 	return b, nil
 }
@@ -155,19 +174,39 @@ func NewBroadcaster(dsn string, db *sql.DB, channel string, logger *slog.Logger)
 // internally, so we just keep reading.
 func (b *Broadcaster) run() {
 	defer close(b.done)
-	ch := b.listener.NotificationChannel()
+	b.consume(b.listener.NotificationChannel())
+}
+
+// consume is the receive loop, taking the channel as a parameter so it can be
+// driven without a live PostgreSQL connection. It returns when ch is closed.
+func (b *Broadcaster) consume(ch <-chan *pq.Notification) {
 	for {
 		n, ok := <-ch
 		if !ok {
 			return
 		}
 		if n == nil {
-			// lib/pq sends nil on reconnect to signal "you may have
-			// missed events". For tools/list_changed we don't care:
-			// every client will catch up on its next list call.
+			b.reconnected()
 			continue
 		}
 		b.dispatchPayload(n.Extra)
+	}
+}
+
+// reconnected handles the nil notification lib/pq sends after it
+// re-establishes the LISTEN connection, which means notifications sent while
+// it was down were lost. With no reconnect event configured nothing is
+// published: for tools/list_changed every client catches up on its next list
+// call.
+func (b *Broadcaster) reconnected() {
+	if b.reconnectEvent == "" {
+		return
+	}
+	b.logger.Warn("session/broadcast/postgres: listener reconnected; notifications sent while it was down were lost, publishing the reconnect event",
+		"channel", b.channel, "method", b.reconnectEvent)
+	if err := b.local.Publish(context.Background(), session.Event{Method: b.reconnectEvent}); err != nil {
+		b.logger.Warn("session/broadcast/postgres: local publish failed",
+			"method", b.reconnectEvent, "error", err)
 	}
 }
 
@@ -271,8 +310,8 @@ func (*postgresClosedSub) Close() {}
 // publisher's own subscribers miss the event. lib/pq emits a nil
 // notification on reconnect to signal "you may have missed events";
 // for tools/list_changed this is harmless because the next list
-// call catches up, but callers that need at-least-once delivery
-// would need to track a sequence number across the gap.
+// call catches up. A subscriber that cannot catch up on its own is
+// built WithReconnectEvent and re-reads its state on that event.
 func (b *Broadcaster) Publish(ctx context.Context, ev session.Event) error {
 	if b.closed.Load() {
 		return session.ErrBroadcasterClosed

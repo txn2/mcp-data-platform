@@ -447,3 +447,21 @@ func TestReloadBus_ConnectionDeleteAppliedThroughReconciler(t *testing.T) {
 		t.Fatal("delete op did not reach the toolkit removal through the bus")
 	}
 }
+
+// TestReloadBus_ResyncOnReconnect proves the reconnect event the reload
+// broadcaster raises locally, which carries no origin, runs the full re-read
+// (#1902), and that a bus with no Resync handler ignores it.
+func TestReloadBus_ResyncOnReconnect(t *testing.T) {
+	ran := make(chan struct{}, 1)
+	rb := newReloadBus(session.NewMemoryBroadcaster(nil), "self",
+		ReloadHandlers{Resync: func() { ran <- struct{}{} }}, nil)
+	rb.dispatch(session.Event{Method: reloadMethodResync})
+	select {
+	case <-ran:
+	default:
+		t.Fatal("resync handler did not run on the reconnect event")
+	}
+
+	newReloadBus(session.NewMemoryBroadcaster(nil), "self", ReloadHandlers{}, nil).
+		dispatch(session.Event{Method: reloadMethodResync})
+}

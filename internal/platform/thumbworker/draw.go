@@ -220,6 +220,14 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) error {
 			slog.Error("thumbnails: recording a resource's tile failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 			return nil
 		}
+		// A revision moves the file to a new key, so the tile drawn from
+		// the previous head sits elsewhere and is removed once the row
+		// names this one (#1903).
+		old := r.ThumbnailS3Key
+		if d.variant == resource.ThumbnailVariantDark {
+			old = r.ThumbnailDarkS3Key
+		}
+		w.removeSuperseded(ctx, w.deps.ResourceBlobs, w.deps.ResourceBucket, old, d.key)
 	}
 	switch {
 	case unfinished != nil:
@@ -267,9 +275,17 @@ func (w *Worker) drawCollection(ctx context.Context, c portaldomain.CollectionTh
 			return nil
 		}
 	}
-	key := portaldomain.CollectionThumbnailKey(c.ID, portaldomain.ThumbnailVariantLight)
+	key := portaldomain.CollectionThumbnailKey(w.deps.CollectionPrefix, c.ID, portaldomain.ThumbnailVariantLight)
 	if err := w.deps.Collections.RecordCollectionThumbnail(ctx, c.ID, key, c.Source); err != nil {
 		slog.Error("thumbnails: recording a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	// A mosaic stored under an earlier layout or prefix is replaced by
+	// this one once the row names it (#1903).
+	if c.ThumbnailS3Key != "" && c.ThumbnailS3Key != key {
+		w.removeSuperseded(ctx, w.deps.AssetBlobs, w.deps.CollectionBucket, c.ThumbnailS3Key, key)
+		w.removeSuperseded(ctx, w.deps.AssetBlobs, w.deps.CollectionBucket,
+			portaldomain.CollectionDarkThumbnailKey(c.ThumbnailS3Key), portaldomain.CollectionDarkThumbnailKey(key))
 	}
 	return nil
 }
@@ -288,7 +304,7 @@ func (w *Worker) storeMosaic(ctx context.Context, id, variant string, tiles [][]
 	} else if why != "" {
 		return why, nil
 	}
-	key := portaldomain.CollectionThumbnailKey(id, variant)
+	key := portaldomain.CollectionThumbnailKey(w.deps.CollectionPrefix, id, variant)
 	sctx, cancel := context.WithTimeout(ctx, storageTimeout)
 	err = w.deps.AssetBlobs.PutObject(sctx, w.deps.CollectionBucket, key, png, tileContentType)
 	cancel()
@@ -305,7 +321,7 @@ func (w *Worker) clearCollection(ctx context.Context, c portaldomain.CollectionT
 	}
 	w.removeSuperseded(ctx, w.deps.AssetBlobs, w.deps.CollectionBucket, c.ThumbnailS3Key, "")
 	if c.ThumbnailS3Key != "" {
-		w.removeSuperseded(ctx, w.deps.AssetBlobs, w.deps.CollectionBucket, portaldomain.CollectionThumbnailKey(c.ID, portaldomain.ThumbnailVariantDark), "")
+		w.removeSuperseded(ctx, w.deps.AssetBlobs, w.deps.CollectionBucket, portaldomain.CollectionDarkThumbnailKey(c.ThumbnailS3Key), "")
 	}
 }
 

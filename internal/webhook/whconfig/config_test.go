@@ -29,6 +29,12 @@ func TestTuningAndValidate(t *testing.T) {
 	assert.Equal(t, time.Second, tn.Poll)
 	assert.Equal(t, time.Minute, tn.Grace)
 	assert.Equal(t, 2, tn.Batch)
+	assert.Zero(t, tn.ExpiredWindowsKept, "unset takes the compactor's default")
+
+	c.Compactor.ExpiredWindowRetentionDays = 30
+	assert.Equal(t, 30*24*time.Hour, c.Tuning().ExpiredWindowsKept)
+	c.Compactor.ExpiredWindowRetentionDays = -1
+	assert.Negative(t, c.Tuning().ExpiredWindowsKept, "a negative value keeps them")
 
 	c.Receiver.WriteTimeout = 3 * time.Second
 	assert.Equal(t, 3*time.Second, c.WriteTimeout())

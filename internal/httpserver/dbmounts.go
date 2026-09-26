@@ -99,6 +99,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		},
 		S3Client:      p.PortalS3Client(),
 		S3Bucket:      p.Config().Portal.S3Bucket,
+		S3Prefix:      p.Config().Portal.S3Prefix,
 		PublicBaseURL: p.Config().Portal.PublicBaseURL,
 		// The managed resources an asset's content references (#1474). The
 		// reader and blob client are the resource layer's, not the portal's:

@@ -191,6 +191,10 @@ const parkExponentCap = 16
 // rows (pending / running) are never purged regardless of age.
 const DefaultRetentionDays = 14
 
+// DefaultFailedRetentionDays is how long a failure nobody resolved is kept
+// (#1904).
+const DefaultFailedRetentionDays = 90
+
 // RetentionInterval is how often the retainer sweeps for expired
 // terminal rows. The purge is cheap and the table is slow-growing
 // relative to the lease/claim churn, so an hourly sweep keeps history

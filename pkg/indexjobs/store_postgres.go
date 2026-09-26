@@ -484,6 +484,50 @@ func (s *PostgresStore) PurgeTerminal(ctx context.Context, retentionDays int) (i
 	}
 }
 
+// PurgeUnresolvedFailed deletes failed jobs nobody resolved that finished more
+// than retentionDays ago (#1904). PurgeTerminal keeps them for the triage
+// surface; past this age a failure is either long since superseded by a
+// newer job for its unit or belongs to a source that no longer exists.
+// Batched like PurgeTerminal, and a deadline between batches is a clean
+// partial pass.
+func (s *PostgresStore) PurgeUnresolvedFailed(ctx context.Context, retentionDays int) (int, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	const q = `
+		DELETE FROM index_jobs
+		 WHERE id IN (
+		     SELECT id FROM index_jobs
+		      WHERE status = 'failed' AND resolved_at IS NULL
+		        AND completed_at IS NOT NULL AND completed_at < $1
+		      ORDER BY completed_at
+		      LIMIT $2
+		 )
+	`
+	total := 0
+	for ctx.Err() == nil {
+		res, err := s.db.ExecContext(ctx, q, cutoff, purgeBatchSize)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return total, nil // deadline during a batch; committed work stands
+			default:
+				return total, fmt.Errorf("indexjobs: purge unresolved failures: %w", err)
+			}
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, fmt.Errorf("indexjobs: purge unresolved failures rows-affected: %w", err)
+		}
+		total += int(n)
+		if n < purgeBatchSize {
+			return total, nil
+		}
+	}
+	return total, nil
+}
+
 // CancelPending deletes the unit's pending job rows. Running rows are
 // deliberately not touched (a worker holds their lease; the
 // ErrSourceGone path resolves them when LoadItems notices the source

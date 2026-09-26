@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
+	"github.com/txn2/mcp-data-platform/internal/platform/retention"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
@@ -68,13 +69,15 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 
 	lease, batch := p.resolveEmbedJobsTuning()
 	handle := indexqueue.New(indexqueue.Config{
-		DB:                p.db,
-		Embedder:          p.workerEmbedder(),
-		ModelName:         embedding.ModelName(p.embeddingProv),
-		LeaseDuration:     lease,
-		BatchSize:         batch,
-		Workers:           p.config.APIGateway.EmbedJobs.Workers,
-		RetentionDays:     p.config.APIGateway.EmbedJobs.retentionDays(),
+		DB:            p.db,
+		Embedder:      p.workerEmbedder(),
+		ModelName:     embedding.ModelName(p.embeddingProv),
+		LeaseDuration: lease,
+		BatchSize:     batch,
+		Workers:       p.config.APIGateway.EmbedJobs.Workers,
+		RetentionDays: p.config.APIGateway.EmbedJobs.retentionDays(),
+		FailedRetentionDays: retention.Days(p.config.APIGateway.EmbedJobs.FailedRetentionDays,
+			indexjobs.DefaultFailedRetentionDays),
 		DSN:               p.config.Database.DSN,
 		CatalogStore:      p.APIGatewayCatalogStore(),
 		ToolkitRegistry:   p.toolkitRegistry,

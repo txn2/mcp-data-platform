@@ -87,8 +87,23 @@ func TestPersistRunAsset_Failures(t *testing.T) {
 	_, _, err := PersistRunAsset(context.Background(), "k", "a", b.write("a"))
 	require.ErrorContains(t, err, "saving the asset record")
 
+	// Nothing was inserted, so no row names the uploaded object.
+	assert.ErrorIs(t, err, ErrObjectUnreferenced)
+
+	// The first write inserted the asset, which names the object, before
+	// its version failed.
 	b = newBook()
 	b.versionErr = errors.New("db down")
 	_, _, err = PersistRunAsset(context.Background(), "k", "a", b.write("a"))
 	require.ErrorContains(t, err, "recording the asset version")
+	assert.NotErrorIs(t, err, ErrObjectUnreferenced)
+
+	// A later run's version failed on the existing asset: its object is
+	// named by nothing.
+	b = newBook()
+	b.byKey["k"] = "first"
+	b.versionErr = errors.New("db down")
+	_, _, err = PersistRunAsset(context.Background(), "k", "a", b.write("a"))
+	require.ErrorContains(t, err, "recording the asset version")
+	assert.ErrorIs(t, err, ErrObjectUnreferenced)
 }

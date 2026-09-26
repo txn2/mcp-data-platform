@@ -168,9 +168,12 @@ type Deps struct {
 	OnAssetRevised func(ctx context.Context, id string, version int) []string
 	// PublicBaseURL is the deployment's externally reachable base URL, used to
 	// build the absolute reference URLs rewritten into served content.
-	PublicBaseURL     string
-	S3Client          portal.S3Client
-	S3Bucket          string
+	PublicBaseURL string
+	S3Client      portal.S3Client
+	S3Bucket      string
+	// S3Prefix is portal.s3_prefix, the prefix asset objects the admin routes
+	// write are stored under (#1903).
+	S3Prefix          string
 	ConnectionStore   ConnectionStore
 	ConnectionSources *platform.ConnectionSourceMap
 	ToolkitsConfig    map[string]any

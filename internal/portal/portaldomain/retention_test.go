@@ -117,13 +117,37 @@ func TestAssetStoredThumbnailKey(t *testing.T) {
 // recorded on the row (#1789), so the renderer that writes it and the route
 // that serves it have to derive the same key.
 func TestCollectionThumbnailKey(t *testing.T) {
-	for _, tc := range []struct{ variant, want string }{
-		{ThumbnailVariantLight, "portal/collections/c1/thumbnail.png"},
-		{"", "portal/collections/c1/thumbnail.png"},
-		{ThumbnailVariantDark, "portal/collections/c1/thumbnail_dark.png"},
+	for _, tc := range []struct{ prefix, variant, want string }{
+		{"artifacts/", ThumbnailVariantLight, "artifacts/collections/c1/thumbnail.png"},
+		{"artifacts", "", "artifacts/collections/c1/thumbnail.png"},
+		{"custom/", ThumbnailVariantDark, "custom/collections/c1/thumbnail_dark.png"},
+		{"", ThumbnailVariantLight, "collections/c1/thumbnail.png"},
 	} {
-		if got := CollectionThumbnailKey("c1", tc.variant); got != tc.want {
-			t.Errorf("CollectionThumbnailKey(c1, %q) = %q, want %q", tc.variant, got, tc.want)
+		if got := CollectionThumbnailKey(tc.prefix, "c1", tc.variant); got != tc.want {
+			t.Errorf("CollectionThumbnailKey(%q, c1, %q) = %q, want %q", tc.prefix, tc.variant, got, tc.want)
+		}
+	}
+	// The dark mosaic is found beside whatever light key the row records,
+	// including one stored under the layout before the prefix (#1903).
+	for light, want := range map[string]string{
+		"artifacts/collections/c1/thumbnail.png": "artifacts/collections/c1/thumbnail_dark.png",
+		"portal/collections/c1/thumbnail.png":    "portal/collections/c1/thumbnail_dark.png",
+	} {
+		if got := CollectionDarkThumbnailKey(light); got != want {
+			t.Errorf("CollectionDarkThumbnailKey(%q) = %q, want %q", light, got, want)
+		}
+	}
+}
+
+// Every asset content key is built under the configured prefix (#1903).
+func TestAssetContentKey(t *testing.T) {
+	for _, tc := range []struct{ prefix, version, ext, want string }{
+		{"artifacts/", "v1", ".csv", "artifacts/u1/a1/v1/content.csv"},
+		{"custom", "", ".md", "custom/u1/a1/content.md"},
+		{"", "", "", "u1/a1/content"},
+	} {
+		if got := AssetContentKey(tc.prefix, "u1", "a1", tc.version, tc.ext); got != tc.want {
+			t.Errorf("AssetContentKey(%q, u1, a1, %q, %q) = %q, want %q", tc.prefix, tc.version, tc.ext, got, tc.want)
 		}
 	}
 }

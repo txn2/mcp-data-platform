@@ -6,9 +6,9 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/graphqlwiring"
-	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
+	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
+	"github.com/txn2/mcp-data-platform/internal/platform/utilconn"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 )
 
 // slog keys shared by the connection reloaders.
@@ -60,106 +60,72 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 	return ReloadUpsert
 }
 
-// This file holds the reload re-materialization handlers and the public
-// reload-publish surface, both of which stay on Platform: the handlers reach
-// into Platform-owned state (connection store, toolkit registry, persona
-// registry, API-key store) and the Publish* methods are called by admin
-// handlers. The dedicated cross-replica reload BUS (its broadcaster channel and
-// the publish/subscribe machinery) lives in internal/platform/sessionsync and is
-// reached through the sessions handle; the handlers are injected into it at
-// construction (issue #843).
+// The reload handlers here read Platform-owned state and apply it through
+// internal/platform/storeresync; the bus itself is internal/platform/sessionsync,
+// which the handlers are injected into (#843).
 
-// reloadConnectionLocal re-materializes one connection on this replica in
-// response to a peer's reload broadcast. op carries the peer's intent so a
-// deletion is applied without a store read.
-//
-//   - ReloadDelete: remove the connection from every matching toolkit. No store
-//     read happens, so a transient store failure can never leave a deleted
-//     connection live on this replica. A failed removal is logged at WARN, not
-//     ERROR: removing an already-absent connection is not state-corrupting.
-//   - ReloadSchema: install the schema the schema store holds on every graphql
-//     toolkit holding the connection. The connection's configuration did not
-//     change, so nothing is rebuilt and the endpoint is not read.
-//   - ReloadUpsert (and any legacy event without an op): read the store and
-//     decide. The read outcome drives a three-way branch so a transient read
-//     failure never silently drops a live connection (issue #885):
-//   - read failed (not a not-found): log at ERROR and leave the live config
-//     in place. Removing here would drop a healthy connection over a
-//     database blip; a later upsert event re-materializes it.
-//   - not found (raced with a concurrent delete): remove it.
-//   - present: adopt the stored config, so the changed config takes effect
-//     with the state the saving replica stored (#1714).
-//
-// Neither removal applies to a connection this replica's config file declares:
-// an absent row is not evidence it should stop serving, because the file is
-// what it runs on (#1400). An upsert that finds a row still applies to one.
+// reloadConnectionLocal applies a peer's reload broadcast to one connection
+// on this replica. op carries the peer's intent: a delete is applied without a
+// store read (storeresync.Removed), a schema change installs what the schema
+// store holds without rebuilding anything, and an upsert, or a legacy event
+// without an op, reads the store and decides (storeresync.Upserted, #885).
+// Neither removal applies to a connection this replica's file declares (#1400).
 func (p *Platform) reloadConnectionLocal(kind, name, op string) {
-	rec := connreconcile.New(p.toolkitRegistry)
 	switch parseConnectionReloadOp(op) {
 	case ReloadDelete:
-		p.removeReloadedConnection(rec, kind, name, "reload-bus: failed to remove deleted connection from toolkit")
+		storeresync.Removed(p.toolkitRegistry, p.config, kind, name, "reload-bus: failed to remove deleted connection from toolkit")
 		return
 	case ReloadSchema:
 		graphqlwiring.ReloadStoredSchema(context.Background(), p.toolkitRegistry, name)
 		return
 	case ReloadUpsert:
 	}
-
 	inst, err := p.connectionStore.Get(context.Background(), kind, name)
-	switch {
-	case err != nil && !errors.Is(err, ErrConnectionNotFound):
-		slog.Error("reload-bus: failed to read connection from store; keeping live config",
-			logKeyKind, kind, logKeyName, name, logKeyError, err)
-	case inst == nil:
-		p.removeReloadedConnection(rec, kind, name, "reload-bus: failed to remove connection from toolkit")
-	default:
-		// A failure here leaves a toolkit out of sync with the store, so it is
-		// logged at ERROR; the reconciler still updates the other toolkits.
-		for _, f := range rec.Adopt(kind, name, inst.Config) {
-			slog.Error("reload-bus: failed to reconcile connection onto toolkit",
-				logKeyKind, kind, logKeyName, name, "phase", f.Phase.String(), logKeyError, f.Err)
-		}
+	if errors.Is(err, ErrConnectionNotFound) {
+		inst, err = nil, nil
 	}
+	read := storeresync.Read{Found: inst != nil, Err: err}
+	if inst != nil {
+		read.Config = inst.Config
+	}
+	storeresync.Upserted(p.toolkitRegistry, p.config, kind, name, read)
 }
 
-// removeReloadedConnection drops a connection the reload bus says is gone from
-// this replica's toolkits, unless the config file declares it. A peer that
-// predates the delete refusal, or one racing a delete, can still broadcast the
-// removal of such a connection; honoring it would take it out of service here
-// until a restart put it back, and the file is unaffected by anything the store
-// did. A failed removal is logged at WARN, not ERROR: removing an
-// already-absent connection is not state-corrupting.
-func (p *Platform) removeReloadedConnection(rec *connreconcile.Reconciler, kind, name, msg string) {
-	if p.config.DeclaresConnection(kind, name) {
-		slog.Info("reload-bus: keeping a connection the configuration file declares",
-			logKeyKind, kind, logKeyName, name)
-		return
-	}
-	for _, f := range rec.Remove(kind, name) {
-		slog.Warn(msg, logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
-	}
-}
-
-// reloadCatalogLocal rebuilds every connection that mounts the given
-// catalog on this replica. A catalog serves both kinds that reference
-// one: an api connection takes its OpenAPI specs from it, and a graphql
-// connection the GraphQL schema it holds (#1745).
+// reloadCatalogLocal rebuilds every connection mounting the catalog here.
 func (p *Platform) reloadCatalogLocal(catalogID string) {
-	for _, tk := range p.toolkitRegistry.All() {
-		switch kit := tk.(type) {
-		case *apigatewaykit.Toolkit:
-			kit.ReloadConnectionsByCatalog(catalogID)
-		case *graphqlkit.Toolkit:
-			kit.ReloadConnectionsByCatalog(context.Background(), catalogID)
-		}
-	}
+	storeresync.Catalog(p.toolkitRegistry.All(), catalogID)
 }
 
-// reloadPersonaLocal reconciles the persona registry from the store on
-// this replica (re-registers/updates DB personas). Used by the reload
-// subscriber when a peer changes a persona.
+// reloadPersonaLocal reconciles the persona registry with the store on this
+// replica. Used by the reload subscriber when a peer changes a persona.
 func (p *Platform) reloadPersonaLocal() {
 	p.loadDBPersonas()
+}
+
+// resyncFromStore re-reads what the reload bus carries, as a restart would,
+// when its LISTEN connection comes back (#1902). A free function, for the
+// god-object budget.
+func resyncFromStore(p *Platform) {
+	defer p.reloadAPIKeyLocal()
+	defer p.reloadPersonaLocal()
+	if p.connectionStore == nil || !p.connectionStore.Persistent() {
+		return
+	}
+	instances, err := p.connectionStore.List(context.Background())
+	if err != nil {
+		slog.Error("reload-bus: failed to list connections for resync; keeping live config", logKeyError, err)
+		return
+	}
+	stored := make([]storeresync.StoredConnection, 0, len(instances))
+	for _, inst := range instances {
+		stored = append(stored, storeresync.StoredConnection{Kind: inst.Kind, Name: inst.Name, Config: inst.Config})
+	}
+	storeresync.Connections(stored, p.toolkitRegistry, p.config, platformRegisteredConnection)
+}
+
+// platformRegisteredConnection reports a connection the platform registers.
+func platformRegisteredConnection(kind, name string) bool {
+	return kind == apigatewaykit.Kind && (name == utilconn.ConnectionName || name == adminSelfConnectionName)
 }
 
 // reloadAPIKeyLocal re-syncs the in-memory DB-loaded API keys from the store

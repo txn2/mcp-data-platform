@@ -67,9 +67,16 @@ func (f *fakeExportVersionStore) CreateExportVersion(_ context.Context, ver Expo
 }
 
 type fakeExportS3Client struct {
-	puts    []s3Put
-	putErr  error
-	lastKey string
+	puts      []s3Put
+	putErr    error
+	lastKey   string
+	deleted   []string
+	deleteErr error
+}
+
+func (f *fakeExportS3Client) DeleteObject(_ context.Context, _, key string) error {
+	f.deleted = append(f.deleted, key)
+	return f.deleteErr
 }
 
 type s3Put struct {

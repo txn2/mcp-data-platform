@@ -24,6 +24,7 @@ type WindowStore interface {
 	MarkUnregistered(ctx context.Context, h whstore.Window) error
 	MarkExpired(ctx context.Context, h whstore.Window) error
 	PruneCounts(ctx context.Context, before time.Time) error
+	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
 // Sources reads source definitions. whsource.Store satisfies it.

@@ -606,6 +606,8 @@ portal:
   public_base_url: "https://portal.example.com"   # Base URL for portal links
   max_content_size: 10485760    # Max asset size in bytes (default: 10MB)
   max_versions: 100             # Versions an asset keeps by default (0 = unlimited)
+  deleted_retention_days: 30    # Days a deleted asset/collection/thread/page is kept before it is purged
+  orphaned_producer_retention_days: 90  # Days a producer record outlives its file
   implementor:                                    # Optional implementor brand (left zone of public viewer header)
     name: "ACME Corp"
     logo: "https://acme.com/logo.png"
@@ -642,9 +644,11 @@ portal:
 | `logo_dark` | string | - | URL to logo for dark theme (overrides `logo`) |
 | `s3_connection` | string | - | Name of the S3 toolkit instance to use for asset storage |
 | `s3_bucket` | string | `portal-assets` | S3 bucket for storing asset content |
-| `s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
+| `s3_prefix` | string | `artifacts/` | Key prefix every asset object is written under: content and versions from the portal, the admin console, the asset tools, the exports and script outputs, and collection mosaics (under `<prefix>collections/`). A bucket policy or lifecycle rule scoped to the prefix covers all of them. An object written before a change of prefix keeps the key its row recorded and stays where it is; releases before #1903 wrote portal and admin edits and collection mosaics under `portal/`, and those objects are still served from there |
 | `public_base_url` | string | - | Base URL for portal links returned in `save_asset` responses |
 | `max_content_size` | int | `10485760` | Maximum asset size in bytes (10 MB) |
+| `deleted_retention_days` | int | `30` | How long a deleted asset, collection, feedback thread or knowledge page is kept before it is removed for good, with every version object, tile and collection mosaic it names. A delete only hides the item until then. `0` uses the default; a negative value keeps deleted items forever. A hidden built-in knowledge page is never removed. See [Data Retention](data-retention.md) |
+| `orphaned_producer_retention_days` | int | `90` | How long the record of what produced an asset or managed resource outlives the file itself. `0` uses the default; a negative value keeps them |
 | `max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written, not when this setting changes. An asset's owner can override it — see [Asset version retention](../portal/assets.md#version-retention) |
 | `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer, the public collection viewer, the guest share landing page, and the access-denied page. Independent of `implementor.logo`: either one alone renders the implementor block |
 | `implementor.logo` | string | - | URL to the implementor logo, in any image format. The public viewer and the share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it. Renders with or without `implementor.name` |
@@ -1411,6 +1415,7 @@ memory:
     enabled: true
     interval: 15m
     batch_size: 50
+  archived_retention_days: 90
 ```
 
 | Field | Type | Default | Description |
@@ -1424,6 +1429,7 @@ memory:
 | `staleness.enabled` | bool | `false` | Enable background staleness watcher |
 | `staleness.interval` | duration | `15m` | Staleness check interval |
 | `staleness.batch_size` | int | `50` | Records per check cycle |
+| `archived_retention_days` | int | `90` | How long a deleted (archived) memory record is kept before it is removed. Recall never reads an archived record. `0` uses the default; a negative value keeps archived records forever. See [Data Retention](data-retention.md) |
 
 !!! note "Prerequisites"
     Memory requires `database.dsn` to be configured and the pgvector PostgreSQL extension installed. Memory tools are opt-in per persona (`memory_*` in `tools.allow`).
@@ -1443,6 +1449,7 @@ apigateway:
     lease_duration: 10m
     batch_size: 32
     retention_days: 14
+    failed_retention_days: 90
 ```
 
 | Field | Type | Default | Description |
@@ -1452,6 +1459,7 @@ apigateway:
 | `embed_jobs.lease_duration` | duration | `10m` | Time a claim stamps on a job; the worker heartbeat re-stamps it at `lease_duration / 3` cadence so a long embed pass is not reaped mid-flight. Must be greater than `embed_timeout`. Caps "pod went silent", not "embed batch is slow". |
 | `embed_jobs.batch_size` | int | `32` | Texts per upstream EmbedBatch call. Sets the *starting* chunk size only: when a chunk exceeds `embed_timeout`, the worker automatically halves it and retries the sub-chunks down to a floor of one text, so a batch too large for a slow (e.g. CPU-only) embedder converges to a size that completes and persists partial progress instead of failing the whole unit at a fixed size. Non-timeout provider errors (5xx, malformed response) still fail fast without subdividing. Lower this to skip the initial shrink cycles on a known-slow embedder; raise it on GPU embedders where per-call overhead dominates. |
 | `embed_jobs.retention_days` | int | `14` | Age past which finished `index_jobs` history is purged by the background retainer: succeeded rows and failed rows that were resolved (superseded by a later success or operator-dismissed). The reconciler records one row per unit per sweep, so this keeps the table bounded while preserving a recent window for the admin Indexing dashboard's throughput, latency, and job-log views. Open failures (`failed` with no `resolved_at`) and in-flight jobs (`pending` / `running`) are never purged regardless of age. `0` uses the default (14); a negative value disables retention (history grows unbounded, for externally-managed cleanup). |
+| `embed_jobs.failed_retention_days` | int | `90` | Age past which a failed job nobody resolved is purged. `retention_days` leaves those for the failure-triage surface; past this age one has been superseded by a newer job for its unit, or belongs to a source that no longer exists. `0` uses the default; a negative value keeps them until they are resolved. |
 
 ## MCP Apps Configuration
 
@@ -1729,6 +1737,7 @@ webhooks:
     batch: 4
     retry_backoff: 1m
     retention_every: 10m
+    expired_window_retention_days: 90
 ```
 
 | Field | Type | Default | Description |
@@ -1743,8 +1752,9 @@ webhooks:
 | `compactor.batch` | int | `4` | Windows one pass claims. |
 | `compactor.retry_backoff` | duration | `1m` | How long a failed window is held back, times its attempts, at most an hour. |
 | `compactor.retention_every` | duration | `10m` | How often retention runs. |
+| `compactor.expired_window_retention_days` | int | `90` | How long the record of an expired window is kept once its partition, file and raw segments are gone. `0` uses the default; a negative value keeps them for as long as their source exists. |
 
-A negative value for any of these is refused at startup. A source's table needs
+A negative value for any of the durations and `batch` is refused at startup. A source's table needs
 a scratch connection whose catalog meets the requirements on
 [Scratch Catalog](scratch-catalog.md).
 

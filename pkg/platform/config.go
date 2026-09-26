@@ -143,6 +143,7 @@ type Config struct {
 	Notifications        NotificationsConfig `yaml:"notifications"`
 	Scripts              ScriptsConfig       `yaml:"scripts"`
 	Calls                CallsConfig         `yaml:"calls"`
+	Retention            RetentionConfig     `yaml:"retention"`
 	SessionGate          SessionGateConfig   `yaml:"session_gate"`
 	Purpose              PurposeConfig       `yaml:"purpose"`
 	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
@@ -350,6 +351,9 @@ type MemoryConfig struct {
 	Enabled   *bool           `yaml:"enabled"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
 	Staleness StalenessConfig `yaml:"staleness"`
+	// ArchivedRetentionDays: days an archived record is kept (#1904); 0 = 90,
+	// negative = forever.
+	ArchivedRetentionDays int `yaml:"archived_retention_days"`
 }
 
 // EmbeddingConfig configures the embedding provider for vector search.
@@ -409,6 +413,12 @@ type PortalConfig struct {
 	ReplyTo        string                `yaml:"reply_to"`        // optional Reply-To address applied to all outgoing email; unset leaves the header off
 	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
 	Export         PortalExportConfig    `yaml:"export"` // trino_export configuration
+	// DeletedRetentionDays: days a deleted asset, collection, thread or page is
+	// kept before it is purged with its objects (#1904); 0 = 30, negative = forever.
+	DeletedRetentionDays int `yaml:"deleted_retention_days"`
+	// OrphanedProducerRetentionDays: days a producer record outlives its file
+	// (#1904); 0 = 90, negative = forever.
+	OrphanedProducerRetentionDays int `yaml:"orphaned_producer_retention_days"`
 }
 
 // PortalExportConfig configures the trino_export tool.
@@ -1754,6 +1764,16 @@ type APIGatewayEmbedJobsConfig struct {
 	// unbounded), for deployments that prefer to manage cleanup
 	// externally. See #523.
 	RetentionDays int `yaml:"retention_days"`
+
+	// FailedRetentionDays: days an unresolved failed job is kept (#1904), which
+	// RetentionDays leaves for triage; 0 = 90, negative = until resolved.
+	FailedRetentionDays int `yaml:"failed_retention_days"`
+}
+
+// RetentionConfig paces the #1904 sweeps; how long each keeps rows is set
+// beside what it keeps (portal.deleted_retention_days and the others).
+type RetentionConfig struct {
+	Every time.Duration `yaml:"every"` // how often they run; zero or negative = a day
 }
 
 // isExplicitlyDisabled returns true only when the pointer is non-nil and false.

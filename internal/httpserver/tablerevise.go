@@ -5,11 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path"
 
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -199,7 +199,7 @@ func (a *assetReviser) Revise(
 	}
 
 	versionID := uuid.New().String()
-	key := path.Join(a.prefix, asset.OwnerID, asset.ID, versionID, "content"+portal.ExtensionForContentType(contenttype.CSV))
+	key := portaldomain.AssetContentKey(a.prefix, asset.OwnerID, asset.ID, versionID, portal.ExtensionForContentType(contenttype.CSV))
 	size, err := a.objects.PutObjectStream(ctx, a.bucket, key, bytes.NewReader(content), contenttype.CSV)
 	if err != nil {
 		return tableregister.Revised{}, fmt.Errorf("storing the corrected content: %w", err)

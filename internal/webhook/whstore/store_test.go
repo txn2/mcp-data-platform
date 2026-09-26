@@ -261,3 +261,16 @@ func TestResourceIDs(t *testing.T) {
 	_, err = st.ResourceIDs(ctx, "esp")
 	assert.Error(t, err)
 }
+
+func TestDeleteExpired(t *testing.T) {
+	st, mock := newMock(t)
+	ctx := context.Background()
+	before := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectExec(`DELETE FROM webhook_windows`).WithArgs(before).WillReturnResult(sqlmock.NewResult(0, 4))
+	n, err := st.DeleteExpired(ctx, before)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), n)
+	mock.ExpectExec(`DELETE FROM webhook_windows`).WillReturnError(errDown)
+	_, err = st.DeleteExpired(ctx, before)
+	assert.Error(t, err)
+}

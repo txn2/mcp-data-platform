@@ -597,6 +597,11 @@ webhooks:
     grace: 5s
     retention_every: 30s
 
+# Retention sweeps (#1904) run every 30 seconds rather than once a day, so a
+# deleted item backdated past its retention is seen removed within a minute.
+retention:
+  every: 30s
+
 # Observability: the PromQL query proxy that powers the admin Dashboard's
 # "API Gateway" activity tab. Points at the dev Prometheus (docker-compose
 # service "prometheus", mapped to host :9091), which scrapes the platform's

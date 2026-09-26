@@ -74,6 +74,11 @@ type ReloadHandlers struct {
 	Catalog    func(catalogID string)
 	Persona    func()
 	APIKey     func()
+	// Resync re-reads every piece of state the bus carries (connections,
+	// catalogs, personas, API keys) from the database, as a restart would. It
+	// runs when the reload channel's LISTEN connection comes back, because
+	// the events peers sent while it was down are lost (#1902).
+	Resync func()
 }
 
 // Handle owns the assembled session / cross-replica-sync layer: the session
@@ -225,7 +230,8 @@ func buildReloadBroadcaster(db *sql.DB, cfg Config) session.Broadcaster {
 			channel = sessionpostgres.DefaultNotifyChannel
 		}
 		reloadChannel := channel + "_reload"
-		pb, err := sessionpostgres.NewBroadcaster(cfg.DSN, db, reloadChannel, slog.Default())
+		pb, err := sessionpostgres.NewBroadcaster(cfg.DSN, db, reloadChannel, slog.Default(),
+			sessionpostgres.WithReconnectEvent(reloadMethodResync))
 		if err == nil {
 			slog.Info("reload-bus: postgres LISTEN/NOTIFY", "channel", reloadChannel)
 			return pb
