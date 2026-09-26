@@ -27,6 +27,7 @@ package upstreamauth
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -150,6 +151,12 @@ const (
 	cfgKeyCallTimeout     = "call_timeout"
 
 	cfgKeyMaxResponseBytes = "max_response_bytes"
+
+	// cfgKeyRetiredMaxInlineBytes was a per-connection context budget
+	// (#1587, #1606). The budget is a property of the MCP response to a
+	// model and is configured once for the platform (#1878); a stored
+	// value is read only to say so.
+	cfgKeyRetiredMaxInlineBytes = "max_inline_bytes"
 
 	// cfgKeyStaticHeaders holds operator-configured headers appended to
 	// every outbound request. Required for upstreams that demand BOTH
@@ -355,6 +362,11 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 	c.ConnectTimeout = cfgmap.Duration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = cfgmap.Duration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.MaxResponseBytes = cfgmap.Int64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
+	if _, ok := cfg[cfgKeyRetiredMaxInlineBytes]; ok {
+		slog.Warn("upstreamauth: max_inline_bytes on a connection has no effect; "+
+			"the context budget on a model's tool results is tools.result_budget in the platform configuration",
+			"kind", kind)
+	}
 	if isOAuthAuthMode(c.AuthMode) {
 		// Delegate OAuth parsing to the shared connoauth.ParseConfig
 		// (canonical oauth_* keys, legacy oauth2_* fallback, grant

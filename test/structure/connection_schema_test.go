@@ -76,6 +76,9 @@ var notConfigKeys = map[string]bool{
 	"oauth2_grant": true, "oauth2_token_url": true, "oauth2_authorization_url": true,
 	"oauth2_client_id": true, "oauth2_client_secret": true, "oauth2_scope": true,
 	"oauth2_prompt": true, "oauth2_endpoint_auth_style": true,
+	// Retired per-connection context budget (#1878): read only to warn that a
+	// stored value has no effect. The budget is tools.result_budget.
+	"max_inline_bytes": true,
 }
 
 // TestConnectionConfigSchemasAreComplete fails when a kind's parser reads a

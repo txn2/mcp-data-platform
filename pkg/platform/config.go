@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/personacfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
@@ -690,11 +691,13 @@ type (
 
 // ToolsConfig configures global tool visibility filtering for tools/list responses.
 // This is a visibility filter to reduce token usage — not a security boundary.
-// Persona auth continues to gate tools/call independently.
+// Persona auth continues to gate tools/call independently. ResultBudget is
+// the context budget on a model's tool results (#1878).
 type ToolsConfig struct {
-	Allow                []string          `yaml:"allow"`
-	Deny                 []string          `yaml:"deny"`
-	DescriptionOverrides map[string]string `yaml:"description_overrides"`
+	Allow                []string            `yaml:"allow"`
+	Deny                 []string            `yaml:"deny"`
+	DescriptionOverrides map[string]string   `yaml:"description_overrides"`
+	ResultBudget         resultbudget.Config `yaml:"result_budget"`
 }
 
 // SemanticConfig configures the semantic layer.
@@ -2051,7 +2054,7 @@ func (c *Config) Validate() error {
 	_, admission := c.Scripts.Worker.Admission()
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
-	for _, err := range []error{admission, runBudget, thumbs, c.Webhooks.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, c.Webhooks.Validate(), c.Tools.ResultBudget.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

@@ -17,7 +17,6 @@ const ownConfigSchemaProperties = `
     "schema_validation": {"type": "string", "description": "How strictly a document is checked against the connection's schema before it is sent. Defaults to strict."},
     "max_query_depth": {"type": "integer", "description": "Deepest selection a document may nest."},
     "namespace_depth": {"type": "integer", "description": "How far the operation index descends a namespaced schema when building dotted operation ids."},
-    "max_inline_bytes": {"type": "integer", "description": "How much of a response is returned through the model before the call reports it truncated."},
     "read_only": {"type": "boolean", "description": "Refuse every mutation document on this connection, for every persona."},
     "description": {"type": "string", "description": "What this connection is, as list_connections and search report it."}`
 

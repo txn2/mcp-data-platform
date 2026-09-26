@@ -699,16 +699,16 @@ func TestInvokeWalk_MergesInline(t *testing.T) {
 	}
 }
 
-// TestInvokeWalk_OverCapStopsAndSteersToExport: past max_response_bytes the
-// inline walk returns the pages that fit, flags truncation, steers to
-// api_export, and hands back where to resume.
+// TestInvokeWalk_OverCapStopsAndSteersToExport: past a model client's
+// context budget the inline walk returns the pages that fit, flags
+// truncation, steers to api_export, and hands back where to resume.
 func TestInvokeWalk_OverCapStopsAndSteersToExport(t *testing.T) {
 	up := (&pagedUpstream{t: t, pages: 50, perPage: 20, mode: "cursor"}).start()
 	tk := walkInvokeToolkit(t, up, true)
-	res, out := invokeWalkCall(t, tk, InvokeInput{
+	res, out := modelCall(t, tk, InvokeInput{
 		Connection: "crm", Method: "GET", Path: "/v1/x",
 		Paginate: &PaginateInput{Items: "data", CursorParam: "cursor"},
-	})
+	}, 4096)
 	if res.IsError {
 		t.Fatalf("invoke failed: %s", resultText(t, res))
 	}
@@ -736,12 +736,36 @@ func TestInvokeWalk_OverCapStopsAndSteersToExport(t *testing.T) {
 
 	// Without api_export on the deployment the hint is cleared.
 	tk2 := walkInvokeToolkit(t, up, false)
-	_, out2 := invokeWalkCall(t, tk2, InvokeInput{
+	_, out2 := modelCall(t, tk2, InvokeInput{
 		Connection: "crm", Method: "GET", Path: "/v1/x",
 		Paginate: &PaginateInput{Items: "data", CursorParam: "cursor"},
-	})
+	}, 4096)
 	if out2.Hint != "" || out2.ExportArguments != nil {
 		t.Errorf("hint = %q export_arguments = %+v with no api_export registered; want neither", out2.Hint, out2.ExportArguments)
+	}
+}
+
+// TestInvokeWalk_ANonModelCallerMergesUnderTheReadCap: a REST or script
+// walk carries no context budget, so it merges under the connection's
+// max_response_bytes and stops there with whole pages and the signal to
+// resume from, not a context-budget steer (#1878).
+func TestInvokeWalk_ANonModelCallerMergesUnderTheReadCap(t *testing.T) {
+	up := (&pagedUpstream{t: t, pages: 50, perPage: 20, mode: "cursor"}).start()
+	tk := walkInvokeToolkit(t, up, true)
+	in := InvokeInput{
+		Connection: "crm", Method: "GET", Path: "/v1/x",
+		Paginate: &PaginateInput{Items: "data", CursorParam: "cursor"},
+	}
+	_, model := modelCall(t, tk, in, 2048)
+	_, rest := invokeWalkCall(t, tk, in)
+	if rest.StoppedBy != "max_bytes" || rest.Pagination == nil {
+		t.Fatalf("stats = %+v pagination = %+v; want the walk stopped at the read cap with a resume signal", rest.WalkStats, rest.Pagination)
+	}
+	if rest.ItemsMerged <= model.ItemsMerged {
+		t.Errorf("items merged: rest %d, model %d; want the read cap to admit more than a 2048 budget", rest.ItemsMerged, model.ItemsMerged)
+	}
+	if strings.Contains(rest.Hint, "context budget") {
+		t.Errorf("hint = %q; want no context-budget steer for a caller that has none", rest.Hint)
 	}
 }
 

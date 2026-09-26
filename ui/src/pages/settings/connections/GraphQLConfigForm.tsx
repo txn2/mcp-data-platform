@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { HelpDialog } from "@/components/HelpDialog";
-import { ApiGatewayAuthHelp, ApiGatewayTLSHelp } from "../ApiGatewayHelpContent";
+import {
+  ApiGatewayAuthHelp,
+  ApiGatewayTLSHelp,
+} from "../ApiGatewayHelpContent";
 import { ApiGatewayAuthFields } from "./ApiGatewayAuthFields";
 import { APICatalogPicker, catalogsHref } from "./ApiCatalogPicker";
 import {
@@ -16,7 +19,10 @@ import { SensitiveKeyValueEditor } from "./keyvalue";
 import { TLSMaterialEditor } from "./TlsMaterialEditor";
 
 const SCHEMA_VALIDATION = [
-  { value: "strict", label: "Strict (default) — refuse a document the schema does not admit" },
+  {
+    value: "strict",
+    label: "Strict (default) — refuse a document the schema does not admit",
+  },
   { value: "warn", label: "Warn — send it anyway and report the violations" },
 ];
 
@@ -63,11 +69,11 @@ export function GraphQLConfigForm({
 
       <ConfigGroup title="Static headers">
         <p className="text-xs text-muted-foreground">
-          Headers added to every outbound request, in addition to whatever
-          Auth mode contributes. This is where an upstream&apos;s tenant or
-          folder routing goes — a vendor subscription key, or an ERP&apos;s
-          folder header. The model never sets or overrides these. Values are
-          encrypted at rest; existing values are masked.
+          Headers added to every outbound request, in addition to whatever Auth
+          mode contributes. This is where an upstream&apos;s tenant or folder
+          routing goes — a vendor subscription key, or an ERP&apos;s folder
+          header. The model never sets or overrides these. Values are encrypted
+          at rest; existing values are masked.
         </p>
         <SensitiveKeyValueEditor
           entries={asStringMap(config.static_headers)}
@@ -122,7 +128,9 @@ export function GraphQLConfigForm({
             type="number"
             value={String(config.max_query_depth ?? "")}
             onChange={(v) =>
-              onChange(update(config, "max_query_depth", v ? Number(v) : undefined))
+              onChange(
+                update(config, "max_query_depth", v ? Number(v) : undefined),
+              )
             }
             placeholder="15"
           />
@@ -132,7 +140,9 @@ export function GraphQLConfigForm({
             type="number"
             value={String(config.namespace_depth ?? "")}
             onChange={(v) =>
-              onChange(update(config, "namespace_depth", v ? Number(v) : undefined))
+              onChange(
+                update(config, "namespace_depth", v ? Number(v) : undefined),
+              )
             }
             placeholder="3"
           />
@@ -142,7 +152,9 @@ export function GraphQLConfigForm({
           label="Read only"
           help="Refuse every mutation document on this connection, for every persona. Set it here once when an endpoint is mounted for reporting, rather than writing the same deny rule into every persona."
           checked={Boolean(config.read_only)}
-          onChange={(v) => onChange(update(config, "read_only", v || undefined))}
+          onChange={(v) =>
+            onChange(update(config, "read_only", v || undefined))
+          }
         />
       </ConfigGroup>
 
@@ -167,24 +179,15 @@ export function GraphQLConfigForm({
 
       <ConfigField
         label="Max response bytes"
-        help="Upstream read cap: the most the platform reads of any one response. A transfer limit, not what reaches the model. Default 10485760 (10 MiB)."
+        help="Upstream read cap: the most the platform reads of any one response. A response past it is refused rather than returned cut. What reaches a model is set once for the platform (tools.result_budget), not per connection. Default 10485760 (10 MiB)."
         type="number"
         value={String(config.max_response_bytes ?? "")}
         onChange={(v) =>
-          onChange(update(config, "max_response_bytes", v ? Number(v) : undefined))
+          onChange(
+            update(config, "max_response_bytes", v ? Number(v) : undefined),
+          )
         }
         placeholder="10485760"
-      />
-
-      <ConfigField
-        label="Max inline bytes"
-        help="Model-context budget: the most a rendered graphql_query result may hold. A result past it has its data withheld — a JSON document cut in half cannot be parsed — is flagged data_truncated, and carries the graphql_export call that writes the whole result to an asset. Default 32768 (32 KiB)."
-        type="number"
-        value={String(config.max_inline_bytes ?? "")}
-        onChange={(v) =>
-          onChange(update(config, "max_inline_bytes", v ? Number(v) : undefined))
-        }
-        placeholder="32768"
       />
 
       <HelpDialog

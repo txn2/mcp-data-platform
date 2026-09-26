@@ -48,14 +48,6 @@ const (
 	// toolkit reads of any one response.
 	DefaultMaxResponseBytes = upstreamauth.DefaultMaxResponseBytes
 
-	// DefaultMaxInlineBytes is the inline budget: the most a rendered
-	// graphql_query result may hold. It is a model-context budget, set
-	// from what a client accepts (#1587, #1606) and matching the API
-	// gateway's. A result past it has its data cut, is flagged with
-	// data_truncated, and is steered to graphql_export, which streams
-	// the whole response into an asset with no context cost.
-	DefaultMaxInlineBytes = int64(32 * 1024)
-
 	// DefaultMaxQueryDepth caps the selection depth of a document the
 	// toolkit will send. A deeply nested document is how a GraphQL
 	// endpoint is made to do unbounded work from one small request, and
@@ -121,7 +113,6 @@ const (
 	cfgKeyMaxQueryDepth    = "max_query_depth"
 	cfgKeyNamespaceDepth   = "namespace_depth"
 	cfgKeyReadOnly         = "read_only"
-	cfgKeyMaxInlineBytes   = "max_inline_bytes"
 )
 
 // Config holds the configuration of one GraphQL connection.
@@ -165,10 +156,6 @@ type Config struct {
 	CallTimeout time.Duration
 	// MaxResponseBytes is the upstream read cap.
 	MaxResponseBytes int64
-	// MaxInlineBytes is the most of a response returned through a tool
-	// result. The read cap bounds it, so a connection whose
-	// MaxResponseBytes is lower returns at most that.
-	MaxInlineBytes int64
 	// StaticHeaders are operator-configured headers attached to every
 	// outbound request, in addition to whatever AuthMode contributes.
 	// This is where an upstream's tenant or folder routing goes (Sage
@@ -303,7 +290,6 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.SchemaValidation = cfgmap.StringDefault(cfg, cfgKeySchemaValidation, SchemaValidationStrict)
 	c.MaxQueryDepth = int(cfgmap.Int64(cfg, cfgKeyMaxQueryDepth, DefaultMaxQueryDepth))
 	c.NamespaceDepth = int(cfgmap.Int64(cfg, cfgKeyNamespaceDepth, gqlschema.DefaultNamespaceDepth))
-	c.MaxInlineBytes = cfgmap.Int64(cfg, cfgKeyMaxInlineBytes, DefaultMaxInlineBytes)
 	c.ReadOnly = cfgmap.Bool(cfg, cfgKeyReadOnly)
 
 	if err := c.Validate(); err != nil {
@@ -361,8 +347,6 @@ func (c Config) validateLimits() error {
 		return errors.New("graphql: max_query_depth must be positive")
 	case c.NamespaceDepth <= 0:
 		return errors.New("graphql: namespace_depth must be positive")
-	case c.MaxInlineBytes <= 0:
-		return errors.New("graphql: max_inline_bytes must be positive")
 	default:
 		return nil
 	}

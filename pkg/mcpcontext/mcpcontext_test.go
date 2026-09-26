@@ -78,3 +78,14 @@ func TestPersona_RoundTrip(t *testing.T) {
 		t.Errorf("GetPersona = %q; want ingest-service", got)
 	}
 }
+
+func TestResultBudget_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	if got := ResultBudget(ctx); got != 0 {
+		t.Errorf("ResultBudget(empty) = %d; want 0", got)
+	}
+	ctx = WithResultBudget(ctx, 32768)
+	if got := ResultBudget(ctx); got != 32768 {
+		t.Errorf("ResultBudget = %d; want 32768", got)
+	}
+}

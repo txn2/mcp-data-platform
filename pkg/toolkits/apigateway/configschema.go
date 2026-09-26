@@ -18,7 +18,6 @@ const ownConfigSchemaProperties = `
     "base_url": {"type": "string", "description": "The upstream API root, for example https://api.example.com. Required unless handler is set."},
     "catalog_id": {"type": "string", "description": "The api_catalogs row supplying this connection's OpenAPI specs. A catalog is shared: several connections to one vendor reference the same catalog rather than each carrying a copy. Empty means the connection has no spec surface, so api_discover answers with a note and no operations."},
     "trust_level": {"type": "string", "enum": ["untrusted", "trusted"], "description": "Whether responses from this upstream are treated as data only. Defaults to untrusted."},
-    "max_inline_bytes": {"type": "integer", "description": "How much of a response is returned through the model before the call reports it truncated."},
     "handler": {"type": "string", "description": "Resolve this connection's operations with an in-process handler instead of dialing an upstream. Set by the platform's built-in connections; leave unset."},
     "description": {"type": "string", "description": "What this connection is, as list_connections and search report it. Falls back to the base URL."}`
 

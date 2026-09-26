@@ -516,6 +516,36 @@ tools:
 | `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
 | `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
 | `tools.description_overrides` | map | `{}` | Override tool descriptions in `tools/list` (key: tool name, value: description text). Config values take precedence over built-in defaults, e.g. the built-in `trino_query`/`trino_execute` overrides that guide agents to call `search` first |
+| `tools.result_budget.max_bytes` | int | `32768` | The context budget: the most of a rendered tool result a model client over MCP is handed. See [Tool result context budget](#tool-result-context-budget) |
+| `tools.result_budget.per_tool` | map | `{}` | Per-tool overrides of `max_bytes` (key: tool name, value: bytes, positive) |
+
+### Tool result context budget
+
+A model reads a tool result into its context, and a client refuses or spills a result past what it accepts (a 64,213-character result was measured refused). `tools.result_budget` is that budget, set once for the platform:
+
+```yaml
+tools:
+  result_budget:
+    max_bytes: 32768        # default
+    per_tool:
+      trino_query: 65536
+```
+
+It is enforced in one place, on the MCP response to a model, and only on a result the model can recover the rest of. Three tools qualify, because each has an export equivalent that returns the whole result without a context cost; each cuts in its own shape and says so. What is measured is the text the client receives, the platform's own additions (the call reference, enrichment) included. A result within the budget is untouched.
+
+| Tool | Past the budget |
+|------|-----------------|
+| `api_invoke_endpoint` | Re-encoded compactly first; if that is not enough the body is cut, `body_truncated` is set, `body_bytes` keeps the size read, and `export_arguments` carries the `api_export` call that streams the whole response into an asset |
+| `graphql_query` | Re-encoded compactly first; if that is not enough `data` is withheld whole (a JSON document cut in half cannot be parsed), `data_truncated` is set, and `export_arguments` carries the `graphql_export` call |
+| `trino_query` | The most whole rows that fit are kept, in the format asked for; `result_truncated` and `rows_shown` say how many of `row_count`, and `export_arguments` carries the `trino_export` call |
+
+Every other result reaches the model whole, whatever its size: a knowledge page, `manage_script` help, a prompt, `platform_info`, an uploaded document read through `fetch`, an `s3_object` read, a `datahub_*` result, a proxied MCP tool's output. None of these has a way back to the rest, and a model reasoning from half a manual does worse than one whose client spills an oversized result to a file it can still read. The same holds when one of the three tools cannot cut a result recoverably (an answer whose `errors` alone are past the budget): it is returned whole.
+
+A fitted result's structured content is the fitted value too, so the message a client receives carries the cut result twice rather than the whole one.
+
+Only a model's call over MCP is held to the budget. A REST gateway call (`POST /api/v1/gateway/{connection}/invoke`), a managed script's run and an admin call are never fitted: a program that parses a response cannot read a cut one. Those callers meet only the real resource limits, a connection's `max_response_bytes` and the gateway's in-flight memory budget, and a response past `max_response_bytes` fails with an explicit error (`413` on the REST route) instead of arriving cut.
+
+The budget replaced `max_inline_bytes`, which was set per `api` and `graphql` connection. A connection that still carries it loads normally, the value has no effect, and a warning naming `tools.result_budget` is logged when the connection is read.
 
 **Semantics:**
 
@@ -1012,7 +1042,6 @@ toolkits:
         connect_timeout: 10s
         call_timeout: 60s
         max_response_bytes: 10485760
-        max_inline_bytes: 32768
         schema_validation: strict
         max_query_depth: 15
         namespace_depth: 3
@@ -1028,8 +1057,7 @@ toolkits:
 | `static_headers` | map | `{}` | Headers attached to every outbound request, in addition to whatever `auth_mode` contributes. This is where an upstream's tenant or folder routing goes, and where a `User-Agent` other than the platform's default `mcp-data-platform/<version>` is pinned for an endpoint whose firewall refuses it. Operator-owned; a model can neither set nor override them. Encrypted at rest |
 | `connect_timeout` | duration | `10s` | Dial timeout |
 | `call_timeout` | duration | `60s` | Per-call timeout. A caller's `timeout_seconds` may lower it, never raise it |
-| `max_response_bytes` | int64 | `10485760` | Upstream read cap: the most the platform reads of one response |
-| `max_inline_bytes` | int64 | `32768` | Model-context budget: the most a rendered `graphql_query` result may hold. Past it the data is withheld whole (a JSON document cut in half cannot be parsed), flagged `data_truncated`, and the `graphql_export` call that writes it to an asset is handed back |
+| `max_response_bytes` | int64 | `10485760` | Upstream read cap: the most the platform reads of one response. An answer past it is refused, naming the cap and `graphql_export`. What reaches a model is the platform's [context budget](#tool-result-context-budget), not a per-connection setting |
 | `schema_validation` | string | `strict` | `strict` refuses a document the stored schema does not admit, naming the connection and when its schema was read. `warn` sends it and reports the violations beside the answer |
 | `max_query_depth` | int | `15` | Deepest selection a document may have. A deeply nested document is how one small request makes an endpoint do unbounded work |
 | `namespace_depth` | int | `3` | How many segments a dotted operation id may have when the schema is walked into operations. A flat schema indexes its root fields whatever this is; a namespaced one (package, entity, verb) needs 3 |

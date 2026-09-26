@@ -36,7 +36,9 @@ const (
 	// ErrCodeBodyTooLarge is returned by the raw passthrough path when
 	// the upstream's declared Content-Length exceeds the configured
 	// all-or-nothing limit, before any bytes are streamed to the
-	// client.
+	// client, and by api_invoke_endpoint when a caller that is not a
+	// model reads a response past the connection's max_response_bytes
+	// (#1878): that caller is refused rather than handed a cut body.
 	ErrCodeBodyTooLarge = "upstream_body_too_large"
 
 	// ErrCodeBudgetExhausted is returned by the buffered tools
@@ -100,6 +102,40 @@ func bodyTooLargeResult(connection, path string, limit, actual int64) *mcp.CallT
 	})
 }
 
+// responseTooLargeError is the typed error api_invoke_endpoint returns
+// when a response runs past the connection's read cap and the caller is
+// not a model (#1878). A program parsing the response cannot read a cut
+// one, so the call fails with 413 on the REST route rather than returning
+// a prefix under a 200. declared is the upstream's Content-Length, or -1
+// when it sent none.
+type responseTooLargeError struct {
+	connection string
+	path       string
+	limit      int64
+	declared   int64
+}
+
+func (e *responseTooLargeError) Error() string {
+	return fmt.Sprintf("%s: the upstream response is larger than the connection's max_response_bytes (%d)",
+		ErrCodeBodyTooLarge, e.limit)
+}
+
+// result renders the refusal as a structured tool error whose "error"
+// field is ErrCodeBodyTooLarge, which the REST shim maps to 413.
+func (e *responseTooLargeError) result() *mcp.CallToolResult {
+	fields := map[string]any{
+		"limit_bytes": e.limit,
+		"connection":  e.connection,
+		"path":        e.path,
+		fieldHint: "The response is larger than the most this connection reads of one response. Raise max_response_bytes " +
+			"on the connection, or fetch it through a route that streams it: /invoke-raw on the REST gateway, or api_export.",
+	}
+	if e.declared > 0 {
+		fields["actual_bytes"] = e.declared
+	}
+	return structuredErrorResult(ErrCodeBodyTooLarge, fields)
+}
+
 // nonInlineableBodyError is the typed error api_invoke_endpoint returns
 // when the upstream Content-Type is a binary / non-text type the tool
 // refuses to buffer and inline. size is the upstream's declared
@@ -134,9 +170,9 @@ func (e *nonInlineableBodyError) result(hasExport bool) *mcp.CallToolResult {
 		fields["size_bytes"] = e.size
 	}
 	if hasExport {
-		fields["hint"] = "This is a binary/non-text response that api_invoke_endpoint cannot return inline. Use api_export with the same connection, method, and path to stream it into a portal asset (no model-context cost), then read or presign the asset."
+		fields[fieldHint] = "This is a binary/non-text response that api_invoke_endpoint cannot return inline. Use api_export with the same connection, method, and path to stream it into a portal asset (no model-context cost), then read or presign the asset."
 	} else {
-		fields["hint"] = "This is a binary/non-text response that api_invoke_endpoint cannot return inline. Retrieve it through the gateway's raw passthrough REST route instead of an inline tool call."
+		fields[fieldHint] = "This is a binary/non-text response that api_invoke_endpoint cannot return inline. Retrieve it through the gateway's raw passthrough REST route instead of an inline tool call."
 	}
 	return structuredErrorResult(ErrCodeBodyNotInlineable, fields)
 }
@@ -160,11 +196,62 @@ func structuredErrorResult(code string, fields map[string]any) *mcp.CallToolResu
 		// fall back to the bare envelope rather than dropping IsError.
 		b = []byte(`{"error":"` + code + `"}`)
 	}
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
+	res := &mcp.CallToolResult{
+		IsError:           true,
+		Content:           []mcp.Content{&mcp.TextContent{Text: string(b)}},
+		StructuredContent: contractEnvelope(code, fields),
 	}
+	res.SetError(refusal{code: code})
+	return res
 }
+
+// contractEnvelope is the structured content a refusal carries: the
+// platform's error contract under "error" -- code, category, message,
+// hint -- beside the diagnostic fields. A result that already carries the
+// contract is left as it is by the platform's error-contract middleware,
+// which otherwise rewrites a bare error result's text and drops every
+// field but the message. The text is kept as the {"error": code, ...}
+// object because the REST shim reads the fields from it: without this, a
+// 413 or 429 reached a REST caller carrying no limit_bytes (#1878).
+func contractEnvelope(code string, fields map[string]any) map[string]any {
+	hint, _ := fields[fieldHint].(string)
+	envelope := make(map[string]any, len(fields))
+	for k, v := range fields {
+		if k != fieldHint {
+			envelope[k] = v
+		}
+	}
+	envelope["error"] = map[string]any{
+		"code":     code,
+		"category": errCategoryToolError,
+		"message":  code,
+		fieldHint:  hint,
+	}
+	return envelope
+}
+
+// fieldHint is the key a refusal's corrective guidance is carried under,
+// in the text object and in the contract envelope alike.
+const fieldHint = "hint"
+
+// errCategoryToolError is the error contract's category for a tool that
+// failed on its own terms, the one the error-contract middleware assigns a
+// result it cannot classify. Spelled here because this package cannot
+// import pkg/middleware, which imports the toolkits.
+const errCategoryToolError = "tool_error"
+
+// refusal is the error a structured refusal is stamped with, so audit and
+// metrics read its category as they read one the error contract stamps.
+type refusal struct{ code string }
+
+// Error is the refusal's code.
+func (r refusal) Error() string { return r.code }
+
+// ErrorCategory is the error contract's category for the refusal.
+func (refusal) ErrorCategory() string { return errCategoryToolError }
+
+// ErrorCode is the refusal's stable code.
+func (r refusal) ErrorCode() string { return r.code }
 
 // budgetOrErrorResult renders a run error from a buffered tool as either
 // the structured budget-exhaustion result (mapped to 429 by the REST
@@ -174,6 +261,10 @@ func budgetOrErrorResult(err error) *mcp.CallToolResult {
 	var be *budgetError
 	if errors.As(err, &be) {
 		return be.result()
+	}
+	var tl *responseTooLargeError
+	if errors.As(err, &tl) {
+		return tl.result()
 	}
 	res := toolkit.ErrorResult(err.Error())
 	var te *transportError

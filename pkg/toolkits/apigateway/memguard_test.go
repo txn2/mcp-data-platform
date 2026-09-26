@@ -488,3 +488,33 @@ func TestCopyRawHeaders_OnlyForwardsAllowlistedSet(t *testing.T) {
 		t.Error("Set-Cookie must not be forwarded on the raw path")
 	}
 }
+
+// TestStructuredErrorResultCarriesTheErrorContract: a refusal carries the
+// platform's error contract in its structured content, so the error-contract
+// middleware leaves its text -- which the REST shim reads the diagnostic
+// fields from -- as it is (#1878), and its category is stamped for audit.
+func TestStructuredErrorResultCarriesTheErrorContract(t *testing.T) {
+	r := structuredErrorResult(ErrCodeBodyTooLarge, map[string]any{"limit_bytes": int64(42), "hint": "stream it"})
+	sc, ok := r.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured content is %T; want the contract object", r.StructuredContent)
+	}
+	env, ok := sc["error"].(map[string]any)
+	if !ok || env["code"] != ErrCodeBodyTooLarge || env["category"] != "tool_error" || env["hint"] != "stream it" {
+		t.Errorf("error envelope = %v", sc["error"])
+	}
+	if sc["limit_bytes"] != int64(42) {
+		t.Errorf("limit_bytes = %v; want the diagnostic field beside the envelope", sc["limit_bytes"])
+	}
+	type categorized interface{ ErrorCategory() string }
+	var ce categorized
+	if !errors.As(r.GetError(), &ce) || ce.ErrorCategory() != "tool_error" {
+		t.Errorf("GetError = %v; want a categorized refusal", r.GetError())
+	}
+	if msg := r.GetError().Error(); msg != ErrCodeBodyTooLarge {
+		t.Errorf("error message = %q", msg)
+	}
+	if code := (refusal{code: "x"}).ErrorCode(); code != "x" {
+		t.Errorf("ErrorCode = %q", code)
+	}
+}

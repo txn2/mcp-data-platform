@@ -509,6 +509,10 @@ internal/platform/resourcewrite -> pkg/middleware
 internal/platform/resourcewrite -> pkg/portal/knowledgepage
 internal/platform/resourcewrite -> pkg/resource
 internal/platform/resourcewrite -> pkg/toolkit
+internal/platform/resultbudget -> pkg/mcpcontext
+internal/platform/resultbudget -> pkg/middleware
+internal/platform/resultbudget -> pkg/registry
+internal/platform/resultbudget -> pkg/toolkit
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
@@ -975,6 +979,7 @@ pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/resourcetemplates
+pkg/platform -> internal/platform/resultbudget
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/scriptadmit
 pkg/platform -> internal/platform/scriptdraft
@@ -1175,6 +1180,7 @@ pkg/toolkits/graphql -> internal/cfgmap
 pkg/toolkits/graphql -> internal/conncatchup
 pkg/toolkits/graphql -> internal/connprobe
 pkg/toolkits/graphql -> internal/gqlschema
+pkg/toolkits/graphql -> internal/inlinefit
 pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget
 pkg/toolkits/graphql -> internal/opranking
@@ -1242,6 +1248,7 @@ pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
 pkg/toolkits/trino -> internal/connprobe
+pkg/toolkits/trino -> internal/inlinefit
 pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> internal/tableparquet

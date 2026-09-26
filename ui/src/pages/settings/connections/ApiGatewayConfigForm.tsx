@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { HelpDialog } from "@/components/HelpDialog";
-import { ApiGatewayAuthHelp, ApiGatewayTLSHelp } from "../ApiGatewayHelpContent";
+import {
+  ApiGatewayAuthHelp,
+  ApiGatewayTLSHelp,
+} from "../ApiGatewayHelpContent";
 import { ApiGatewayAuthFields } from "./ApiGatewayAuthFields";
 import {
   ConfigField,
@@ -23,7 +26,7 @@ const TRUST_LEVELS = [
 // the HTTP API gateway. Field shape matches the apigateway toolkit
 // config (see pkg/toolkits/apigateway/config.go): base_url, the auth
 // block (ApiGatewayAuthFields), TLS material, static headers, the
-// catalog reference, timeouts, max_response_bytes and max_inline_bytes.
+// catalog reference, timeouts and max_response_bytes.
 export function ApiGatewayConfigForm({
   config,
   onChange,
@@ -62,12 +65,12 @@ export function ApiGatewayConfigForm({
 
       <ConfigGroup title="Static headers">
         <p className="text-xs text-muted-foreground">
-          Headers added to every outbound request, in addition to whatever
-          Auth mode contributes. Required by APIs that demand both an
-          OAuth bearer AND a separate key, e.g. Google&apos;s
-          <code className="mx-1">x-goog-user-project</code> for quota
-          billing or a vendor subscription header. Values are encrypted
-          at rest; existing values are masked.
+          Headers added to every outbound request, in addition to whatever Auth
+          mode contributes. Required by APIs that demand both an OAuth bearer
+          AND a separate key, e.g. Google&apos;s
+          <code className="mx-1">x-goog-user-project</code> for quota billing or
+          a vendor subscription header. Values are encrypted at rest; existing
+          values are masked.
         </p>
         <SensitiveKeyValueEditor
           entries={asStringMap(config.static_headers)}
@@ -109,20 +112,15 @@ export function ApiGatewayConfigForm({
 
       <ConfigField
         label="Max response bytes"
-        help="Upstream read cap: the most the gateway reads of any one response (a page of a walk, an inline call). A transfer limit, not what reaches the model; see Max inline bytes. Default 10485760 (10 MiB)."
+        help="Upstream read cap: the most the gateway reads of any one response (a page of a walk, an inline call). The only size limit a REST gateway client or a script meets: a response past it fails with 413 rather than arriving cut. What reaches a model is set once for the platform (tools.result_budget), not per connection. Default 10485760 (10 MiB)."
         type="number"
         value={String(config.max_response_bytes ?? "")}
-        onChange={(v) => onChange(update(config, "max_response_bytes", v ? Number(v) : undefined))}
+        onChange={(v) =>
+          onChange(
+            update(config, "max_response_bytes", v ? Number(v) : undefined),
+          )
+        }
         placeholder="10485760"
-      />
-
-      <ConfigField
-        label="Max inline bytes"
-        help="Model-context budget: the most a rendered api_invoke_endpoint tool result may hold. Measured on the result the client receives, not on the bytes read, since indentation and the envelope expand a JSON body several times over. A result past it is re-encoded compactly first, since indentation is whitespace; only one that still does not fit has its body cut, sets body_truncated, and carries export_arguments naming the api_export call that streams the whole response into an asset. Default 32768 (32 KiB), sized under what an MCP client accepts in one tool result."
-        type="number"
-        value={String(config.max_inline_bytes ?? "")}
-        onChange={(v) => onChange(update(config, "max_inline_bytes", v ? Number(v) : undefined))}
-        placeholder="32768"
       />
 
       <ConfigSelect

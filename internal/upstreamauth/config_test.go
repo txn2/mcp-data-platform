@@ -562,3 +562,12 @@ func TestValidateAuth_RefusalNamesTheModeAndGrantInScope(t *testing.T) {
 		})
 	}
 }
+
+// TestParse_TheRetiredInlineBudgetIsIgnored: a connection stored with the
+// per-connection budget #1878 retired still parses, whatever it holds.
+func TestParse_TheRetiredInlineBudgetIsIgnored(t *testing.T) {
+	for _, v := range []any{float64(4096), "junk"} {
+		_, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{"max_inline_bytes": v})
+		require.NoError(t, err)
+	}
+}
