@@ -137,8 +137,12 @@ function useCore({ admin, user, personaNames, basePath, location, onNavigate }: 
     [loc, root.key, onNavigate, basePath],
   );
 
+  // A dialog already open keeps its selection: a second Delete while the
+  // first is still counting would otherwise start a second count (#1887).
   const act = (kind: "move" | "tag" | "delete") => {
-    if (selection.keys.length > 0) setDialog({ kind, picked: actions.pick(selection.keys) });
+    if (selection.keys.length === 0) return;
+    const picked = actions.pick(selection.keys);
+    setDialog((open) => open ?? { kind, picked });
   };
 
   const upload = (many: boolean, folder = path, files?: SourceFile[], target: ResourceRoot = root) =>

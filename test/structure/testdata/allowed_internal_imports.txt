@@ -86,6 +86,7 @@ internal/httpserver -> internal/httpserver/versionhttp
 internal/httpserver -> internal/httpserver/webhookwire
 internal/httpserver -> internal/logsan
 internal/httpserver -> internal/platform/branding
+internal/httpserver -> internal/platform/callcatchup
 internal/httpserver -> internal/platform/callrecord
 internal/httpserver -> internal/platform/connreach
 internal/httpserver -> internal/platform/connscope
@@ -792,6 +793,7 @@ internal/webhook/whconfig -> internal/webhook/receiver
 internal/webhook/whevent -> internal/webhook/jsonpath
 internal/webhook/whevent -> internal/webhook/whsource
 internal/webhook/whsource -> internal/webhook/jsonpath
+internal/webhook/whtable -> internal/scratchcatalog
 internal/webhook/whtable -> internal/webhook/whevent
 internal/webhook/whtable -> internal/webhook/whlayout
 internal/webhook/whtable -> internal/webhook/whsource
@@ -1250,6 +1252,7 @@ pkg/toolkits/tools/toolsindex -> pkg/indexjobs
 pkg/toolkits/trino -> internal/connprobe
 pkg/toolkits/trino -> internal/inlinefit
 pkg/toolkits/trino -> internal/logsan
+pkg/toolkits/trino -> internal/scratchcatalog
 pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> internal/tableparquet
 pkg/toolkits/trino -> internal/tabletype

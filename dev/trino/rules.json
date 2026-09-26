@@ -1,0 +1,25 @@
+{
+  "catalogs": [
+    { "user": "(dev|trino|admin)", "catalog": ".*", "allow": "all" },
+    { "user": "mcp-scratch", "catalog": "(scratch|scratch_resources)", "allow": "all" },
+    { "user": "mcp-scratch", "catalog": "system", "allow": "read-only" },
+    { "user": "mcp-scratch-no-procedures", "catalog": "(scratch|scratch_resources)", "allow": "all" },
+    { "user": "mcp-scratch-no-procedures", "catalog": "system", "allow": "read-only" },
+    { "user": "mcp-server", "catalog": "(memory|scratch|scratch_resources)", "allow": "read-only" },
+    { "user": "mcp-server", "catalog": "system", "allow": "read-only" }
+  ],
+  "functions": [
+    { "catalog": "system", "schema": "builtin", "privileges": ["EXECUTE", "GRANT_EXECUTE"] },
+    { "user": "(dev|trino|admin)", "privileges": ["EXECUTE", "GRANT_EXECUTE", "OWNERSHIP"] }
+  ],
+  "procedures": [
+    { "user": "(dev|trino|admin)", "catalog": ".*", "schema": ".*", "procedure": ".*", "privileges": ["EXECUTE"] },
+    {
+      "user": "mcp-scratch",
+      "catalog": "(scratch|scratch_resources)",
+      "schema": "system",
+      "procedure": "(sync_partition_metadata|register_partition|unregister_partition)",
+      "privileges": ["EXECUTE"]
+    }
+  ]
+}

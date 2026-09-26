@@ -177,3 +177,38 @@ func TestGetConnectionKind_Unknown(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// catchUpStub stands in for the platform's call catch-up: it records what it
+// was asked to take on and, like the real one installing a stored connection,
+// makes the probe answer for it.
+type catchUpStub struct {
+	asked [][2]string
+	onto  *mockProbeToolkit
+}
+
+func (c *catchUpStub) TakeOn(_ context.Context, kind, name string) {
+	c.asked = append(c.asked, [2]string{kind, name})
+	c.onto.result = connprobe.Success("the query engine answered SELECT 1")
+}
+
+// A connection saved through another replica is a row here before the reload
+// bus announces it. The test takes it on from the store before probing, so
+// testing it straight after the save is not answered as unknown (#1888).
+func TestTestConnectionInstance_TakesOnASavedConnectionFirst(t *testing.T) {
+	tk := &mockProbeToolkit{
+		mockToolkit: mockToolkit{kind: "trino", name: "warehouse"},
+		result:      connprobe.Failure(`connection "warehouse" could not be opened`, errors.New("unknown connection")),
+	}
+	catchUp := &catchUpStub{onto: tk}
+	h := NewHandler(Deps{
+		Config:            testConfig(),
+		ConnectionStore:   &mockConnectionStore{},
+		ConfigStore:       &mockConfigStore{mode: "database"},
+		ToolkitRegistry:   &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}},
+		ConnectionCatchUp: catchUp,
+	}, nil)
+
+	rec, body := postTest(t, h, "trino")
+	require.Equal(t, http.StatusOK, rec.Code, "body: %+v", body)
+	assert.Equal(t, [][2]string{{"trino", "warehouse"}}, catchUp.asked)
+}

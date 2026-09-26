@@ -17,6 +17,12 @@ func TestValidatePathAcceptsTheShapesAFolderChainTakes(t *testing.T) {
 		"data/media-manager/shows",
 		"a/b/c/d/e/f/g/h",
 		strings.Repeat("a", 31),
+		// A folder may start with a digit (#1886): the dated folders the
+		// webhook compactor files its windows under, and the year and quarter
+		// folders people file delivered data under.
+		"webhooks/orders/2026-09-26",
+		"reports/2026/2026-q3",
+		"9",
 	}
 	for _, p := range tests {
 		t.Run(p, func(t *testing.T) {
@@ -45,7 +51,7 @@ func TestValidatePathNamesTheRuleItRefusesOn(t *testing.T) {
 		{"too deep", "a/b/c/d/e/f/g/h/i", "folders deep"},
 		{"too long overall", strings.TrimSuffix(strings.Repeat(strings.Repeat("a", 31)+"/", 8), "/"), "exceeds 200 characters"},
 		{"an uppercase segment", "data/Shows", `"Shows" must match`},
-		{"a segment starting with a digit", "data/2024", `"2024" must match`},
+		{"a segment starting with a hyphen", "data/-2024", `"-2024" must match`},
 		{"an underscore", "data/media_manager", `"media_manager" must match`},
 		{"a segment too long", strings.Repeat("a", 32), "must match"},
 	}
@@ -141,7 +147,9 @@ func TestFolderSegmentMatchesTheBulkUploader(t *testing.T) {
 	}{
 		{"Brand Assets", "brand-assets", true},
 		{"  Logos__Reversed!! ", "logos-reversed", true},
-		{"2024", "f-2024", true},
+		{"2024", "2024", true},
+		{"2026-09-26", "2026-09-26", true},
+		{"--2026 Q3", "2026-q3", true},
 		{strings.Repeat("a", 40), strings.Repeat("a", 31), true},
 		{"abcdefghij-abcdefghij-abcdefghi-x", "abcdefghij-abcdefghij-abcdefghi", true},
 		{"***", "", false},

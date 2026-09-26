@@ -10,7 +10,7 @@
 export const MAX_PATH_SEGMENTS = 8;
 export const MAX_PATH_LENGTH = 200;
 
-const SEGMENT_RE = /^[a-z][a-z0-9-]{0,30}$/;
+const SEGMENT_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
 /**
  * pathProblem states why a folder path cannot be used, or null when it can.
@@ -42,7 +42,7 @@ function segmentProblem(part: string): string | null {
   if (part === "") return "A path has an empty folder name in it.";
   if (part === "." || part === "..") return `"${part}" names no folder.`;
   if (!SEGMENT_RE.test(part)) {
-    return `"${part}" must be lowercase letters, digits and hyphens, starting with a letter, at most 31 characters.`;
+    return `"${part}" must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 31 characters.`;
   }
   return null;
 }

@@ -96,8 +96,10 @@ export function FmDialogs({
 }
 
 /**
- * The delete dialog, once the files inside the picked folders have been read:
- * it names everything that will go before anything does.
+ * The delete dialog. It opens at once and counts the files inside the picked
+ * folders itself, holding its confirm until the count is in, because the count
+ * is what it exists to show and the read behind it can take seconds (#1887). A
+ * count that fails is shown in the dialog with Retry.
  */
 function Deleting({
   root,
@@ -114,6 +116,7 @@ function Deleting({
 }) {
   const [files, setFiles] = useState<Resource[] | null>(picked.folders.length ? null : picked.files);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!picked.folders.length) return;
     let live = true;
@@ -124,17 +127,19 @@ function Deleting({
     return () => {
       live = false;
     };
-  }, [root, picked]);
-  useEffect(() => {
-    if (error) onDone(error);
-  }, [error, onDone]);
-  if (error || !files) return null;
+  }, [root, picked, attempt]);
   return (
     <DeleteDialog
       files={files}
-      folders={picked.folders}
+      picked={picked}
+      countError={error}
+      onRetry={() => {
+        setError("");
+        setAttempt((n) => n + 1);
+      }}
       onClose={onClose}
       onDelete={async () => {
+        if (!files) return [];
         const outcomes = await deleteMany(root, files, picked.folders);
         await actions.refresh();
         if (!outcomes.some((o) => o.error)) onDone(summarize(outcomes, "deleted"));

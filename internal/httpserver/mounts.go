@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
+	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -670,6 +671,11 @@ func buildAdminAuth(p *platform.Platform) func(http.Handler) http.Handler {
 
 // buildAdminHandler constructs the admin REST API handler from the platform.
 func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
+	// The connection test takes on a connection another replica saved before
+	// the reload bus announces it, as a tool call does (#1888).
+	catchUp := callcatchup.New(p.ToolkitRegistry(), callcatchup.Reader(
+		p.ConnectionStore(), platform.ErrConnectionNotFound,
+		func(inst *platform.ConnectionInstance) map[string]any { return inst.Config }))
 	deps := admin.Deps{
 		Config:          p.Config(),
 		ConfigStore:     p.ConfigStore(),
@@ -684,6 +690,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		},
 		ToolkitRegistry:   p.ToolkitRegistry(),
 		ReloadNotifier:    p,
+		ConnectionCatchUp: catchUp,
 		MCPServer:         p.MCPServer(),
 		BrowserAuth:       p.BrowserSessionAuth(),
 		DatabaseAvailable: p.Config().Database.DSN != "",

@@ -16,7 +16,7 @@ func TestValidatePath(t *testing.T) {
 		{"a", true},
 		{"a0b", true},
 		{"", false},
-		{"0bad", false},
+		{"0good", true},
 		{"-bad", false},
 		{"UPPER", false},
 		{"has space", false},

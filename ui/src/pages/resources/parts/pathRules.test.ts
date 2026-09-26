@@ -15,6 +15,9 @@ describe("paths the library accepts", () => {
     "data/media-manager/shows",
     "a/b/c/d/e/f/g/h",
     "a".repeat(31),
+    "webhooks/orders/2026-09-26",
+    "reports/2026/2026-q3",
+    "9",
   ])("accepts %s", (path) => {
     expect(pathProblem(path)).toBeNull();
   });
@@ -30,7 +33,7 @@ describe("paths the library refuses", () => {
     ["data/./shows", "names no folder"],
     ["a/b/c/d/e/f/g/h/i", "8 folders deep"],
     ["data/Shows", '"Shows" must be lowercase'],
-    ["data/2024", '"2024" must be lowercase'],
+    ["data/-2024", '"-2024" must be lowercase'],
     ["data/media_manager", '"media_manager" must be lowercase'],
     ["a".repeat(32), "must be lowercase"],
   ])("refuses %s and names the rule", (path, says) => {

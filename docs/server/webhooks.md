@@ -21,9 +21,13 @@ definitions and the record of which windows are compacted.
 
 A source writes everything into the managed-resources bucket and creates its
 table in the scratch catalog of a Trino connection. That catalog has to read the
-managed-resources store and allow `register_partition`; every requirement is on
-[Scratch Catalog](scratch-catalog.md). Creating a source checks both and refuses
-the source, with the reason, when either is missing.
+managed-resources store and allow `register_partition`, and the connection's
+Trino user needs a `procedures` rule to call the catalog's partition procedures;
+the complete setup is on [Scratch Catalog](scratch-catalog.md). Creating a
+source checks all three and refuses the source, naming the setting to add, when
+one is missing. Testing the connection
+([`POST /api/v1/admin/connection-instances/trino/{name}/test`](admin-api.md#test-a-connection-instance))
+runs the same checks before any source exists.
 
 ## Creating a source
 

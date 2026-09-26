@@ -122,7 +122,7 @@ func TestExtractWritesEachMemberUnderItsFolders(t *testing.T) {
 	assert.Equal(t, "id,name\n1,a\n", xf.contentAt(t, first.Landing.URI))
 
 	second := out.Members[1]
-	assert.Equal(t, "pipelines/staging/f-2026", second.Landing.Path, "a year folder is filed the way the bulk uploader files it")
+	assert.Equal(t, "pipelines/staging/2026", second.Landing.Path, "a year folder keeps its name, as the bulk uploader files it")
 	assert.Equal(t, "notes-file.csv", second.Landing.Filename)
 	res, err := xf.store.GetByURI(context.Background(), second.Landing.URI)
 	require.NoError(t, err)

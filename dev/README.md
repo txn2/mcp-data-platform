@@ -180,6 +180,16 @@ sets `TRINO_HOST`; `DEV_TRINO=external make dev` keeps your own `TRINO_*`
 values instead, and the start-up says which it did. The acceptance suite's
 registered-table tests (`make acceptance`) need the stack's Trino.
 
+The stack's Trino runs file-based access control (`dev/trino/rules.json`), the
+rules [Scratch Catalog](../docs/server/scratch-catalog.md#access-control)
+publishes for a deployment, so the published file runs on a real coordinator.
+`dev` (the stack's own user), `trino` and `admin` are unrestricted. `mcp-scratch`
+and `mcp-server` are the documented scratch and read identities, and
+`mcp-scratch-no-procedures` holds the scratch catalogs without the procedures
+rule, which is what the connection test and the webhook source pre-check name
+(#1888). Rules are re-read every 30 seconds; a catalog change needs the
+container restarted.
+
 ### Stop and Clean Up
 
 ```bash
