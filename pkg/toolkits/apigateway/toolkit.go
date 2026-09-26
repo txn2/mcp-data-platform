@@ -530,8 +530,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
 			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url. Every response reports body_bytes, the size " +
-			"of the body read; a result past the connection's max_inline_bytes (default 32 KiB, a budget on " +
-			"the rendered tool result) is re-encoded compactly, and one still past it has its body " +
+			"of the body read; a result past this client's context budget (tools.result_budget, default 32 KiB, a " +
+			"budget on the rendered tool result) is re-encoded compactly, and one still past it has its body " +
 			"cut to fit, is flagged with body_truncated, and " +
 			"export_arguments carries the api_export call " +
 			"that streams the whole response into an asset. A response's pagination signal is " +
@@ -1142,7 +1142,8 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	hasExport := t.exportDeps != nil
 	t.mu.RUnlock()
 
-	inv := invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget, inlineBudget: inlineBudgetFor(ctx, c.cfg)}
+	inv := invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget}
+	callerLimits(ctx, &inv)
 	if in.Paginate != nil {
 		// A walk returns one merged collection assembled by
 		// internal/pagewalk from every page's own body, not a single
@@ -1171,15 +1172,25 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	// id, not a path, so this is the only place the catalog's base-path
 	// prefix and the path_params substitution become visible — without it
 	// a prefix that routes to the wrong upstream reads as an unexplained
-	// upstream 4xx (issue #1298). Set before the budget is applied so the
-	// result measured is the one returned.
+	// upstream 4xx (issue #1298).
 	if in.OperationID != "" {
 		out.ResolvedPath = in.Path
 	}
-	// The rendering is taken before the result is built: applyInlineBudget
-	// mutates out, and out is also the structured output returned below, so
-	// the two must not be evaluated as operands of one call.
-	text := applyInlineBudget(&out, in, inv.inlineBudget, hasExport)
+	return renderInvokeResult(out, in, hasExport)
+}
+
+// renderInvokeResult is the whole result of one call. A model client's
+// result is held to its context budget afterwards, by the platform's
+// result-budget middleware through FitResult (#1878); no caller is cut
+// here. The steer is finished first, so a body the read cap cut carries
+// its export arguments, and the rendering is taken before the result is
+// built because out is also the structured output returned beside it.
+func renderInvokeResult(out InvokeOutput, in InvokeInput, hasExport bool) (*mcp.CallToolResult, any, error) {
+	steerToExport(&out, in, hasExport)
+	text, err := toolkit.MarshalResultJSON(out)
+	if err != nil {
+		text = nil
+	}
 	return buildInvokeResult(out, text), out, nil
 }
 
@@ -1196,8 +1207,7 @@ func handleInvokeWalk(ctx context.Context, inv invocation, authorize func(Invoke
 	if in.OperationID != "" {
 		out.ResolvedPath = in.Path
 	}
-	text := applyInlineBudget(&out, in, inv.inlineBudget, hasExport)
-	return buildInvokeResult(out, text), out, nil
+	return renderInvokeResult(out, in, hasExport)
 }
 
 // pageAuthorizer is the route policy check a walk runs on every page.

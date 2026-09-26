@@ -43,31 +43,10 @@ const (
 
 	// DefaultMaxResponseBytes is the upstream read cap: the most the
 	// gateway reads of any one response (a page of a walk, an inline
-	// call). It bounds transfer and buffering, not what reaches the
-	// model; that is MaxInlineBytes.
+	// call). It bounds transfer and buffering, not what reaches a model:
+	// that is the platform's context budget on MCP results
+	// (tools.result_budget, #1878), which no connection sets.
 	DefaultMaxResponseBytes = upstreamauth.DefaultMaxResponseBytes
-
-	// DefaultMaxInlineBytes is the inline budget: the most a rendered
-	// api_invoke_endpoint tool result may hold. It is a model-context
-	// budget, sized so a response that fits is one an agent can read
-	// (issue #1587). A result past it has its body cut, is flagged with
-	// body_truncated, and is steered to api_export, which streams the
-	// whole response into an asset without a context cost.
-	//
-	// The value is set from what a client accepts. Issue #1606 measured
-	// a 64,213-character tool result refused and spilled to a file, so
-	// the ceiling is under 64 KiB; 32 KiB leaves room under it for a
-	// client stricter than the one measured. An operator whose client
-	// takes more raises max_inline_bytes on the connection.
-	//
-	// The budget is applied to the rendered result rather than to the
-	// bytes read, because the two differ by more than a constant: a
-	// 26,809-byte JSON response measured on that same issue rendered as
-	// a 64,238-character result, so a read-side budget of any size lets
-	// results past the ceiling through unflagged. Fitting drops the
-	// indentation before it drops any content, so a response that fits
-	// compactly is still returned whole.
-	DefaultMaxInlineBytes = int64(32 * 1024)
 )
 
 // The credential vocabulary an operator configures on an api connection.
@@ -96,9 +75,8 @@ const (
 // map[string]any (the form connections take in the platform's generic
 // connection_instances store).
 const (
-	cfgKeyBaseURL        = "base_url"
-	cfgKeyTrustLevel     = "trust_level"
-	cfgKeyMaxInlineBytes = "max_inline_bytes"
+	cfgKeyBaseURL    = "base_url"
+	cfgKeyTrustLevel = "trust_level"
 
 	// The credential, timeout, response-cap, static-header and TLS
 	// keys are read by internal/upstreamauth from the same config map:
@@ -200,11 +178,6 @@ type Config struct {
 	// MaxResponseBytes is the upstream read cap: the most the gateway
 	// reads of any one response. Defaults to DefaultMaxResponseBytes.
 	MaxResponseBytes int64
-	// MaxInlineBytes is the inline budget: the most of a response
-	// returned through a tool result. Defaults to DefaultMaxInlineBytes;
-	// the read cap bounds it, so a connection whose MaxResponseBytes is
-	// lower returns at most that.
-	MaxInlineBytes int64
 	// CatalogID names the api_catalogs row whose component specs
 	// describe this connection's upstream API. Empty = no spec
 	// surface. The catalog is global and may back many connections;
@@ -397,7 +370,6 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c := configFromUpstream(up)
 	c.BaseURL = trimTrailingSlash(cfgmap.String(cfg, cfgKeyBaseURL))
 	c.TrustLevel = cfgmap.StringDefault(cfg, cfgKeyTrustLevel, TrustLevelUntrusted)
-	c.MaxInlineBytes = cfgmap.Int64(cfg, cfgKeyMaxInlineBytes, DefaultMaxInlineBytes)
 	c.CatalogID = cfgmap.String(cfg, cfgKeyCatalogID)
 	c.Description = cfgmap.String(cfg, cfgKeyDescription)
 	c.Handler = cfgmap.String(cfg, cfgKeyHandler)
@@ -435,9 +407,6 @@ func (c Config) Validate() error {
 	if err := up.ValidateTransport(); err != nil {
 		//nolint:wrapcheck // as above
 		return err
-	}
-	if c.MaxInlineBytes <= 0 {
-		return errors.New("apigateway: max_inline_bytes must be positive")
 	}
 	return firstConfigError(
 		up.ValidateStaticHeaders,

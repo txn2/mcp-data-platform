@@ -29,14 +29,13 @@ const (
 	// under the old budget, so it was returned uncut and its body was
 	// substantially the whole tool result.
 	issue1606RefusedResponse = 64_213
-	// issue1606Budget is DefaultMaxInlineBytes, the budget on the rendered
-	// result a connection that sets no max_inline_bytes gets.
+	// issue1606Budget is the default context budget on a rendered tool
+	// result (tools.result_budget.max_bytes, #1878).
 	issue1606Budget = 32 * 1024
-	// issue1606NarrowBudget is small enough that an ordinary nested JSON page
-	// renders past it, indented, while its compact bytes stay under it -- the
-	// shape that went past the ceiling unflagged when the budget was applied
-	// to the read.
-	issue1606NarrowBudget = 4096
+	// issue1606PerPage is a page size whose JSON renders past the budget
+	// indented while its compact bytes stay under it -- the shape that went
+	// past the ceiling unflagged when the budget was applied to the read.
+	issue1606PerPage = 700
 )
 
 // issue1606SizedArgs addresses the fixture's sized endpoint for a response of
@@ -99,27 +98,30 @@ func TestIssue1606_TheWholeToolResultFitsTheBudget(t *testing.T) {
 
 // TestIssue1606_AJSONResponseInsideTheReadBudgetIsStillHeldToIt is the defect
 // the read-side budget could not see. A nested JSON page whose compact bytes
-// are under the connection's budget renders, indented and enveloped, to well
-// over it, and came back unflagged for the client to refuse. The budget is now
-// on the rendered result, and re-encoding is the first lever spent, so the
-// page comes back whole and inside the budget rather than cut. per_page is
-// untyped in the schema, so both JSON forms it admits are sent.
+// are under the budget renders, indented and enveloped, to well over it, and
+// came back unflagged for the client to refuse. The budget is now on the
+// rendered result, and re-encoding is the first lever spent, so the page comes
+// back whole and inside the budget rather than cut. per_page and total are
+// untyped in the schema, so both JSON forms they admit are sent.
 func TestIssue1606_AJSONResponseInsideTheReadBudgetIsStillHeldToIt(t *testing.T) {
 	c := connect(t)
-	issue1587Connection(t, c, "issue-1606-narrow", issue1606NarrowBudget)
-	for name, perPage := range map[string]any{"number": 100, "string": "100"} {
-		t.Run("per_page_as_"+name, func(t *testing.T) {
+	forms := map[string]map[string]any{
+		"number": {"per_page": issue1606PerPage, "total": 1000},
+		"string": {"per_page": "700", "total": "1000"},
+	}
+	for name, query := range forms {
+		t.Run("query_as_"+name, func(t *testing.T) {
 			args := map[string]any{
-				"connection":   "issue-1606-narrow",
+				"connection":   issue1587FixtureConn,
 				"method":       "GET",
 				"path":         "/v1/pagination/link",
-				"query_params": map[string]any{"per_page": perPage},
+				"query_params": query,
 				"purpose":      "Acceptance #1606: a JSON body inside the read budget still renders past it.",
 			}
 			out := c.call("api_invoke_endpoint", args)
 			readBytes := number(t, out, "body_bytes")
-			if readBytes <= 0 || readBytes >= issue1606NarrowBudget {
-				t.Fatalf("body_bytes = %v; the case needs a read inside the %d budget", readBytes, issue1606NarrowBudget)
+			if readBytes <= 0 || readBytes >= issue1606Budget {
+				t.Fatalf("body_bytes = %v; the case needs a read inside the %d budget", readBytes, issue1606Budget)
 			}
 			text := issue1606ResultText(t, c, args)
 			// The defect: indented, this result is past the budget that read fits inside.
@@ -127,16 +129,16 @@ func TestIssue1606_AJSONResponseInsideTheReadBudgetIsStillHeldToIt(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(indented) <= issue1606NarrowBudget {
-				t.Fatalf("the indented rendering is %d bytes; the case needs one past the %d budget", len(indented), issue1606NarrowBudget)
+			if len(indented) <= issue1606Budget {
+				t.Fatalf("the indented rendering is %d bytes; the case needs one past the %d budget", len(indented), issue1606Budget)
 			}
-			assertResultWithin(t, text, issue1606NarrowBudget)
+			assertResultWithin(t, text, issue1606Budget)
 			if truncated, _ := out["body_truncated"].(bool); truncated {
 				t.Errorf("body_truncated = true; want the whole body returned, re-encoding alone having made it fit")
 			}
 			body, _ := out["body"].(map[string]any)
-			if items, _ := body["items"].([]any); len(items) != 100 {
-				t.Errorf("body holds %d items; want all 100 returned", len(items))
+			if items, _ := body["items"].([]any); len(items) != issue1606PerPage {
+				t.Errorf("body holds %d items; want all %d returned", len(items), issue1606PerPage)
 			}
 		})
 	}

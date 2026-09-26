@@ -3,19 +3,19 @@
 package acceptance
 
 import (
-	"encoding/json"
-	"net/http"
 	"strings"
 	"testing"
 )
 
 // Issue #1587: the gateway returned up to max_response_bytes (10 MiB) inline,
-// so a 3 MB response reached the agent whole and unflagged. The inline budget
-// (max_inline_bytes, default 32 KiB and applied to the rendered tool result
-// since issue #1606) is the model-context limit: past it the body is cut,
-// body_truncated is set, and export_arguments names the api_export call that
-// streams the same response into an asset. Every response reports body_bytes,
-// the size read from the upstream. max_response_bytes stays the read cap.
+// so a 3 MB response reached the agent whole and unflagged. The context budget
+// is the model-context limit: past it the body is cut, body_truncated is set,
+// and export_arguments names the api_export call that streams the same
+// response into an asset. Every response reports body_bytes, the size read
+// from the upstream. max_response_bytes stays the read cap. Since #1606 the
+// budget is on the rendered tool result, and since #1878 it is the platform's
+// tools.result_budget (default 32 KiB), applied on the MCP response to a
+// model's call rather than set per connection.
 const (
 	issue1587SizedBytes     = 3_000_000
 	issue1587DefaultInline  = 32 * 1024
@@ -38,23 +38,25 @@ func issue1587SizedArgs(connection string, bytes any) map[string]any {
 }
 
 // assertCutAtInlineBudget asserts criteria 1 and 3: the response is cut, it
-// says so, the body it returns is inside the budget the whole result is held
-// to, and the steer carries the api_export arguments for the same call.
+// says so, body_bytes reports more than the budget was read (the whole
+// response, not a read stopped at the budget), the body it returns is inside
+// the budget the whole result is held to, and the steer carries the api_export
+// arguments for the same call.
 func assertCutAtInlineBudget(t *testing.T, out map[string]any, budget float64) {
 	t.Helper()
 	if truncated, _ := out["body_truncated"].(bool); !truncated {
 		t.Fatalf("body_truncated = %v; want true", out["body_truncated"])
 	}
-	if got := number(t, out, "body_bytes"); got != budget {
-		t.Errorf("body_bytes = %v; want the %v bytes the read cap allowed", got, budget)
+	if got := number(t, out, "body_bytes"); got <= budget {
+		t.Errorf("body_bytes = %v; want the size of the whole response read, past the %v budget", got, budget)
 	}
 	body, _ := out["body"].(string)
 	if len(body) == 0 || len(body) >= int(budget) {
 		t.Errorf("body holds %d bytes; want a cut body inside the %v the whole result is held to", len(body), budget)
 	}
 	hint, _ := out["hint"].(string)
-	if !strings.Contains(hint, "api_export") || !strings.Contains(hint, "max_inline_bytes") {
-		t.Errorf("hint = %q; want it to name api_export and max_inline_bytes", hint)
+	if !strings.Contains(hint, "api_export") || !strings.Contains(hint, "tools.result_budget") {
+		t.Errorf("hint = %q; want it to name api_export and tools.result_budget", hint)
 	}
 	if _, ok := out["export_arguments"].(map[string]any); !ok {
 		t.Errorf("export_arguments = %v; want the api_export arguments", out["export_arguments"])
@@ -67,6 +69,9 @@ func TestIssue1587_ALargeResponseIsNotReturnedWholeByDefault(t *testing.T) {
 		t.Run("bytes_as_"+name, func(t *testing.T) {
 			out := c.call("api_invoke_endpoint", issue1587SizedArgs(issue1587FixtureConn, bytes))
 			assertCutAtInlineBudget(t, out, issue1587DefaultInline)
+			if got := number(t, out, "body_bytes"); got < issue1587SizedBytes {
+				t.Errorf("body_bytes = %v; want the whole response, at least the %d bytes asked for", got, issue1587SizedBytes)
+			}
 			args, _ := out["export_arguments"].(map[string]any)
 			if args["connection"] != issue1587FixtureConn || args["method"] != "GET" || args["path"] != "/v1/sized" {
 				t.Errorf("export_arguments = %v; want the same connection, method and path", args)
@@ -134,62 +139,35 @@ func TestIssue1587_TheUtilConnectionIsHeldToTheSameBudget(t *testing.T) {
 	}
 }
 
-// issue1587Connection registers a fixture-backed connection with its own
-// inline budget through the admin API, the way an operator raises it, and
-// removes it when the test ends.
-func issue1587Connection(t *testing.T, c *client, name string, inline int) {
-	t.Helper()
-	body, _ := json.Marshal(map[string]any{
-		"config": map[string]any{
-			"base_url":          issue1587FixtureBaseURL,
-			"auth_mode":         "api_key",
-			"credential":        issue1587FixtureDevKey,
-			"api_key_placement": "header",
-			"api_key_header":    "X-API-Key",
-			"connection_name":   name,
-			"max_inline_bytes":  inline,
-		},
-		"description": "Acceptance #1587: a connection with its own inline budget",
-	})
-	status, out := c.rest(http.MethodPut, "/api/v1/admin/connection-instances/api/"+name, strings.NewReader(string(body)))
-	if status/100 != 2 {
-		t.Fatalf("PUT connection %s: %d %v", name, status, out)
-	}
-	t.Cleanup(func() {
-		_, _ = c.rest(http.MethodDelete, "/api/v1/admin/connection-instances/api/"+name, http.NoBody)
-	})
-}
-
-func TestIssue1587_AnOperatorRaisesTheInlineBudgetForAConnection(t *testing.T) {
-	c := connect(t)
-	issue1587Connection(t, c, "issue-1587-wide", 4*1024*1024)
-	out := c.call("api_invoke_endpoint", issue1587SizedArgs("issue-1587-wide", issue1587SizedBytes))
-	if out["body_truncated"] != nil {
-		t.Fatalf("body_truncated = %v under a 4 MiB budget; want the whole response", out["body_truncated"])
-	}
-	if got := number(t, out, "body_bytes"); got < issue1587SizedBytes {
-		t.Errorf("body_bytes = %v; want at least %d", got, issue1587SizedBytes)
-	}
-}
-
+// TestIssue1587_AWalkMergesUnderTheInlineBudget: a model's page walk stops
+// merging at the context budget and steers to api_export. per_page and total
+// are untyped in the schema, so both JSON forms they admit are sent.
 func TestIssue1587_AWalkMergesUnderTheInlineBudget(t *testing.T) {
 	c := connect(t)
-	issue1587Connection(t, c, "issue-1587-narrow", 2048)
-	out := c.call("api_invoke_endpoint", map[string]any{
-		"connection": "issue-1587-narrow",
-		"method":     "GET",
-		"path":       "/v1/pagination/link",
-		"paginate":   map[string]any{"items": "items"},
-		"purpose":    "Acceptance: a walk stops merging at the inline budget and steers to api_export.",
-	})
-	if truncated, _ := out["body_truncated"].(bool); out["stopped_by"] != "max_bytes" || !truncated {
-		t.Fatalf("stopped_by=%v truncated=%v; want the walk cut at the inline budget", out["stopped_by"], out["body_truncated"])
+	forms := map[string]map[string]any{
+		"number": {"per_page": 100, "total": 5000},
+		"string": {"per_page": "100", "total": "5000"},
 	}
-	if got := number(t, out, "body_bytes"); got <= 0 || got > 2048 {
-		t.Errorf("body_bytes = %v; want the merged size under 2048", got)
-	}
-	args, _ := out["export_arguments"].(map[string]any)
-	if _, ok := args["paginate"].(map[string]any); !ok {
-		t.Errorf("export_arguments = %v; want the paginate block carried into the api_export call", out["export_arguments"])
+	for name, query := range forms {
+		t.Run("query_as_"+name, func(t *testing.T) {
+			out := c.call("api_invoke_endpoint", map[string]any{
+				"connection":   issue1587FixtureConn,
+				"method":       "GET",
+				"path":         "/v1/pagination/link",
+				"query_params": query,
+				"paginate":     map[string]any{"items": "items"},
+				"purpose":      "Acceptance: a walk stops merging at the context budget and steers to api_export.",
+			})
+			if truncated, _ := out["body_truncated"].(bool); out["stopped_by"] != "max_bytes" || !truncated {
+				t.Fatalf("stopped_by=%v truncated=%v; want the walk cut at the context budget", out["stopped_by"], out["body_truncated"])
+			}
+			if got := number(t, out, "body_bytes"); got <= 0 || got > issue1587DefaultInline {
+				t.Errorf("body_bytes = %v; want the merged size under %d", got, issue1587DefaultInline)
+			}
+			args, _ := out["export_arguments"].(map[string]any)
+			if _, ok := args["paginate"].(map[string]any); !ok {
+				t.Errorf("export_arguments = %v; want the paginate block carried into the api_export call", out["export_arguments"])
+			}
+		})
 	}
 }

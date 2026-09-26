@@ -135,17 +135,18 @@ type InvokeOutput struct {
 	BodyTruncated bool                `json:"body_truncated,omitempty"`
 	// BodyBytes is the size of the body as read from the upstream,
 	// before decoding. Reported on every response; zero when no body was
-	// returned. It is not what the call cost the model's context: that
-	// is the rendered result, which max_inline_bytes bounds and which a
-	// cut body may make smaller than this (issue #1606).
+	// returned. It is not what the call cost a model's context: that is
+	// the rendered result, which the platform's context budget bounds and
+	// which a cut body may make smaller than this (issues #1606, #1878).
 	BodyBytes int64 `json:"body_bytes"`
 	// Advice says whether the upstream's answer is worth asking for again
 	// and after how long (#1859): set on a 429, and on a 503 to a GET or
 	// HEAD. A managed script's host waits and retries on it.
 	upstreamretry.Advice
-	// ExportArguments is set when Body was cut by the inline budget
-	// (issue #1587): the api_export arguments that stream this same
-	// call into a portal asset. The caller adds a name.
+	// ExportArguments is set when Body was cut, by a model client's
+	// context budget or by the read cap (issues #1587, #1878): the
+	// api_export arguments that stream this same call into a portal
+	// asset. The caller adds a name.
 	ExportArguments *InvokeInput `json:"export_arguments,omitempty"`
 	// Pagination is populated when the upstream response carries a
 	// recognizable cursor (RFC 5988 Link rel="next", @odata.nextLink,
@@ -155,9 +156,8 @@ type InvokeOutput struct {
 	Pagination *PaginationInfo `json:"pagination,omitempty"`
 	// Hint surfaces operator-actionable advice to the model when the
 	// response itself can't carry it — most importantly the "use
-	// api_export instead" suggestion when the body exceeded
-	// max_inline_bytes. Distinct from Error: Hint is informational,
-	// the call still succeeded.
+	// api_export instead" suggestion when the body was cut. Distinct
+	// from Error: Hint is informational, the call still succeeded.
 	Hint       string `json:"hint,omitempty"`
 	DurationMs int64  `json:"duration_ms"`
 	Error      string `json:"error,omitempty"`
@@ -190,11 +190,18 @@ type invocation struct {
 	// reserves against (issue #535). nil = unlimited (test-only and
 	// unconfigured deployments), in which case reservation is a no-op.
 	budget *MemBudget
-	// inlineBudget is the model-context budget this call is held to,
-	// resolved from the caller by inlineBudgetFor. Zero means none, in
-	// which case the read runs to the connection's cap and the result is
-	// returned whole (issue #1606).
-	inlineBudget int64
+	// contextBudget is the budget a model client's result is held to,
+	// which the platform's result-budget middleware records on the call
+	// (#1878). A walk merges under it rather than build a result the
+	// middleware would then cut. Zero for every other caller, whose walk
+	// merges under the connection's read cap.
+	contextBudget int64
+	// refuseOverCap makes a response past the read cap an error rather
+	// than a cut body. Set for every caller that is not a model: a
+	// program parsing the response cannot read a cut one, and a 200
+	// carrying a prefix is how a feed stops without anyone noticing
+	// (#1878).
+	refuseOverCap bool
 }
 
 // catalogView is the parsed OpenAPI catalog a request is built against:
@@ -222,45 +229,32 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 	}
 
 	return executeRequest(execParams{
-		client:     inv.client,
-		req:        req,
-		maxBytes:   readLimit(cmp.Or(inv.inlineBudget, inv.cfg.MaxResponseBytes)),
-		budget:     inv.budget,
-		connection: inv.cfg.ConnectionName,
-		path:       in.Path,
-		decoder:    newResponseDecoder(in, inv.specs),
+		client:        inv.client,
+		req:           req,
+		maxBytes:      readLimit(inv.cfg.MaxResponseBytes),
+		refuseOverCap: inv.refuseOverCap,
+		budget:        inv.budget,
+		connection:    inv.cfg.ConnectionName,
+		path:          in.Path,
+		decoder:       newResponseDecoder(in, inv.specs),
 	})
 }
 
-// inlineBudgetFor is the model-context budget this caller is held to,
-// zero meaning none. A managed script is not a model context: it parses
-// the response in code, a cut body is not parseable, and a steer to
-// api_export is not something a run can act on mid-script. So a run
-// reads to the connection's read cap and its result is returned whole,
-// the same exemption enrichment makes for a script caller and for the
-// same reason (pkg/middleware/mcp_enrichment.go, issue #1283).
-func inlineBudgetFor(ctx context.Context, cfg Config) int64 {
-	if mcpcontext.GetSource(ctx) == mcpcontext.SourceScript {
-		return 0
-	}
-	return inlineBudget(cfg)
-}
-
-// inlineBudget is the connection's effective inline budget: the most
-// of a response returned through a tool result. Unset values take the
-// defaults, and the read cap bounds it.
-func inlineBudget(cfg Config) int64 {
-	budget := cfg.MaxInlineBytes
-	if budget <= 0 {
-		budget = DefaultMaxInlineBytes
-	}
-	return min(budget, readLimit(cfg.MaxResponseBytes))
+// callerLimits sets the size rules the caller is held to. A model over
+// MCP carries a context budget, recorded by the platform's result-budget
+// middleware; its walk merges under that budget, and a body past the read
+// cap is cut, flagged and steered to api_export. Every other caller -- a
+// REST gateway client, a managed script, the admin API -- carries none, and
+// a body past the read cap is refused, since cutting it would hand a
+// program a document it cannot parse under a success status (#1878).
+func callerLimits(ctx context.Context, inv *invocation) {
+	inv.contextBudget = int64(mcpcontext.ResultBudget(ctx))
+	inv.refuseOverCap = inv.contextBudget == 0
 }
 
 // steerToExport finishes an output's steer to api_export. With no
 // api_export registered the hint is cleared: the model must not be told
-// to use a tool this deployment lacks. With it, a body cut by the inline
-// budget carries the arguments that stream the same call into an asset,
+// to use a tool this deployment lacks. With it, a cut body carries the arguments that stream the same call into an asset,
 // in the form the caller used (operation_id or method+path); the inline
 // timeout is dropped because api_export has its own.
 func steerToExport(out *InvokeOutput, in InvokeInput, hasExport bool) {
@@ -278,29 +272,37 @@ func steerToExport(out *InvokeOutput, in InvokeInput, hasExport bool) {
 	out.ExportArguments = &in
 }
 
-// inlineBudgetHint is the steer on a body cut by the inline budget.
+// contextBudgetHint is the steer on a body cut by a model client's
+// context budget. The budget bounds the rendered tool result, so the hint
+// does not quote it as a count of body bytes returned (issue #1606).
+func contextBudgetHint(budget, bodyBytes int64) string {
+	return fmt.Sprintf("response of %d bytes exceeded this client's context budget on a tool result (%d, tools.result_budget); "+
+		"the body is cut to fit it. Use api_export with export_arguments plus a name to stream the whole response into a "+
+		"portal asset (no model-context cost)", bodyBytes, budget)
+}
+
+// readCapHint is the steer on a body cut by the connection's read cap,
+// which only a model client's body is: every other caller is refused.
 // declared is the upstream's Content-Length, or -1 when it sent none.
-// The budget it names bounds the rendered tool result, so the hint does
-// not quote it as a count of body bytes returned (issue #1606).
-func inlineBudgetHint(budget, declared int64) string {
+func readCapHint(readCap, declared int64) string {
 	size := "of undeclared length"
 	if declared > 0 {
 		size = fmt.Sprintf("of %d bytes", declared)
 	}
-	return fmt.Sprintf("response %s exceeded the connection's max_inline_bytes (%d), the budget on the tool result this call returns; "+
-		"the body is cut to fit it. Use api_export with export_arguments plus a name to stream the whole response into a "+
-		"portal asset (no model-context cost)", size, budget)
+	return fmt.Sprintf("response %s exceeded the connection's max_response_bytes (%d), the most the gateway reads of one response; "+
+		"the body is cut at it. Use api_export with export_arguments plus a name to stream the whole response into a "+
+		"portal asset (no model-context cost)", size, readCap)
 }
 
-// applyInlineBudget holds a result to the connection's inline budget and
+// fitToBudget holds a result to a model client's context budget and
 // returns the rendering to hand back. The budget is on the rendered tool
 // result, not on the bytes read from the upstream: the envelope and the
 // indentation the result is rendered with sit between the two, so a body
-// inside the read budget can still render past what a client accepts
+// inside the read cap can still render past what a client accepts
 // (issue #1606). The flags are set before the fit, so the rendering it
 // measures is the one returned, and only a result that cannot be made to
 // fit by re-encoding alone is flagged as cut.
-func applyInlineBudget(out *InvokeOutput, in InvokeInput, budget int64, hasExport bool) []byte {
+func fitToBudget(out *InvokeOutput, in InvokeInput, budget int64, hasExport bool) []byte {
 	// A walk's body is a merged collection: cutting it would hand back a
 	// broken array whose resume signal points past items the caller never
 	// received, so a walk expresses the budget by refusing the page that
@@ -314,17 +316,17 @@ func applyInlineBudget(out *InvokeOutput, in InvokeInput, budget int64, hasExpor
 	}
 	if setBody != nil && !out.BodyTruncated && inlinefit.NeedsCut(out, int(budget)) {
 		out.BodyTruncated = true
-		out.Hint = inlineBudgetHint(budget, out.BodyBytes)
+		out.Hint = contextBudgetHint(budget, out.BodyBytes)
 	}
 	steerToExport(out, in, hasExport)
 	return inlinefit.Fit(out, int(budget), body, setBody)
 }
 
-// walkBudgetHint is the steer on a walk stopped by the inline budget. A
-// walk whose FIRST page does not fit merged nothing, so it has no signal
-// to resume from and must not be told to resume from one.
+// walkBudgetHint is the steer on a walk stopped by a model client's
+// context budget. A walk whose FIRST page does not fit merged nothing, so
+// it has no signal to resume from and must not be told to resume from one.
 func walkBudgetHint(budget int64, resumable bool) string {
-	hint := fmt.Sprintf("merged pages reached the connection's max_inline_bytes (%d), the budget on the tool result this call returns; "+
+	hint := fmt.Sprintf("merged pages reached this client's context budget on a tool result (%d, tools.result_budget); "+
 		"use api_export with export_arguments plus a name to stream the whole walk into a portal asset (no model-context cost)", budget)
 	if resumable {
 		return hint + ", or resume from pagination"
@@ -333,8 +335,8 @@ func walkBudgetHint(budget int64, resumable bool) string {
 }
 
 // invokeWalk runs api_invoke_endpoint as a page walk: the pages are
-// merged inline under the connection's max_inline_bytes and returned
-// as one array. A page that fails, fails the call, and the error names
+// merged under a model client's context budget, or under the
+// connection's read cap for any other caller, and returned as one array. A page that fails, fails the call, and the error names
 // the page; the caller renders it as a tool error. A walk that stops at
 // the byte cap or max_pages returns the pages that fit and, in
 // Pagination, the signal to resume from.
@@ -343,12 +345,12 @@ func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput)
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// A caller with no model-context budget still needs a ceiling on what
-	// one call accumulates: max_pages times a page of max_response_bytes
-	// is gigabytes held in one process, and the in-flight memory budget
+	// A caller with no context budget still needs a ceiling on what one
+	// call accumulates: max_pages times a page of max_response_bytes is
+	// gigabytes held in one process, and the in-flight memory budget
 	// reserves per page rather than over the merge. The connection's read
 	// cap is that ceiling.
-	limit := readLimit(cmp.Or(inv.inlineBudget, inv.cfg.MaxResponseBytes))
+	limit := readLimit(cmp.Or(inv.contextBudget, inv.cfg.MaxResponseBytes))
 	merge := &pagewalk.InlineMerge{Limit: limit - inlinefit.Reserve(limit), Rendered: inlinefit.ItemsSize}
 	walk, err := newPageWalk(inv, in, authorize, merge.Add)
 	if err != nil {
@@ -369,7 +371,7 @@ func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput)
 	}
 	if walk.Stats.StoppedBy == pagewalk.StoppedByMaxBytes {
 		out.BodyTruncated = true
-		if inv.inlineBudget > 0 {
+		if inv.contextBudget > 0 {
 			out.Hint = walkBudgetHint(limit, out.Pagination != nil)
 		}
 	}
@@ -1163,12 +1165,15 @@ func scrubTransportError(err error) string {
 // read reserves against the shared in-flight memory budget (issue
 // #535) and needs the connection/path for the structured rejection.
 type execParams struct {
-	client     *http.Client
-	req        *http.Request
-	maxBytes   int64
-	budget     *MemBudget
-	connection string
-	path       string
+	client   *http.Client
+	req      *http.Request
+	maxBytes int64
+	// refuseOverCap turns a body past maxBytes into a
+	// *responseTooLargeError instead of a cut body (see invocation).
+	refuseOverCap bool
+	budget        *MemBudget
+	connection    string
+	path          string
 	// decoder turns the response body into the value the tool returns.
 	// It is resolved in invoke, where the caller's `decode` input and the
 	// parsed catalog are both in hand; executeRequest only applies it.
@@ -1277,10 +1282,13 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		Advice:        upstreamretry.Advise(p.req.Method, resp.StatusCode, resp.Header, time.Now()),
 	}
 	if truncated {
+		if p.refuseOverCap {
+			return InvokeOutput{}, &responseTooLargeError{connection: p.connection, path: p.path, limit: readCap, declared: resp.ContentLength}
+		}
 		// A cut body cannot parse, so the decode note on a truncated
 		// response is a symptom of the cut. The steer to api_export is
 		// the one that resolves both.
-		out.Hint = inlineBudgetHint(readCap, resp.ContentLength)
+		out.Hint = readCapHint(readCap, resp.ContentLength)
 	}
 	return out, nil
 }

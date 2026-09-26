@@ -9703,7 +9703,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Forwards a request to the named upstream connection and returns the enveloped result. This is the REST equivalent of the api_invoke_endpoint MCP tool, for non-MCP clients (NiFi, Airflow, curl).\n\nThe HTTP status of THIS response reports the platform's own outcome only. When the platform performed the call, the response is 200 and the upstream's own status code is in `status` inside the body \u2014 a 404 from the upstream arrives as HTTP 200 with `\"status\": 404`. That split lets a client route on \"the gateway is broken\" (502, 504) separately from \"the upstream is unhappy\".\n\nA `connection` key in the body is ignored; the connection is taken from the URL. `operation_id`, `path_params`, `spec` and `decode` are MCP-tool parameters and are not bound on this route.\n\nBrowse connections and copy a ready-made call at /portal/apis.",
+                "description": "Forwards a request to the named upstream connection and returns the enveloped result. This is the REST equivalent of the api_invoke_endpoint MCP tool, for non-MCP clients (NiFi, Airflow, curl).\n\nThe HTTP status of THIS response reports the platform's own outcome only. When the platform performed the call, the response is 200 and the upstream's own status code is in `status` inside the body \u2014 a 404 from the upstream arrives as HTTP 200 with `\"status\": 404`. That split lets a client route on \"the gateway is broken\" (502, 504) separately from \"the upstream is unhappy\".\n\nThe body is returned whole. This route is never held to the context budget an MCP client's tool results are fitted to (`tools.result_budget`); the only size limit it meets is the connection's `max_response_bytes`, and a response past it fails with 413 rather than arriving cut.\n\nA `connection` key in the body is ignored; the connection is taken from the URL. `operation_id`, `path_params`, `spec` and `decode` are MCP-tool parameters and are not bound on this route.\n\nBrowse connections and copy a ready-made call at /portal/apis.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9764,7 +9764,7 @@
                         }
                     },
                     "413": {
-                        "description": "Upstream body exceeds the inline size limit",
+                        "description": "Upstream body exceeds the connection's max_response_bytes",
                         "schema": {
                             "$ref": "#/definitions/gatewayhttp.errorEnvelope"
                         }
@@ -9776,7 +9776,7 @@
                         }
                     },
                     "429": {
-                        "description": "Inline read budget exhausted; Retry-After is set",
+                        "description": "The gateway's in-flight memory budget is exhausted; Retry-After is set",
                         "schema": {
                             "$ref": "#/definitions/gatewayhttp.errorEnvelope"
                         }
@@ -25770,7 +25770,7 @@
             "properties": {
                 "body": {},
                 "body_bytes": {
-                    "description": "BodyBytes is the size of the body as read from the upstream,\nbefore decoding. Reported on every response; zero when no body was\nreturned. It is not what the call cost the model's context: that\nis the rendered result, which max_inline_bytes bounds and which a\ncut body may make smaller than this (issue #1606).",
+                    "description": "BodyBytes is the size of the body as read from the upstream,\nbefore decoding. Reported on every response; zero when no body was\nreturned. It is not what the call cost a model's context: that is\nthe rendered result, which the platform's context budget bounds and\nwhich a cut body may make smaller than this (issues #1606, #1878).",
                     "type": "integer"
                 },
                 "body_truncated": {
@@ -25783,7 +25783,7 @@
                     "type": "string"
                 },
                 "export_arguments": {
-                    "description": "ExportArguments is set when Body was cut by the inline budget\n(issue #1587): the api_export arguments that stream this same\ncall into a portal asset. The caller adds a name.",
+                    "description": "ExportArguments is set when Body was cut, by a model client's\ncontext budget or by the read cap (issues #1587, #1878): the\napi_export arguments that stream this same call into a portal\nasset. The caller adds a name.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/apigateway.InvokeInput"
@@ -25800,7 +25800,7 @@
                     }
                 },
                 "hint": {
-                    "description": "Hint surfaces operator-actionable advice to the model when the\nresponse itself can't carry it \u2014 most importantly the \"use\napi_export instead\" suggestion when the body exceeded\nmax_inline_bytes. Distinct from Error: Hint is informational,\nthe call still succeeded.",
+                    "description": "Hint surfaces operator-actionable advice to the model when the\nresponse itself can't carry it \u2014 most importantly the \"use\napi_export instead\" suggestion when the body was cut. Distinct\nfrom Error: Hint is informational, the call still succeeded.",
                     "type": "string"
                 },
                 "items_merged": {

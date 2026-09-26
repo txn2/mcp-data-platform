@@ -43,10 +43,12 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwMetrics,
 		mwAudit,
 		mwErrorContract,
+		mwResultBudget,
 		mwClientLogging,
 		mwManagedResource,
 		mwCallReference,
 		mwEnrichment,
+		mwResultCapture,
 		mwUnwrapJSON,
 	}
 

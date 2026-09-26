@@ -8,6 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
+	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -41,6 +42,8 @@ const (
 	mwManagedResource     mwName = "managed_resource"
 	mwCallReference       mwName = "call_reference"
 	mwEnrichment          mwName = "enrichment"
+	mwResultBudget        mwName = "result_budget"
+	mwResultCapture       mwName = "result_capture"
 	mwUnwrapJSON          mwName = "unwrap_json"
 )
 
@@ -144,6 +147,12 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// on the way out rather than the raw handler error.
 		{Name: mwErrorContract, Requires: []mwName{mwAudit, mwMetrics, mwReflexiveCapture}, Register: p.addErrorContractMiddleware},
 
+		// Result budget (#1878): reads PlatformContext; outer to the call
+		// reference and enrichment so it measures what the client receives.
+		{Name: mwResultBudget, Requires: []mwName{mwToolCall}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(resultbudget.Middleware(p.config.Tools.ResultBudget, resultbudget.RegistryLookup(p.toolkitRegistry)))
+		}},
+
 		{Name: mwClientLogging, Register: p.addClientLoggingMiddleware},
 		{Name: mwManagedResource, Register: p.addManagedResourceMiddleware},
 
@@ -168,6 +177,11 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// record enrichment as not-applied. Metrics does not read the flag, so
 		// it is intentionally absent here.
 		{Name: mwEnrichment, Requires: []mwName{mwToolCall, mwTracing, mwAudit, mwClientLogging}, Register: p.addEnrichmentMiddleware},
+
+		// Result capture (#1878): the tool's own result, for the budget.
+		{Name: mwResultCapture, Requires: []mwName{mwResultBudget}, Register: func() {
+			p.mcpServer.AddReceivingMiddleware(resultbudget.Capture())
+		}},
 
 		// Unwrap JSON (innermost): rewrites tool arguments before the handler runs.
 		{Name: mwUnwrapJSON, Register: p.addUnwrapJSONMiddleware},

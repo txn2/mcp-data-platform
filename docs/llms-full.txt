@@ -531,12 +531,42 @@ tools:
 | `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
 | `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
 | `tools.description_overrides` | map | `{}` | Override tool descriptions in `tools/list` responses. Config overrides take precedence over built-in defaults. |
+| `tools.result_budget.max_bytes` | int | `32768` | The context budget: the most of a rendered tool result a model client over MCP is handed. |
+| `tools.result_budget.per_tool` | map | `{}` | Per-tool overrides of `max_bytes` (tool name to bytes). |
 
 No patterns configured means all tools are visible. When both are set, allow is evaluated first, then deny removes from the result. Patterns use `filepath.Match` syntax (`*` matches any sequence of characters).
 
 ### Built-in Description Overrides
 
 The platform ships with built-in description overrides for `trino_query` and `trino_execute` that instruct agents to call `datahub_search` first for business context. These are always active and require no configuration. Use `tools.description_overrides` to customize or add more overrides; config entries take precedence over built-in defaults.
+
+#### Tool result context budget
+
+A model reads a tool result into its context, and a client refuses or spills a result past what it accepts (a 64,213-character result was measured refused). `tools.result_budget` is that budget, set once for the platform:
+
+```yaml
+tools:
+  result_budget:
+    max_bytes: 32768        # default
+    per_tool:
+      trino_query: 65536
+```
+
+It is enforced in one place, on the MCP response to a model, and only on a result the model can recover the rest of. Three tools qualify, because each has an export equivalent that returns the whole result without a context cost; each cuts in its own shape and says so. What is measured is the text the client receives, the platform's own additions (the call reference, enrichment) included. A result within the budget is untouched.
+
+| Tool | Past the budget |
+|------|-----------------|
+| `api_invoke_endpoint` | Re-encoded compactly first; if that is not enough the body is cut, `body_truncated` is set, `body_bytes` keeps the size read, and `export_arguments` carries the `api_export` call that streams the whole response into an asset |
+| `graphql_query` | Re-encoded compactly first; if that is not enough `data` is withheld whole (a JSON document cut in half cannot be parsed), `data_truncated` is set, and `export_arguments` carries the `graphql_export` call |
+| `trino_query` | The most whole rows that fit are kept, in the format asked for; `result_truncated` and `rows_shown` say how many of `row_count`, and `export_arguments` carries the `trino_export` call |
+
+Every other result reaches the model whole, whatever its size: a knowledge page, `manage_script` help, a prompt, `platform_info`, an uploaded document read through `fetch`, an `s3_object` read, a `datahub_*` result, a proxied MCP tool's output. None of these has a way back to the rest, and a model reasoning from half a manual does worse than one whose client spills an oversized result to a file it can still read. The same holds when one of the three tools cannot cut a result recoverably (an answer whose `errors` alone are past the budget): it is returned whole.
+
+A fitted result's structured content is the fitted value too, so the message a client receives carries the cut result twice rather than the whole one.
+
+Only a model's call over MCP is held to the budget. A REST gateway call (`POST /api/v1/gateway/{connection}/invoke`), a managed script's run and an admin call are never fitted: a program that parses a response cannot read a cut one. Those callers meet only the real resource limits, a connection's `max_response_bytes` and the gateway's in-flight memory budget, and a response past `max_response_bytes` fails with an explicit error (`413` on the REST route) instead of arriving cut.
+
+The budget replaced `max_inline_bytes`, which was set per `api` and `graphql` connection. A connection that still carries it loads normally, the value has no effect, and a warning naming `tools.result_budget` is logged when the connection is read.
 
 ## Search-First Gate Configuration
 
@@ -4037,7 +4067,7 @@ Pacing is the gateway's. An upstream that answers a page with `429` or `503` car
 Each page is read under the connection's `max_response_bytes`, the upstream read cap; a page past it fails the walk with a steer to ask the upstream for a smaller page. Beyond that the two tools differ:
 
 - `api_export` streams: the merged array is opened, each page's items are written to storage as they arrive, copied byte for byte from the page, and the array is closed, so memory holds one page whatever the page count. The asset is one `application/json` document whose content is the merged array. Its provenance records the `paginate` block, `pages_fetched`, `items_merged`, `stopped_by`, and the cursor or link that addressed the last page. A walk whose merged output would pass `portal.export.max_bytes` fails all-or-nothing, as a single oversize response does. The idempotency key covers the whole walk.
-- `api_invoke_endpoint` merges inline under `max_inline_bytes`, the inline budget. The merge measures the array as the result renders it and keeps headroom under the budget for the envelope around it, so a page that would take the rendered result past the budget is not merged: the call returns the pages that fit with `stopped_by: "max_bytes"`, `body_truncated: true`, `body_bytes` holding the merged size, a hint steering to `api_export`, `export_arguments` carrying the same call and `paginate` block for it, and `pagination` holding the signal for the unmerged page. `status` and `headers` are the last page's.
+- `api_invoke_endpoint` called by a model merges inline under the platform's context budget (`tools.result_budget`). A REST gateway client or a managed script carries no context budget, and its walk merges under the connection's `max_response_bytes` instead, stopping there the same way with whole pages and the signal to resume from. The merge measures the array as the result renders it and keeps headroom under the budget for the envelope around it, so a page that would take the rendered result past the budget is not merged: the call returns the pages that fit with `stopped_by: "max_bytes"`, `body_truncated: true`, `body_bytes` holding the merged size, a hint steering to `api_export`, `export_arguments` carrying the same call and `paginate` block for it, and `pagination` holding the signal for the unmerged page. `status` and `headers` are the last page's.
 
 One tool call is one rate-limit token, one audit row, and, from a managed script, one `platform.call`. The audit row for the call records the walk under `parameters.result` (`pages_fetched`, `items_merged`, `stopped_by`) beside the `paginate` block it was called with, which is the observability the per-call loop was keeping.
 
@@ -4063,23 +4093,28 @@ Use the API gateway for REST/HTTP upstreams (Salesforce, Google APIs, GitHub, St
 
 Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `basic` (RFC 7617 `Authorization: Basic base64(username:password)` for legacy APIs that never moved to bearer or OAuth, like Jenkins or on-prem Jira / Confluence Server / DC; `password` may be empty for the token-in-userid pattern; `username` is rejected if it contains `:` per RFC 7617 §2 or CR/LF/NUL header-smuggling vectors), `oauth` (OAuth 2.1; grant carried in `oauth_grant` as `client_credentials`, `authorization_code` or `jwt_bearer`, the last described in the OAuth JWT bearer grant section below; canonical `oauth_*` config keys shared with every toolkit kind, legacy api-only `oauth2_*` keys read as a deprecated fallback and rewritten by a database migration on upgrade), `signed_jwt` (the platform mints a short-lived JWT per call from an identifier and a signing key issued out of band, and sends it as `Authorization: Bearer <jwt>`; see the Signed JWT upstream authentication section below), `mtls` (X.509 client certificate at the TLS handshake per RFC 5246 / 8446: the cert subject DN IS the credential, used by upstreams that map a certificate identity to a user: service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, HashiCorp Vault cert auth, Kubernetes API server, and Apache projects deployed with the standard security profile). The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
 
-## Response size: the read cap and the inline budget
+## Response size: the read cap and the context budget
 
-Two settings on a connection bound what a response becomes, and they measure different things.
+Two limits bound what a response becomes, and they measure different things for different callers.
 
-- `max_response_bytes` (default 10 MiB) is the upstream read cap: the most the gateway reads of any one response, a page of a walk or an inline call. It is a transfer and buffering limit, the ceiling an operator sets on what is read at all.
-- `max_inline_bytes` (default 32 KiB) is the inline budget: the most a rendered `api_invoke_endpoint` tool result may hold. It is a model-context budget, and it is applied to the result the client receives rather than to the bytes read from the upstream, because the two differ by more than a constant: the JSON envelope and the indentation the result is rendered with sit between them, and a parsed JSON body renders to several times its compact size. Fitting spends the cheapest lever first. A result that fits indented is returned indented; one that does not is returned compact, since indentation is whitespace and dropping it costs nothing where the alternative is dropping content; only a result that fits neither way has its body cut, and that is the case that sets `body_truncated`, puts the budget and the upstream's declared length in `hint`, and carries `export_arguments` for the `api_export` call that streams the same call into a portal asset (the caller adds a `name`). `body_bytes` stays the size read from the upstream. The read cap bounds the read, so a connection whose `max_response_bytes` is lower reads at most that.
-- The budget is measured against the tool result's text, the size a client was measured refusing. The MCP SDK also marshals the same output into the result's `structuredContent`, so the wire message carries the body a second time, compactly. That copy is not removable (a managed script reads the structured output, and the platform's call reference is mirrored into it), so it sits outside the budget; a client that counts the whole message rather than the text it renders sees roughly twice the number configured.
-- A managed script is not held to the budget at all. It parses the response in code, so a body cut to a prefix is not parseable, and the steer to `api_export` is not something a run can act on mid-script. A run reads to the connection's `max_response_bytes` and receives its response whole, the same exemption enrichment makes for a script caller.
+- `max_response_bytes` (default 10 MiB), set on the connection, is the upstream read cap: the most the gateway reads of any one response, a page of a walk or an inline call. It is a transfer and buffering limit, and it is the only size limit a REST gateway client or a managed script meets. For those callers a response past it fails with the `upstream_body_too_large` error, which the REST route returns as `413`, rather than arriving cut under a `200`. A model's call past it has its body cut at the cap, flagged and steered to `api_export`.
+- The context budget, `tools.result_budget` (default 32 KiB), is set once for the platform, not per connection (see [Tool result context budget](configuration.md#tool-result-context-budget)). It is the most of a rendered tool result a model client over MCP is handed, and only a model's call is held to it. It is applied to the result the client receives rather than to the bytes read from the upstream, because the two differ by more than a constant: the JSON envelope and the indentation the result is rendered with sit between them, and a parsed JSON body renders to several times its compact size. Fitting spends the cheapest lever first. A result that fits indented is returned indented; one that does not is returned compact, since indentation is whitespace and dropping it costs nothing where the alternative is dropping content; only a result that fits neither way has its body cut, and that is the case that sets `body_truncated`, puts the budget and the upstream's declared length in `hint`, and carries `export_arguments` for the `api_export` call that streams the same call into a portal asset (the caller adds a `name`). `body_bytes` stays the size read from the upstream. The read cap bounds the read, so a connection whose `max_response_bytes` is lower reads at most that.
+- The budget is measured against the tool result's text, the size a client was measured refusing. The MCP SDK also marshals the same output into the result's `structuredContent`; a fitted result replaces that copy with the fitted value, so the message carries the cut result twice rather than the whole body once.
+- A REST gateway client, a managed script and an admin call are not held to the budget at all. Each parses the response in code, so a body cut to a prefix is not parseable, and the steer to `api_export` is not something a program acts on. They read to the connection's `max_response_bytes` and receive the response whole.
 - A page walk is never cut. Cutting a merged collection would return a broken array whose resume signal points past items the caller never received, so a walk expresses the budget by refusing the page that would cross it, keeping headroom for the envelope around the array. A walk whose first page alone is past the budget merges nothing and says so, rather than naming a `pagination` field it does not carry.
 
-Every `api_invoke_endpoint` response reports `body_bytes`, the size of the body it returned, so an agent sees what a call cost rather than inferring it. `api_export` is not subject to the inline budget: it streams the whole response into an asset under `portal.export.max_bytes`. The raw passthrough route streams to its caller and is likewise unaffected. The built-in `util` connection's `fetch_url` returns through the same path as every other connection and is held to the same budget. The MCP gateway (`kind: mcp`) is not covered: it forwards a proxied tool's result as the upstream returned it, a proxied tool result has no export path to name, and cutting it would change the upstream tool's contract.
+Every `api_invoke_endpoint` response reports `body_bytes`, the size of the body it read, so an agent sees what a call cost rather than inferring it. `api_export` is not subject to the context budget: it streams the whole response into an asset under `portal.export.max_bytes`. The raw passthrough route streams to its caller and is likewise unaffected. The built-in `util` connection's `fetch_url` returns through the same path as every other connection and is held to the same budget. A proxied MCP gateway tool (`kind: mcp`) has no export path to name, so its result is never cut: it reaches the model as the upstream returned it.
 
-Raise the budget on a connection whose responses an agent needs whole, through the admin portal (Max inline bytes) or the admin API:
+Raise the budget for a tool whose results an agent needs whole, in the platform configuration:
 
-```json
-{"config": {"base_url": "https://api.vendor.example.com", "auth_mode": "bearer", "credential": "...", "max_inline_bytes": 1048576}}
+```yaml
+tools:
+  result_budget:
+    per_tool:
+      api_invoke_endpoint: 131072
 ```
+
+`max_inline_bytes`, the per-connection budget this replaced, has no effect; a connection that still carries it loads normally and logs a warning naming `tools.result_budget`.
 
 ## Private CAs and mTLS
 
@@ -4205,7 +4240,7 @@ Typical async-export flow: `api_invoke_endpoint <source> POST /exports` → job 
 
 ## Memory safety and the in-flight budget
 
-The gateway is one shared process serving every connection and toolkit. `api_invoke_endpoint` reads the upstream response into memory (an inline call up to the connection's `max_inline_bytes`, default 32 KiB; a page of a walk up to `max_response_bytes`, default 10 MiB) to parse and envelope it. Per-request caps bound one call but NOT the SUM of concurrent calls: a burst of large responses, each under its cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
+The gateway is one shared process serving every connection and toolkit. `api_invoke_endpoint` reads the upstream response into memory (an inline call or a page of a walk up to the connection's `max_response_bytes`, default 10 MiB) to parse and envelope it. Per-request caps bound one call but NOT the SUM of concurrent calls: a burst of large responses, each under its cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
 
 The global in-flight memory budget closes the gap. `apigateway.memory.max_in_flight_bytes` (0 = disabled) caps the bytes committed to `api_invoke_endpoint` response buffering across all connections. A buffered read that would exceed it is refused — before the buffer is allocated — with a structured `gateway_memory_budget_exhausted` error that the REST shim maps to a retryable `429` carrying `Retry-After`. Reservations use the upstream `Content-Length` when present (tighter for small bodies) and the per-request cap otherwise, and are released when the buffer is freed. Size the budget ~3x the raw body per concurrent large request (raw body + decoded copy + JSON-escaped envelope copy), around `(container_memory_limit × 0.6) / 3`; do NOT set it to the whole container limit or `GOMEMLIMIT`.
 
@@ -4443,7 +4478,7 @@ What it reuses rather than forks: outbound authentication and transport policy (
 
 ## Configuration
 
-`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with — including `signed_jwt` and its `jwt_*` keys, which is the mode a Sage X3 connected application needs. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only`, `max_inline_bytes` (default 32 KiB) and `description`. Every request goes out as `User-Agent: mcp-data-platform/<version>` unless `static_headers` pins one (#1679).
+`endpoint_url` is the full URL documents are POSTed to; unlike an HTTP API's `base_url` it is the whole address. `auth_mode` and its credentials, `static_headers`, `connect_timeout`, `call_timeout`, `max_response_bytes`, the mTLS/CA material and `identity_passthrough` are the shared upstream keys, read by the same code an `api` connection reads them with — including `signed_jwt` and its `jwt_*` keys, which is the mode a Sage X3 connected application needs. The kind's own keys are `schema_validation` (`strict` | `warn`, default strict), `max_query_depth` (default 15), `namespace_depth` (default 3), `read_only` and `description`. What reaches a model is the platform's context budget, `tools.result_budget`, not a per-connection setting; an answer past `max_response_bytes` is refused for every caller, naming the cap and `graphql_export`. Every request goes out as `User-Agent: mcp-data-platform/<version>` unless `static_headers` pins one (#1679).
 
 ## The schema
 
@@ -4475,7 +4510,7 @@ The skeleton is the load-bearing piece. It validates against the stored schema a
 
 Refused before any call: a subscription; a `__schema` or `__type` selection, with a pointer to `graphql_discover`; a document deeper than `max_query_depth`; a multi-operation document with no `operation_name`; a document the persona denies; and, under strict validation, one the stored schema does not admit — with the refusal naming the connection and when its schema was read, which is what makes schema drift diagnose itself.
 
-`upstream_error` is true for a non-2xx or a 200 carrying errors, and that is what audit, the call catalog and the outbound metrics classify on: the audit row and the call record carry `success: false` and an `error_message` naming the first upstream error (so the record's outcome is `failed`), and the outbound metric records `status_category="upstream_err"` under the 2xx class. `graphql_export` is held to the same rule and reports `status` and `upstream_error` beside the asset. The `errors` array is passed through unchanged, and partial `data` is preserved beside it. A result past `max_inline_bytes` has its data withheld whole — a JSON document cut in half cannot be parsed — sets `data_truncated`, reports `data_bytes`, and carries the `graphql_export` call that writes the same result to an asset.
+`upstream_error` is true for a non-2xx or a 200 carrying errors, and that is what audit, the call catalog and the outbound metrics classify on: the audit row and the call record carry `success: false` and an `error_message` naming the first upstream error (so the record's outcome is `failed`), and the outbound metric records `status_category="upstream_err"` under the 2xx class. `graphql_export` is held to the same rule and reports `status` and `upstream_error` beside the asset. The `errors` array is passed through unchanged, and partial `data` is preserved beside it. A model client's result past the platform's context budget (`tools.result_budget`) that compact re-encoding cannot fit has its data withheld whole — a JSON document cut in half cannot be parsed — sets `data_truncated`, reports `data_bytes`, and carries the `graphql_export` call that writes the same result to an asset.
 
 ## Paging
 

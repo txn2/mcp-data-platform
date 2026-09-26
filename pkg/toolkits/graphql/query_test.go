@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 const datasetDocument = `query Read($urn: String!) { dataset(urn: $urn) { urn name } }`
@@ -258,15 +262,43 @@ func TestATransportFailureRefusesTheCall(t *testing.T) {
 	}
 }
 
-func TestDataPastTheInlineBudgetIsWithheldWholeWithTheExportCall(t *testing.T) {
+// modelQuery runs graphql_query as a model's call arrives and fits the
+// result the way the platform's result-budget middleware does (#1878).
+func modelQuery(t *testing.T, tk *Toolkit, in QueryInput, budget int) (*mcp.CallToolResult, *QueryOutput) {
+	t.Helper()
+	ctx := mcpcontext.WithResultBudget(context.Background(), budget)
+	res, payload, err := tk.handleQuery(ctx, nil, in)
+	if err != nil {
+		t.Fatalf("handleQuery: %v", err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.StructuredContent = json.RawMessage(raw)
+	args, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := res.Content[0].(*mcp.TextContent); text != nil && len(text.Text) > budget {
+		if !tk.FitResult(ToolQuery, args, res, budget) {
+			t.Fatal("FitResult declined a graphql_query result")
+		}
+	}
+	var out QueryOutput
+	decodeResult(t, res, &out)
+	return res, &out
+}
+
+func TestDataPastTheContextBudgetIsWithheldWholeWithTheExportCall(t *testing.T) {
 	u := newUpstream(t)
 	u.respond = answer(`{"data":{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}}`)
-	tk := newToolkit(t, u, "flat", map[string]any{"max_inline_bytes": 512})
+	tk := newToolkit(t, u, "flat", nil)
 
-	out := callQuery(t, tk, QueryInput{
+	res, out := modelQuery(t, tk, QueryInput{
 		Connection: "gql", Query: datasetDocument,
 		Variables: jsonRaw(t, map[string]any{"urn": "u"}),
-	})
+	}, 512)
 
 	if !out.DataTruncated {
 		t.Fatal("a result past the budget was returned whole")
@@ -279,11 +311,77 @@ func TestDataPastTheInlineBudgetIsWithheldWholeWithTheExportCall(t *testing.T) {
 	if out.DataBytes == 0 {
 		t.Error("the caller cannot see how much was withheld")
 	}
-	if out.ExportArguments["connection"] != "gql" || out.ExportArguments["query"] != datasetDocument {
+	if out.ExportArguments["connection"] != "gql" || out.ExportArguments["query"] != datasetDocument || out.ExportArguments["variables"] == nil {
 		t.Errorf("export arguments = %v", out.ExportArguments)
 	}
-	if !strings.Contains(out.Note, "graphql_export") {
-		t.Errorf("note = %q; the caller needs to be told where the data is", out.Note)
+	if !strings.Contains(out.Note, "graphql_export") || !strings.Contains(out.Note, "(512, tools.result_budget)") {
+		t.Errorf("note = %q; the caller needs to be told where the data is and what cut it", out.Note)
+	}
+	if text, _ := res.Content[0].(*mcp.TextContent); len(text.Text) > 512 {
+		t.Errorf("text is %d characters; want it inside the 512 budget", len(text.Text))
+	}
+	if structured, _ := res.StructuredContent.(json.RawMessage); len(structured) > 512 {
+		t.Errorf("structured content is %d bytes; want the fitted copy", len(structured))
+	}
+}
+
+// TestACallerWithNoContextBudgetGetsTheDataWhole: a script's call carries no
+// budget, so the same answer comes back whole (#1878).
+func TestACallerWithNoContextBudgetGetsTheDataWhole(t *testing.T) {
+	u := newUpstream(t)
+	u.respond = answer(`{"data":{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}}`)
+	tk := newToolkit(t, u, "flat", nil)
+
+	out := callQuery(t, tk, QueryInput{Connection: "gql", Query: datasetDocument, Variables: jsonRaw(t, map[string]any{"urn": "u"})})
+	if out.DataTruncated || !strings.Contains(string(out.Data), strings.Repeat("x", 4000)) {
+		t.Errorf("truncated=%v data=%d bytes; want the whole answer", out.DataTruncated, len(out.Data))
+	}
+}
+
+// TestFitResultDeclinesWhatItCannotShape: another tool, unreadable
+// structured output or arguments, and a result whose errors alone are past
+// the budget are declined, so the generic cut applies.
+func TestFitResultDeclinesWhatItCannotShape(t *testing.T) {
+	tk := NewMulti(MultiConfig{})
+	big := QueryOutput{Connection: "gql", Errors: []Error{{Message: strings.Repeat("e", 2000)}}}
+	raw, err := json.Marshal(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name       string
+		tool       string
+		args       json.RawMessage
+		structured any
+	}{
+		{"another tool", ToolExport, nil, json.RawMessage(raw)},
+		{"no structured output", ToolQuery, nil, nil},
+		{"arguments of another shape", ToolQuery, json.RawMessage(`[1]`), json.RawMessage(raw)},
+		{"errors alone past the budget", ToolQuery, nil, json.RawMessage(raw)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}, StructuredContent: tc.structured}
+			if tk.FitResult(tc.tool, tc.args, res, 256) {
+				t.Fatal("FitResult fitted a result it cannot shape")
+			}
+		})
+	}
+}
+
+// TestAnAnswerPastTheReadCapIsRefused: an answer cut at max_response_bytes
+// cannot be parsed, so the call is refused naming the cap and the export
+// call rather than reported as a malformed answer (#1878).
+func TestAnAnswerPastTheReadCapIsRefused(t *testing.T) {
+	u := newUpstream(t)
+	u.respond = answer(`{"data":{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}}`)
+	tk := newToolkit(t, u, "flat", map[string]any{"max_response_bytes": 1024})
+
+	msg := refuseQuery(t, tk, QueryInput{Connection: "gql", Query: datasetDocument, Variables: jsonRaw(t, map[string]any{"urn": "u"})})
+	for _, want := range []string{"max_response_bytes (1024)", "graphql_export"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal %q lacks %q", msg, want)
+		}
 	}
 }
 
@@ -345,5 +443,26 @@ func TestIdentityPassthroughRefusesAnAnonymousCall(t *testing.T) {
 	msg := refuseQuery(t, tk, QueryInput{Connection: "gql", Query: `{ dataset(urn:"x") { urn } }`})
 	if !strings.Contains(msg, "identity passthrough") {
 		t.Errorf("msg = %q", msg)
+	}
+}
+
+// TestADocumentPastTheBudgetIsNamedNotEchoed: when the query document the
+// steer would echo is itself past the budget, the export arguments omit it
+// and the note says to pass the same query, rather than the fit failing.
+func TestADocumentPastTheBudgetIsNamedNotEchoed(t *testing.T) {
+	u := newUpstream(t)
+	u.respond = answer(`{"data":{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}}`)
+	tk := newToolkit(t, u, "flat", nil)
+	document := datasetDocument + strings.Repeat(" ", 2000)
+
+	res, out := modelQuery(t, tk, QueryInput{Connection: "gql", Query: document, Variables: jsonRaw(t, map[string]any{"urn": "u"})}, 1024)
+	if !out.DataTruncated || out.ExportArguments["query"] != nil || out.ExportArguments["connection"] != "gql" {
+		t.Errorf("truncated=%v export=%v; want the data withheld and the document not echoed", out.DataTruncated, out.ExportArguments)
+	}
+	if !strings.Contains(out.Note, "omit the query document") {
+		t.Errorf("note = %q", out.Note)
+	}
+	if text, _ := res.Content[0].(*mcp.TextContent); len(text.Text) > 1024 {
+		t.Errorf("text is %d characters; want it inside the budget", len(text.Text))
 	}
 }

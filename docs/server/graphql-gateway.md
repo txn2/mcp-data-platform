@@ -33,8 +33,7 @@ toolkits:
 | `auth_mode` and its credentials | The shared upstream authentication modes: `none`, `bearer`, `api_key`, `basic`, `signed_jwt`, `oauth`, `mtls`. Same keys, same behavior and same at-rest encryption as the API gateway's. `signed_jwt` is what a Sage X3 connected application needs; see [Signed JWT upstreams](signed-jwt-auth.md). `oauth` takes the `client_credentials`, `authorization_code` and `jwt_bearer` grants; see [OAuth JWT bearer grant](api-gateway.md#oauth-jwt-bearer-grant-rfc-7523) |
 | `static_headers` | Headers attached to every outbound request. This is where an upstream's tenant or folder routing goes, and where a `User-Agent` other than the platform's default `mcp-data-platform/<version>` is pinned. Operator-owned; the model never sets or overrides them |
 | `connect_timeout`, `call_timeout` | Dial and per-call bounds. Default 10s and 60s |
-| `max_response_bytes` | Upstream read cap: the most the platform reads of one response. Default 10 MiB |
-| `max_inline_bytes` | Model-context budget: the most a rendered `graphql_query` result may hold. Default 32 KiB |
+| `max_response_bytes` | Upstream read cap: the most the platform reads of one response. An answer past it is refused, naming the cap and `graphql_export`. Default 10 MiB |
 | `mtls_client_cert_pem`, `mtls_client_key_pem`, `tls_ca_bundle_pem` | The connection's TLS material, as on an `api` connection |
 | `identity_passthrough` | Forwards the acting caller's inbound bearer token instead of this connection's credential |
 | `schema_validation` | `strict` (default) or `warn`. See [Schema validation](#schema-validation) |
@@ -153,7 +152,9 @@ A call whose result says `upstream_error: true` is a failed call everywhere the 
 
 ### Results too large to read
 
-`max_inline_bytes` bounds the rendered result. A result past it has its `data` withheld — a JSON document cut in half cannot be parsed, so it is withheld whole rather than halved — sets `data_truncated`, reports `data_bytes`, and carries `export_arguments`: the `graphql_export` call that writes the same result to a portal asset.
+A model client's result is held to the platform's context budget, `tools.result_budget` (see [Tool result context budget](configuration.md#tool-result-context-budget)). A result past it is re-encoded compactly first; one still past it has its `data` withheld — a JSON document cut in half cannot be parsed, so it is withheld whole rather than halved — sets `data_truncated`, reports `data_bytes`, and carries `export_arguments`: the `graphql_export` call that writes the same result to a portal asset. A managed script's call is never held to the budget and receives the answer whole.
+
+An answer larger than the connection's `max_response_bytes` is refused for every caller, naming the cap and `graphql_export`: a document cut at the read cap cannot be parsed, so it is not returned as though the call had answered.
 
 ### Paging
 

@@ -18,6 +18,7 @@ const (
 	authTokenKey
 	sourceKey
 	personaKey
+	resultBudgetKey
 )
 
 // SourceScript labels a call arriving from a managed script's host
@@ -97,4 +98,21 @@ func WithPersona(ctx context.Context, persona string) context.Context {
 func GetPersona(ctx context.Context) string {
 	persona, _ := ctx.Value(personaKey).(string)
 	return persona
+}
+
+// WithResultBudget records the context budget the result of this call is
+// held to: the most of a rendered tool result a model client is handed
+// (#1878). Only a call from a model over MCP carries one; the result-budget
+// middleware writes it before the handler runs, so a tool that assembles its
+// result in pieces -- a page walk -- can stop at the budget rather than build
+// a result the middleware then cuts.
+func WithResultBudget(ctx context.Context, budget int) context.Context {
+	return context.WithValue(ctx, resultBudgetKey, budget)
+}
+
+// ResultBudget returns the context budget recorded for this call, or zero
+// when it has none: a REST, script or admin call, which is never fitted.
+func ResultBudget(ctx context.Context) int {
+	budget, _ := ctx.Value(resultBudgetKey).(int)
+	return budget
 }

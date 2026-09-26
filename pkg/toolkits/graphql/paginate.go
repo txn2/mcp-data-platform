@@ -151,6 +151,9 @@ func (w *walk) page(ctx context.Context) (more bool, err error) {
 	if err != nil {
 		return false, err
 	}
+	if err := withinReadCap(w.prepared.conn, res); err != nil {
+		return false, err
+	}
 	applyExecution(w.out, res)
 	w.report.PagesFetched++
 	if w.out.UpstreamError || res.parsed == nil {

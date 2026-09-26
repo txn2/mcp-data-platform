@@ -286,3 +286,23 @@ func TestPaginateDoesNotReportAStaleCursorWhenTheWalkFinishedAtItsBound(t *testi
 		t.Errorf("items_merged = %d", out.Pagination.ItemsMerged)
 	}
 }
+
+// TestAWalkPageAnswerPastTheReadCapIsRefused: a page cut at the
+// connection's max_response_bytes cannot be parsed, so the walk is refused
+// naming the cap rather than stopped as though the upstream had failed
+// (#1878).
+func TestAWalkPageAnswerPastTheReadCapIsRefused(t *testing.T) {
+	u := newUpstream(t)
+	u.respond = func(graphQLRequest, int) (int, string) {
+		return http.StatusOK, relayPage([]string{strings.Repeat("a", 4000)}, "c1", true)
+	}
+	tk := newToolkit(t, u, "namespaced", map[string]any{"max_response_bytes": 1024})
+
+	msg := refuseQuery(t, tk, QueryInput{
+		Connection: "gql", Query: pagedDocument,
+		Paginate: &PaginateInput{Items: "masterData.product.query.edges", CursorVariable: "after"},
+	})
+	if !strings.Contains(msg, "max_response_bytes (1024)") {
+		t.Errorf("refusal = %q; want the read cap named", msg)
+	}
+}

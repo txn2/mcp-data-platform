@@ -83,9 +83,9 @@ type Deps struct {
 //	401 - no credential, or the credential was rejected
 //	403 - persona or route policy denied the call
 //	404 - the named connection is not registered
-//	413 - the upstream body exceeds the inline size limit
+//	413 - the upstream body exceeds the connection's max_response_bytes
 //	415 - the upstream body is not inlineable at its media type
-//	429 - the inline read budget is exhausted; Retry-After is set
+//	429 - the gateway's in-flight memory budget is exhausted; Retry-After is set
 //	500 - the platform could not complete its own side of the call
 //	502 - the gateway could not reach the upstream (DNS, TCP, TLS, reset)
 //	504 - the upstream call exceeded its deadline before responding
@@ -161,6 +161,8 @@ type errorEnvelope struct {
 // @Description
 // @Description  The HTTP status of THIS response reports the platform's own outcome only. When the platform performed the call, the response is 200 and the upstream's own status code is in `status` inside the body — a 404 from the upstream arrives as HTTP 200 with `"status": 404`. That split lets a client route on "the gateway is broken" (502, 504) separately from "the upstream is unhappy".
 // @Description
+// @Description  The body is returned whole. This route is never held to the context budget an MCP client's tool results are fitted to (`tools.result_budget`); the only size limit it meets is the connection's `max_response_bytes`, and a response past it fails with 413 rather than arriving cut.
+// @Description
 // @Description  A `connection` key in the body is ignored; the connection is taken from the URL. `operation_id`, `path_params`, `spec` and `decode` are MCP-tool parameters and are not bound on this route.
 // @Description
 // @Description  Browse connections and copy a ready-made call at /portal/apis.
@@ -174,9 +176,9 @@ type errorEnvelope struct {
 // @Failure      401  {object}  errorEnvelope  "No credential, or the credential was rejected"
 // @Failure      403  {object}  errorEnvelope  "Persona or route policy denied the call"
 // @Failure      404  {object}  errorEnvelope  "The named connection is not registered"
-// @Failure      413  {object}  errorEnvelope  "Upstream body exceeds the inline size limit"
+// @Failure      413  {object}  errorEnvelope  "Upstream body exceeds the connection's max_response_bytes"
 // @Failure      415  {object}  errorEnvelope  "Upstream body is not inlineable at its media type"
-// @Failure      429  {object}  errorEnvelope  "Inline read budget exhausted; Retry-After is set"
+// @Failure      429  {object}  errorEnvelope  "The gateway's in-flight memory budget is exhausted; Retry-After is set"
 // @Failure      500  {object}  errorEnvelope  "The platform could not complete its own side of the call"
 // @Failure      502  {object}  errorEnvelope  "The gateway could not reach the upstream"
 // @Failure      504  {object}  errorEnvelope  "The upstream call exceeded its deadline"

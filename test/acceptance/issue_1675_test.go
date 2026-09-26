@@ -161,12 +161,13 @@ func TestIssue1675_ExportLandsAnAssetInBothWireForms(t *testing.T) {
 func TestIssue1675_AWithheldQueryResultCanBeFollowedToTheExport(t *testing.T) {
 	requireGraphQLUpstream(t)
 	c := connect(t)
-	// A cap low enough that any answer at all is withheld.
-	name := issue1277Connect(t, c, "withheld", map[string]any{"max_inline_bytes": 16})
+	name := issue1277Connect(t, c, "withheld", nil)
 
+	// An answer past the context budget even compactly, so the data is
+	// withheld (#1878: the budget is the platform's, not the connection's).
 	out := c.call(issue1277QueryTool, map[string]any{
 		"connection": name,
-		"query":      issue1675Document,
+		"query":      issue1878SearchDocument(issue1878SearchAliases),
 		"variables":  issue1675Variables(),
 		"purpose":    issue1675Purpose,
 	})

@@ -30,9 +30,6 @@ func TestParseConfigAppliesTheKindsDefaults(t *testing.T) {
 	if cfg.NamespaceDepth != gqlschema.DefaultNamespaceDepth {
 		t.Errorf("namespace_depth = %d", cfg.NamespaceDepth)
 	}
-	if cfg.MaxInlineBytes != DefaultMaxInlineBytes {
-		t.Errorf("max_inline_bytes = %d", cfg.MaxInlineBytes)
-	}
 	if cfg.AuthMode != AuthModeNone {
 		t.Errorf("auth_mode = %q; none is the default", cfg.AuthMode)
 	}
@@ -51,7 +48,7 @@ func TestParseConfigReadsThisKindsOwnKeys(t *testing.T) {
 		"schema_validation": "warn",
 		"max_query_depth":   5,
 		"namespace_depth":   4,
-		"max_inline_bytes":  1024,
+		"max_inline_bytes":  1024, // retired (#1878): read only to warn, never refused
 		"read_only":         true,
 		"call_timeout":      "12s",
 		"static_headers":    map[string]any{"x-tenant": "acme"},
@@ -62,8 +59,8 @@ func TestParseConfigReadsThisKindsOwnKeys(t *testing.T) {
 	if cfg.Description != "The ERP." || cfg.SchemaValidation != SchemaValidationWarn {
 		t.Errorf("config = %+v", cfg)
 	}
-	if cfg.MaxQueryDepth != 5 || cfg.NamespaceDepth != 4 || cfg.MaxInlineBytes != 1024 {
-		t.Errorf("limits = %d/%d/%d", cfg.MaxQueryDepth, cfg.NamespaceDepth, cfg.MaxInlineBytes)
+	if cfg.MaxQueryDepth != 5 || cfg.NamespaceDepth != 4 {
+		t.Errorf("limits = %d/%d", cfg.MaxQueryDepth, cfg.NamespaceDepth)
 	}
 	if !cfg.ReadOnly {
 		t.Error("read_only was not read")
@@ -86,7 +83,6 @@ func TestParseConfigRefusesWhatCannotWork(t *testing.T) {
 		{"unknown validation mode", map[string]any{"endpoint_url": "https://x", "schema_validation": "loose"}, "invalid schema_validation"},
 		{"zero depth", map[string]any{"endpoint_url": "https://x", "max_query_depth": 0}, "max_query_depth must be positive"},
 		{"negative namespace depth", map[string]any{"endpoint_url": "https://x", "namespace_depth": -1}, "namespace_depth must be positive"},
-		{"zero inline budget", map[string]any{"endpoint_url": "https://x", "max_inline_bytes": -5}, "max_inline_bytes must be positive"},
 		{"bearer with no credential", map[string]any{"endpoint_url": "https://x", "auth_mode": "bearer"}, "credential"},
 		{"a header the model must not claim", map[string]any{"endpoint_url": "https://x", "static_headers": map[string]any{"Authorization": "x"}}, "Authorization"},
 	}
