@@ -4333,6 +4333,7 @@ func TestLoadDBPersonas(t *testing.T) {
 		_ = reg.Register(&persona.Persona{Name: "admin", DisplayName: "Admin", Roles: []string{"admin"}})
 
 		p := &Platform{
+			config:          &Config{},
 			personaRegistry: reg,
 			personaStore: &mockPersonaStoreForTest{
 				defs: []personastore.Definition{
@@ -4364,6 +4365,7 @@ func TestLoadDBPersonas(t *testing.T) {
 		_ = reg.Register(&persona.Persona{Name: "analyst", DisplayName: "Old Name", Roles: []string{"analyst"}})
 
 		p := &Platform{
+			config:          &Config{},
 			personaRegistry: reg,
 			personaStore: &mockPersonaStoreForTest{
 				defs: []personastore.Definition{
@@ -4393,6 +4395,7 @@ func TestLoadDBPersonas(t *testing.T) {
 	t.Run("handles list error gracefully", func(_ *testing.T) {
 		reg := persona.NewRegistry()
 		p := &Platform{
+			config:          &Config{},
 			personaRegistry: reg,
 			personaStore: &mockPersonaStoreForTest{
 				listErr: errors.New("db error"),
@@ -4402,7 +4405,7 @@ func TestLoadDBPersonas(t *testing.T) {
 	})
 
 	t.Run("nil store is safe", func(_ *testing.T) {
-		p := &Platform{personaStore: nil}
+		p := &Platform{config: &Config{}, personaStore: nil}
 		p.loadDBPersonas() // should not panic
 	})
 }

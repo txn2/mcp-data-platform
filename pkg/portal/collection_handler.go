@@ -640,7 +640,7 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 // the renderer composes it again.
 func (h *Handler) collectionMosaic(r *http.Request, coll *Collection, variant string) (data []byte, contentType string, err error) {
 	if variant == thumbnailVariantDark {
-		key := portaldomain.CollectionThumbnailKey(coll.ID, thumbnailVariantDark)
+		key := portaldomain.CollectionDarkThumbnailKey(coll.ThumbnailS3Key)
 		if data, contentType, err = h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, key); err == nil {
 			return data, contentType, nil
 		}

@@ -39,6 +39,21 @@ func (s *Store) Expirable(ctx context.Context, source string, cutoff time.Time) 
 		source, cutoff.UTC())
 }
 
+// DeleteExpired removes the records of windows expired before before, and
+// reports how many it removed. An expired window's partition, file and raw
+// segments are already gone; the record is kept until then only so a pass can
+// tell the window was handled (#1904).
+func (s *Store) DeleteExpired(ctx context.Context, before time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM webhook_windows WHERE expired_at IS NOT NULL AND expired_at < $1 AND last_segment_at <= expired_at`,
+		before.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("deleting expired webhook windows: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // MarkRawDeleted records that a window's raw segments were deleted.
 func (s *Store) MarkRawDeleted(ctx context.Context, w Window) error {
 	return s.stamp(ctx, "raw_deleted_at", w)

@@ -29,7 +29,11 @@ import (
 // and is what a caller passes as the `connection` argument to the api
 // gateway tools.
 const (
-	connectionName = "util"
+	// ConnectionName is exported for the reload bus, which must not treat
+	// a connection the platform registers itself as one deleted from the
+	// store (#1902).
+	ConnectionName = "util"
+	connectionName = ConnectionName
 	catalogID      = "util"
 	specName       = "util"
 	catalogVersion = "builtin"

@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
@@ -72,6 +73,8 @@ type ExportS3Client interface {
 	// transfer manager aborts the incomplete multipart upload on that
 	// read error, so no partial object or orphaned parts remain.
 	PutObjectStream(ctx context.Context, bucket, key string, body io.Reader, contentType string) (size int64, err error)
+	// DeleteObject removes an uploaded export no row came to name (#1903).
+	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
 // ExportShareCreator creates public share links for exported
@@ -636,9 +639,14 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 		IdempotencyKey: in.IdempotencyKey,
 	}
 	if key := runOutputKey(uc, in); key != "" {
-		return recordRunVersion(ctx, deps, asset, key, uc.UserEmail)
+		assetID, version, err = recordRunVersion(ctx, deps, asset, key, uc.UserEmail)
+		if errors.Is(err, toolkit.ErrObjectUnreferenced) {
+			discardExport(ctx, deps, s3Key)
+		}
+		return assetID, version, err
 	}
 	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
+		discardExport(ctx, deps, s3Key)
 		return "", 0, fmt.Errorf("insert asset row: %w", err)
 	}
 	versionID, vidErr := generateExportAssetID()
@@ -669,6 +677,19 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 			"asset_id", assetID, "error", vErr)
 	}
 	return assetID, 1, nil
+}
+
+// discardExport deletes an uploaded export no asset or version row names,
+// which is otherwise an object nothing can find (#1903). A failure is logged:
+// the call's own outcome has already been decided.
+func discardExport(ctx context.Context, deps *ExportDeps, key string) {
+	if deps.S3Client == nil {
+		return
+	}
+	if err := deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key); err != nil {
+		slog.Warn("api_export: removing an upload no asset names failed",
+			"key", logsan.SanitizeForLog(key), "error", logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // recordRunVersion records a named export a script run made under the

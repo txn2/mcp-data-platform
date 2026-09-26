@@ -37,6 +37,15 @@ func (w *Worker) Retention(ctx context.Context) {
 	if err := w.deps.Windows.PruneCounts(ctx, w.deps.Now().Add(-countsKept)); err != nil {
 		w.warn("pruning request counts", "", err)
 	}
+	// An expired window's record outlives everything it described, and
+	// one is added per source per window; past this age it is removed
+	// (#1904). A window is chosen by when its events were received, so
+	// no segment can land in one this old.
+	if keep := w.tuning.ExpiredWindowsKept; keep > 0 {
+		if _, err := w.deps.Windows.DeleteExpired(ctx, w.deps.Now().Add(-keep)); err != nil {
+			w.warn("deleting expired window records", "", err)
+		}
+	}
 }
 
 // retainSource applies one source's retention.

@@ -545,6 +545,8 @@ type slowS3 struct {
 	done    chan struct{}
 }
 
+func (*slowS3) DeleteObject(context.Context, string, string) error { return nil }
+
 func (s *slowS3) PutObjectStream(_ context.Context, _, _ string, body io.Reader, _ string) (int64, error) {
 	defer close(s.done)
 	buf := make([]byte, 64*1024)

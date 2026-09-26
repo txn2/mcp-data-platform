@@ -1808,6 +1808,20 @@ stored override still reaches every replica.
 During a rolling upgrade, a delete broadcast from an older replica that predates
 the operation tag falls back to the read-and-decide path on newer replicas.
 
+The reload bus is a PostgreSQL `LISTEN` channel, and a notification sent while a
+replica's `LISTEN` connection is down never reaches it. When that connection
+comes back, the replica re-reads everything the bus carries, as a restart would:
+it adopts every stored connection the configuration file does not declare,
+removes a live one the store no longer holds (except the file's, and the
+`util` and `platform-admin` connections the platform registers itself), makes
+the persona registry match the stored definitions, and re-syncs API keys. It
+logs a warning naming the reconnect when it does. A store it cannot read changes
+nothing.
+
+A persona deleted on one replica is removed on the others too, or reverted to
+the configuration file's definition when the file has one, the same as on the
+replica that deleted it.
+
 ## Gateway Endpoints
 
 Gateway connections (kind `mcp`) proxy upstream MCP servers and re-expose

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -53,6 +55,8 @@ type ExportS3Client interface {
 	// PutObjectStream uploads body to bucket/key, returning the bytes
 	// written.
 	PutObjectStream(ctx context.Context, bucket, key string, body io.Reader, contentType string) (size int64, err error)
+	// DeleteObject removes an uploaded export no row came to name (#1903).
+	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
 // ExportShareCreator creates a public share link for an exported asset.
@@ -380,13 +384,30 @@ func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserCon
 	}
 	if key := runOutputKey(uc, in); key != "" && deps.VersionStore != nil {
 		id, version, err := recordRunVersion(ctx, deps, asset, key, uc.UserID)
+		if errors.Is(err, toolkit.ErrObjectUnreferenced) {
+			discardExport(ctx, deps, s3Key)
+		}
 		return stored{assetID: id, version: version, size: size}, err
 	}
 	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
+		discardExport(ctx, deps, s3Key)
 		return stored{}, fmt.Errorf("graphql: recording the asset failed: %w", err)
 	}
 	recordExportVersion(ctx, deps, asset, uc)
 	return stored{assetID: assetID, version: 1, size: size}, nil
+}
+
+// discardExport deletes an uploaded export no asset or version row names,
+// which is otherwise an object nothing can find (#1903). A failure is logged:
+// the call's own outcome has already been decided.
+func discardExport(ctx context.Context, deps *ExportDeps, key string) {
+	if deps.S3Client == nil {
+		return
+	}
+	if err := deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key); err != nil {
+		slog.Warn("graphql_export: removing an upload no asset names failed",
+			"key", logsan.SanitizeForLog(key), "error", logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // stored is what persist wrote: the asset, the version, and the bytes.

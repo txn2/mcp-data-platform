@@ -61,6 +61,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
+	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -426,6 +427,9 @@ func (p *Platform) initExtensions() error {
 	if p.memory.Toolkit() != nil && p.portalStore.Toolkit() != nil {
 		p.memory.Toolkit().SetThreadLinker(p.portalStore.Toolkit())
 	}
+	// The sweeps over what the portal and memory write (#1904) read the
+	// portal's storage, so they are wired once it exists.
+	wireRetention(p)
 	// Managed resources init before search: the resource store is one of the
 	// sources search federates (#1012), so it must exist before initSearch
 	// selects providers. It depends on nothing initialized above.
@@ -1353,6 +1357,7 @@ func (p *Platform) initSessions(opts *Options) error {
 		Catalog:    p.reloadCatalogLocal,
 		Persona:    p.reloadPersonaLocal,
 		APIKey:     p.reloadAPIKeyLocal,
+		Resync:     func() { resyncFromStore(p) },
 	})
 	if err != nil {
 		return fmt.Errorf("init sessions: %w", err)
@@ -2845,32 +2850,12 @@ func (p *Platform) FilePersonaNames() map[string]bool {
 	return cp
 }
 
-// loadDBPersonas loads persona definitions from the database and registers
-// them in the persona registry. DB personas override file-based ones with
-// the same name because Register overwrites existing entries.
+// loadDBPersonas makes the persona registry match the database: stored
+// definitions override file personas of the same name, and a database persona
+// no longer stored is reverted to the file's definition or removed (#1902).
 func (p *Platform) loadDBPersonas() {
-	if p.personaStore == nil {
-		return
-	}
-	defs, err := p.personaStore.List(context.Background())
-	if err != nil {
-		slog.Warn("failed to load DB personas", logKeyError, err)
-		return
-	}
-	for _, def := range defs {
-		per := def.ToPersona()
-		if p.filePersonaNames[def.Name] {
-			per.Source = SourceBoth
-		} else {
-			per.Source = SourceDatabase
-		}
-		if err := p.personaRegistry.Register(per); err != nil {
-			slog.Warn("failed to load DB persona", "name", def.Name, logKeyError, err)
-		}
-	}
-	if len(defs) > 0 {
-		slog.Info("loaded DB persona overrides", logKeyCount, len(defs))
-	}
+	storeresync.Personas[personastore.Definition](context.Background(), p.personaStore, p.personaRegistry, p.config.Personas.Definitions,
+		storeresync.Sources{File: SourceFile, Database: SourceDatabase, Both: SourceBoth})
 }
 
 // loadDBAPIKeys attaches the API key store to the API key authenticator and

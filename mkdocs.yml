@@ -140,6 +140,7 @@ nav:
         - GraphQL Toolkit: server/graphql-gateway.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
+      - Data Retention: server/data-retention.md
       - Self-Configuration: server/self-configuration.md
       - Cross-Enrichment:
         - Overview: cross-enrichment/overview.md

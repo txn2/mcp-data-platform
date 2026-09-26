@@ -79,6 +79,7 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 		Refs:             p.PortalContentRefStore(),
 		AssetBlobs:       blobs,
 		CollectionBucket: cfg.Portal.S3Bucket,
+		CollectionPrefix: cfg.Portal.S3Prefix,
 		Routes:           routes,
 		TileEntryURL:     tileEntry,
 		TileCSS:          contentviewer.CSS,

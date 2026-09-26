@@ -102,6 +102,7 @@ internal/httpserver -> internal/platform/tableregister
 internal/httpserver -> internal/platform/tableregister/regstore
 internal/httpserver -> internal/portal/assetrefs
 internal/httpserver -> internal/portal/contenturl
+internal/httpserver -> internal/portal/portaldomain
 internal/httpserver -> internal/portal/producerapi
 internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
@@ -514,6 +515,8 @@ internal/platform/resultbudget -> pkg/mcpcontext
 internal/platform/resultbudget -> pkg/middleware
 internal/platform/resultbudget -> pkg/registry
 internal/platform/resultbudget -> pkg/toolkit
+internal/platform/retention -> internal/logsan
+internal/platform/retention -> internal/portal/portalpurge
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
@@ -638,6 +641,13 @@ internal/platform/sessionview -> internal/httpjson
 internal/platform/sessionview -> pkg/memory
 internal/platform/sessionview -> pkg/session
 internal/platform/sessionview -> pkg/toolkits/knowledge
+internal/platform/storeresync -> internal/platform/personacfg
+internal/platform/storeresync -> pkg/connid
+internal/platform/storeresync -> pkg/connreconcile
+internal/platform/storeresync -> pkg/persona
+internal/platform/storeresync -> pkg/registry
+internal/platform/storeresync -> pkg/toolkits/apigateway
+internal/platform/storeresync -> pkg/toolkits/graphql
 internal/platform/subjects -> internal/logsan
 internal/platform/subjects -> pkg/middleware
 internal/platform/subjects -> pkg/resource
@@ -720,6 +730,8 @@ internal/portal/feedbackapi -> pkg/toolkits/knowledge
 internal/portal/portaldomain -> pkg/contenttype
 internal/portal/portaldomain -> pkg/portal/shareaccess
 internal/portal/portalnoop -> internal/portal/portaldomain
+internal/portal/portalpurge -> internal/logsan
+internal/portal/portalpurge -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/producedby
 internal/portal/portalstore -> internal/thumbtypes
@@ -982,6 +994,7 @@ pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/resourcetemplates
 pkg/platform -> internal/platform/resultbudget
+pkg/platform -> internal/platform/retention
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/scriptadmit
 pkg/platform -> internal/platform/scriptdraft
@@ -992,6 +1005,7 @@ pkg/platform -> internal/platform/scriptwiring
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/sessionview
+pkg/platform -> internal/platform/storeresync
 pkg/platform -> internal/platform/thumbworker
 pkg/platform -> internal/platform/toolargs
 pkg/platform -> internal/platform/toolinventory
@@ -1011,7 +1025,6 @@ pkg/platform -> pkg/configstore
 pkg/platform -> pkg/configstore/postgres
 pkg/platform -> pkg/connid
 pkg/platform -> pkg/connoauth
-pkg/platform -> pkg/connreconcile
 pkg/platform -> pkg/connview
 pkg/platform -> pkg/database/migrate
 pkg/platform -> pkg/embedding

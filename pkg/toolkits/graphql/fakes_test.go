@@ -235,6 +235,7 @@ type fakeAssets struct {
 	shareURL   string
 	shareErr   error
 	shareCalls int
+	versionErr error
 }
 
 func (f *fakeAssets) InsertExportAsset(_ context.Context, a ExportAsset) error {
@@ -257,6 +258,9 @@ func (f *fakeAssets) GetByIdempotencyKey(context.Context, string, string) (ref *
 func (f *fakeAssets) CreateExportVersion(_ context.Context, v ExportVersion) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.versionErr != nil {
+		return 0, f.versionErr
+	}
 	f.versions = append(f.versions, v)
 	return len(f.versions), nil
 }
@@ -282,6 +286,16 @@ type fakeBlobs struct {
 }
 
 func newFakeBlobs() *fakeBlobs { return &fakeBlobs{objects: map[string][]byte{}} }
+
+func (f *fakeBlobs) DeleteObject(_ context.Context, bucket, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	delete(f.objects, bucket+"/"+key)
+	return nil
+}
 
 func (f *fakeBlobs) PutObjectStream(_ context.Context, bucket, key string, body io.Reader, _ string) (size int64, err error) {
 	if f.err != nil {

@@ -216,3 +216,75 @@ func TestBroadcaster_DispatchPayload_NilParams(t *testing.T) {
 		t.Fatal("subscriber did not receive event")
 	}
 }
+
+// A reconnect on a broadcaster built WithReconnectEvent reaches its
+// subscribers as that event, in order with the notifications after it, so a
+// subscriber whose state is carried only by these events can re-read it (#1902).
+func TestBroadcaster_Reconnected_PublishesConfiguredEvent(t *testing.T) {
+	b, _, cleanup := newTestBroadcaster(t)
+	defer cleanup()
+	WithReconnectEvent("platform/reload/resync")(b)
+
+	sub := b.Subscribe(context.Background(), "reload-bus")
+	defer sub.Close()
+
+	b.reconnected()
+	b.dispatchPayload(`{"method":"platform/reload/persona"}`)
+
+	for _, want := range []string{"platform/reload/resync", "platform/reload/persona"} {
+		select {
+		case ev := <-sub.Events():
+			assert.Equal(t, want, ev.Method)
+			assert.Empty(t, ev.Params)
+		case <-time.After(time.Second):
+			t.Fatalf("subscriber did not receive %s", want)
+		}
+	}
+}
+
+// Without the option a reconnect publishes nothing: the client-facing
+// broadcaster's subscribers catch up on their next list call. The marker sent
+// after it is the first thing the subscriber receives.
+func TestBroadcaster_Reconnected_WithoutEventPublishesNothing(t *testing.T) {
+	b, _, cleanup := newTestBroadcaster(t)
+	defer cleanup()
+
+	sub := b.Subscribe(context.Background(), "session-x")
+	defer sub.Close()
+
+	b.reconnected()
+	b.dispatchPayload(`{"method":"notifications/tools/list_changed"}`)
+
+	select {
+	case ev := <-sub.Events():
+		assert.Equal(t, "notifications/tools/list_changed", ev.Method)
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not receive the marker")
+	}
+}
+
+// The run loop turns lib/pq's nil notification into the reconnect event and
+// forwards the notification after it.
+func TestBroadcaster_Run_NilNotificationIsReconnect(t *testing.T) {
+	b, _, cleanup := newTestBroadcaster(t)
+	defer cleanup()
+	b.reconnectEvent = "platform/reload/resync"
+
+	sub := b.Subscribe(context.Background(), "reload-bus")
+	defer sub.Close()
+
+	ch := make(chan *pq.Notification, 2)
+	ch <- nil
+	ch <- &pq.Notification{Extra: `{"method":"platform/reload/apikey"}`}
+	close(ch)
+	b.consume(ch)
+
+	for _, want := range []string{"platform/reload/resync", "platform/reload/apikey"} {
+		select {
+		case ev := <-sub.Events():
+			assert.Equal(t, want, ev.Method)
+		case <-time.After(time.Second):
+			t.Fatalf("subscriber did not receive %s", want)
+		}
+	}
+}

@@ -24,10 +24,13 @@ type Retainer struct {
 	store    Store
 	days     int
 	interval time.Duration
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	wg       sync.WaitGroup
-	started  atomic.Bool
+	// failedDays is how long an unresolved failure is kept (#1904); 0 keeps
+	// it until someone resolves it.
+	failedDays int
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	wg         sync.WaitGroup
+	started    atomic.Bool
 }
 
 // retentionSweepTimeout caps a single purge. The DELETE rides the
@@ -43,14 +46,34 @@ const retentionSweepTimeout = 5 * time.Minute
 // caller decides whether to start it at all (a deployment that wants
 // unbounded history simply never wires one); once started it always
 // applies a positive window.
-func NewRetainer(store Store, days int, interval time.Duration) *Retainer {
+func NewRetainer(store Store, days int, interval time.Duration, opts ...RetainerOption) *Retainer {
 	if days <= 0 {
 		days = DefaultRetentionDays
 	}
 	if interval <= 0 {
 		interval = RetentionInterval
 	}
-	return &Retainer{store: store, days: days, interval: interval, stopCh: make(chan struct{})}
+	r := &Retainer{store: store, days: days, interval: interval, stopCh: make(chan struct{})}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+// RetainerOption configures a Retainer.
+type RetainerOption func(*Retainer)
+
+// WithFailedRetention also deletes failures nobody resolved once they are
+// older than days (#1904). Without it an unresolved failure is kept until it
+// is resolved, and a unit whose source was removed while its job was failing
+// is kept for good. days <= 0 leaves them.
+func WithFailedRetention(days int) RetainerOption {
+	return func(r *Retainer) { r.failedDays = days }
+}
+
+// FailedPurger is the store half of WithFailedRetention.
+type FailedPurger interface {
+	PurgeUnresolvedFailed(ctx context.Context, retentionDays int) (int, error)
 }
 
 // Start begins the periodic sweep. Safe to call multiple times; only the
@@ -96,5 +119,17 @@ func (r *Retainer) sweepOnce() {
 	}
 	if n > 0 {
 		slog.Info("indexjobs: retention purged terminal jobs", "count", n, "retention_days", r.days)
+	}
+	fp, ok := r.store.(FailedPurger)
+	if r.failedDays <= 0 || !ok {
+		return
+	}
+	n, err = fp.PurgeUnresolvedFailed(ctx, r.failedDays)
+	if err != nil {
+		slog.Warn("indexjobs: unresolved-failure retention sweep failed", logKeyError, err)
+		return
+	}
+	if n > 0 {
+		slog.Info("indexjobs: retention purged unresolved failures", "count", n, "retention_days", r.failedDays)
 	}
 }

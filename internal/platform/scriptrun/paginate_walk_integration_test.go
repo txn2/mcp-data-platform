@@ -39,6 +39,8 @@ func (*walkVersionStore) CreateExportVersion(context.Context, apigateway.ExportV
 
 type walkS3 struct{ items int }
 
+func (*walkS3) DeleteObject(context.Context, string, string) error { return nil }
+
 func (s *walkS3) PutObjectStream(_ context.Context, _, _ string, body io.Reader, _ string) (int64, error) {
 	data, err := io.ReadAll(body)
 	if err != nil {

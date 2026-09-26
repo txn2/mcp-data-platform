@@ -199,3 +199,73 @@ func TestRetainer_StopIsIdempotent(t *testing.T) {
 	r.Stop()
 	r.Stop() // second Stop must not panic or block
 }
+
+// failedPurgeStore also purges unresolved failures, recording the window.
+type failedPurgeStore struct {
+	purgeStore
+	failedDays int
+	failedN    int
+	failedErr  error
+}
+
+func (s *failedPurgeStore) PurgeUnresolvedFailed(_ context.Context, days int) (int, error) {
+	s.failedDays = days
+	return s.failedN, s.failedErr
+}
+
+// TestRetainer_PurgesUnresolvedFailuresWhenConfigured covers #1904: with
+// WithFailedRetention the sweep also removes old unresolved failures; without
+// it, or on a store that cannot, they are left.
+func TestRetainer_PurgesUnresolvedFailuresWhenConfigured(t *testing.T) {
+	t.Parallel()
+	store := &failedPurgeStore{failedN: 3}
+	NewRetainer(store, 14, time.Hour, WithFailedRetention(90)).sweepOnce()
+	if store.failedDays != 90 {
+		t.Errorf("failed window = %d; want 90", store.failedDays)
+	}
+
+	store = &failedPurgeStore{failedErr: errors.New("db down")}
+	NewRetainer(store, 14, time.Hour, WithFailedRetention(90)).sweepOnce()
+
+	store = &failedPurgeStore{}
+	NewRetainer(store, 14, time.Hour).sweepOnce()
+	if store.failedDays != 0 {
+		t.Error("unresolved failures were purged without WithFailedRetention")
+	}
+	NewRetainer(&purgeStore{}, 14, time.Hour, WithFailedRetention(90)).sweepOnce() // a store that cannot purge them
+}
+
+func TestStore_PurgeUnresolvedFailed(t *testing.T) {
+	t.Parallel()
+	s, mock, cleanup := newMockStore(t)
+	defer cleanup()
+	del := regexp.QuoteMeta(`DELETE FROM index_jobs`)
+	mock.ExpectExec(del).WithArgs(sqlmock.AnyArg(), purgeBatchSize).WillReturnResult(sqlmock.NewResult(0, int64(purgeBatchSize)))
+	mock.ExpectExec(del).WithArgs(sqlmock.AnyArg(), purgeBatchSize).WillReturnResult(sqlmock.NewResult(0, 2))
+	n, err := s.PurgeUnresolvedFailed(context.Background(), 90)
+	if err != nil || n != purgeBatchSize+2 {
+		t.Fatalf("PurgeUnresolvedFailed = %d, %v; want %d", n, err, purgeBatchSize+2)
+	}
+
+	if n, err := s.PurgeUnresolvedFailed(context.Background(), 0); n != 0 || err != nil {
+		t.Errorf("a non-positive window purged %d, %v", n, err)
+	}
+
+	mock.ExpectExec(del).WillReturnError(errors.New("down"))
+	if _, err := s.PurgeUnresolvedFailed(context.Background(), 90); err == nil {
+		t.Error("expected the delete's error")
+	}
+	mock.ExpectExec(del).WillReturnResult(sqlmock.NewErrorResult(errors.New("no count")))
+	if _, err := s.PurgeUnresolvedFailed(context.Background(), 90); err == nil {
+		t.Error("expected the rows-affected error")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if n, err := s.PurgeUnresolvedFailed(ctx, 90); n != 0 || err != nil {
+		t.Errorf("a canceled sweep = %d, %v; want a clean empty pass", n, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}

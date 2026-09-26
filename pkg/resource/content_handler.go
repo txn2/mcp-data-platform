@@ -264,7 +264,7 @@ func ReviseContent(
 	)
 
 	noteProducer(ctx, deps, claims, producedby.Write{TargetID: res.ID, Version: version.Version})
-	pruneRevisions(ctx, deps, res.ID)
+	pruneRevisions(ctx, deps, res)
 
 	updated, err := deps.Store.Get(ctx, res.ID)
 	if err != nil {
@@ -290,11 +290,14 @@ func (h *Handler) storeRevision(ctx context.Context, res *Resource, claims *Clai
 }
 
 // pruneRevisions enforces the retention cap, deleting the blobs of the versions
-// the store dropped. It is best-effort on purpose: the revision itself has
-// already committed, and failing the caller's request because an old object
-// could not be removed would turn a storage-cleanup problem into a failed edit.
-// A blob left behind is logged so it can be reclaimed.
-func pruneRevisions(ctx context.Context, deps Deps, resourceID string) {
+// the store dropped and the tiles drawn beside them (#1903). A tile the row
+// still names is kept: it is served until the new head is drawn, which removes
+// it then. It is best-effort on purpose: the revision itself has already
+// committed, and failing the caller's request because an old object could not
+// be removed would turn a storage-cleanup problem into a failed edit. A blob
+// left behind is logged so it can be reclaimed.
+func pruneRevisions(ctx context.Context, deps Deps, res *Resource) {
+	resourceID := res.ID
 	pruned, err := deps.Versions.PruneVersions(ctx, resourceID, NormalizeMaxVersions(deps.MaxVersions))
 	if err != nil {
 		slog.Warn("resource revision: pruning old versions failed", msgError, err,
@@ -310,6 +313,16 @@ func pruneRevisions(ctx context.Context, deps Deps, resourceID string) {
 		}
 		slog.Debug("resource revision: pruned version blob",
 			logKeyResourceID, resourceID, pathParamVersion, v.Version) // #nosec G706 -- server-generated ID
+		for _, key := range tileKeysBeside(v.S3Key) {
+			if key == res.ThumbnailS3Key || key == res.ThumbnailDarkS3Key {
+				continue
+			}
+			if err := deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key); err != nil {
+				slog.Warn("resource revision: pruned version tile not deleted", msgError, err,
+					logKeyResourceID, resourceID, // #nosec G706 -- server-generated ID
+					pathParamVersion, v.Version)
+			}
+		}
 	}
 }
 

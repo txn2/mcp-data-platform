@@ -20,6 +20,11 @@ const (
 	reloadMethodCatalog    = "platform/reload/catalog" //nolint:gosec // event method name, not a credential
 	reloadMethodPersona    = "platform/reload/persona" //nolint:gosec // event method name, not a credential
 	reloadMethodAPIKey     = "platform/reload/apikey"  //nolint:gosec // event method name, not a credential
+	// reloadMethodResync is never published over the channel: the reload
+	// broadcaster raises it locally when its LISTEN connection comes back,
+	// because every event a peer sent while it was down is lost and is not
+	// repeated (#1902). It carries no origin, so it is never skipped.
+	reloadMethodResync = "platform/reload/resync"
 )
 
 // reloadParamOrigin tags each reload event with the publishing replica's
@@ -140,6 +145,11 @@ func (rb *reloadBus) dispatch(ev session.Event) {
 		if rb.handlers.APIKey != nil {
 			rb.logger.Info("reload-bus: reloading API keys from peer")
 			rb.handlers.APIKey()
+		}
+	case reloadMethodResync:
+		if rb.handlers.Resync != nil {
+			rb.logger.Warn("reload-bus: listener reconnected; re-reading connections, personas and API keys from the database")
+			rb.handlers.Resync()
 		}
 	default:
 		// Unknown method on the dedicated reload channel: ignore. This is

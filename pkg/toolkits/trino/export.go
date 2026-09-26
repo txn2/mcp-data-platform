@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
@@ -112,6 +114,8 @@ type ExportVersionStore interface {
 // ExportS3Client is the subset of portal.S3Client needed by trino_export.
 type ExportS3Client interface {
 	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	// DeleteObject removes an uploaded export no row came to name (#1903).
+	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
 // ExportShareCreator creates public share links for exported assets.
@@ -452,6 +456,9 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	}
 
 	recorded, hit, errResult := t.storeAsset(ctx, deps, asset, input, uc)
+	if recorded.orphaned {
+		discardExport(ctx, deps, s3Key)
+	}
 	if hit != nil || errResult != nil {
 		return hit, errResult
 	}
@@ -504,22 +511,37 @@ func (t *Toolkit) storeAsset(ctx context.Context, deps *ExportDeps, asset Export
 			},
 		})
 		if err != nil {
-			return storedAsset{}, nil, exportError(err.Error())
+			return storedAsset{orphaned: errors.Is(err, toolkit.ErrObjectUnreferenced)}, nil, exportError(err.Error())
 		}
 		return storedAsset{assetID: id, version: version}, nil, nil
 	}
 	if hit, errResult := t.insertAssetWithRace(ctx, deps, asset, input, uc); hit != nil || errResult != nil {
-		return storedAsset{}, hit, errResult
+		// The insert did not happen, so no row names the upload.
+		return storedAsset{orphaned: true}, hit, errResult
 	}
 	version0.AssetID = asset.ID
 	t.createExportVersion(ctx, deps, version0)
 	return storedAsset{assetID: asset.ID, version: 1}, nil, nil
 }
 
-// storedAsset is the asset and version an export recorded.
+// storedAsset is the asset and version an export recorded. orphaned reports
+// that no row came to name the uploaded object, which the caller deletes.
 type storedAsset struct {
-	assetID string
-	version int
+	assetID  string
+	version  int
+	orphaned bool
+}
+
+// discardExport deletes an uploaded export no asset or version row names,
+// which is otherwise an object nothing can find (#1903). A failure is logged:
+// the call's own outcome has already been decided.
+func discardExport(ctx context.Context, deps *ExportDeps, key string) {
+	if deps.S3Client == nil {
+		return
+	}
+	if err := deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key); err != nil {
+		slog.Warn("trino_export: removing an upload no asset names failed", "key", logsan.SanitizeForLog(key), logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
 }
 
 // runOutputKey is the script output identity a named export made inside a run

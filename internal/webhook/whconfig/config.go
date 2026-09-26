@@ -52,6 +52,10 @@ type CompactorConfig struct {
 	RetryBackoff time.Duration `yaml:"retry_backoff"`
 	// RetentionEvery is how often retention runs.
 	RetentionEvery time.Duration `yaml:"retention_every"`
+	// ExpiredWindowRetentionDays is how long the record of an expired
+	// window is kept (#1904). 0 takes 90; a negative value keeps them for as
+	// long as their source exists.
+	ExpiredWindowRetentionDays int `yaml:"expired_window_retention_days"`
 }
 
 // ReceiverEnabled reports whether this replica serves /hooks/.
@@ -63,6 +67,9 @@ func (c Config) ReceiverEnabled() bool {
 func (c Config) CompactorEnabled() bool {
 	return c.Compactor.Enabled == nil || *c.Compactor.Enabled
 }
+
+// day is the unit the *_retention_days settings count in.
+const day = 24 * time.Hour
 
 // errNegative is a pacing value below zero.
 var errNegative = errors.New("webhooks: write_timeout, poll, grace, lease, batch, retry_backoff and retention_every cannot be negative")
@@ -88,7 +95,8 @@ func (c Config) Tuning() compactor.Tuning {
 	return compactor.Tuning{
 		Poll: c.Compactor.Poll, Lease: c.Compactor.Lease, Batch: c.Compactor.Batch,
 		Grace: c.Compactor.Grace, RetryBackoff: c.Compactor.RetryBackoff,
-		RetentionEvery: c.Compactor.RetentionEvery,
+		RetentionEvery:     c.Compactor.RetentionEvery,
+		ExpiredWindowsKept: time.Duration(c.Compactor.ExpiredWindowRetentionDays) * day,
 	}
 }
 

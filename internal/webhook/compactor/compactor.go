@@ -47,6 +47,9 @@ const (
 	DefaultGrace          = 2 * time.Minute
 	DefaultRetryBackoff   = time.Minute
 	DefaultRetentionEvery = 10 * time.Minute
+	// DefaultExpiredWindowsKept is how long the record of an expired window
+	// is kept once its partition, file and segments are gone (#1904).
+	DefaultExpiredWindowsKept = 90 * 24 * time.Hour
 	// countsKept is how long per-minute request counts are kept: the source's
 	// page reads the last day of them.
 	countsKept = 48 * time.Hour
@@ -62,6 +65,9 @@ type Tuning struct {
 	Grace          time.Duration
 	RetryBackoff   time.Duration
 	RetentionEvery time.Duration
+	// ExpiredWindowsKept is how long an expired window's record is kept. A
+	// negative value keeps them for as long as their source exists.
+	ExpiredWindowsKept time.Duration
 }
 
 func (t Tuning) withDefaults() Tuning {
@@ -82,6 +88,9 @@ func (t Tuning) withDefaults() Tuning {
 	}
 	if t.RetentionEvery <= 0 {
 		t.RetentionEvery = DefaultRetentionEvery
+	}
+	if t.ExpiredWindowsKept == 0 {
+		t.ExpiredWindowsKept = DefaultExpiredWindowsKept
 	}
 	return t
 }

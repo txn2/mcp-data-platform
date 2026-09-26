@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -768,16 +769,36 @@ func DeriveThumbnailKeyVariant(s3Key, variant string) string {
 	return s3Key[:idx+1] + filename
 }
 
+// AssetContentKey is the object key an asset's content is stored under:
+// <prefix>/<owner>/<asset>/<version>/content<ext>, or without the version
+// directory when versionID is empty. It is the one construction of that key,
+// so every writer honors portal.s3_prefix and an operator's bucket policy or
+// lifecycle rule scoped to the prefix covers every asset (#1903). An object
+// written under an earlier layout keeps the key its row recorded.
+func AssetContentKey(prefix, ownerID, assetID, versionID, ext string) string {
+	return strings.TrimPrefix(path.Join(prefix, ownerID, assetID, versionID, "content"+ext), "/")
+}
+
 // CollectionThumbnailKey is where each variant of a collection's mosaic is
-// stored. The dark mosaic is not recorded on the row: it is written beside the
-// light one whenever the light one is, so the key of the one names the other
-// (#1789).
-func CollectionThumbnailKey(id, variant string) string {
-	name := "thumbnail.png"
+// stored, under the portal's key prefix (#1903). The dark mosaic is not
+// recorded on the row: it is written beside the light one whenever the light
+// one is, so the key of the one names the other (#1789).
+func CollectionThumbnailKey(prefix, id, variant string) string {
+	return strings.TrimPrefix(path.Join(prefix, "collections", id, collectionMosaicName(variant)), "/")
+}
+
+// CollectionDarkThumbnailKey is the dark mosaic stored beside the light one at
+// lightKey. It is derived from the recorded key rather than rebuilt from the
+// prefix, so a mosaic stored under an earlier layout is still found.
+func CollectionDarkThumbnailKey(lightKey string) string {
+	return path.Join(path.Dir(lightKey), collectionMosaicName(ThumbnailVariantDark))
+}
+
+func collectionMosaicName(variant string) string {
 	if variant == ThumbnailVariantDark {
-		name = "thumbnail_dark.png"
+		return "thumbnail_dark.png"
 	}
-	return "portal/collections/" + id + "/" + name
+	return "thumbnail.png"
 }
 
 // StoredThumbnailKey returns the thumbnail key stored for a variant, or the

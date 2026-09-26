@@ -70,5 +70,38 @@ func deleteAllBlobs(ctx context.Context, deps Deps, res *Resource) error {
 				pathParamVersion, v.Version)
 		}
 	}
+	deleteTiles(ctx, deps, res, versions)
 	return nil
+}
+
+// deleteTiles removes every tile the resource ever had. A tile is stored
+// beside the head blob it was drawn from, and each revision moves the head to
+// a new directory, so a resource revised after it was drawn has tiles beside
+// earlier versions' keys as well as the ones its row names (#1903). Deleting
+// an object that was never written succeeds, so every place a tile could be
+// is asked. Best-effort, like the prior versions' blobs.
+func deleteTiles(ctx context.Context, deps Deps, res *Resource, versions []Version) {
+	keys := make([]string, 0, len(versions))
+	keys = append(keys, res.ThumbnailS3Key, res.ThumbnailDarkS3Key)
+	keys = append(keys, tileKeysBeside(res.S3Key)...)
+	for _, v := range versions {
+		keys = append(keys, tileKeysBeside(v.S3Key)...)
+	}
+	seen := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if err := deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key); err != nil {
+			slog.Warn("resource delete: tile not deleted", msgError, err,
+				logKeyResourceID, res.ID) // #nosec G706 -- server-generated ID
+		}
+	}
+}
+
+// tileKeysBeside is where both variants of a tile drawn from the blob at
+// s3Key are stored.
+func tileKeysBeside(s3Key string) []string {
+	return []string{ThumbnailKeyFor(s3Key, ThumbnailVariantLight), ThumbnailKeyFor(s3Key, ThumbnailVariantDark)}
 }

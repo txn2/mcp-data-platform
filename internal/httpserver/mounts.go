@@ -701,6 +701,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		CollectionStore:   p.PortalCollectionStore(),
 		S3Client:          p.PortalS3Client(),
 		S3Bucket:          p.Config().Portal.S3Bucket,
+		S3Prefix:          p.Config().Portal.S3Prefix,
 		// The admin console reads asset content through its own routes, so it
 		// rewrites an asset's resource references the same way the portal does
 		// (#1474): an administrator opening an asset sees what its owner sees.

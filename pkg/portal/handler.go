@@ -155,7 +155,11 @@ type Deps struct {
 	KnowledgePageDedupThreshold float64
 	S3Client                    S3Client
 	S3Bucket                    string
-	PublicBaseURL               string
+	// S3Prefix is portal.s3_prefix, the prefix every asset object this
+	// handler writes is stored under (#1903). An object written under an
+	// earlier layout keeps the key its row recorded.
+	S3Prefix      string
+	PublicBaseURL string
 	// ContentURLKey signs the expiring content URLs an asset's reader mints
 	// (#1848). Empty leaves both routes unmounted.
 	ContentURLKey []byte
@@ -1008,7 +1012,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 	ct := ResolveContentType(asset.ContentType, data)
 
 	versionID := uuid.New().String()
-	versionedKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ExtensionForContentType(ct))
+	versionedKey := portaldomain.AssetContentKey(h.deps.S3Prefix, asset.OwnerID, id, versionID, ExtensionForContentType(ct))
 
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, ct); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
@@ -1648,7 +1652,7 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 
 	versionID := uuid.New().String()
 	ext := ExtensionForContentType(targetVer.ContentType)
-	newKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, assetID, versionID, ext)
+	newKey := portaldomain.AssetContentKey(h.deps.S3Prefix, asset.OwnerID, assetID, versionID, ext)
 
 	if err := h.deps.S3Client.PutObject(ctx, asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
 		return 0, &httpError{http.StatusServiceUnavailable, "failed to upload reverted content"}
@@ -2720,7 +2724,7 @@ func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User
 	}
 
 	newID := uuid.New().String()
-	newS3Key := fmt.Sprintf("portal/%s/%s/content", user.UserID, newID)
+	newS3Key := portaldomain.AssetContentKey(h.deps.S3Prefix, user.UserID, newID, "", "")
 
 	if err := h.deps.S3Client.PutObject(ctx, h.deps.S3Bucket, newS3Key, data, contentType); err != nil {
 		return nil, &httpError{http.StatusServiceUnavailable, "failed to copy content"}
@@ -2856,7 +2860,7 @@ func (h *Handler) createAsset(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	newID := uuid.New().String()
-	s3Key := fmt.Sprintf("portal/%s/%s/content%s", user.UserID, newID, ExtensionForContentType(ct))
+	s3Key := portaldomain.AssetContentKey(h.deps.S3Prefix, user.UserID, newID, "", ExtensionForContentType(ct))
 	data := []byte(req.Content)
 
 	if err := h.deps.S3Client.PutObject(ctx, h.deps.S3Bucket, s3Key, data, ct); err != nil {

@@ -139,8 +139,10 @@ type Deps struct {
 	Refs        RefLister
 	AssetBlobs  Blobs
 	Collections CollectionWork
-	// CollectionBucket is where a collection's mosaic is stored.
+	// CollectionBucket is where a collection's mosaic is stored, and
+	// CollectionPrefix the portal key prefix it is stored under (#1903).
 	CollectionBucket string
+	CollectionPrefix string
 
 	Resources      resource.ThumbnailWork
 	ResourceBlobs  Blobs

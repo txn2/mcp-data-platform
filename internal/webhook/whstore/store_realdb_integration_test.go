@@ -207,3 +207,31 @@ func TestWebhookStatsRealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int64{"accepted": 5}, status.LastDay)
 }
+
+// TestDeleteExpiredRealDB covers #1904: the record of a window expired before
+// the cutoff is removed; one expired after it, one never expired, and one a
+// segment landed in after it expired are kept.
+func TestDeleteExpiredRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('esp', 'scratch')`)
+	require.NoError(t, err)
+	old := time.Now().UTC().AddDate(0, 0, -100)
+	_, err = db.ExecContext(ctx, `INSERT INTO webhook_windows (source, window_start, window_seconds, last_segment_at, expired_at) VALUES
+		('esp', $1::timestamptz, 3600, $1::timestamptz, $1::timestamptz + interval '1 hour'),
+		('esp', $1::timestamptz + interval '1 hour', 3600, $1::timestamptz, NOW()),
+		('esp', $1::timestamptz + interval '2 hour', 3600, $1::timestamptz, NULL),
+		('esp', $1::timestamptz + interval '3 hour', 3600, NOW(), $1::timestamptz + interval '1 hour')`, old)
+	require.NoError(t, err)
+
+	n, err := st.DeleteExpired(ctx, time.Now().UTC().AddDate(0, 0, -90))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+	var left int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_windows`).Scan(&left))
+	assert.Equal(t, 3, left)
+	var gone int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_windows WHERE window_start = $1`, old).Scan(&gone))
+	assert.Zero(t, gone, "the window expired before the cutoff is the one removed")
+}

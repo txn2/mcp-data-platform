@@ -373,7 +373,7 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 
 	versionID := uuid.New().String()
 	ext := portal.ExtensionForContentType(asset.ContentType)
-	versionedKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ext)
+	versionedKey := portaldomain.AssetContentKey(h.deps.S3Prefix, asset.OwnerID, id, versionID, ext)
 
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, asset.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
@@ -657,7 +657,7 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 
 	versionID := uuid.New().String()
 	ext := portal.ExtensionForContentType(targetVer.ContentType)
-	newKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ext)
+	newKey := portaldomain.AssetContentKey(h.deps.S3Prefix, asset.OwnerID, id, versionID, ext)
 
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, newKey, data, targetVer.ContentType); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload reverted content")

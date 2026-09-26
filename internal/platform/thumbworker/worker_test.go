@@ -639,6 +639,31 @@ func TestDrawResource_DatesTheTileByTheFileAsClaimed(t *testing.T) {
 	}
 }
 
+// TestDrawResource_RemovesTheTilesOfThePreviousHead covers #1903: a revision
+// moves the file to a new key, so the tiles drawn from the previous head sit
+// in its directory and are removed once the row names the new ones.
+func TestDrawResource_RemovesTheTilesOfThePreviousHead(t *testing.T) {
+	d, blobs, res := &fakeDrawer{}, newBlobs(), &fakeResources{}
+	oldHead := "resources/r1/notes.md"
+	r := resource.Resource{
+		ID: "r1", MIMEType: "text/markdown", S3Key: "resources/r1/v/rev2/notes.md",
+		ThumbnailS3Key:     resource.ThumbnailKeyFor(oldHead, resource.ThumbnailVariantLight),
+		ThumbnailDarkS3Key: resource.ThumbnailKeyFor(oldHead, resource.ThumbnailVariantDark),
+	}
+	blobs.objects["res-bucket/"+r.S3Key] = []byte("# notes")
+	w := New(Tuning{}, Deps{Drawer: d, Resources: res, ResourceBlobs: blobs, ResourceBucket: "res-bucket"})
+	if err := w.drawResource(context.Background(), r); err != nil {
+		t.Fatalf("drawResource: %v", err)
+	}
+
+	want := []string{"res-bucket/" + r.ThumbnailS3Key, "res-bucket/" + r.ThumbnailDarkS3Key}
+	slices.Sort(blobs.deleted)
+	slices.Sort(want)
+	if !slices.Equal(blobs.deleted, want) {
+		t.Errorf("deleted %v, want the previous head's tiles %v", blobs.deleted, want)
+	}
+}
+
 func TestDrawResource_AFailureIsRecordedAgainstTheFile(t *testing.T) {
 	d := &fakeDrawer{results: []error{errors.New("headless: boom")}}
 	blobs, res := newBlobs(), &fakeResources{}
@@ -697,12 +722,36 @@ func TestDrawCollection_AMosaicIsComposedFromItsMembersInEachScheme(t *testing.T
 		}
 	}
 	for _, v := range []string{portaldomain.ThumbnailVariantLight, portaldomain.ThumbnailVariantDark} {
-		if _, ok := blobs.objects[bucket+"/"+portaldomain.CollectionThumbnailKey("c1", v)]; !ok {
+		if _, ok := blobs.objects[bucket+"/"+portaldomain.CollectionThumbnailKey("", "c1", v)]; !ok {
 			t.Errorf("the %s mosaic was not stored", v)
 		}
 	}
-	if rec := colls.recorded["c1"]; rec[0] != portaldomain.CollectionThumbnailKey("c1", portaldomain.ThumbnailVariantLight) || rec[1] != source {
+	if rec := colls.recorded["c1"]; rec[0] != portaldomain.CollectionThumbnailKey("", "c1", portaldomain.ThumbnailVariantLight) || rec[1] != source {
 		t.Errorf("recorded %v", rec)
+	}
+}
+
+// TestDrawCollection_AMosaicMovesUnderThePrefix covers #1903: a mosaic is
+// stored under portal.s3_prefix, and one recorded under the layout before it
+// is removed, both variants, once the row names the new one.
+func TestDrawCollection_AMosaicMovesUnderThePrefix(t *testing.T) {
+	d, blobs := &fakeDrawer{}, newBlobs()
+	assets := &fakeAssets{byID: map[string]*portaldomain.Asset{"m1": {ID: "m1", S3Bucket: bucket, ThumbnailS3Key: "t/m1.png"}}}
+	blobs.objects[bucket+"/t/m1.png"] = []byte("one")
+	legacy := "portal/collections/c1/thumbnail.png"
+	colls := &fakeCollections{}
+	w := worker(d, assets, blobs)
+	w.deps.Collections, w.deps.CollectionPrefix = colls, "custom/"
+	if err := w.drawCollection(context.Background(), portaldomain.CollectionThumbnailWork{ID: "c1", ThumbnailS3Key: legacy, Source: "m1:1:0:1"}); err != nil {
+		t.Fatalf("drawCollection: %v", err)
+	}
+
+	if got := colls.recorded["c1"][0]; got != "custom/collections/c1/thumbnail.png" {
+		t.Errorf("recorded %q, want the mosaic under the prefix", got)
+	}
+	want := []string{bucket + "/" + legacy, bucket + "/portal/collections/c1/thumbnail_dark.png"}
+	if !slices.Equal(blobs.deleted, want) {
+		t.Errorf("removed %v, want the legacy pair %v", blobs.deleted, want)
 	}
 }
 
@@ -716,7 +765,7 @@ func TestDrawCollection_AMosaicWithNothingToDrawIsCleared(t *testing.T) {
 	if rec, ok := colls.recorded["c2"]; !ok || rec != [2]string{"", ""} {
 		t.Fatalf("recorded %v, want the tile cleared", rec)
 	}
-	want := []string{bucket + "/old/mosaic.png", bucket + "/" + portaldomain.CollectionThumbnailKey("c2", portaldomain.ThumbnailVariantDark)}
+	want := []string{bucket + "/old/mosaic.png", bucket + "/old/thumbnail_dark.png"}
 	if !slices.Equal(blobs.deleted, want) {
 		t.Errorf("removed %v, want both mosaics %v", blobs.deleted, want)
 	}

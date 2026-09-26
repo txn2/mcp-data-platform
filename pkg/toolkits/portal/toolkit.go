@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"path"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1158,7 +1157,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		return 0, nil, fmt.Errorf("generating version ID: %w", err)
 	}
 	ext := portal.ExtensionForContentType(ct)
-	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
+	s3Key := portaldomain.AssetContentKey(t.s3Prefix, asset.OwnerID, asset.ID, versionID, ext)
 
 	if t.s3Client == nil {
 		return 0, nil, errors.New("content storage not configured")
@@ -1307,7 +1306,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageAssetInput) (*mc
 		return toolkit.ErrorResult("failed to generate version ID: " + err.Error()), nil, nil
 	}
 	ext := portal.ExtensionForContentType(targetVer.ContentType)
-	newKey := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
+	newKey := portaldomain.AssetContentKey(t.s3Prefix, asset.OwnerID, asset.ID, versionID, ext)
 
 	if err := t.s3Client.PutObject(ctx, t.s3Bucket, newKey, data, targetVer.ContentType); err != nil {
 		return toolkit.ErrorResult("failed to upload reverted content: " + err.Error()), nil, nil
@@ -1517,7 +1516,7 @@ func resolveSessionID(ctx context.Context) string {
 
 func (t *Toolkit) buildS3Key(ownerID, assetID, contentType string) string {
 	ext := portal.ExtensionForContentType(contentType)
-	return path.Join(t.s3Prefix, ownerID, assetID, "content"+ext)
+	return portaldomain.AssetContentKey(t.s3Prefix, ownerID, assetID, "", ext)
 }
 
 // buildSaveOutput reports what was saved and what its provenance recorded.
