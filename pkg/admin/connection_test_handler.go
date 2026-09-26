@@ -66,6 +66,12 @@ func (h *Handler) testConnectionInstance(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), probeTimeout)
 	defer cancel()
 
+	// A connection saved through another replica is a row here before the
+	// reload bus delivers it; testing it straight after the save must not
+	// answer that it does not exist (#1888).
+	if h.deps.ConnectionCatchUp != nil {
+		h.deps.ConnectionCatchUp.TakeOn(ctx, kind, name)
+	}
 	result := prober.ProbeConnection(ctx, name)
 	body := testConnectionResponse{
 		Kind: kind, Name: name, OK: result.OK, Detail: result.Detail, Error: result.Error,

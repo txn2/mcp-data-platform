@@ -59,17 +59,15 @@ export function displayNameFor(name: string): string {
 /**
  * folderSegment turns one directory name from a picked folder or an archive
  * into a resource folder name: lowercase letters, digits and hyphens, starting
- * with a letter, at most 31 characters. A name that starts with a digit (a year
- * folder, say) is prefixed with "f-" rather than refused, so "2024" files under
- * "f-2024" and the list shows it. Null when nothing usable is left.
+ * with a letter or digit, at most 31 characters, so "2024" files under "2024".
+ * Null when nothing usable is left.
  */
 export function folderSegment(name: string): string | null {
-  let seg = name
+  const seg = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (seg === "") return null;
-  if (!/^[a-z]/.test(seg)) seg = `f-${seg}`;
   return seg.slice(0, MAX_SEGMENT).replace(/-+$/, "");
 }
 

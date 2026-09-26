@@ -1618,7 +1618,7 @@ What each kind asks:
 
 | Kind | The question |
 |------|--------------|
-| `trino` | `SELECT 1` against the coordinator |
+| `trino` | `SELECT 1` against the coordinator; on a scratch connection that accepts writes, also a call of each partition procedure on a table that does not exist (see below) |
 | `s3` | a bucket listing |
 | `graphql` | an introspection query at the endpoint |
 | `api` | `GET /` at the base URL, through the connection's own client and credential |
@@ -1656,6 +1656,32 @@ against the right credential.
 runs in this process, so there is nothing here to open the connection with. The
 connection may well be serving on another replica, where the same call will
 answer for it.
+
+A connection saved through another replica is tested as soon as its save
+returns. This replica takes it on from the connection store first, rather than
+waiting for the other replica's announcement, which is what a tool call naming
+it does too.
+
+On a Trino connection that accepts writes and names a `scratch:` target, the
+test also checks what [webhook sources](webhooks.md) need of that catalog. It
+calls `sync_partition_metadata`, `register_partition` and
+`unregister_partition` on a table that does not exist. Trino checks access
+control before a procedure runs and the Hive connector checks
+`hive.allow-register-partition-procedure` before it looks up the table, so
+*"Table ... not found"* is the passing answer and nothing is changed. Every
+missing setting is named in one `503`:
+
+```json
+{
+  "kind": "trino",
+  "name": "scratch",
+  "ok": false,
+  "detail": "the query engine answered SELECT 1, but webhook sources cannot run on this scratch connection: the Trino user of connection scratch may not EXECUTE scratch.system.sync_partition_metadata; a catalog rule does not grant procedures, so add a procedures rule for that user on the catalog's system schema (see docs/server/scratch-catalog.md#access-control); ...",
+  "error": "... Access Denied: Cannot execute procedure scratch.system.sync_partition_metadata; ..."
+}
+```
+
+The complete setup is on [Scratch Catalog](scratch-catalog.md).
 
 ### Delete Connection Instance
 

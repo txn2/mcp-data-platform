@@ -96,12 +96,18 @@ type ToolkitSource interface {
 	All() []registry.Toolkit
 }
 
-// Resolver takes on the connection a call names. One belongs to a process.
+// processLocks are the name locks every Resolver in the process takes. The
+// tool-call middleware and the admin connection test each hold a Resolver
+// (#1888), and a take-on of one name through both at once must still be one
+// install at a time, so the locks are the process's rather than a Resolver's.
+var processLocks conncatchup.Locks
+
+// Resolver takes on the connection a call names. Every Resolver in a process
+// shares its name locks.
 type Resolver struct {
 	source     ToolkitSource
 	store      Store
 	reconciler *connreconcile.Reconciler
-	locks      conncatchup.Locks
 
 	mu     sync.Mutex
 	byKind map[string]*conncatchup.Resolver
@@ -156,7 +162,7 @@ func (r *Resolver) forKind(kind string) *conncatchup.Resolver {
 	defer r.mu.Unlock()
 	resolver, ok := r.byKind[kind]
 	if !ok {
-		resolver = conncatchup.New(&r.locks, kind, ErrNotFound)
+		resolver = conncatchup.New(&processLocks, kind, ErrNotFound)
 		r.byKind[kind] = resolver
 	}
 	return resolver

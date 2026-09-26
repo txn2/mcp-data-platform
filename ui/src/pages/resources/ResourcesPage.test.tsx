@@ -435,6 +435,64 @@ describe("acting on a selection", () => {
   });
 });
 
+describe("deleting a folder, while its files are counted (#1887)", () => {
+  /** A listing that answers only when the case says so. */
+  function heldListing() {
+    const pending: { resolve: (v: unknown) => void; reject: (e: unknown) => void }[] = [];
+    fetchJSON.mockImplementation((path: string) => {
+      if (!path.startsWith("?")) return Promise.resolve({});
+      return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+    });
+    return pending;
+  }
+
+  function deleteWeekly() {
+    renderPage();
+    fireEvent.click(row("d:data/weekly"), { metaKey: true });
+    fireEvent.click(within(screen.getByTestId("selection-bar")).getByRole("button", { name: "Delete" }));
+  }
+
+  const confirm = () => within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" });
+
+  it("opens at once, naming the folder, and holds the confirm until the count is in", async () => {
+    const pending = heldListing();
+    deleteWeekly();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByTestId("delete-counting").textContent).toContain("Counting files");
+    expect(within(dialog).getByTestId("delete-names").textContent).toContain("weekly/");
+    expect(confirm()).toBeDisabled();
+
+    await act(async () => pending[0]!.resolve({ resources: [file("f-w38", "data/weekly", "w38.csv")], total: 1 }));
+    expect(screen.queryByTestId("delete-counting")).toBeNull();
+    expect(screen.getByTestId("delete-names").textContent).toContain("weekly/, w38.csv");
+    expect(confirm()).toBeEnabled();
+  });
+
+  it("starts one count however often Delete is asked for while it runs", () => {
+    heldListing();
+    deleteWeekly();
+    fireEvent.keyDown(screen.getByTestId("listing"), { key: "Backspace", metaKey: true });
+    fireEvent.click(within(screen.getByTestId("selection-bar")).getByRole("button", { name: "Delete" }));
+    expect(fetchJSON.mock.calls.filter(([path]) => (path as string).startsWith("?"))).toHaveLength(1);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
+
+  it("shows a failed count inside the dialog, and Retry counts again", async () => {
+    const pending = heldListing();
+    deleteWeekly();
+    await act(async () => pending[0]!.reject(new Error("the listing timed out")));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByTestId("delete-count-error").textContent).toContain("the listing timed out");
+    expect(confirm()).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry" }));
+    expect(within(dialog).getByTestId("delete-counting")).toBeTruthy();
+    await act(async () => pending[1]!.resolve({ resources: [file("f-w38", "data/weekly", "w38.csv")], total: 1 }));
+    expect(screen.queryByTestId("delete-count-error")).toBeNull();
+    expect(confirm()).toBeEnabled();
+  });
+});
+
 describe("dragging rows", () => {
   function drag(fromKey: string, onto: HTMLElement) {
     const types: string[] = [];

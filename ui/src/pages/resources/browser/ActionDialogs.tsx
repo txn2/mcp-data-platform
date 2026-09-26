@@ -20,6 +20,7 @@ function Frame({
   onClose,
   action,
   danger,
+  ready = true,
   onRun,
   report,
   children,
@@ -29,6 +30,8 @@ function Frame({
   onClose: () => void;
   action: string;
   danger?: boolean;
+  /** False holds the action until what it acts on is known. */
+  ready?: boolean;
   onRun: () => void;
   report: Outcome[] | null;
   children: ReactNode;
@@ -53,7 +56,7 @@ function Frame({
             {report ? "Close" : "Cancel"}
           </Button>
           {!report && (
-            <Button onClick={onRun} disabled={busy} variant={danger ? "destructive" : "default"}>
+            <Button onClick={onRun} disabled={busy || !ready} variant={danger ? "destructive" : "default"}>
               {busy && <Loader2 className="animate-spin" />}
               {action}
             </Button>
@@ -238,36 +241,64 @@ export function TagDialog({
 
 /**
  * Delete: every file the selection covers, then the selected folders once
- * they are empty. It names what goes before anything does.
+ * they are empty. It names what goes before anything does, and while the files
+ * inside the picked folders are still being counted it says so and holds the
+ * confirm (#1887).
  */
 export function DeleteDialog({
   files,
-  folders,
+  picked,
+  countError,
+  onRetry,
   onClose,
   onDelete,
 }: {
-  /** Every file that will be deleted, the folders' contents included. */
-  files: Resource[];
-  folders: string[];
+  /** Every file that will be deleted, the folders' contents included; null while they are counted. */
+  files: Resource[] | null;
+  /** What was selected, which names the dialog before the count is in. */
+  picked: Picked;
+  /** Why the count failed, if it did. */
+  countError: string;
+  onRetry: () => void;
   onClose: () => void;
   onDelete: () => Promise<Outcome[]>;
 }) {
   const run = useRun(onDelete, onClose);
-  const names = [...folders.map((f) => `${f.slice(f.lastIndexOf("/") + 1)}/`), ...files.map((r) => r.display_name)];
+  const { folders } = picked;
+  const counted = files !== null && !countError;
+  const listed = files ?? picked.files;
+  const names = [...folders.map((f) => `${f.slice(f.lastIndexOf("/") + 1)}/`), ...listed.map((r) => r.display_name)];
   return (
     <Frame
-      title={`Delete ${describe({ files, folders })}?`}
+      title={`Delete ${describe({ files: listed, folders })}?`}
       busy={run.busy}
       onClose={onClose}
       action="Delete"
       danger
-      onRun={() => void run.go()}
+      ready={counted}
+      onRun={() => counted && void run.go()}
       report={run.report}
     >
       {run.error && (
         <Alert variant="destructive">
           <AlertDescription>{run.error}</AlertDescription>
         </Alert>
+      )}
+      {countError && (
+        <Alert variant="destructive" data-testid="delete-count-error">
+          <AlertDescription className="flex items-center justify-between gap-2">
+            <span>The files inside could not be counted: {countError}</span>
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {!counted && !countError && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="delete-counting" role="status">
+          <Loader2 className="size-4 animate-spin" />
+          Counting files...
+        </p>
       )}
       <p className="text-sm text-muted-foreground" data-testid="delete-names">
         {names.slice(0, 6).join(", ")}

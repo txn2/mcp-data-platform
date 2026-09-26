@@ -95,6 +95,12 @@ type ReloadNotifier interface {
 	PublishAPIKeyReload()
 }
 
+// ConnectionCatchUp takes on a saved connection this replica does not serve
+// yet. Implemented by the platform's call catch-up resolver (#1757).
+type ConnectionCatchUp interface {
+	TakeOn(ctx context.Context, kind, name string)
+}
+
 // ToolkitRegistry abstracts registry.Registry for testability.
 type ToolkitRegistry interface {
 	All() []registry.Toolkit
@@ -289,6 +295,12 @@ type Deps struct {
 	// alongside the history so an admin reads it as a recent window rather
 	// than a complete record. Zero omits the claim.
 	NotificationRetention time.Duration
+
+	// ConnectionCatchUp puts a connection the store holds into service on
+	// this replica before the reload bus announces it, so a connection saved
+	// through another replica is testable the moment its save returns
+	// (#1888). Optional.
+	ConnectionCatchUp ConnectionCatchUp
 }
 
 // IndexJobsService is the cross-kind index-jobs surface the admin

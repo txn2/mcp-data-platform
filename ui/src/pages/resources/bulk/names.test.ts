@@ -33,7 +33,8 @@ describe("folderSegment", () => {
   it("turns a directory name into a folder name", () => {
     expect(folderSegment("Brand Assets")).toBe("brand-assets");
     expect(folderSegment("  Logos__Reversed!! ")).toBe("logos-reversed");
-    expect(folderSegment("2024")).toBe("f-2024");
+    expect(folderSegment("2024")).toBe("2024");
+    expect(folderSegment("2026-09-26")).toBe("2026-09-26");
     expect(folderSegment("a".repeat(40))).toHaveLength(31);
     expect(folderSegment("abcdefghij-abcdefghij-abcdefghi-x")).toBe("abcdefghij-abcdefghij-abcdefghi");
     expect(folderSegment("***")).toBeNull();

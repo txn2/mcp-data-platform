@@ -73,9 +73,11 @@ func DescribeUploadLimit(n int64) string {
 
 var (
 	// pathSegmentRe is the rule one folder name in a resource's path must meet.
-	// It is the rule the flat category carried before a path could nest (#1529),
-	// unchanged, so every value that existed then is a legal segment now.
-	pathSegmentRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+	// It is the rule the flat category carried before a path could nest (#1529)
+	// with the first character widened to a digit (#1886), so every value that
+	// existed then is still a legal segment, and a dated folder -- "2026",
+	// "2026-09-26", the windows the webhook compactor files -- is one too.
+	pathSegmentRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 	tagRe         = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,49}$`)
 )
 

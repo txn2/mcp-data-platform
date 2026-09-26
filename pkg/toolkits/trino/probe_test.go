@@ -2,6 +2,8 @@ package trino
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -107,4 +109,106 @@ func TestProbeConnection_UnknownConnection(t *testing.T) {
 	res := tk.ProbeConnection(context.Background(), "nope")
 	assert.False(t, res.OK)
 	assert.Contains(t, res.Detail, "could not be opened")
+}
+
+// scratchStub answers the statements a scratch probe sends the way Trino 453
+// answered them against the dev stack's access-controlled coordinator: SELECT 1
+// answers, and each partition procedure answers with what refuses it -- access
+// control, the catalog property, or the missing table that means neither did.
+func scratchStub(t *testing.T, refusals map[string]string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sql := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasPrefix(sql, "CALL") {
+			_, _ = w.Write([]byte(`{"id":"q1","infoUri":"http://localhost/q1","stats":{"state":"FINISHED"},
+				"columns":[{"name":"_col0","type":"integer"}],"data":[[1]]}`))
+			return
+		}
+		msg := "Table 'uploads." + probeTable + "' not found"
+		for procedure, refusal := range refusals {
+			if strings.Contains(sql, ".system."+procedure+"(") {
+				msg = refusal
+			}
+		}
+		out, _ := json.Marshal(map[string]any{
+			"id": "q2", "infoUri": "http://localhost/q2", "stats": map[string]any{"state": "FAILED"},
+			"error": map[string]any{"message": msg, "errorName": "PERMISSION_DENIED", "errorType": "USER_ERROR", "errorCode": 4},
+		})
+		_, _ = w.Write(out)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func scratchToolkit(t *testing.T, srv *httptest.Server) *Toolkit {
+	t.Helper()
+	host, port := hostPortOf(t, srv)
+	tk, err := NewMulti(MultiConfig{
+		DefaultConnection: "warehouse",
+		Instances: map[string]Config{
+			"warehouse": {Host: host, Port: port, User: "mcp-server", ReadOnly: true, Scratch: ScratchConfig{Catalog: "scratch", Schema: "uploads"}},
+			"scratch":   {Host: host, Port: port, User: "mcp-scratch", Scratch: ScratchConfig{Catalog: "scratch", Schema: "uploads"}},
+			"plain":     {Host: host, Port: port, User: "mcp-scratch"},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tk.Close() })
+	return tk
+}
+
+// A scratch connection whose user may call the three partition procedures on
+// a catalog that allows register_partition passes, and says what it checked.
+func TestProbeConnection_ScratchReady(t *testing.T) {
+	tk := scratchToolkit(t, scratchStub(t, nil))
+	res := tk.ProbeConnection(context.Background(), "scratch")
+	require.True(t, res.OK, "probe failed: %+v", res)
+	assert.Contains(t, res.Detail, "the scratch catalog scratch allows this connection to call sync_partition_metadata, register_partition, unregister_partition")
+
+	// A connection with no scratch target, and a read-only one, are not asked.
+	for _, name := range []string{"plain", "warehouse"} {
+		res := tk.ProbeConnection(context.Background(), name)
+		require.True(t, res.OK, name)
+		assert.NotContains(t, res.Detail, "partition", name)
+	}
+}
+
+// The refusal the reference install met (#1888): the scratch user held "all"
+// on the catalog and no procedures rule, and the catalog lacked the property.
+// Every missing setting is named at once, with the engine's own words.
+func TestProbeConnection_ScratchMissingSettings(t *testing.T) {
+	tk := scratchToolkit(t, scratchStub(t, map[string]string{
+		"sync_partition_metadata": "Access Denied: Cannot execute procedure scratch.system.sync_partition_metadata",
+		"register_partition":      "register_partition procedure is disabled",
+		"unregister_partition":    "Access Denied: Cannot execute procedure scratch.system.unregister_partition",
+	}))
+	res := tk.ProbeConnection(context.Background(), "scratch")
+	require.False(t, res.OK)
+	assert.Contains(t, res.Detail, "webhook sources cannot run on this scratch connection")
+	assert.Contains(t, res.Detail, "the Trino user of connection scratch may not EXECUTE scratch.system.sync_partition_metadata")
+	assert.Contains(t, res.Detail, "the Trino user of connection scratch may not EXECUTE scratch.system.unregister_partition")
+	assert.Contains(t, res.Detail, "set hive.allow-register-partition-procedure=true")
+	assert.Contains(t, res.Error, "Cannot execute procedure scratch.system.sync_partition_metadata")
+	assert.Contains(t, res.Error, "register_partition procedure is disabled")
+}
+
+// An answer the probe does not recognize fails the check naming the call,
+// rather than passing a connection nothing proved.
+func TestProbeConnection_ScratchUnexpectedAnswer(t *testing.T) {
+	tk := scratchToolkit(t, scratchStub(t, map[string]string{"register_partition": "Catalog 'scratch' not found"}))
+	res := tk.ProbeConnection(context.Background(), "scratch")
+	require.False(t, res.OK)
+	assert.Contains(t, res.Detail, "calling scratch.system.register_partition failed")
+	assert.Contains(t, res.Error, "Catalog 'scratch' not found")
+}
+
+func TestProbeCall(t *testing.T) {
+	target := ScratchConfig{Catalog: "scr\"atch", Schema: "up'loads"}
+	assert.Equal(t, `CALL "scr""atch".system.sync_partition_metadata('up''loads', 'mcp_platform_connection_test_absent', 'ADD')`,
+		probeCall(target, "sync_partition_metadata"))
+	assert.Equal(t, `CALL "scr""atch".system.register_partition('up''loads', 'mcp_platform_connection_test_absent', ARRAY['dt'], ARRAY['probe'], 's3://mcp_platform_connection_test_absent/')`,
+		probeCall(target, "register_partition"))
+	assert.Equal(t, `CALL "scr""atch".system.unregister_partition('up''loads', 'mcp_platform_connection_test_absent', ARRAY['dt'], ARRAY['probe'])`,
+		probeCall(target, "unregister_partition"))
 }

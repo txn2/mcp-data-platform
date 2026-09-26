@@ -864,7 +864,7 @@ so an administrator does replace another person's table.
 
 What keeps a registration off the warehouse is the Trino identity the scratch
 connection authenticates as; see
-[The Trino identity](scratch-catalog.md#the-trino-identity).
+[The Trino identities](scratch-catalog.md#the-trino-identities).
 
 ## What is recorded
 

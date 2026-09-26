@@ -97,6 +97,12 @@ services:
     volumes:
       - ./trino/config.properties:/etc/trino/config.properties:ro
       - ./trino/catalog:/etc/trino/catalog:ro
+      # The deployment rules from docs/server/scratch-catalog.md, with dev's
+      # own user unrestricted. mcp-scratch is the documented scratch identity;
+      # mcp-scratch-no-procedures holds the scratch catalogs without the
+      # procedures rule, which is the refusal a connection test names (#1888).
+      - ./trino/access-control.properties:/etc/trino/access-control.properties:ro
+      - ./trino/rules.json:/etc/trino/rules.json:ro
       - ./.tls/minio:/etc/trino/minio-certs:ro
     ports:
       - "127.0.0.1:9283:8080"

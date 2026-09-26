@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/scratchcatalog"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -46,7 +47,11 @@ var (
 	// ErrRegisterDisabled is the catalog refusing register_partition. Each
 	// compacted window is registered at its own resource's directory, which is
 	// what the procedure is for, so a source cannot run without it.
-	ErrRegisterDisabled = errors.New("the scratch catalog does not allow register_partition; set hive.allow-register-partition-procedure=true on it (see docs/server/scratch-catalog.md)")
+	ErrRegisterDisabled = scratchcatalog.ErrRegisterDisabled
+	// ErrProcedureDenied is the engine's access control refusing a partition
+	// procedure to the connection's Trino user: a catalog rule does not grant
+	// procedures, so the source cannot run until a procedures rule does.
+	ErrProcedureDenied = scratchcatalog.ErrProcedureDenied
 )
 
 // Target is where a source's tables live.
@@ -178,7 +183,7 @@ func (t *Tables) SyncRaw(ctx context.Context, tg Target, src whsource.Source) er
 	stmt := "CALL " + quoteIdent(tg.Catalog) + ".system.sync_partition_metadata(" +
 		quoteLiteral(tg.Schema) + listSep + quoteLiteral(src.RawTableName()) + ", 'FULL')"
 	if err := t.exec.Exec(ctx, tg.Connection, stmt); err != nil {
-		return fmt.Errorf("syncing the raw partitions of webhook source %s: %w", src.Name, err)
+		return classify(tg, fmt.Errorf("syncing the raw partitions of webhook source %s: %w", src.Name, err))
 	}
 	return nil
 }
@@ -192,7 +197,7 @@ func (t *Tables) RegisterWindow(ctx context.Context, tg Target, src whsource.Sou
 	}
 	stmt := partitionCall(tg, "register_partition", src.CompactedTableName(), start, location)
 	if err := t.exec.Exec(ctx, tg.Connection, stmt); err != nil {
-		return classify(fmt.Errorf("registering window %s of webhook source %s: %w", windowName(start), src.Name, err))
+		return classify(tg, fmt.Errorf("registering window %s of webhook source %s: %w", windowName(start), src.Name, err))
 	}
 	return nil
 }
@@ -207,7 +212,7 @@ func (t *Tables) RegisterRawWindow(ctx context.Context, tg Target, src whsource.
 	if err == nil || strings.Contains(err.Error(), "] is already registered") {
 		return nil
 	}
-	return classify(fmt.Errorf("registering raw window %s of webhook source %s: %w", windowName(start), src.Name, err))
+	return classify(tg, fmt.Errorf("registering raw window %s of webhook source %s: %w", windowName(start), src.Name, err))
 }
 
 // UnregisterWindow removes a window's compacted partition, which puts the
@@ -219,7 +224,7 @@ func (t *Tables) UnregisterWindow(ctx context.Context, tg Target, src whsource.S
 	if err == nil || partitionMissing(err) {
 		return nil
 	}
-	return classify(fmt.Errorf("unregistering window %s of webhook source %s: %w", windowName(start), src.Name, err))
+	return classify(tg, fmt.Errorf("unregistering window %s of webhook source %s: %w", windowName(start), src.Name, err))
 }
 
 // windowName is a window's partition values as an error names them.
@@ -252,13 +257,10 @@ func partitionMissing(err error) bool {
 	return strings.Contains(msg, "Partition '") && strings.Contains(msg, "' does not exist")
 }
 
-// classify turns the catalog's refusal of the partition procedures into the
-// sentence an operator acts on.
-func classify(err error) error {
-	if strings.Contains(err.Error(), "procedure is disabled") {
-		return fmt.Errorf("the catalog refused the partition procedure (%w): %w", err, ErrRegisterDisabled)
-	}
-	return err
+// classify turns the catalog's refusal of the partition procedures, by its
+// properties or by access control, into the sentence an operator acts on.
+func classify(tg Target, err error) error {
+	return scratchcatalog.Classify(tg.Connection, tg.Catalog, err) //nolint:wrapcheck // every caller wraps err with its window first; Classify adds the remedy
 }
 
 // partitionCall renders a call of the catalog's register_partition or

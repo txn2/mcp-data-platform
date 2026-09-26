@@ -105,7 +105,7 @@ func TestPartitions(t *testing.T) {
 	missing := &fakeExec{failOn: "unregister_partition", failWith: errors.New(`query failed: USER_ERROR: Partition 'dt=2026-09-24/hour=07/minute=15' does not exist`)}
 	assert.NoError(t, New(missing, "b").UnregisterWindow(ctx, tg, src, start), "a window with no partition is already unregistered")
 
-	disabled := &fakeExec{failOn: "register_partition(", failWith: errors.New("register_partition procedure is disabled")}
+	disabled := &fakeExec{failOn: ".system.register_partition(", failWith: errors.New("register_partition procedure is disabled")}
 	err := New(disabled, "b").RegisterWindow(ctx, tg, src, start, "s3://x/")
 	assert.ErrorIs(t, err, ErrRegisterDisabled)
 
@@ -140,8 +140,24 @@ func TestProbe(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not read the managed-resources bucket managed-resources")
 
-	disabled := &fakeExec{failOn: "register_partition(", failWith: errors.New("register_partition procedure is disabled")}
+	disabled := &fakeExec{failOn: ".system.register_partition(", failWith: errors.New("register_partition procedure is disabled")}
 	assert.ErrorIs(t, New(disabled, "b").Probe(ctx, tg, src), ErrRegisterDisabled)
+
+	// The refusal the reference install met (#1888): the scratch user held
+	// "all" on the catalog and no procedures rule. The pre-check names the
+	// rule to add, not only the engine's words.
+	denied := &fakeExec{failOn: "unregister_partition", failWith: errors.New(
+		"trino: query failed (200 OK): \"USER_ERROR: Access Denied: Cannot execute procedure scratch_resources.system.unregister_partition\"")}
+	err = New(denied, "b").Probe(ctx, tg, src)
+	require.ErrorIs(t, err, ErrProcedureDenied)
+	assert.Contains(t, err.Error(), "the Trino user of connection "+tg.Connection+" may not EXECUTE scratch_resources.system.unregister_partition")
+	assert.Contains(t, err.Error(), "add a procedures rule")
+	assert.Contains(t, err.Error(), "docs/server/scratch-catalog.md#access-control")
+	assert.Contains(t, err.Error(), "Access Denied", "the engine's own words stay in the message")
+
+	syncDenied := &fakeExec{failOn: "sync_partition_metadata", failWith: errors.New(
+		"Access Denied: Cannot execute procedure scratch_resources.system.sync_partition_metadata")}
+	assert.ErrorIs(t, New(syncDenied, "b").SyncRaw(ctx, tg, src), ErrProcedureDenied)
 }
 
 func TestQuoting(t *testing.T) {
