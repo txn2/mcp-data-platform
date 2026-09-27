@@ -13,6 +13,9 @@ import type {
 // script that has never run, a personal script, and a paused freshness check.
 
 const now = new Date("2026-08-14T09:00:00Z");
+/** MOCK_SCRIPTS_NOW is the instant the script fixtures are written around, so
+ * a surface that cuts windows around "now" draws them against the fixtures. */
+export const MOCK_SCRIPTS_NOW = now;
 const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000).toISOString();
 
 const salesSource = `# Yesterday's sales by region, refreshed every weekday morning.
@@ -323,6 +326,18 @@ export const mockScriptSchedules: Record<string, ScriptSchedule> = {
     enabled: true,
     next_run_at: hoursAhead(22),
     last_fire_at: hoursAgo(2),
+    missed_fires: 0,
+  },
+  // Somebody else's monthly review, in another zone: what the Schedules tab
+  // (#1891) files under its long-term axis, drawn at the viewer's local time.
+  "script-002": {
+    id: "sched-002",
+    script_id: "script-002",
+    cron_spec: "0 6 1 * *",
+    timezone: "America/New_York",
+    params: { cutoff: "${fire_date}" },
+    enabled: true,
+    next_run_at: hoursAhead(12 * 24),
     missed_fires: 0,
   },
   "script-003": {

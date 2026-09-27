@@ -103,6 +103,18 @@ export async function openScriptDryRun(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptSchedulesTab switches the script surface to the timeline of when
+ * every schedule fires (#1891), and waits out the wipe that reveals the plot.
+ */
+export async function openScriptSchedulesTab(page: Page): Promise<void> {
+  await page
+    .getByRole("tab", { name: "Schedules" })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(1_200);
+}
+
+/**
  * openScriptRunsTab switches the admin script surface to the operator's view
  * of what has been running: the metric panels and the cross-script history.
  */

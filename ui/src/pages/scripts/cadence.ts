@@ -247,7 +247,41 @@ export function scheduleLine(spec: string, timezone: string): string {
   if (!cadence.spec) {
     return "No cadence set";
   }
-  return stepLine(cadence.spec, zone) ?? `Custom cadence, ${zone}`;
+  return (
+    stepLine(cadence.spec, zone) ??
+    descriptorLine(cadence.spec, zone) ??
+    `Custom cadence, ${zone}`
+  );
+}
+
+// DESCRIPTORS are the fixed @-forms the scheduler's parser accepts, stated in
+// the words describe() uses for the same cadence built by hand (#1891).
+const DESCRIPTORS: Record<string, string> = {
+  "@hourly": "Every hour at 00 minutes past",
+  "@daily": "Every day at 12:00 AM",
+  "@midnight": "Every day at 12:00 AM",
+  "@weekly": "Every Sunday at 12:00 AM",
+  "@monthly": "On the 1st of each month at 12:00 AM",
+  "@yearly": "Every January 1st at 12:00 AM",
+  "@annually": "Every January 1st at 12:00 AM",
+};
+
+// EVERY_UNITS names the single-unit durations an @every descriptor is written
+// in; a compound one ("1h30m") is stated as written.
+const EVERY_UNITS: Record<string, string> = { m: "minute", h: "hour" };
+
+// descriptorLine states an @-descriptor, which agents write and the builder
+// has no shape for, or null for anything else.
+function descriptorLine(spec: string, zone: string): string | null {
+  const fixed = DESCRIPTORS[spec];
+  if (fixed) return `${fixed}, ${zone}`;
+  const every = spec.match(/^@every\s+(\S+)$/);
+  if (!every) return null;
+  const single = every[1]!.match(/^(\d+)([mh])$/);
+  if (single) {
+    return `Every ${plural(Number(single[1]), EVERY_UNITS[single[2]!]!)}, ${zone}`;
+  }
+  return `Every ${every[1]}, ${zone}`;
 }
 
 // stepLine states the step expressions the builder has no shape for, which are

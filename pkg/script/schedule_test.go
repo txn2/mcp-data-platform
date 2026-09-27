@@ -91,6 +91,59 @@ func TestCron_NextCrossesADSTBoundaryWithoutDrifting(t *testing.T) {
 	assert.Equal(t, 7, summer.In(losAngeles(t)).Hour())
 }
 
+// TestCron_FiresBetween pins the window, the cap and the count: the fires are
+// the scheduler's own, a fire on the window's first instant is in it and one
+// on its last is not, and a capped listing still counts every fire.
+func TestCron_FiresBetween(t *testing.T) {
+	day := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		spec      string
+		from, to  time.Time
+		limit     int
+		wantLen   int
+		wantCount int
+	}{
+		{name: "every five minutes over a day", spec: "*/5 * * * *", from: day, to: day.AddDate(0, 0, 1), limit: 500, wantLen: 288, wantCount: 288},
+		{name: "hourly at 35 over a day", spec: "35 * * * *", from: day, to: day.AddDate(0, 0, 1), limit: 500, wantLen: 24, wantCount: 24},
+		{name: "capped listing still counts", spec: "@every 1m", from: day, to: day.AddDate(0, 0, 1), limit: 10, wantLen: 10, wantCount: 1440},
+		{name: "count alone", spec: "@hourly", from: day, to: day.AddDate(0, 0, 1), limit: 0, wantLen: 0, wantCount: 24},
+		{name: "no fire in the window", spec: "0 6 1 * *", from: day, to: day.AddDate(0, 0, 7), limit: 500, wantLen: 0, wantCount: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := ParseCron(tt.spec, "UTC")
+			require.NoError(t, err)
+			fires, count := c.FiresBetween(tt.from, tt.to, tt.limit)
+			require.NotNil(t, fires, "an empty window is an empty list, never nil")
+			assert.Len(t, fires, tt.wantLen)
+			assert.Equal(t, tt.wantCount, count)
+			for _, f := range fires {
+				assert.False(t, f.Before(tt.from))
+				assert.True(t, f.Before(tt.to))
+			}
+		})
+	}
+
+	c, err := ParseCron("0 * * * *", "UTC")
+	require.NoError(t, err)
+	fires, _ := c.FiresBetween(day, day.Add(2*time.Hour), 10)
+	require.Len(t, fires, 2)
+	assert.True(t, fires[0].Equal(day), "a fire on the window's first instant is in it")
+	assert.True(t, fires[1].Equal(day.Add(time.Hour)), "and one on its last instant is not")
+}
+
+// TestCron_FiresBetweenOverASpringForwardDay pins the DST day to the
+// scheduler: a Los Angeles day that loses an hour has 23 hourly fires.
+func TestCron_FiresBetweenOverASpringForwardDay(t *testing.T) {
+	loc := losAngeles(t)
+	c, err := ParseCron("0 * * * *", "America/Los_Angeles")
+	require.NoError(t, err)
+	from := time.Date(2026, 3, 8, 0, 0, 0, 0, loc)
+	_, count := c.FiresBetween(from, from.AddDate(0, 0, 1), 100)
+	assert.Equal(t, 23, count)
+}
+
 func TestLoadTimezone(t *testing.T) {
 	loc, err := loadTimezone("")
 	require.NoError(t, err)

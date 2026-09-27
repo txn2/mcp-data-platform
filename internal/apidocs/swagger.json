@@ -18962,6 +18962,60 @@
                 }
             }
         },
+        "/portal/scripts/fires": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every schedule the caller may see, each placed on one of three axes by how often it fires: intraday (the viewer's day, for schedules firing more than once a day), multi_day (the viewer's Monday-to-Monday week, for at least once a week) and long_term (three calendar months from the first of the viewer's month). Each row lists its fires in the window, expanded in the schedule's own timezone with the same parse the scheduler uses, capped at 500 per row; fire_count is every fire in the window and truncated says when fires holds fewer. rhythm classifies the typical gap between fires. A paused schedule is listed with enabled false. A schedule that cannot be parsed is named under unreadable. Owners see their own schedules; administrators see every schedule.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Lay out the fire times of the caller's script schedules",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "IANA zone the windows are cut in, the viewer's own; empty means UTC",
+                        "name": "tz",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/fireshttp.Timeline"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/runs": {
             "get": {
                 "security": [
@@ -28060,6 +28114,104 @@
                     "type": "string"
                 },
                 "validation_state": {
+                    "type": "string"
+                }
+            }
+        },
+        "fireshttp.Timeline": {
+            "type": "object",
+            "properties": {
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/fireshttp.window"
+                    }
+                },
+                "timezone": {
+                    "description": "Timezone is the zone the windows were cut in: the viewer's.",
+                    "type": "string",
+                    "example": "America/Los_Angeles"
+                },
+                "unreadable": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/fireshttp.unreadable"
+                    }
+                }
+            }
+        },
+        "fireshttp.row": {
+            "type": "object",
+            "properties": {
+                "cron_spec": {
+                    "type": "string",
+                    "example": "*/15 * * * *"
+                },
+                "enabled": {
+                    "description": "Enabled is false for a paused schedule. Its fires are still listed: they\nare the ones it makes when it is resumed, and a paused job is still one\nthe reader has to account for.",
+                    "type": "boolean"
+                },
+                "fire_count": {
+                    "description": "FireCount is every fire in the window; Fires holds at most\nMaxFiresPerRow of them, and Truncated says when it holds fewer.",
+                    "type": "integer",
+                    "example": 96
+                },
+                "fires": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rhythm": {
+                    "type": "string",
+                    "example": "minutes"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "script_name": {
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "America/New_York"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "fireshttp.unreadable": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "script_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "fireshttp.window": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/fireshttp.row"
+                    }
+                },
+                "section": {
+                    "type": "string",
+                    "example": "intraday"
+                },
+                "to": {
                     "type": "string"
                 }
             }

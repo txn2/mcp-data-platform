@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { MyScriptsPage } from "./MyScriptsPage";
 
 // The page is two tabs over two listings (#1405). Each listing has its own
@@ -8,6 +8,17 @@ import { MyScriptsPage } from "./MyScriptsPage";
 vi.mock("@/api/portal/hooks/scripts", () => ({
   useScriptListing: vi.fn(),
   useScriptRunListing: vi.fn(),
+}));
+
+// The Schedules tab reads the fire layout (#1891); an account with nothing
+// scheduled is what these page tests need from it.
+vi.mock("@/api/portal/hooks/scheduleTimeline", async (importActual) => ({
+  ...(await importActual<object>()),
+  useScheduleTimeline: vi.fn(() => ({
+    data: { timezone: "UTC", unreadable: [], sections: [] },
+    isLoading: false,
+    error: null,
+  })),
 }));
 
 import { useScriptListing, useScriptRunListing } from "@/api/portal/hooks/scripts";
@@ -56,6 +67,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("MyScriptsPage", () => {
+  // #1891: a third tab, between the two that were there, and the page still
+  // opens on the listing.
+  it("reads Scripts, Schedules, Runs, and opens on Scripts", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    // The page's own strip is the first; the listing has a scope switch below it.
+    const strip = screen.getAllByRole("tablist")[0]!;
+    expect(within(strip).getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Scripts",
+      "Schedules",
+      "Runs",
+    ]);
+    expect(screen.getByRole("tab", { name: "Scripts" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("sends a reader with nothing scheduled from Schedules back to Scripts", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Schedules" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to Scripts" }));
+    expect(screen.getByRole("tab", { name: "Scripts" })).toHaveAttribute("aria-selected", "true");
+  });
   it("opens on the scripts a person owns", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();

@@ -166,6 +166,18 @@ suite("scheduleLine", () => {
     expect(scheduleLine("nonsense", "UTC")).toBe("Custom cadence, UTC");
   });
 
+  // #1891: the scheduler accepts @-descriptors, and the Schedules tab labels
+  // every row in words, so a descriptor is stated rather than named custom.
+  it("states the descriptors the scheduler accepts", () => {
+    expect(scheduleLine("@every 5m", "UTC")).toBe("Every 5 minutes, UTC");
+    expect(scheduleLine("@every 1h", "UTC")).toBe("Every hour, UTC");
+    expect(scheduleLine("@every 1h30m", "UTC")).toBe("Every 1h30m, UTC");
+    expect(scheduleLine("@hourly", "UTC")).toBe("Every hour at 00 minutes past, UTC");
+    expect(scheduleLine("@daily", "UTC")).toBe("Every day at 12:00 AM, UTC");
+    expect(scheduleLine("@monthly", "UTC")).toBe("On the 1st of each month at 12:00 AM, UTC");
+    expect(scheduleLine("@sometimes", "UTC")).toBe("Custom cadence, UTC");
+  });
+
   it("names the zone a cadence with no zone is read in", () => {
     expect(scheduleLine("*/30 * * * *", "  ")).toBe("Every 30 minutes, UTC");
   });

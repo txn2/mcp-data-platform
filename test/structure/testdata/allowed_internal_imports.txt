@@ -187,6 +187,7 @@ internal/httpserver/notifywire -> pkg/portal/mention
 internal/httpserver/notifywire -> pkg/registry
 internal/httpserver/notifywire -> pkg/toolkits/apigateway
 internal/httpserver/scripthttp -> internal/httpjson
+internal/httpserver/scripthttp -> internal/httpserver/scripthttp/fireshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/granthttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/outputshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
@@ -204,6 +205,9 @@ internal/httpserver/scripthttp -> internal/runstate
 internal/httpserver/scripthttp -> pkg/audit
 internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
+internal/httpserver/scripthttp/fireshttp -> internal/httpjson
+internal/httpserver/scripthttp/fireshttp -> internal/httpserver/scripthttp/scriptlist
+internal/httpserver/scripthttp/fireshttp -> pkg/script
 internal/httpserver/scripthttp/granthttp -> internal/httpjson
 internal/httpserver/scripthttp/granthttp -> internal/logsan
 internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant

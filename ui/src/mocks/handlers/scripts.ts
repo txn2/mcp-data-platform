@@ -3,7 +3,9 @@ import { MOCK_CALLER_EMAIL } from "../data/audit";
 import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptGrant, ScriptSchedule } from "@/api/portal/hooks/scripts";
+import { buildMockScheduleTimeline } from "../data/scheduleTimeline";
 import {
+  MOCK_SCRIPTS_NOW,
   mockBindableConnections,
   mockConnectionNames,
   mockScriptContracts,
@@ -302,6 +304,18 @@ export const scriptHandlers = [
       );
     all.sort((a, b) => (a.fire_time < b.fire_time ? 1 : -1));
     return HttpResponse.json({ data: all, total: all.length, limit: 50 });
+  }),
+
+  // When every schedule fires, for the Schedules tab (#1891). The mock caller
+  // is an administrator, so this is every schedule the session holds, laid out
+  // around the instant the fixtures are written for.
+  http.get(`${PORTAL_BASE}/scripts/fires`, ({ request }) => {
+    const tz = new URL(request.url).searchParams.get("tz") || "UTC";
+    const visible = emptyDemoRequested("scripts") ? [] : Object.values(schedules);
+    const named = new Map(
+      scripts.map((script) => [script.id, script.display_name || script.name]),
+    );
+    return HttpResponse.json(buildMockScheduleTimeline(visible, named, tz, MOCK_SCRIPTS_NOW));
   }),
 
   http.get(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {

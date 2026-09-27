@@ -6,6 +6,7 @@ import {
   openScriptRunHistory,
   openScriptRunLog,
   openScriptRunsTab,
+  openScriptSchedulesTab,
   openScriptSource,
   openScriptSchedule,
   openScriptState,
@@ -140,6 +141,16 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     beforeCapture: openScriptDelete,
   },
   {
+    // When every schedule fires, on the axis its rate belongs to (#1891): the
+    // paused freshness check under Intraday, the weekday report under
+    // Multi-day, and a monthly review in another zone under Long-term. Before
+    // the run capture, because the tab it selects persists like that one's.
+    slug: "scripts-schedules",
+    path: "/portal/scripts",
+    category: "user",
+    beforeCapture: openScriptSchedulesTab,
+  },
+  {
     // Every run of every script this person owns (#1405), which is the question
     // the per-script history cannot answer: not how is this report going, but
     // how are my scripts going. A row opens the run it names.
@@ -181,6 +192,15 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/scripts/script-001",
     category: "admin",
     beforeCapture: openScriptOwner,
+  },
+  {
+    // Every schedule on the platform on one page (#1891), each row opening the
+    // script under the administrator's section. Beside the run capture, and in
+    // front of it, for the reason that one gives.
+    slug: "admin-script-schedules",
+    path: "/portal/admin/scripts",
+    category: "admin",
+    beforeCapture: openScriptSchedulesTab,
   },
   {
     // What the platform has been running unattended (#1307): the metrics the

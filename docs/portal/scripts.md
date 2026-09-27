@@ -62,6 +62,18 @@ empty table.
 
 ![No scripts yet](../images/screenshots/light/user-scripts-empty-light.webp#only-light)![No scripts yet](../images/screenshots/dark/user-scripts-empty-dark.webp#only-dark)
 
+## When your scripts fire
+
+The **Schedules** tab draws when every scheduled script fires: one row per
+script, a mark at each fire, on the viewer's own clock. Schedules that fire
+more than once a day are drawn across today, daily-to-weekly ones across this
+week, and rarer ones across three months. A paused schedule is drawn muted.
+Hovering a row gives the exact time of a fire, and clicking it opens the script.
+[Seeing every schedule at once](../scripts/running.md#seeing-every-schedule-at-once)
+covers how a schedule's section and color are chosen.
+
+![When your scripts fire](../images/screenshots/light/user-scripts-schedules-light.webp#only-light)![When your scripts fire](../images/screenshots/dark/user-scripts-schedules-dark.webp#only-dark)
+
 ## Every run, across your scripts
 
 The **Runs** tab answers the question the run history on one script cannot: not how is

@@ -160,6 +160,16 @@ There is deliberately one script page rather than two. Two would have meant the
 administrator's and the owner's answers to "what can I do with this script"
 drifting apart, one feature at a time.
 
+### Schedules
+
+The **Schedules** tab draws when every schedule on the platform fires, each row
+opening the script under this section. It is the owners' tab told an
+administrator is reading, so it covers every script rather than one person's.
+[Seeing every schedule at once](../scripts/running.md#seeing-every-schedule-at-once)
+describes the three axes and what a row's color and marks say.
+
+![Script schedules](../images/screenshots/light/admin-admin-script-schedules-light.webp#only-light)![Script schedules](../images/screenshots/dark/admin-admin-script-schedules-dark.webp#only-dark)
+
 ### Runs
 
 The other question an operator has is what has been running. The **Runs** tab

@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScheduleTimelineTab } from "./ScheduleTimelineTab";
 import { ScriptListing } from "./ScriptListing";
 import { ScriptRunsTab } from "./ScriptRunsTab";
 
@@ -18,9 +20,11 @@ import { ScriptRunsTab } from "./ScriptRunsTab";
 // every script exactly as its owner does. This page lists; that page acts.
 
 export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) => void }) {
+  const [tab, setTab] = useState("scripts");
   return (
-    <Tabs defaultValue="scripts" className="gap-4">
-      {/* Two questions, two tabs: what exists, and what has been running. */}
+    <Tabs value={tab} onValueChange={setTab} className="gap-4">
+      {/* Three questions, three tabs: what exists, when it fires, and what has
+          been running. */}
       <TabsList
         variant="line"
         className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
@@ -32,12 +36,26 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
           Scripts
         </TabsTrigger>
         <TabsTrigger
+          value="schedules"
+          className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+        >
+          Schedules
+        </TabsTrigger>
+        <TabsTrigger
           value="runs"
           className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
         >
           Runs
         </TabsTrigger>
       </TabsList>
+
+      <TabsContent value="schedules">
+        <ScheduleTimelineTab
+          basePath="/admin/scripts"
+          onNavigate={onNavigate}
+          onShowScripts={() => setTab("scripts")}
+        />
+      </TabsContent>
 
       <TabsContent value="runs">
         <ScriptRunsTab onNavigate={onNavigate} />

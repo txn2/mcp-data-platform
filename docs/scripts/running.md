@@ -792,6 +792,53 @@ The bound values are checked against the script's parameter contract when the
 schedule is set, not at the first fire: a schedule that could never bind is
 refused while somebody is still looking at it.
 
+### Seeing every schedule at once
+
+The scripts page has a **Schedules** tab, between Scripts and Runs, that draws
+when every scheduled script fires. It answers questions that otherwise mean
+opening each script: whether ten hourly jobs all land on the same minute, or
+what runs overnight.
+
+![When every schedule fires](../images/screenshots/light/user-scripts-schedules-light.webp#only-light)![When every schedule fires](../images/screenshots/dark/user-scripts-schedules-dark.webp#only-dark)
+
+Each scheduled script is one row, labeled with its name, its schedule in words
+and how many times it fires in the window. A mark stands at each fire. Schedules
+fire at rates too different for one time axis, so each is drawn on one of three:
+
+| Section | Axis | Holds the schedules that fire |
+|---|---|---|
+| Intraday | today, 12 AM to 12 AM | more than once a day (`*/5 * * * *`, `35 * * * *`, `0 */6 * * *`) |
+| Multi-day | this week, Monday to Sunday | at most once a day and at least once a week (daily, weekdays, weekly) |
+| Long-term | three months from the first of this month | less than once a week (monthly, quarterly) |
+
+A schedule's section is chosen by how many times it fires over four weeks: more
+than 28 is Intraday, at least four is Multi-day, and fewer is Long-term. The
+rate is measured over four weeks rather than over the week drawn, so a monthly
+job whose fire lands this week is still filed as monthly. A section with no
+schedule is not drawn, and with nothing scheduled the tab says so and points to
+the Scripts tab.
+
+A row's color says what kind of schedule it is, read from the typical gap
+between its fires: every few minutes, hourly, daily, weekly, or monthly or
+rarer. A paused schedule is drawn muted and labeled paused, and keeps its
+marks, which are the fires it makes once resumed. A row with a hundred fires or
+more is drawn with thinner ticks, so a five-minute job reads as a band, and a
+row with a few fires at irregular times is drawn with dots.
+
+Every fire is expanded by the server with the same parser the scheduler fires
+from, and in the schedule's own timezone. The axes are the viewer's, so a 7 AM
+New York job and a 7 AM Los Angeles job are drawn three hours apart. Hovering or
+focusing a row states the exact time of a fire in both zones. The arrow keys
+step through a row's fires, and a click or Enter opens the script. An owner
+sees their own schedules and an administrator sees every schedule, on the same
+tab of the administrator's scripts page.
+
+The tab reads `GET /api/v1/portal/scripts/fires?tz=<IANA zone>`. It returns
+the three windows cut in that zone, each with its rows, and each row's fires
+capped at 500. `fire_count` is every fire in the window, and `truncated` says
+when `fires` holds fewer. A schedule the server cannot parse is listed under
+`unreadable` with the reason, rather than left off.
+
 ### Overlap, misfires, and what a schedule guarantees
 
 **One fire, one run, however many replicas.** Every worker replica materializes
