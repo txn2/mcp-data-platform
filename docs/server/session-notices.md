@@ -1,6 +1,6 @@
 ---
 title: Session-Start Notices
-description: How platform_info tells a user that feedback is waiting on their work and what has newly been shared with them.
+description: How platform_info tells a user that feedback is waiting on their work, what has newly been shared with them, and which of their automations are failing.
 ---
 
 # Session-Start Notices
@@ -47,7 +47,25 @@ present, every authenticated caller gets it.
         "permission": "viewer"
       }
     ],
-    "new_shares_truncated": false
+    "new_shares_truncated": false,
+    "failing_automations": [
+      {
+        "name": "acme-dc-weather-watch",
+        "display_name": "DC weather",
+        "reference": "mcp:script:3f2a9c1e-0b7d-4f55-9a61-2d8e4b7c1a90",
+        "version": 6,
+        "run_id": "dpx_0de871f7ad2f350f7b63b8ffb8fe8edb",
+        "cause": "upstream",
+        "retryable": true,
+        "error": "Error in fail: fail: NWS returned 500 for Phoenix",
+        "consecutive_failures": 1,
+        "failed_at": "2026-08-15T17:00:18Z",
+        "last_succeeded_at": "2026-08-15T16:41:44Z",
+        "scheduled": true,
+        "new": true
+      }
+    ],
+    "failing_automations_total": 1
   }
 }
 ```
@@ -69,7 +87,24 @@ would credit a person who did nothing. This list is capped at ten too, and
 `new_shares_truncated` marks a page that did not fit, so the count reads as a
 floor rather than as the whole set.
 
-Both lists are a briefing rather than an inbox. The watermark advances past what
+**`failing_automations`** holds the automations the caller owns whose latest
+finished run failed (#1934), newest failure first, capped at ten with
+`failing_automations_total` the whole count. A failure followed by a successful
+run is resolved and not listed; a disabled automation is not listed. Each entry
+names the failed run (`run_id`, for `manage_script` get_run), the version it
+ran, why it failed (`cause` and `retryable`, the values the run itself records),
+the last line of its error, how many finished runs in a row have failed, when a
+run last succeeded, and whether a schedule will fire it again. Ownership is the
+automation's owner email, so an administrator is briefed on their own
+automations only.
+
+Unlike the other two lists, this one is not bounded by the watermark: an
+automation that is still failing is listed at every session start, because
+being told does not fix it. `new` marks the entries whose failure arrived since
+the caller was last briefed, so a failure already relayed is not announced as
+new.
+
+The feedback and share lists are a briefing rather than an inbox. The watermark advances past what
 did not fit, so what a capped list left out is not re-offered next session: the
 portal's [activity feed](../portal/activity.md) and
 [Shared With Me](../portal/shared.md) remain the complete views, and
@@ -81,7 +116,7 @@ anonymous caller.
 ## Delivered once
 
 `since` is the caller's **notice watermark**: the instant they were last
-briefed. Everything reported arrived after it, and delivering the digest
+briefed. Every feedback thread and share reported arrived after it, and delivering the digest
 advances it, so the next session is told only what is new since this one. That
 is why the agent instructions say to relay the notices rather than act on them
 silently — a notice the agent keeps to itself is not repeated.

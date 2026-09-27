@@ -211,7 +211,7 @@ func TestPortalDryRunSource_ReportsAFailedRunWithItsLog(t *testing.T) {
 	assert.Contains(t, body.Error, "regoin")
 	assert.Equal(t, "half way", body.Log)
 	assert.True(t, body.LogTruncated)
-	assert.Contains(t, body.Message, "deterministic")
+	assert.Contains(t, body.Message, "fails the same way again, fix the script")
 
 	require.NotNil(t, accounts.recorded, "a failed dry run is still an account of one")
 	assert.Equal(t, script.RunStatusFailed, accounts.recorded.Status)

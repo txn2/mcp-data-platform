@@ -1,4 +1,5 @@
 import type {
+  ScheduleFireRow,
   ScheduleRhythm,
   ScheduleSection,
 } from "@/api/portal/hooks/scheduleTimeline";
@@ -8,6 +9,22 @@ import { wallClock, zonedInstant, type WallClock } from "@/lib/zonedTime";
 // from the component so each rule is tested on its own. Nothing here computes
 // a fire: the fires are the server's, expanded with the scheduler's parse, and
 // this module only places them.
+
+/**
+ * truncatedBand is the span a row the server cut at its cap is drawn across,
+ * from its first listed fire to the window's last fire, or null for a row
+ * drawn fire by fire (#1933). Ticks for the listed fires alone would stop
+ * where the list does, which reads as a schedule that stops mid-day.
+ */
+export function truncatedBand(
+  row: Pick<ScheduleFireRow, "truncated" | "last_fire">,
+  fires: number[],
+  x: (at: number) => number,
+): { from: number; to: number } | null {
+  const first = fires[0];
+  if (!row.truncated || !row.last_fire || first === undefined) return null;
+  return { from: x(first), to: x(Date.parse(row.last_fire)) };
+}
 
 /** LABEL_WIDTH is the fixed column the row names sit in. */
 export const LABEL_WIDTH = 300;

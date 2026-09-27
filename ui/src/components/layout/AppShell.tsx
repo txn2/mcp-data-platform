@@ -131,8 +131,9 @@ const pageTitles: Record<string, string> = {
 // every entry is one prefix and one word, and the list grows with each section
 // that gains a detail view.
 const detailTitles: readonly { prefix: string; title: string }[] = [
-  { prefix: "/automations/", title: "Script" },
-  { prefix: "/admin/automations/", title: "Script" },
+  // An automation's page, named as the section is (#1912, #1933).
+  { prefix: "/automations/", title: "Automation" },
+  { prefix: "/admin/automations/", title: "Automation" },
   { prefix: "/admin/collections/", title: "Collection" },
   { prefix: "/admin/sessions/", title: "Session" },
   { prefix: "/activity/sessions/", title: "Session" },

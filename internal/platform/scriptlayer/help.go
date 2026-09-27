@@ -356,11 +356,18 @@ WHAT IS AVAILABLE
   The Starlark built-ins: len, range, sorted, min, max, enumerate, zip,
       str, int, float, dict, list, set, any, all, fail, and the string, list and
       dict methods (including "{}".format(x) and "%d" % x).
+  fail(msg, retryable=True)  fail as Starlark has it, plus retryable=: True
+      records the failure as temporary (cause transient, retryable), for a
+      condition outside the script that the next run may not meet, such as a
+      feed that has not published yet.
 
 WHAT IS NOT, AND WHAT TO WRITE INSTEAD
   import              There is no module system. json, xml and date are here.
   try / except        Errors fail the run by design, so the failure is recorded
                       rather than swallowed. Check first, or call fail("why").
+                      A failure raised straight after an upstream answered
+                      the last call with a 5xx or 429 is recorded as the
+                      upstream's (cause upstream, retryable).
                       A rate-limit refusal of a call is not an error the script
                       sees: the host waits the refusal's interval, within the
                       run's deadline, and issues the call again.
@@ -680,11 +687,11 @@ func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTo
 			"note": "A draft run is bounded more tightly than a platform run; the run_ limits are the ones a " +
 				"saved script meets on this deployment. A tool a run calls keeps its own ceiling as well: " +
 				"a trino_export or api_export inside a run is bounded by that tool's timeout. " +
-				"A script error is deterministic, so it is never retried. A rate-limit refusal of a " +
+				"The platform never runs a failed run again on its own. A rate-limit refusal of a " +
 				"call is not a script error: the host waits the refusal's interval within the run's " +
 				"deadline and issues the call again, and the wait is written to the run's log; an " +
 				"upstream's 429 (upstream_retryable) is waited on the same way, at most 3 times. " +
-				"A failed run carries cause (script, upstream, memory, worker_lost, platform, " +
+				"A failed run carries cause (script, upstream, transient, memory, worker_lost, platform, " +
 				"state_conflict) and retryable, which is true only when running it again is expected " +
 				"to succeed. run_max_memory_bytes is the memory one run may hold " +
 				"(scripts.worker.max_run_memory; 0 is no budget), measured at every host call over the " +

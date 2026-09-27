@@ -237,11 +237,15 @@ on that version's diagram.
 
 ![A failed run on the diagram](../images/screenshots/light/user-script-flow-run-light.webp#only-light)![A failed run on the diagram](../images/screenshots/dark/user-script-flow-run-dark.webp#only-dark)
 
-- **Each card says what it did in this run**: how many calls it made and how long they
-  took, the rows it exported, or that it ran.
+- **Each card says what it did in this run**: how many calls it made, how many of them
+  failed, and how long they took (hover the chip for the failed call's message); the rows
+  it exported; or that it ran.
 - **A card the run never reached is dimmed.**
 - **The card a failed run stopped at is in the error color**, and the panel beside the
-  diagram gives the run's cause and the error it ended with.
+  diagram gives the run's cause and the error it ended with. When the run failed in the
+  script's own code just after a call failed, such as a `fail()` on the line after a call
+  whose upstream answered 500, the card that made that call from the same function is the
+  one marked.
 - A call that failed in a run that carried on (one a retry answered, say) is counted on its
   card; only the step the run stopped at is marked failed.
 - The panel counts the run's calls, how many are on cards, and any no card made, which it

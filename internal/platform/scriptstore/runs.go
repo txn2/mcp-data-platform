@@ -705,8 +705,9 @@ const orphanedEntry = `jsonb_build_array(jsonb_build_object(
 
 // Retry returns the claimed run to pending, due after backoff, recording how
 // the attempt ended in the run's history. It is for infrastructure failures
-// only: a script error is deterministic and the same source on the same inputs
-// fails the same way, so the worker never routes one here.
+// only: what the script reports is final for its run, since a script that
+// already wrote an output must not be executed again, so the worker never
+// routes one here.
 func (s *Store) Retry(ctx context.Context, lease script.RunLease, outcome, reason string, backoff time.Duration) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE script_runs
@@ -759,4 +760,111 @@ func (s *Store) PurgeRuns(ctx context.Context, retention time.Duration) (int64, 
 		return 0, fmt.Errorf("counting purged script runs: %w", err)
 	}
 	return n, nil
+}
+
+// Failure streaks (#1934, #1935).
+
+var _ runstate.FailureStreakReader = (*Store)(nil)
+
+// streakWindow bounds how many finished runs per script a streak is read
+// from. A streak longer than this is reported as this long, which is already
+// past every threshold anything acts on.
+const streakWindow = 20
+
+// failureStreaksQuery reads, for each script, its newest finished runs in
+// order with the last line of each one's error, and the finish time of its
+// newest success, which may lie outside the window. The last line of a failed
+// run's error is what names the failure: the lines above it are the backtrace.
+const failureStreaksQuery = `
+	SELECT script_id, id, version, status, failure_cause, finished_at, last_line, last_success
+	  FROM (SELECT script_id, id, version, status, failure_cause, finished_at,
+	               substring(rtrim(error, E'\n') from '[^\n]*$') AS last_line,
+	               max(finished_at) FILTER (WHERE status = 'succeeded') OVER (PARTITION BY script_id) AS last_success,
+	               row_number() OVER (PARTITION BY script_id ORDER BY created_at DESC, id DESC) AS rn
+	          FROM script_runs
+	         WHERE script_id = ANY($1) AND status IN ('succeeded', 'failed')) r
+	 WHERE rn <= $2
+	 ORDER BY script_id, rn`
+
+// FailureStreaks reads each script's failure streak in one query.
+func (s *Store) FailureStreaks(ctx context.Context, scriptIDs []string) (map[string]runstate.FailureStreak, error) {
+	out := map[string]runstate.FailureStreak{}
+	if len(scriptIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, failureStreaksQuery, pq.Array(scriptIDs), streakWindow)
+	if err != nil {
+		return nil, fmt.Errorf("read script failure streaks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	counting := map[string]*streakCount{}
+	for rows.Next() {
+		var (
+			r                     streakRow
+			id                    string
+			finished, lastSuccess sql.NullTime
+			line                  sql.NullString
+		)
+		if err := rows.Scan(&id, &r.runID, &r.version, &r.status, &r.cause, &finished, &line, &lastSuccess); err != nil {
+			return nil, fmt.Errorf("scan script failure streak: %w", err)
+		}
+		c, seen := counting[id]
+		if !seen {
+			c = &streakCount{}
+			counting[id] = c
+			if lastSuccess.Valid {
+				at := lastSuccess.Time.UTC()
+				c.streak.LastSuccessAt = &at
+			}
+		}
+		r.line, r.finished = line.String, finished
+		c.add(r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate script failure streaks: %w", err)
+	}
+	for id, c := range counting {
+		out[id] = c.streak
+	}
+	return out, nil
+}
+
+// streakCount reads one script's finished runs, newest first, into its
+// streak. The streak ends at the first success; the same-error count ends at
+// the first failure that ended differently.
+type streakCount struct {
+	streak           runstate.FailureStreak
+	ended, sameEnded bool
+}
+
+// streakRow is one finished run as the streak query reads it.
+type streakRow struct {
+	runID, status, cause, line string
+	version                    int
+	finished                   sql.NullTime
+}
+
+func (c *streakCount) add(r streakRow) {
+	if c.ended {
+		return
+	}
+	if r.status != script.RunStatusFailed {
+		c.ended = true
+		return
+	}
+	if c.streak.Failed == 0 {
+		c.streak.LastError, c.streak.LastFailedRunID = r.line, r.runID
+		c.streak.LastFailedVersion, c.streak.LastCause = r.version, failureCause(script.RunResult{Status: r.status, Cause: r.cause})
+		if r.finished.Valid {
+			at := r.finished.Time.UTC()
+			c.streak.LastFailedAt = &at
+		}
+	}
+	c.streak.Failed++
+	if c.sameEnded || r.line != c.streak.LastError {
+		c.sameEnded = true
+		return
+	}
+	c.streak.SameError++
 }

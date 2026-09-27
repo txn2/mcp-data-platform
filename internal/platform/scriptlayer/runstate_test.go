@@ -34,9 +34,10 @@ func TestGetRun_SaysWhyAFailedRunFailed(t *testing.T) {
 		retryable bool
 		says      string
 	}{
-		"a script error":               {runstate.CauseScript, false, "Fix the script"},
-		"a run recorded before causes": {"", false, "Fix the script"},
-		"an upstream":                  {runstate.CauseUpstream, true, "temporarily unavailable"},
+		"a script error":               {runstate.CauseScript, false, "if the same failure repeats, fix the script"},
+		"a run recorded before causes": {"", false, "if the same failure repeats, fix the script"},
+		"an upstream":                  {runstate.CauseUpstream, true, "unavailable or answered with an error"},
+		"a declared temporary failure": {runstate.CauseTransient, true, "reported this failure as temporary"},
 		"memory":                       {runstate.CauseMemory, false, "append=True"},
 		"a lost worker":                {runstate.CauseWorkerLost, false, "stopped without reporting"},
 		"the platform":                 {runstate.CausePlatform, false, "nothing in the script to fix"},

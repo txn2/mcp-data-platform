@@ -841,7 +841,10 @@ tab of the administrator's scripts page.
 The tab reads `GET /api/v1/portal/scripts/fires?tz=<IANA zone>`. It returns
 the three windows cut in that zone, each with its rows, and each row's fires
 capped at 500. `fire_count` is every fire in the window, and `truncated` says
-when `fires` holds fewer. A schedule the server cannot parse is listed under
+when `fires` holds fewer; a truncated row also carries `last_fire`, the window's
+last fire, and the tab draws it as one band from its first fire to that one, so
+an every-minute schedule reads as running all day rather than stopping where
+the list does. A schedule the server cannot parse is listed under
 `unreadable` with the reason, rather than left off.
 
 ### Overlap, misfires, and what a schedule guarantees
@@ -1712,7 +1715,8 @@ email says the same thing in words.
 | Cause | What failed | Retryable |
 |---|---|---|
 | `script` | The script: an evaluation error, `fail()`, an argument a binding refused, a step or time limit | no |
-| `upstream` | A service the script called: it timed out, dropped the connection, or could not be reached | yes |
+| `upstream` | A service the script called: it timed out, dropped the connection, could not be reached, or answered the script's last call with a 5xx or 429 just before the script failed | yes |
+| `transient` | The script declared its own failure temporary with `fail(msg, retryable=True)` | yes |
 | `memory` | The run held more than its budget, or more than its replica had with it the only run executing | no |
 | `worker_lost` | Its workers kept stopping without a result until its take-overs were spent | no |
 | `platform` | The run's session or its script could not be opened or read, past the attempt budget | no |
@@ -1721,12 +1725,40 @@ email says the same thing in words.
 The platform never re-executes a failed run on its own, whatever the cause: a
 run that already queried or wrote must not be replayed on the chance that its
 last call was a transient fault. A retryable failure is one the next scheduled
-fire, or whoever runs it again, is expected to get past; a script failure is
-one that fails the same way until the script is corrected, dry-run, and saved.
+fire, or whoever runs it again, is expected to get past.
+
+A `script` failure names where the failure was raised, not that it will repeat.
+A script reads the outside world, so the same version on the same inputs can
+fail once and succeed on its next run (#1935). Two rules keep a failure that
+was outside the script from reading as the script's:
+
+- **A failure straight after an upstream failure is the upstream's.** The api
+  gateway hands a script a 5xx as data. A script that checks the status and
+  calls `fail()`, or that fails reading a body that is not there, fails because
+  of that answer. When the script's most recent tool call was answered with a
+  5xx or a 429 (after the host's own retries), the run is recorded as
+  `upstream`, and its log says so:
+
+  ```text
+  the script failed straight after api_invoke_endpoint answered 500 Internal Server Error; recorded as an upstream failure
+  ```
+
+  A call that got through after the failed one clears it: the rule is the call
+  made last, so a script that handled a 500 earlier and later fails on its own
+  mistake is recorded as `script`.
+- **A script can say its failure is temporary.** `fail(msg, retryable=True)`
+  records the run as `transient`, for a condition outside the script that the
+  next run may not meet, such as a feed that has not published yet. Without
+  `retryable=`, `fail` is Starlark's own.
+
+The owner's failure email follows the same reading. One `script` failure says
+the next scheduled run may succeed; when three or more runs in a row
+have failed ending on the same error line, it says the script needs
+correcting.
 
 An upstream's own refusals are handled before they fail anything. When
-`api_invoke_endpoint` or `api_export` is answered with a 429, or with a 503 to a
-GET or HEAD, the result carries `upstream_retryable: true` and the interval the
+`api_invoke_endpoint` or `api_export` is answered with a 429, or with a 502, 503
+or 504 to a GET or HEAD, the result carries `upstream_retryable: true` and the interval the
 upstream asked for in `retry_after_seconds`. Inside a run the host waits that
 interval (1s, 2s, then 4s when the upstream named none) and issues the call
 again, at most three times and never past the run's deadline, writing each wait

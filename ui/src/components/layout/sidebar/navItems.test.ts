@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { adminNavItems, isNavActive, portalNavItems } from "./navItems";
+import {
+  adminNavItems,
+  isNavActive,
+  portalMoreNavItems,
+  portalNavItems,
+  portalPinnedNavItems,
+} from "./navItems";
 
 describe("isNavActive", () => {
   it("lights Assets across the collections and viewer routes it owns", () => {
@@ -69,6 +75,15 @@ describe("isNavActive", () => {
       const lit = items.filter((i) => isNavActive(i.path, item.path));
       expect(lit.map((i) => i.path), item.path).toEqual([item.path]);
     }
+  });
+});
+
+describe("the portal rail", () => {
+  it("opens with Assets and Resources, then every other section alphabetized", () => {
+    expect(portalPinnedNavItems.map((i) => i.label)).toEqual(["Assets", "Resources"]);
+    const labels = portalMoreNavItems.map((i) => i.label.toLowerCase());
+    expect(labels).toEqual([...labels].sort());
+    expect(portalNavItems).toEqual([...portalPinnedNavItems, ...portalMoreNavItems]);
   });
 });
 

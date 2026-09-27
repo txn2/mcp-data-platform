@@ -22,11 +22,15 @@ import (
 // note also has to point at the portal as the surface that holds everything --
 // otherwise a truncated list reads as the whole set.
 //
+// Failing automations (#1934) are the exception to single-shot delivery: an
+// automation that is still failing is listed at every session start until a
+// run of it succeeds, because being told does not fix it.
+//
 // It returns the empty string when there is nothing to relay, so the caller can
-// append it unconditionally, and it names `fetch` and `manage_feedback` only
-// when the caller's persona can reach them.
-func NoticesNote(accessibleTools []string, feedback, shares int) string {
-	if feedback == 0 && shares == 0 {
+// append it unconditionally, and it names `fetch`, `manage_feedback` and
+// `manage_script` only when the caller's persona can reach them.
+func NoticesNote(accessibleTools []string, feedback, shares, automations int) string {
+	if feedback == 0 && shares == 0 && automations == 0 {
 		return ""
 	}
 	has := toolSet(accessibleTools)
@@ -43,13 +47,33 @@ func NoticesNote(accessibleTools []string, feedback, shares int) string {
 	if shares > 0 {
 		lines = append(lines, "- "+shareBullet(shares, has[toolFetch]))
 	}
+	if automations > 0 {
+		lines = append(lines, "- "+automationBullet(automations, has[toolManageScript]))
+	}
+	if feedback > 0 || shares > 0 {
+		lines = append(lines,
+			"- Feedback and shares are shown once. They are cleared as this response is issued, "+
+				"so any you do not pass on now are not repeated to the next session.")
+	}
 	lines = append(lines,
-		"- You are shown this once. The notices are cleared as this response is issued, "+
-			"so anything you do not pass on now is not repeated to the next session.",
 		"- This is a briefing, not an inbox. Each list is capped, so say that the portal "+
 			"holds the full picture — its activity feed for feedback, Shared With Me for "+
-			"shares — rather than presenting these entries as everything there is.")
+			"shares, Automations for runs — rather than presenting these entries as everything there is.")
 	return strings.Join(lines, "\n")
+}
+
+// automationBullet describes the failing-automations half of the digest.
+func automationBullet(count int, hasManageScript bool) string {
+	b := fmt.Sprintf("`notices.failing_automations` — %s they own whose latest run failed. For each, say "+
+		"what it failed on (`error`), how many runs in a row have failed, and whether it is expected to pass "+
+		"on its next run (`retryable`) or needs fixing; `new` marks a failure since they were last briefed. "+
+		"An automation stays in this list at every session start until a run of it succeeds.",
+		pluralize(count, "automation", "automations"))
+	if hasManageScript {
+		b += " Read the failed run with `manage_script` get_run on its `run_id`; if the script needs a fix, " +
+			"offer to correct it with run_draft and save it."
+	}
+	return b
 }
 
 // feedbackBullet describes the unaddressed-feedback half of the digest, naming

@@ -243,41 +243,70 @@ function CardChips({
   width: number;
 }) {
   const ran = runChip(stat);
+  // A failed call on the card colors its run chip, and names itself on hover
+  // (#1933).
+  const runFailed = !!stat?.failed || (stat?.failed_calls ?? 0) > 0;
   let chipX = x + 14;
-  const chipY = y;
   return (
     <>
       {chips.map((c) => {
-      const text = fitText(c, 150, FONT_CHIP);
+      const runStat = c === ran;
+      // The run's chip reads as one sentence ("3 calls · 1 failed · 1.5 s"), so
+      // it gets the room to say it whole; the others stay short.
+      const text = fitText(c, runStat ? RUN_CHIP_MAX : 150, FONT_CHIP);
       const w = textWidth(text, FONT_CHIP) + 14;
       if (chipX + w > x + width - 8) return null;
       const cx = chipX;
       chipX += w + 5;
       const marked = node.change !== undefined && c === CHANGE_LABEL[node.change];
-      const runStat = c === ran;
       return (
-        <g key={c}>
-          <rect
-            x={cx}
-            y={chipY}
-            width={w}
-            height={18}
-            rx={9}
-            fill={chipFill(marked ? CHANGE_COLOR[node.change!] : undefined, runStat, stat?.failed)}
-            stroke={marked || runStat ? "none" : "hsl(var(--border))"}
-          />
-          <text
-            x={cx + 7}
-            y={chipY + 13}
-            fontSize={11}
-            fill={marked || runStat ? "white" : "hsl(var(--muted-foreground))"}
-          >
-            {text}
-          </text>
-        </g>
+        <Chip
+          key={c}
+          text={text}
+          x={cx}
+          y={y}
+          width={w}
+          fill={chipFill(marked ? CHANGE_COLOR[node.change!] : undefined, runStat, runStat && runFailed)}
+          solid={marked || runStat}
+          hover={runStat ? stat?.last_error : undefined}
+        />
       );
     })}
     </>
+  );
+}
+
+// RUN_CHIP_MAX is the widest the run's chip is drawn, in pixels.
+const RUN_CHIP_MAX = 200;
+
+// Chip is one chip on a card's bottom edge: a pill with its words, and a hover
+// title when there is more to say.
+function Chip({
+  text,
+  x,
+  y,
+  width,
+  fill,
+  solid,
+  hover,
+}: {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  fill: string;
+  solid: boolean;
+  hover?: string;
+}) {
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={18} rx={9} fill={fill} stroke={solid ? "none" : "hsl(var(--border))"}>
+        {hover ? <title>{hover}</title> : null}
+      </rect>
+      <text x={x + 7} y={y + 13} fontSize={11} fill={solid ? "white" : "hsl(var(--muted-foreground))"}>
+        {text}
+      </text>
+    </g>
   );
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -56,8 +57,10 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 		// repeatedly failing automation is throttled and its neighbors are not.
 		Actor:   sc.Principal(),
 		Message: alertDetail(res),
-		// Why it failed decides what the alert tells the owner to do (#1859).
-		Cause: res.Cause,
+		// Why it failed decides what the alert tells the owner to do (#1859),
+		// and whether it keeps failing the same way decides how firmly (#1935).
+		Cause:   res.Cause,
+		Repeats: w.repeats(ctx, sc.ID),
 	}
 	// The run is already recorded, so this write outlives the cancellation that
 	// may have raced it, and is bounded so a wedged database cannot hold the
@@ -72,6 +75,26 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 				logKeyRunID, run.ID, logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
+}
+
+// repeats is how many runs of the script have failed in a row ending on the
+// same error, the one just recorded included, or zero where the run store
+// cannot say. The store that keeps runs in PostgreSQL can; a store assembled
+// for a test need not, and its alerts read as a first failure.
+func (w *worker) repeats(ctx context.Context, scriptID string) int {
+	reader, ok := w.cfg.runs.(runstate.FailureStreakReader)
+	if !ok {
+		return 0
+	}
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyWriteTimeout)
+	defer cancel()
+	streaks, err := reader.FailureStreaks(readCtx, []string{scriptID})
+	if err != nil {
+		slog.Warn("scripts: reading a failing script's recent runs failed; the alert reads as a first failure",
+			"script_id", scriptID, logKeyError, logsan.SanitizeForLog(err.Error()))
+		return 0
+	}
+	return streaks[scriptID].SameError
 }
 
 // alertRecipients is who hears about a failed automation: the script's owner,

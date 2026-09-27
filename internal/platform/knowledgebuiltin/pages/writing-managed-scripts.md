@@ -174,7 +174,8 @@ resp = platform.call("api_invoke_endpoint", {
 doc = xml.decode(resp["body"])
 fault = xml.find(doc, "//Fault")
 if fault:
-    fail("upstream fault: " + xml.find(fault, "faultstring").text)
+    # A fault is the upstream's; retryable=True records the run as temporary.
+    fail("upstream fault: " + xml.find(fault, "faultstring").text, retryable=True)
 
 rows = [
     {"currency": rate.attrs["currency"], "rate": float(rate.text)}

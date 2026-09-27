@@ -329,7 +329,9 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
     withRuns();
     render(<ScriptFlowView scriptId="script-001" version={2} owned source={source} sourceSelection={null} />);
     expect(mockRunFlow).toHaveBeenLastCalledWith("script-001", "run-2");
-    expect(await card("op:1")).toHaveTextContent("3 calls · 1.5 s");
+    // A call that failed is counted on the chip, its message on hover (#1933).
+    expect(await card("op:1")).toHaveTextContent("3 calls · 1 failed · 1.5 s");
+    expect((await card("op:1")).querySelector("title")).toHaveTextContent("rate limited");
     expect(await card("op:3")).toHaveAttribute("data-failed", "true");
     expect(await card("op:2")).toHaveAttribute("opacity", "0.35");
     expect(await card("op:1")).toHaveAttribute("opacity", "1");

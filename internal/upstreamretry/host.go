@@ -52,6 +52,24 @@ func FromResult(out map[string]any) Seen {
 	return a
 }
 
+// Failed reads the upstream status a tool result carries, from
+// upstream_status (api_export) or status (api_invoke_endpoint, the GraphQL
+// tools), and reports whether it is a failure the upstream is answerable for:
+// any 5xx, or a 429. A tool that reached no HTTP upstream carries neither key
+// as a number, and is not one. The host keeps the last such answer, so a
+// script that fails straight after it is recorded as failed upstream (#1935).
+func Failed(out map[string]any) (int, bool) {
+	for _, key := range []string{"upstream_status", "status"} {
+		status, ok := out[key].(float64)
+		if !ok || status <= 0 {
+			continue
+		}
+		code := int(status)
+		return code, code >= http.StatusInternalServerError || code == http.StatusTooManyRequests
+	}
+	return 0, false
+}
+
 // Wait is how long to wait before issuing the call again as retry number
 // retry (zero-based), given how long the run has left; ok is false when the
 // call is not to be issued again and its answer goes to the script.

@@ -184,17 +184,17 @@ nav:
   - Portal:
     - The Portal: portal/index.md
     - Your Work:
-      - Activity: portal/activity.md
       - Assets: portal/assets.md
       - Collections: portal/collections.md
-      - Resources: portal/resources.md
-      - Scratch Tables: portal/scratch-tables.md
-      - APIs: portal/apis.md
       - Shared With Me: portal/shared.md
+      - Resources: portal/resources.md
+      - Activity: portal/activity.md
+      - APIs: portal/apis.md
+      - Automations: portal/scripts.md
       - Inbox: portal/feedback.md
       - Knowledge and Memory: portal/knowledge.md
       - Prompts: portal/prompts.md
-      - Automations: portal/scripts.md
+      - Scratch Tables: portal/scratch-tables.md
       - Settings: portal/settings.md
     - Administration:
       - Dashboard: portal/admin-dashboard.md

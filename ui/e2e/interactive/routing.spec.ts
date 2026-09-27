@@ -75,7 +75,7 @@ test.describe("A path the portal has no page for", () => {
     await page.goto("/portal/scripts/script-001/runs/run-001?x=1#source");
 
     await expect(page).toHaveURL(/\/portal\/automations\/script-001\/runs\/run-001\?x=1#source$/);
-    await expect(page.getByRole("heading", { name: "Script", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Automation", level: 1 })).toBeVisible();
 
     await page.goto("/portal/admin/scripts");
     await expect(page).toHaveURL(/\/portal\/admin\/automations$/);

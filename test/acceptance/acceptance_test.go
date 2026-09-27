@@ -64,6 +64,10 @@ type client struct {
 	// base is the platform process this session is open on, so a REST route
 	// reaches the same replica the tool calls do.
 	base string
+	// info is the platform_info result the session opened with. Its notices
+	// are delivered once, on that call (#1934), so a criterion about the
+	// session-start briefing reads them here.
+	info map[string]any
 }
 
 // baseURL is where the suite connects: MCP_BASE_URL; or the proxy dev/start.sh
@@ -263,6 +267,7 @@ func connectVia(t *testing.T, target, apiKey string, transport http.RoundTripper
 
 	c := &client{t: t, ctx: ctx, session: session, base: target}
 	info := c.call("platform_info", nil)
+	c.info = info
 	c.sessionID, _ = info["session_id"].(string)
 	if c.sessionID == "" {
 		t.Fatalf("platform_info returned no session_id: %v", info)

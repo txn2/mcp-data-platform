@@ -45,3 +45,27 @@ func TestSeen_Answer(t *testing.T) {
 	assert.Equal(t, "429 Too Many Requests", Seen{Status: 429}.Answer())
 	assert.Equal(t, "a refusal to retry later", Seen{}.Answer())
 }
+
+// An upstream answer the upstream is answerable for is any 5xx or a 429, read
+// from either key a tool reports it under (#1935).
+func TestFailed(t *testing.T) {
+	for name, tc := range map[string]struct {
+		out    map[string]any
+		status int
+		failed bool
+	}{
+		"a 500 from api_invoke_endpoint": {map[string]any{"status": float64(500)}, 500, true},
+		"a 502 from api_export":          {map[string]any{"upstream_status": float64(502)}, 502, true},
+		"a 429":                          {map[string]any{"status": float64(429)}, 429, true},
+		"a 404 is the caller's":          {map[string]any{"status": float64(404)}, 404, false},
+		"a 200":                          {map[string]any{"status": float64(200)}, 200, false},
+		"a status that is a word":        {map[string]any{"status": "succeeded"}, 0, false},
+		"no status":                      {map[string]any{"rows": []any{}}, 0, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, failed := Failed(tc.out)
+			assert.Equal(t, tc.status, status)
+			assert.Equal(t, tc.failed, failed)
+		})
+	}
+}

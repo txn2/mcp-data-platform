@@ -11,6 +11,7 @@ import {
   tickWidth,
   usesDots,
   xAt,
+  truncatedBand,
 } from "./timelineLayout";
 
 const HOUR = 3_600_000;
@@ -167,5 +168,29 @@ describe("timelineLayout", () => {
       expect(fireText(at, "UTC", "UTC")).toHaveLength(1);
       expect(fireText(at, "UTC", "")).toHaveLength(1);
     });
+  });
+});
+
+describe("truncatedBand", () => {
+  const x = (at: number) => at / 1000;
+  it("spans a cut row from its first fire to the window's last (#1933)", () => {
+    expect(
+      truncatedBand(
+        { truncated: true, last_fire: "1970-01-01T00:16:40Z" },
+        [60_000, 120_000],
+        x,
+      ),
+    ).toEqual({ from: 60, to: 1000 });
+  });
+  it("is null for a row drawn fire by fire", () => {
+    expect(truncatedBand({ truncated: false }, [60_000], x)).toBeNull();
+    expect(truncatedBand({ truncated: true }, [60_000], x)).toBeNull();
+    expect(
+      truncatedBand(
+        { truncated: true, last_fire: "1970-01-01T00:00:00Z" },
+        [],
+        x,
+      ),
+    ).toBeNull();
   });
 });

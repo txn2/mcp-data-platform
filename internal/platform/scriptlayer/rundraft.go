@@ -254,7 +254,9 @@ func draftFailureMessage(result *scriptrun.Result) string {
 		return "The draft stopped at a call that persists (refused_write), because a draft does not write. " +
 			"Run it again with allow_writes to let it write for real, and it will report every write it made."
 	}
-	return "A script failure is deterministic: the same source on the same inputs fails the same way, so retrying it changes nothing. Fix the script and run the draft again."
+	return "The script raised this failure. If it reacted to something outside the script, such as an upstream " +
+		"that answered with an error, running the draft again may pass; if it fails the same way again, fix the " +
+		"script and run the draft again."
 }
 
 // refusedWriteOf reads the barred call off a result, tolerating the nil result

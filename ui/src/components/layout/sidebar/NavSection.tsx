@@ -3,9 +3,10 @@ import { isNavActive, type NavItem } from "./navItems";
 import type { NavBadge } from "./useNavBadges";
 
 /**
- * NavSection is one captioned run of nav items in the rail. The caption is
- * dropped on a collapsed rail, where there is no room for words and the
- * separator above the group already says a new group has started.
+ * NavSection is one run of nav items in the rail, captioned when it is given
+ * a label. The caption is dropped on a collapsed rail, where there is no room
+ * for words and the separator above the group already says a new group has
+ * started.
  */
 export function NavSection({
   label,
@@ -15,7 +16,7 @@ export function NavSection({
   badges,
   onNavigate,
 }: {
-  label: string;
+  label?: string;
   items: NavItem[];
   currentPath: string;
   collapsed: boolean;
@@ -25,7 +26,7 @@ export function NavSection({
 }) {
   return (
     <>
-      {!collapsed && (
+      {label && !collapsed && (
         <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </p>

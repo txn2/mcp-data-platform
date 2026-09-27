@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/assetbucket"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalpurge"
 )
 
@@ -31,6 +32,9 @@ func Assemble(cfg Config) *Loop {
 	}
 	var sweeps []Sweep
 	if cfg.Portal {
+		// Ahead of the purge, so an asset it names the bucket on is purged
+		// from that bucket in the same pass.
+		sweeps = append(sweeps, AssetBucket(cfg.DB, cfg.Bucket)...)
 		sweeps = append(sweeps, PortalDeleted(portalpurge.NewPurger(cfg.DB, cfg.Objects, cfg.Bucket), cfg.DeletedDays)...)
 	}
 	sweeps = append(sweeps, MemoryArchived(cfg.DB, cfg.ArchivedDays)...)
@@ -46,6 +50,7 @@ const (
 	lockMemoryArchived    int64 = 4713210102
 	lockOrphanedProducers int64 = 4713210103
 	lockGraphQLSuperseded int64 = 4713210104
+	lockAssetBucket       int64 = 4713210105
 )
 
 // PortalDeleted is the sweep that purges portal items deleted more than days
@@ -72,6 +77,20 @@ func MemoryArchived(db *sql.DB, days int) []Sweep {
 		return nil
 	}
 	return []Sweep{{Name: "memory_archived", LockKey: lockMemoryArchived, Run: exec(db, archivedMemoryQuery, days)}}
+}
+
+// AssetBucket is the pass that names the portal bucket on asset rows an early
+// release wrote with none (#1931); see assetbucket. It removes nothing, so it
+// reports nothing to the loop and logs what it wrote itself. Nothing without a
+// portal bucket.
+func AssetBucket(db *sql.DB, bucket string) []Sweep {
+	if bucket == "" {
+		return nil
+	}
+	return []Sweep{{Name: "asset_bucket", LockKey: lockAssetBucket, Run: func(ctx context.Context) (int64, error) {
+		assetbucket.RunLogged(ctx, db, bucket)
+		return 0, nil
+	}}}
 }
 
 // orphanedProducersQuery deletes producer rows whose asset or resource no

@@ -98,7 +98,7 @@ test.describe("Admin script pages", () => {
     await expect(page).toHaveURL(/\/admin\/automations\/script-001$/);
     // The shell names the page for what it is showing, which a detail route
     // under a section it does not know would otherwise get wrong.
-    await expect(page.getByRole("heading", { name: "Script", level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Automation", level: 1 })).toBeVisible();
 
     // There is one script page rather than two: everything an owner has is
     // here for every script — run it, edit it, check the edit, re-time it,

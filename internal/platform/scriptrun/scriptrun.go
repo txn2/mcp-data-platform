@@ -159,9 +159,8 @@ func RunLimits(l PlatformLimits) Options {
 }
 
 // ErrStepLimit marks a run stopped by the execution-step limit, and ErrTimeout
-// a run stopped by the wall-clock limit. Both are script-side failures: the
-// same script on the same inputs will hit them again, so a caller must never
-// retry them.
+// one stopped by the wall-clock limit. Both are recorded as the script's: the
+// work it asked for did not fit the run, and the script changes to fit it.
 var (
 	ErrStepLimit = errors.New("script exceeded its execution-step limit")
 	ErrTimeout   = errors.New("script exceeded its time limit")
@@ -537,6 +536,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		// the end: its pages are the whole file only then (#1861).
 		execErr = host.landAppended()
 	}
+	var runErr error
+	if execErr != nil { // classified before the log is read, which then says why
+		runErr = host.upstream.Attribute(classifyExecError(runCtx, execErr, overStep.Load(), opts.MaxSteps), log.Print, ErrStepLimit, ErrTimeout)
+	}
 	logText, logTruncated := log.Log()
 	result := &Result{
 		Log:          logText,
@@ -552,10 +555,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		RefusedWrite: host.refused,
 		PeakMemory:   host.mem.Peak(),
 	}
-	if execErr != nil {
-		return result, classifyExecError(runCtx, execErr, overStep.Load(), opts.MaxSteps)
-	}
-	return result, nil
+	return result, runErr //nolint:wrapcheck // the interpreter's failure, attributed; its backtrace is the message
 }
 
 // watchCancel cancels the interpreter thread when ctx ends, unless the run
@@ -614,7 +614,7 @@ func (e *execError) Unwrap() error { return e.cause }
 // one and absent from the other is the defect that let the contract advertise
 // a built-in the environment did not have (#1414): validation would resolve a
 // name the run cannot bind, or refuse one it can.
-var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", scriptsum.Name}
+var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", scriptsum.Name, "fail"}
 
 // predeclared builds the global environment a script sees. Everything absent
 // from this dict is absent from the language: no imports, no filesystem, no
@@ -642,5 +642,6 @@ func predeclared(host *hostState) starlark.StringDict {
 		"date":         scriptdate.Module,
 		"run":          host.runValue(),
 		scriptsum.Name: scriptsum.Builtin,
+		"fail":         scriptguard.Fail, // the universe's, plus retryable= (#1935)
 	}
 }

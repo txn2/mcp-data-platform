@@ -158,6 +158,13 @@ func TestBuild_ADenseRowIsCappedAndCounted(t *testing.T) {
 	assert.Len(t, r.Fires, MaxFiresPerRow)
 	assert.Equal(t, 1440, r.FireCount)
 	assert.True(t, r.Truncated)
+	// The list stops at the cap; the schedule runs to the end of the day, and
+	// the row says so (#1933).
+	require.NotNil(t, r.LastFire)
+	day := section(t, tl, SectionIntraday)
+	assert.True(t, r.LastFire.Before(day.To) && !r.LastFire.Before(day.To.Add(-time.Minute)),
+		"the last fire is in the window's last minute: %s, window ends %s", r.LastFire, day.To)
+	assert.True(t, r.LastFire.After(r.Fires[len(r.Fires)-1]))
 }
 
 // TestBuild_ARowWithNoFireInTheWindowIsAnEmptyList pins [] for a schedule

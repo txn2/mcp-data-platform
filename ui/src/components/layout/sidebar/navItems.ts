@@ -31,31 +31,29 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-// Fixed order (#661): Assets, Prompts, Resources, Inbox, Knowledge,
-// Activity. Knowledge is the single home for the Memory -> Insight -> Knowledge
-// lifecycle (the former Knowledge Pages, Knowledge & Memory surfaces). Activity
-// is the audit/landing view; Settings (per-user preferences, #631) trails the
-// content sections.
-//
-// Scratch Tables (#1472) follows Resources because it is what those files
-// become when they are registered as query-engine tables, and the two are read
-// together: a stale table is answered by opening the file behind it.
-//
-// APIs (#1478) follows Knowledge because it is reference material of the same
-// kind: what the platform can reach and what those upstreams expose, read
-// before a call rather than produced by one.
-export const portalNavItems: NavItem[] = [
+// The portal rail opens with the two sections people come for, Assets and
+// Resources, set apart as their own group; every other section follows,
+// alphabetized by label (case-insensitive), so a new one has one place to go.
+// Assets leads because it is the landing view, as Dashboard leads the admin
+// rail (#1932).
+export const portalPinnedNavItems: NavItem[] = [
   { path: "/", label: "Assets", icon: LayoutGrid },
-  { path: "/prompts", label: "Prompts", icon: MessageSquare },
-  { path: "/automations", label: "Automations", icon: FileCode2 },
   { path: "/resources", label: "Resources", icon: FileUp },
-  { path: "/scratch-tables", label: "Scratch Tables", icon: Table2 },
+];
+
+export const portalMoreNavItems: NavItem[] = [
+  { path: "/activity", label: "Activity", icon: Activity },
+  { path: "/apis", label: "APIs", icon: Network },
+  { path: "/automations", label: "Automations", icon: FileCode2 },
   { path: "/feedback", label: "Inbox", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },
-  { path: "/apis", label: "APIs", icon: Network },
-  { path: "/activity", label: "Activity", icon: Activity },
+  { path: "/prompts", label: "Prompts", icon: MessageSquare },
+  { path: "/scratch-tables", label: "Scratch Tables", icon: Table2 },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
+
+/** Every portal section, in rail order. */
+export const portalNavItems: NavItem[] = [...portalPinnedNavItems, ...portalMoreNavItems];
 
 // Alphabetized by label (case-insensitive). Dashboard is pinned at
 // the top because it's the admin landing view; everything else sorts.

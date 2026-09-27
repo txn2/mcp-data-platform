@@ -55,6 +55,10 @@ type row struct {
 	FireCount int         `json:"fire_count" example:"96"`
 	Truncated bool        `json:"truncated"`
 	Fires     []time.Time `json:"fires"`
+	// LastFire is the window's last fire, set on a truncated row: Fires stops
+	// at the cap, the schedule does not, and a drawing that stops where the
+	// list does reads as a schedule that stops mid-day (#1933).
+	LastFire *time.Time `json:"last_fire,omitempty"`
 }
 
 // window is one axis and the rows drawn on it.
@@ -124,13 +128,17 @@ func Build(schedules []script.Schedule, names map[string]string, viewer *time.Lo
 		week := windows[1]
 		section := classify(c, week.From)
 		w := windows[sectionIndex(section)]
-		fires, count := c.FiresBetween(w.From, w.To, MaxFiresPerRow)
-		bySection[section] = append(bySection[section], row{
+		fires, count, last := c.FireSpan(w.From, w.To, MaxFiresPerRow)
+		r := row{
 			ScriptID: s.ScriptID, ScriptName: names[s.ScriptID],
 			CronSpec: s.CronSpec, Timezone: s.Timezone, Enabled: s.Enabled,
 			Rhythm:    rhythmOf(c, week.From),
 			FireCount: count, Truncated: count > len(fires), Fires: fires,
-		})
+		}
+		if r.Truncated {
+			r.LastFire = &last
+		}
+		bySection[section] = append(bySection[section], r)
 	}
 
 	for i := range windows {

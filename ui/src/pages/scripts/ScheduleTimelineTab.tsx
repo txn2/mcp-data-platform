@@ -34,6 +34,7 @@ import {
   rowDescription,
   rowWords,
   tickWidth,
+  truncatedBand,
   usesDots,
   xAt,
 } from "./timelineLayout";
@@ -86,8 +87,9 @@ export function ScheduleTimelineTab({
           </Button>
         }
       >
-        No automation runs on a schedule yet. A schedule is set on an automation's
-        own page, and every scheduled automation is drawn here at the times it fires.
+        No automation runs on a schedule yet. A schedule is set on an
+        automation's own page, and every scheduled automation is drawn here at
+        the times it fires.
       </EmptyState>
     );
   }
@@ -430,6 +432,7 @@ function TimelineRow({
   );
   const color = row.enabled ? rhythmColor(row.rhythm) : PAUSED_COLOR;
   const dots = usesDots(fires);
+  const band = truncatedBand(row, fires, x);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -498,30 +501,42 @@ function TimelineRow({
         clipPath={`url(#${clipID})`}
         data-testid="schedule-marks"
       >
-        {fires.map((f, i) =>
-          dots ? (
-            <circle
-              key={i}
-              cx={x(f)}
-              cy={cy}
-              r={DOT_RADIUS}
-              fill={color}
-              stroke="hsl(var(--card))"
-              strokeWidth={2}
-            />
-          ) : (
-            <line
-              key={i}
-              x1={x(f)}
-              x2={x(f)}
-              y1={cy - TICK_HEIGHT / 2}
-              y2={cy + TICK_HEIGHT / 2}
-              stroke={color}
-              strokeWidth={tickWidth(row.fire_count)}
-              strokeLinecap="round"
-            />
-          ),
+        {band && (
+          <rect
+            x={band.from}
+            y={cy - TICK_HEIGHT / 2}
+            width={Math.max(band.to - band.from, 1)}
+            height={TICK_HEIGHT}
+            rx={2}
+            fill={color}
+            data-testid="schedule-band"
+          />
         )}
+        {!band &&
+          fires.map((f, i) =>
+            dots ? (
+              <circle
+                key={i}
+                cx={x(f)}
+                cy={cy}
+                r={DOT_RADIUS}
+                fill={color}
+                stroke="hsl(var(--card))"
+                strokeWidth={2}
+              />
+            ) : (
+              <line
+                key={i}
+                x1={x(f)}
+                x2={x(f)}
+                y1={cy - TICK_HEIGHT / 2}
+                y2={cy + TICK_HEIGHT / 2}
+                stroke={color}
+                strokeWidth={tickWidth(row.fire_count)}
+                strokeLinecap="round"
+              />
+            ),
+          )}
         {active !== null && fires[active] !== undefined && (
           <circle
             cx={x(fires[active])}

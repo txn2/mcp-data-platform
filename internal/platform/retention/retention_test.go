@@ -144,10 +144,35 @@ func TestAssemble(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	all := Assemble(Config{DB: db, Portal: true, DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
-	assert.Len(t, all.sweeps, 4)
+	assert.Len(t, all.sweeps, 4, "no portal bucket: no bucket pass")
 	assert.Equal(t, DefaultInterval, all.interval)
+
+	withBucket := Assemble(Config{DB: db, Portal: true, Bucket: "portal", DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
+	names := make([]string, 0, len(withBucket.sweeps))
+	for _, s := range withBucket.sweeps {
+		names = append(names, s.Name)
+	}
+	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings"}, names,
+		"the bucket pass runs ahead of the purge (#1931)")
 
 	portalOff := Assemble(Config{DB: db, ArchivedDays: 90, Every: time.Minute})
 	assert.Len(t, portalOff.sweeps, 2, "memory and GraphQL; the portal is off and producer retention is 0")
 	assert.Equal(t, time.Minute, portalOff.interval)
+}
+
+// The bucket pass names the portal bucket on rows naming none and reports no
+// removals to the loop (#1931).
+func TestAssetBucket(t *testing.T) {
+	assert.Nil(t, AssetBucket(nil, ""), "no portal bucket, no pass")
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_assets SET s3_bucket = $1")).WithArgs("portal").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE portal_asset_versions SET s3_bucket = $1")).WithArgs("portal").WillReturnResult(sqlmock.NewResult(0, 1))
+	sweeps := AssetBucket(db, "portal")
+	require.Len(t, sweeps, 1)
+	n, err := sweeps[0].Run(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, n)
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

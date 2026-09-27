@@ -296,6 +296,7 @@ internal/platform/apigwwiring -> pkg/registry
 internal/platform/apigwwiring -> pkg/toolkits/apigateway
 internal/platform/apigwwiring -> pkg/toolkits/apigateway/catalog
 internal/platform/apikeystore -> pkg/auth
+internal/platform/assetbucket -> internal/logsan
 internal/platform/assetindex -> pkg/indexjobs
 internal/platform/assetindex -> pkg/portal
 internal/platform/auditwiring -> internal/platform/callrecord
@@ -422,8 +423,10 @@ internal/platform/memorylayer -> pkg/toolkits/knowledge
 internal/platform/memorylayer -> pkg/toolkits/memory
 internal/platform/notices -> internal/logsan
 internal/platform/notices -> internal/portal/portaldomain
+internal/platform/notices -> internal/runstate
 internal/platform/notices -> pkg/middleware
 internal/platform/notices -> pkg/portal/threads
+internal/platform/notices -> pkg/script
 internal/platform/notifydelivery -> internal/logsan
 internal/platform/notifydelivery -> internal/notification/notifychannel
 internal/platform/notifydelivery -> internal/notification/notifypost
@@ -462,6 +465,7 @@ internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> internal/platform/notices
 internal/platform/portalstore -> internal/platform/resourceholds
 internal/platform/portalstore -> internal/platform/resourcewrite
+internal/platform/portalstore -> internal/platform/scriptstore
 internal/platform/portalstore -> internal/portal/assetrefs
 internal/platform/portalstore -> internal/portal/assetrefstore
 internal/platform/portalstore -> internal/producedby
@@ -537,6 +541,7 @@ internal/platform/resultbudget -> pkg/middleware
 internal/platform/resultbudget -> pkg/registry
 internal/platform/resultbudget -> pkg/toolkit
 internal/platform/retention -> internal/logsan
+internal/platform/retention -> internal/platform/assetbucket
 internal/platform/retention -> internal/portal/portalpurge
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> pkg/notification
@@ -584,6 +589,7 @@ internal/platform/scriptflow/flowrun -> internal/scriptcallsite
 internal/platform/scriptflow/flowrun -> pkg/script
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
+internal/platform/scriptguard -> internal/upstreamretry
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
 internal/platform/scriptlayer -> internal/platform/runcontrol

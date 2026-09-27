@@ -26,6 +26,9 @@ export interface ScheduleFireRow {
   fire_count: number;
   truncated: boolean;
   fires: string[];
+  // last_fire is the window's last fire, set on a truncated row (#1933): the
+  // list stops at the cap, the schedule does not.
+  last_fire?: string;
 }
 
 /** ScheduleFireWindow is one axis and the rows drawn on it. */

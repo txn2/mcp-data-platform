@@ -21,7 +21,8 @@ func TestDraftResult_WithoutAnEngineResult(t *testing.T) {
 	assert.Equal(t, "failed", failed[fieldStatus])
 	assert.Equal(t, "boom", failed["error"])
 	assert.NotContains(t, failed, "refused_write", "nothing was refused, so nothing is named")
-	assert.Contains(t, failed["message"], "deterministic")
+	assert.Contains(t, failed["message"], "fails the same way again, fix the script")
+	assert.NotContains(t, failed["message"], "deterministic", "a script with I/O is not (#1935)")
 
 	succeeded := draftResult(sc, &scriptdraft.Outcome{RunID: "r2"})
 	assert.Equal(t, "succeeded", succeeded[fieldStatus])

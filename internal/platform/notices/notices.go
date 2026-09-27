@@ -43,12 +43,17 @@ type Handle struct {
 	shares  portaldomain.ShareStore
 	threads threads.ThreadStore
 	marks   WatermarkStore
+	// scripts is where failing automations are read from; nil briefs none.
+	scripts AutomationSource
 }
 
 // New builds the digest assembler over db and the portal stores. It returns nil
-// when any input is missing, so a caller wires it unconditionally and every
-// deployment that lacks a piece simply carries no notices.
-func New(db *sql.DB, assets portaldomain.AssetStore, shares portaldomain.ShareStore, ts threads.ThreadStore) *Handle {
+// when any portal input is missing, so a caller wires it unconditionally and
+// every deployment that lacks a piece simply carries no notices. A nil scripts
+// briefs no failing automations.
+func New(db *sql.DB, assets portaldomain.AssetStore, shares portaldomain.ShareStore, ts threads.ThreadStore,
+	scripts AutomationSource,
+) *Handle {
 	if db == nil || assets == nil || shares == nil || ts == nil {
 		return nil
 	}
@@ -57,6 +62,7 @@ func New(db *sql.DB, assets portaldomain.AssetStore, shares portaldomain.ShareSt
 		shares:  shares,
 		threads: ts,
 		marks:   NewPostgresWatermarkStore(db),
+		scripts: scripts,
 	}
 }
 
@@ -160,6 +166,14 @@ func (h *Handle) collect(ctx context.Context, c caller, since time.Time) (*Diges
 		complete = false
 	} else {
 		digest.NewShares, digest.NewSharesTruncated = shares, truncated
+	}
+
+	failing, failingTotal, err := h.failingAutomations(ctx, c, since)
+	if err != nil {
+		slog.WarnContext(ctx, "platform_info: automation notices unavailable", logKeyError, err)
+		complete = false
+	} else {
+		digest.FailingAutomations, digest.FailingAutomationsTotal = failing, failingTotal
 	}
 	return digest, complete
 }

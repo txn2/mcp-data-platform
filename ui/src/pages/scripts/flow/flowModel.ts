@@ -89,12 +89,13 @@ export function formatDuration(ms: number): string {
   return `${m}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
-// runChip is what one run did at a card, as its chip: the calls and their
-// time, or the rows it wrote, or that it ran.
+// runChip is what one run did at a card, as its chip: the calls, how many of
+// them failed (#1933), and their time; or the rows it wrote; or that it ran.
 export function runChip(stat: FlowNodeRun | undefined): string | null {
   if (!stat) return null;
   if (stat.calls > 0) {
-    return `${stat.calls} call${stat.calls === 1 ? "" : "s"} · ${formatDuration(stat.duration_ms)}`;
+    const failed = stat.failed_calls > 0 ? ` · ${stat.failed_calls} failed` : "";
+    return `${stat.calls} call${stat.calls === 1 ? "" : "s"}${failed} · ${formatDuration(stat.duration_ms)}`;
   }
   if (stat.outputs > 0) return `${stat.rows} row${stat.rows === 1 ? "" : "s"}`;
   return stat.reached ? "ran" : null;

@@ -43,12 +43,30 @@ func (e *UpstreamError) Error() string { return e.err.Error() }
 // Unwrap returns the failure the tool reported.
 func (e *UpstreamError) Unwrap() error { return e.err }
 
+// TransientError is a failure the script declared temporary with
+// fail(..., retryable=True) (#1935): its author knows the condition it
+// stopped on is outside the script, such as data that has not arrived yet.
+type TransientError struct{ err error }
+
+// NewTransientError marks the failure fail() raised as temporary.
+func NewTransientError(err error) *TransientError { return &TransientError{err: err} }
+
+// Error returns fail()'s own text, which is what the author reads.
+func (e *TransientError) Error() string { return e.err.Error() }
+
+// Unwrap returns the failure fail() raised.
+func (e *TransientError) Unwrap() error { return e.err }
+
 // Cause is the cause a run that failed with err is recorded under: memory for
-// a budget it exceeded, upstream for an upstream that was unavailable, and the
-// script's own for every other failure the interpreter reports, which is what
-// reproduces on the same inputs.
+// a budget it exceeded, upstream for an upstream that was unavailable or
+// answered the script's last call with a failure, transient for a failure the
+// script declared temporary, and the script's own for every other failure the
+// interpreter reports.
 func Cause(err error) string {
-	var upstream *UpstreamError
+	var (
+		upstream  *UpstreamError
+		transient *TransientError
+	)
 	switch {
 	case err == nil:
 		return ""
@@ -56,6 +74,8 @@ func Cause(err error) string {
 		return runstate.CauseMemory
 	case errors.As(err, &upstream):
 		return runstate.CauseUpstream
+	case errors.As(err, &transient):
+		return runstate.CauseTransient
 	default:
 		return runstate.CauseScript
 	}

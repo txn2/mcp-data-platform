@@ -66,7 +66,9 @@ export function causeNote(run: Pick<ScriptRun, "status" | "cause">): string {
   if (run.status !== "failed") return "";
   switch (run.cause) {
     case "upstream":
-      return "Temporary: a service the script called was unavailable. Nothing in the script needs fixing, and the next run should succeed.";
+      return "Temporary: a service the script called was unavailable or answered with an error. Nothing in the script needs fixing, and the next run should succeed.";
+    case "transient":
+      return "Temporary: the script reported this failure as temporary. The next run should succeed.";
     case "state_conflict":
       return "Temporary: another run saved the script's state first. Its outputs stand, and the next run reads the newer state.";
     case "memory":

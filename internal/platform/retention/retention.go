@@ -2,6 +2,9 @@
 // removes (#1904): soft-deleted portal items past their grace period, with
 // their objects; archived memory records; producer rows whose file is gone;
 // and GraphQL operation embeddings of a schema a connection no longer has.
+// One pass mends rather than removes: it names the portal bucket on asset rows
+// written with none, ahead of the purge, which could not otherwise delete
+// their objects (#1931).
 //
 // Each sweep runs once a day under its own PostgreSQL advisory lock, so every
 // replica may run the loop and only one of them deletes at a time, and one

@@ -96,13 +96,13 @@ func TestNewBuildsAWatermarkBackedHandle(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	h := New(db, &fakeAssets{}, &fakeShares{}, &fakeThreads{})
+	h := New(db, &fakeAssets{}, &fakeShares{}, &fakeThreads{}, nil)
 	require.NotNil(t, h)
 	assert.IsType(t, &PostgresWatermarkStore{}, h.marks)
 
-	assert.Nil(t, New(db, nil, &fakeShares{}, &fakeThreads{}), "a missing store means no notices")
-	assert.Nil(t, New(db, &fakeAssets{}, nil, &fakeThreads{}))
-	assert.Nil(t, New(db, &fakeAssets{}, &fakeShares{}, nil))
+	assert.Nil(t, New(db, nil, &fakeShares{}, &fakeThreads{}, nil), "a missing store means no notices")
+	assert.Nil(t, New(db, &fakeAssets{}, nil, &fakeThreads{}, nil))
+	assert.Nil(t, New(db, &fakeAssets{}, &fakeShares{}, nil, nil))
 }
 
 // The digest's boundary must come from the database, because every timestamp

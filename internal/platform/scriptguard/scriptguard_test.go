@@ -31,6 +31,7 @@ func TestCause(t *testing.T) {
 		"a wrapped upstream":     {fmt.Errorf("halted: %w", NewUpstreamError("api_export", errors.New("x"))), runstate.CauseUpstream},
 		"a memory budget":        {budget.refusal("platform.call"), runstate.CauseMemory},
 		"a wrapped memory error": {fmt.Errorf("in platform.query: %w", ErrMemoryBudget), runstate.CauseMemory},
+		"a declared transient":   {fmt.Errorf("halted: %w", NewTransientError(errors.New("fail: not ready"))), runstate.CauseTransient},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -45,6 +46,13 @@ func TestUpstreamError(t *testing.T) {
 	assert.Equal(t, inner.Error(), err.Error(), "the author reads the tool's own words")
 	assert.ErrorIs(t, err, inner)
 	assert.Equal(t, "api_invoke_endpoint", err.Tool)
+}
+
+func TestTransientError(t *testing.T) {
+	inner := errors.New("fail: the feed has not published today")
+	err := NewTransientError(inner)
+	assert.Equal(t, inner.Error(), err.Error(), "the author reads fail()'s own words")
+	assert.ErrorIs(t, err, inner)
 }
 
 func TestFormatBytes(t *testing.T) {
