@@ -96,3 +96,19 @@ describe("Sidebar brand mark", () => {
     expect(screen.getByRole("link", { name: "ACME Portal" })).not.toHaveAttribute("title");
   });
 });
+
+describe("Sidebar portal sections", () => {
+  it("sets Assets and Resources apart above the other sections, in that order", () => {
+    renderSidebar();
+    const nav = screen.getByRole("navigation");
+    const names = Array.from(nav.querySelectorAll("button")).map((b) => b.textContent?.trim());
+    expect(names.slice(0, 2)).toEqual(["Assets", "Resources"]);
+    const brk = screen.getByTestId("portal-nav-group-break");
+    const resources = screen.getByRole("button", { name: /Resources/ });
+    const activity = screen.getByRole("button", { name: /Activity/ });
+    // The rule sits between the pinned group and the rest.
+    expect(resources.compareDocumentPosition(brk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(brk.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText("User")).toHaveLength(1);
+  });
+});

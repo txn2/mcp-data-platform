@@ -6,6 +6,7 @@
 package flowrun
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
@@ -94,6 +95,7 @@ func Draw(g scriptflow.Graph, calls []Call, facts RunFacts) Overlay {
 			bySite[siteKey(n.CallSite)] = append(bySite[siteKey(n.CallSite)], n)
 		}
 	}
+	var failedCalls []failedCall
 	for _, c := range calls {
 		id, ok := cardFor(bySite[siteKey(c.CallSite)], c.Tool)
 		if !ok || len(c.CallSite) == 0 {
@@ -103,6 +105,9 @@ func Draw(g scriptflow.Graph, calls []Call, facts RunFacts) Overlay {
 			continue
 		}
 		o.addCall(id, c)
+		if !c.Success {
+			failedCalls = append(failedCalls, failedCall{id: id, site: c.CallSite})
+		}
 	}
 	for _, out := range facts.Outputs {
 		if id, ok := cardFor(bySite[siteKey(out.CallSite)], ""); ok && len(out.CallSite) > 0 {
@@ -110,8 +115,14 @@ func Draw(g scriptflow.Graph, calls []Call, facts RunFacts) Overlay {
 		}
 	}
 	o.markTerminal(g, facts)
-	o.markFailure(bySite, facts)
+	o.markFailure(bySite, failedCalls, facts)
 	return o
+}
+
+// failedCall is a card's audited call that did not succeed, in call order.
+type failedCall struct {
+	id   string
+	site []string
 }
 
 // cardFor picks the card a call at one site belongs to. An export and the
@@ -170,16 +181,25 @@ func (o *Overlay) markTerminal(g scriptflow.Graph, facts RunFacts) {
 }
 
 // markFailure names the card a failed run failed at: the call its backtrace
-// ends in, when that call is a card's. A run that failed elsewhere (in the
-// script's own code, or on a lost worker) names none; its error still says
-// why.
-func (o *Overlay) markFailure(bySite map[string][]scriptflow.Node, facts RunFacts) {
+// ends in, when that call is a card's. Failing that, it is the card of the
+// latest call that did not succeed made from the same function the backtrace
+// failed in (#1933): a script that checks a status and calls fail() fails on
+// the line after the call, whose card holds the failed call. A run that failed
+// elsewhere (in the script's own code, or on a lost worker) names none; its
+// error still says why.
+func (o *Overlay) markFailure(bySite map[string][]scriptflow.Node, failedCalls []failedCall, facts RunFacts) {
 	if facts.Status != script.RunStatusFailed {
 		return
 	}
 	site := scriptcallsite.FromBacktrace(facts.Error)
+	if len(site) == 0 {
+		return
+	}
 	id, ok := cardFor(bySite[siteKey(site)], "")
-	if !ok || len(site) == 0 {
+	if !ok {
+		id, ok = failedInSameFrame(failedCalls, site)
+	}
+	if !ok {
 		return
 	}
 	n := o.Nodes[id]
@@ -187,6 +207,19 @@ func (o *Overlay) markFailure(bySite map[string][]scriptflow.Node, facts RunFact
 	n.Error = lastLine(facts.Error)
 	o.Nodes[id] = n
 	o.FailedNode = id
+}
+
+// failedInSameFrame is the card of the latest failed call whose call site
+// shares every frame of the failure's but the last: the call was made from the
+// function the run failed in, before it failed there.
+func failedInSameFrame(failedCalls []failedCall, site []string) (string, bool) {
+	enclosing := site[:len(site)-1]
+	for _, fc := range slices.Backward(failedCalls) {
+		if len(fc.site) == len(site) && slices.Equal(fc.site[:len(fc.site)-1], enclosing) {
+			return fc.id, true
+		}
+	}
+	return "", false
 }
 
 // lastLine is a backtrace's message: its last non-empty line.

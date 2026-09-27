@@ -40,7 +40,12 @@ func TestRetryable(t *testing.T) {
 		{"get", http.StatusServiceUnavailable, true},
 		{http.MethodHead, http.StatusServiceUnavailable, true},
 		{http.MethodPost, http.StatusServiceUnavailable, false},
-		{http.MethodGet, http.StatusBadGateway, false},
+		// A gateway that failed or timed out is asked again on a read, as an
+		// unavailable service is (#1935); a 500 is not.
+		{http.MethodGet, http.StatusBadGateway, true},
+		{http.MethodGet, http.StatusGatewayTimeout, true},
+		{http.MethodPost, http.StatusBadGateway, false},
+		{http.MethodGet, http.StatusInternalServerError, false},
 		{http.MethodGet, http.StatusOK, false},
 		{http.MethodGet, http.StatusNotFound, false},
 	}

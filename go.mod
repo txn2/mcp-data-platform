@@ -7,6 +7,7 @@ toolchain go1.26.6
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Masterminds/squirrel v1.5.4
+	github.com/aws/smithy-go v1.27.8
 	github.com/coder/websocket v1.8.15
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -31,6 +32,7 @@ require (
 	github.com/txn2/mcp-trino v1.5.0
 	github.com/vektah/gqlparser/v2 v2.5.37
 	github.com/wneessen/go-mail v0.8.1
+	github.com/xuri/excelize/v2 v2.11.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0
@@ -77,7 +79,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.33.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.6 // indirect
-	github.com/aws/smithy-go v1.27.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -158,7 +159,6 @@ require (
 	github.com/trinodb/trino-go-client v0.333.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
-	github.com/xuri/excelize/v2 v2.11.0 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

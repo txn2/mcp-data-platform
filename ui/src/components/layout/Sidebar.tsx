@@ -3,7 +3,7 @@ import { LogOut, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { NavButton } from "./sidebar/NavButton";
 import { NavSection } from "./sidebar/NavSection";
-import { adminNavItems, portalNavItems } from "./sidebar/navItems";
+import { adminNavItems, portalMoreNavItems, portalPinnedNavItems } from "./sidebar/navItems";
 import { useNavBadges } from "./sidebar/useNavBadges";
 import { useSidebarBrand } from "./sidebar/useSidebarBrand";
 
@@ -124,7 +124,16 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
       <nav className="flex-1 space-y-1 overflow-auto p-2">
         <NavSection
           label="User"
-          items={portalNavItems}
+          items={portalPinnedNavItems}
+          currentPath={currentPath}
+          collapsed={effectiveCollapsed}
+          badges={badges}
+          onNavigate={handleNavigate}
+        />
+        {/* Lighter than the rule above Admin: the same section, a second group. */}
+        <div className="mx-3 my-1.5 border-t border-border/60" data-testid="portal-nav-group-break" />
+        <NavSection
+          items={portalMoreNavItems}
           currentPath={currentPath}
           collapsed={effectiveCollapsed}
           badges={badges}

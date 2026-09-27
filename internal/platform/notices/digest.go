@@ -47,6 +47,14 @@ type Digest struct {
 	// "at least this many" rather than presenting a truncated list as the whole
 	// set -- an unknown remainder is its own state, not zero.
 	NewSharesTruncated bool `json:"new_shares_truncated,omitempty"`
+	// FailingAutomations lists the automations the caller owns whose latest
+	// finished run failed, newest failure first, capped at
+	// maxAutomationNotices (#1934). Unlike the other lists it is not bounded
+	// by the watermark: an automation that is still failing is still listed.
+	FailingAutomations []AutomationNotice `json:"failing_automations,omitempty"`
+	// FailingAutomationsTotal is how many there are, which exceeds the list
+	// when the cap cut it.
+	FailingAutomationsTotal int `json:"failing_automations_total,omitempty"`
 }
 
 // FeedbackNotice is one unresolved feedback thread on an asset the caller owns,
@@ -85,22 +93,22 @@ type ShareNotice struct {
 	Permission string `json:"permission,omitempty"`
 }
 
-// Counts returns how many feedback threads and new shares the digest reports.
-// Feedback is the true total (the thread query counts what it did not return);
+// Counts returns how many feedback threads, new shares and failing
+// automations the digest reports. Feedback and automations are true totals;
 // shares is what the list holds, which NewSharesTruncated marks as a floor. It
-// is what the agent instructions are sized from, and answers zero, zero for a
-// nil digest so the caller needs no nil check.
-func (d *Digest) Counts() (feedback, shares int) {
+// is what the agent instructions are sized from, and answers zeros for a nil
+// digest so the caller needs no nil check.
+func (d *Digest) Counts() (feedback, shares, automations int) {
 	if d == nil {
-		return 0, 0
+		return 0, 0, 0
 	}
-	return d.FeedbackTotal, len(d.NewShares)
+	return d.FeedbackTotal, len(d.NewShares), d.FailingAutomationsTotal
 }
 
 // empty reports whether the digest has nothing to say, in which case it is not
 // delivered and the watermark does not move.
 func (d *Digest) empty() bool {
-	return len(d.Feedback) == 0 && len(d.NewShares) == 0
+	return len(d.Feedback) == 0 && len(d.NewShares) == 0 && len(d.FailingAutomations) == 0
 }
 
 // stamp formats a time for the digest's RFC3339 fields.

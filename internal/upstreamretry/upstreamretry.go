@@ -55,14 +55,16 @@ func Advise(method string, status int, header http.Header, now time.Time) Advice
 // Retryable reports whether an upstream that answered a method request with
 // status is expected to admit the same request later. A 429 is, whatever the
 // method: the upstream says it refused the request for its rate, not for its
-// content, and did not act on it. A 503 is only for a GET or a HEAD, whose
-// repetition cannot change anything, because an unavailable service may have
-// done part of what a write asked before it answered.
+// content, and did not act on it. A 502, 503 or 504 is only for a GET or a
+// HEAD, whose repetition cannot change anything, because a gateway or service
+// that failed may have done part of what a write asked before it answered
+// (#1935). A 500 is not: it names no condition that passes, and asking again
+// at once rarely finds a different server.
 func Retryable(method string, status int) bool {
 	switch status {
 	case http.StatusTooManyRequests:
 		return true
-	case http.StatusServiceUnavailable:
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		m := strings.ToUpper(method)
 		return m == http.MethodGet || m == http.MethodHead
 	default:

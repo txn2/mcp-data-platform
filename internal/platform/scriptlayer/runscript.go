@@ -231,11 +231,15 @@ func runResult(sc *script.Script, run *script.Run) map[string]any {
 // whoever reads the run: whether there is something in the script to fix, and
 // whether running it again is expected to succeed (#1859, #1860, #1861).
 var failureMessages = map[string]string{
-	runstate.CauseScript: "A script failure is deterministic: the same version on the same inputs fails the same way, " +
-		"so the platform does not retry it. Fix the script with run_draft and save the fix.",
-	runstate.CauseUpstream: "The run failed because a service it called was temporarily unavailable: it timed out, " +
-		"dropped the connection, or kept refusing after the platform waited and retried. This is usually temporary " +
-		"and there is nothing in the script to fix; run it again later, and a schedule tries again at its next fire.",
+	runstate.CauseScript: "The script raised this failure. If it reacted to something outside the script, such as " +
+		"data that changed, running it again may succeed; if the same failure repeats, fix the script with " +
+		"run_draft and save the fix.",
+	runstate.CauseUpstream: "The run failed because a service it called was unavailable or answered with an error: it " +
+		"timed out, dropped the connection, kept refusing after the platform waited and retried, or answered the " +
+		"script's last call with a server error just before the script stopped. This is usually temporary and " +
+		"there is nothing in the script to fix; run it again later, and a schedule tries again at its next fire.",
+	runstate.CauseTransient: "The script reported this failure as temporary (fail with retryable=True). There is " +
+		"nothing in it to fix yet; run it again later, and a schedule tries again at its next fire.",
 	runstate.CauseMemory: "The run held more memory than it is allowed (scripts.worker.max_run_memory), or more than " +
 		"its replica had, and fails the same way until it holds less. Page the work, export each page with " +
 		"platform.export(..., append=True), and keep only what the next page needs; metrics.peak_memory_bytes is " +
@@ -365,9 +369,10 @@ shows its latest progress and the log so far while it runs. A run that set a
 value with platform.result returns it as "result". manage_script cancel_run
 stops a run: a queued one never starts, a running one ends canceled.
 
-A failed run is not retried. A script failure is deterministic — the same
-version on the same inputs fails the same way — so the fix is to correct the
-script and save the correction.`
+The platform never runs a failed run again on its own. A failed run says why
+(cause) and whether running it again is expected to succeed (retryable). A
+script that reads the outside world can fail once and succeed on its next run;
+a failure that repeats the same way is one to correct in the script.`
 
 // runScriptSchema is the closed input schema for run_script.
 func runScriptSchema() any {

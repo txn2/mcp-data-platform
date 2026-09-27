@@ -34,13 +34,20 @@ const (
 // expected to succeed.
 const (
 	// CauseScript is a failure the script produced: an evaluation error, a
-	// fail(), an argument a binding refused, a limit it exceeded. The same
-	// version on the same inputs fails the same way.
+	// fail(), an argument a binding refused, a limit it exceeded. A script
+	// that reads the outside world can fail once and succeed on its next run,
+	// so this names where the failure was raised, not that it will repeat
+	// (#1935).
 	CauseScript = "script"
 	// CauseUpstream is a failure whose cause is outside the script and
 	// usually temporary: an upstream that timed out, dropped the connection,
-	// or kept refusing with 429 or 503 past the host's retries.
+	// kept refusing with 429 or 503 past the host's retries, or answered the
+	// call the script made last with a 5xx or 429 before the script failed
+	// (#1935).
 	CauseUpstream = "upstream"
+	// CauseTransient is a failure the script itself declared temporary with
+	// fail(..., retryable=True) (#1935).
+	CauseTransient = "transient"
 	// CauseMemory is a run stopped for holding more memory than its budget,
 	// or more than its replica could give it (#1861).
 	CauseMemory = "memory"
@@ -57,10 +64,13 @@ const (
 )
 
 // CauseRetryable reports whether a run that failed for cause is expected to
-// succeed when it runs again unchanged: an upstream that was unavailable, or a
-// state another run moved first. Every other cause is the script's or
-// reproduces on the next attempt.
-func CauseRetryable(cause string) bool { return cause == CauseUpstream || cause == CauseStateConflict }
+// succeed when it runs again unchanged: an upstream that was unavailable, a
+// failure the script declared temporary, or a state another run moved first.
+// The platform never runs one again on its own; this is what the owner and an
+// agent are told.
+func CauseRetryable(cause string) bool {
+	return cause == CauseUpstream || cause == CauseTransient || cause == CauseStateConflict
+}
 
 // DefaultMaxReclaims is how many times a run is taken over from a worker whose
 // lease expired before it is failed instead (scripts.worker.max_reclaims). A

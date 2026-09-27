@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -273,4 +274,39 @@ func TestNewNotifier(t *testing.T) {
 // wedged queue for longer than its own timeout.
 func TestNotifyWriteIsBounded(t *testing.T) {
 	assert.LessOrEqual(t, notifyWriteTimeout, 10*time.Second)
+}
+
+// streakRuns is a run store that also reads failure streaks, as the
+// PostgreSQL one does.
+type streakRuns struct {
+	fakeRuns
+	streaks map[string]runstate.FailureStreak
+	err     error
+}
+
+func (s *streakRuns) FailureStreaks(context.Context, []string) (map[string]runstate.FailureStreak, error) {
+	return s.streaks, s.err
+}
+
+// TestNotifyFailure_CarriesHowOftenItRepeated holds #1935: the alert carries
+// how many runs in a row failed the same way, which decides whether it tells
+// the owner the script needs correcting; a store that cannot say, or a read
+// that fails, reads as a first failure.
+func TestNotifyFailure_CarriesHowOftenItRepeated(t *testing.T) {
+	f := failedScheduledRun()
+	for name, tc := range map[string]struct {
+		runs script.RunStore
+		want int
+	}{
+		"read":                    {&streakRuns{streaks: map[string]runstate.FailureStreak{f.script.ID: {Failed: 4, SameError: 3}}}, 3},
+		"a read that fails":       {&streakRuns{err: errors.New("down")}, 0},
+		"a store that cannot say": {&fakeRuns{}, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			n := &fakeNotifier{}
+			newWorker(workerConfig{runs: tc.runs, notifier: n}).notifyFailure(context.Background(), f.run, f.script, f.result)
+			require.Len(t, n.payloads, 1)
+			assert.Equal(t, tc.want, n.payloads[0].Repeats)
+		})
+	}
 }

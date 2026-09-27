@@ -691,8 +691,8 @@ export const scriptHandlers = [
         outputs: [],
         writes: [],
         message:
-          "A script failure is deterministic: the same source on the same inputs fails the " +
-          "same way, so running it again changes nothing. Fix the script and dry-run it again.",
+          "The script raised this failure. If it reacted to something outside the script, dry-run it " +
+          "again in a moment; if it fails the same way again, fix the script and dry-run it again.",
       });
     }
     // A source that lands something is the shape #1664 is about: barred by

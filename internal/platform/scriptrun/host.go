@@ -190,6 +190,8 @@ type hostState struct {
 	// site is where in the script the host call in progress was made (#1907),
 	// carried on everything that call records.
 	site []string
+	// upstream is how the upstream answered the run's latest call (#1935).
+	upstream scriptguard.LastUpstream
 }
 
 // callCtx is the run's context carrying the call site of the host call in

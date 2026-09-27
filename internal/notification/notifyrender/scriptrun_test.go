@@ -39,7 +39,7 @@ func TestScriptRunBody(t *testing.T) {
 	if item.Message != "" {
 		t.Error("the failure detail must not render as a quotation")
 	}
-	for _, want := range []string{"dpx_1", "division by zero", "not retried", "corrected"} {
+	for _, want := range []string{"dpx_1", "division by zero", "may succeed", "needs correcting"} {
 		if !strings.Contains(item.Body, want) {
 			t.Errorf("body must carry %q, got %q", want, item.Body)
 		}
@@ -49,31 +49,43 @@ func TestScriptRunBody(t *testing.T) {
 	}
 }
 
-// TestScriptRunBodyByCause holds #1859: only a script error tells the owner to
-// fix the script. An upstream that was briefly unavailable says the next run
-// should succeed, and the memory causes say how to hold less.
+// TestScriptRunBodyByCause holds #1859 and #1935: only a script failure that
+// has repeated the same way tells the owner to correct the script. One script
+// failure says the next run may succeed, since what the script reacted to may
+// have been outside it; an upstream or a declared temporary failure says the
+// next run should; the memory causes say how to hold less.
 func TestScriptRunBodyByCause(t *testing.T) {
 	cases := map[string]struct {
+		cause       string
+		repeats     int
 		want, never string
 	}{
-		"upstream":       {want: "temporarily unavailable", never: "corrected"},
-		"memory":         {want: "append=True", never: "corrected"},
-		"worker_lost":    {want: "stopped without reporting a result", never: "corrected"},
-		"platform":       {want: "nothing in the script to fix", never: "corrected"},
-		"state_conflict": {want: "saved its state first", never: "corrected"},
-		"script":         {want: "corrected", never: "temporarily"},
-		"":               {want: "corrected", never: "temporarily"},
+		"upstream":                   {"upstream", 0, "unavailable or answered with an error", "needs correcting"},
+		"upstream, repeated":         {"upstream", 4, "failed 4 runs in a row", "needs correcting"},
+		"transient":                  {"transient", 1, "reported this failure as temporary", "needs correcting"},
+		"memory":                     {"memory", 0, "append=True", "needs correcting"},
+		"worker_lost":                {"worker_lost", 0, "stopped without reporting a result", "needs correcting"},
+		"platform":                   {"platform", 0, "nothing in the script to fix", "needs correcting"},
+		"state_conflict":             {"state_conflict", 0, "saved its state first", "needs correcting"},
+		"script, once":               {"script", 1, "may succeed", "failed 1"},
+		"script, twice":              {"script", 2, "may succeed", "runs in a row"},
+		"script, repeated":           {"script", 3, "failed 3 runs in a row the same way, so the script needs correcting", "may succeed"},
+		"no cause reads as a script": {"", 0, "may succeed", "the same way, so"},
 	}
-	for cause, tc := range cases {
-		t.Run("cause "+cause, func(t *testing.T) {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			n := scriptRunNotification()
-			n.Payload.Cause = cause
+			n.Payload.Cause = tc.cause
+			n.Payload.Repeats = tc.repeats
 			body := buildItem(n).Body
 			if !strings.Contains(body, tc.want) {
-				t.Errorf("body for cause %q does not say %q: %s", cause, tc.want, body)
+				t.Errorf("body does not say %q: %s", tc.want, body)
 			}
 			if strings.Contains(body, tc.never) {
-				t.Errorf("body for cause %q says %q: %s", cause, tc.never, body)
+				t.Errorf("body says %q: %s", tc.never, body)
+			}
+			if strings.Contains(body, "fails the same way") {
+				t.Errorf("body promises the same inputs fail the same way (#1935): %s", body)
 			}
 		})
 	}

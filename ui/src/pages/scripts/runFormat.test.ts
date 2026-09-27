@@ -256,6 +256,7 @@ describe("livenessNote", () => {
 describe("causeNote", () => {
   it("says a temporary failure needs no fix and a script error needs its own message (#1859)", () => {
     expect(causeNote({ status: "failed", cause: "upstream" })).toContain("next run should succeed");
+    expect(causeNote({ status: "failed", cause: "transient" })).toContain("reported this failure as temporary");
     expect(causeNote({ status: "failed", cause: "state_conflict" })).toContain("newer state");
     expect(causeNote({ status: "failed", cause: "memory" })).toContain("append=True");
     expect(causeNote({ status: "failed", cause: "worker_lost" })).toContain("not run again");

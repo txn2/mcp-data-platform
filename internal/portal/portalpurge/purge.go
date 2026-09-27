@@ -6,10 +6,12 @@ package portalpurge
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/aws/smithy-go"
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -38,15 +40,17 @@ type ObjectDeleter interface {
 type Purger struct {
 	db      *sql.DB
 	objects ObjectDeleter
-	// mosaicBucket is the portal bucket, which every collection mosaic is
-	// written to; the collection row does not record it.
-	mosaicBucket string
+	// bucket is the portal bucket. Every collection mosaic is written to it,
+	// and the collection row does not record it; an asset or version row
+	// whose bucket is empty, written before rows recorded one (#1931), is
+	// read as naming it.
+	bucket string
 }
 
 // NewPurger builds a Purger. A nil objects deletes rows only, for a
 // deployment with no portal storage, where no row names an object.
-func NewPurger(db *sql.DB, objects ObjectDeleter, mosaicBucket string) *Purger {
-	return &Purger{db: db, objects: objects, mosaicBucket: mosaicBucket}
+func NewPurger(db *sql.DB, objects ObjectDeleter, bucket string) *Purger {
+	return &Purger{db: db, objects: objects, bucket: bucket}
 }
 
 // PurgeResult counts what one sweep removed.
@@ -165,7 +169,7 @@ func (p *Purger) purgeableAssets(ctx context.Context, cutoff time.Time) ([]purge
 		if err := rows.Scan(&a.id, &bucket, &key, &lit, &dark, pq.Array(&vBuckets), pq.Array(&vKeys)); err != nil {
 			return nil, fmt.Errorf("scanning a deleted asset: %w", err)
 		}
-		a.objects = assetObjects(assetRow{bucket, key, lit, dark, vBuckets, vKeys})
+		a.objects = assetObjects(assetRow{bucket, key, lit, dark, vBuckets, vKeys}, p.bucket)
 		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
@@ -183,11 +187,15 @@ type assetRow struct {
 
 // assetObjects is every object an asset row and its version rows name, once
 // each. A version's tiles are derived, as the version prune derives them: no
-// version row records the tile drawn beside its content.
-func assetObjects(r assetRow) []storedObject {
+// version row records the tile drawn beside its content. An empty bucket, on
+// the asset row or a version row, is the portal bucket.
+func assetObjects(r assetRow, portalBucket string) []storedObject {
 	seen := map[storedObject]bool{}
 	var out []storedObject
 	add := func(b, k string) {
+		if b == "" {
+			b = portalBucket
+		}
 		o := storedObject{b, k}
 		if k == "" || seen[o] {
 			return
@@ -236,7 +244,7 @@ func (p *Purger) purgeCollections(ctx context.Context, cutoff time.Time) (listed
 	for id, mosaic := range collections {
 		var objects []storedObject
 		if mosaic != "" {
-			objects = []storedObject{{p.mosaicBucket, mosaic}, {p.mosaicBucket, portaldomain.CollectionDarkThumbnailKey(mosaic)}}
+			objects = []storedObject{{p.bucket, mosaic}, {p.bucket, portaldomain.CollectionDarkThumbnailKey(mosaic)}}
 		}
 		if p.deleteObjects(ctx, objects) {
 			ids = append(ids, id)
@@ -320,18 +328,51 @@ func (p *Purger) deleteRows(ctx context.Context, dependents []string, final stri
 
 // deleteObjects removes one row's objects and reports whether every one is
 // gone. An object that resists is logged and its row is kept, so a later
-// sweep tries again; deleting an object that is already gone succeeds.
+// sweep tries again. An object the store reports already gone counts as
+// deleted; see gone.
 func (p *Purger) deleteObjects(ctx context.Context, objects []storedObject) bool {
 	if p.objects == nil {
 		return true
 	}
 	ok := true
 	for _, o := range objects {
-		if err := p.objects.DeleteObject(ctx, o.bucket, o.key); err != nil {
-			slog.Warn("portal purge: object not deleted; the row is kept for the next sweep",
-				"key", logsan.SanitizeForLog(o.key), "error", logsan.SanitizeForLog(err.Error()))
-			ok = false
+		err := p.objects.DeleteObject(ctx, o.bucket, o.key)
+		if err == nil {
+			continue
 		}
+		if code := p.gone(err, o.bucket); code != "" {
+			slog.Info("portal purge: object already gone; the row is removed",
+				"bucket", logsan.SanitizeForLog(o.bucket), "key", logsan.SanitizeForLog(o.key), "code", code)
+			continue
+		}
+		slog.Warn("portal purge: object not deleted; the row is kept for the next sweep",
+			"bucket", logsan.SanitizeForLog(o.bucket), "key", logsan.SanitizeForLog(o.key),
+			"error", logsan.SanitizeForLog(err.Error()))
+		ok = false
 	}
 	return ok
+}
+
+// gone reads a failed delete as the object being absent, and returns the
+// store's code for it, or "" where the object may still be there.
+//
+// NoSuchKey is the object absent. NoSuchBucket is every object in that bucket
+// absent, but only for a bucket other than the portal bucket: a row naming a
+// bucket the deployment no longer has would otherwise be retried every sweep
+// for ever (#1931). The portal bucket answering NoSuchBucket is a store the
+// deployment is misconfigured against, whose objects may well exist, so that
+// row is kept and the sweep keeps saying so.
+func (p *Purger) gone(err error, bucket string) string {
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return ""
+	}
+	switch code := apiErr.ErrorCode(); {
+	case code == "NoSuchKey":
+		return code
+	case code == "NoSuchBucket" && bucket != p.bucket:
+		return code
+	default:
+		return ""
+	}
 }

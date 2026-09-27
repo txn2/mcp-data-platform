@@ -94,3 +94,45 @@ func TestDraw_AFailedRunNamesTheCardItFailedAt(t *testing.T) {
 	o = Draw(g, nil, RunFacts{Status: script.RunStatusFailed, Error: "worker lost"})
 	assert.Empty(t, o.FailedNode, "a failure at no card names none")
 }
+
+const checkedSrc = `
+def forecast(office):
+    res = platform.call("api_invoke_endpoint", {"connection": "nws", "method": "GET", "path": office})
+    if res["status"] != 200:
+        fail("NWS returned %d" % res["status"])
+    return res
+
+def other():
+    return platform.call("api_invoke_endpoint", {"connection": "crm", "method": "GET", "path": "/b"})
+
+forecast("/PSR")
+other()
+`
+
+// #1933: a script that checks the status its call returned and calls fail()
+// fails on its own line, not at the call. The card holding the failed call,
+// made from the function the run failed in, is the one it failed at.
+func TestDraw_AFailAfterAFailedCallNamesThatCallsCard(t *testing.T) {
+	g := deriveGraph(checkedSrc)
+	require.True(t, g.OK, "%+v", g.Findings)
+	nws, crm := nodeByTitle(t, g, "API nws"), nodeByTitle(t, g, "API crm")
+	require.Len(t, nws.CallSite, 2, "the call is made inside forecast")
+	failAt := "5:13"
+	backtrace := "Traceback (most recent call last):\n  weather:" + nws.CallSite[0] + ": in <toplevel>\n  weather:" +
+		failAt + ": in forecast\nError in fail: fail: NWS returned 500"
+	calls := []Call{{CallSite: nws.CallSite, Tool: "api_invoke_endpoint", DurationMS: 1300, Success: false, Error: "Internal Server Error"}}
+
+	o := Draw(g, calls, RunFacts{Status: script.RunStatusFailed, Cause: "upstream", Error: backtrace})
+	assert.Equal(t, nws.ID, o.FailedNode)
+	run := o.Nodes[nws.ID]
+	assert.True(t, run.Failed)
+	assert.Equal(t, 1, run.FailedCalls)
+	assert.Equal(t, "Error in fail: fail: NWS returned 500", run.Error)
+	assert.False(t, o.Nodes[crm.ID].Failed)
+
+	// A failed call made from another function is not what a failure in
+	// forecast is blamed on.
+	calls = []Call{{CallSite: crm.CallSite, Tool: "api_invoke_endpoint", Success: false, Error: "Internal Server Error"}}
+	o = Draw(g, calls, RunFacts{Status: script.RunStatusFailed, Error: backtrace})
+	assert.Empty(t, o.FailedNode)
+}

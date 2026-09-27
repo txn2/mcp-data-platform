@@ -413,7 +413,7 @@ describe("ScriptSourceEditor: checking an edit", () => {
         metrics: { steps: 12, duration_ms: 80, queries: 1, exports: 0 },
         outputs: [],
         writes: [],
-        message: "A script failure is deterministic.",
+        message: "The script raised this failure.",
       }),
     );
     expect(screen.getByText("failed")).toBeInTheDocument();

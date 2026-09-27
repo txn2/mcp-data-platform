@@ -177,6 +177,15 @@ func (c Cron) Location() *time.Location { return c.loc }
 // so a fire listed here is a fire the scheduler makes, across a DST transition
 // and for the @every descriptor alike.
 func (c Cron) FiresBetween(from, to time.Time, limit int) (fires []time.Time, count int) {
+	fires, count, _ = c.FireSpan(from, to, limit)
+	return fires, count
+}
+
+// FireSpan is FiresBetween that also returns the window's last fire, zero when
+// it holds none. A caller handed fewer fires than the window holds still knows
+// how far they reach (#1933): an every-minute schedule cut at its 500th fire
+// runs to the end of the day, not to 8:19.
+func (c Cron) FireSpan(from, to time.Time, limit int) (fires []time.Time, count int, last time.Time) {
 	fires = make([]time.Time, 0, min(max(limit, 0), fireSliceHint))
 	// Next is strictly after its argument, so the walk starts one nanosecond
 	// before the window to admit a fire on its first instant.
@@ -185,8 +194,9 @@ func (c Cron) FiresBetween(from, to time.Time, limit int) (fires []time.Time, co
 			fires = append(fires, at)
 		}
 		count++
+		last = at
 	}
-	return fires, count
+	return fires, count, last
 }
 
 // fireSliceHint bounds the capacity FiresBetween reserves up front, so a large

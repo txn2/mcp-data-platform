@@ -396,6 +396,8 @@ describe("ScriptDetailPage: the details", () => {
     mockContract.mockReturnValue(query(undefined, { error: new Error("boom") }));
     renderPage();
     expect(screen.getByText(/could not be loaded/)).toBeInTheDocument();
+    // Named as the section is (#1933).
+    expect(screen.getByRole("heading", { name: "Automation" })).toBeInTheDocument();
   });
 
   // The description used to be the page header's subtitle, which is a one-line

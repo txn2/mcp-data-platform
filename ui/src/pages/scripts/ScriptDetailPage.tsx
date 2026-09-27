@@ -252,7 +252,7 @@ function ScriptSourceReadOnly({
 function UnreadableScript({ backLabel, onBack }: { backLabel: string; onBack: () => void }) {
   return (
     <div className="space-y-4">
-      <PageHeader backLabel={backLabel} onBack={onBack} icon={FileCode2} title="Script" />
+      <PageHeader backLabel={backLabel} onBack={onBack} icon={FileCode2} title="Automation" />
       <Alert variant="destructive">
         <AlertDescription>
           This script could not be loaded. It may have been deleted, or it may not be yours

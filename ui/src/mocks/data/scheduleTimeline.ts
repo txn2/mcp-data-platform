@@ -210,6 +210,9 @@ export function buildMockScheduleTimeline(
       fire_count: all.length,
       truncated: all.length > MAX_FIRES,
       fires: all.slice(0, MAX_FIRES).map((f) => new Date(f).toISOString()),
+      ...(all.length > MAX_FIRES
+        ? { last_fire: new Date(all[all.length - 1]!).toISOString() }
+        : {}),
     });
   }
 

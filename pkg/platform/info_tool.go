@@ -238,8 +238,8 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		notes = append(notes, instructions.PurposeNote(p.config.Purpose.IsRequired(), gated, kinds))
 	}
 	digest := p.portalStore.Notices().Build(ctx, middleware.GetPlatformContext(ctx))
-	feedbackCount, shareCount := digest.Counts()
-	notes = append(notes, instructions.NoticesNote(accessibleTools, feedbackCount, shareCount))
+	feedbackCount, shareCount, automationCount := digest.Counts()
+	notes = append(notes, instructions.NoticesNote(accessibleTools, feedbackCount, shareCount, automationCount))
 	agentInstructions := instructions.ComposeForCaller(
 		p.config.ServerAgentInstructions(ctx),
 		registeredTools,

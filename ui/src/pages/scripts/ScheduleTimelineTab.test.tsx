@@ -141,6 +141,46 @@ describe("ScheduleTimelineTab", () => {
     ).toBe("1.3");
   });
 
+  it("draws a row the server cut at its cap as one band to its last fire (#1933)", () => {
+    const data = timeline();
+    data.sections[0]!.rows.push({
+      script_id: "s-1m",
+      script_name: "revenue-pulse",
+      cron_spec: "* * * * *",
+      timezone: "UTC",
+      enabled: false,
+      rhythm: "minutes",
+      fire_count: 1440,
+      truncated: true,
+      fires: every(60_000, 500),
+      last_fire: new Date(dayFrom + DAY - 60_000).toISOString(),
+    });
+    answer(data);
+    renderTab();
+    const marks = within(screen.getByTestId("schedule-row-s-1m")).getByTestId(
+      "schedule-marks",
+    );
+    expect(marks.querySelectorAll("line")).toHaveLength(0);
+    const band = within(marks).getByTestId("schedule-band");
+    const reach =
+      Number(band.getAttribute("x")) + Number(band.getAttribute("width"));
+    // Every row's hit target spans the whole window; the band reaches within
+    // a minute of its end, not a third of the way across.
+    const whole = Number(
+      screen
+        .getByTestId("schedule-row-s-1m")
+        .querySelector("rect.row-hit")!
+        .getAttribute("width"),
+    );
+    expect(reach).toBeGreaterThan(whole * 0.95);
+    // An uncut row is still drawn fire by fire.
+    expect(
+      within(screen.getByTestId("schedule-row-s-5m")).queryByTestId(
+        "schedule-band",
+      ),
+    ).toBeNull();
+  });
+
   it("labels a row with its schedule in words and its count", () => {
     renderTab();
     expect(screen.getByText("Every 5 minutes · 288 a day")).toBeInTheDocument();

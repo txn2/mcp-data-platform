@@ -28537,6 +28537,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_fire": {
+                    "description": "LastFire is the window's last fire, set on a truncated row: Fires stops\nat the cap, the schedule does not, and a drawing that stops where the\nlist does reads as a schedule that stops mid-day (#1933).",
+                    "type": "string"
+                },
                 "rhythm": {
                     "type": "string",
                     "example": "minutes"

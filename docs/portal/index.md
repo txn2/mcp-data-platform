@@ -24,23 +24,25 @@ catalogs, and the activity of everyone using it.
 ## The tour
 
 Every screen the portal serves is covered here, in the order the sidebar lists
-them.
+them. The sidebar opens with Assets and Resources, set apart from the rest;
+Collections and Shared With Me are reached from Assets. Every other section
+follows in alphabetical order.
 
 **Your work**
 
 | Page | What it covers |
 |---|---|
-| [Activity](activity.md) | Your sessions, the calls they made, and what each one was for |
 | [Assets](assets.md) | The asset viewer, provenance, references, version history, and sharing |
 | [Collections](collections.md) | Grouping assets, and sharing a group as one |
-| [Resources](resources.md) | Libraries, folders, uploads, revisions, and registering a CSV as a table |
-| [Scratch Tables](scratch-tables.md) | What is registered, whether it is current, and what a failed follow looks like |
-| [APIs](apis.md) | The operations a caller may invoke, and the gateway call each one produces |
 | [Shared With Me](shared.md) | Work other people shared with you |
+| [Resources](resources.md) | Libraries, folders, uploads, revisions, and registering a CSV as a table |
+| [Activity](activity.md) | Your sessions, the calls they made, and what each one was for |
+| [APIs](apis.md) | The operations a caller may invoke, and the gateway call each one produces |
+| [Automations](scripts.md) | Work that runs on a schedule or on request, built as scripts: a script's schedule, source, versions, runs, and state |
 | [Inbox](feedback.md) | Everything addressed to you: threads on your work, and the notifications the platform has sent you |
 | [Knowledge and Memory](knowledge.md) | Promoted pages, the catalog, the graph, insights, and captured memory |
 | [Prompts](prompts.md) | The prompt library, collections, authoring, versions, and diffs |
-| [Automations](scripts.md) | Work that runs on a schedule or on request, built as scripts: a script's schedule, source, versions, runs, and state |
+| [Scratch Tables](scratch-tables.md) | What is registered, whether it is current, and what a failed follow looks like |
 | [Settings](settings.md) | Notification delivery, category toggles, and what has been sent to you |
 
 **Administration**

@@ -449,8 +449,9 @@ type RunStore interface {
 
 	// Retry returns the claimed run to pending, due after backoff, recording
 	// how the attempt ended (runstate.AttemptRetried, AttemptReleased or
-	// AttemptShed) and why. Reserved for infrastructure failures: a script
-	// error is deterministic and retrying it changes nothing.
+	// AttemptShed) and why. Reserved for infrastructure failures: what the
+	// script reports is final for its run, since a script that already wrote
+	// an output must not be executed again on the platform's own initiative.
 	Retry(ctx context.Context, lease RunLease, outcome, reason string, backoff time.Duration) error
 
 	// PurgeRuns deletes terminal runs older than retention, returning the

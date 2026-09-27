@@ -32,7 +32,7 @@ func scriptRunBody(p notification.Payload) string {
 	if p.ItemID != "" {
 		sentences = append(sentences, fmt.Sprintf("Its run is %s.", p.ItemID))
 	}
-	sentences = append(sentences, scriptRunCauseSentence(p.Cause))
+	sentences = append(sentences, scriptRunCauseSentence(p.Cause, p.Repeats))
 	body := strings.Join(sentences, " ")
 	if detail := strings.TrimSpace(p.Message); detail != "" {
 		body += "\n\n" + detail
@@ -45,24 +45,36 @@ func scriptRunBody(p notification.Payload) string {
 // says, and a row names its cause as a string.
 const (
 	causeUpstream   = "upstream"
+	causeTransient  = "transient"
 	causeMemory     = "memory"
 	causeWorkerLost = "worker_lost"
 	causePlatform   = "platform"
 	causeState      = "state_conflict"
 )
 
+// repeatedFailure is how many runs in a row must fail the same way
+// before the alert says the script needs correcting (#1935). A script that
+// reads the outside world can fail once and succeed on its next run, so one
+// failure is not taken as a defect in the script.
+const repeatedFailure = 3
+
 // scriptRunCauseSentence says what the failure means for the owner: whether
 // there is something in the script to fix, and whether the next scheduled run
-// is expected to go through. Only a script error sends them looking for a bug;
-// an upstream that was unavailable for a moment is not one (#1859). A row with
-// no cause predates the field and reads as a script error, which is what every
-// failure was recorded as then.
-func scriptRunCauseSentence(cause string) string {
+// is expected to go through. An upstream that was unavailable for a moment is
+// not a bug (#1859), and neither is one script failure: the script raised it,
+// but what it reacted to may have been outside it, so only a failure repeated
+// word for word sends the owner to fix the script (#1935). A row with no cause
+// predates the field and reads as a script failure.
+func scriptRunCauseSentence(cause string, repeats int) string {
 	switch cause {
 	case causeUpstream:
-		return "It failed because a service it called was temporarily unavailable: it timed out, dropped the " +
-			"connection, or kept refusing the request after the platform waited and retried. This is usually " +
-			"temporary and there is nothing in the script to fix; the next scheduled run will try again."
+		return "It failed because a service it called was unavailable or answered with an error: it timed out, " +
+			"dropped the connection, kept refusing after the platform waited and retried, or answered the " +
+			"script's last call with a server error just before the script stopped. This is usually temporary " +
+			"and there is nothing in the script to fix; the next scheduled run will try again." + repeatedNote(repeats)
+	case causeTransient:
+		return "The script reported this failure as temporary, so there is nothing in it to fix yet; the next " +
+			"scheduled run will try again." + repeatedNote(repeats)
 	case causeMemory:
 		return "It was stopped for holding more memory than a run is allowed. The next scheduled run will stop " +
 			"the same way: page the work and export each page (platform.export with append=True), or hold less " +
@@ -78,7 +90,21 @@ func scriptRunCauseSentence(cause string) string {
 		return "The platform could not execute it: the run's session or the script itself could not be read. " +
 			"There is nothing in the script to fix; the next scheduled run will try again."
 	default:
-		return "A script failure is not retried: the same version on the same inputs fails the same way, so the " +
-			"next scheduled run will fail again until the script is corrected and the correction approved."
+		if repeats >= repeatedFailure {
+			return fmt.Sprintf("It has now failed %d runs in a row the same way, so the script needs "+
+				"correcting: find the cause in the failure below, fix it, dry-run it and save it.", repeats)
+		}
+		return "The script raised this failure. If it depends on something outside the script, such as a " +
+			"service that answered with an error or data that changed, the next scheduled run may succeed; " +
+			"if the same failure repeats, the script needs correcting."
 	}
+}
+
+// repeatedNote adds, to a failure that is usually temporary, that this one has
+// not been: the owner is the one who can find out why it keeps happening.
+func repeatedNote(repeats int) string {
+	if repeats < repeatedFailure {
+		return ""
+	}
+	return fmt.Sprintf(" It has now failed %d runs in a row the same way, which is worth looking into.", repeats)
 }

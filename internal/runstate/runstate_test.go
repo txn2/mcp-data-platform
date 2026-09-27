@@ -8,7 +8,7 @@ import (
 
 func TestCauseRetryable(t *testing.T) {
 	for cause, want := range map[string]bool{
-		CauseUpstream: true, CauseStateConflict: true,
+		CauseUpstream: true, CauseStateConflict: true, CauseTransient: true,
 		CauseScript: false, CauseMemory: false, CauseWorkerLost: false, CausePlatform: false, "": false,
 	} {
 		assert.Equal(t, want, CauseRetryable(cause), cause)

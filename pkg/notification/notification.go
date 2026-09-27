@@ -231,6 +231,12 @@ type Payload struct {
 	// the script or that the next run should succeed. Empty for every other
 	// kind, and on a row enqueued before the cause was recorded.
 	Cause string `json:"cause,omitempty"`
+	// Repeats is how many finished runs of a KindScriptRun alert's script
+	// have now failed in a row ending on the same error, this one included
+	// (#1935). A failure that repeats is one the next run is not getting past
+	// on its own; a single one may be a bad moment outside the script. Zero
+	// where it was not read, which renders as a first failure.
+	Repeats int `json:"repeats,omitempty"`
 	// Review carries the review-queue rollup of a KindReviewQueue alert and
 	// is nil for every other kind.
 	Review *ReviewQueue `json:"review,omitempty"`

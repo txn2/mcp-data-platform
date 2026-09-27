@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceholds"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefstore"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -168,7 +169,10 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 		Producers:     producers,
 	}, embedder, cfg)
 	h.indexProducers = []*indexjobs.Producer{assets, collections, pages}
-	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore)
+	// The briefing names the caller's failing automations (#1934), read
+	// straight from the script tables: a store over the pool, as the HTTP
+	// mounts build their own.
+	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore, scriptstore.New(db))
 	return h
 }
 

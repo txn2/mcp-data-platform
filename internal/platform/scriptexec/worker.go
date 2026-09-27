@@ -102,9 +102,9 @@ type executor interface {
 // an error message. Everything outside the interpreter — opening the run's
 // session, reading the script or its version — is the platform's own fault and
 // is retried. Everything the interpreter reports is the script's outcome and is
-// final, because a Starlark error on the same inputs reproduces exactly, and
-// because a script that already wrote an output must not be re-executed on the
-// chance that its last call was a transient fault. That boundary is deliberate:
+// final for the run, because a script that already wrote an output must not be
+// re-executed on the chance that its last call was a transient fault; its
+// cause says whether running it again is expected to help (#1935). That boundary is deliberate:
 // a query engine being unreachable reaches the runner as a tool error
 // indistinguishable from bad SQL, and guessing between them by matching strings
 // would trade a visible failure for a silent double-write.

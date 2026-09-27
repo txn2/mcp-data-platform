@@ -104,6 +104,7 @@ func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, 
 			wait, again := advice.Wait(retry, h.remaining())
 			if !again {
 				h.noteUpstreamGiveUp(tool, advice, retry)
+				h.upstream.Note(tool, out)
 				return out, nil
 			}
 			if !sleepWithin(h.ctx, wait) {
@@ -118,6 +119,7 @@ func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, 
 		if refusal == nil || refusal.Code != toolratelimit.CodeRateLimited {
 			// Returned as the Caller produced it: the binding that asked names
 			// itself around the error, and the text is the tool's own.
+			h.upstream.Clear()
 			return out, err //nolint:wrapcheck // wrapped by the calling binding (argErr)
 		}
 		wait := refusal.RetryAfter

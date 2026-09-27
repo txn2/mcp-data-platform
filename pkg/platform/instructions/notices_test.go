@@ -11,11 +11,11 @@ import (
 var allNoticeTools = []string{toolSearch, toolFetch, toolManageFeedback}
 
 func TestNoticesNoteIsSilentWithNothingToRelay(t *testing.T) {
-	assert.Empty(t, NoticesNote(allNoticeTools, 0, 0))
+	assert.Empty(t, NoticesNote(allNoticeTools, 0, 0, 0))
 }
 
 func TestNoticesNoteAddressesThePersonAndSaysItIsShownOnce(t *testing.T) {
-	note := NoticesNote(allNoticeTools, 2, 1)
+	note := NoticesNote(allNoticeTools, 2, 1, 0)
 
 	assert.Contains(t, note, "`notices`")
 	assert.Contains(t, note, "addressed to them, not to you")
@@ -29,20 +29,20 @@ func TestNoticesNoteAddressesThePersonAndSaysItIsShownOnce(t *testing.T) {
 }
 
 func TestNoticesNoteNamesOnlyTheHalvesThatHaveSomethingInThem(t *testing.T) {
-	feedbackOnly := NoticesNote(allNoticeTools, 3, 0)
+	feedbackOnly := NoticesNote(allNoticeTools, 3, 0, 0)
 	assert.Contains(t, feedbackOnly, "notices.feedback")
 	assert.NotContains(t, feedbackOnly, "notices.new_shares")
 
-	sharesOnly := NoticesNote(allNoticeTools, 0, 3)
+	sharesOnly := NoticesNote(allNoticeTools, 0, 3, 0)
 	assert.Contains(t, sharesOnly, "notices.new_shares")
 	assert.NotContains(t, sharesOnly, "notices.feedback")
 }
 
 func TestNoticesNoteCountsReadAsProse(t *testing.T) {
-	assert.Contains(t, NoticesNote(allNoticeTools, 1, 1), "`notices.feedback` — 1 thread")
-	assert.Contains(t, NoticesNote(allNoticeTools, 1, 1), "`notices.new_shares` — 1 item")
-	assert.Contains(t, NoticesNote(allNoticeTools, 4, 2), "`notices.feedback` — 4 threads")
-	assert.Contains(t, NoticesNote(allNoticeTools, 4, 2), "`notices.new_shares` — 2 items")
+	assert.Contains(t, NoticesNote(allNoticeTools, 1, 1, 0), "`notices.feedback` — 1 thread")
+	assert.Contains(t, NoticesNote(allNoticeTools, 1, 1, 0), "`notices.new_shares` — 1 item")
+	assert.Contains(t, NoticesNote(allNoticeTools, 4, 2, 0), "`notices.feedback` — 4 threads")
+	assert.Contains(t, NoticesNote(allNoticeTools, 4, 2, 0), "`notices.new_shares` — 2 items")
 }
 
 // The note must never tell an agent to call a tool its persona cannot reach.
@@ -79,7 +79,7 @@ func TestNoticesNoteNamesOnlyReachableTools(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			note := NoticesNote(tt.tools, 2, 2)
+			note := NoticesNote(tt.tools, 2, 2, 0)
 			require.NotEmpty(t, note)
 			for _, want := range tt.want {
 				assert.Contains(t, note, want)
@@ -95,7 +95,24 @@ func TestNoticesNoteNamesOnlyReachableTools(t *testing.T) {
 // so it must survive Compose without swallowing the baseline.
 func TestNoticesNoteComposesBeneathTheBaseline(t *testing.T) {
 	baseline := Build(allNoticeTools)
-	out := Compose(baseline, NoticesNote(allNoticeTools, 1, 0))
+	out := Compose(baseline, NoticesNote(allNoticeTools, 1, 0, 0))
 	assert.True(t, strings.HasPrefix(out, "How to operate this platform:"))
 	assert.Contains(t, out, "notices.feedback")
+}
+
+// #1934: failing automations are named with what to do about them, and are
+// the one list not cleared by being shown.
+func TestNoticesNoteNamesFailingAutomations(t *testing.T) {
+	only := NoticesNote([]string{toolManageScript}, 0, 0, 2)
+	assert.Contains(t, only, "`notices.failing_automations` — 2 automations")
+	assert.Contains(t, only, "until a run of it succeeds")
+	assert.Contains(t, only, "`manage_script` get_run")
+	assert.NotContains(t, only, "shown once", "a failing automation is listed again until it is fixed")
+
+	withoutTool := NoticesNote([]string{toolFetch}, 0, 0, 1)
+	assert.Contains(t, withoutTool, "`notices.failing_automations` — 1 automation ")
+	assert.NotContains(t, withoutTool, "get_run", "a tool the persona cannot reach is not named")
+
+	mixed := NoticesNote(allNoticeTools, 1, 0, 1)
+	assert.Contains(t, mixed, "Feedback and shares are shown once")
 }

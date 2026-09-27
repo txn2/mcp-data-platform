@@ -147,7 +147,9 @@ func TestIssue1859_AnUpstreamTimeoutFailsTheRunAsRetryable(t *testing.T) {
 }
 
 // TestIssue1859_AScriptErrorStaysDeterministic is the other half: fail() in
-// the script is the script's, and the run says to fix it.
+// the script is the script's, and the run says to fix it if it repeats. #1935
+// took "deterministic" out of the message: a script that reads the outside
+// world can fail once and succeed next time.
 func TestIssue1859_AScriptErrorStaysDeterministic(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1859-fail-%d", time.Now().UnixNano())
@@ -164,7 +166,7 @@ func TestIssue1859_AScriptErrorStaysDeterministic(t *testing.T) {
 		t.Errorf("status = %v, retryable = %v, cause = %v; want failed, false, script",
 			got["status"], got["retryable"], got["cause"])
 	}
-	if msg, _ := got["message"].(string); !strings.Contains(msg, "Fix the script") {
+	if msg, _ := got["message"].(string); !strings.Contains(msg, "if the same failure repeats, fix the script") {
 		t.Errorf("the message for a script error reads %q", msg)
 	}
 }

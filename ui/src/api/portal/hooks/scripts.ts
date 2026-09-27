@@ -71,6 +71,7 @@ export interface ScriptRun {
 export type ScriptRunCause =
   | "script"
   | "upstream"
+  | "transient"
   | "memory"
   | "worker_lost"
   | "platform"

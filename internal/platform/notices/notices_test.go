@@ -182,7 +182,7 @@ func newShare() []portaldomain.SharedTargetRef {
 // --- tests ---
 
 func TestNewReturnsNilWhenAnyInputIsMissing(t *testing.T) {
-	assert.Nil(t, New(nil, &fakeAssets{}, &fakeShares{}, &fakeThreads{}))
+	assert.Nil(t, New(nil, &fakeAssets{}, &fakeShares{}, &fakeThreads{}, nil))
 	// A nil Handle answers empty rather than panicking, which is what a
 	// deployment without a portal holds.
 	var h *Handle
@@ -239,9 +239,10 @@ func TestBuildReportsFeedbackAndSharesSinceTheWatermark(t *testing.T) {
 		SharedAt: "2026-08-10T11:00:00Z", Permission: string(portaldomain.PermissionViewer),
 	}, digest.NewShares[0])
 
-	feedbackCount, shareCount := digest.Counts()
+	feedbackCount, shareCount, automationCount := digest.Counts()
 	assert.Equal(t, 4, feedbackCount)
 	assert.Equal(t, 1, shareCount)
+	assert.Zero(t, automationCount, "no automation source, no automations")
 
 	// Both queries were scoped to the caller and to the watermark.
 	assert.Equal(t, callerID, assets.gotID)
@@ -427,9 +428,10 @@ func TestBuildMarksAShareListThatDidNotFitAsTruncated(t *testing.T) {
 
 func TestCountsOfANilDigest(t *testing.T) {
 	var d *Digest
-	feedback, shares := d.Counts()
+	feedback, shares, automations := d.Counts()
 	assert.Zero(t, feedback)
 	assert.Zero(t, shares)
+	assert.Zero(t, automations)
 }
 
 // The fakes must satisfy the real contracts, so a store interface that grows a

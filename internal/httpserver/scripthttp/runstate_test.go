@@ -64,13 +64,15 @@ func TestPortalRun_ReportsCauseLivenessAndTheHolder(t *testing.T) {
 	assert.Equal(t, runstate.AttemptLeaseExpired, detail.Attempts[0].Outcome)
 }
 
-// TestDryRunFailureMessage_ByCause: only a script error is called
-// deterministic; a briefly unavailable upstream says to try again.
+// TestDryRunFailureMessage_ByCause: only a script failure that repeats sends
+// the author to the script (#1935); an upstream or a declared temporary
+// failure says to try again.
 func TestDryRunFailureMessage_ByCause(t *testing.T) {
 	assert.Contains(t, dryRunFailureMessage(&scriptrun.WriteRecord{Tool: "manage_asset"}, runstate.CauseScript), "allow_writes")
-	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseUpstream), "temporarily unavailable")
+	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseUpstream), "outside the script")
+	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseTransient), "outside the script")
 	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseMemory), "append=True")
-	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseScript), "deterministic")
+	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseScript), "fails the same way again, fix the script")
 }
 
 func TestDraftMetrics_CarriesThePeak(t *testing.T) {

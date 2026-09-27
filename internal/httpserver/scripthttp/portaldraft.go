@@ -311,15 +311,15 @@ func dryRunFailureMessage(refused *scriptrun.WriteRecord, cause string) string {
 		return "The dry run stopped at a call that persists (refused_write), because a dry run does not " +
 			"write. Run it again with allow_writes to let it write for real, and it will report every " +
 			"write it made."
-	case cause == runstate.CauseUpstream:
-		return "A service the script called was temporarily unavailable; there is nothing in the script to " +
-			"fix. Dry-run it again in a moment."
+	case cause == runstate.CauseUpstream || cause == runstate.CauseTransient:
+		return "The failure was outside the script: a service it called was unavailable or answered with an " +
+			"error, or the script reported it as temporary. Dry-run it again in a moment."
 	case cause == runstate.CauseMemory:
 		return "The dry run held more memory than a run is allowed. Page the work and export each page " +
 			"with platform.export(..., append=True), and keep only what the next page needs."
 	default:
-		return "A script failure is deterministic: the same source on the same inputs fails " +
-			"the same way, so running it again changes nothing. Fix the script and dry-run it again."
+		return "The script raised this failure. If it reacted to something outside the script, dry-run it " +
+			"again in a moment; if it fails the same way again, fix the script and dry-run it again."
 	}
 }
 

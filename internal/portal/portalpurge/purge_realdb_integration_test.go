@@ -12,6 +12,7 @@ import (
 	"context"
 	"database/sql"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -176,4 +177,28 @@ func TestPurge_RealDB_AnObjectThatWillNotDeleteKeepsItsRow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Assets)
 	assert.Equal(t, 0, count(t, db, `SELECT COUNT(*) FROM portal_assets WHERE id = 'asset_stuck'`))
+}
+
+// An asset written before rows recorded a bucket or a key prefix (#1931):
+// its row and its version row hold an empty bucket and a key that starts at
+// the owner. The purge deletes its objects from the portal bucket and removes
+// the row, where it used to send every delete to bucket "" and keep the row.
+func TestPurge_RealDB_ALegacyRowWithAnEmptyBucketIsPurged(t *testing.T) {
+	db := testdb.New(t)
+	old := time.Now().UTC().AddDate(0, 0, -40)
+	const key = "4acf7d36-68ac-4a2b-bf7b-0bd1bba7ac49/asset_legacy/content.html"
+	exec(t, db, `INSERT INTO portal_assets (id, owner_id, owner_email, name, content_type, s3_bucket, s3_key, size_bytes, deleted_at)
+		VALUES ('asset_legacy', $1, 'u@example.com', 'legacy', 'text/html', '', $2, 1, $3)`, purgeOwner, key, old)
+	exec(t, db, `INSERT INTO portal_asset_versions (id, asset_id, version, s3_key, s3_bucket, content_type, size_bytes)
+		VALUES ('asset_legacy-v1', 'asset_legacy', 1, $1, '', 'text/html', 1)`, key)
+
+	objects := &recordedDeletes{}
+	res, err := NewPurger(db, objects, "portal-assets").Purge(context.Background(), time.Now().UTC().AddDate(0, 0, -30))
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Assets)
+	assert.Equal(t, 0, count(t, db, `SELECT COUNT(*) FROM portal_assets WHERE id = 'asset_legacy'`))
+	assert.Contains(t, objects.keys, "portal-assets/"+key)
+	for _, k := range objects.keys {
+		assert.True(t, strings.HasPrefix(k, "portal-assets/"), "a delete outside the portal bucket: %s", k)
+	}
 }
