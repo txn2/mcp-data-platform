@@ -8395,6 +8395,12 @@
                         "name": "version",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "An older version to compare with: the graph then marks each node added or changed (with what it said before), and carries the older version's removed nodes and their edges",
+                        "name": "compare",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -8402,6 +8408,12 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/flowhttp.graphResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
@@ -20124,6 +20136,68 @@
                 }
             }
         },
+        "/portal/scripts/{id}/runs/{runID}/flow": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the diagram of the version a run executed, with each step's part in that run: how many of the run's audited tool calls it made and how long they took, the outputs it wrote, whether the run reached it, and the step the run failed at. Calls are attributed by where in the script they were made; a call no step made (a computed tool, a call made before call sites were recorded) is listed in other_calls, so the steps' calls and other_calls always add up to calls. Readable by the script's owner, an administrator, and whoever requested the run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Draw a script run on its flow diagram",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "runID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/flowhttp.runFlowResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/schedule": {
             "get": {
                 "security": [
@@ -20612,6 +20686,64 @@
                 }
             }
         },
+        "/portal/scripts/{id}/thumbnail": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a script's tile as a PNG: its flow diagram, drawn from the latest version that parses, light or dark. 404 when the script has no tile yet, or its latest version does not parse, which the listing shows as a placeholder. Readable by everyone signed in, as the script is.",
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script's tile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "light (default) or dark",
+                        "name": "variant",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/validate": {
             "post": {
                 "security": [
@@ -20765,6 +20897,12 @@
                         "name": "version",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "An older version to compare with: the graph then marks each node added or changed (with what it said before), and carries the older version's removed nodes and their edges",
+                        "name": "compare",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -20772,6 +20910,12 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/flowhttp.graphResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -26659,6 +26803,13 @@
                     "type": "boolean",
                     "example": true
                 },
+                "call_site": {
+                    "description": "CallSite is where in a managed script this call was made (#1907): the\nsource position of every call on the script's stack, outermost first,\nas \"line:col\". Set only on a script's calls.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "connection": {
                     "type": "string",
                     "example": "acme-catalog"
@@ -28337,6 +28488,10 @@
         "flowhttp.graphResponse": {
             "type": "object",
             "properties": {
+                "compared_with": {
+                    "description": "ComparedWith is the older version this graph is compared against\n(#1908), zero when it is not a comparison.",
+                    "type": "integer"
+                },
                 "edges": {
                     "type": "array",
                     "items": {
@@ -28387,6 +28542,127 @@
                 "version": {
                     "type": "integer",
                     "example": 4
+                }
+            }
+        },
+        "flowhttp.runFlowResponse": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "description": "Calls is the run's audited tool calls, every one of them.",
+                    "type": "integer"
+                },
+                "calls_truncated": {
+                    "description": "CallsTruncated is true when the run made more calls than one overlay\nreads; the first ones are drawn.",
+                    "type": "boolean"
+                },
+                "cause": {
+                    "description": "Cause is why a failed run failed (script, upstream, memory, worker_lost,\nplatform, state_conflict), and Error its message.",
+                    "type": "string",
+                    "example": "upstream"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "failed_node": {
+                    "description": "FailedNode is the card the run failed at, empty when it did not fail at\na platform call (or did not fail).",
+                    "type": "string"
+                },
+                "graph": {
+                    "$ref": "#/definitions/scriptflow.Graph"
+                },
+                "nodes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/flowrun.NodeRun"
+                    }
+                },
+                "other_calls": {
+                    "description": "Other lists the audited calls no card made, so the calls on the diagram\nand Other always add up to the run's audited calls.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/flowrun.OtherCall"
+                    }
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "dpx_a1b2c3d4"
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "script_a1b2c3"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "failed"
+                },
+                "version": {
+                    "description": "Version is the version the run executed, whose diagram Graph is.",
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "flowrun.NodeRun": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "description": "Calls is the audited tool calls attributed to the card, and DurationMS\ntheir total time. ResponseChars is the size of what they answered.",
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "failed": {
+                    "description": "Failed is true on the card the run failed at, with Error its message.",
+                    "type": "boolean"
+                },
+                "failed_calls": {
+                    "description": "FailedCalls counts the card's calls that did not succeed, which a run\ncan outlive: a rate-limited call is refused and made again. The last\none's message is LastError.",
+                    "type": "integer"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "outputs": {
+                    "description": "Outputs, Rows and Bytes are what the card wrote, from the run's outputs.",
+                    "type": "integer"
+                },
+                "reached": {
+                    "description": "Reached is true when the run made the card's call at least once.",
+                    "type": "boolean"
+                },
+                "response_chars": {
+                    "type": "integer"
+                },
+                "rows": {
+                    "type": "integer"
+                }
+            }
+        },
+        "flowrun.OtherCall": {
+            "type": "object",
+            "properties": {
+                "call_site": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "tool": {
+                    "type": "string"
                 }
             }
         },
@@ -33094,6 +33370,13 @@
                 "bytes": {
                     "type": "integer"
                 },
+                "call_site": {
+                    "description": "CallSite is where in the script the call that wrote this output was\nmade (#1907): the source positions of the calls on the script's stack,\noutermost first. The Flow tab draws the output on the card that wrote it\nby it. Absent on outputs recorded before it existed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "destination": {
                     "description": "Destination is the named destination's name. It is empty on rows\nwritten before destinations existed, which Destination() reads as the\nportal.",
                     "type": "string"
@@ -33377,6 +33660,10 @@
         "scriptflow.Edge": {
             "type": "object",
             "properties": {
+                "change": {
+                    "description": "Change is \"removed\" on an edge of a compared graph that only the older\nversion had.",
+                    "type": "string"
+                },
                 "from": {
                     "type": "string"
                 },
@@ -33393,6 +33680,58 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "scriptflow.Graph": {
+            "type": "object",
+            "properties": {
+                "compared_with": {
+                    "description": "ComparedWith is the older version this graph is compared against\n(#1908), zero when it is not a comparison.",
+                    "type": "integer"
+                },
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Edge"
+                    }
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptrun.Finding"
+                    }
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Group"
+                    }
+                },
+                "lines": {
+                    "description": "Lines is the source's line count, for the reader's scale.",
+                    "type": "integer",
+                    "example": 136
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Node"
+                    }
+                },
+                "ok": {
+                    "description": "OK is false when the source does not parse or resolve. Findings then\nsays why, and the diagram is empty.",
+                    "type": "boolean"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Param"
+                    }
+                },
+                "truncated": {
+                    "description": "Truncated is true when the script expands into more steps than one\ndiagram draws; the graph holds the first ones.",
+                    "type": "boolean"
                 }
             }
         },
@@ -33429,6 +33768,17 @@
         "scriptflow.Node": {
             "type": "object",
             "properties": {
+                "call_site": {
+                    "description": "CallSite is the position of every call on the stack that makes this\nstep's call, outermost first, as \"line:col\": what a run records on the\nstep's audited calls and outputs (#1907), so a run is drawn on the card\nthat made each call.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "change": {
+                    "description": "Change and Was mark a node of a compared graph (#1908): added, changed\n(with what it said before) or removed (carried over from the older\nversion).",
+                    "type": "string"
+                },
                 "computed": {
                     "description": "Computed is true when what the step reaches is only known at run time;\nthe computed part is written as {its source} in the text above.",
                     "type": "boolean"
@@ -33486,6 +33836,9 @@
                     "type": "string",
                     "example": "Query warehouse"
                 },
+                "was": {
+                    "$ref": "#/definitions/scriptflow.Was"
+                },
                 "wrapper": {
                     "type": "string"
                 }
@@ -33513,6 +33866,26 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "scriptflow.Was": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "purpose": {
+                    "type": "string"
+                },
+                "subtitle": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },

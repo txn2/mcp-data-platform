@@ -65,3 +65,17 @@ describe("the layout a list is drawn in", () => {
     expect(() => storeViewMode("table", RESOURCE_VIEW_STORAGE_KEY)).not.toThrow();
   });
 });
+
+describe("a list with its own starting layout", () => {
+  it("opens as its fallback until a layout is stored, and as the stored one after", () => {
+    const store = new Map<string, string>();
+    withStorage(store);
+    expect(getStoredViewMode("script-view-mode", "table")).toBe("table");
+    storeViewMode("grid", "script-view-mode");
+    expect(getStoredViewMode("script-view-mode", "table")).toBe("grid");
+    store.set("script-view-mode", "garbage");
+    expect(getStoredViewMode("script-view-mode", "table")).toBe("table");
+    vi.stubGlobal("localStorage", undefined);
+    expect(getStoredViewMode("script-view-mode", "table")).toBe("table");
+  });
+});

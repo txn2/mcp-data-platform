@@ -87,6 +87,9 @@ type Graph struct {
 	// Truncated is true when the script expands into more steps than one
 	// diagram draws; the graph holds the first ones.
 	Truncated bool `json:"truncated"`
+	// ComparedWith is the older version this graph is compared against
+	// (#1908), zero when it is not a comparison.
+	ComparedWith int `json:"compared_with,omitempty"`
 }
 
 // Node is one step, or the run.state input.
@@ -115,6 +118,16 @@ type Node struct {
 	Wrapper string `json:"wrapper,omitempty"`
 	// Loops are the for statements the step repeats in, outermost first.
 	Loops []string `json:"loops"`
+	// CallSite is the position of every call on the stack that makes this
+	// step's call, outermost first, as "line:col": what a run records on the
+	// step's audited calls and outputs (#1907), so a run is drawn on the card
+	// that made each call.
+	CallSite []string `json:"call_site,omitempty"`
+	// Change and Was mark a node of a compared graph (#1908): added, changed
+	// (with what it said before) or removed (carried over from the older
+	// version).
+	Change string `json:"change,omitempty"`
+	Was    *Was   `json:"was,omitempty"`
 }
 
 // Edge is one value passed from a step to another, or the state saved for the
@@ -125,6 +138,9 @@ type Edge struct {
 	// Via names the functions that reshaped the value on the way.
 	Via  []string `json:"via"`
 	Kind string   `json:"kind" example:"data"`
+	// Change is "removed" on an edge of a compared graph that only the older
+	// version had.
+	Change string `json:"change,omitempty"`
 }
 
 // Group is a function box.
@@ -205,4 +221,19 @@ func errorsOf(findings []scriptrun.Finding) []scriptrun.Finding {
 		}
 	}
 	return out
+}
+
+// Change marks on a compared graph's nodes (#1908).
+const (
+	ChangeAdded   = "added"
+	ChangeChanged = "changed"
+	ChangeRemoved = "removed"
+)
+
+// Was is what a changed node said in the older version.
+type Was struct {
+	Title    string   `json:"title"`
+	Subtitle string   `json:"subtitle,omitempty"`
+	Purpose  string   `json:"purpose,omitempty"`
+	Detail   []string `json:"detail"`
 }

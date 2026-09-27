@@ -190,6 +190,7 @@ export function ScriptSourceEditor({
         <ScriptFlowView
           scriptId={scriptId}
           version={contract.version}
+          owned
           source={source}
           sourceSelection={link.selectedLines}
           onShowLines={link.showLines}

@@ -92,7 +92,7 @@ func refusalError(res *mcp.CallToolResult) error {
 // wall-clock time was never part of the determinism contract.
 func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, error) {
 	for retry := 0; ; {
-		out, err := h.opts.Caller.CallTool(h.ctx, tool, args)
+		out, err := h.opts.Caller.CallTool(h.callCtx(), tool, args)
 		var refusal *RefusalError
 		if err != nil && errors.As(err, &refusal) && refusal.Code == upstreamretry.CodeUnavailable {
 			// The upstream did not answer; the run it ends is not the script's.

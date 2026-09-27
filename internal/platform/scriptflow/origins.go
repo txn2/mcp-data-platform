@@ -92,6 +92,10 @@ type frame struct {
 	// folded into its step rather than drawn as a box.
 	wrapper string
 	site    int
+	// sites is the position of every call on the stack that led here,
+	// outermost first: what a run's thread reports at a call made in this
+	// frame (internal/scriptcallsite).
+	sites []string
 }
 
 func newFrame(fn string) *frame {

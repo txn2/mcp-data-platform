@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -290,7 +291,22 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditPar
 		EnrichmentMatchKind:   pc.EnrichmentMatchKind,
 		Authorized:            pc.Authorized,
 		EventKind:             string(audit.EventKindForToolkit(pc.ToolkitKind)),
+		CallSite:              scriptCallSite(pc, info.Request),
 	}
+}
+
+// scriptCallSite is where in a managed script a call was made (#1907), which
+// the script host sends in the request's _meta. It is read only on a script's
+// own calls: any other caller's _meta says nothing the platform recorded.
+func scriptCallSite(pc *PlatformContext, req mcp.Request) []string {
+	if pc.Source != SourceScript || req == nil {
+		return nil
+	}
+	params, ok := req.GetParams().(*mcp.CallToolParamsRaw)
+	if !ok || params == nil {
+		return nil
+	}
+	return scriptcallsite.FromMeta(params.Meta)
 }
 
 // extractMCPParameters extracts parameters from an MCP request.

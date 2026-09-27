@@ -29,6 +29,19 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDebounced } from "@/lib/useDebounced";
 import { ScriptRow } from "./ScriptRow";
+import { ScriptGrid } from "./ScriptGrid";
+import { LayoutGrid, List } from "lucide-react";
+import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
+import { SegmentedControl } from "@/components/patterns/SegmentedControl";
+
+// SCRIPT_VIEW_KEY keeps this listing's grid-or-list choice.
+const SCRIPT_VIEW_KEY = "script-view-mode";
+
+// VIEW_OPTIONS are the two layouts, as Collections offers them.
+const VIEW_OPTIONS = [
+  { value: "grid" as const, label: "Grid view", icon: LayoutGrid },
+  { value: "table" as const, label: "Table view", icon: List },
+];
 
 // ScriptListing is the scripts table and everything that narrows it, on both
 // surfaces: the scripts a person owns (#1290) and every script on the platform
@@ -77,6 +90,14 @@ const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "" };
 
 export function ScriptListing({ audience, basePath, onNavigate }: Props) {
   const state = useListingState(audience);
+  // Grid or list (#1909), remembered the way Assets and Collections remember
+  // it, under this listing's own key. The list is what this page has always
+  // been, so it is what a reader who has not chosen sees.
+  const [view, setView] = useState<ViewMode>(() => getStoredViewMode(SCRIPT_VIEW_KEY, "table"));
+  const chooseView = (mode: ViewMode) => {
+    setView(mode);
+    storeViewMode(mode, SCRIPT_VIEW_KEY);
+  };
 
   return (
     <div className="space-y-4">
@@ -104,8 +125,14 @@ export function ScriptListing({ audience, basePath, onNavigate }: Props) {
         onToggleFailing={state.toggleFailing}
       />
 
-      <SectionCard title={audience === "admin" ? "All automations" : "Automations"}>
+      <SectionCard
+        title={audience === "admin" ? "All automations" : "Automations"}
+        action={
+          <SegmentedControl label="Listing layout" value={view} onChange={chooseView} options={VIEW_OPTIONS} />
+        }
+      >
         <ScriptsSection
+          view={view}
           rows={state.shown}
           audience={audience}
           basePath={basePath}
@@ -423,7 +450,9 @@ function ScriptsSection({
   sort,
   onSort,
   onNavigate,
+  view,
 }: {
+  view: ViewMode;
   rows: PortalScriptRow[];
   audience: Audience;
   basePath: string;
@@ -438,6 +467,9 @@ function ScriptsSection({
   }
   if (rows.length === 0) {
     return <NothingToList audience={audience} narrowed={narrowed} />;
+  }
+  if (view === "grid") {
+    return <ScriptGrid rows={rows} basePath={basePath} onNavigate={onNavigate} />;
   }
   return (
     <Table>

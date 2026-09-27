@@ -13,11 +13,12 @@ export type ViewMode = "grid" | "table";
  * Defensive against environments without localStorage (jsdom/SSR); defaults to
  * the gallery, which is what a saved asset is recognised by.
  */
-export function getStoredViewMode(key: string = VIEW_STORAGE_KEY): ViewMode {
+export function getStoredViewMode(key: string = VIEW_STORAGE_KEY, fallback: ViewMode = "grid"): ViewMode {
   try {
-    return globalThis.localStorage?.getItem(key) === "table" ? "table" : "grid";
+    const stored = globalThis.localStorage?.getItem(key);
+    return stored === "table" || stored === "grid" ? stored : fallback;
   } catch {
-    return "grid";
+    return fallback;
   }
 }
 

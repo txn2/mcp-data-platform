@@ -92,6 +92,11 @@ type RunMetrics struct {
 // alone.
 type RunOutput struct {
 	Name string `json:"name"`
+	// CallSite is where in the script the call that wrote this output was
+	// made (#1907): the source positions of the calls on the script's stack,
+	// outermost first. The Flow tab draws the output on the card that wrote it
+	// by it. Absent on outputs recorded before it existed.
+	CallSite []string `json:"call_site,omitempty"`
 	// Tool names the tool that wrote this output when a platform.call of an
 	// export tool (trino_export, api_export) did, rather than platform.export
 	// (#1854). Empty for platform.export and platform.publish_data.

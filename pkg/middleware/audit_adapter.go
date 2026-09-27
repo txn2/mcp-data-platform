@@ -78,6 +78,7 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 
 	// Override timestamp from the event
 	auditEvent.Timestamp = event.Timestamp
+	auditEvent.CallSite = event.CallSite
 
 	// Keep the id the tool-call middleware minted, so the id the call already
 	// handed to its own caller (and to any asset that cited it as a source) is

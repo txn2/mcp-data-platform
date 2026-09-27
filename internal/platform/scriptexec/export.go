@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -204,6 +205,7 @@ func (w *outputWriter) changeSummary(prefix string) string {
 // record notes one written output on the run row and on this attempt. A
 // draft has no run row, and records only on the attempt.
 func (w *outputWriter) record(ctx context.Context, out script.RunOutput) {
+	out.CallSite = scriptcallsite.From(ctx)
 	if w.runs == nil {
 		w.run.Outputs = append(w.run.Outputs, out)
 		w.written[outputKey(out.Name, out.Destination)] = true

@@ -15,6 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -651,4 +652,21 @@ func TestOutputWriter_TagsStayWithinTheCap(t *testing.T) {
 	assert.Len(t, h.assets.updates[0].Tags, portaldomain.MaxTags)
 	h.writer.addTags(context.Background(), asset, []string{"t1"})
 	assert.Len(t, h.assets.updates, 1, "nothing new, no update")
+}
+
+// An output records where in the script the call that wrote it was made
+// (#1907): the call site the engine put on the export's context, which the
+// Flow tab draws the output on the right card by.
+func TestOutputWriter_RecordsTheCallSiteOfTheExport(t *testing.T) {
+	h := newWriterHarness(t)
+	ctx := scriptcallsite.With(context.Background(), []string{"12:5", "30:20"})
+	_, err := h.writer.Export(ctx, csvRequest("daily"))
+	require.NoError(t, err)
+	require.Len(t, h.runs.outputs, 1)
+	assert.Equal(t, []string{"12:5", "30:20"}, h.runs.outputs[0].CallSite)
+
+	_, err = h.writer.Export(context.Background(), csvRequest("weekly"))
+	require.NoError(t, err)
+	require.Len(t, h.runs.outputs, 2)
+	assert.Nil(t, h.runs.outputs[1].CallSite, "an export with no call site records none")
 }

@@ -224,3 +224,25 @@ func TestAssembleStartsTheCatalogSweeper(t *testing.T) {
 		t.Errorf("Close: %v", err)
 	}
 }
+
+// Reader is nil, not a nil pointer, wherever there is no store, so a surface
+// holding it as an interface can test it (#1907).
+func TestLayerReaderIsNilWithoutAStore(t *testing.T) {
+	var none *Layer
+	if none.Reader() != nil {
+		t.Error("a nil layer has a reader")
+	}
+	if (&Layer{}).Reader() != nil {
+		t.Error("a layer with no store has a reader")
+	}
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	layer := Assemble(Config{DB: db})
+	if layer.Reader() == nil {
+		t.Error("an assembled layer has no reader")
+	}
+	_ = layer.Close()
+}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,7 +40,7 @@ var selectColumns = []string{
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
 	"enrichment_mode", "enrichment_match_kind", "authorized",
-	"event_kind",
+	"event_kind", "call_site",
 }
 
 const (
@@ -137,6 +138,7 @@ func TestLog_Success(t *testing.T) {
 		event.EnrichmentMatchKind,
 		event.Authorized,
 		string(event.EventKind),
+		pq.Array(event.CallSite),
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -168,6 +170,7 @@ func TestLog_NilParameters(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		pq.Array(event.CallSite),
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -211,6 +214,7 @@ func testEventRows(mock sqlmock.Sqlmock, events ...audit.Event) {
 			event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 			event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 			string(event.EventKind),
+			nil,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -271,6 +275,7 @@ func TestQuery_AllFilters(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		nil,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
@@ -432,6 +437,7 @@ func TestScanEvent_AllFields(t *testing.T) {
 		event.EnrichmentMatchKind,
 		event.Authorized,
 		string(event.EventKind),
+		"{9:6,31:20}",
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -440,7 +446,9 @@ func TestScanEvent_AllFields(t *testing.T) {
 	require.Len(t, results, 1)
 
 	got := results[0]
+	event.CallSite = []string{"9:6", "31:20"}
 	assertEventEqual(t, event, got)
+	assert.Equal(t, []string{"9:6", "31:20"}, got.CallSite, "a script call's call site is read back")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -490,6 +498,7 @@ func TestScanEvent_CorruptParametersJSON(t *testing.T) {
 		event.EnrichmentMatchKind,
 		event.Authorized,
 		string(event.EventKind),
+		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -811,6 +820,7 @@ func TestQuery_MultipleRows(t *testing.T) {
 			ev.EnrichmentTokensFull, ev.EnrichmentTokensDedup,
 			ev.EnrichmentMode, ev.EnrichmentMatchKind, ev.Authorized,
 			string(ev.EventKind),
+			nil,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -846,6 +856,7 @@ func TestQuery_EmptyParameters(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -935,6 +946,7 @@ func TestQuery_IDFilter(t *testing.T) {
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
 		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		string(event.EventKind),
+		nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs("evt-specific").WillReturnRows(rows)
 

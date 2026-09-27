@@ -9,12 +9,15 @@
 package thumbwire
 
 import (
+	"context"
+	"database/sql"
 	"log"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttiles"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -31,6 +34,7 @@ type source interface {
 	PortalCollectionStore() portal.CollectionStore
 	ResourceStore() resource.Store
 	ResourceS3Client() resource.S3Client
+	DB() *sql.DB
 }
 
 // Build returns the tile worker, or nil when there is nothing to draw: no
@@ -41,6 +45,30 @@ func Build(p *platform.Platform, routes http.Handler) *thumbworker.Worker {
 		return nil
 	}
 	return assemble(p, routes, contentviewer.TileEntryURL())
+}
+
+// ScriptTiles is the reader a script's tile is served from (#1909): the tile
+// worker's record over the bucket it stores tiles in. Nil (not a nil pointer)
+// where there is no database or no portal storage, which leaves the route
+// unmounted.
+func ScriptTiles(p *platform.Platform) TileReader {
+	if p == nil {
+		return nil
+	}
+	return tileReader(p)
+}
+
+// TileReader reads one script's stored tile.
+type TileReader interface {
+	Tile(ctx context.Context, scriptID, variant string) (data []byte, current bool, err error)
+}
+
+// tileReader is ScriptTiles over the part of the platform it reads.
+func tileReader(p source) TileReader {
+	if p.DB() == nil || p.PortalS3Client() == nil {
+		return nil
+	}
+	return scripttiles.NewReader(scripttiles.NewPostgres(p.DB()), p.PortalS3Client(), p.Config().Portal.S3Bucket)
 }
 
 // assemble is Build over the part of the platform it reads.
@@ -86,6 +114,9 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	}
 	if collections, ok := p.PortalCollectionStore().(thumbworker.CollectionWork); ok {
 		deps.Collections = collections
+	}
+	if db := p.DB(); db != nil {
+		deps.Scripts = scripttiles.NewPostgres(db)
 	}
 	if resources, ok := p.ResourceStore().(resource.ThumbnailWork); ok && p.ResourceS3Client() != nil {
 		deps.Resources = resources

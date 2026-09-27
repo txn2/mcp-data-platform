@@ -91,6 +91,52 @@ export async function openScriptFlow(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
+/**
+ * openScriptRunFlow draws the failed run of the fixture script on its
+ * diagram (#1907): the card it failed at in the error color, the step after it
+ * dimmed as never reached, and the panel naming the cause.
+ */
+export async function openScriptRunFlow(page: Page): Promise<void> {
+  await page.getByTestId("flow-canvas").waitFor({ timeout: 5_000 });
+  await page.getByRole("combobox", { name: "Run drawn on the diagram" }).click({ timeout: 3_000 });
+  await page.getByRole("option", { name: /failed/ }).first().click({ timeout: 3_000 });
+  await page.locator('[data-failed="true"]').waitFor({ timeout: 5_000 });
+  await page.getByTestId("script-code").scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollBy(0, -72));
+  await page.waitForTimeout(600);
+}
+
+/**
+ * openScriptCompare compares the older version with the one that runs
+ * (#1908), from its row in the version history: the diagram with what was
+ * added marked, and the panel counting the changes.
+ */
+export async function openScriptCompare(page: Page): Promise<void> {
+  await openSourceTab(page);
+  await page.getByRole("button", { name: /Version history/ }).click({ timeout: 3_000 });
+  await page.getByRole("button", { name: /^Compare with v\d+$/ }).first().click({ timeout: 3_000 });
+  const compare = page.getByTestId("version-compare");
+  await compare.getByTestId("flow-compare-summary").waitFor({ timeout: 5_000 });
+  await compare.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+}
+
+/**
+ * openScriptGrid shows the listing as a grid (#1909), each script's tile its
+ * flow diagram as the tile worker drew it.
+ */
+export async function openScriptGrid(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Grid view" }).click({ timeout: 3_000 });
+  await page.getByTestId("script-grid").waitFor({ timeout: 3_000 });
+  // Every tile loaded, so none is captured as its placeholder.
+  await page.waitForFunction(() =>
+    Array.from(document.querySelectorAll<HTMLImageElement>('[data-testid="script-grid"] img')).every(
+      (img) => img.complete,
+    ),
+  );
+  await page.waitForTimeout(400);
+}
+
 async function bindRunParameters(page: Page): Promise<void> {
   await page
     .locator("#script-param-run-report_date")

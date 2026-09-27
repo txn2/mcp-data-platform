@@ -2,12 +2,15 @@ package thumbwire
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -116,6 +119,7 @@ type fakeSource struct {
 	collections portal.CollectionStore
 	resources   resource.Store
 	resBlobs    resource.S3Client
+	db          *sql.DB
 }
 
 func (f *fakeSource) Config() *platform.Config                      { return &f.cfg }
@@ -140,6 +144,8 @@ func answeringRenderer(t *testing.T) string {
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
+
+func (f *fakeSource) DB() *sql.DB { return f.db }
 
 // With every store present, the worker draws in the configured renderer and
 // asks each of the three stores for work.
@@ -238,4 +244,29 @@ func TestBuild_NoWorkerWithoutSomethingToDraw(t *testing.T) {
 	none := Build(nil, nil)
 	none.Start(context.Background())
 	none.Stop()
+}
+
+// A script's tile is read where there is a database to find its record in and
+// storage to read it from, and nowhere else (#1909).
+func TestScriptTiles_NeedsTheDatabaseAndTheStorage(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if ScriptTiles(nil) != nil {
+		t.Error("no platform reads a tile")
+	}
+	if ScriptTiles(&platform.Platform{}) != nil {
+		t.Error("a platform with no database reads no tile")
+	}
+	if tileReader(&fakeSource{assetBlobs: blobs{}}) != nil {
+		t.Error("no database reads a tile")
+	}
+	if tileReader(&fakeSource{db: db}) != nil {
+		t.Error("no storage reads a tile")
+	}
+	if tileReader(&fakeSource{db: db, assetBlobs: blobs{}}) == nil {
+		t.Error("a database and storage read the tile")
+	}
 }

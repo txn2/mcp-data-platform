@@ -4,7 +4,8 @@ import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptGrant, ScriptSchedule } from "@/api/portal/hooks/scripts";
 import { buildMockScheduleTimeline } from "../data/scheduleTimeline";
-import { mockScriptFlows } from "../data/scriptFlows";
+import { mockRunFlows, mockScriptFlows } from "../data/scriptFlows";
+import { mockScriptTiles } from "../data/scriptTiles";
 import {
   MOCK_SCRIPTS_NOW,
   mockBindableConnections,
@@ -777,14 +778,44 @@ export const scriptHandlers = [
   // edit saved during a session) is not found, as it would be for a version
   // that does not exist.
   ...[PORTAL_BASE, ADMIN_BASE].map((base) =>
-    http.get(`${base}/scripts/:id/versions/:version/graph`, ({ params }) => {
-      const graph = mockScriptFlows[`${params.id}:${params.version}`];
+    http.get(`${base}/scripts/:id/versions/:version/graph`, ({ params, request }) => {
+      // A comparison (#1908) is the route's own answer for the pair, where the
+      // fixtures carry one; otherwise the version's graph stands in with
+      // nothing marked, as the route answers two versions that reach the same.
+      const compare = new URL(request.url).searchParams.get("compare");
+      const key = `${params.id}:${params.version}`;
+      const graph = (compare && mockScriptFlows[`${key}:compare:${compare}`]) || mockScriptFlows[key];
       if (!graph) {
         return HttpResponse.json({ detail: "version not found" }, { status: 404 });
       }
-      return HttpResponse.json(graph);
+      return HttpResponse.json(compare ? { ...graph, compared_with: Number(compare) } : graph);
     }),
   ),
+
+  // A run drawn on its version's diagram (#1907). A run the fixtures do not
+  // draw is drawn with no calls, which is what a run before call sites were
+  // recorded reads as.
+  http.get(`${PORTAL_BASE}/scripts/:id/runs/:runID/flow`, ({ params }) => {
+    const run = (mockScriptRuns[String(params.id)] ?? []).find((r) => r.id === params.runID);
+    if (!run) return HttpResponse.json({ detail: "run not found" }, { status: 404 });
+    const graph = mockScriptFlows[`${params.id}:${run.version}`];
+    if (!graph) return HttpResponse.json({ detail: "version not found" }, { status: 404 });
+    const drawn = mockRunFlows[run.id] ?? {
+      script_id: String(params.id), run_id: run.id, version: run.version, status: run.status,
+      nodes: {}, other_calls: [], calls: 0, calls_truncated: false,
+    };
+    return HttpResponse.json({ ...drawn, graph });
+  }),
+
+  // A script's tile (#1909): its flow diagram as the tile worker drew it.
+  // The PNG is the dev server's own asset, so the tile route answers with
+  // where it is rather than fetching it from inside the worker.
+  http.get(`${PORTAL_BASE}/scripts/:id/thumbnail`, ({ params, request }) => {
+    const dark = new URL(request.url).searchParams.get("variant") === "dark";
+    const url = mockScriptTiles[`${params.id}${dark ? "-dark" : ""}`];
+    if (!url) return new HttpResponse(null, { status: 404 });
+    return HttpResponse.redirect(new URL(url, request.url).href, 302);
+  }),
 
   // The owner's cadence controls (#1307). They mutate the fixture in place, so
   // saving a cadence and then pausing it behaves as it does against the server

@@ -74,7 +74,7 @@ export function ScriptRow({
 // every healthy script and therefore not one worth a column. What a reader
 // scans a listing for is the exception, and the version a run executes is on
 // the script's own page.
-function InertBadge({ row }: { row: PortalScriptRow }) {
+export function InertBadge({ row }: { row: PortalScriptRow }) {
   const { script } = row;
   if (script.enabled && script.status === "active") return null;
   return <Badge variant="muted">{script.enabled ? script.status : "disabled"}</Badge>;
@@ -86,7 +86,7 @@ function InertBadge({ row }: { row: PortalScriptRow }) {
 // answer to that question for the person whose report it is — so this column
 // never shows one (#1405), and the editor is where an expression is read and
 // written.
-function ScheduleCell({ row }: { row: PortalScriptRow }) {
+export function ScheduleCell({ row }: { row: PortalScriptRow }) {
   const { schedule } = row;
   if (!schedule) {
     return <span className="text-xs text-muted-foreground">On demand</span>;
@@ -117,7 +117,7 @@ function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): strin
 // LastRunCell reports the most recent run. A script the caller does not own
 // carries none: a run is the owner's and the administrator's reading, and so is
 // the fact that one failed.
-function LastRunCell({ row }: { row: PortalScriptRow }) {
+export function LastRunCell({ row }: { row: PortalScriptRow }) {
   if (!row.owned) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }

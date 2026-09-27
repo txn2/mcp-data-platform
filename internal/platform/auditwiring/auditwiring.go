@@ -95,6 +95,18 @@ func (l *Layer) Logger() middleware.AuditLogger {
 	return l.logger
 }
 
+// Reader is the audit log's read half, nil (not a nil pointer) when there is
+// no store: a surface that holds it as an interface can test it for nil. The
+// Flow tab reads a run's calls through it (#1907).
+func (l *Layer) Reader() interface {
+	Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error)
+} {
+	if l == nil || l.store == nil {
+		return nil
+	}
+	return l.store
+}
+
 // Store is the audit log itself, read by the admin surfaces, the session read
 // model and provenance capture. Nil when there is no database.
 func (l *Layer) Store() *auditpostgres.Store {

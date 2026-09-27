@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
 
 	"go.starlark.net/starlark"
@@ -186,6 +187,16 @@ type hostState struct {
 	// appended are the outputs the run appends to with append=True, in the
 	// order they were started; each is written once, when the run succeeds.
 	appended []*ExportRequest
+	// site is where in the script the host call in progress was made (#1907),
+	// carried on everything that call records.
+	site []string
+}
+
+// callCtx is the run's context carrying the call site of the host call in
+// progress, so the audit row of a tool call and the output record of an
+// export say which step of the flow graph made them.
+func (h *hostState) callCtx() context.Context {
+	return scriptcallsite.With(h.ctx, h.site)
 }
 
 // hostFunc is the signature of a host binding.
@@ -201,6 +212,7 @@ func (h *hostState) guarded(fn hostFunc) hostFunc {
 		if err := h.mem.Check(thread, b.Name()); err != nil {
 			return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
 		}
+		h.site = scriptcallsite.Of(thread)
 		v, err := fn(thread, b, args, kwargs)
 		if err != nil {
 			return nil, err
@@ -765,7 +777,7 @@ func (h *hostState) persistOrPreviewPublish(b *starlark.Builtin, req PublishRequ
 	}
 	return h.finishRecord(b, record,
 		func() ([]byte, error) { return FormatDataPayload(req.Name, req.Data) },
-		func() (*ExportResult, error) { return h.opts.Exporter.PublishData(h.ctx, req) })
+		func() (*ExportResult, error) { return h.opts.Exporter.PublishData(h.callCtx(), req) })
 }
 
 // finishRecord completes one output record by the preview-or-persist rule every
@@ -1065,7 +1077,7 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 	}
 	return h.finishRecord(b, record,
 		func() ([]byte, error) { data, _, err := FormatOutput(req); return data, err },
-		func() (*ExportResult, error) { return h.opts.Exporter.Export(h.ctx, req) })
+		func() (*ExportResult, error) { return h.opts.Exporter.Export(h.callCtx(), req) })
 }
 
 // truncated reports whether the query tool says it stopped short of the full

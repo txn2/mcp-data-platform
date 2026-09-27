@@ -210,7 +210,13 @@ internal/httpserver/scripthttp/fireshttp -> internal/httpjson
 internal/httpserver/scripthttp/fireshttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp/fireshttp -> pkg/script
 internal/httpserver/scripthttp/flowhttp -> internal/httpjson
+internal/httpserver/scripthttp/flowhttp -> internal/httpserver/scripthttp
 internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow
+internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow/flowcompare
+internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow/flowrun
+internal/httpserver/scripthttp/flowhttp -> internal/platform/scripttiles
+internal/httpserver/scripthttp/flowhttp -> pkg/audit
+internal/httpserver/scripthttp/flowhttp -> pkg/blobserve
 internal/httpserver/scripthttp/flowhttp -> pkg/script
 internal/httpserver/scripthttp/granthttp -> internal/httpjson
 internal/httpserver/scripthttp/granthttp -> internal/logsan
@@ -234,6 +240,7 @@ internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/thumbwire -> internal/contentviewer
 internal/httpserver/thumbwire -> internal/egressguard
 internal/httpserver/thumbwire -> internal/headless
+internal/httpserver/thumbwire -> internal/platform/scripttiles
 internal/httpserver/thumbwire -> internal/platform/thumbworker
 internal/httpserver/thumbwire -> internal/portal/assetrefs
 internal/httpserver/thumbwire -> pkg/platform
@@ -550,6 +557,7 @@ internal/platform/scriptexec -> internal/platform/scriptstore
 internal/platform/scriptexec -> internal/portal/portaldomain
 internal/platform/scriptexec -> internal/producedby
 internal/platform/scriptexec -> internal/runstate
+internal/platform/scriptexec -> internal/scriptcallsite
 internal/platform/scriptexec -> pkg/audit
 internal/platform/scriptexec -> pkg/contenttype
 internal/platform/scriptexec -> pkg/middleware
@@ -564,6 +572,10 @@ internal/platform/scriptexec -> pkg/toolkit
 internal/platform/scriptflow -> internal/platform/scriptrun
 internal/platform/scriptflow -> internal/scriptconst
 internal/platform/scriptflow -> internal/sqltables
+internal/platform/scriptflow/flowcompare -> internal/platform/scriptflow
+internal/platform/scriptflow/flowrun -> internal/platform/scriptflow
+internal/platform/scriptflow/flowrun -> internal/scriptcallsite
+internal/platform/scriptflow/flowrun -> pkg/script
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptindex -> pkg/indexjobs
@@ -605,6 +617,7 @@ internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> internal/portal/contentrefs
+internal/platform/scriptrun -> internal/scriptcallsite
 internal/platform/scriptrun -> internal/scriptconst
 internal/platform/scriptrun -> internal/scriptdate
 internal/platform/scriptrun -> internal/scriptdest
@@ -681,6 +694,8 @@ internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/tableregister/regstore -> internal/platform/tableregister
 internal/platform/thumbworker -> internal/headless
 internal/platform/thumbworker -> internal/logsan
+internal/platform/thumbworker -> internal/platform/scriptflow
+internal/platform/thumbworker -> internal/platform/scripttiles
 internal/platform/thumbworker -> internal/portal/assetrefs
 internal/platform/thumbworker -> internal/portal/portaldomain
 internal/platform/thumbworker -> internal/portal/viewerlimit
@@ -932,6 +947,7 @@ pkg/knowledge/federation -> pkg/toolkits/graphql
 pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
 pkg/middleware -> internal/producedby
+pkg/middleware -> internal/scriptcallsite
 pkg/middleware -> internal/sqltables
 pkg/middleware -> internal/tableavail
 pkg/middleware -> internal/upstreamretry

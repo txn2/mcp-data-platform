@@ -148,6 +148,11 @@ type Deps struct {
 	ResourceBlobs  Blobs
 	ResourceBucket string
 
+	// Scripts is the script tile store (#1909). A script's tile is its flow
+	// diagram, stored beside the collection mosaics in AssetBlobs under
+	// CollectionBucket and CollectionPrefix.
+	Scripts ScriptWork
+
 	// Routes is the platform's own HTTP routes. The page a tile is drawn from
 	// loads the viewer's chunks, the served slide runtime and a document's
 	// declared references from the platform, and those requests are answered
@@ -227,7 +232,8 @@ func (w *Worker) pass(ctx context.Context) bool {
 	assets := w.drawBatch(ctx, w.claimAssets(ctx))
 	resources := w.drawBatch(ctx, w.claimResources(ctx))
 	collections := w.drawBatch(ctx, w.claimCollections(ctx))
-	return assets || resources || collections
+	scripts := w.drawBatch(ctx, w.claimScripts(ctx))
+	return assets || resources || collections || scripts
 }
 
 // claimAssets claims one batch of assets.

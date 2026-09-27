@@ -4,8 +4,10 @@ import { usePortalScriptVersions } from "@/api/portal/hooks/scripts";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptVersion } from "@/api/admin/types";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { SourceView } from "./DiffView";
 import { formatWhen } from "./runFormat";
+import { ScriptVersionCompare } from "./ScriptVersionCompare";
 
 // ScriptVersionHistory is what has been written: every version with its
 // author, and for the owner and an administrator the roles that author held,
@@ -65,8 +67,11 @@ function VersionList({
 }) {
   const { data, isLoading, error } = usePortalScriptVersions(scriptId, true);
   const [openVersion, setOpenVersion] = useState<number | null>(null);
+  const [compareVersion, setCompareVersion] = useState<number | null>(null);
 
   const versions = data?.data ?? [];
+  const running = versions.find((v) => v.version === contract.version);
+  const comparing = versions.find((v) => v.version === compareVersion);
 
   return (
     <div className="px-3 pb-3">
@@ -88,10 +93,24 @@ function VersionList({
               executing={v.version === contract.version}
               open={openVersion === v.version}
               onToggle={() => setOpenVersion(openVersion === v.version ? null : v.version)}
+              compareWith={running && v.version < running.version ? running.version : undefined}
+              comparing={compareVersion === v.version}
+              onCompare={() => setCompareVersion(compareVersion === v.version ? null : v.version)}
             />
           </li>
         ))}
       </ul>
+      {/* An older version set against the version that runs (#1908). */}
+      {comparing && running && (
+        <div className="mt-3">
+          <ScriptVersionCompare
+            scriptId={scriptId}
+            from={comparing}
+            to={running}
+            onClose={() => setCompareVersion(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -102,12 +121,20 @@ function VersionRow({
   executing,
   open,
   onToggle,
+  compareWith,
+  comparing,
+  onCompare,
 }: {
   version: ScriptVersion;
   owned: boolean;
   executing: boolean;
   open: boolean;
   onToggle: () => void;
+  /** compareWith is the version that runs, offered as the comparison for an
+   * older version; absent on the version that runs. */
+  compareWith?: number;
+  comparing: boolean;
+  onCompare: () => void;
 }) {
   return (
     <>
@@ -142,7 +169,22 @@ function VersionRow({
             written by {version.author || "unknown"} on {formatWhen(version.created_at)}
           </div>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          {compareWith !== undefined && (
+            <Button
+              type="button"
+              variant={comparing ? "secondary" : "outline"}
+              size="xs"
+              aria-pressed={comparing}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCompare();
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              Compare with v{compareWith}
+            </Button>
+          )}
           {open ? "Hide source" : "Source"}
         </span>
       </div>

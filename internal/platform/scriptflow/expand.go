@@ -2,6 +2,7 @@ package scriptflow
 
 import (
 	"fmt"
+	"slices"
 
 	"go.starlark.net/syntax"
 )
@@ -22,6 +23,7 @@ func (a *analyzer) invoke(caller *frame, d *syntax.DefStmt, c *syntax.CallExpr) 
 		return a.argOrigins(caller, c)
 	}
 	fr := a.calleeFrame(caller, name, int(c.Lparen.Line))
+	fr.sites = append(slices.Clone(caller.sites), position(c.Lparen))
 	a.bindParams(caller, fr, d, c)
 	a.stack = append(a.stack, fr)
 	a.stmts(fr, d.Body)

@@ -891,21 +891,21 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/runs/{runID} [get]
 func (h *Handler) portalGetRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	run, ok := h.readableRun(w, r, user)
+	run, ok := h.ReadableRun(w, r, user)
 	if !ok {
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, detailRun(run))
 }
 
-// readableRun reads the run in the path for a caller entitled to it, or
+// ReadableRun reads the run in the path for a caller entitled to it, or
 // writes the refusal. A run id is unguessable, but unguessable is not an
 // authorization rule: the run must belong to the script in the path, and the
 // caller must be the script's owner, an administrator, or whoever asked for
 // this particular run -- the result was handed to them when they requested
 // it, so a run they cannot re-read is an id they cannot follow. Reading and
 // canceling a run answer to the same rule (#1847).
-func (h *Handler) readableRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) (*script.Run, bool) {
+func (h *Handler) ReadableRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) (*script.Run, bool) {
 	sc, err := h.deps.Scripts.GetByID(r.Context(), r.PathValue(pathID))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, errGetScript)

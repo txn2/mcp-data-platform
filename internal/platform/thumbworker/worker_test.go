@@ -56,6 +56,7 @@ type fakeBlobs struct {
 	deleted []string
 	getErr  error
 	putErr  error
+	delErr  error
 }
 
 func newBlobs() *fakeBlobs { return &fakeBlobs{objects: map[string][]byte{}} }
@@ -86,6 +87,9 @@ func (b *fakeBlobs) PutObject(_ context.Context, bucket, key string, data []byte
 func (b *fakeBlobs) DeleteObject(_ context.Context, bucket, key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.delErr != nil {
+		return b.delErr
+	}
 	b.deleted = append(b.deleted, bucket+"/"+key)
 	delete(b.objects, bucket+"/"+key)
 	return nil

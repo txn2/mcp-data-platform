@@ -2,11 +2,14 @@ package scriptrun
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 )
 
 // TestSessionCaller_TextOnlyResultIsParsed covers the fallback for a tool that
@@ -149,4 +152,34 @@ func TestSessionCaller_DeclaresReadOnlyOnAClosedSession(t *testing.T) {
 	readOnly, known := (&SessionCaller{session: session}).DeclaresReadOnly(ctx, "anything")
 	assert.False(t, known)
 	assert.False(t, readOnly)
+}
+
+// A call made with a call site on its context carries it to the server in the
+// request's _meta (#1907), which is where the audit middleware reads it.
+func TestSessionCaller_SendsTheCallSite(t *testing.T) {
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	var got []mcp.Meta
+	server.AddTool(&mcp.Tool{Name: "trino_query", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			got = append(got, req.Params.Meta)
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "{}"}}}, nil
+		})
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSession.Close() }()
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+	caller := &SessionCaller{session: session}
+
+	_, err = caller.CallTool(scriptcallsite.With(ctx, []string{"9:6", "22:20"}), "trino_query", map[string]any{})
+	require.NoError(t, err)
+	_, err = caller.CallTool(ctx, "trino_query", map[string]any{})
+	require.NoError(t, err)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, []string{"9:6", "22:20"}, scriptcallsite.FromMeta(got[0]))
+	assert.Nil(t, scriptcallsite.FromMeta(got[1]), "a call with no site sends none")
 }

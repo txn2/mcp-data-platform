@@ -397,3 +397,39 @@ describe("ScriptListing: the administrator's reading", () => {
     expect(screen.queryByRole("tab", { name: "Mine" })).not.toBeInTheDocument();
   });
 });
+
+// #1909: the listing offers a grid whose tiles are each script's flow diagram,
+// beside the list it has always been, and remembers the choice.
+describe("ScriptListing: grid and list", () => {
+  it("opens as the list, switches to the grid, and keeps the choice across a reload", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      clear: () => store.clear(),
+    });
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+    expect(screen.getByRole("columnheader", { name: "Kind" })).toBeInTheDocument();
+    expect(screen.queryByTestId("script-grid")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    const card = screen.getByTestId("script-card-script-001");
+    expect(card).toHaveTextContent("Daily Sales Report");
+    expect(card).toHaveTextContent("Every weekday");
+    expect(document.querySelector('img[src*="/api/v1/portal/scripts/script-001/thumbnail?v=2"]')).not.toBeNull();
+
+    cleanup();
+    list();
+    expect(screen.getByTestId("script-grid")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Daily Sales Report/ }));
+    expect(onNavigate).toHaveBeenCalledWith(expect.stringContaining("/script-001"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Table view" }));
+    cleanup();
+    list();
+    expect(screen.queryByTestId("script-grid")).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+});

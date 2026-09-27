@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 )
 
 // SessionCaller issues a script's platform calls over one in-memory MCP session
@@ -61,7 +63,12 @@ func Connect(ctx context.Context, server *mcp.Server, label string) (Caller, fun
 // *RefusalError, so the engine can pace a rate-limit refusal; the error's text
 // is the result's own either way.
 func (c *SessionCaller) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
-	res, err := c.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	params := &mcp.CallToolParams{Name: name, Arguments: args}
+	// Where in the script the call was made (#1907), for the audit row.
+	if site := scriptcallsite.From(ctx); site != nil {
+		params.Meta = mcp.Meta{scriptcallsite.MetaKey: site}
+	}
+	res, err := c.session.CallTool(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("calling %s: %w", name, err)
 	}
