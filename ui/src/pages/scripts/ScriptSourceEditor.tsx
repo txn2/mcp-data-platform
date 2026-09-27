@@ -13,12 +13,13 @@ import type {
   ScriptParam,
   ScriptValidation,
 } from "@/api/portal/hooks/scripts";
-import { SectionCard } from "@/components/patterns/SectionCard";
 import { SourceEditor } from "@/components/SourceEditor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { CT } from "@/lib/contentType";
+import { ScriptFlowView } from "./flow/ScriptFlowView";
+import { ScriptCodeCard } from "./ScriptCodeCard";
 import { DryRunReport, ValidationReport } from "./ScriptDraftChecks";
 import {
   boundParams,
@@ -162,8 +163,7 @@ export function ScriptSourceEditor({
   };
 
   return (
-    <SectionCard
-      title="Source"
+    <ScriptCodeCard
       action={
         <EditorActions
           busy={busy}
@@ -184,44 +184,58 @@ export function ScriptSourceEditor({
           onSave={submit}
         />
       }
-    >
-      <div className="space-y-3">
-        <SaveNotice
-          runnable={!contract.refusal}
+      // The diagram is of the saved version, the one that runs: an unsaved
+      // edit is drawn once it is saved.
+      flow={(link) => (
+        <ScriptFlowView
+          scriptId={scriptId}
           version={contract.version}
-          changed={changed}
+          source={source}
+          sourceSelection={link.selectedLines}
+          onShowLines={link.showLines}
         />
+      )}
+      source={(link) => (
+        <div className="space-y-3">
+          <SaveNotice
+            runnable={!contract.refusal}
+            version={contract.version}
+            changed={changed}
+          />
 
-        <SourceEditor
-          content={current}
-          contentType={CT.python}
-          fileName={`${contract.name}.star`}
-          onChange={(value) => setDraft(value)}
-        />
+          <SourceEditor
+            content={current}
+            contentType={CT.python}
+            fileName={`${contract.name}.star`}
+            onChange={(value) => setDraft(value)}
+            markedLines={link.markedLines}
+            onSelectLines={link.onSelectLines}
+          />
 
-        <RunParams
-          params={params}
-          values={values}
-          disabled={busy}
-          connections={connections?.data}
-          onChange={(name, value) => setValues({ ...values, [name]: value })}
-        />
+          <RunParams
+            params={params}
+            values={values}
+            disabled={busy}
+            connections={connections?.data}
+            onChange={(name, value) => setValues({ ...values, [name]: value })}
+          />
 
-        <AllowWrites
-          checked={allowWrites}
-          disabled={busy}
-          onChange={setAllowWrites}
-        />
+          <AllowWrites
+            checked={allowWrites}
+            disabled={busy}
+            onChange={setAllowWrites}
+          />
 
-        <EditorResults
-          results={results}
-          changed={changed}
-          contract={contract}
-        />
+          <EditorResults
+            results={results}
+            changed={changed}
+            contract={contract}
+          />
 
-        <ScriptVersionHistory scriptId={scriptId} contract={contract} />
-      </div>
-    </SectionCard>
+          <ScriptVersionHistory scriptId={scriptId} contract={contract} />
+        </div>
+      )}
+    />
   );
 }
 

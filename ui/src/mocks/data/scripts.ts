@@ -56,6 +56,51 @@ platform.export(
 )
 `;
 
+// A nightly loader with the shape the Flow tab (#1906) exists for: a function
+// per stage, a one-call helper used twice, a loop, a table registered over an
+// export, a notification, and state carried to the next run.
+export const ordersLoadSource = `# Nightly orders load: stage each day's orders, look up the customers behind
+# them, and publish a summary for the sales dashboard.
+
+WAREHOUSE = "acme-warehouse"
+CRM = "acme-crm"
+
+def crm(path, why):
+    return platform.call("api_invoke_endpoint", {
+        "connection": CRM,
+        "method": "GET",
+        "path": path,
+        "purpose": "Orders load: " + why,
+    })
+
+# Stage one day's orders as a JSON-lines file with a table over it.
+def stage(day):
+    rows = platform.query("SELECT id, customer_id, total FROM sales.orders WHERE order_date = '" + day + "'",
+                          connection=WAREHOUSE)
+    customers = crm("/v2/customers", "look up the customers who ordered on this day.")
+    joined = [dict(r, customer=customers["rows"]) for r in rows["rows"]]
+    platform.export("orders-" + day, joined, format="jsonl", destination="resources",
+                    key="orders/" + day + ".jsonl",
+                    register={"connection": WAREHOUSE, "table_name": "staged_orders"})
+    return joined
+
+# Summarize the staged days and refresh the dashboard.
+def summarize(days):
+    totals = platform.query("SELECT order_date, sum(total) AS total FROM sales.orders GROUP BY order_date",
+                            connection=WAREHOUSE)
+    regions = crm("/v2/regions", "read the region each customer belongs to.")
+    platform.export("orders-summary", totals["rows"] + regions["rows"], format="html")
+    platform.notify("sales", "Orders loaded", body=str(len(days)) + " days")
+
+since = run.state.get("last_day", run.params.get("start", "2026-08-01"))
+days = [since]
+for day in days:
+    stage(day)
+if run.params.get("summary", True):
+    summarize(days)
+platform.save_state({"last_day": days[-1]})
+`;
+
 // A real script description is a document rather than a caption (#1369): what
 // it produces, what its parameters mean, and what it assumes about the data. It
 // is markdown, and the script page renders it as markdown.
@@ -118,6 +163,19 @@ export const mockScripts: Script[] = [
     category: "finance",
     tags: ["margins"],
     updated_at: daysAgo(1),
+  },
+  {
+    id: "script-005",
+    name: "nightly-orders-load",
+    display_name: "Nightly Orders Load",
+    description: "Stages each day's orders with the customers behind them, and refreshes the sales summary.",
+    owner_email: "sarah.chen@example.com",
+    status: "active",
+    enabled: true,
+    version: 1,
+    category: "ingestion",
+    tags: ["sales", "orders"],
+    updated_at: daysAgo(2),
   },
   {
     id: "script-003",
@@ -187,6 +245,20 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
       author_roles: ["analyst"],
       status: "applied",
       created_at: daysAgo(1),
+    },
+  ],
+  "script-005": [
+    {
+      id: "sver-005-v1",
+      script_id: "script-005",
+      version: 1,
+      display_name: "Nightly Orders Load",
+      description: "Stages each day's orders and refreshes the sales summary.",
+      source: ordersLoadSource,
+      author: "sarah.chen@example.com",
+      author_roles: ["analyst"],
+      status: "applied",
+      created_at: daysAgo(2),
     },
   ],
   "script-003": [
@@ -776,6 +848,23 @@ export const mockScriptContracts: Record<string, ScriptContract> = {
     enabled: true,
     params: [],
     version: 1,
+  },
+  "script-005": {
+    id: "script-005",
+    name: "nightly-orders-load",
+    display_name: "Nightly Orders Load",
+    description: "Stages each day's orders with the customers behind them, and refreshes the sales summary.",
+    owner_email: "sarah.chen@example.com",
+    category: "ingestion",
+    tags: ["sales", "orders"],
+    status: "active",
+    enabled: true,
+    params: [
+      { name: "start", type: "date", description: "The first day to load when nothing has been saved yet.", required: false, default: "2026-08-01" },
+      { name: "summary", type: "boolean", description: "Refresh the sales summary after staging.", required: false, default: true },
+    ],
+    version: 1,
+    state: { reads_state: true, saves_state: true, revision: 0 },
   },
   "script-003": {
     id: "script-003",

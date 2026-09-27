@@ -86,7 +86,6 @@ test.describe("Portal script pages", () => {
       "Details",
       "Schedule",
       "About",
-      "Source",
       "Run history",
       "Files written (4)",
       "State",
@@ -104,7 +103,10 @@ test.describe("Portal script pages", () => {
       page.locator("#script-param-schedule-report_date"),
     ).toHaveValue("${fire_date}");
 
-    // The version that runs is the text in the editor, without a click.
+    // The code opens as the work it does (#1906): the export is a card on the
+    // diagram, and the version that runs is the text on the Source tab.
+    await expect(page.getByRole("button", { name: "Output: Export CSV to portal" })).toBeVisible();
+    await openSource(page);
     await expect(page.getByText(/platform\.export/).first()).toBeVisible();
 
     // Every terminal state a run can end in.
@@ -217,11 +219,10 @@ test.describe("Portal script pages", () => {
       .getByRole("row")
       .filter({ hasText: "Daily Sales Report" })
       .click();
+    await openSource(page);
 
     // Run sits beside Dry run, over the one parameter form they both bind.
-    const source = page.locator("div[data-slot=card]").filter({
-      has: page.getByRole("heading", { name: "Source" }),
-    });
+    const source = page.getByTestId("script-code");
     const run = source.getByRole("button", { name: "Run", exact: true });
     await expect(source.getByRole("button", { name: "Dry run" })).toBeVisible();
 
@@ -259,6 +260,7 @@ test.describe("Portal script pages", () => {
       .getByRole("row")
       .filter({ hasText: "Daily Sales Report" })
       .click();
+    await openSource(page);
 
     const reveal = page.getByRole("button", { name: /Version history/ });
     await expect(reveal).toHaveAttribute("aria-expanded", "false");
@@ -282,6 +284,7 @@ test.describe("Portal script pages", () => {
       .getByRole("row")
       .filter({ hasText: "Daily Sales Report" })
       .click();
+    await openSource(page);
 
     await page.getByRole("button", { name: "Validate" }).click();
     await expect(page.getByText("Parses")).toBeVisible();
@@ -491,6 +494,7 @@ test.describe("Portal script pages", () => {
       .getByRole("row")
       .filter({ hasText: "Daily Sales Report" })
       .click();
+    await openSource(page);
 
     await expect(
       page.getByText(/Saving makes this the version that runs/),
@@ -512,6 +516,7 @@ test.describe("Portal script pages", () => {
       .getByRole("row")
       .filter({ hasText: "Daily Sales Report" })
       .click();
+    await openSource(page);
 
     const editor = page.locator(".cm-content").first();
     await editor.click();
@@ -568,3 +573,10 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("My Margin Check")).toBeVisible();
   });
 });
+
+// openSource switches the code card to its Source tab. Flow is the tab a
+// script page opens on (#1906); the editor and everything done to the code are
+// on Source.
+async function openSource(page: import("@playwright/test").Page) {
+  await page.getByRole("tab", { name: "Source" }).click();
+}

@@ -24,12 +24,17 @@ vi.mock("@/components/SourceEditor", () => ({
     onChange: (v: string) => void;
   }) => (
     <textarea
-      aria-label="Source"
+      aria-label="Source text"
       data-content-type={contentType}
       value={content}
       onChange={(e) => onChange(e.target.value)}
     />
   ),
+}));
+
+// The Flow tab (#1906) has its own tests; here it only has to mount.
+vi.mock("@/api/portal/hooks/scriptFlow", () => ({
+  useScriptFlow: () => ({ isLoading: true }),
 }));
 
 vi.mock("@/api/portal/hooks/scripts", () => ({
@@ -96,6 +101,12 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+// openSource switches the card to its Source tab. Flow opens first (#1906),
+// and the editor's controls act on the text, so they are on Source.
+function openSource() {
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Source" }));
+}
+
 function renderEditor(
   over: Partial<ScriptContract> = {},
   draftParams: ScriptParam[] = [],
@@ -108,12 +119,13 @@ function renderEditor(
       draftParams={draftParams}
     />,
   );
+  openSource();
 }
 
 describe("ScriptSourceEditor: what it opens", () => {
   it("shows the live source as Python, which is what Starlark reads as", () => {
     renderEditor();
-    const box = screen.getByLabelText("Source");
+    const box = screen.getByLabelText("Source text");
     expect(box).toHaveValue(source);
     expect(box).toHaveAttribute("data-content-type", "text/x-python");
   });
@@ -138,7 +150,7 @@ describe("ScriptSourceEditor: saving", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Revert" })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: source + "print(1)\n" },
     });
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
@@ -146,7 +158,7 @@ describe("ScriptSourceEditor: saving", () => {
 
   it("submits the edited source", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "print(2)\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -155,11 +167,11 @@ describe("ScriptSourceEditor: saving", () => {
 
   it("throws the edit away on revert", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "print(2)\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Revert" }));
-    expect(screen.getByLabelText("Source")).toHaveValue(source);
+    expect(screen.getByLabelText("Source text")).toHaveValue(source);
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -175,7 +187,8 @@ describe("ScriptSourceEditor: saving", () => {
         draftParams={[]}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Source"), {
+    openSource();
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "print(2)\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -188,7 +201,7 @@ describe("ScriptSourceEditor: saving", () => {
       }),
     );
     // The applied edit is the record now, so the editor shows the live source.
-    expect(screen.getByLabelText("Source")).toHaveValue(source);
+    expect(screen.getByLabelText("Source text")).toHaveValue(source);
 
     // The invalidated contract refetches with the saved code as the source, and
     // the outcome message describes exactly the text on screen.
@@ -208,7 +221,7 @@ describe("ScriptSourceEditor: saving", () => {
 
   it("reports a refusal in place, in the server's words", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "def broken(:\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -219,13 +232,13 @@ describe("ScriptSourceEditor: saving", () => {
     );
     expect(screen.getByText(/does not parse/)).toBeInTheDocument();
     // The edit is kept, so nothing typed is lost to a refusal.
-    expect(screen.getByLabelText("Source")).toHaveValue("def broken(:\n");
+    expect(screen.getByLabelText("Source text")).toHaveValue("def broken(:\n");
   });
 
   it("disables both controls while a save is in flight", () => {
     mockSave.mockReturnValue({ mutate: save, isPending: true } as never);
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "print(2)\n" },
     });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -239,7 +252,7 @@ describe("ScriptSourceEditor: saving", () => {
 describe("ScriptSourceEditor: checking an edit", () => {
   it("validates the text on screen and reports what it would reach", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "x = 2\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Validate" }));
@@ -335,7 +348,7 @@ describe("ScriptSourceEditor: checking an edit", () => {
 
   it("dry-runs the text on screen and reports what it would have written", () => {
     renderEditor();
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "x = 3\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
@@ -550,7 +563,7 @@ describe("ScriptSourceEditor: running the saved version", () => {
       screen.queryByText(/The edit below is not saved/),
     ).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Source"), {
+    fireEvent.change(screen.getByLabelText("Source text"), {
       target: { value: "print(1)\n" },
     });
 

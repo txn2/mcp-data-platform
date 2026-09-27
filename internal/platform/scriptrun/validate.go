@@ -14,7 +14,9 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlex"
+	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -160,7 +162,7 @@ func Validate(source string) Report {
 	}
 	findings := scanSource(source)
 
-	file, parseErr := fileOptions.Parse("script", source, 0)
+	file, parseErr := scriptdialect.Options.Parse("script", source, 0)
 	if parseErr != nil {
 		findings = append(findings, translate(parseFindings(source, parseErr))...)
 		sortFindings(findings)
@@ -168,7 +170,10 @@ func Validate(source string) Report {
 		return report
 	}
 
-	found := inspect(file)
+	// Resolved before the walk: which identifiers name a module constant is the
+	// resolver's answer (internal/scriptconst), and the walk reads it.
+	_, resolveErr := starlark.FileProgram(file, isPredeclaredName)
+	found := inspect(file, scriptconst.Collect(file))
 	findings = append(findings, found.findings...)
 	for _, lit := range exportrefs.InSource(file, strings.TrimPrefix(CapabilityExport, "platform."), strings.TrimPrefix(CapabilityCall, "platform.")) {
 		findings = append(findings, Finding{Severity: SeverityWarning, Line: lit.Line, Message: lit.Message(), Hint: lit.Hint()})
@@ -183,7 +188,7 @@ func Validate(source string) Report {
 	report.DynamicTools = found.dynamicTools
 	report.StateUse = script.StateUse{Reads: found.readsState, Saves: found.capabilities[CapabilitySaveState]}
 
-	if _, resolveErr := starlark.FileProgram(file, isPredeclaredName); resolveErr != nil {
+	if resolveErr != nil {
 		findings = append(findings, translate(resolveFindings(resolveErr))...)
 	}
 
@@ -191,6 +196,12 @@ func Validate(source string) Report {
 	report.Findings = findings
 	report.OK = !hasErrors(findings)
 	return report
+}
+
+// Parse parses and resolves source under the script dialect, for a reader of
+// a script's syntax tree (scriptdialect.Parse).
+func Parse(source string) (*syntax.File, error) {
+	return scriptdialect.Parse(source, isPredeclaredName) //nolint:wrapcheck // the dialect's own error
 }
 
 // isPredeclaredName reports whether a name is part of the script environment.
@@ -240,8 +251,9 @@ func hasDialectCorrection(msg string) bool {
 }
 
 // resolveFindings turns a resolver failure into findings. The resolver is where
-// the dialect's deliberate restrictions surface — while, recursion, an
-// undefined name — so these are the messages most in need of translation.
+// the dialect's deliberate restrictions surface — while, an undefined name —
+// so these are the messages most in need of translation. Recursion is not
+// among them: the interpreter refuses a recursive call when it is made.
 func resolveFindings(err error) []Finding {
 	var list resolve.ErrorList
 	if errors.As(err, &list) {
@@ -354,16 +366,21 @@ type inspection struct {
 	// understates its use; the save side is a call and is always seen.
 	readsState bool
 	findings   []Finding
+	// consts is the module constants a call may name its connection, tool or
+	// destination through, read as the value they hold.
+	consts scriptconst.Table
 }
 
 // inspect walks the parsed file for what the script would reach: which members
 // of the platform module it names, which tools and connections it calls, and
-// where it writes.
-func inspect(file *syntax.File) *inspection {
+// where it writes. A value named through a module constant is read as the
+// constant's value: WAREHOUSE = "warehouse" and connection=WAREHOUSE name the
+// warehouse connection as plainly as the literal does (#1906).
+func inspect(file *syntax.File, consts scriptconst.Table) *inspection {
 	ins := &inspection{
 		capabilities: map[string]bool{}, connections: map[string]bool{},
 		destinations: map[string]bool{}, refreshTargets: map[string]bool{},
-		tools: map[string]bool{},
+		tools: map[string]bool{}, consts: consts,
 	}
 	syntax.Walk(file, func(n syntax.Node) bool {
 		if call, dot, ok := platformCall(n); ok {
@@ -426,14 +443,14 @@ func (ins *inspection) visit(call *syntax.CallExpr, dot *syntax.DotExpr) {
 	}
 	switch name {
 	case CapabilityQuery:
-		collectKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
+		ins.collectKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
 	case CapabilityExport:
 		ins.visitExport(call, int(dot.NamePos.Line))
 	case CapabilityPublishData:
 		// A refresh writes to the portal and nowhere else, so the call
 		// contributes the portal to the destination list a reader sees.
 		ins.destinations[script.DestinationPortal] = true
-		collectFirstOrKeyword(call, "name", ins.refreshTargets, &ins.dynamicRefreshTargets)
+		ins.collectFirstOrKeyword(call, "name", ins.refreshTargets, &ins.dynamicRefreshTargets)
 	case CapabilityCall:
 		ins.visitCall(call)
 	}
@@ -487,7 +504,7 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 		ins.findings = append(ins.findings, f)
 		return
 	}
-	collectExportDestination(call, ins.destinations, &ins.dynamicDestinations)
+	ins.collectExportDestination(call, ins.destinations, &ins.dynamicDestinations)
 	if exportrefs.Declares(call) { // a manage_asset call, as register= below is manage_table (#1834)
 		ins.tools[exportrefs.Tool] = true
 	}
@@ -498,7 +515,7 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 			if key, ok := bin.X.(*syntax.Ident); ok && key.Name == "register" {
 				ins.tools[exporttable.Tool] = true
 				if dict, ok := bin.Y.(*syntax.DictExpr); ok {
-					collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
+					ins.collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
 				} else {
 					ins.dynamicConnections = true
 				}
@@ -515,7 +532,7 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 // acceptable both read the connection list, and a generic call naming one is
 // exactly as much a use of that connection as platform.query naming it.
 func (ins *inspection) visitCall(call *syntax.CallExpr) {
-	collectFirstOrKeyword(call, "tool", ins.tools, &ins.dynamicTools)
+	ins.collectFirstOrKeyword(call, "tool", ins.tools, &ins.dynamicTools)
 	args, present := callArgsExpr(call)
 	if !present {
 		// A call with no argument set names no connection. That is a fact about
@@ -531,7 +548,7 @@ func (ins *inspection) visitCall(call *syntax.CallExpr) {
 		ins.dynamicConnections = true
 		return
 	}
-	collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
+	ins.collectDictEntry(dict, "connection", ins.connections, &ins.dynamicConnections)
 }
 
 // callArgsExpr returns the argument-set expression of a platform.call, whether
@@ -558,7 +575,7 @@ func callArgsExpr(call *syntax.CallExpr) (syntax.Expr, bool) {
 // key, or marks the read as incomplete when the key is present with a computed
 // value. A key the dict does not carry contributes nothing: the call does not
 // name one.
-func collectDictEntry(dict *syntax.DictExpr, key string, into map[string]bool, dynamic *bool) {
+func (ins *inspection) collectDictEntry(dict *syntax.DictExpr, key string, into map[string]bool, dynamic *bool) {
 	for _, item := range dict.List {
 		entry, ok := item.(*syntax.DictEntry)
 		if !ok {
@@ -583,12 +600,7 @@ func collectDictEntry(dict *syntax.DictExpr, key string, into map[string]bool, d
 		if name != key {
 			continue
 		}
-		value, ok := entry.Value.(*syntax.Literal)
-		if !ok {
-			*dynamic = true
-			return
-		}
-		s, ok := value.Value.(string)
+		s, ok := ins.consts.String(entry.Value)
 		if !ok {
 			*dynamic = true
 			return
@@ -602,19 +614,17 @@ func collectDictEntry(dict *syntax.DictExpr, key string, into map[string]bool, d
 // whose value may also be given as the call's FIRST positional argument — the
 // output name platform.publish_data refreshes, the tool platform.call invokes —
 // or marks the call as computing it.
-func collectFirstOrKeyword(call *syntax.CallExpr, keyword string, into map[string]bool, dynamic *bool) {
-	if collectKeyword(call, keyword, into, dynamic) {
+func (ins *inspection) collectFirstOrKeyword(call *syntax.CallExpr, keyword string, into map[string]bool, dynamic *bool) {
+	if ins.collectKeyword(call, keyword, into, dynamic) {
 		return
 	}
 	for _, arg := range call.Args {
 		if isKeywordArg(arg) {
 			continue
 		}
-		if lit, ok := arg.(*syntax.Literal); ok {
-			if s, ok := lit.Value.(string); ok {
-				into[s] = true
-				return
-			}
+		if s, ok := ins.consts.String(arg); ok {
+			into[s] = true
+			return
 		}
 		*dynamic = true
 		return
@@ -668,8 +678,8 @@ func refusePositionalDestination(call *syntax.CallExpr, line int) (Finding, bool
 // whether the set grew: a second export to a destination already in the set
 // adds nothing to it, and reading that as "this one defaulted" would report a
 // portal write no line of the script performs.
-func collectExportDestination(call *syntax.CallExpr, destSet map[string]bool, dynamic *bool) {
-	if !collectKeyword(call, "destination", destSet, dynamic) {
+func (ins *inspection) collectExportDestination(call *syntax.CallExpr, destSet map[string]bool, dynamic *bool) {
+	if !ins.collectKeyword(call, "destination", destSet, dynamic) {
 		destSet[script.DestinationPortal] = true
 	}
 }
@@ -678,7 +688,7 @@ func collectExportDestination(call *syntax.CallExpr, destSet map[string]bool, dy
 // argument, or marks the call as computing it. It reports whether the call
 // carried the keyword at all, which is a different question from whether it
 // contributed a new name.
-func collectKeyword(call *syntax.CallExpr, keyword string, into map[string]bool, dynamic *bool) bool {
+func (ins *inspection) collectKeyword(call *syntax.CallExpr, keyword string, into map[string]bool, dynamic *bool) bool {
 	for _, arg := range call.Args {
 		bin, ok := arg.(*syntax.BinaryExpr)
 		if !ok || bin.Op != syntax.EQ {
@@ -688,12 +698,7 @@ func collectKeyword(call *syntax.CallExpr, keyword string, into map[string]bool,
 		if !ok || key.Name != keyword {
 			continue
 		}
-		lit, ok := bin.Y.(*syntax.Literal)
-		if !ok {
-			*dynamic = true
-			return true
-		}
-		s, ok := lit.Value.(string)
+		s, ok := ins.consts.String(bin.Y)
 		if !ok {
 			*dynamic = true
 			return true

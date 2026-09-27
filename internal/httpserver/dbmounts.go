@@ -19,13 +19,13 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
@@ -225,7 +225,10 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 		return
 	}
 	deps.AdminEmail = adminEmail
-	scripthttp.New(deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+	scripts := scripthttp.New(deps)
+	scripts.RegisterAdmin(mux, prefix, buildAdminAuth(p))
+	// A version drawn as a diagram (#1906), read through the same lookup.
+	flowhttp.New(flowhttp.Deps{Load: scripts.LoadScriptVersion}).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }
 
 // mountScriptPortalAPI registers the portal script routes: the scripts a caller
@@ -254,7 +257,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	// admin surface is every script's already.
 	deps.Grants = scriptgrant.NewPostgres(p.DB())
 	// A signed link to each output the caller's runs wrote (#1848).
-	deps.ContentURL = contentURLMinter(contentURLKey(p), p.Config().Portal.PublicBaseURL)
+	deps.ContentURL = contenturl.Minter(contentURLKey(p), p.Config().Portal.PublicBaseURL)
 	// The owner's exercise loop (#1361, #1363, #1364): the connections a
 	// parameter may name, and the runner a dry run of an edit executes on. The
 	// runner is built over the assembled MCP server, so a draft's platform
@@ -266,7 +269,13 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
 		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget())
-	scripthttp.New(deps).RegisterPortal(mux, wrap)
+	scripts := scripthttp.New(deps)
+	scripts.RegisterPortal(mux, wrap)
+	// A version drawn as a diagram (#1906), readable wherever its source is.
+	flowhttp.New(flowhttp.Deps{
+		Load:     scripts.LoadScriptVersion,
+		SignedIn: func(r *http.Request) bool { return deps.PortalUser(r) != nil },
+	}).RegisterPortal(mux, wrap)
 }
 
 // scriptDeps assembles the surface-independent script handler dependencies,
@@ -312,19 +321,6 @@ func contentURLKey(p *platform.Platform) []byte {
 		return nil
 	}
 	return shareguest.DeriveKey(master, contenturl.KeyLabel)
-}
-
-// contentURLMinter signs a default-lifetime link to one asset version, nil
-// where there is no key to sign with.
-func contentURLMinter(key []byte, base string) func(assetID string, version int) (string, time.Time) {
-	if key == nil {
-		return nil
-	}
-	return func(assetID string, version int) (string, time.Time) {
-		expires := time.Now().Add(contenturl.DefaultTTL).Truncate(time.Second)
-		tok := contenturl.Sign(key, contenturl.Target{AssetID: assetID, Version: version, Expires: expires})
-		return base + contenturl.Path + tok, expires
-	}
 }
 
 // scriptPortalIdentity resolves the portal caller for the script routes: who

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
+import { EditorView } from "@codemirror/view";
 import { SourceEditor } from "./SourceEditor";
 
 // The source editor's Wrap and Format controls (#1839), on the real CodeMirror
@@ -186,5 +187,38 @@ describe("SourceEditor: Format", () => {
     fireEvent.click(screen.getByRole("button", { name: "Format" }));
     expect(await screen.findByText("Already formatted")).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+// The script page's Flow tab opens a card's lines here, and reads back the
+// lines selected here (#1906).
+describe("SourceEditor: marked and selected lines", () => {
+  it("marks the lines it is given, when it opens and when they change", () => {
+    const doc = "a = 1\nb = 2\nc = 3\n";
+    const { rerender, container } = render(
+      <SourceEditor content={doc} contentType="text/x-python" onChange={() => {}} markedLines={[2]} />,
+    );
+    const marked = () => [...container.querySelectorAll(".cm-marked-line")].map((l) => l.textContent);
+    expect(marked()).toEqual(["b = 2"]);
+    rerender(
+      <SourceEditor content={doc} contentType="text/x-python" onChange={() => {}} markedLines={[1, 3]} />,
+    );
+    expect(marked()).toEqual(["a = 1", "c = 3"]);
+  });
+
+  it("reports a selection to the newest callback it was given", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const doc = "a = 1\nb = 2\n";
+    const { rerender, container } = render(
+      <SourceEditor content={doc} contentType="text/x-python" onChange={() => {}} onSelectLines={first} />,
+    );
+    rerender(
+      <SourceEditor content={doc} contentType="text/x-python" onChange={() => {}} onSelectLines={second} />,
+    );
+    const view = EditorView.findFromDOM(container.querySelector(".cm-editor") as HTMLElement)!;
+    act(() => view.dispatch({ selection: { anchor: 0, head: 8 } }));
+    expect(second).toHaveBeenLastCalledWith({ from: 1, to: 2 });
+    expect(first).not.toHaveBeenCalled();
   });
 });

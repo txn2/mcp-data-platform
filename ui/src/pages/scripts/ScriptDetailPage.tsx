@@ -27,7 +27,9 @@ import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptGrantsCard } from "./ScriptGrantsCard";
 import { ScriptStateCard } from "./ScriptStateCard";
-import { SourceView } from "./DiffView";
+import { ScriptCodeCard } from "./ScriptCodeCard";
+import { ScriptFlowView } from "./flow/ScriptFlowView";
+import { SourceLines } from "./SourceLines";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
@@ -216,16 +218,31 @@ function ScriptSourceReadOnly({
   source?: string;
 }) {
   return (
-    <SectionCard title="Source">
-      <div className="space-y-3" data-testid="script-source-readonly">
-        <p className="text-xs text-muted-foreground">
-          Read only. Running, scheduling and changing this script are{" "}
-          {contract.owner_email || "its owner"}'s and an administrator's.
-        </p>
-        <SourceView source={source ?? ""} />
-        <ScriptVersionHistory scriptId={scriptId} contract={contract} owned={false} />
-      </div>
-    </SectionCard>
+    <ScriptCodeCard
+      flow={(link) => (
+        <ScriptFlowView
+          scriptId={scriptId}
+          version={contract.version}
+          source={source ?? ""}
+          sourceSelection={link.selectedLines}
+          onShowLines={link.showLines}
+        />
+      )}
+      source={(link) => (
+        <div className="space-y-3" data-testid="script-source-readonly">
+          <p className="text-xs text-muted-foreground">
+            Read only. Running, scheduling and changing this script are{" "}
+            {contract.owner_email || "its owner"}'s and an administrator's.
+          </p>
+          <SourceLines
+            source={source ?? ""}
+            markedLines={link.markedLines}
+            onSelectLines={link.onSelectLines}
+          />
+          <ScriptVersionHistory scriptId={scriptId} contract={contract} owned={false} />
+        </div>
+      )}
+    />
   );
 }
 

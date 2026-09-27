@@ -217,8 +217,13 @@ Name the tool with a string literal, and write the args dict out in the call:
 `validate` reads the literal tool names into the report's `tools` list and a
 connection named literally inside the args dict into its `connections` list,
 which is how a reader learns what a script reaches without reading the
-Starlark. What cannot be read is reported as `dynamic_tools` or
-`dynamic_connections` rather than quietly left out.
+Starlark. A name the module binds once to a literal counts as that literal
+(#1906): `WAREHOUSE = "acme"` and then `connection=WAREHOUSE` names the `acme`
+connection, and so does string building over literals and such names
+(`"prod-" + REGION`, `"{}-drop".format(ACME)`). A name bound more than once, or
+bound under an `if`, or a function parameter that shares the name, is not one.
+What cannot be read is reported as `dynamic_tools` or `dynamic_connections`
+rather than quietly left out.
 
 Two things a generic call does not get, which is why the helpers are still the
 way to do the three things they do. A query issued by tool call is not counted in the run's query

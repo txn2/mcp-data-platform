@@ -10,6 +10,11 @@ import { ScriptDetailPage } from "./ScriptDetailPage";
 
 // The page composes four hooks over real child components, so every assertion
 // here is what an owner actually reads on the page.
+// The Flow tab (#1906) has its own tests; here it only has to mount.
+vi.mock("@/api/portal/hooks/scriptFlow", () => ({
+  useScriptFlow: () => ({ isLoading: true }),
+}));
+
 vi.mock("@/api/portal/hooks/scripts", () => ({
   useScriptContract: vi.fn(),
   usePortalScriptVersions: vi.fn(),
@@ -283,6 +288,12 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+// openSource switches the code card to its Source tab. Flow opens first
+// (#1906).
+function openSource() {
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Source" }));
+}
+
 function renderPage() {
   render(<ScriptDetailPage scriptId="script-001" onBack={onBack} onNavigate={onNavigate} />);
 }
@@ -330,7 +341,6 @@ describe("ScriptDetailPage: the details", () => {
       "Details",
       "Schedule",
       "About",
-      "Source",
       "Run history",
       "Files written (1)",
       "State",
@@ -344,7 +354,16 @@ describe("ScriptDetailPage: the details", () => {
   // "Run now" section any more, and no second parameter form to fill.
   it("runs the script from the section that holds its code", () => {
     renderPage();
-    const source = within(screen.getByRole("heading", { name: "Source" }).closest("div[data-slot=card]")!);
+    // The code is between what the script says about itself and what it has
+    // been doing: Flow first, with Source beside it (#1906).
+    const code = screen.getByTestId("script-code");
+    const about = screen.getByRole("heading", { name: "About" });
+    const history = screen.getByRole("heading", { name: "Run history" });
+    expect(about.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(code.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(code).getByRole("tab", { name: "Flow" })).toHaveAttribute("aria-selected", "true");
+    openSource();
+    const source = within(code);
     expect(source.getByRole("button", { name: "Run" })).toBeInTheDocument();
     expect(source.getByRole("button", { name: "Dry run" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Run now" })).not.toBeInTheDocument();
@@ -401,6 +420,8 @@ describe("ScriptDetailPage: what an owner may read", () => {
     );
     mockVersions.mockReturnValue(query({ data: [version], total: 1 }));
     renderPage();
+    expect(screen.getByRole("tab", { name: "Flow" })).toHaveAttribute("aria-selected", "true");
+    openSource();
     const readOnly = screen.getByTestId("script-source-readonly");
     expect(readOnly).toHaveTextContent("rows = platform.query(sql)");
     expect(readOnly).toHaveTextContent("Read only.");
@@ -476,7 +497,6 @@ describe("ScriptDetailPage: what an owner may read", () => {
       "Details",
       "Schedule",
       "About",
-      "Source",
       "Run history",
       "Files written (1)",
       "State",
@@ -491,6 +511,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
   // the versions before it.
   it("opens a version's source and the roles a run of it presents", () => {
     renderPage();
+    openSource();
     fireEvent.click(screen.getByRole("button", { name: /Version history/ }));
     fireEvent.click(screen.getByText("v2"));
 
@@ -505,6 +526,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
       query({ data: [{ ...version, author_roles: [] }], total: 1 }),
     );
     renderPage();
+    openSource();
     fireEvent.click(screen.getByRole("button", { name: /Version history/ }));
     fireEvent.click(screen.getByText("v2"));
 

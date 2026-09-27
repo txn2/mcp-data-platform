@@ -12,6 +12,7 @@ import { type Page } from "@playwright/test";
  * the versions before it and the roles each of them runs under.
  */
 export async function openScriptVersionHistory(page: Page): Promise<void> {
+  await openSourceTab(page);
   await page.getByRole("button", { name: /Version history/ }).click({ timeout: 3_000 });
   // The OLDEST version in the list, not the newest: the newest is the text in
   // the editor directly above, and a capture of the same source twice on one
@@ -34,6 +35,7 @@ export async function openScriptVersionHistory(page: Page): Promise<void> {
  * actually presses them in rather than greyed out.
  */
 export async function openScriptSource(page: Page): Promise<void> {
+  await openSourceTab(page);
   await bindRunParameters(page);
   await page
     .getByText("Saving makes this the version that runs")
@@ -65,6 +67,30 @@ export async function openScriptDocumentation(page: Page): Promise<void> {
  * a connection parameter actually is: a choice from the set this script may
  * reach, rather than a box somebody has to spell a name into.
  */
+/**
+ * openSourceTab switches the code card to Source. Flow is the tab the page
+ * opens on (#1906), and the editor, its controls and the version history are
+ * on Source.
+ */
+async function openSourceTab(page: Page): Promise<void> {
+  await page.getByRole("tab", { name: "Source" }).click({ timeout: 3_000 });
+  await page.waitForTimeout(300);
+}
+
+/**
+ * openScriptFlow frames the Flow tab (#1906) with one card selected, so the
+ * capture shows the diagram, a card lit with the edges into and out of it, and
+ * the side panel reading that card.
+ */
+export async function openScriptFlow(page: Page): Promise<void> {
+  const canvas = page.getByTestId("flow-canvas");
+  await canvas.waitFor({ timeout: 5_000 });
+  await page.getByTestId("script-code").scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollBy(0, -72));
+  await page.locator('[data-node="op:3"]').dispatchEvent("pointerup");
+  await page.waitForTimeout(600);
+}
+
 async function bindRunParameters(page: Page): Promise<void> {
   await page
     .locator("#script-param-run-report_date")
@@ -89,6 +115,7 @@ async function bindRunParameters(page: Page): Promise<void> {
 export async function openScriptDryRun(page: Page): Promise<void> {
   // A dry run binds the same values a real one does, so the required ones are
   // supplied first: the control is deliberately unavailable until they are.
+  await openSourceTab(page);
   await bindRunParameters(page);
   await page
     .getByRole("button", { name: "Dry run" })

@@ -3566,6 +3566,49 @@ definitions:
       to:
         type: string
     type: object
+  flowhttp.graphResponse:
+    properties:
+      edges:
+        items:
+          $ref: '#/definitions/scriptflow.Edge'
+        type: array
+      findings:
+        items:
+          $ref: '#/definitions/scriptrun.Finding'
+        type: array
+      groups:
+        items:
+          $ref: '#/definitions/scriptflow.Group'
+        type: array
+      lines:
+        description: Lines is the source's line count, for the reader's scale.
+        example: 136
+        type: integer
+      nodes:
+        items:
+          $ref: '#/definitions/scriptflow.Node'
+        type: array
+      ok:
+        description: |-
+          OK is false when the source does not parse or resolve. Findings then
+          says why, and the diagram is empty.
+        type: boolean
+      params:
+        items:
+          $ref: '#/definitions/scriptflow.Param'
+        type: array
+      script_id:
+        example: script_a1b2c3
+        type: string
+      truncated:
+        description: |-
+          Truncated is true when the script expands into more steps than one
+          diagram draws; the graph holds the first ones.
+        type: boolean
+      version:
+        example: 4
+        type: integer
+    type: object
   gateway.ConnectionStatus:
     properties:
       auth_mode:
@@ -7593,6 +7636,118 @@ definitions:
       version:
         example: 3
         type: integer
+    type: object
+  scriptflow.Edge:
+    properties:
+      from:
+        type: string
+      kind:
+        example: data
+        type: string
+      to:
+        type: string
+      via:
+        description: Via names the functions that reshaped the value on the way.
+        items:
+          type: string
+        type: array
+    type: object
+  scriptflow.Group:
+    properties:
+      called_from:
+        items:
+          type: integer
+        type: array
+      caption:
+        type: string
+      def_line:
+        example: 12
+        type: integer
+      id:
+        example: /load_orders
+        type: string
+      label:
+        example: load_orders(day)
+        type: string
+      parent:
+        description: Parent is the id of the enclosing box, empty at the top level.
+        type: string
+    type: object
+  scriptflow.Node:
+    properties:
+      computed:
+        description: |-
+          Computed is true when what the step reaches is only known at run time;
+          the computed part is written as {its source} in the text above.
+        type: boolean
+      detail:
+        description: Detail is the tables, paths or keys the step touches.
+        items:
+          type: string
+        type: array
+      end_line:
+        example: 44
+        type: integer
+      group:
+        description: |-
+          Group is the id of the function box the step is drawn in, empty at the
+          top level.
+        type: string
+      id:
+        example: op:3
+        type: string
+      kind:
+        example: query
+        type: string
+      line:
+        description: |-
+          Line and EndLine are the platform call's lines. Site is the line the
+          folded wrapper named in Wrapper is called from.
+        example: 42
+        type: integer
+      loops:
+        description: Loops are the for statements the step repeats in, outermost first.
+        items:
+          type: string
+        type: array
+      purpose:
+        type: string
+      role:
+        example: reads
+        type: string
+      site:
+        type: integer
+      subtitle:
+        type: string
+      title:
+        description: |-
+          Title is the action and where it goes; Subtitle the operation, name or
+          path; Purpose the purpose sentence the author wrote on the call.
+        example: Query warehouse
+        type: string
+      wrapper:
+        type: string
+    type: object
+  scriptflow.Param:
+    properties:
+      decides:
+        description: |-
+          Decides is true when the value is read by a condition, so it decides
+          which steps run.
+        type: boolean
+      line:
+        description: Line is where the source first reads it.
+        example: 3
+        type: integer
+      name:
+        example: day
+        type: string
+      reaches:
+        description: Reaches lists the steps whose arguments the parameter's value
+          reaches.
+        items:
+          type: string
+        type: array
     type: object
   scriptgrant.Grant:
     properties:
@@ -15439,6 +15594,45 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Get a script version
+      tags:
+      - Scripts
+  /admin/scripts/{id}/versions/{version}/graph:
+    get:
+      description: 'Returns the diagram of one version of a script, derived from its
+        source: every platform call as a step, the values passed between them, the
+        function boxes they are drawn in, and the run parameters with the steps each
+        one reaches. A source that does not parse returns ok false with its findings
+        and an empty diagram.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/flowhttp.graphResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script version's flow graph
       tags:
       - Scripts
   /admin/scripts/runs:
@@ -23515,6 +23709,49 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List a script's versions
+      tags:
+      - Scripts
+  /portal/scripts/{id}/versions/{version}/graph:
+    get:
+      description: 'Returns the diagram of one version of a script, derived from its
+        source: every platform call as a step, the values passed between them, the
+        function boxes they are drawn in, and the run parameters with the steps each
+        one reaches. A source that does not parse returns ok false with its findings
+        and an empty diagram. Readable by everyone signed in, as the source is.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/flowhttp.graphResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script version's flow graph
       tags:
       - Scripts
   /portal/scripts/fires:

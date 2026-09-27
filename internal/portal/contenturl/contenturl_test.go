@@ -2,6 +2,7 @@ package contenturl
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,4 +51,18 @@ func TestClampTTL(t *testing.T) {
 	assert.Equal(t, DefaultTTL, ClampTTL(0))
 	assert.Equal(t, 30*time.Second, ClampTTL(30*time.Second))
 	assert.Equal(t, MaxTTL, ClampTTL(48*time.Hour))
+}
+
+func TestMinter(t *testing.T) {
+	assert.Nil(t, Minter(nil, "https://portal.example.com"), "no key, no links")
+
+	mint := Minter(key, "https://portal.example.com")
+	before := time.Now()
+	link, expires := mint("asset-1", 3)
+	require.True(t, strings.HasPrefix(link, "https://portal.example.com"+Path), link)
+	assert.WithinDuration(t, before.Add(DefaultTTL), expires, 2*time.Second)
+	got, err := Verify(key, strings.TrimPrefix(link, "https://portal.example.com"+Path), before)
+	require.NoError(t, err)
+	assert.Equal(t, "asset-1", got.AssetID)
+	assert.Equal(t, 3, got.Version)
 }
