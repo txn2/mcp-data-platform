@@ -17,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
@@ -763,7 +764,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.AuthEvents = p.AuthEventWriter()
 	deps.AuthEventStore = p.AuthEventStore()
 	deps.Embedder = p.EmbeddingProvider()
-	wireAdminIndexDeps(&deps, p)
+	adminwire.StoreDeps(&deps, p)
 
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(
@@ -862,21 +863,6 @@ func (e exampleWriter) SaveExample(ctx context.Context, ex callrecord.Example) (
 		return "", fmt.Errorf("saving endpoint example: %w", err)
 	}
 	return id, nil
-}
-
-// wireAdminIndexDeps attaches the api-gateway catalog store, embed-job queue,
-// and index-jobs reporter to the admin deps when each is available. Extracted
-// from buildAdminHandler to keep its cyclomatic complexity within budget.
-func wireAdminIndexDeps(deps *admin.Deps, p *platform.Platform) {
-	if catStore := p.APIGatewayCatalogStore(); catStore != nil {
-		deps.APICatalogStore = catStore
-	}
-	if jobs := p.APIGatewayEmbedJobsStore(); jobs != nil {
-		deps.EmbedJobs = jobs
-	}
-	if reporter := p.IndexJobsReporter(); reporter != nil {
-		deps.IndexJobs = reporter
-	}
 }
 
 // mountBrowserAuth registers the OIDC login/callback/logout routes.

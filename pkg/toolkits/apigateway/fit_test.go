@@ -132,13 +132,14 @@ func TestSteerToExport(t *testing.T) {
 	})
 }
 
-// TestFitResult_CutsAModelsResultToItsBudget: a JSON body whose result
-// renders past a model client's budget comes back cut, with the size that
-// was read, the hint, and the api_export arguments, and both the text and
-// the structured copy are inside the budget; the same call without api_export
-// registered is cut and flagged but not steered.
+// TestFitResult_CutsAModelsResultToItsBudget: a list body whose result
+// renders past a model client's budget comes back cut on its items, with
+// the size that was read, the count shown of the total, the hint, and the
+// api_export arguments, and both the text and the structured copy are
+// inside the budget; the same call without api_export registered is cut
+// and flagged but not steered to it (#1915).
 func TestFitResult_CutsAModelsResultToItsBudget(t *testing.T) {
-	payload := `{"rows":"` + strings.Repeat("x", 5000) + `"}`
+	payload := listPayload(200)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, payload)
@@ -157,15 +158,26 @@ func TestFitResult_CutsAModelsResultToItsBudget(t *testing.T) {
 	}
 	in := InvokeInput{Connection: "crm", Method: "GET", Path: "/v1/x", Query: map[string]any{"q": "1"}, TimeoutSeconds: 5}
 
-	res, out := modelCall(t, newToolkit(true), in, 1024)
+	res, out := modelCall(t, newToolkit(true), in, 2048)
 	if !out.BodyTruncated || out.BodyBytes != int64(len(payload)) {
 		t.Fatalf("truncated=%v body_bytes=%d; want a cut body reporting the %d bytes read", out.BodyTruncated, out.BodyBytes, len(payload))
 	}
-	if body, _ := out.Body.(string); body == "" || len(body) >= 1024 {
-		t.Errorf("body holds %d bytes; want a cut body inside the 1024 budget the whole result is held to", len(body))
+	rows := bodyRows(t, out)
+	if out.BodyItems == nil || out.BodyItems.Total != 200 || out.BodyItems.Shown != len(rows) || len(rows) == 0 || len(rows) >= 200 {
+		t.Fatalf("body_items = %+v with %d rows in the body; want the rows shown of 200", out.BodyItems, len(rows))
 	}
-	if !strings.Contains(out.Hint, "(1024, tools.result_budget)") {
-		t.Errorf("hint = %q; want the budget named", out.Hint)
+	for i, r := range rows {
+		if row, _ := r.(map[string]any); row["id"] != float64(i) {
+			t.Fatalf("row %d = %v; want the first rows, whole and in order", i, r)
+		}
+	}
+	for _, want := range []string{"(2048, tools.result_budget)", "holds 200 items", "declares no paging parameters", "api_export"} {
+		if !strings.Contains(out.Hint, want) {
+			t.Errorf("hint = %q; want %q", out.Hint, want)
+		}
+	}
+	if out.NextArguments != nil {
+		t.Errorf("next_arguments = %+v; want none for an operation no spec declares paging for", out.NextArguments)
 	}
 	if out.ExportArguments == nil || out.ExportArguments.Path != "/v1/x" || out.ExportArguments.TimeoutSeconds != 0 {
 		t.Errorf("export_arguments = %+v; want the same call without the inline timeout", out.ExportArguments)
@@ -178,25 +190,25 @@ func TestFitResult_CutsAModelsResultToItsBudget(t *testing.T) {
 	if err := json.Unmarshal([]byte(text.Text), &wire); err != nil {
 		t.Fatalf("result is not JSON: %v", err)
 	}
-	if wire["body_bytes"] != float64(len(payload)) || wire["export_arguments"] == nil {
-		t.Errorf("wire = %v; want body_bytes and export_arguments on the envelope", wire)
+	if wire["body_bytes"] != float64(len(payload)) || wire["export_arguments"] == nil || wire["body_items"] == nil {
+		t.Errorf("wire = %v; want body_bytes, body_items and export_arguments on the envelope", wire)
 	}
-	if len(text.Text) > 1024 {
-		t.Errorf("rendered result is %d characters; want it inside the 1024 budget", len(text.Text))
+	if len(text.Text) > 2048 {
+		t.Errorf("rendered result is %d characters; want it inside the 2048 budget", len(text.Text))
 	}
-	if structured, _ := res.StructuredContent.(json.RawMessage); len(structured) > 1024 {
+	if structured, _ := res.StructuredContent.(json.RawMessage); len(structured) > 2048 {
 		t.Errorf("structured content is %d bytes; want the fitted copy, inside the budget", len(structured))
 	}
 
-	_, plain := modelCall(t, newToolkit(false), in, 1024)
-	if !plain.BodyTruncated || plain.Hint != "" || plain.ExportArguments != nil {
-		t.Errorf("without api_export: truncated=%v hint=%q export=%+v; want cut, no steer", plain.BodyTruncated, plain.Hint, plain.ExportArguments)
+	_, plain := modelCall(t, newToolkit(false), in, 2048)
+	if !plain.BodyTruncated || plain.ExportArguments != nil || strings.Contains(plain.Hint, "api_export") {
+		t.Errorf("without api_export: truncated=%v hint=%q export=%+v; want cut, not steered to api_export", plain.BodyTruncated, plain.Hint, plain.ExportArguments)
 	}
 }
 
 // TestFitResult_DeclinesWhatItCannotShape: another tool's result, one with
 // no structured output, and arguments that are not an api_invoke_endpoint
-// call are declined and left untouched, so the generic cut applies.
+// call are declined and left untouched.
 func TestFitResult_DeclinesWhatItCannotShape(t *testing.T) {
 	tk := New("primary")
 	whole := func() *mcp.CallToolResult {
@@ -238,7 +250,7 @@ func TestFitResult_AcceptsStructuredContentInAnyForm(t *testing.T) {
 	tk := New("primary")
 	res := &mcp.CallToolResult{
 		Content:           []mcp.Content{&mcp.TextContent{Text: strings.Repeat("x", 5000)}},
-		StructuredContent: InvokeOutput{Status: 200, Body: strings.Repeat("y", 5000), BodyBytes: 5000},
+		StructuredContent: InvokeOutput{Status: 200, Body: decodeJSON(t, listPayload(100)), BodyBytes: 5000},
 	}
 	if !tk.FitResult(ToolInvokeEndpoint, json.RawMessage(`{"connection":"crm","method":"GET","path":"/x"}`), res, 1024) {
 		t.Fatal("FitResult declined a result whose structured output is a Go value")
@@ -344,7 +356,7 @@ func TestHandleInvoke_JSONUnderTheReadBudgetIsStillHeldToIt(t *testing.T) {
 // steer to api_export is not something they act on. So neither carries a
 // budget, and each gets the response whole (issues #1606, #1878).
 func TestHandleInvoke_OnlyAModelIsHeldToAContextBudget(t *testing.T) {
-	payload := `{"rows":"` + strings.Repeat("x", 5000) + `"}`
+	payload := listPayload(100)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, payload)
@@ -380,9 +392,8 @@ func TestHandleInvoke_OnlyAModelIsHeldToAContextBudget(t *testing.T) {
 			if out.BodyBytes != int64(len(payload)) {
 				t.Errorf("body_bytes = %d; want the whole %d-byte response read", out.BodyBytes, len(payload))
 			}
-			body, _ := out.Body.(map[string]any)
-			if rows, _ := body["rows"].(string); len(rows) != 5000 {
-				t.Errorf("body rows hold %d characters; want the whole 5000 parsed", len(rows))
+			if rows := bodyRows(t, out); len(rows) != 100 {
+				t.Errorf("body holds %d rows; want all 100 parsed", len(rows))
 			}
 		})
 	}
@@ -441,14 +452,14 @@ func TestHandleInvoke_PastTheReadCap(t *testing.T) {
 
 // TestFitResult_DeclinesWhenTheEchoedRequestIsPastTheBudget: a result past
 // the budget with its body cut to nothing -- the api_export steer echoing a
-// large request body -- is declined, so the generic cut applies rather than
-// an over-budget result being returned as fitted.
+// large request body -- is declined and reaches the model whole, rather
+// than an over-budget result being returned as fitted.
 func TestFitResult_DeclinesWhenTheEchoedRequestIsPastTheBudget(t *testing.T) {
 	tk := New("primary")
 	tk.SetExportDeps(defaultExportDeps(&fakeExportAssetStore{}, &fakeExportVersionStore{}, &fakeExportS3Client{}))
 	res := &mcp.CallToolResult{
 		Content:           []mcp.Content{&mcp.TextContent{Text: strings.Repeat("x", 5000)}},
-		StructuredContent: InvokeOutput{Status: 200, Body: strings.Repeat("y", 5000), BodyBytes: 5000},
+		StructuredContent: InvokeOutput{Status: 200, Body: decodeJSON(t, listPayload(100)), BodyBytes: 5000},
 	}
 	args, err := json.Marshal(InvokeInput{Connection: "crm", Method: "POST", Path: "/x", Body: strings.Repeat("b", 4000)})
 	if err != nil {

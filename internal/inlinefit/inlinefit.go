@@ -15,7 +15,9 @@
 // indentation is whitespace and dropping it costs the caller nothing
 // where the alternative is dropping content. Only when neither fits is
 // the body cut, which is the case a caller flags and steers to a
-// streamed export.
+// streamed export: a list on its items (internal/listcut), so what is shown stays
+// valid JSON and the caller can be told how to read on (#1915), and any
+// other body to the longest prefix that fits.
 //
 // What is measured is the result's text, which is what issue #1606
 // measured a client refusing. The MCP SDK also marshals the same value
