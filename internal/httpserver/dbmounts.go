@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
@@ -228,7 +229,7 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 	scripts := scripthttp.New(deps)
 	scripts.RegisterAdmin(mux, prefix, buildAdminAuth(p))
 	// A version drawn as a diagram (#1906), read through the same lookup.
-	flowhttp.New(flowhttp.Deps{Load: scripts.LoadScriptVersion}).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+	flowhttp.ForAdmin(scripts, deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }
 
 // mountScriptPortalAPI registers the portal script routes: the scripts a caller
@@ -271,11 +272,8 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget())
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)
-	// A version drawn as a diagram (#1906), readable wherever its source is.
-	flowhttp.New(flowhttp.Deps{
-		Load:     scripts.LoadScriptVersion,
-		SignedIn: func(r *http.Request) bool { return deps.PortalUser(r) != nil },
-	}).RegisterPortal(mux, wrap)
+	// A version drawn as a diagram (#1906) and a run drawn on it (#1907).
+	flowhttp.ForPortal(scripts, deps, p.Audit().Reader(), thumbwire.ScriptTiles(p)).RegisterPortal(mux, wrap)
 }
 
 // scriptDeps assembles the surface-independent script handler dependencies,

@@ -11,8 +11,13 @@ import { ScriptDetailPage } from "./ScriptDetailPage";
 // The page composes four hooks over real child components, so every assertion
 // here is what an owner actually reads on the page.
 // The Flow tab (#1906) has its own tests; here it only has to mount.
+vi.mock("@/api/portal/hooks/scriptRuns", async (orig) => ({
+  ...(await orig<typeof import("@/api/portal/hooks/scriptRuns")>()),
+  useScriptRuns: () => ({ data: undefined }),
+}));
 vi.mock("@/api/portal/hooks/scriptFlow", () => ({
   useScriptFlow: () => ({ isLoading: true }),
+  useScriptRunFlow: () => ({ isLoading: false }),
 }));
 
 vi.mock("@/api/portal/hooks/scripts", () => ({

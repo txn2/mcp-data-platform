@@ -13,10 +13,13 @@
 package flowhttp
 
 import (
+	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/flowcompare"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -28,6 +31,19 @@ type Deps struct {
 	// SignedIn reports whether a portal request carries a user. The portal
 	// route answers 401 without one.
 	SignedIn func(r *http.Request) bool
+	// Version reads another version of the same script, for ?compare=
+	// (#1908) and for the version a run executed (#1907). Nil when the store
+	// is absent; the comparison is then 404.
+	Version func(ctx context.Context, scriptID string, version int) (*script.Version, error)
+	// Run reads the run in the path for a signed-in caller entitled to it, or
+	// writes the refusal (scripthttp.Handler.ReadableRun). Nil leaves the run
+	// route unmounted.
+	Run func(w http.ResponseWriter, r *http.Request) (*script.Run, bool)
+	// Audit reads a run's audited calls. Nil draws a run with no calls.
+	Audit AuditQuerier
+	// Tiles reads a script's tile (#1909). Nil leaves the tile route
+	// unmounted.
+	Tiles TileReader
 }
 
 // Handler serves the graph routes.
@@ -49,6 +65,12 @@ type graphResponse struct {
 // middleware.
 func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/v1/portal/scripts/{id}/versions/{version}/graph", wrap(http.HandlerFunc(h.portalGraph)))
+	if h.deps.Run != nil && h.deps.Version != nil {
+		h.registerRunFlow(mux, wrap)
+	}
+	if h.deps.Tiles != nil {
+		mux.Handle("GET /api/v1/portal/scripts/{id}/thumbnail", wrap(http.HandlerFunc(h.scriptTile)))
+	}
 }
 
 // RegisterAdmin mounts the admin route under prefix, wrapped in the admin
@@ -65,7 +87,9 @@ func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(htt
 // @Produce      json
 // @Param        id       path  string   true  "Script ID"
 // @Param        version  path  integer  true  "Version number"
+// @Param        compare  query integer  false "An older version to compare with: the graph then marks each node added or changed (with what it said before), and carries the older version's removed nodes and their edges"
 // @Success      200  {object}  graphResponse
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
@@ -88,7 +112,9 @@ func (h *Handler) portalGraph(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        id       path  string   true  "Script ID"
 // @Param        version  path  integer  true  "Version number"
+// @Param        compare  query integer  false "An older version to compare with: the graph then marks each node added or changed (with what it said before), and carries the older version's removed nodes and their edges"
 // @Success      200  {object}  graphResponse
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
@@ -98,13 +124,48 @@ func (h *Handler) adminGraph(w http.ResponseWriter, r *http.Request) {
 	h.serve(w, r)
 }
 
-// serve answers the graph of the version the path names.
+// serve answers the graph of the version the path names, compared with an
+// older version when ?compare= names one.
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	_, v, ok := h.deps.Load(w, r)
 	if !ok {
 		return
 	}
-	httpjson.WriteJSON(w, http.StatusOK, graphResponse{
-		ScriptID: v.ScriptID, Version: v.Version, Graph: scriptflow.Derive(v.Source),
-	})
+	g := scriptflow.Derive(v.Source)
+	if raw := r.URL.Query().Get("compare"); raw != "" {
+		older, ok := h.olderVersion(w, r, v.ScriptID, raw)
+		if !ok {
+			return
+		}
+		g = flowcompare.Compare(scriptflow.Derive(older.Source), g, older.Version)
+	}
+	httpjson.WriteJSON(w, http.StatusOK, graphResponse{ScriptID: v.ScriptID, Version: v.Version, Graph: g})
 }
+
+// olderVersion reads the version ?compare= names, writing the refusal when it
+// cannot: 400 for a value that is not a version number, 404 for a version the
+// script does not have.
+func (h *Handler) olderVersion(w http.ResponseWriter, r *http.Request, scriptID, raw string) (*script.Version, bool) {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		httpjson.WriteError(w, http.StatusBadRequest, "compare must be a version number")
+		return nil, false
+	}
+	if h.deps.Version == nil {
+		httpjson.WriteError(w, http.StatusNotFound, errVersionNotFound)
+		return nil, false
+	}
+	older, err := h.deps.Version(r.Context(), scriptID, n)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the version to compare with")
+		return nil, false
+	}
+	if older == nil {
+		httpjson.WriteError(w, http.StatusNotFound, errVersionNotFound)
+		return nil, false
+	}
+	return older, true
+}
+
+// errVersionNotFound is the answer for a version the script does not have.
+const errVersionNotFound = "version not found"

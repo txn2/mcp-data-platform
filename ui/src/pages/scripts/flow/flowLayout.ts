@@ -1,5 +1,5 @@
 import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk-api";
-import type { FlowEdge, FlowGroup, FlowNode, ScriptFlow } from "@/api/portal/hooks/scriptFlow";
+import type { FlowEdge, FlowGroup, FlowNode, FlowNodeRun, ScriptFlow } from "@/api/portal/hooks/scriptFlow";
 import { CARD_WIDTH, cardHeight, roundedPath } from "./flowModel";
 
 // Laying the graph out (#1906) is elkjs's layered algorithm, left to right,
@@ -65,7 +65,7 @@ const GROUP_PREFIX = "g:";
 // elkGraph is the ELK input for a flow graph: every card inside its box, every
 // box inside its parent's, and every edge at the root, where ELK's hierarchy
 // handling moves it to the box both ends share.
-export function elkGraph(graph: ScriptFlow): ElkNode {
+export function elkGraph(graph: ScriptFlow, run?: Record<string, FlowNodeRun>): ElkNode {
   const root: ElkNode = { id: "root", layoutOptions: ROOT_OPTIONS, children: [], edges: [] };
   const boxes = new Map<string, ElkNode>();
   const byId = new Map(graph.groups.map((g) => [g.id, g]));
@@ -86,7 +86,7 @@ export function elkGraph(graph: ScriptFlow): ElkNode {
   };
   for (const g of graph.groups) box(g.id);
   for (const n of graph.nodes) {
-    box(n.group).children!.push({ id: n.id, width: CARD_WIDTH, height: cardHeight(n) });
+    box(n.group).children!.push({ id: n.id, width: CARD_WIDTH, height: cardHeight(n, run?.[n.id]) });
   }
   const ids = new Set(graph.nodes.map((n) => n.id));
   graph.edges.forEach((e, i) => {
@@ -169,8 +169,8 @@ function loadElk(): Promise<Elk> {
 }
 
 // layoutFlow lays a graph out.
-export async function layoutFlow(graph: ScriptFlow): Promise<FlowLayout> {
+export async function layoutFlow(graph: ScriptFlow, run?: Record<string, FlowNodeRun>): Promise<FlowLayout> {
   const elk = await loadElk();
-  const out = await elk.layout(elkGraph(graph));
+  const out = await elk.layout(elkGraph(graph, run));
   return place(graph, out);
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
@@ -66,7 +67,7 @@ var auditColumns = []string{
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
 	"enrichment_mode", "enrichment_match_kind", "authorized",
-	colEventKind,
+	colEventKind, "call_site",
 }
 
 // Store implements audit.Logger using PostgreSQL.
@@ -102,8 +103,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind, call_site)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -136,6 +137,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.EnrichmentMatchKind,
 		event.Authorized,
 		string(event.EventKind),
+		pq.Array(event.CallSite),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting audit log: %w", err)
@@ -420,6 +422,7 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.EnrichmentMatchKind,
 		&event.Authorized,
 		&eventKind,
+		pq.Array(&event.CallSite),
 	)
 	if err != nil {
 		return event, fmt.Errorf("scanning audit log row: %w", err)

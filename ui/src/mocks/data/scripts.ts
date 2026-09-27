@@ -212,7 +212,10 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
       version: 1,
       display_name: "Daily Sales Report",
       description: "First draft.",
-      source: salesSource.replace("ORDER BY revenue DESC", "ORDER BY region"),
+      // The first draft ordered by region and carried nothing to the next run;
+      // v2 added the state (#1537), which is what comparing the two shows
+      // (#1908).
+      source: salesSource.replace("ORDER BY revenue DESC", "ORDER BY region").split("\n# The day this run covered")[0] ?? "",
       author: "sarah.chen@example.com",
       author_roles: ["analyst"],
       status: "applied",

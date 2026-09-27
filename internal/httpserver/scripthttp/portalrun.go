@@ -168,7 +168,7 @@ type cancelResponse struct {
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/runs/{runID}/cancel [post]
 func (h *Handler) portalCancelRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	run, ok := h.readableRun(w, r, user)
+	run, ok := h.ReadableRun(w, r, user)
 	if !ok {
 		return
 	}

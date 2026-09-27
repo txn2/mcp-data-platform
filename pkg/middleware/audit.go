@@ -52,6 +52,9 @@ type AuditEvent struct {
 	// EventKind is the high-level event category ("mcp_tool_call" or
 	// "apigateway_invoke"), derived from the toolkit kind at build time.
 	EventKind string `json:"event_kind,omitempty"`
+	// CallSite is where in a managed script the call was made (#1907), read
+	// from the request's _meta on a script's calls only.
+	CallSite []string `json:"call_site,omitempty"`
 }
 
 // NoopAuditLogger discards all audit events.

@@ -65,6 +65,21 @@ answer what is running and when, and a cron expression is not an answer to that.
 schedule with no phrase for it is named as a custom schedule; the expression itself is in
 the schedule editor on the script's own page, which is where one is read and written.
 
+The two buttons at the top right of the listing switch it between the table and a **grid**
+(#1909). In the grid each script is a card whose tile is its flow diagram (see
+[The flow of the work](#the-flow-of-the-work)), above the same name, schedule and last run
+a row states, so a loader, a report and an export are told apart by the work they do. The
+page opens on the table; the choice you make is remembered in this browser.
+
+![Automations as a grid](../images/screenshots/light/user-scripts-grid-light.webp#only-light)![Automations as a grid](../images/screenshots/dark/user-scripts-grid-dark.webp#only-dark)
+
+The platform draws the tiles itself, in light and dark, with the same thumbnail worker that
+draws asset tiles, and draws a new one when a new version is saved. A script whose latest
+version does not parse keeps the placeholder, and the reason is recorded with it. A
+deleted script's tiles are removed. The tile is served at
+`GET /api/v1/portal/scripts/{id}/thumbnail` (`?variant=dark` for the dark one) to everyone
+who can read the script.
+
 Before an agent has built anything for you, the page says so rather than showing an
 empty table, and suggests asking an agent to automate a report or an export you run
 repeatedly.
@@ -213,6 +228,34 @@ is wrong with it in place of a diagram. The diagram is served from
 read the source, and `GET /api/v1/admin/scripts/{id}/versions/{version}/graph` for an
 administrator. It is not part of any tool response: an agent reads the code.
 
+### A run on the diagram
+
+On a script you own, and on every script for an administrator, the Flow tab opens on the
+latest run drawn on the diagram (#1907). The **Run** menu above it picks any run in the
+history, or **No run** for the saved version on its own. A run of an older version is drawn
+on that version's diagram.
+
+![A failed run on the diagram](../images/screenshots/light/user-script-flow-run-light.webp#only-light)![A failed run on the diagram](../images/screenshots/dark/user-script-flow-run-dark.webp#only-dark)
+
+- **Each card says what it did in this run**: how many calls it made and how long they
+  took, the rows it exported, or that it ran.
+- **A card the run never reached is dimmed.**
+- **The card a failed run stopped at is in the error color**, and the panel beside the
+  diagram gives the run's cause and the error it ended with.
+- A call that failed in a run that carried on (one a retry answered, say) is counted on its
+  card; only the step the run stopped at is marked failed.
+- The panel counts the run's calls, how many are on cards, and any no card made, which it
+  lists.
+
+Every call a script makes is recorded with where in the script it was made: the line and
+column of each call on the way down to it, from the top-level line to the `platform.*` call
+itself. The diagram records the same positions on each card, so a call is put on the card
+that made it rather than on the first card that looks like it: a helper called from two
+places is two cards, and each gets its own calls. The drawn run is served at
+`GET /api/v1/portal/scripts/{id}/runs/{runID}/flow` to the script's owner and to
+administrators, and reads at most 10,000 of the run's calls, saying so when there were
+more.
+
 ## The code, and running it
 
 On the Source tab of a script you own, the source is editable in place, with Starlark highlighted as the
@@ -274,6 +317,16 @@ already holds the version that runs, so what the history adds is the versions be
 that one.
 
 ![Version history](../images/screenshots/light/user-script-versions-light.webp#only-light)![Version history](../images/screenshots/dark/user-script-versions-dark.webp#only-dark)
+
+Each version older than the one that runs has a **Compare with** button (#1908), which
+opens the two side by side as a diagram, with the text diff on a second tab. The diagram is
+the running version's, marked with what changed since the older one: a card that is new is
+**added**, one whose reach changed is **changed** and says what it was, and one the running
+version no longer has is drawn dashed as **removed**, beside the cards it fed. A step is
+matched by what it reads, writes or produces, not by its line, so code that only moved is
+not a change. The comparison is the diagram route with `?compare=<older version>`.
+
+![Comparing two versions](../images/screenshots/light/user-script-compare-light.webp#only-light)![Comparing two versions](../images/screenshots/dark/user-script-compare-dark.webp#only-dark)
 
 ## Run history
 

@@ -3,6 +3,7 @@ package scriptflow
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"go.starlark.net/syntax"
@@ -24,6 +25,15 @@ type step struct {
 	loops   []string
 	inputs  origins
 	scope   *scope
+	// callSite is the stack of call positions a run records for this step's
+	// call (#1907).
+	callSite []string
+}
+
+// position is a call's "line:col" at its opening parenthesis, the form a run
+// records a call site in (internal/scriptcallsite).
+func position(p syntax.Position) string {
+	return fmt.Sprintf("%d:%d", p.Line, p.Col)
 }
 
 func (s *step) id() string { return fmt.Sprintf("op:%d", s.seq) }
@@ -35,6 +45,7 @@ func (a *analyzer) newStep(f *frame, c *syntax.CallExpr, member string) *step {
 		seq: len(a.order) + 1, member: member, call: c, group: f.group,
 		line: int(start.Line), endLine: int(end.Line), site: f.site, wrapper: f.wrapper,
 		loops: append([]string{}, f.loops...), inputs: origins{}, scope: a.scopeOf(f),
+		callSite: append(slices.Clone(f.sites), position(c.Lparen)),
 	}
 }
 
@@ -82,7 +93,7 @@ func (a *analyzer) nodes(s *step) []Node {
 	}
 	n := Node{
 		ID: s.id(), Group: s.group, Line: s.line, EndLine: s.endLine, Site: s.site,
-		Wrapper: s.wrapper, Loops: s.loops, Detail: []string{},
+		Wrapper: s.wrapper, Loops: s.loops, Detail: []string{}, CallSite: s.callSite,
 	}
 	if s.member == "export" {
 		return c.export(n)
@@ -167,7 +178,7 @@ func (c *card) table(export Node, reg syntax.Expr) Node {
 	t := Node{
 		ID: export.ID + tableSuffix, Role: RoleOutput, Kind: KindTable, Group: export.Group,
 		Line: export.Line, EndLine: export.EndLine, Site: export.Site, Wrapper: export.Wrapper,
-		Loops: export.Loops, Detail: []string{},
+		Loops: export.Loops, Detail: []string{}, CallSite: export.CallSite,
 	}
 	d := c.s.scope.dict(reg)
 	if d == nil {

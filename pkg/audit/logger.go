@@ -71,6 +71,10 @@ type Event struct {
 	// "resource_read", "resource_move", "script_run", and "admin". See the
 	// EventType constants in event.go for the complete set.
 	EventKind EventType `json:"event_kind,omitempty" example:"mcp_tool_call"`
+	// CallSite is where in a managed script this call was made (#1907): the
+	// source position of every call on the script's stack, outermost first,
+	// as "line:col". Set only on a script's calls.
+	CallSite []string `json:"call_site,omitempty"`
 }
 
 // SortOrder defines sort direction.

@@ -2246,6 +2246,14 @@ definitions:
       authorized:
         example: true
         type: boolean
+      call_site:
+        description: |-
+          CallSite is where in a managed script this call was made (#1907): the
+          source position of every call on the script's stack, outermost first,
+          as "line:col". Set only on a script's calls.
+        items:
+          type: string
+        type: array
       connection:
         example: acme-catalog
         type: string
@@ -3582,6 +3590,11 @@ definitions:
     type: object
   flowhttp.graphResponse:
     properties:
+      compared_with:
+        description: |-
+          ComparedWith is the older version this graph is compared against
+          (#1908), zero when it is not a comparison.
+        type: integer
       edges:
         items:
           $ref: '#/definitions/scriptflow.Edge'
@@ -3622,6 +3635,107 @@ definitions:
       version:
         example: 4
         type: integer
+    type: object
+  flowhttp.runFlowResponse:
+    properties:
+      calls:
+        description: Calls is the run's audited tool calls, every one of them.
+        type: integer
+      calls_truncated:
+        description: |-
+          CallsTruncated is true when the run made more calls than one overlay
+          reads; the first ones are drawn.
+        type: boolean
+      cause:
+        description: |-
+          Cause is why a failed run failed (script, upstream, memory, worker_lost,
+          platform, state_conflict), and Error its message.
+        example: upstream
+        type: string
+      error:
+        type: string
+      failed_node:
+        description: |-
+          FailedNode is the card the run failed at, empty when it did not fail at
+          a platform call (or did not fail).
+        type: string
+      graph:
+        $ref: '#/definitions/scriptflow.Graph'
+      nodes:
+        additionalProperties:
+          $ref: '#/definitions/flowrun.NodeRun'
+        type: object
+      other_calls:
+        description: |-
+          Other lists the audited calls no card made, so the calls on the diagram
+          and Other always add up to the run's audited calls.
+        items:
+          $ref: '#/definitions/flowrun.OtherCall'
+        type: array
+      run_id:
+        example: dpx_a1b2c3d4
+        type: string
+      script_id:
+        example: script_a1b2c3
+        type: string
+      status:
+        example: failed
+        type: string
+      version:
+        description: Version is the version the run executed, whose diagram Graph
+          is.
+        example: 3
+        type: integer
+    type: object
+  flowrun.NodeRun:
+    properties:
+      calls:
+        description: |-
+          Calls is the audited tool calls attributed to the card, and DurationMS
+          their total time. ResponseChars is the size of what they answered.
+        type: integer
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      failed:
+        description: Failed is true on the card the run failed at, with Error its
+          message.
+        type: boolean
+      failed_calls:
+        description: |-
+          FailedCalls counts the card's calls that did not succeed, which a run
+          can outlive: a rate-limited call is refused and made again. The last
+          one's message is LastError.
+        type: integer
+      last_error:
+        type: string
+      outputs:
+        description: Outputs, Rows and Bytes are what the card wrote, from the run's
+          outputs.
+        type: integer
+      reached:
+        description: Reached is true when the run made the card's call at least once.
+        type: boolean
+      response_chars:
+        type: integer
+      rows:
+        type: integer
+    type: object
+  flowrun.OtherCall:
+    properties:
+      call_site:
+        items:
+          type: string
+        type: array
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      success:
+        type: boolean
+      tool:
+        type: string
     type: object
   gateway.ConnectionStatus:
     properties:
@@ -7510,6 +7624,15 @@ definitions:
         type: string
       bytes:
         type: integer
+      call_site:
+        description: |-
+          CallSite is where in the script the call that wrote this output was
+          made (#1907): the source positions of the calls on the script's stack,
+          outermost first. The Flow tab draws the output on the card that wrote it
+          by it. Absent on outputs recorded before it existed.
+        items:
+          type: string
+        type: array
       destination:
         description: |-
           Destination is the named destination's name. It is empty on rows
@@ -7769,6 +7892,11 @@ definitions:
     type: object
   scriptflow.Edge:
     properties:
+      change:
+        description: |-
+          Change is "removed" on an edge of a compared graph that only the older
+          version had.
+        type: string
       from:
         type: string
       kind:
@@ -7781,6 +7909,48 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  scriptflow.Graph:
+    properties:
+      compared_with:
+        description: |-
+          ComparedWith is the older version this graph is compared against
+          (#1908), zero when it is not a comparison.
+        type: integer
+      edges:
+        items:
+          $ref: '#/definitions/scriptflow.Edge'
+        type: array
+      findings:
+        items:
+          $ref: '#/definitions/scriptrun.Finding'
+        type: array
+      groups:
+        items:
+          $ref: '#/definitions/scriptflow.Group'
+        type: array
+      lines:
+        description: Lines is the source's line count, for the reader's scale.
+        example: 136
+        type: integer
+      nodes:
+        items:
+          $ref: '#/definitions/scriptflow.Node'
+        type: array
+      ok:
+        description: |-
+          OK is false when the source does not parse or resolve. Findings then
+          says why, and the diagram is empty.
+        type: boolean
+      params:
+        items:
+          $ref: '#/definitions/scriptflow.Param'
+        type: array
+      truncated:
+        description: |-
+          Truncated is true when the script expands into more steps than one
+          diagram draws; the graph holds the first ones.
+        type: boolean
     type: object
   scriptflow.Group:
     properties:
@@ -7805,6 +7975,21 @@ definitions:
     type: object
   scriptflow.Node:
     properties:
+      call_site:
+        description: |-
+          CallSite is the position of every call on the stack that makes this
+          step's call, outermost first, as "line:col": what a run records on the
+          step's audited calls and outputs (#1907), so a run is drawn on the card
+          that made each call.
+        items:
+          type: string
+        type: array
+      change:
+        description: |-
+          Change and Was mark a node of a compared graph (#1908): added, changed
+          (with what it said before) or removed (carried over from the older
+          version).
+        type: string
       computed:
         description: |-
           Computed is true when what the step reaches is only known at run time;
@@ -7855,6 +8040,8 @@ definitions:
           path; Purpose the purpose sentence the author wrote on the call.
         example: Query warehouse
         type: string
+      was:
+        $ref: '#/definitions/scriptflow.Was'
       wrapper:
         type: string
     type: object
@@ -7878,6 +8065,19 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  scriptflow.Was:
+    properties:
+      detail:
+        items:
+          type: string
+        type: array
+      purpose:
+        type: string
+      subtitle:
+        type: string
+      title:
+        type: string
     type: object
   scriptgrant.Grant:
     properties:
@@ -15798,6 +15998,12 @@ paths:
         name: version
         required: true
         type: integer
+      - description: 'An older version to compare with: the graph then marks each
+          node added or changed (with what it said before), and carries the older
+          version''s removed nodes and their edges'
+        in: query
+        name: compare
+        type: integer
       produces:
       - application/json
       responses:
@@ -15805,6 +16011,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/flowhttp.graphResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
@@ -23488,6 +23698,52 @@ paths:
       summary: Cancel a script run
       tags:
       - Scripts
+  /portal/scripts/{id}/runs/{runID}/flow:
+    get:
+      description: 'Returns the diagram of the version a run executed, with each step''s
+        part in that run: how many of the run''s audited tool calls it made and how
+        long they took, the outputs it wrote, whether the run reached it, and the
+        step the run failed at. Calls are attributed by where in the script they were
+        made; a call no step made (a computed tool, a call made before call sites
+        were recorded) is listed in other_calls, so the steps'' calls and other_calls
+        always add up to calls. Readable by the script''s owner, an administrator,
+        and whoever requested the run.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: runID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/flowhttp.runFlowResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Draw a script run on its flow diagram
+      tags:
+      - Scripts
   /portal/scripts/{id}/schedule:
     get:
       description: Returns the cadence a script the caller owns runs on, the parameters
@@ -23814,6 +24070,45 @@ paths:
       summary: Replace a script's state
       tags:
       - Scripts
+  /portal/scripts/{id}/thumbnail:
+    get:
+      description: 'Returns a script''s tile as a PNG: its flow diagram, drawn from
+        the latest version that parses, light or dark. 404 when the script has no
+        tile yet, or its latest version does not parse, which the listing shows as
+        a placeholder. Readable by everyone signed in, as the script is.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: light (default) or dark
+        in: query
+        name: variant
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script's tile
+      tags:
+      - Scripts
   /portal/scripts/{id}/validate:
     post:
       consumes:
@@ -23913,6 +24208,12 @@ paths:
         name: version
         required: true
         type: integer
+      - description: 'An older version to compare with: the graph then marks each
+          node added or changed (with what it said before), and carries the older
+          version''s removed nodes and their edges'
+        in: query
+        name: compare
+        type: integer
       produces:
       - application/json
       responses:
@@ -23920,6 +24221,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/flowhttp.graphResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:

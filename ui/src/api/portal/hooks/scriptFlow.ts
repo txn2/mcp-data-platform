@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ScriptFinding } from "@/api/admin/types";
 import { apiFetch } from "../client";
 import { scriptsKey } from "./scriptKeys";
+import { RUN_POLL_MS, isRunInFlight } from "./scriptRuns";
 
 // FlowRole is what a step does, which the diagram colors it by.
 export type FlowRole = "input" | "reads" | "writes" | "output";
@@ -32,7 +33,19 @@ export interface FlowNode {
   site?: number;
   wrapper?: string;
   loops: string[];
+  // call_site is the position of every call on the stack that makes this
+  // step's call, outermost first, "line:col": what a run records on the
+  // step's calls (#1907).
+  call_site?: string[];
+  // change and was mark a node of a compared graph (#1908): added, changed
+  // (with what it said in the older version) or removed (carried over from
+  // the older version).
+  change?: FlowChange;
+  was?: { title: string; subtitle?: string; purpose?: string; detail: string[] };
 }
+
+// FlowChange is how a node of a compared graph differs from the older version.
+export type FlowChange = "added" | "changed" | "removed";
 
 // FlowEdge is a value passed from one step to another ("data"), or this run
 // saving state for the next ("state").
@@ -41,6 +54,9 @@ export interface FlowEdge {
   to: string;
   via: string[];
   kind: "data" | "state";
+  // change is "removed" on an edge only the older version of a compared graph
+  // had.
+  change?: "removed";
 }
 
 // FlowGroup is a function box.
@@ -76,15 +92,76 @@ export interface ScriptFlow {
   params: FlowParam[];
   lines: number;
   truncated: boolean;
+  // compared_with is the older version a compared graph is compared against.
+  compared_with?: number;
 }
 
-// useScriptFlow reads one version's graph. A version never changes, so the
-// graph is fetched once per version and kept.
-export function useScriptFlow(scriptID: string, version: number) {
+// useScriptFlow reads one version's graph, or, with compareWith, that graph
+// marked with what changed since an older version (#1908). A version never
+// changes, so the graph is fetched once per version and kept.
+export function useScriptFlow(scriptID: string, version: number, compareWith?: number) {
+  const compare = compareWith ? `?compare=${compareWith}` : "";
   return useQuery({
-    queryKey: [...scriptsKey, scriptID, "flow", version],
-    queryFn: () => apiFetch<ScriptFlow>(`/scripts/${scriptID}/versions/${version}/graph`),
+    queryKey: [...scriptsKey, scriptID, "flow", version, compareWith ?? 0],
+    queryFn: () => apiFetch<ScriptFlow>(`/scripts/${scriptID}/versions/${version}/graph${compare}`),
     enabled: !!scriptID && version > 0,
     staleTime: Infinity,
+  });
+}
+
+// FlowNodeRun is what one card did in one run (#1907).
+export interface FlowNodeRun {
+  // calls are the audited tool calls the card made, and duration_ms their
+  // total; response_chars the size of what they answered.
+  calls: number;
+  duration_ms: number;
+  response_chars: number;
+  // outputs and rows are what the card wrote.
+  outputs: number;
+  rows: number;
+  // failed_calls counts calls that did not succeed, which a run can outlive
+  // (a rate-limited call is made again); last_error is the last one's message.
+  failed_calls: number;
+  last_error?: string;
+  reached: boolean;
+  // failed marks the card the run failed at, with error its message.
+  failed: boolean;
+  error?: string;
+}
+
+// FlowOtherCall is an audited call no card made.
+export interface FlowOtherCall {
+  tool: string;
+  duration_ms: number;
+  success: boolean;
+  error?: string;
+}
+
+// ScriptRunFlow is one run drawn on the diagram of the version it executed.
+export interface ScriptRunFlow {
+  script_id: string;
+  run_id: string;
+  version: number;
+  status: string;
+  cause?: string;
+  error?: string;
+  graph: ScriptFlow;
+  nodes: Record<string, FlowNodeRun>;
+  other_calls: FlowOtherCall[];
+  calls: number;
+  failed_node?: string;
+  calls_truncated: boolean;
+}
+
+// useScriptRunFlow reads one run drawn on its version's diagram. A run still
+// queued or executing is re-read on the run history's interval, so the diagram
+// fills in as the run's calls are recorded.
+export function useScriptRunFlow(scriptID: string, runID: string | null) {
+  return useQuery({
+    queryKey: [...scriptsKey, scriptID, "runs", runID ?? "", "flow"],
+    queryFn: () => apiFetch<ScriptRunFlow>(`/scripts/${scriptID}/runs/${runID}/flow`),
+    enabled: !!scriptID && !!runID,
+    refetchInterval: (query) =>
+      query.state.data && isRunInFlight({ status: query.state.data.status }) ? RUN_POLL_MS : false,
   });
 }

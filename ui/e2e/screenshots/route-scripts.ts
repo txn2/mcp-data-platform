@@ -9,6 +9,9 @@ import {
   openScriptSchedulesTab,
   openScriptSource,
   openScriptFlow,
+  openScriptRunFlow,
+  openScriptCompare,
+  openScriptGrid,
   openScriptSchedule,
   openScriptState,
   openScriptVersionHistory,
@@ -31,6 +34,14 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     slug: "scripts",
     path: "/portal/automations",
     category: "user",
+  },
+  {
+    // The listing as a grid (#1909): each script's tile is its flow diagram,
+    // drawn by the tile worker, so a script is recognised by the work it does.
+    slug: "scripts-grid",
+    path: "/portal/automations",
+    category: "user",
+    beforeCapture: openScriptGrid,
   },
   {
     // The same page for an account with no scripts at all, which is what most
@@ -84,6 +95,24 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/automations/script-005",
     category: "user",
     beforeCapture: openScriptFlow,
+  },
+  {
+    // A run drawn on its version's diagram (#1907): each card's calls, time and
+    // rows from the run's own audit record, and a failed run's card in the
+    // error color with the steps after it dimmed.
+    slug: "script-flow-run",
+    path: "/portal/automations/script-001",
+    category: "user",
+    beforeCapture: openScriptRunFlow,
+  },
+  {
+    // An older version compared with the one that runs (#1908), on the
+    // diagram: what was added, changed or removed, with the text diff a tab
+    // away.
+    slug: "script-compare",
+    path: "/portal/automations/script-001",
+    category: "user",
+    beforeCapture: openScriptCompare,
   },
   {
     // The code, and everything done to it, in one place (#1406): the portal's

@@ -1,4 +1,4 @@
-import type { FlowEdge, FlowNode, FlowRole, ScriptFlow } from "@/api/portal/hooks/scriptFlow";
+import type { FlowChange, FlowEdge, FlowNode, FlowNodeRun, FlowRole, ScriptFlow } from "@/api/portal/hooks/scriptFlow";
 
 // The pure half of the Flow tab (#1906): how a step's card is worded and sized,
 // what a selection lights up, and which cards a range of source lines
@@ -20,6 +20,26 @@ export const ROLE_LABEL: Record<FlowRole, string> = {
   writes: "Writes",
   output: "Output",
 };
+
+// CHANGE_COLOR and CHANGE_LABEL mark a node of a compared graph (#1908).
+export const CHANGE_COLOR: Record<FlowChange, string> = {
+  added: "hsl(var(--chart-3))",
+  changed: "hsl(var(--chart-4))",
+  removed: "hsl(var(--destructive))",
+};
+
+export const CHANGE_LABEL: Record<FlowChange, string> = {
+  added: "added",
+  changed: "changed",
+  removed: "removed",
+};
+
+// changeCounts is how many nodes a compared graph marks each way.
+export function changeCounts(graph: ScriptFlow): Record<FlowChange, number> {
+  const out: Record<FlowChange, number> = { added: 0, changed: 0, removed: 0 };
+  for (const n of graph.nodes) if (n.change) out[n.change]++;
+  return out;
+}
 
 // SELECT_COLOR is the one accent a selection is drawn in.
 export const SELECT_COLOR = "hsl(var(--chart-4))";
@@ -61,7 +81,26 @@ export function purposeShort(purpose: string | undefined): string {
 // cardText is what a card says below its title: the author's purpose, the
 // operation or path, the tables and keys it touches, and the chips for the
 // helper it runs through and the loop it repeats in.
-export function cardText(n: FlowNode): CardText {
+// formatDuration writes a run's time the way a person reads it.
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const m = Math.floor(ms / 60_000);
+  return `${m}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+// runChip is what one run did at a card, as its chip: the calls and their
+// time, or the rows it wrote, or that it ran.
+export function runChip(stat: FlowNodeRun | undefined): string | null {
+  if (!stat) return null;
+  if (stat.calls > 0) {
+    return `${stat.calls} call${stat.calls === 1 ? "" : "s"} · ${formatDuration(stat.duration_ms)}`;
+  }
+  if (stat.outputs > 0) return `${stat.rows} row${stat.rows === 1 ? "" : "s"}`;
+  return stat.reached ? "ran" : null;
+}
+
+export function cardText(n: FlowNode, stat?: FlowNodeRun): CardText {
   const lines: CardLine[] = [];
   const purpose = purposeShort(n.purpose);
   if (purpose) lines.push({ text: purpose, font: FONT_BODY, mono: false, muted: false });
@@ -78,14 +117,17 @@ export function cardText(n: FlowNode): CardText {
     lines.push({ text: d, font: FONT_MONO, mono: true, muted: true });
   }
   const chips: string[] = [];
+  const ran = runChip(stat);
+  if (ran) chips.push(ran);
+  if (n.change) chips.push(CHANGE_LABEL[n.change]);
   if (n.wrapper) chips.push(`${n.wrapper}()`);
   const loop = n.loops[n.loops.length - 1];
   if (loop) chips.push(`↻ ${loop.replace(/^for /, "")}`);
   return { lines, chips };
 }
 
-export function cardHeight(n: FlowNode): number {
-  const { lines, chips } = cardText(n);
+export function cardHeight(n: FlowNode, stat?: FlowNodeRun): number {
+  const { lines, chips } = cardText(n, stat);
   return CARD_HEAD + lines.length * LINE_HEIGHT + (chips.length ? CHIP_ROW : 0) + CARD_PAD;
 }
 

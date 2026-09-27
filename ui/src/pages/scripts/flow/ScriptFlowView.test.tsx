@@ -1,12 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ScriptFlow } from "@/api/portal/hooks/scriptFlow";
 import { ScriptFlowView } from "./ScriptFlowView";
 import { sampleGraph } from "./testGraph";
+import { layoutFlow } from "./flowLayout";
 
-vi.mock("@/api/portal/hooks/scriptFlow", () => ({ useScriptFlow: vi.fn() }));
-import { useScriptFlow } from "@/api/portal/hooks/scriptFlow";
+vi.mock("@/api/portal/hooks/scriptFlow", () => ({ useScriptFlow: vi.fn(), useScriptRunFlow: vi.fn() }));
+vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useScriptRuns: vi.fn() }));
+import { useScriptFlow, useScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
+import { useScriptRuns } from "@/api/portal/hooks/scriptRuns";
 const mockFlow = vi.mocked(useScriptFlow);
+const mockRunFlow = vi.mocked(useScriptRunFlow);
+const mockRuns = vi.mocked(useScriptRuns);
 
 function answer(data: ScriptFlow | undefined, extra: Record<string, unknown> = {}) {
   mockFlow.mockReturnValue({ data, isLoading: false, error: null, ...extra } as unknown as ReturnType<
@@ -29,15 +34,29 @@ function renderView(selection: { from: number; to: number } | null = null) {
   );
 }
 
+// LAYOUT_WAIT bounds a wait on the diagram: a layout runs asynchronously, and
+// on a loaded machine takes longer than the default second. Loading the layout
+// engine itself is paid once, in beforeAll below, not by whichever test draws
+// first.
+const LAYOUT_WAIT = { timeout: 4_000 };
+
 // card is the drawn card for a node id, once the layout has run.
 async function card(id: string) {
-  await screen.findByTestId("flow-canvas");
+  await screen.findByTestId("flow-canvas", {}, LAYOUT_WAIT);
   const el = document.querySelector(`[data-node="${id}"]`);
   if (!el) throw new Error(`no card ${id}`);
   return el as SVGGElement;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeAll(async () => {
+  await layoutFlow(sampleGraph());
+}, 30_000);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useScriptRuns>);
+  mockRunFlow.mockReturnValue({ isLoading: false } as ReturnType<typeof useScriptRunFlow>);
+});
 afterEach(cleanup);
 
 describe("ScriptFlowView: the states before a diagram", () => {
@@ -93,7 +112,7 @@ describe("ScriptFlowView: the diagram", () => {
   it("notes a diagram cut at its step bound", async () => {
     answer({ ...sampleGraph(), truncated: true });
     renderView();
-    expect(await screen.findByText(/more steps than one diagram draws/)).toBeInTheDocument();
+    expect(await screen.findByText(/more steps than one diagram draws/, {}, LAYOUT_WAIT)).toBeInTheDocument();
   });
 
   it("fills the side panel from the selected card and opens its lines in Source", async () => {
@@ -200,5 +219,166 @@ describe("ScriptFlowView: the diagram", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fit the whole diagram" }));
     expect(g.getAttribute("transform")).toMatch(/scale\(/);
     fireEvent.pointerLeave(canvas);
+  });
+});
+
+describe("ScriptFlowView: a compared graph (#1908)", () => {
+  function compared(): ScriptFlow {
+    const g = sampleGraph();
+    g.compared_with = 1;
+    g.nodes[2] = { ...g.nodes[2]!, change: "changed", was: { title: "API crm-old", detail: [] } };
+    g.nodes[3] = { ...g.nodes[3]!, change: "added" };
+    g.nodes.push({ ...g.nodes[1]!, id: "was:op:9", title: "Query lake", change: "removed", group: undefined });
+    g.edges.push({ from: "was:op:9", to: "op:2", via: [], kind: "data", change: "removed" });
+    return g;
+  }
+
+  it("counts the changes in place of the reading guide and marks each card", async () => {
+    answer(compared());
+    render(<ScriptFlowView scriptId="script-001" version={2} compareWith={1} source={source} sourceSelection={null} />);
+    expect(mockFlow).toHaveBeenCalledWith("script-001", 2, 1);
+    expect(await card("op:2")).toHaveAccessibleName("Reads: API crm (changed)");
+    expect(await card("op:3")).toHaveAttribute("data-change", "added");
+    expect(await card("was:op:9")).toHaveAttribute("opacity", "0.6");
+    expect(document.querySelector('[data-edge="was:op:9->op:2"]')).toHaveAttribute("stroke-dasharray", "6 4");
+    const summary = screen.getByTestId("flow-compare-summary");
+    expect(summary).toHaveTextContent("v2 compared with v1");
+    expect(summary).toHaveTextContent("1 added");
+    expect(summary).toHaveTextContent("1 changed");
+    expect(summary).toHaveTextContent("1 removed");
+  });
+
+  it("says what a changed card was, and offers no Source where there is none", async () => {
+    answer(compared());
+    render(<ScriptFlowView scriptId="script-001" version={2} compareWith={1} source={source} sourceSelection={null} />);
+    fireEvent.pointerUp(await card("op:2"));
+    const side = within(screen.getByTestId("flow-side-panel"));
+    expect(side.getByText("API crm-old")).toBeInTheDocument();
+    expect(side.queryByRole("button", { name: "Show in Source" })).not.toBeInTheDocument();
+    fireEvent.pointerUp(await card("was:op:9"));
+    expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("only in v1");
+    fireEvent.pointerUp(screen.getByRole("button", { name: "Function load(day)" }));
+    expect(within(screen.getByTestId("flow-side-panel")).queryByRole("button", { name: "Show in Source" })).toBeNull();
+  });
+
+  it("draws no run, even with the run history already read by the Flow tab", async () => {
+    // A disabled query still answers from the cache, which is what the
+    // owner's Flow tab above the comparison has filled.
+    mockRuns.mockReturnValue({
+      data: { data: [{ id: "run-001", version: 2, status: "succeeded" }] },
+    } as unknown as ReturnType<typeof useScriptRuns>);
+    answer(compared());
+    render(
+      <ScriptFlowView scriptId="script-001" version={2} compareWith={1} owned source={source} sourceSelection={null} />,
+    );
+    await card("op:1");
+    expect(screen.queryByRole("combobox", { name: "Run drawn on the diagram" })).toBeNull();
+    expect(mockRunFlow).toHaveBeenCalledWith("script-001", null);
+    expect(screen.getByTestId("flow-compare-summary")).toHaveTextContent("1 added");
+  });
+
+  it("says when nothing a script reaches changed", async () => {
+    const g = sampleGraph();
+    g.compared_with = 1;
+    answer(g);
+    render(<ScriptFlowView scriptId="script-001" version={2} compareWith={1} source={source} sourceSelection={null} />);
+    await card("op:1");
+    expect(screen.getByTestId("flow-compare-summary")).toHaveTextContent("Nothing this script reads, writes or produces changed");
+  });
+});
+
+describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
+  const runFlow = () => ({
+    script_id: "script-001",
+    run_id: "run-2",
+    version: 2,
+    status: "failed",
+    cause: "upstream",
+    error: "Traceback (most recent call last):\n  script:11:20: in <toplevel>\nError in export: refused",
+    graph: sampleGraph(),
+    nodes: {
+      state: { calls: 0, duration_ms: 0, response_chars: 0, outputs: 0, rows: 0, failed_calls: 0, reached: true, failed: false },
+      "op:1": { calls: 3, duration_ms: 1500, response_chars: 10, outputs: 0, rows: 0, failed_calls: 1, last_error: "rate limited", reached: true, failed: false },
+      "op:3": { calls: 0, duration_ms: 0, response_chars: 0, outputs: 0, rows: 0, failed_calls: 0, reached: true, failed: true, error: "Error in export: refused" },
+    },
+    other_calls: [{ tool: "s3_list", duration_ms: 4, success: true }],
+    calls: 4,
+    failed_node: "op:3",
+    calls_truncated: false,
+  });
+
+  function withRuns() {
+    mockRuns.mockImplementation((_id, owned) => ({
+      data: owned ? {
+        data: [
+          { id: "run-2", status: "failed", version: 2, trigger: "schedule", fire_time: "2026-09-01T07:00:00Z", duration_ms: 1, output_count: 0 },
+          { id: "run-1", status: "succeeded", version: 1, trigger: "schedule", fire_time: "2026-08-31T07:00:00Z", duration_ms: 1, output_count: 0 },
+        ],
+      } : undefined,
+    }) as unknown as ReturnType<typeof useScriptRuns>);
+    mockRunFlow.mockImplementation(
+      (_id, runId) =>
+        (runId ? { data: runFlow(), isLoading: false, error: null } : { isLoading: false }) as unknown as ReturnType<
+          typeof useScriptRunFlow
+        >,
+    );
+    answer(sampleGraph());
+  }
+
+  it("opens on the latest run: its calls on the cards, the failed card, the unreached dimmed", async () => {
+    withRuns();
+    render(<ScriptFlowView scriptId="script-001" version={2} owned source={source} sourceSelection={null} />);
+    expect(mockRunFlow).toHaveBeenLastCalledWith("script-001", "run-2");
+    expect(await card("op:1")).toHaveTextContent("3 calls · 1.5 s");
+    expect(await card("op:3")).toHaveAttribute("data-failed", "true");
+    expect(await card("op:2")).toHaveAttribute("opacity", "0.35");
+    expect(await card("op:1")).toHaveAttribute("opacity", "1");
+    const summary = screen.getByTestId("flow-run-summary");
+    expect(summary).toHaveTextContent("Run of v2: failed");
+    expect(summary).toHaveTextContent("Cause: upstream");
+    expect(summary).toHaveTextContent("s3_list");
+
+    fireEvent.pointerUp(await card("op:1"));
+    const side = screen.getByTestId("flow-side-panel");
+    expect(side).toHaveTextContent("3 calls, 1.5 s");
+    expect(side).toHaveTextContent("1: rate limited");
+    fireEvent.pointerUp(await card("op:3"));
+    expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("Error in export: refused");
+    fireEvent.pointerUp(await card("op:2"));
+    expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("never reached");
+  });
+
+  it("offers no run picker to a reader, and draws the saved version", async () => {
+    withRuns();
+    render(<ScriptFlowView scriptId="script-001" version={2} source={source} sourceSelection={null} />);
+    expect(mockRuns).toHaveBeenCalledWith("script-001", false);
+    await card("op:1");
+    expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("How to read this");
+  });
+
+  it("draws no run when the reader picks none", async () => {
+    withRuns();
+    render(<ScriptFlowView scriptId="script-001" version={2} owned source={source} sourceSelection={null} />);
+    await card("op:1");
+    fireEvent.click(screen.getByRole("combobox", { name: "Run drawn on the diagram" }));
+    fireEvent.click(await screen.findByRole("option", { name: /No run/ }));
+    expect(mockRunFlow).toHaveBeenLastCalledWith("script-001", null);
+    expect(await screen.findByText("How to read this", {}, LAYOUT_WAIT)).toBeInTheDocument();
+  });
+
+  it("says when a run cannot be drawn, and draws a run of a version that no longer parses as its findings", () => {
+    withRuns();
+    mockRunFlow.mockReturnValue({ isLoading: false, error: new Error("x") } as unknown as ReturnType<typeof useScriptRunFlow>);
+    render(<ScriptFlowView scriptId="script-001" version={2} owned source={source} sourceSelection={null} />);
+    expect(screen.getByText("This run could not be drawn.")).toBeInTheDocument();
+    cleanup();
+    mockRunFlow.mockReturnValue({ isLoading: true } as unknown as ReturnType<typeof useScriptRunFlow>);
+    render(<ScriptFlowView scriptId="script-001" version={2} owned source={source} sourceSelection={null} />);
+    expect(screen.getByText("Reading the run…")).toBeInTheDocument();
+    cleanup();
+    const bad = { ...runFlow(), graph: { ...sampleGraph(), ok: false, nodes: [], findings: [{ severity: "error", message: "nope" }] } };
+    mockRunFlow.mockReturnValue({ data: bad, isLoading: false } as unknown as ReturnType<typeof useScriptRunFlow>);
+    render(<ScriptFlowView scriptId="script-001" version={2} owned source={source} sourceSelection={null} />);
+    expect(screen.getByTestId("flow-findings")).toHaveTextContent("nope");
   });
 });
