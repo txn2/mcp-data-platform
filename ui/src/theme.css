@@ -85,6 +85,15 @@
        sizes its sticky menu to the viewport, which overflows the scrollport by
        exactly this much (#1749). */
     --app-header-height: 3.5rem;
+    /* The categorical series colours a chart assigns in this fixed order and
+       never cycles (#1891). Validated for colour-vision separation between
+       neighbouring slots and against the card: in light mode slots 3-5 sit
+       under 3:1, so a chart using them labels its marks in text as well. */
+    --chart-1: 213 68% 50%;
+    --chart-2: 17 82% 56%;
+    --chart-3: 159 73% 40%;
+    --chart-4: 41 100% 46%;
+    --chart-5: 337 70% 70%;
   }
 
   .dark {
@@ -113,6 +122,13 @@
     --border: 217 24% 20%;
     --input: 217 24% 20%;
     --ring: 224.3 76.3% 48%;
+    /* The same five hues stepped for the dark card, not a flip of the light
+       ones; every slot clears 3:1 here. */
+    --chart-1: 213 77% 56%;
+    --chart-2: 17 70% 50%;
+    --chart-3: 159 73% 36%;
+    --chart-4: 40 100% 39%;
+    --chart-5: 338 61% 58%;
   }
 }
 
@@ -167,6 +183,11 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
 }
 
 /*
@@ -199,4 +220,32 @@
 
 .dark .checkerboard {
   background-color: hsl(var(--background));
+}
+
+/*
+ * The Schedules tab's entry (#1891): the plot is revealed left to right when
+ * the tab opens, reading as time running forward. A reader who has asked for
+ * reduced motion gets the plot as it is.
+ */
+@keyframes schedule-wipe {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* Applied to the rect of the clip path the marks are drawn through, so the
+   labels stay put and every row is revealed against one edge. */
+.schedule-wipe {
+  transform-box: fill-box;
+  transform-origin: left;
+  animation: schedule-wipe 700ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .schedule-wipe {
+    animation: none;
+  }
 }

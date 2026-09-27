@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/fireshttp"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -29,6 +30,8 @@ import (
 // registerPortalSchedules mounts the owner's cadence controls. It is called
 // from RegisterPortal only where the deployment can keep a schedule.
 func (h *Handler) registerPortalSchedules(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
+	// When every visible schedule fires, for the Schedules tab (#1891).
+	fireshttp.New(fireshttp.Deps{Scripts: h.deps.Scripts, Schedules: h.deps.Schedules, Caller: h.requester}).Register(mux, wrap)
 	mux.Handle("GET /api/v1/portal/scripts/{id}/schedule", wrap(h.portalHandler(h.portalGetSchedule)))
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/schedule", wrap(h.portalHandler(h.portalSetSchedule)))
 	// Pausing is its own action rather than a field of the cadence, for the

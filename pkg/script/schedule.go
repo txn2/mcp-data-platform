@@ -168,6 +168,31 @@ func (c Cron) Next(t time.Time) time.Time {
 // Location returns the zone the expression is read in.
 func (c Cron) Location() *time.Location { return c.loc }
 
+// FiresBetween returns the fires in [from, to), at most limit of them, and how
+// many fires the window holds in all. The count is not capped: a caller that
+// draws the fires still states how many there were when it was not handed
+// every one. A non-positive limit returns the count alone.
+//
+// It walks Next, the same function the materializer advances a schedule with,
+// so a fire listed here is a fire the scheduler makes, across a DST transition
+// and for the @every descriptor alike.
+func (c Cron) FiresBetween(from, to time.Time, limit int) (fires []time.Time, count int) {
+	fires = make([]time.Time, 0, min(max(limit, 0), fireSliceHint))
+	// Next is strictly after its argument, so the walk starts one nanosecond
+	// before the window to admit a fire on its first instant.
+	for at := c.Next(from.Add(-time.Nanosecond)); !at.IsZero() && at.Before(to); at = c.Next(at) {
+		if count < limit {
+			fires = append(fires, at)
+		}
+		count++
+	}
+	return fires, count
+}
+
+// fireSliceHint bounds the capacity FiresBetween reserves up front, so a large
+// limit over a sparse schedule does not allocate for fires that never come.
+const fireSliceHint = 512
+
 // ParseCron parses a cron expression in a timezone. An empty timezone is UTC.
 func ParseCron(spec, timezone string) (Cron, error) {
 	spec = strings.TrimSpace(spec)
