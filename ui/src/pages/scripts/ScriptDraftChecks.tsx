@@ -27,17 +27,25 @@ export function ValidationReport({
   report: ScriptValidation;
   contract: ScriptContract;
 }) {
+  // A report can fail on the validator's own findings (the source does not
+  // parse or cannot run) or only on the authoring gates' (#1913), whose
+  // findings carry a rule: the source runs, and a save still refuses it.
+  const unparsed = report.findings.some(
+    (f) => f.severity === "error" && !f.rule,
+  );
+  const [label, note] = report.ok
+    ? ["Parses", "Nothing was executed and nothing was saved."]
+    : unparsed
+      ? ["Does not parse", "This cannot be saved until it parses."]
+      : [
+          "Needs changes",
+          "This cannot be saved until the findings below are fixed.",
+        ];
   return (
     <div className="space-y-3 rounded-md border p-3">
       <div className="flex items-center gap-2">
-        <Badge variant={report.ok ? "secondary" : "destructive"}>
-          {report.ok ? "Parses" : "Does not parse"}
-        </Badge>
-        <span className="text-xs text-muted-foreground">
-          {report.ok
-            ? "Nothing was executed and nothing was saved."
-            : "This cannot be saved until it parses."}
-        </span>
+        <Badge variant={report.ok ? "secondary" : "destructive"}>{label}</Badge>
+        <span className="text-xs text-muted-foreground">{note}</span>
       </div>
 
       <Findings findings={report.findings} />
@@ -109,7 +117,8 @@ function Findings({ findings }: { findings: ScriptFinding[] }) {
         <li key={`${f.line ?? 0}-${i}`} className="text-xs">
           <span className="font-medium">
             {f.severity}
-            {f.line ? ` (line ${f.line})` : ""}:
+            {f.line ? ` (line ${f.line})` : ""}
+            {f.rule ? ` ${f.rule}` : ""}:
           </span>{" "}
           {f.message}
           {f.hint && (

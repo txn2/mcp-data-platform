@@ -143,3 +143,37 @@ func TestBindSQL_NilParams(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "SELECT 1", got)
 }
+
+// TestBindSQL_ATableRecordBindsAsItsName is #1948: the record register=
+// hands back binds as the table's name, every part quoted so it is an
+// identifier and nothing else; anything short of a registered table's record
+// is refused, naming why.
+func TestBindSQL_ATableRecordBindsAsItsName(t *testing.T) {
+	record := map[string]any{"connection": "scratch", "query_table": "scratch.analyst.orders", "follow": true}
+	got, err := bindSQL("SELECT count(*) FROM :t", params(t, bind("t", record)))
+	require.NoError(t, err)
+	assert.Equal(t, `SELECT count(*) FROM "scratch"."analyst"."orders"`, got)
+
+	odd := map[string]any{"query_table": `scratch.x.a"b`}
+	got, err = bindSQL("FROM :t", params(t, bind("t", odd)))
+	require.NoError(t, err)
+	assert.Equal(t, `FROM "scratch"."x"."a""b"`, got, "an embedded quote cannot end the identifier")
+
+	for name, tc := range map[string]struct {
+		record map[string]any
+		want   string
+	}{
+		"a draft's preview":   {map[string]any{"connection": "scratch", "preview": true}, "a draft without allow_writes registers nothing"},
+		"any other dict":      {map[string]any{"a": int64(1)}, `pass the record platform.export(..., register=...) returned`},
+		"two parts":           {map[string]any{"query_table": "analyst.orders"}, "is not catalog.schema.table"},
+		"an empty part":       {map[string]any{"query_table": "scratch..orders"}, "is not catalog.schema.table"},
+		"a NUL in the name":   {map[string]any{"query_table": "scratch.a.b\x00"}, "is not catalog.schema.table"},
+		"not a string at all": {map[string]any{"query_table": int64(3)}, `pass the record`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := bindSQL("FROM :t", params(t, bind("t", tc.record)))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}

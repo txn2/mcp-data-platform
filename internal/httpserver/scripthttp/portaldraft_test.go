@@ -14,6 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -30,8 +31,10 @@ const (
 
 // draftSource is valid Starlark reaching for one connection and one export, so
 // a validate report has something to report.
-const draftSource = "res = platform.query(connection=\"warehouse\", sql=\"SELECT 1\")\n" +
-	"platform.export(name=\"daily\", rows=res[\"rows\"])\n"
+const draftSource = "def main():\n" +
+	"    \"\"\"Exports the daily rows.\"\"\"\n" +
+	"    res = platform.query(connection = \"warehouse\", sql = \"SELECT 1\")\n" +
+	"    platform.export(name = \"daily\", rows = res[\"rows\"])\n"
 
 // fakeRunner is the draft runner the route calls. It records the request so a
 // test asserts on the identity and the source the run carried rather than on a
@@ -462,7 +465,9 @@ func TestPortalDryRunSource_AnswersBusyAsRetryableRatherThanBroken(t *testing.T)
 
 // bucketExportSource names a bucket destination, which only a deployment that
 // declares one can serve.
-const bucketExportSource = "platform.export(\"top-stores\", [], \"csv\", destination=\"drop\", key=\"top.csv\")\n"
+const bucketExportSource = "def main():\n" +
+	"    \"\"\"Delivers the top stores to the drop bucket.\"\"\"\n" +
+	"    platform.export(\"top-stores\", [], \"csv\", destination = \"drop\", key = \"top.csv\")\n"
 
 // TestPortalValidateSource_RefusesAnUndeclaredDestination is #1415 on the
 // editor: an author pressing Validate has to learn that this deployment cannot
@@ -515,7 +520,7 @@ func TestPortalDryRunSource_RefusesAnUndeclaredDestination(t *testing.T) {
 func TestPortalEditSource_AcceptsAnUndeclaredDestination(t *testing.T) {
 	assert.Empty(t, refuseSource(bucketExportSource),
 		"a save reads the source, not the deployment's destination configuration")
-	assert.NotEmpty(t, refuseDraftSource(bucketExportSource, nil))
+	assert.NotEmpty(t, scriptlint.DraftRefusal(bucketExportSource, nil))
 }
 
 // The write barrier (#1664). A dry run refuses a platform.call that persists,

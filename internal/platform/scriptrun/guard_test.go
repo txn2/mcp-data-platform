@@ -165,6 +165,35 @@ func TestRun_FailsARunThatEndsOverItsBudget(t *testing.T) {
 	assert.Greater(t, result.PeakMemory, int64(2000*1024))
 }
 
+// TestRun_MeasuresWhatMainHoldsWhenItEnds holds #1867 for the main() shape
+// (#1944): what main builds after its last host call is in its locals, gone by
+// the time the module returns, so it is measured as main ends -- whether the
+// platform calls main or the script does, and at an early return as at the end
+// of the body. What main hands back through a return is kept.
+func TestRun_MeasuresWhatMainHoldsWhenItEnds(t *testing.T) {
+	const build = `    held = ["x" * 1024 + str(i) for i in range(2000)]
+`
+	for name, src := range map[string]string{
+		"the platform calls main": "def main():\n" + build,
+		"the script calls main":   "def main():\n" + build + "\nmain()\n",
+		"main returns early":      "def main():\n" + build + "    if held:\n        return len(held)\n    print(\"unreached\")\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := Run(context.Background(), Options{
+				Source: src, Name: "test", FireTime: fireTime, Caller: &recordingCaller{}, MaxMemoryBytes: 1 << 20,
+			})
+			require.Error(t, err)
+			assert.Equal(t, runstate.CauseMemory, scriptguard.Cause(err))
+			assert.Contains(t, err.Error(), "in the code after its last host call")
+			assert.Greater(t, result.PeakMemory, int64(2000*1024))
+		})
+	}
+
+	result, err := execute(t, "def main():\n    rows = [{\"n\": i} for i in range(1000)]\n    return len(rows)\n", &recordingCaller{}, nil)
+	require.NoError(t, err)
+	assert.Greater(t, result.PeakMemory, int64(1000*512), "measured with no budget too")
+}
+
 // TestRun_ReportsThePeakWithNoBudget: every run is measured, budget or not,
 // including what it built after its last host call.
 func TestRun_ReportsThePeakWithNoBudget(t *testing.T) {

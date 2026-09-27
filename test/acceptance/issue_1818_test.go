@@ -44,15 +44,18 @@ var issue1818Values = map[string]string{
 // library and records the reference, so the run's own record says where the
 // file landed. The first verb is the row as a JSON string literal, the second
 // the key.
-const issue1818ScriptSource = `
-out = platform.export(
-    name="Acceptance 1818 script output",
-    rows=[json.decode(%q)],
-    format="csv",
-    destination="resources",
-    key="acceptance/issue-1818/%s",
-)
-platform.save_state({"reference": out["reference"]})
+const issue1818ScriptSource = `def main():
+    """Exports one row to the managed-resource library and records where it landed."""
+    out = platform.export(
+        name = "Acceptance 1818 script output",
+        rows = [json.decode(%q)],
+        format = "csv",
+        destination = "resources",
+        key = "acceptance/issue-1818/%s",
+    )
+    state = dict(run.state)
+    state["reference"] = out["reference"]
+    platform.save_state(state)
 `
 
 // TestIssue1818_AScriptExportKeepsALeadingSign is the ticket's reproduction:

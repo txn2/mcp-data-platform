@@ -35,18 +35,20 @@ import (
 // issue1849Source exports the two-sheet workbook the criteria read back. %s
 // is the output name.
 const issue1849Source = `
-out = platform.export(%q, {
-    "sheets": [
-        {"name": "Summary", "title": "Sales by region",
-         "columns": ["region", "sales", "net", "day"],
-         "rows": [{"region": "west", "sales": 1200, "net": "1234.50", "day": "2026-09-01"},
-                  {"region": "east", "sales": 34, "net": 99, "day": "2026-09-02"}],
-         "column_types": {"sales": "integer", "net": "currency", "day": "date"},
-         "freeze": "A3", "widths": {"region": 30}},
-        {"name": "By day", "rows": [{"day": "2026-09-01", "count": 3}]},
-    ],
-}, format="xlsx")
-print(out["sheets"])
+def main():
+    """Exports the two-sheet workbook and prints what each sheet holds."""
+    out = platform.export(%q, {
+        "sheets": [
+            {"name": "Summary", "title": "Sales by region",
+             "columns": ["region", "sales", "net", "day"],
+             "rows": [{"region": "west", "sales": 1200, "net": "1234.50", "day": "2026-09-01"},
+                      {"region": "east", "sales": 34, "net": 99, "day": "2026-09-02"}],
+             "column_types": {"sales": "integer", "net": "currency", "day": "date"},
+             "freeze": "A3", "widths": {"region": 30}},
+            {"name": "By day", "rows": [{"day": "2026-09-01", "count": 3}]},
+        ],
+    }, format = "xlsx")
+    print(out["sheets"])
 `
 
 // xlsxContentType1849 is the media type an Excel workbook is served under.
@@ -55,11 +57,14 @@ const xlsxContentType1849 = "application/vnd.openxmlformats-officedocument.sprea
 // saveScript1849 creates a script this file owns and deletes it afterwards.
 func saveScript1849(t *testing.T, c *client, name, source string) {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1849: platform.export writes an Excel workbook.",
 		"params":      []any{map[string]any{"name": "day", "type": "string"}},
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("script %s was refused on save: %v", name, created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 }
 
@@ -230,8 +235,11 @@ func TestIssue1849_AnInvalidSheetNameFailsTheRunNamingIt(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1849-bad-" + stamp
-	saveScript1849(t, c, name, fmt.Sprintf(`platform.export(%q, {"sheets": [{"name": "Q3/Q4", "columns": ["a"], "rows": [[1]]}]}, format="xlsx")`+"\n",
-		"acc-1849-bad-"+stamp))
+	saveScript1849(t, c, name, fmt.Sprintf(`
+def main():
+    """Exports a workbook whose one sheet has a name Excel refuses."""
+    platform.export(%q, {"sheets": [{"name": "Q3/Q4", "columns": ["a"], "rows": [[1]]}]}, format = "xlsx")
+`, "acc-1849-bad-"+stamp))
 
 	out := c.call("run_script", map[string]any{"name": name, "args": map[string]any{}, "wait_seconds": 120})
 	if status, _ := out["status"].(string); status != "failed" {

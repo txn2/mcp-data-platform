@@ -38,40 +38,46 @@ import (
 
 // scriptExport1579 writes one CSV output. Its rows come from the run itself, so
 // proving who an output belongs to needs no query engine.
-const scriptExport1579 = `
-rows = [{"region": "north", "units": 41}]
-platform.export(name=run.params["output"], rows=rows, format="csv")
+const scriptExport1579 = `def main():
+    """Writes one CSV output named by the run."""
+    rows = [{"region": "north", "units": 41}]
+    platform.export(name = run.params["output"], rows = rows, format = "csv")
 `
 
 // scriptInventory1579 prints the names of the assets this run's own listing
 // holds, which is the enumeration the collision widened. The listing is scoped
 // by the producer the platform recorded for this run's own writes, so it is
 // this script's outputs whatever the script is named and whoever owns it.
-const scriptInventory1579 = `
-result = platform.call("manage_asset", {"action": "list", "limit": 200})
-names = sorted([a["name"] for a in result["assets"]])
-print("INVENTORY %s" % "|".join(names))
+const scriptInventory1579 = `def main():
+    """Prints the names of the assets this run's own listing holds."""
+    result = platform.call("manage_asset", {"action": "list", "limit": 200})
+    names = sorted([a["name"] for a in result["assets"]])
+    print("INVENTORY %s" % "|".join(names))
 `
 
 // scriptUpdate1579 writes a new description over a named asset. It is the
 // ownsResource surface stated as a run: a refusal fails the run and its text is
 // the run's error.
-const scriptUpdate1579 = `
-platform.call("manage_asset", {
-    "action": "update",
-    "asset_id": run.params["asset_id"],
-    "description": "Acceptance #1579: written by a run.",
-})
-print("UPDATED")
+const scriptUpdate1579 = `def main():
+    """Writes a new description over the named asset."""
+    platform.call("manage_asset", {
+        "action": "update",
+        "asset_id": run.params["asset_id"],
+        "description": "Acceptance #1579: written by a run.",
+    })
+    print("UPDATED")
 `
 
 // scriptSearch1579 prints the names the ranked search returns to this run.
-const scriptSearch1579 = `
-result = platform.call("manage_asset", {
-    "action": "search", "query": run.params["query"], "limit": 50,
-})
-names = sorted([hit["asset"]["name"] for hit in result["assets"]])
-print("SEARCH %s" % "|".join(names))
+const scriptSearch1579 = `def main():
+    """Prints the names the ranked search returns to this run."""
+    result = platform.call("manage_asset", {
+        "action": "search",
+        "query": run.params["query"],
+        "limit": 50,
+    })
+    names = sorted([hit["asset"]["name"] for hit in result["assets"]])
+    print("SEARCH %s" % "|".join(names))
 `
 
 // unique1579 names one run of this file so a re-run collides with nothing the
@@ -449,8 +455,9 @@ func TestIssue1579_TheCollisionIsIndependentOfTheArgumentForm(t *testing.T) {
 
 	// The output name is built from a NUMBER the run is handed, so args carries
 	// a number-valued member on the wire.
-	const numericExport = `
-platform.export(name="acceptance-1579-numeric-%d" % run.params["suffix"], rows=[{"region": "north"}], format="csv")
+	const numericExport = `def main():
+    """Writes one CSV output whose name carries the numeric suffix the run is handed."""
+    platform.export(name = "acceptance-1579-numeric-%d" % run.params["suffix"], rows = [{"region": "north"}], format = "csv")
 `
 	params := []any{map[string]any{
 		"name": "suffix", "type": "int", "required": true,

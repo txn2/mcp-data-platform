@@ -25,16 +25,21 @@ import (
 // are typed strings; run_script's `name` a string and `wait_seconds` an
 // integer. Each is sent in that one form.
 
-// grow1867 is the ticket's reproduction, verbatim but for the connection.
+// grow1867 is the ticket's reproduction, but for the connection and the main()
+// shape the #1913 gates require: the growth stays in a helper whose list is
+// local, which is what the ticket is about.
 func grow1867() string {
 	return fmt.Sprintf(`def grow():
+    """Holds 8 MiB more at every query and returns how many it holds."""
     held = []
-    for i in range(34):
+    for _ in range(34):
         held.append("x" * (8 * 1024 * 1024))
-        platform.query("SELECT 1 AS one", connection=%q)
+        platform.query("SELECT 1 AS one", connection = %q)
     return len(held)
 
-platform.result({"held_mib": grow() * 8})
+def main():
+    """Grows past the memory budget and hands back how much it held."""
+    platform.result({"held_mib": grow() * 8})
 `, scratchResourceConnection)
 }
 
@@ -42,10 +47,13 @@ platform.result({"held_mib": grow() * 8})
 func script1867(t *testing.T, c *client, what, source string) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1867-%s-%d", what, time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1867: " + what,
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("script %s was refused on save: %v", name, created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	return name
 }
@@ -97,9 +105,12 @@ func TestIssue1867_ADraftThatGrowsFasterThanAWalkFails(t *testing.T) {
 // the script ends holding, and that is held to the budget too.
 func TestIssue1867_ARunThatEndsOverItsBudgetFails(t *testing.T) {
 	c := connect(t)
-	name := script1867(t, c, "ends", fmt.Sprintf(`platform.query("SELECT 1 AS one", connection=%q)
-held = ["x" * (8 * 1024 * 1024) + str(i) for i in range(24)]
-print(len(held))
+	name := script1867(t, c, "ends", fmt.Sprintf(`
+def main():
+    """Makes one host call, then builds 192 MiB and makes none."""
+    platform.query("SELECT 1 AS one", connection = %q)
+    held = ["x" * (8 * 1024 * 1024) + str(i) for i in range(24)]
+    print(len(held))
 `, scratchResourceConnection))
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 90})

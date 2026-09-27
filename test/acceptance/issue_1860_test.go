@@ -44,11 +44,17 @@ type issue1860Orphan struct {
 func issue1860Script(t *testing.T, c *client, label string) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1860-%s-%d", label, time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1860: a run whose worker died.",
-		"source":      `print("the re-execution of an orphaned run")`,
+		"source": `def main():
+    """Prints a line that only a re-execution of the orphaned run would log."""
+    print("the re-execution of an orphaned run")
+`,
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	return name
 }

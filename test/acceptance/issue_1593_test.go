@@ -44,12 +44,15 @@ import (
 // both halves of the account: the asset it produced, which survives the
 // delete, and the state it carried, which does not.
 const scriptSource1593 = `
-platform.export(
-    name=run.params["target"],
-    rows=[{"region": "north", "units": 41}],
-    format="csv",
-)
-platform.save_state({"last_target": run.params["target"]})
+def main():
+    """Exports the target output and records it as the last target."""
+    _previous = run.state.get("last_target", "")
+    platform.export(
+        name = run.params["target"],
+        rows = [{"region": "north", "units": 41}],
+        format = "csv",
+    )
+    platform.save_state({"last_target": run.params["target"]})
 `
 
 func unique1593() string {

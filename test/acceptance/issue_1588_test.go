@@ -36,10 +36,13 @@ import (
 // about. The collection is created on the first run only: its name is unique
 // within an owner, and a second creation would fail the run.
 const scriptOutputs1588 = `
-rows = [{"region": "north", "units": 41}]
-platform.export(name=run.params["output"], rows=rows, format="csv")
-if run.params["collection"] != "":
-    platform.call("manage_asset", {"action": "create_collection", "name": run.params["collection"]})
+ROWS = [{"region": "north", "units": 41}]
+
+def main():
+    """Writes one CSV output and, when a collection is named, creates it."""
+    platform.export(name = run.params["output"], rows = ROWS, format = "csv")
+    if run.params["collection"] != "":
+        platform.call("manage_asset", {"action": "create_collection", "name": run.params["collection"]})
 `
 
 // params1588 declares the two parameters the script reads.

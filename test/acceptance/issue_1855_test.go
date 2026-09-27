@@ -35,11 +35,14 @@ import (
 func script1855(t *testing.T, owner *client) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1855-%d", time.Now().UnixNano())
-	owner.call("manage_script", map[string]any{
+	created := owner.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1855: the script a knowledge page cites.",
-		"source":      "print(\"orders synced\")\n",
+		"source":      "def main():\n    \"\"\"Reports that the orders are synced.\"\"\"\n    print(\"orders synced\")\n",
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create %s: %v", name, created)
+	}
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := owner.call("manage_script", map[string]any{"command": "get", "name": name})
 	id, _ := got["id"].(string)

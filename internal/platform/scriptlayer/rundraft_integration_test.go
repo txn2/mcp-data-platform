@@ -241,7 +241,7 @@ func TestIntegration_AuthorValidateRunDraft(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	const source = `report_date = date.add_days(date.of(run.fire_time), -1)
+	source := inMain(`report_date = date.add_days(date.of(run.fire_time), -1)
 print("reporting on " + report_date)
 res = platform.query(
     connection = "warehouse",
@@ -251,7 +251,7 @@ res = platform.query(
 for row in res["rows"]:
     print("%s %d" % (row["region"], row["total"]))
 platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
-`
+`)
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "daily-sales", "source": source,
@@ -273,7 +273,7 @@ platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 
 	stateful, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "validate",
-		"source":  "since = run.state.get(\"synced_through\", \"never\")\nplatform.save_state({\"synced_through\": run.fire_time})\n",
+		"source":  inMain("since = run.state.get(\"synced_through\", \"never\")\nplatform.save_state({\"synced_through\": run.fire_time})\n"),
 	})
 	require.False(t, isErr, stateful)
 	assert.Equal(t, true, stateful["reads_state"], "validate over MCP must report run.state reads (#1545)")
@@ -331,7 +331,7 @@ func TestIntegration_DraftRunCarriesTheAuthorIdentityAndIsAudited(t *testing.T) 
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "one-query",
-		"source": "platform.query(sql = \"SELECT 1\")\n",
+		"source": inMain("platform.query(sql = \"SELECT 1\")\n"),
 	})
 	require.False(t, isErr)
 
@@ -373,7 +373,7 @@ func TestIntegration_ScriptQueryIsNotBlockedByTheSearchFirstGate(t *testing.T) {
 	require.True(t, direct.IsError, "the search-first gate must still hold for the agent itself")
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "gated", "source": "platform.query(sql = \"SELECT 1\")\n",
+		"command": "create", "name": "gated", "source": inMain("platform.query(sql = \"SELECT 1\")\n"),
 	})
 	require.False(t, isErr)
 
@@ -393,7 +393,7 @@ func TestIntegration_RunDraftReportsAFailedRunWithItsLog(t *testing.T) {
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "broken-query",
-		"source": "print(\"starting\")\nplatform.query(sql = \"SELECT 1 FROM sales\")\n",
+		"source": inMain("print(\"starting\")\nplatform.query(sql = \"SELECT 1 FROM sales\")\n"),
 	})
 	require.False(t, isErr)
 
@@ -413,7 +413,7 @@ func TestIntegration_RunDraftChecksParametersBeforeRunning(t *testing.T) {
 	session := connectAgent(ctx, t, h.server)
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "needs-params", "source": "print(run.params[\"day\"])\n",
+		"command": "create", "name": "needs-params", "source": inMain("print(run.params[\"day\"])\n"),
 		"params": []map[string]any{{"name": "day", "type": "date", "required": true}},
 	})
 	require.False(t, isErr)
@@ -476,7 +476,7 @@ func TestIntegration_OneRunIsOneSession(t *testing.T) {
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "three-queries",
-		"source": "for n in range(3):\n    platform.query(sql = \"SELECT 1\")\n",
+		"source": inMain("for _ in range(3):\n    platform.query(sql = \"SELECT 1\")\n"),
 	})
 	require.False(t, isErr)
 
@@ -511,7 +511,7 @@ func TestIntegration_DisabledScriptDoesNotRun(t *testing.T) {
 	session := connectAgent(ctx, t, h.server)
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "off", "source": "platform.query(sql = \"SELECT 1\")\n",
+		"command": "create", "name": "off", "source": inMain("platform.query(sql = \"SELECT 1\")\n"),
 	})
 	require.False(t, isErr)
 	_, isErr = callTool(ctx, t, session, map[string]any{
@@ -535,13 +535,13 @@ func TestIntegration_RunDraftExecutesTheSourceItWasGiven(t *testing.T) {
 	session := connectAgent(ctx, t, h.server)
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "probe", "source": "print(\"saved\")\n",
+		"command": "create", "name": "probe", "source": inMain("print(\"saved\")\n"),
 	})
 	require.False(t, isErr, created)
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "probe",
-		"source": "print(\"submitted\")\n",
+		"source": inMain("print(\"submitted\")\n"),
 	})
 	require.False(t, isErr, ran)
 	assert.Equal(t, "succeeded", ran["status"], ran["error"])
@@ -552,7 +552,7 @@ func TestIntegration_RunDraftExecutesTheSourceItWasGiven(t *testing.T) {
 
 	// The stored version is untouched: a draft is not a save.
 	for _, sc := range h.store.scripts {
-		assert.Equal(t, "print(\"saved\")\n", sc.Source)
+		assert.Equal(t, inMain("print(\"saved\")\n"), sc.Source)
 		assert.Equal(t, 1, sc.Version)
 	}
 }
@@ -566,7 +566,7 @@ func TestIntegration_RunDraftWithNoSourceRunsTheSavedVersion(t *testing.T) {
 	session := connectAgent(ctx, t, h.server)
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "probe", "source": "print(\"saved\")\n",
+		"command": "create", "name": "probe", "source": inMain("print(\"saved\")\n"),
 	})
 	require.False(t, isErr, created)
 
@@ -587,7 +587,7 @@ func TestIntegration_RunDraftRefusesASubmittedSourceThatDoesNotValidate(t *testi
 	session := connectAgent(ctx, t, h.server)
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "probe", "source": "print(\"saved\")\n",
+		"command": "create", "name": "probe", "source": inMain("print(\"saved\")\n"),
 	})
 	require.False(t, isErr, created)
 
@@ -606,9 +606,9 @@ func TestIntegration_ValidateRefusesAnUndeclaredDestination(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	const source = `res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
+	source := inMain(`res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
 platform.export("top-stores", res["rows"], "csv", destination = "drop", key = "top-stores.csv")
-`
+`)
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "top-stores", "source": source,
 	})
@@ -646,7 +646,7 @@ func TestIntegration_ValidateAcceptsADeclaredDestination(t *testing.T) {
 	}})
 	session := connectAgent(ctx, t, h.server)
 
-	const source = `platform.export("top-stores", [], "csv", destination = "drop", key = "top-stores.csv")` + "\n"
+	source := inMain(`platform.export("top-stores", [], "csv", destination = "drop", key = "top-stores.csv")` + "\n")
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "top-stores", "source": source,
 	})
@@ -685,9 +685,9 @@ func TestIntegration_SumIsAvailableToAScript(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	const source = `res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
+	source := inMain(`res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
 print("total %d" % sum([float(r["total"]) for r in res["rows"]]))
-`
+`)
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "totals", "source": source,
 	})
@@ -722,7 +722,7 @@ func TestIntegration_RunDraftPacesARateLimitedCall(t *testing.T) {
 
 	_, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "two-queries",
-		"source": "a = platform.query(sql = \"SELECT 1\")\nprint(len(a[\"rows\"]))\nb = platform.query(sql = \"SELECT 2\")\nprint(len(b[\"rows\"]))\n",
+		"source": inMain("a = platform.query(sql = \"SELECT 1\")\nprint(len(a[\"rows\"]))\nb = platform.query(sql = \"SELECT 2\")\nprint(len(b[\"rows\"]))\n"),
 	})
 	require.False(t, isErr)
 

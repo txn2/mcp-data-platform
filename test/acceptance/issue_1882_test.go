@@ -55,8 +55,9 @@ const zipBody1882 = "PK\x03\x04\x14\x00\x06\x00[Content_Types].xml xl/worksheets
 
 // issue1882Source is a script exporting a one-sheet workbook, the path the
 // reported asset was written by. %q is the output name.
-const issue1882Source = `
-platform.export(%q, {"sheets": [{"name": "Summary", "rows": [{"region": "west", "sales": 1200}]}]}, format="xlsx")
+const issue1882Source = `def main():
+    """Exports a one-sheet workbook."""
+    platform.export(%q, {"sheets": [{"name": "Summary", "rows": [{"region": "west", "sales": 1200}]}]}, format = "xlsx")
 `
 
 func unique1882() string {

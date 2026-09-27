@@ -53,22 +53,28 @@ var issue1820Corpus = []string{
 // issue1820ScriptSource exports the corpus as JSON lines to the library and
 // registers it in the same call, then records where the table is. The first
 // verb is the rows as a JSON string literal, the second the key, the third the
-// connection and the fourth the table name.
+// connection and the fourth the table name. The run count it keeps in state is
+// the read of run.state a script that saves state carries.
 const issue1820ScriptSource = `
-out = platform.export(
-    name="Acceptance 1820 staging",
-    rows=json.decode(%q),
-    format="jsonl",
-    destination="resources",
-    key="acceptance/issue-1820/%s",
-    register={"connection": %q, "table_name": %q},
-)
-platform.save_state({
-    "reference": out["reference"],
-    "query_table": out["table"]["query_table"],
-    "registration_id": out["table"]["registration_id"],
-    "format": out["table"]["format"],
-})
+ROWS_JSON = %q
+
+def main():
+    """Exports the corpus as JSON lines, registers it, and records the table."""
+    out = platform.export(
+        name = "Acceptance 1820 staging",
+        rows = json.decode(ROWS_JSON),
+        format = "jsonl",
+        destination = "resources",
+        key = "acceptance/issue-1820/%s",
+        register = {"connection": %q, "table_name": %q},
+    )
+    platform.save_state({
+        "runs": run.state.get("runs", 0) + 1,
+        "reference": out["reference"],
+        "query_table": out["table"]["query_table"],
+        "registration_id": out["table"]["registration_id"],
+        "format": out["table"]["format"],
+    })
 `
 
 // issue1820Rows renders the corpus as script rows: one per string, keyed by
@@ -98,10 +104,13 @@ func TestIssue1820_AScriptRegistersJSONLinesAndEveryStringComesBack(t *testing.T
 		"acc-1820-"+stamp+".jsonl", scratchResourceConnection, table)
 
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1820: rows exported as JSON lines and registered in one call.",
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

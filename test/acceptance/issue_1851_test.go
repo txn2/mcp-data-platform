@@ -33,10 +33,13 @@ import (
 const issue1851Purpose = "Acceptance for #1851: a pinned table over a script output stays on its version."
 
 // issue1851Source writes one CSV output whose rows carry the run's label, so a
-// query can tell one version's rows from the other's.
+// query can tell one version's rows from the other's. The work sits in main(),
+// the shape the #1913 gates require of a saved script.
 const issue1851Source = `
-label = run.params["label"]
-platform.export(name=%q, rows=[{"label": label, "n": 1}, {"label": label, "n": 2}], format="csv")
+def main():
+    """Exports two rows labelled with the run's label."""
+    label = run.params["label"]
+    platform.export(name = %q, rows = [{"label": label, "n": 1}, {"label": label, "n": 2}], format = "csv")
 `
 
 // issue1851Script saves the script and returns its name and output name.
@@ -44,7 +47,7 @@ func issue1851Script(t *testing.T, c *client) (name, output string) {
 	t.Helper()
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name, output = "acc-1851-"+stamp, "acc-1851-out-"+stamp
-	c.call("manage_script", map[string]any{
+	saved := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1851: a script output a pinned table is registered over.",
 		"source":      fmt.Sprintf(issue1851Source, output),
@@ -52,6 +55,9 @@ func issue1851Script(t *testing.T, c *client) (name, output string) {
 			"name": "label", "type": "string", "required": true, "description": "What each row is labelled.",
 		}},
 	})
+	if saved["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", saved)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	return name, output
 }

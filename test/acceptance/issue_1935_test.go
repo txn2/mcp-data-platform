@@ -26,27 +26,39 @@ import (
 func issue1935Run(t *testing.T, c *client, label, source string) map[string]any {
 	t.Helper()
 	name := fmt.Sprintf("acc-1935-%s-%d", label, time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1935: " + label,
 		"source":      source,
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 60})
 	return c.call("manage_script", map[string]any{"command": "get_run", "run_id": run["run_id"]})
 }
 
-// issue1935Status is a script that calls the fixture for code and fails when
-// the answer is not a 200, as a script watching an upstream does.
+// issue1935Status is a script that calls the fixture for each code in turn and
+// fails when the last answer is not a 200, as a script watching an upstream
+// does. The calls before the last are statements, so no answer is bound and
+// never read.
 func issue1935Status(codes ...int) string {
 	var b strings.Builder
-	for _, code := range codes {
-		fmt.Fprintf(&b, `res = platform.call("api_invoke_endpoint", {"connection": %q, "method": "GET", "path": "/v1/status/%d"})
-`, apiTestConnection, code)
+	b.WriteString(`def main():
+    """Calls the upstream and fails on anything but a 200."""
+`)
+	for i, code := range codes {
+		bind := ""
+		if i == len(codes)-1 {
+			bind = "res = "
+		}
+		fmt.Fprintf(&b, `    %splatform.call("api_invoke_endpoint", {"connection": %q, "method": "GET", "path": "/v1/status/%d"})
+`, bind, apiTestConnection, code)
 	}
-	b.WriteString(`if res["status"] != 200:
-    fail("the upstream returned %d" % res["status"])
-fail("the script's own mistake")
+	b.WriteString(`    if res["status"] != 200:
+        fail("the upstream returned %d" % res["status"])
+    fail("the script's own mistake")
 `)
 	return b.String()
 }
@@ -84,8 +96,10 @@ func TestIssue1935_AFailureAfterAGoodCallIsTheScripts(t *testing.T) {
 
 // TestIssue1935_FailRetryableIsTransient is the author's own signal.
 func TestIssue1935_FailRetryableIsTransient(t *testing.T) {
-	got := issue1935Run(t, connect(t), "retryable",
-		`fail("the feed has not published today", retryable=True)`+"\n")
+	got := issue1935Run(t, connect(t), "retryable", `def main():
+    """Reports a failure the author knows is temporary."""
+    fail("the feed has not published today", retryable = True)
+`)
 	if got["cause"] != "transient" || got["retryable"] != true {
 		t.Fatalf("cause = %v, retryable = %v; want transient, true: %v", got["cause"], got["retryable"], got)
 	}
@@ -104,11 +118,17 @@ func TestIssue1935_ARepeatedFailureEmailSaysToCorrectTheScript(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	db := issue1904DB(t)
 	name := fmt.Sprintf("acc-1935-mail-%d", time.Now().UnixNano())
-	owner.call("manage_script", map[string]any{
+	created := owner.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1935: a failure that repeats",
-		"source":      `fail("the input was not what this script expects")` + "\n",
+		"source": `def main():
+    """Fails the way a script handed input it does not expect does."""
+    fail("the input was not what this script expects")
+`,
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	owner.call("manage_script", map[string]any{
 		"command": "schedule_set", "name": name, "cron": "0 3 * * *", "timezone": "UTC",
@@ -123,7 +143,7 @@ func TestIssue1935_ARepeatedFailureEmailSaysToCorrectTheScript(t *testing.T) {
 			  FROM scripts s JOIN script_versions v ON v.script_id = s.id AND v.version = s.version
 			 WHERE s.name = $1`,
 			name, fmt.Sprintf("dpx_acc1935_%d_%d", time.Now().UnixNano(), i),
-			"Traceback (most recent call last):\n  "+name+":1:5: in <toplevel>\n"+lastLine, 3-i)
+			"Traceback (most recent call last):\n  "+name+":3:5: in main\n"+lastLine, 3-i)
 	}
 	issue1904Exec(t, db, `UPDATE script_schedules SET next_run_at = NOW() - interval '1 second'
 		WHERE script_id = (SELECT id FROM scripts WHERE name = $1)`, name)

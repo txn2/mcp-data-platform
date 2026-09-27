@@ -14,7 +14,7 @@ func (a *analyzer) run() {
 	for range 2 {
 		a.top = newFrame("")
 		a.stack = []*frame{a.top}
-		a.stmts(a.top, a.file.Stmts)
+		a.stmts(a.top, a.module)
 	}
 }
 

@@ -38,14 +38,17 @@ const (
 // scriptCallsAnEndpoint1624 makes one cataloged API call and saves what the
 // result carried: whether the platform handed the run a citation token, and
 // the run's own session, which is the key its audit rows join on.
-const scriptCallsAnEndpoint1624 = `
-res = platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "method": "GET",
-    "path": "/v1/pagination/link",
-    "purpose": "Acceptance #1624: a run fetches one upstream page.",
-})
-platform.save_state({"has_reference": str("call_reference" in res)})
+const scriptCallsAnEndpoint1624 = `def main():
+    """Makes one cataloged API call and saves whether its result carried a call reference."""
+    res = platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/v1/pagination/link",
+        "purpose": "Acceptance #1624: a run fetches one upstream page.",
+    })
+    state = dict(run.state)
+    state["has_reference"] = str("call_reference" in res)
+    platform.save_state(state)
 `
 
 // runScript1624 creates a script and runs it to completion, failing the test
@@ -259,19 +262,22 @@ func findsCall1624(c *client, marker string) bool {
 // the write path that captures provenance. The run cites nothing -- it has no
 // reference to cite -- so the capture must come from the run's own session
 // window.
-const scriptSavesAnAsset1624 = `
-platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "method": "GET",
-    "path": "/v1/pagination/link",
-    "purpose": "Acceptance #1624: the call an asset a run writes was built from.",
-})
-saved = platform.call("save_asset", {
-    "name": "Acceptance 1624 run output",
-    "content": "region,amount\nwest,10\n",
-    "content_type": "text/csv",
-})
-platform.save_state({"asset_id": str(saved["asset_id"])})
+const scriptSavesAnAsset1624 = `def main():
+    """Makes a data call and saves an asset from it, recording the asset id in state."""
+    platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/v1/pagination/link",
+        "purpose": "Acceptance #1624: the call an asset a run writes was built from.",
+    })
+    saved = platform.call("save_asset", {
+        "name": "Acceptance 1624 run output",
+        "content": "region,amount\nwest,10\n",
+        "content_type": "text/csv",
+    })
+    state = dict(run.state)
+    state["asset_id"] = str(saved["asset_id"])
+    platform.save_state(state)
 `
 
 // TestIssue1624_AnAssetARunWritesStillRecordsItsCalls is criterion 3, stated

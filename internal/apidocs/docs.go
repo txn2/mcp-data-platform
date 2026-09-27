@@ -35279,6 +35279,11 @@ const docTemplate = `{
                 "message": {
                     "type": "string"
                 },
+                "rule": {
+                    "description": "Rule names the authoring gate a finding comes from (internal/platform/\nscriptlint, #1913), empty for the validator's own findings.",
+                    "type": "string",
+                    "example": "cyclomatic-complexity"
+                },
                 "severity": {
                     "type": "string",
                     "example": "error"

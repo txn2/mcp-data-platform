@@ -1,10 +1,12 @@
 package scriptflow
 
 import (
+	"slices"
 	"strings"
 
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 )
 
@@ -24,10 +26,16 @@ const (
 
 // analyzer is one walk of a script.
 type analyzer struct {
-	lines  []string
-	file   *syntax.File
-	consts scriptconst.Table
-	funcs  map[string]*syntax.DefStmt
+	lines []string
+	file  *syntax.File
+	// module is what runs at the module level: the file's statements, then
+	// the call of main() the platform makes when it makes one (#1944).
+	module []syntax.Stmt
+	// entryCall is that call, which has no position of its own in the source
+	// and no frame at run time, so it adds no call site.
+	entryCall *syntax.CallExpr
+	consts    scriptconst.Table
+	funcs     map[string]*syntax.DefStmt
 	// parentOf names the function a nested def is written in.
 	parentOf map[string]string
 	// hasSteps is every function that makes a platform call, directly or
@@ -66,6 +74,11 @@ func newAnalyzer(source string, file *syntax.File) *analyzer {
 		hasSteps: map[string]bool{}, wrapper: map[string]bool{},
 		steps: map[string]*step{}, params: map[string]int{}, decides: map[string]bool{},
 		groups: map[string]*groupInfo{},
+	}
+	a.module = file.Stmts
+	if main := scriptdialect.EntryPoint(file); main != nil {
+		a.entryCall = &syntax.CallExpr{Fn: main.Name, Lparen: main.Def, Rparen: main.Def}
+		a.module = append(slices.Clone(file.Stmts), &syntax.ExprStmt{X: a.entryCall})
 	}
 	a.collectDefs(file.Stmts, "")
 	a.survey()
@@ -196,7 +209,7 @@ func (a *analyzer) isWrapper(c bodyCalls) bool {
 func (a *analyzer) wholeScript() string {
 	var found []string
 	topPlatform := false
-	for _, s := range a.file.Stmts {
+	for _, s := range a.module {
 		walkCalls(s, func(c *syntax.CallExpr) {
 			if _, ok := platformMember(c); ok {
 				topPlatform = true

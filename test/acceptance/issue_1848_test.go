@@ -30,8 +30,16 @@ import (
 // `version` are integers in the query; the run route's body is an object.
 
 // source1848 exports one CSV with tags and metadata.
-const source1848 = `platform.export("x", [{"n": 1}, {"n": 2}], format="csv",
-    tags=["report:sales"], metadata={"region": "west"})
+const source1848 = `
+def main():
+    """Exports two rows as a CSV carrying a tag and region metadata."""
+    platform.export(
+        "x",
+        [{"n": 1}, {"n": 2}],
+        format = "csv",
+        tags = ["report:sales"],
+        metadata = {"region": "west"},
+    )
 `
 
 func save1848(t *testing.T, c *client) (name, id string) {

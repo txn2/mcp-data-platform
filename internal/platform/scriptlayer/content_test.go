@@ -90,7 +90,7 @@ func TestPatch_RefusesAPatchThatBreaksTheSource(t *testing.T) {
 	})
 	assert.Equal(t, "invalid", resultFields(t, res)["status"])
 	for _, sc := range store.scripts {
-		assert.Equal(t, "print(\"hello\")\n", sc.Source)
+		assert.Equal(t, inMain("print(\"hello\")\n"), sc.Source)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestPatch_BadAnchorRefused(t *testing.T) {
 func TestDiff_ComparesVersions(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)
-	call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: "print(\"changed\")\n"})
+	call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: inMain("print(\"changed\")\n")})
 
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdDiff, Name: "daily"}))
 	assert.EqualValues(t, 1, fields["from_version"])
@@ -211,12 +211,12 @@ func TestPatch_RefusesAPatchThatEmptiesTheSource(t *testing.T) {
 
 	res := call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdPatch, Name: "daily",
-		Edits: []textpatch.Edit{{Op: "replace", Find: "print(\"hello\")\n", Replace: ""}},
+		Edits: []textpatch.Edit{{Op: "replace", Find: inMain("print(\"hello\")\n"), Replace: ""}},
 	})
 	assert.True(t, res.IsError, resultText(res))
 	assert.Contains(t, resultText(res), "source is required")
 	for _, sc := range store.scripts {
-		assert.Equal(t, "print(\"hello\")\n", sc.Source)
+		assert.Equal(t, inMain("print(\"hello\")\n"), sc.Source)
 	}
 }
 
@@ -239,7 +239,7 @@ func TestDiff_StoreFailureIsNotReportedAsAMissingVersion(t *testing.T) {
 func TestVersions_ReportsEveryAuthorNewestFirst(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h)
-	call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: "print(\"changed\")\n"})
+	call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "daily", Source: inMain("print(\"changed\")\n")})
 
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdVersions, Name: "daily"}))
 	assert.EqualValues(t, 2, fields["count"])

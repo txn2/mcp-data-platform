@@ -1882,7 +1882,7 @@ INSERT INTO scripts (
   'e1e1e1e1-0000-4000-8000-000000000001',
   'daily-sales-report', 'Daily Sales Report',
   'Yesterday''s sales by region, exported for the morning review.',
-  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region",\n    params={"d": run.params["report_date"]},\n)["rows"]\n\nplatform.export(name="daily-sales", rows=rows, format="csv")\nprint("wrote %d regions for %s" % (len(rows), run.params["report_date"]))\n',
+  E'SALES_BY_REGION = "SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region"\n\ndef main():\n    """Exports yesterday''s revenue by region for the morning review."""\n    day = run.params["report_date"]\n    rows = platform.query(\n        connection = "acme",\n        sql = SALES_BY_REGION,\n        params = {"d": day},\n    )["rows"]\n\n    platform.export(name = "daily-sales", rows = rows, format = "csv")\n    print("wrote %d regions for %s" % (len(rows), day))\n',
   '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
   'analyst@example.com', '{sales,reporting}', true, 'active', 2,
   NOW() - interval '40 days', NOW() - interval '30 days'
@@ -1891,7 +1891,7 @@ INSERT INTO scripts (
   'e1e1e1e1-0000-4000-8000-000000000002',
   'dormant-accounts', 'Dormant Accounts',
   'Accounts with no orders since a cutoff date, for the retention review.',
-  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
+  E'DORMANT = "SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff"\n\ndef main():\n    """Exports the accounts with no orders since the cutoff date."""\n    rows = platform.query(\n        connection = "acme",\n        sql = DORMANT,\n        params = {"cutoff": run.params["cutoff"]},\n    )["rows"]\n\n    platform.export(name = "dormant-accounts", rows = rows, format = "csv")\n',
   '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
   'analyst@example.com', '{retention}', true, 'active', 1,
   NOW() - interval '3 days', NOW() - interval '3 days'
@@ -1900,7 +1900,7 @@ INSERT INTO scripts (
   'e1e1e1e1-0000-4000-8000-000000000003',
   'warehouse-freshness', 'Warehouse Freshness Check',
   'Row counts and max load timestamps per warehouse table.',
-  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats",\n)["rows"]\n\nplatform.export(name="freshness", rows=rows, format="csv")\n',
+  E'TABLE_STATS = "SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats"\n\ndef main():\n    """Exports the row count and latest load time of every warehouse table."""\n    rows = platform.query(connection = "acme", sql = TABLE_STATS)["rows"]\n    platform.export(name = "freshness", rows = rows, format = "csv")\n',
   '[]'::jsonb,
   'admin@example.com', '{operations}', true, 'active', 5,
   NOW() - interval '60 days', NOW() - interval '21 days'
@@ -1933,7 +1933,7 @@ INSERT INTO script_versions (
   'e2e2e2e2-0000-4000-8000-000000000012',
   'e1e1e1e1-0000-4000-8000-000000000001', 2,
   'Daily Sales Report', 'Yesterday''s sales by region, exported for the morning review.',
-  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region",\n    params={"d": run.params["report_date"]},\n)["rows"]\n\nplatform.export(name="daily-sales", rows=rows, format="csv")\nprint("wrote %d regions for %s" % (len(rows), run.params["report_date"]))\n',
+  E'SALES_BY_REGION = "SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region"\n\ndef main():\n    """Exports yesterday''s revenue by region for the morning review."""\n    day = run.params["report_date"]\n    rows = platform.query(\n        connection = "acme",\n        sql = SALES_BY_REGION,\n        params = {"d": day},\n    )["rows"]\n\n    platform.export(name = "daily-sales", rows = rows, format = "csv")\n    print("wrote %d regions for %s" % (len(rows), day))\n',
   '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
   '{sales,reporting}', 'analyst@example.com', '{dp_analyst}',
   'applied',
@@ -1943,7 +1943,7 @@ INSERT INTO script_versions (
   'e2e2e2e2-0000-4000-8000-000000000021',
   'e1e1e1e1-0000-4000-8000-000000000002', 1,
   'Dormant Accounts', 'Accounts with no orders since a cutoff date, for the retention review.',
-  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
+  E'DORMANT = "SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff"\n\ndef main():\n    """Exports the accounts with no orders since the cutoff date."""\n    rows = platform.query(\n        connection = "acme",\n        sql = DORMANT,\n        params = {"cutoff": run.params["cutoff"]},\n    )["rows"]\n\n    platform.export(name = "dormant-accounts", rows = rows, format = "csv")\n',
   '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
   '{retention}', 'analyst@example.com', '{dp_analyst}',
   'applied',
@@ -1953,7 +1953,7 @@ INSERT INTO script_versions (
   'e2e2e2e2-0000-4000-8000-000000000035',
   'e1e1e1e1-0000-4000-8000-000000000003', 5,
   'Warehouse Freshness Check', 'Row counts and max load timestamps per warehouse table.',
-  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats",\n)["rows"]\n\nplatform.export(name="freshness", rows=rows, format="csv")\n',
+  E'TABLE_STATS = "SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats"\n\ndef main():\n    """Exports the row count and latest load time of every warehouse table."""\n    rows = platform.query(connection = "acme", sql = TABLE_STATS)["rows"]\n    platform.export(name = "freshness", rows = rows, format = "csv")\n',
   '[]'::jsonb, '{operations}', 'admin@example.com', '{dp_admin}',
   'applied',
   NOW() - interval '22 days'

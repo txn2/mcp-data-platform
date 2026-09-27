@@ -150,23 +150,25 @@ things a report usually does; `platform.call(tool, args)` invokes any other
 platform tool by name and hands the script its structured result:
 
 ```python
-resp = platform.call("api_invoke_endpoint", {
-    "connection": "util",
-    "operation_id": "fetch_forecast",
-    "body": {"office": "PSR"},
-})
-periods = resp["body"]["properties"]["periods"]
+def main():
+    """Refreshes the forecast data in the dashboard asset."""
+    resp = platform.call("api_invoke_endpoint", {
+        "connection": "util",
+        "operation_id": "fetch_forecast",
+        "body": {"office": "PSR"},
+    })
+    periods = resp["body"]["properties"]["periods"]
 
-platform.call("manage_asset", {
-    "action": "patch",
-    "asset_id": "5affca99a698be1b31dd25d0f76cb398",
-    "change_summary": "Hourly forecast refresh",
-    "edits": [{
-        "op": "replace_content",
-        "selector": "#data",
-        "text": json.encode({"as_of": run.fire_time, "periods": periods}),
-    }],
-})
+    platform.call("manage_asset", {
+        "action": "patch",
+        "asset_id": "5affca99a698be1b31dd25d0f76cb398",
+        "change_summary": "Hourly forecast refresh",
+        "edits": [{
+            "op": "replace_content",
+            "selector": "#data",
+            "text": json.encode({"as_of": run.fire_time, "periods": periods}),
+        }],
+    })
 ```
 
 A collection an API serves in pages is one call, not a loop. Pass `paginate`
@@ -177,14 +179,16 @@ and `stopped_by`. A 160-page changelog is one `platform.call`, one rate-limit
 token, one audit row, and no page bodies held in the script:
 
 ```python
-asset = platform.call("api_export", {
-    "connection": "vendor",
-    "operation_id": "listChangelog",
-    "query_params": {"per_page": 100},
-    "paginate": {"items": "data", "cursor_param": "cursor", "max_pages": 500},
-    "name": "changelog.json",
-})
-print(asset["pages_fetched"], asset["stopped_by"])
+def main():
+    """Saves the vendor's whole changelog as one asset."""
+    asset = platform.call("api_export", {
+        "connection": "vendor",
+        "operation_id": "listChangelog",
+        "query_params": {"per_page": 100},
+        "paginate": {"items": "data", "cursor_param": "cursor", "max_pages": 500},
+        "name": "changelog.json",
+    })
+    print(asset["pages_fetched"], asset["stopped_by"])
 ```
 
 See [Walking a paginated
@@ -350,7 +354,7 @@ so a typo in one id among twenty is refused naming the element rather than
 silently matching nothing, and it reaches the script as a list that
 `platform.query` binds as a parenthesized list:
 
-```python
+```python fragment
 rows = platform.query(connection="warehouse",
     sql="SELECT * FROM stores WHERE id IN :ids", params={"ids": run.params["ids"]})["rows"]
 ```
@@ -413,9 +417,9 @@ DELETE /api/v1/portal/scripts/{id}/grants/{kind}/{principal}
 ```
 
 A grantee may call `POST /api/v1/portal/scripts/{id}/runs` and read the runs it
-started, with their outputs and results. It cannot read the source, the version
-history or the state, and it cannot change the script; on a script it was not
-granted it gets 404. The run still executes as the script with its author's
+started, with their outputs and results. It reads the script's definition (the
+source and the version history), as everyone signed in does, but not its state,
+and it cannot change the script; on a script it was not granted it gets 404. The run still executes as the script with its author's
 roles, so a grant decides who may ask for a run, never what the run may reach.
 Every grant and withdrawal is audited (`script_grant`, `script_revoke`).
 
@@ -457,8 +461,10 @@ ids that failed a check) hands it back with `platform.result(value)` instead of
 writing a file nobody needs kept (#1845):
 
 ```python
-rows = platform.query(connection="warehouse", sql="SELECT region, SUM(net) AS net FROM sales GROUP BY region")["rows"]
-platform.result({"total": sum([r["net"] for r in rows]), "regions": len(rows)})
+def main():
+    """Hands back the net total and the number of regions."""
+    rows = platform.query(connection = "warehouse", sql = "SELECT region, SUM(net) AS net FROM sales GROUP BY region")["rows"]
+    platform.result({"total": sum([r["net"] for r in rows]), "regions": len(rows)})
 ```
 
 The value is any JSON value, set once per run, and capped at
@@ -490,7 +496,7 @@ behind one waits no longer than it allows.
 `platform.progress(message, done=None, total=None)` reports how far a run has
 got (#1847):
 
-```python
+```python fragment
 for i, entity in enumerate(entities):
     platform.progress("entities", done=i, total=len(entities))
     # ... work on entity ...
@@ -641,6 +647,65 @@ tags carry everything a single axis cannot. `manage_script command=list` accepts
 both (`category`, `tags`) and the portal listing offers a chip per value beside a
 search box over the name, display name and description, all three of which
 narrow the listing on the server rather than in the page.
+
+### What a save checks
+
+Every save of a script's source, from `manage_script` (`create`, `update`,
+`patch`) or from the portal editor, goes through the same checks. They are for
+the agent writing the script: a person who asks for an automation never reads
+the code and never sees a finding. There is nothing to configure; the limits
+are the platform's, the same on every deployment and for every script.
+
+**One format.** The source is stored in one canonical layout (keyword
+arguments as `key = value`, double-quoted strings, the items of a multi-line
+list or dict one per line, every comment kept), so what `get` returns is what
+runs and a diff between two versions shows only what changed. A save of source
+already in that format stores it byte for byte. `validate` returns the
+formatted source beside its findings, and a save's response says when it
+reformatted what was sent.
+
+**`main()`.** A script's work is in `def main():`, which the platform calls
+after the script loads. The top level holds functions, constants written as
+literals, and docstrings. Work at the top level cannot be called on its own,
+and keeping it out is what makes a script's parts testable.
+
+```python
+QUERY = "SELECT region, SUM(net) AS net FROM sales WHERE day = DATE :day GROUP BY region"
+
+def main():
+    """Exports yesterday's net sales by region."""
+    day = date.add_days(date.of(run.fire_time), -1)
+    rows = platform.query(QUERY, connection = "warehouse", params = {"day": day})["rows"]
+    platform.export(name = "net-by-region", rows = rows, format = "csv")
+```
+
+**The rules.** A save is refused while any of these holds. Each finding names
+its rule, its line in the formatted source, and the fix, in the shape
+`validate` already returns.
+
+| Rule | Refused when |
+|---|---|
+| `entry-point`, `top-level-work` | no `main()`, a `main()` with parameters, or work at the top level |
+| `cyclomatic-complexity` | a function has more than 10 paths through it |
+| `cognitive-complexity` | a function scores more than 15 (nesting costs more the deeper it sits) |
+| `function-length` | a function has more than 40 statements |
+| `nesting-depth` | blocks nest more than 4 deep |
+| `unused-variable`, `unused-parameter` | a local or a parameter is never read (a name starting with `_` is exempt) |
+| `shadowed-name` | a name hides `platform`, `json`, `xml`, `date`, `run`, `sum` or `fail` |
+| `missing-docstring` | a function's body does not open with a docstring |
+| `sql-built-from-values` | the SQL passed to `platform.query` is built with `+`, `%` or `.format()` from values rather than bound with `params=` |
+| `call-in-loop` | `platform.query`, `platform.call` or `platform.export` runs once per element of a collection; a loop over `range()` that fetches one page per pass is not counted |
+| `save-state-without-read` | `platform.save_state` is called and `run.state` is never read |
+
+The docstring rule is also what labels the [flow diagram](#documenting-a-script):
+a function's box carries the first sentence of its docstring when no comment
+above the `def` gives one, so every box of a script saved under these rules
+says in plain words what that step does.
+
+**Scripts saved before these rules** keep running exactly as they did,
+including work at their top level, and keep their schedules. A new version of
+one is refused only for a finding the version it replaces did not have; the
+findings it already carried are reported with the save and do not block it.
 
 ### Checking an edit before saving it
 
@@ -1168,7 +1233,7 @@ with any number of versions can be registered (#1851). See
 `platform.export` takes two optional arguments that identify an output beyond
 its name:
 
-```python
+```python fragment
 platform.export("sales", rows, format="csv",
     tags=["report:sales", "tenant:" + run.params["tenant"]],
     metadata={"region": "west", "period": run.params["period"]})
@@ -1217,11 +1282,13 @@ format decides which are valid:
   workbook described as data. See [Excel workbooks](#excel-workbooks).
 
 ```python
-platform.export(
-    name="revenue-dashboard",
-    rows="<html><body><h1>Revenue</h1>...</body></html>",
-    format="html",
-)
+def main():
+    """Writes the revenue dashboard as an HTML document."""
+    platform.export(
+        name = "revenue-dashboard",
+        rows = "<html><body><h1>Revenue</h1>...</body></html>",
+        format = "html",
+    )
 ```
 
 A document keeps everything a table gets: the same name-to-asset identity and
@@ -1240,7 +1307,7 @@ extension the platform assigns the document's content type — `.md`, `.txt`,
 bold header row, column widths, frozen panes and an optional title row (#1849).
 The body describes the workbook as data; it is not a styling API.
 
-```python
+```python fragment
 platform.export("sales", {
     "sheets": [
         {"name": "Summary", "title": "Sales by region",
@@ -1334,8 +1401,10 @@ schedule, and the data stays in the script. `platform.publish_data` is that
 split:
 
 ```python
-data = {"regions": platform.query(connection="warehouse", sql="SELECT ...")["rows"]}
-platform.publish_data("revenue-dashboard", data)
+def main():
+    """Refreshes the data region of the revenue dashboard."""
+    data = {"regions": platform.query(connection = "warehouse", sql = "SELECT ...")["rows"]}
+    platform.publish_data("revenue-dashboard", data)
 ```
 
 - `name` resolves through the same output identity `platform.export` uses: one
@@ -1386,19 +1455,21 @@ picks up. A **bucket destination** the deployment declares in
 `scripts.destinations` receives the same bytes instead:
 
 ```python
-rows = platform.query(connection="warehouse", sql="SELECT ...")["rows"]
+def main():
+    """Refreshes the weekly sales asset and delivers the same file to a bucket."""
+    rows = platform.query(connection = "warehouse", sql = "SELECT ...")["rows"]
 
-# The dashboard's asset, refreshed: a new version of one asset.
-platform.export(name="weekly-sales", rows=rows, format="csv")
+    # The dashboard's asset, refreshed: a new version of one asset.
+    platform.export(name = "weekly-sales", rows = rows, format = "csv")
 
-# The same result, delivered for another system to read.
-platform.export(
-    name="weekly-sales",
-    rows=rows,
-    format="csv",
-    destination="acme-drop",
-    key="2026/08/sales.csv",
-)
+    # The same result, delivered for another system to read.
+    platform.export(
+        name = "weekly-sales",
+        rows = rows,
+        format = "csv",
+        destination = "acme-drop",
+        key = "2026/08/sales.csv",
+    )
 ```
 
 The script names a destination and nothing else. The connection, the bucket,
@@ -1439,16 +1510,18 @@ platform's [managed-resource library](../portal/resources.md), and the file's
 identity is its **path**:
 
 ```python
-rows = platform.query(connection="warehouse", sql="SELECT ...")["rows"]
+def main():
+    """Writes the orders file to its path in the resource library."""
+    rows = platform.query(connection = "warehouse", sql = "SELECT ...")["rows"]
 
-out = platform.export(
-    name="ACME orders",
-    rows=rows,
-    format="csv",
-    destination="resources",
-    key="datasets/acme/orders.csv",
-)
-print(out["reference"], out["uri"], out["version"])
+    out = platform.export(
+        name = "ACME orders",
+        rows = rows,
+        format = "csv",
+        destination = "resources",
+        key = "datasets/acme/orders.csv",
+    )
+    print(out["reference"], out["uri"], out["version"])
 ```
 
 - `resources` is built in, like `portal`: the platform owns where its own library
@@ -1486,27 +1559,31 @@ builds across calls (#1861), so a paged API or a large query becomes one file,
 and one registered table, without the script holding every page:
 
 ```python
-cursor = None
-for _ in range(200):
-    page = platform.call("api_invoke_endpoint", {
-        "connection": "billing", "method": "GET", "path": "/v1/invoices",
-        "query_params": {"limit": 5000, "cursor": cursor},
-    })
-    if page["status"] != 200:
-        platform.progress("stopped at HTTP %d" % page["status"])
-        break
-    out = platform.export(
-        name="Invoices",
-        rows=page["body"]["data"],
-        format="jsonl",
-        destination="resources",
-        key="billing/invoices.jsonl",
-        register={"connection": "scratch", "table_name": "invoices"},
-        append=True,
-    )
-    cursor = page["body"].get("next_cursor")
-    if not cursor:
-        break
+def main():
+    """Pages through the invoices API into one registered file."""
+    cursor = None
+    for _ in range(200):
+        page = platform.call("api_invoke_endpoint", {
+            "connection": "billing",
+            "method": "GET",
+            "path": "/v1/invoices",
+            "query_params": {"limit": 5000, "cursor": cursor},
+        })
+        if page["status"] != 200:
+            platform.progress("stopped at HTTP %d" % page["status"])
+            break
+        platform.export(
+            name = "Invoices",
+            rows = page["body"]["data"],
+            format = "jsonl",
+            destination = "resources",
+            key = "billing/invoices.jsonl",
+            register = {"connection": "scratch", "table_name": "invoices"},
+            append = True,
+        )
+        cursor = page["body"].get("next_cursor")
+        if not cursor:
+            break
 ```
 
 Each page is serialized when it arrives and only the bytes are kept, so the
@@ -1530,7 +1607,7 @@ file, registers the file as a table, and runs `INSERT ... SELECT` from it.
 `trino_execute` binds no parameters, so this is also the only safe way to put
 free text into SQL. One call does the first two steps:
 
-```python
+```python fragment
 out = platform.export(
     name="ACME tickets staging",
     rows=tickets,
@@ -1581,6 +1658,31 @@ platform.call("trino_execute", {
 - In a draft without `allow_writes` nothing is written, so `table` reports the
   registration it would make, with `preview` true and no `query_table`.
 
+A later step reads the table back by binding that record in `params` (#1948).
+It binds as the table's name, each part of `catalog.schema.table` quoted, so the
+SQL is never built by concatenation, which a save refuses
+(`sql-built-from-values`):
+
+```python
+COUNT_SQL = "SELECT count(*) AS n FROM :orders"
+
+def main():
+    """Registers the day's orders as a table and reports how many it holds."""
+    out = platform.export(
+        name = "orders",
+        rows = [{"id": 1}, {"id": 2}],
+        format = "jsonl",
+        destination = "resources",
+        key = "daily/orders.jsonl",
+        register = {"connection": "scratch", "table_name": "orders"},
+    )
+    counted = platform.query(COUNT_SQL, connection = "scratch", params = {"orders": out["table"]})
+    platform.result({"orders": counted["rows"][0]["n"]})
+```
+
+A dict binds only as such a record. One with no `query_table` (the preview a
+draft reports) is refused, naming why.
+
 ### A report that shows a logo
 
 A document names a managed resource or another asset by its reference, and the
@@ -1591,8 +1693,10 @@ that writes the document declares it:
 ```python
 LOGO = "mcp://global/brand/logo.svg"
 
-html = "<html><body><img src='" + LOGO + "' alt='ACME'><h1>Weekly sales</h1>...</body></html>"
-out = platform.export(name="weekly-sales", rows=html, format="html", references=[LOGO])
+def main():
+    """Writes the weekly sales report with the brand logo."""
+    html = "<html><body><img src='" + LOGO + "' alt='ACME'><h1>Weekly sales</h1>...</body></html>"
+    platform.export(name = "weekly-sales", rows = html, format = "html", references = [LOGO])
 ```
 
 - `references` takes each managed resource's `mcp://` URI and each asset's
@@ -1637,17 +1741,19 @@ at 64 KiB because state is a cursor or a summary, not a dataset: a script that
 wants to keep a table keeps a resource.
 
 ```python
-since = run.state.get("synced_through", "1970-01-01T00:00:00Z")
-until = run.fire_time
-rows = platform.query(connection="primary", sql="""
-    SELECT order_id, region, amount, updated_at
-      FROM sales.orders
-     WHERE updated_at > from_iso8601_timestamp(:since)
-       AND updated_at <= from_iso8601_timestamp(:until)
-""", params={"since": since, "until": until})["rows"]
-if rows:
-    platform.export(name="orders-delta-" + until, rows=rows, format="csv")
-platform.save_state({"synced_through": until, "last_delta_rows": len(rows)})
+def main():
+    """Exports the orders changed since the last run and moves the watermark."""
+    since = run.state.get("synced_through", "1970-01-01T00:00:00Z")
+    until = run.fire_time
+    rows = platform.query(connection = "primary", sql = """
+        SELECT order_id, region, amount, updated_at
+          FROM sales.orders
+         WHERE updated_at > from_iso8601_timestamp(:since)
+           AND updated_at <= from_iso8601_timestamp(:until)
+    """, params = {"since": since, "until": until})["rows"]
+    if rows:
+        platform.export(name = "orders-delta-" + until, rows = rows, format = "csv")
+    platform.save_state({"synced_through": until, "last_delta_rows": len(rows)})
 ```
 
 `manage_script get name=example-incremental-sync` returns this as a worked

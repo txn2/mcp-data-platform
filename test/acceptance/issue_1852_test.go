@@ -26,14 +26,18 @@ import (
 // issue1852Select names its columns out of alphabetical order on purpose.
 const issue1852Select = "SELECT 'x' AS zeta, 1 AS alpha, true AS mid"
 
-// runScript1852 saves source as a script, runs it and returns the run.
+// runScript1852 saves source as a script, runs it and returns the run. Each
+// source keeps its work in main(), the shape the #1913 gates require.
 func runScript1852(t *testing.T, c *client, name, source string) map[string]any {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	saved := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1852: query rows keep the SELECT's column order.",
 		"params":      []any{map[string]any{"name": "day", "type": "string"}},
 	})
+	if saved["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", saved)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	out := c.call("run_script", map[string]any{"name": name, "args": map[string]any{}, "wait_seconds": 120})
 	if status, _ := out["status"].(string); status != "succeeded" {
@@ -46,9 +50,11 @@ func TestIssue1852_QueryRowsAndTheirExportKeepTheSelectOrder(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	out := runScript1852(t, c, "acc-1852-query-"+stamp, fmt.Sprintf(`
-rows = platform.query(connection=%q, sql=%q)["rows"]
-print(list(rows[0].keys()))
-platform.export(name="acc-1852-%s", rows=rows, format="csv")
+def main():
+    """Prints the first row's keys and exports the rows as CSV."""
+    rows = platform.query(connection = %q, sql = %q)["rows"]
+    print(list(rows[0].keys()))
+    platform.export(name = "acc-1852-%s", rows = rows, format = "csv")
 `, scratchResourceConnection, issue1852Select, stamp))
 
 	if log, _ := out["log"].(string); !strings.Contains(log, `["zeta", "alpha", "mid"]`) {
@@ -72,8 +78,10 @@ func TestIssue1852_PlatformCallOfTheQueryToolKeepsTheSelectOrder(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	out := runScript1852(t, c, "acc-1852-call-"+stamp, fmt.Sprintf(`
-res = platform.call("trino_query", {"connection": %q, "sql": %q})
-print(list(res["rows"][0].keys()))
+def main():
+    """Prints the first row's keys from trino_query reached through platform.call."""
+    res = platform.call("trino_query", {"connection": %q, "sql": %q})
+    print(list(res["rows"][0].keys()))
 `, scratchResourceConnection, issue1852Select))
 	if log, _ := out["log"].(string); !strings.Contains(log, `["zeta", "alpha", "mid"]`) {
 		t.Errorf("the row keys are not in SELECT order through platform.call: log = %q", log)

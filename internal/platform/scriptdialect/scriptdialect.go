@@ -6,6 +6,8 @@ package scriptdialect
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -29,6 +31,11 @@ import (
 // the whole script in a function, which is friction that buys no safety and no
 // determinism: neither switch has anything to do with either. `load` stays
 // file-local (and there is nothing to load).
+//
+// A script created since #1944 is held to more than the dialect: its work is in
+// main(), which the platform calls (EntryPoint), and its top level declares.
+// That is a rule of the authoring gates, checked on save, not a switch here, so
+// a script saved before it keeps parsing and running as it did.
 var Options = &syntax.FileOptions{
 	Set:               true,
 	While:             false,
@@ -52,4 +59,158 @@ func Parse(source string, predeclared func(string) bool) (*syntax.File, error) {
 		return nil, fmt.Errorf("resolving script: %w", err)
 	}
 	return file, nil
+}
+
+// EntryPointName is the function the platform calls after a script's module is
+// loaded (#1944).
+const EntryPointName = "main"
+
+// EntryPoint returns the main() the platform calls for file, or nil when it
+// calls none: main is not defined at the top level, takes parameters, or is
+// already called by the top level itself. The last case is a script written in
+// the Python habit (def main(), then main() at the bottom); calling it again
+// would run its work twice, so the script's own call is the one that runs.
+//
+// The run, the flow graph and the lint all ask this, so a script's main() is
+// either called by all three or by none.
+func EntryPoint(file *syntax.File) *syntax.DefStmt {
+	if file == nil {
+		return nil
+	}
+	var main *syntax.DefStmt
+	for _, s := range file.Stmts {
+		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == EntryPointName {
+			main = d
+		}
+	}
+	if main == nil || len(main.Params) > 0 || topLevelCalls(file.Stmts, EntryPointName) {
+		return nil
+	}
+	return main
+}
+
+// topLevelCalls reports whether a top-level statement calls the named
+// function. A def's body is not the top level, so a call inside one does not
+// count; a lambda's body runs only when it is called, so neither does a call
+// inside one.
+func topLevelCalls(stmts []syntax.Stmt, name string) bool {
+	return slices.ContainsFunc(stmts, func(s syntax.Stmt) bool {
+		if _, ok := s.(*syntax.DefStmt); ok {
+			return false
+		}
+		found := false
+		syntax.Walk(s, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.LambdaExpr:
+				return false
+			case *syntax.CallExpr:
+				if id, ok := n.Fn.(*syntax.Ident); ok && id.Name == name {
+					found = true
+				}
+			}
+			return !found
+		})
+		return found
+	})
+}
+
+// Exec loads a script's module and then calls its main() when the platform
+// owns that call (EntryPoint, #1944). What main returns is not the run's
+// result; platform.result is the one way a script reports one. The module's
+// globals are returned whatever happened, since a caller that measures the
+// run walks them.
+//
+// atMainEnd, when not nil, is called on the thread as main() finishes, by
+// whichever caller called it, while main's frame is still live: at each
+// return and at the end of its body. It is how a caller measures what main
+// holds when it ends, which is gone by the time Exec returns; an error from
+// it fails the run at that point.
+func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict, atMainEnd func(*starlark.Thread) error) (starlark.StringDict, error) {
+	file, err := Options.Parse(name, source, 0)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the parser's own message is what the author reads
+	}
+	if atMainEnd != nil {
+		env = withMainEnd(file, env, atMainEnd)
+	}
+	prog, err := starlark.FileProgram(file, env.Has)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the resolver's own message is what the author reads
+	}
+	globals, err := prog.Init(thread, env)
+	if err != nil || EntryPoint(file) == nil {
+		return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
+	}
+	main, ok := globals[EntryPointName].(starlark.Callable)
+	if !ok {
+		return globals, nil
+	}
+	_, err = starlark.Call(thread, main, nil, nil)
+	return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
+}
+
+// mainEndName is the builtin withMainEnd routes main's ending through. A
+// script cannot name it: it is bound only for the module it rewrites, and the
+// dunder spelling is one no script writes.
+const mainEndName = "__main_ends__"
+
+// withMainEnd rewrites the top-level main() taking no parameters so that it
+// ends through the mainEndName builtin, which calls hook and hands back the
+// value main was returning, and returns env with that builtin bound. A file
+// with no such main is left as it is.
+func withMainEnd(file *syntax.File, env starlark.StringDict, hook func(*starlark.Thread) error) starlark.StringDict {
+	var main *syntax.DefStmt
+	for _, s := range file.Stmts {
+		if d, ok := s.(*syntax.DefStmt); ok && d.Name.Name == EntryPointName && len(d.Params) == 0 {
+			main = d
+		}
+	}
+	if main == nil {
+		return env
+	}
+	for _, r := range returnsOf(main.Body) {
+		r.Result = endCall(r.Return, r.Result)
+	}
+	_, end := main.Span()
+	main.Body = append(main.Body, &syntax.ExprStmt{X: endCall(end, nil)})
+	out := make(starlark.StringDict, len(env))
+	maps.Copy(out, env)
+	out[mainEndName] = starlark.NewBuiltin(mainEndName, func(th *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, _ []starlark.Tuple) (starlark.Value, error) {
+		if err := hook(th); err != nil {
+			return nil, err
+		}
+		if len(args) == 1 {
+			return args[0], nil
+		}
+		return starlark.None, nil
+	})
+	return out
+}
+
+// endCall is a call of the mainEndName builtin at pos, passing value when
+// there is one.
+func endCall(pos syntax.Position, value syntax.Expr) *syntax.CallExpr {
+	call := &syntax.CallExpr{Fn: &syntax.Ident{NamePos: pos, Name: mainEndName}, Lparen: pos, Rparen: pos}
+	if value != nil {
+		call.Args = []syntax.Expr{value}
+	}
+	return call
+}
+
+// returnsOf is every return statement of a function body, not those of a def
+// or lambda nested in it.
+func returnsOf(body []syntax.Stmt) []*syntax.ReturnStmt {
+	var out []*syntax.ReturnStmt
+	for _, s := range body {
+		syntax.Walk(s, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.DefStmt, *syntax.LambdaExpr:
+				return false
+			case *syntax.ReturnStmt:
+				out = append(out, n)
+			}
+			return true
+		})
+	}
+	return out
 }

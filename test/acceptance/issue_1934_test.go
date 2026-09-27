@@ -43,7 +43,8 @@ func TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds(t *testing.T
 	owner.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1934: an automation that fails, then is fixed.",
-		"source":      `fail("the input was not what this script expects")` + "\n",
+		"source": "def main():\n    \"\"\"Fails the way a script meeting input it does not expect fails.\"\"\"\n" +
+			"    fail(\"the input was not what this script expects\")\n",
 	})
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	run := owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60})
@@ -75,7 +76,7 @@ func TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds(t *testing.T
 		t.Errorf("a failure already briefed is announced as new again: %v", again)
 	}
 
-	owner.call("manage_script", map[string]any{"command": "update", "name": name, "source": `print("fixed")` + "\n"})
+	owner.call("manage_script", map[string]any{"command": "update", "name": name, "source": "def main():\n    \"\"\"Succeeds.\"\"\"\n    print(\"fixed\")\n"})
 	if fixed := owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60}); fixed["status"] != "succeeded" {
 		t.Fatalf("the fixed run did not succeed: %v", fixed)
 	}
@@ -92,7 +93,7 @@ func TestIssue1934_AnotherOwnersFailureIsNotBriefed(t *testing.T) {
 	owner.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1934: a failure only its owner is told about.",
-		"source":      `fail("boom")` + "\n",
+		"source":      "def main():\n    \"\"\"Fails.\"\"\"\n    fail(\"boom\")\n",
 	})
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60})

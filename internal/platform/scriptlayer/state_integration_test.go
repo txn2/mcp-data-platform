@@ -22,12 +22,12 @@ import (
 // watermarkSource reads its watermark, pulls from it, exports, and saves the
 // new mark. The mark is the pinned fire time, so two runs save different
 // values without a clock.
-const watermarkSource = `since = run.state.get("synced_through", "never")
+var watermarkSource = inMain(`since = run.state.get("synced_through", "never")
 print("since " + since)
 res = platform.query(connection="warehouse", sql="SELECT region, total FROM sales WHERE d > :since", params={"since": since})
 platform.export(name="delta-" + run.run_id, rows=res["rows"], format="csv")
 platform.save_state({"synced_through": run.fire_time, "rows": res["row_count"]})
-`
+`)
 
 // str reads a string field of a tool result, "" when it is absent.
 func str(fields map[string]any, key string) string {
@@ -86,7 +86,8 @@ func TestIntegration_AFailedRunLeavesTheStateWhereItWas(t *testing.T) {
 	ctx := context.Background()
 	h := executionServer(t, "warehouse")
 	authorScript(t, h, `
-platform.save_state({"synced_through": run.fire_time})
+since = run.state.get("synced_through", "never")
+platform.save_state({"synced_through": run.fire_time, "after": since})
 platform.export(name="delta", rows=[{"a": 1}], format="csv", destination="nowhere")
 `)
 	session := connectAgent(ctx, t, h.server)

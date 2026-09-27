@@ -168,7 +168,11 @@ func TestIssue1822_ASavedDraftAllowedToWriteVersionsItsAsset(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1822-saved-" + stamp
-	authorScript1664(t, c, name, `platform.export(name="daily", rows=[{"a": 1}], format="csv")`)
+	authorScript1664(t, c, name, `
+def main():
+    """Exports one row to the script's portal output."""
+    platform.export(name = "daily", rows = [{"a": 1}], format = "csv")
+`)
 
 	ran := draftRun1664(t, c, map[string]any{"name": name, "allow_writes": true})
 	if status, _ := ran["status"].(string); status != "succeeded" {
@@ -235,9 +239,17 @@ func TestIssue1822_TheEditorsDryRunWritesForRealToo(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1822-editor-" + stamp
-	source := fmt.Sprintf(`platform.export(name="Acceptance 1822 editor", rows=[{"id": "1"}], format="jsonl",
-    destination="resources", key="acceptance/issue-1822/acc-1822-editor-%s.jsonl",
-    register={"connection": %q, "table_name": %q})
+	source := fmt.Sprintf(`
+def main():
+    """Exports one row to the library and registers a table over it."""
+    platform.export(
+        name = "Acceptance 1822 editor",
+        rows = [{"id": "1"}],
+        format = "jsonl",
+        destination = "resources",
+        key = "acceptance/issue-1822/acc-1822-editor-%s.jsonl",
+        register = {"connection": %q, "table_name": %q},
+    )
 `, stamp, scratchResourceConnection, "acc_1822_editor_"+stamp)
 	authorScript1664(t, c, name, source)
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})

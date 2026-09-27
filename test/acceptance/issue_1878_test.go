@@ -369,25 +369,28 @@ func TestIssue1878_AResultWithNoExportIsNeverCut(t *testing.T) {
 // whole.
 func issue1878Script(graphqlConnection string) string {
 	return fmt.Sprintf(`
-api = platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "method": "GET",
-    "path": "/v1/sized",
-    "query_params": {"bytes": 200000},
-    "purpose": "Acceptance #1878: a run is never fitted.",
-})
-gql = platform.call("graphql_query", {
-    "connection": %q,
-    "query": %q,
-    "variables": {"show": True},
-    "purpose": "Acceptance #1878: a run is never fitted.",
-})
-platform.save_state({
-    "api_content_len": str(len(api["body"]["body"])),
-    "api_truncated": str(api.get("body_truncated", False)),
-    "gql_fields": str(len(gql["data"])),
-    "gql_truncated": str(gql.get("data_truncated", False)),
-})
+def main():
+    """Reads an over-budget api body and graphql result and records their sizes."""
+    _previous = run.state.get("api_content_len", "")
+    api = platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/v1/sized",
+        "query_params": {"bytes": 200000},
+        "purpose": "Acceptance #1878: a run is never fitted.",
+    })
+    gql = platform.call("graphql_query", {
+        "connection": %q,
+        "query": %q,
+        "variables": {"show": True},
+        "purpose": "Acceptance #1878: a run is never fitted.",
+    })
+    platform.save_state({
+        "api_content_len": str(len(api["body"]["body"])),
+        "api_truncated": str(api.get("body_truncated", False)),
+        "gql_fields": str(len(gql["data"])),
+        "gql_truncated": str(gql.get("data_truncated", False)),
+    })
 `, graphqlConnection, issue1878WideDocument(issue1878WideFields))
 }
 

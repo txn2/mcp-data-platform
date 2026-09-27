@@ -160,6 +160,12 @@ type Script struct {
 
 	CreatedAt time.Time `json:"created_at" example:"2026-08-13T14:30:00Z"`
 	UpdatedAt time.Time `json:"updated_at" example:"2026-08-13T14:30:00Z"`
+
+	// Legacy is true for a script that existed before the authoring gates
+	// (#1913). Its top level may do work and it need not define main(), and a
+	// new version of it is refused only for a lint finding the version before
+	// it did not have. The store sets it; nothing an author sends changes it.
+	Legacy bool `json:"-"`
 }
 
 // OwnedBy reports whether the named caller owns this script, which is the

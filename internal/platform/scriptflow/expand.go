@@ -23,7 +23,10 @@ func (a *analyzer) invoke(caller *frame, d *syntax.DefStmt, c *syntax.CallExpr) 
 		return a.argOrigins(caller, c)
 	}
 	fr := a.calleeFrame(caller, name, int(c.Lparen.Line))
-	fr.sites = append(slices.Clone(caller.sites), position(c.Lparen))
+	fr.sites = slices.Clone(caller.sites)
+	if c != a.entryCall {
+		fr.sites = append(fr.sites, position(c.Lparen))
+	}
 	a.bindParams(caller, fr, d, c)
 	a.stack = append(a.stack, fr)
 	a.stmts(fr, d.Body)

@@ -690,3 +690,35 @@ func TestElements_IsTheItemsOfATupleOrListOnly(t *testing.T) {
 	assert.Equal(t, []syntax.Expr{x}, elements(&syntax.ListExpr{List: []syntax.Expr{x}}))
 	assert.Nil(t, elements(x))
 }
+
+// A box takes its caption from the function's docstring when no comment gives
+// one, so a script held to the docstring rule (#1938) has a sentence on every
+// box for a reader who does not read code. A comment still wins.
+func TestGroupCaptionFromDocstring(t *testing.T) {
+	g := deriveGraph(`
+def pull(day):
+    """Pulls the day's orders from the warehouse. Then more detail."""
+    platform.query("SELECT 1", connection = "w")
+    platform.query("SELECT 2", connection = "w")
+
+# Sends the summary to the finance team.
+def send(day):
+    """Ignored, the comment wins."""
+    platform.query("SELECT 3", connection = "w")
+    platform.query("SELECT 4", connection = "w")
+
+def main():
+    """Runs the nightly job."""
+    pull("d")
+    send("d")
+`)
+	require.True(t, g.OK, "%+v", g.Findings)
+	captions := map[string]string{}
+	for _, gr := range g.Groups {
+		captions[gr.Label] = gr.Caption
+	}
+	assert.Equal(t, "Pulls the day's orders from the warehouse.", captions["pull(day)"])
+	assert.Equal(t, "Sends the summary to the finance team.", captions["send(day)"])
+	assert.Equal(t, "", docSentence(&syntax.ExprStmt{X: &syntax.Ident{Name: "x"}}))
+	assert.Equal(t, "", docSentence(&syntax.ReturnStmt{}))
+}

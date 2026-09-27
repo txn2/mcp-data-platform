@@ -5,6 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -35,6 +36,44 @@ const manageScriptDescription = "Build and change automations. The unit of an au
 // derives its dialect section from this constant, so the two cannot drift.
 const DialectContract = `Managed scripts are written in Starlark: Python-shaped syntax, deliberately smaller.
 
+THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
+  A script's work is in def main():, which the platform calls after the
+  script loads. main takes no parameters; read them from run.params. The top
+  level only declares: functions, constants written as literals (a string, a
+  number, a list or dict of them), and docstrings. A statement that does work
+  at the top level (a call, a loop, a read of run.params) is refused on save.
+  Every save stores the source in one canonical format, so what get returns
+  is what runs: keyword arguments as key = value, double-quoted strings, and
+  the items of a multi-line list or dict one per line. validate returns that
+  formatted_source; findings' line numbers refer to it.
+  A save is refused while any of these holds, each finding naming its rule,
+  its line and the fix:
+    entry-point / top-level-work   no main(), main with parameters, or work
+                                   at the top level
+    cyclomatic-complexity          a function with more than 10 paths
+    cognitive-complexity           a function scoring more than 15
+    function-length                more than 40 statements in a function
+    nesting-depth                  blocks nested more than 4 deep
+    unused-variable / -parameter   a local or parameter nothing reads (name
+                                   it with a leading _ when that is intended)
+    shadowed-name                  a name that hides platform, json, xml,
+                                   date, run, sum or fail
+    missing-docstring              a function whose body does not open with a
+                                   """one-sentence docstring""" in plain words;
+                                   the flow diagram shows it on the box
+    sql-built-from-values          SQL passed to platform.query built with +,
+                                   % or .format() from values: use :name and
+                                   params=
+    call-in-loop                   platform.query, platform.call or
+                                   platform.export once per element of a
+                                   collection; a loop over range() that
+                                   fetches one page per pass is not counted
+    save-state-without-read        platform.save_state with no read of
+                                   run.state
+  A script saved before these rules keeps running as it is: its top level
+  may still do work, and a new version of it is refused only for a finding
+  the version before it did not have.
+
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
@@ -44,6 +83,8 @@ WHAT IS AVAILABLE
       tool is reached with platform.call("trino_execute", {...}).
       Use :name placeholders and pass the values in params; the platform
       quotes them by type. Never build SQL by string concatenation.
+      A table a register= made binds by its record: FROM :t with
+      params={"t": out["table"]}, rendered as the quoted table name.
       A date binds as a quoted string, so compare it against a DATE column as
       "DATE :day", which renders the standard date literal DATE '2026-08-12'.
       A query whose result is truncated by the row cap FAILS rather than
@@ -458,140 +499,11 @@ READING ANOTHER PERSON'S SCRIPT
   portal); a version's author roles are shown to the owner and administrators
   only.`
 
-// example is one built-in worked script, retrievable by name through get.
-type example struct {
-	name        string
-	description string
-	source      string
-}
-
-// examples are the seeded worked scripts. Three, not ten: they exist to show
-// the shape of a script and the idioms every job needs — a date derived from
-// the pinned fire time, a bound parameter, and a watermark carried in the
-// script's state — not to be a cookbook that invites copying without reading.
-var examples = []example{
-	{
-		name:        "example-daily-sales",
-		description: "A daily report: derive yesterday from the pinned fire time, query one bound parameter, export the rows.",
-		source: `# A daily sales report. Every date comes from the run's pinned fire time,
-# so re-running this months later reproduces exactly what it said.
-report_date = date.add_days(date.of(run.fire_time), -1)
-print("reporting on " + report_date)
-
-result = platform.query(
-    connection = "primary",
-    sql = """
-        SELECT region, sum(amount) AS total, count(*) AS orders
-          FROM sales.orders
-         WHERE order_date = DATE :day
-         GROUP BY region
-         ORDER BY region
-    """,
-    params = {"day": report_date},
-)
-
-rows = result["rows"]
-print("regions: %d" % len(rows))
-for row in rows:
-    print("%s %s" % (row["region"], row["total"]))
-
-platform.export(
-    name = "daily-sales-" + report_date,
-    rows = rows,
-    format = "csv",
-)
-`,
-	},
-	{
-		name:        "example-region-rollup",
-		description: "A parameterized rollup: a declared enum and a bound list, with the empty case handled instead of raised.",
-		source: `# A month-to-date rollup for a set of regions. Declare the script's params as
-# {"name": "regions", "type": "list", "items": "string", "label": "Regions"} and
-# {"name": "grain", "type": "enum", "values": ["region", "channel"],
-#  "required": True}. A list parameter checks every element when the run is
-# bound and reaches the script as a list, which platform.query binds as IN (...).
-today = date.of(run.fire_time)
-month_start = date.start_of_month(today)
-regions = run.params["regions"]
-
-if not regions:
-    # There is no try/except: stop deliberately, with a message the run record
-    # will carry.
-    fail("no regions were supplied")
-
-grain = run.params["grain"]
-result = platform.query(
-    connection = "primary",
-    sql = """
-        SELECT region, channel, sum(amount) AS total
-          FROM sales.orders
-         WHERE order_date >= DATE :start AND order_date <= DATE :end
-           AND region IN :regions
-         GROUP BY region, channel
-    """,
-    params = {"start": month_start, "end": today, "regions": regions},
-)
-
-totals = {}
-for row in result["rows"]:
-    key = row[grain]
-    totals[key] = totals.get(key, 0) + row["total"]
-
-summary = [{"key": k, "total": totals[k]} for k in sorted(totals)]
-print(json.encode(summary))
-platform.export(name = "region-rollup", rows = summary, format = "json")
-`,
-	},
-	{
-		name:        "example-incremental-sync",
-		description: "An incremental job: read the watermark from the script's state, pull what changed since it, export, and save the new watermark.",
-		source: `# An incremental pull. The window starts where the last SUCCESSFUL run
-# stopped, read from the script's own state, so a fire missed to downtime is
-# covered by the next one without a backfill; the window ends at the pinned
-# fire time, never at a clock.
-since = run.state.get("synced_through", "1970-01-01T00:00:00Z")
-until = run.fire_time
-print("syncing orders changed in (%s, %s]" % (since, until))
-
-result = platform.query(
-    connection = "primary",
-    sql = """
-        SELECT order_id, region, amount, updated_at
-          FROM sales.orders
-         WHERE updated_at > from_iso8601_timestamp(:since)
-           AND updated_at <= from_iso8601_timestamp(:until)
-         ORDER BY updated_at
-    """,
-    params = {"since": since, "until": until},
-)
-
-rows = result["rows"]
-print("changed rows: %d" % len(rows))
-if rows:
-    platform.export(name = "orders-delta-" + until, rows = rows, format = "csv")
-
-# Saved only if the run succeeds, and only if no other run of this script
-# wrote state in between. A run that fails above leaves the watermark alone.
-platform.save_state({"synced_through": until, "last_delta_rows": len(rows)})
-`,
-	},
-}
-
-// builtinExample looks up a seeded example by name.
-func builtinExample(name string) (example, bool) {
-	for _, ex := range examples {
-		if ex.name == name {
-			return ex, true
-		}
-	}
-	return example{}, false
-}
-
-// fields renders a built-in example as a get response. It is marked builtin so
-// nobody mistakes it for a stored script and tries to patch it.
-func (e example) fields() map[string]any {
+// exampleFields renders a built-in example as a get response. It is marked
+// builtin so nobody mistakes it for a stored script and tries to patch it.
+func exampleFields(e scriptexamples.Example) map[string]any {
 	return map[string]any{
-		fieldName: e.name, "description": e.description, fieldSource: e.source,
+		fieldName: e.Name, "description": e.Description, fieldSource: e.Source,
 		"builtin": true,
 		"message": "This is a built-in worked example, not a stored script. Copy it into create and edit from there.",
 	}
@@ -664,9 +576,9 @@ var KnowledgePages = []KnowledgePage{
 // names, and the built-in pages that carry the reasoning the contract states
 // only in outline.
 func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallToolResult, any, error) {
-	names := make([]map[string]any, 0, len(examples))
-	for _, ex := range examples {
-		names = append(names, map[string]any{fieldName: ex.name, "description": ex.description})
+	names := make([]map[string]any, 0, len(scriptexamples.All))
+	for _, ex := range scriptexamples.All {
+		names = append(names, map[string]any{fieldName: ex.Name, "description": ex.Description})
 	}
 	return jsonResult(map[string]any{
 		"dialect":      DialectContract,
@@ -703,7 +615,7 @@ func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTo
 				"peak_memory_bytes.",
 		},
 		"examples":        names,
-		"read_an_example": "Call get with name=" + examples[0].name + " to read one.",
+		"read_an_example": "Call get with name=" + scriptexamples.All[0].Name + " to read one.",
 		"see_also":        KnowledgePages,
 		"read_a_page":     "Call fetch with the reference to read one in full.",
 	})

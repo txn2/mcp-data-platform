@@ -64,8 +64,10 @@ func stringProp(description string) *jsonschema.Schema {
 // schema: additionalProperties is allowed (admits injected keys), no property is
 // required (a body-less error envelope validates), and the shared error envelope
 // is declared under the "error" key so a client can branch on result.error.
-// Nested objects keep the strict schemas jsonschema.For derives for them, since
-// only the top level of structuredContent receives middleware-injected keys.
+// Nested objects keep the strict schemas jsonschema.For derives for them here,
+// because the SDK validates the handler's own output against this schema; the
+// copy tools/list advertises has every nested object opened as well (see
+// openOutputSchema).
 func OpenToolOutputSchema(base *jsonschema.Schema) *jsonschema.Schema {
 	if base == nil {
 		base = &jsonschema.Schema{Type: "object"}
@@ -114,8 +116,14 @@ func MustOutputSchema[T any]() *jsonschema.Schema {
 // envelope that replaced the body. The advertised contract is therefore the
 // same one OpenToolOutputSchema gives the platform-owned tools: the top level is
 // open, nothing is required, and the error envelope is documented under
-// "error". Nested objects keep the strict schemas the toolkit declared, since
-// only the top level receives platform keys.
+// "error".
+//
+// Every nested object is advertised open too (#1945). A client caches
+// tools/list and validates later results against it, so a closed nested object
+// turns a field added in the next release (platform_info's notices gained two)
+// into a rejected response for every session that listed tools before the
+// upgrade. Nested required lists are kept: what a tool promises inside an
+// object is still promised, only an unknown key is no longer a failure.
 //
 // The SDK still validates a handler's own structured output against the schema
 // it inferred, inside the handler wrapper and before any middleware runs, so a
@@ -161,7 +169,8 @@ func openListedOutputSchemas(result mcp.Result) mcp.Result {
 // openOutputSchema returns a copy of an object output schema with its top level
 // opened to the platform's keys: additionalProperties allowed, no required
 // property, and the shared error envelope declared under "error" when the tool
-// did not declare that key itself. It normalizes any schema representation
+// did not declare that key itself, and every object nested anywhere beneath it
+// open to keys it does not declare (openNested). It normalizes any schema representation
 // (*jsonschema.Schema, json.RawMessage, or map) through a JSON round-trip, so
 // one code path covers every registration style. The second return is false
 // when the schema is not a JSON object schema; such a tool is left unchanged.
@@ -195,5 +204,60 @@ func openOutputSchema(schema any) (any, bool) {
 		props[errorEnvelopeKey] = envelopeObj
 	}
 	obj["properties"] = props
+	openNested(obj)
 	return obj, true
+}
+
+// Schema keywords whose value is one subschema, a map of name to subschema, or
+// a list of subschemas: the places a nested object schema can sit.
+var (
+	subschemaKeys    = []string{"items", "additionalProperties", "unevaluatedProperties", "additionalItems", "unevaluatedItems", "contains", "not", "if", "then", "else", "propertyNames"}
+	subschemaMapKeys = []string{"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"}
+	subschemaSetKeys = []string{"allOf", "anyOf", "oneOf", "prefixItems", "items"}
+)
+
+// openNested opens every object schema beneath schema: an additionalProperties
+// or unevaluatedProperties of false becomes true. A schema-valued
+// additionalProperties (a map's value type) is kept and walked, since the
+// objects inside it are nested objects too. The walk follows only the
+// subschema keywords, so a property that happens to be named
+// "additionalProperties" is never mistaken for the keyword.
+func openNested(schema map[string]any) {
+	for _, key := range subschemaKeys {
+		switch v := schema[key].(type) {
+		case bool:
+			if !v && (key == "additionalProperties" || key == "unevaluatedProperties") {
+				schema[key] = true
+			}
+		case map[string]any:
+			openNested(v)
+		}
+	}
+	for _, key := range subschemaMapKeys {
+		if named, ok := schema[key].(map[string]any); ok {
+			for _, sub := range named {
+				openNestedValue(sub)
+			}
+		}
+	}
+	openNestedLists(schema)
+}
+
+// openNestedLists walks the subschemas held in list-valued keywords.
+func openNestedLists(schema map[string]any) {
+	for _, key := range subschemaSetKeys {
+		if list, ok := schema[key].([]any); ok {
+			for _, sub := range list {
+				openNestedValue(sub)
+			}
+		}
+	}
+}
+
+// openNestedValue walks v when it is a schema object; a boolean schema has
+// nothing beneath it.
+func openNestedValue(v any) {
+	if m, ok := v.(map[string]any); ok {
+		openNested(m)
+	}
 }

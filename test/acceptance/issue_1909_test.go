@@ -52,7 +52,11 @@ func awaitTile1909(t *testing.T, c *client, id, not string) string {
 
 func TestIssue1909_ASavedScriptIsDrawnAndRedrawnWhenItChanges(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	v1 := "rows = platform.query(\"SELECT 1 AS n\", connection=\"acme\")\n"
+	v1 := `
+def main():
+    """Reads one row."""
+    platform.query("SELECT 1 AS n", connection = "acme")
+`
 	id, name := script1906(t, c, "tile", v1)
 	first := awaitTile1909(t, c, id, "")
 	if len(first) < 8 || first[1:4] != "PNG" {
@@ -66,8 +70,13 @@ func TestIssue1909_ASavedScriptIsDrawnAndRedrawnWhenItChanges(t *testing.T) {
 		t.Errorf("a reader who does not own the script is answered %d", status)
 	}
 
-	v2 := v1 + "platform.export(\"acc-1909\", rows[\"rows\"], format=\"csv\")\n"
-	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2}); out["error"] != nil {
+	v2 := `
+def main():
+    """Reads one row and exports it."""
+    rows = platform.query("SELECT 1 AS n", connection = "acme")
+    platform.export("acc-1909", rows["rows"], format = "csv")
+`
+	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2}); out["error"] != nil || out["status"] == "invalid" {
 		t.Fatalf("update refused: %v", out)
 	}
 	awaitTile1909(t, c, id, first)
@@ -75,7 +84,11 @@ func TestIssue1909_ASavedScriptIsDrawnAndRedrawnWhenItChanges(t *testing.T) {
 
 func TestIssue1909_AScriptWithNoPlatformCallsIsDrawn(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	id, _ := script1906(t, c, "tile-empty", "x = 1 + 2\n")
+	id, _ := script1906(t, c, "tile-empty", `
+def main():
+    """Prints a sum and calls nothing on the platform."""
+    print(1 + 2)
+`)
 	awaitTile1909(t, c, id, "")
 }
 
@@ -84,7 +97,11 @@ func TestIssue1909_AScriptWithNoPlatformCallsIsDrawn(t *testing.T) {
 // language changed (#1823 made `load` reserved).
 func TestIssue1909_AVersionThatDoesNotParseIsThePlaceholder(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	id, _ := script1906(t, c, "tile-bad", "rows = platform.query(\"SELECT 1 AS n\", connection=\"acme\")\n")
+	id, _ := script1906(t, c, "tile-bad", `
+def main():
+    """Reads one row."""
+    platform.query("SELECT 1 AS n", connection = "acme")
+`)
 	awaitTile1909(t, c, id, "")
 	db := issue1904DB(t)
 	issue1904Exec(t, db, `UPDATE scripts SET source_code = $1, version = version + 1 WHERE id = $2`,

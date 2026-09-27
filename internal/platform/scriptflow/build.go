@@ -174,19 +174,47 @@ func (a *analyzer) signature(d *syntax.DefStmt) string {
 const maxCaption = 120
 
 // caption is the first sentence of the comment the author wrote above a def,
-// or at the top of its body.
+// or at the top of its body, or else of its docstring. A script created since
+// #1938 documents every function, so its every box carries a sentence a reader
+// who does not read code can follow.
 func caption(d *syntax.DefStmt) string {
 	if cm := d.Comments(); cm != nil {
 		if s := firstSentence(cm.Before); s != "" {
 			return s
 		}
 	}
-	if len(d.Body) > 0 {
-		if cm := d.Body[0].Comments(); cm != nil {
-			return firstSentence(cm.Before)
+	if len(d.Body) == 0 {
+		return ""
+	}
+	if cm := d.Body[0].Comments(); cm != nil {
+		if s := firstSentence(cm.Before); s != "" {
+			return s
 		}
 	}
-	return ""
+	return docSentence(d.Body[0])
+}
+
+// docSentence is the first sentence of a docstring statement, or "" when the
+// statement is not one.
+func docSentence(s syntax.Stmt) string {
+	es, ok := s.(*syntax.ExprStmt)
+	if !ok {
+		return ""
+	}
+	lit, ok := es.X.(*syntax.Literal)
+	if !ok {
+		return ""
+	}
+	text, ok := lit.Value.(string)
+	if !ok {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	comments := make([]syntax.Comment, 0, len(lines))
+	for _, l := range lines {
+		comments = append(comments, syntax.Comment{Text: "# " + l})
+	}
+	return firstSentence(comments)
 }
 
 // firstSentence joins the comment lines of one paragraph up to its first full

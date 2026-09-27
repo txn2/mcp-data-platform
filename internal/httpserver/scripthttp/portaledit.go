@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -71,9 +72,14 @@ func (h *Handler) portalSetSource(w http.ResponseWriter, r *http.Request, user *
 		httpjson.WriteError(w, http.StatusBadRequest, detail)
 		return
 	}
+	gated := scriptlint.Check(req.Source, scriptlint.For(sc))
+	if len(gated.Refused) > 0 {
+		httpjson.WriteError(w, http.StatusBadRequest, scriptlint.Detail(gated.Refused))
+		return
+	}
 	before := *sc
 	after := *sc
-	after.Source = req.Source
+	after.Source = gated.Source
 	if err := after.Validate(); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -89,7 +95,7 @@ func (h *Handler) portalSetSource(w http.ResponseWriter, r *http.Request, user *
 // A save is deliberately NOT checked against the deployment's declared
 // destinations: the declared set is configuration that changes under a stored
 // script, and refusing the save would take away the edit that fixes it. The
-// dry-run path checks it (refuseDraftSource), because that is the surface
+// dry-run path checks it (scriptlint.DraftRefusal), because that is the surface
 // answering "would this run".
 func refuseSource(source string) string {
 	if report := scriptrun.Validate(source); !report.OK {
@@ -100,22 +106,6 @@ func refuseSource(source string) string {
 		return detail
 	}
 	return ""
-}
-
-// refuseDraftSource is the same static read before a DRAFT executes, plus the
-// destination check: a dry run is the surface that answers whether a script
-// would run here, so a destination this deployment does not declare is
-// reported before the queries execute rather than after (#1415).
-func refuseDraftSource(source string, destinations []script.Destination) string {
-	report := scriptrun.WithDestinationCheck(scriptrun.Validate(source), destinations)
-	if report.OK {
-		return ""
-	}
-	detail := "the source does not pass validation, so it was not run"
-	if len(report.Findings) > 0 {
-		return detail + ": " + report.Findings[0].Message
-	}
-	return detail
 }
 
 // applyEdit puts the edit through script.ApplyEdit — the one gate every mutation

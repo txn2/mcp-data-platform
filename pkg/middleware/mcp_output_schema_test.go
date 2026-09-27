@@ -260,3 +260,100 @@ func openedObject(t *testing.T, opened any) (obj, props map[string]any) {
 	require.True(t, ok, "an opened schema carries a properties map")
 	return obj, props
 }
+
+// TestOpenOutputSchema_OpensNestedObjects is #1945: every object beneath the top
+// level is advertised open, wherever the schema nests it (a property, an array's
+// items, a map's value type, a $defs entry, a combinator branch), so a key a
+// later release adds to a nested type validates against a schema a client
+// cached before the upgrade. A property named "additionalProperties" is a
+// property, not the keyword, and is left alone; nested required lists are kept.
+func TestOpenOutputSchema_OpensNestedObjects(t *testing.T) {
+	closed := func(props map[string]any) map[string]any {
+		return map[string]any{"type": "object", "additionalProperties": false, "properties": props}
+	}
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"notices": map[string]any{
+				"type": "object", "additionalProperties": false, "required": []any{"count"},
+				"properties": map[string]any{"count": map[string]any{"type": "integer"}},
+			},
+			"list":    map[string]any{"type": "array", "items": closed(map[string]any{"a": map[string]any{"type": "string"}})},
+			"byName":  map[string]any{"type": "object", "additionalProperties": closed(map[string]any{})},
+			"either":  map[string]any{"anyOf": []any{closed(map[string]any{}), true}},
+			"literal": map[string]any{"type": "object", "properties": map[string]any{"additionalProperties": false}},
+			"strict":  map[string]any{"type": "object", "unevaluatedProperties": false},
+		},
+		"$defs": map[string]any{"Inner": closed(map[string]any{})},
+	}
+	opened, ok := openOutputSchema(schema)
+	require.True(t, ok)
+	_, props := openedObject(t, opened)
+
+	notices := schemaAt(t, props, "notices")
+	assert.Equal(t, true, schemaAt(t, notices, "additionalProperties"))
+	assert.Equal(t, []any{"count"}, schemaAt(t, notices, "required"), "a nested required list is kept")
+	assert.Equal(t, true, schemaAt(t, props, "list", "items", "additionalProperties"))
+	assert.Equal(t, true, schemaAt(t, props, "byName", "additionalProperties", "additionalProperties"),
+		"a map's value type is walked, not replaced")
+	assert.Equal(t, true, schemaAt(t, props, "either", "anyOf", 0, "additionalProperties"))
+	assert.Equal(t, false, schemaAt(t, props, "literal", "properties", "additionalProperties"),
+		"a property named additionalProperties is not the keyword")
+	assert.Equal(t, true, schemaAt(t, props, "strict", "unevaluatedProperties"))
+	assert.Equal(t, true, schemaAt(t, opened, "$defs", "Inner", "additionalProperties"))
+
+	// The case the ticket reports: a nested type gains a key after a client
+	// listed tools. Validated against what was advertised, it passes; against
+	// the closed nested schema, it is rejected.
+	type notice struct {
+		Count int `json:"count"`
+	}
+	type body struct {
+		Notices notice `json:"notices"`
+	}
+	strict := MustOutputSchema[body]()
+	later := map[string]any{"notices": map[string]any{"count": 1, "added_next_release": 2}}
+	for _, tc := range []struct {
+		schema any
+		wantOK bool
+	}{{strict, false}, {mustOpen(t, strict), true}} {
+		raw, err := json.Marshal(tc.schema)
+		require.NoError(t, err)
+		var s jsonschema.Schema
+		require.NoError(t, json.Unmarshal(raw, &s))
+		resolved, err := s.Resolve(nil)
+		require.NoError(t, err)
+		if tc.wantOK {
+			assert.NoError(t, validateAgainst(t, resolved, later))
+		} else {
+			assert.Error(t, validateAgainst(t, resolved, later), "negative control: the closed nested object rejects the new key")
+		}
+	}
+}
+
+// schemaAt walks v by map keys and list indexes, failing the test when a step
+// is not there.
+func schemaAt(t *testing.T, v any, path ...any) any {
+	t.Helper()
+	for _, step := range path {
+		switch k := step.(type) {
+		case string:
+			m, ok := v.(map[string]any)
+			require.True(t, ok, "%v is not an object", v)
+			v = m[k]
+		case int:
+			l, ok := v.([]any)
+			require.True(t, ok, "%v is not a list", v)
+			require.Greater(t, len(l), k)
+			v = l[k]
+		}
+	}
+	return v
+}
+
+func mustOpen(t *testing.T, schema any) any {
+	t.Helper()
+	opened, ok := openOutputSchema(schema)
+	require.True(t, ok)
+	return opened
+}

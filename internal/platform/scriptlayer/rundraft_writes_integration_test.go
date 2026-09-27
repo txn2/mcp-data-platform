@@ -42,10 +42,10 @@ func writeToolServer(t *testing.T, calls *[]string) harness {
 
 // ingestSource is the shape #1664 reports: a script whose whole purpose is
 // landing something.
-const ingestSource = `platform.call("manage_resource", {"action": "create", "filename": "daily.csv"})
+var ingestSource = inMain(`platform.call("manage_resource", {"action": "create", "filename": "daily.csv"})
 platform.call("manage_table", {"action": "register", "reference": "mcp:resource:daily"})
 print("landed")
-`
+`)
 
 // TestIntegration_ADraftDoesNotLandThroughPlatformCall is the defect: the draft
 // answered "Nothing was persisted" while the resource and the registration
@@ -95,9 +95,9 @@ func TestIntegration_ADraftThatWroteNothingSaysWriteClassCallsAreRefused(t *test
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "reader",
-		"source": `platform.call("manage_table", {"action": "list"})
+		"source": inMain(`platform.call("manage_table", {"action": "list"})
 platform.call("vendor__list_contacts", {})
-`,
+`),
 	})
 	require.False(t, isErr, created)
 
@@ -154,12 +154,12 @@ func TestIntegration_ADraftWithAllowWritesLandsAndReportsEveryWrite(t *testing.T
 
 // mixedSource makes a platform.call write, an export and a state save: the
 // three kinds of write a draft reports on.
-const mixedSource = `res = platform.query(connection="warehouse", sql="SELECT region, total FROM sales")
+var mixedSource = inMain(`res = platform.query(connection="warehouse", sql="SELECT region, total FROM sales")
 platform.call("manage_table", {"action": "register", "reference": "mcp:resource:x"})
 out = platform.export(name="daily", rows=res["rows"], format="csv", destination="resources", key="d/daily.csv")
 print("exported", out["preview"], out.get("reference", "none"))
-platform.save_state({"cursor": "2026-08-13"})
-`
+platform.save_state({"cursor": run.state.get("cursor", "2026-08-13")})
+`)
 
 // draftExporter is the writer a composition root hands a draft allowed to
 // write, recording what it was asked to write and for whom.
@@ -233,7 +233,7 @@ func TestIntegration_ABarredDraftStillPreviewsTheExport(t *testing.T) {
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "exportonly",
-		"source": `platform.export(name="daily", rows=[{"a": 1}], format="csv")`,
+		"source": inMain(`platform.export(name="daily", rows=[{"a": 1}], format="csv")`),
 	})
 	require.False(t, isErr, created)
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "exportonly"})
@@ -284,8 +284,8 @@ func TestIntegration_ADraftOfAnUnsavedScriptRuns(t *testing.T) {
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "brand_new", "allow_writes": true,
-		"source": `print("region is", run.params["region"], "state", run.state)
-platform.export(name="d", rows=[{"a": 1}], format="jsonl", destination="resources", key="s/d.jsonl")`,
+		"source": inMain(`print("region is", run.params["region"], "state", run.state)
+platform.export(name="d", rows=[{"a": 1}], format="jsonl", destination="resources", key="s/d.jsonl")`),
 		"params": []any{map[string]any{"name": "region", "type": "string", "required": true}},
 		"args":   map[string]any{"region": "west"},
 	})
@@ -351,7 +351,7 @@ func TestIntegration_ADraftRefusesAToolNobodyClassified(t *testing.T) {
 
 	created, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "create", "name": "vendor",
-		"source": `platform.call("vendor__create_invoice", {"amount": 10})`,
+		"source": inMain(`platform.call("vendor__create_invoice", {"amount": 10})`),
 	})
 	require.False(t, isErr, created)
 

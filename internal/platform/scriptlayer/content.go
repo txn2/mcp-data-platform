@@ -9,7 +9,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch/patchmcp"
@@ -93,12 +92,17 @@ func (h *Handle) handlePatch(ctx context.Context, input manageScriptInput) (*mcp
 		report["message"] = "Dry run: no version was created."
 		return jsonResult(report)
 	}
-	if validation := scriptrun.Validate(res.Body); !validation.OK {
-		return jsonResult(refusedReport("the patched source does not parse, so the edit was not saved", validation))
-	}
-
 	before := *existing
-	existing.Source = res.Body
+	gated, errResult := gateSource(existing, res.Body, "the patch")
+	if errResult != nil {
+		return errResult, nil, nil
+	}
+	if gated == nil {
+		// A patch that deleted the whole body; the record check below refuses it.
+		existing.Source = res.Body
+	} else {
+		addGateNotes(report, res.Body, *gated)
+	}
 	// The record check that create and update both run. Without it a patch is
 	// the one way past it: an edit that deletes the whole body leaves an empty
 	// source that parses fine, and repeated inserts walk a script past the size

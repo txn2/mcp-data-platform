@@ -527,7 +527,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	go watchCancel(runCtx, thread, done)
 
 	started := time.Now()
-	globals, execErr := starlark.ExecFileOptions(scriptdialect.Options, thread, opts.Name, opts.Source, predeclared(host))
+	globals, execErr := scriptdialect.Exec(thread, opts.Name, opts.Source, predeclared(host), host.mem.Ended)
 	if settled := host.mem.Settle(globals); execErr == nil && settled != nil {
 		execErr = settled
 	}

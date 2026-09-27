@@ -34,6 +34,14 @@ import (
 
 const issue1795Purpose = "Acceptance for #1795: the scripts listing is ordered and scoped by the server."
 
+// issue1795Source is the body every seeded script carries. The listing is
+// what is under test, not the script, so it does the least a script saved
+// under the #1913 gates may: its work, a print, in main().
+const issue1795Source = `def main():
+    """Prints that the acceptance script ran."""
+    print("acceptance 1795")
+`
+
 // issue1795Scripts is what this file authors: three scripts whose display
 // names order differently from their update times, so an ordering assertion
 // cannot pass by accident on the default ordering.
@@ -64,15 +72,18 @@ func seedIssue1795(t *testing.T, c *client) []string {
 			names = append(names, s.name)
 			continue
 		}
-		c.call("manage_script", map[string]any{
+		created := c.call("manage_script", map[string]any{
 			"command":      "create",
 			"name":         s.name,
 			"display_name": s.display,
-			"source":       "x = 1\n",
+			"source":       issue1795Source,
 			"category":     "acceptance",
 			"tags":         []any{"acc1795"},
 			"purpose":      issue1795Purpose,
 		})
+		if created["status"] != "created" {
+			t.Fatalf("manage_script create %s: %v", s.name, created)
+		}
 		names = append(names, s.name)
 	}
 	return names

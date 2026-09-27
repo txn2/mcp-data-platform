@@ -22,17 +22,24 @@ import (
 // literal tools/call parameter of it. The flow and fires routes take path and
 // query-string parameters, one form each.
 
+// weather1933 is the ticket's shape in main(), as the #1913 gates require of
+// a saved script: the failing call and the fail() after it stay in forecast.
 const weather1933 = `
 def forecast(office):
+    """Reads the office's forecast and fails when the upstream does not answer 200."""
     res = platform.call("api_invoke_endpoint", {
-        "connection": "api-test-fixture", "method": "GET", "path": "/v1/status/500",
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/v1/status/500",
         "purpose": "Acceptance #1933: an upstream that answers 500",
     })
     if res["status"] != 200:
         fail("NWS returned %d for %s" % (res["status"], office))
     return res
 
-forecast("PSR")
+def main():
+    """Reads one office's forecast."""
+    forecast("PSR")
 `
 
 // TestIssue1933_TheCardAFailedCallWasMadeFromIsTheFailedCard is the ticket's
@@ -48,6 +55,9 @@ func TestIssue1933_TheCardAFailedCallWasMadeFromIsTheFailedCard(t *testing.T) {
 	})
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	scriptID, _ := created["id"].(string)
+	if scriptID == "" {
+		t.Fatalf("manage_script create returned no id: %v", created)
+	}
 	runID, status := run1907(t, c, name)
 	if status != "failed" {
 		t.Fatalf("the run did not fail: %s", status)

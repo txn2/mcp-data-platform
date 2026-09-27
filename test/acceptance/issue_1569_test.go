@@ -63,30 +63,45 @@ import (
 // three different writes: a declared portal output, a managed resource it
 // creates, and a managed resource it only replaces the content of.
 const scriptSource1569 = `
-mode = run.params["mode"]
-if mode == "export":
+def export_output(target):
+    """Writes one declared portal output under the target name."""
     platform.export(
-        name=run.params["target"],
-        rows=[{"region": "north", "units": 41}],
-        format="csv",
+        name = target,
+        rows = [{"region": "north", "units": 41}],
+        format = "csv",
     )
-elif mode == "create_resource":
+
+def create_resource(target):
+    """Creates a managed resource named for the target."""
     platform.call("manage_resource", {
         "action": "create",
-        "filename": run.params["target"] + ".txt",
-        "display_name": run.params["target"],
+        "filename": target + ".txt",
+        "display_name": target,
         "path": "acceptance-1569",
         "description": "Acceptance #1569: a managed resource a run created.",
         "content": "created by a run\n",
         "content_type": "text/plain",
     })
-else:
+
+def replace_resource(target):
+    """Replaces the content of the resource the target references."""
     platform.call("manage_resource", {
         "action": "replace_content",
-        "reference": run.params["target"],
+        "reference": target,
         "content": "replaced by a run\n",
         "content_type": "text/plain",
     })
+
+def main():
+    """Makes the one write the run's mode names."""
+    mode = run.params["mode"]
+    target = run.params["target"]
+    if mode == "export":
+        export_output(target)
+    elif mode == "create_resource":
+        create_resource(target)
+    else:
+        replace_resource(target)
 `
 
 func unique1569() string {
@@ -97,7 +112,7 @@ func unique1569() string {
 // when the test ends unless the test removed it itself.
 func createScript1569(t *testing.T, c *client, name string) {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1569: a script whose writes are recorded against it.",
@@ -113,6 +128,9 @@ func createScript1569(t *testing.T, c *client, name string) {
 			},
 		},
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

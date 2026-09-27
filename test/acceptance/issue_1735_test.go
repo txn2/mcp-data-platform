@@ -129,7 +129,9 @@ func TestIssue1735_TheXMLModuleIsInTheEnvironmentValidateResolvesAgainst(t *test
 
 	report := c.call("manage_script", map[string]any{
 		"command": "validate",
-		"source":  "doc = xml.decode(\"<a/>\")\nprint(xml.encode(doc))\nprint(xml.find(doc, \"//a\"))\nprint(xml.findall(doc, \"a\"))\n",
+		"source": "def main():\n    \"\"\"Uses every member of the xml module.\"\"\"\n" +
+			"    doc = xml.decode(\"<a/>\")\n    print(xml.encode(doc))\n" +
+			"    print(xml.find(doc, \"//a\"))\n    print(xml.findall(doc, \"a\"))\n",
 	})
 	if ok, _ := report["ok"].(bool); !ok {
 		t.Fatalf("validate refused a script using the xml module: %v", report)
@@ -151,25 +153,27 @@ func TestIssue1735_AScriptReadsASOAPEnvelopeByLocalName(t *testing.T) {
 	name := issue1735Author(t, c, "read", `
 DOC = "`+strings.ReplaceAll(issue1735SOAP, `"`, `\"`)+`"
 
-doc = xml.decode(DOC)
-print("root=" + doc.tag + " ns=" + doc.ns)
+def main():
+    """Takes the SOAP envelope apart by local name and prints what it finds."""
+    doc = xml.decode(DOC)
+    print("root=" + doc.tag + " ns=" + doc.ns)
 
-body = xml.find(doc, "//Body")
-print("body=" + body.tag)
+    body = xml.find(doc, "//Body")
+    print("body=" + body.tag)
 
-rates = xml.findall(doc, "//Rate")
-print("count=" + str(len(rates)))
-print("first=" + rates[0].attrs["currency"] + ":" + rates[0].text)
+    rates = xml.findall(doc, "//Rate")
+    print("count=" + str(len(rates)))
+    print("first=" + rates[0].attrs["currency"] + ":" + rates[0].text)
 
-second = xml.find(doc, "//Rate[2]")
-print("second=" + second.attrs["currency"])
+    second = xml.find(doc, "//Rate[2]")
+    print("second=" + second.attrs["currency"])
 
-gbp = xml.find(doc, "//Rate[@currency='GBP']")
-print("gbp=" + gbp.text)
+    gbp = xml.find(doc, "//Rate[@currency='GBP']")
+    print("gbp=" + gbp.text)
 
-print("wildcard=" + xml.find(doc, "*/GetRatesResponse").ns)
-print("missing=" + str(xml.find(doc, "//Fault")))
-print("total=" + str(sum([float(r.text) for r in rates])))
+    print("wildcard=" + xml.find(doc, "*/GetRatesResponse").ns)
+    print("missing=" + str(xml.find(doc, "//Fault")))
+    print("total=" + str(sum([float(r.text) for r in rates])))
 `)
 
 	ran := issue1735Draft(t, c, name)
@@ -203,20 +207,22 @@ func TestIssue1735_AScriptBuildsAndRoundTripsADocument(t *testing.T) {
 DOC = "`+strings.ReplaceAll(issue1735SOAP, `"`, `\"`)+`"
 SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
 
-envelope = xml.encode({
-    "tag": "Envelope",
-    "ns": SOAP_NS,
-    "children": [{
-        "tag": "Body",
+def main():
+    """Builds a request envelope from data and round-trips a decoded document."""
+    envelope = xml.encode({
+        "tag": "Envelope",
         "ns": SOAP_NS,
-        "children": [{"tag": "GetRates", "ns": "urn:acme:rates", "attrs": {"base": "USD"}}],
-    }],
-})
-print("built=" + envelope)
+        "children": [{
+            "tag": "Body",
+            "ns": SOAP_NS,
+            "children": [{"tag": "GetRates", "ns": "urn:acme:rates", "attrs": {"base": "USD"}}],
+        }],
+    })
+    print("built=" + envelope)
 
-doc = xml.decode(DOC)
-print("roundtrip=" + str(xml.encode(xml.decode(xml.encode(doc))) == xml.encode(doc)))
-print("json=" + json.encode(xml.find(doc, "//Rate")))
+    doc = xml.decode(DOC)
+    print("roundtrip=" + str(xml.encode(xml.decode(xml.encode(doc))) == xml.encode(doc)))
+    print("json=" + json.encode(xml.find(doc, "//Rate")))
 `)
 
 	ran := issue1735Draft(t, c, name)
@@ -248,14 +254,16 @@ func TestIssue1735_AnUnsupportedPathAndAHostileDocumentAreRefused(t *testing.T) 
 		want   string
 	}{
 		{
-			label:  "path",
-			source: "print(xml.findall(xml.decode(\"<a><b/></a>\"), \"//b[last()]\"))\n",
-			want:   "unsupported path",
+			label: "path",
+			source: "def main():\n    \"\"\"Asks for a path outside the supported subset.\"\"\"\n" +
+				"    print(xml.findall(xml.decode(\"<a><b/></a>\"), \"//b[last()]\"))\n",
+			want: "unsupported path",
 		},
 		{
-			label:  "doctype",
-			source: "print(xml.decode('<!DOCTYPE lolz [<!ENTITY lol \"lol\">]><lolz>&lol;</lolz>'))\n",
-			want:   "document type declarations are not accepted",
+			label: "doctype",
+			source: "def main():\n    \"\"\"Decodes a document carrying a document type declaration.\"\"\"\n" +
+				"    print(xml.decode('<!DOCTYPE lolz [<!ENTITY lol \"lol\">]><lolz>&lol;</lolz>'))\n",
+			want: "document type declarations are not accepted",
 		},
 	}
 	for _, tc := range cases {
@@ -464,25 +472,26 @@ func TestIssue1735_AScriptReadsAToolCallsDecodedBody(t *testing.T) {
 	c := connect(t)
 	connection := issue1735Connection(t, c, "script", false)
 
-	name := issue1735Author(t, c, "call", `
-resp = platform.call("api_invoke_endpoint", {
-    "connection": "`+connection+`",
-    "method": "GET",
-    "path": "`+issue1735SAMLPath+`",
-    "decode": "xml",
-    "purpose": "`+issue1735Purpose+`",
-})
-doc = resp["body"]
-print("tag=" + doc["tag"])
-print("decoded_by_the_tool=" + str(type(doc) == "dict"))
+	name := issue1735Author(t, c, "call", `def main():
+    """Reads the tree the tool decoded and compares it with one decoded here."""
+    resp = platform.call("api_invoke_endpoint", {
+        "connection": "`+connection+`",
+        "method": "GET",
+        "path": "`+issue1735SAMLPath+`",
+        "decode": "xml",
+        "purpose": "`+issue1735Purpose+`",
+    })
+    doc = resp["body"]
+    print("tag=" + doc["tag"])
+    print("decoded_by_the_tool=" + str(type(doc) == "dict"))
 
-again = xml.decode(platform.call("api_invoke_endpoint", {
-    "connection": "`+connection+`",
-    "method": "GET",
-    "path": "`+issue1735SAMLPath+`",
-    "purpose": "`+issue1735Purpose+`",
-})["body"])
-print("same=" + str(again.tag == doc["tag"]))
+    again = xml.decode(platform.call("api_invoke_endpoint", {
+        "connection": "`+connection+`",
+        "method": "GET",
+        "path": "`+issue1735SAMLPath+`",
+        "purpose": "`+issue1735Purpose+`",
+    })["body"])
+    print("same=" + str(again.tag == doc["tag"]))
 `)
 
 	ran := issue1735Draft(t, c, name)

@@ -47,14 +47,21 @@ func TestIssue1843_HelpReportsThePlatformRunCeilings(t *testing.T) {
 func TestIssue1843_RunsQueuedTogetherExecuteAtTheSameTime(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1843-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1843: runs overlap.",
-		"source": fmt.Sprintf(`for i in range(6):
-    platform.query(connection=%q, sql="SELECT count(*) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) CROSS JOIN UNNEST(sequence(1, 100)) AS b(y)")
+		"source": fmt.Sprintf(`SQL = "SELECT count(*) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) CROSS JOIN UNNEST(sequence(1, 100)) AS b(y)"
+
+def main():
+    """Queries the warehouse six times so the run spends its life waiting on Trino."""
+    for _ in range(6):
+        platform.query(connection = %q, sql = SQL)
 `, scratchResourceConnection),
 		"params": []any{map[string]any{"name": "slot", "type": "int"}},
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	const runs = 3

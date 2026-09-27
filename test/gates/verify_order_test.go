@@ -39,6 +39,17 @@ func indexOf(lines []string, step string) int {
 	return -1
 }
 
+// stepAt returns the position of the recipe line that runs exactly step, so
+// schedule-lane is not found on the line that runs schedule-lane-ui.
+func stepAt(lines []string, step string) int {
+	for i, l := range lines {
+		if strings.HasSuffix(l, " "+step) {
+			return i
+		}
+	}
+	return -1
+}
+
 // TestVerifyReportsTheCheapGatesFirst pins #1856: the diff-scoped gates run in
 // verify's serial preamble, before the lanes fan out, and the Go lane runs the
 // changed-package schedule lane before the whole module's unit run, so either
@@ -78,6 +89,23 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 		if indexOf(recipe(t, makefile, "verify-go"), gate) >= 0 {
 			t.Errorf("verify-go still runs %s after the unit run", gate)
 		}
+	}
+
+	// Both halves of the schedule lane run in preverify, Go first (#1929): a
+	// vitest file that fails only beside the full suite otherwise passes a
+	// green preverify and fails verify's UI lane. The RealDB tests of the
+	// packages a branch can break follow (#1947): preverify otherwise compiles
+	// no test behind the integration build tag.
+	pre := recipe(t, makefile, "preverify")
+	g, u, r := stepAt(pre, "schedule-lane"), stepAt(pre, "schedule-lane-ui"), stepAt(pre, "realdb-lane")
+	if g < 0 || u < 0 || g > u {
+		t.Errorf("preverify runs schedule-lane at %d and schedule-lane-ui at %d; both must run, Go first", g, u)
+	}
+	if r < 0 || r < u {
+		t.Errorf("preverify runs realdb-lane at %d; it must run, after the schedule lane (%d)", r, u)
+	}
+	if !strings.Contains(strings.Join(recipe(t, makefile, "test-realdb"), "\n"), "$(REALDB_PKGS)") {
+		t.Errorf("test-realdb does not run $(REALDB_PKGS), so realdb-lane cannot narrow it")
 	}
 
 	goLane := recipe(t, makefile, "verify-go")

@@ -10,6 +10,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -34,6 +36,12 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	if report := scriptrun.Validate(sc.Source); !report.OK {
 		return jsonResult(refusedReport("the source does not parse, so it was not saved", report))
 	}
+	sent := sc.Source
+	gated := scriptlint.Check(sent, scriptlint.For(nil))
+	if len(gated.Refused) > 0 {
+		return jsonResult(gateRefusal("the source does not pass the authoring gates, so it was not saved", gated))
+	}
+	sc.Source = gated.Source
 	author := callerAuthor(ctx)
 	if err := h.store.Create(ctx, sc, author); err != nil {
 		slog.Error("failed to create script", fieldName, input.Name, logKeyError, err)
@@ -44,6 +52,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 		"next": "Saved, and it runs: run_script executes it under the access you held when you saved it, and a schedule you set will fire it. Use run_draft to iterate on changes before saving them.",
 	}
 	addDescriptionNotice(out, sc)
+	addGateNotes(out, sent, gated)
 	return jsonResult(out)
 }
 
@@ -83,21 +92,25 @@ func (h *Handle) handleUpdate(ctx context.Context, input manageScriptInput) (*mc
 		return errResult, nil, nil
 	}
 	before := *existing
-	if errResult := h.applyUpdates(ctx, existing, input); errResult != nil {
+	gated, errResult := h.applyUpdates(ctx, existing, input)
+	if errResult != nil {
 		return errResult, nil, nil
 	}
-	return h.persist(ctx, &before, existing, nil)
+	var extra map[string]any
+	if gated != nil {
+		extra = map[string]any{}
+		addGateNotes(extra, input.Source, *gated)
+	}
+	return h.persist(ctx, &before, existing, extra)
 }
 
 // applyUpdates mutates the script in place from the sent fields, then validates
-// the resulting record as a whole.
-func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input manageScriptInput) *mcp.CallToolResult {
-	if input.Source != "" {
-		if report := scriptrun.Validate(input.Source); !report.OK {
-			result, _, _ := jsonResult(refusedReport("the source does not parse, so the edit was not saved", report))
-			return result
-		}
-		sc.Source = input.Source
+// the resulting record as a whole. The gates' result is returned when source
+// was sent, nil otherwise.
+func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input manageScriptInput) (*scriptlint.Result, *mcp.CallToolResult) {
+	gated, errResult := gateSource(sc, input.Source, "the edit")
+	if errResult != nil {
+		return nil, errResult
 	}
 	if input.Params != nil {
 		sc.Params = input.Params
@@ -110,12 +123,33 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 		sc.Enabled = *input.Enabled
 	}
 	if errResult := h.applyStatus(ctx, sc, input); errResult != nil {
-		return errResult
+		return nil, errResult
 	}
 	if err := sc.Validate(); err != nil {
-		return errorResult(err.Error())
+		return nil, errorResult(err.Error())
 	}
-	return nil
+	return gated, nil
+}
+
+// gateSource puts new source for sc through the validator and the authoring
+// gates and, when both pass, sets it as the formatted source. Empty source
+// means none was sent: nothing is checked and nil is returned. what names the
+// change in a refusal ("the edit", "the patch").
+func gateSource(sc *script.Script, source, what string) (*scriptlint.Result, *mcp.CallToolResult) {
+	if source == "" {
+		return nil, nil
+	}
+	if report := scriptrun.Validate(source); !report.OK {
+		result, _, _ := jsonResult(refusedReport("the source does not parse, so "+what+" was not saved", report))
+		return nil, result
+	}
+	gated := scriptlint.Check(source, scriptlint.For(sc))
+	if len(gated.Refused) > 0 {
+		result, _, _ := jsonResult(gateRefusal("the source does not pass the authoring gates, so "+what+" was not saved", gated))
+		return nil, result
+	}
+	sc.Source = gated.Source
+	return &gated, nil
 }
 
 // applyStringFields copies the plain descriptive fields a caller sent.
@@ -160,7 +194,7 @@ func (h *Handle) persist(ctx context.Context, before, after *script.Script, extr
 	maps.Copy(out, extra)
 	out[fieldStatus] = "updated"
 	addDescriptionNotice(out, after)
-	out["message"] = script.SavedMessage(after)
+	out[fieldMessage] = script.SavedMessage(after)
 	return jsonResult(out)
 }
 
@@ -198,7 +232,7 @@ func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mc
 	}
 	return jsonResult(map[string]any{
 		fieldStatus: "deleted", fieldName: existing.Name,
-		"message": script.DeleteMessage(existing.Name, removed),
+		fieldMessage: script.DeleteMessage(existing.Name, removed),
 	})
 }
 
@@ -210,8 +244,8 @@ func (h *Handle) handleGet(ctx context.Context, input manageScriptInput) (*mcp.C
 	if errResult != nil {
 		// A built-in example answers only when no stored script does, so a real
 		// script named after an example is never shadowed by it.
-		if ex, ok := builtinExample(input.Name); ok {
-			return jsonResult(ex.fields())
+		if ex, ok := scriptexamples.Lookup(input.Name); ok {
+			return jsonResult(exampleFields(ex))
 		}
 		return errResult, nil, nil
 	}
@@ -245,7 +279,7 @@ func (h *Handle) liveRuns(ctx context.Context, sc *script.Script) []map[string]a
 	for i := range runs {
 		summary := runSummary(sc, &runs[i])
 		if msg := livenessMessage(&runs[i], time.Now()); msg != "" {
-			summary["message"] = msg
+			summary[fieldMessage] = msg
 		}
 		out = append(out, summary)
 	}
@@ -303,10 +337,10 @@ func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.
 // author needs to fix it, in one response so the fix takes one round trip.
 func refusedReport(reason string, report scriptrun.Report) map[string]any {
 	return map[string]any{
-		fieldStatus: "invalid",
-		"message":   reason,
-		"findings":  report.Findings,
-		"help":      fmt.Sprintf("Call %s with command=help for the dialect contract and worked examples.", ToolNameManageScript),
+		fieldStatus:  "invalid",
+		fieldMessage: reason,
+		"findings":   report.Findings,
+		"help":       fmt.Sprintf("Call %s with command=help for the dialect contract and worked examples.", ToolNameManageScript),
 	}
 }
 
@@ -327,4 +361,44 @@ func (h *Handle) contentVerb(
 	}
 	maps.Copy(fields, identity(sc))
 	return jsonResult(fields)
+}
+
+// validateTarget is the script a validate call's source would be saved into:
+// the one named, when the caller could save into it, or nil for a new script.
+func (h *Handle) validateTarget(ctx context.Context, input manageScriptInput) *script.Script {
+	if input.Name == "" {
+		return nil
+	}
+	sc, errResult := h.owned(ctx, input)
+	if errResult != nil {
+		return nil
+	}
+	return sc
+}
+
+// gateRefusal renders a save the gates refused: the reason, every finding on
+// the formatted source (the refused ones as errors), and the formatted source
+// the findings' lines refer to.
+func gateRefusal(reason string, res scriptlint.Result) map[string]any {
+	return map[string]any{
+		fieldStatus:        "invalid",
+		fieldMessage:       reason,
+		"findings":         res.Findings,
+		"formatted_source": res.Source,
+		"help": fmt.Sprintf("Fix each error finding and save again. Line numbers refer to formatted_source, "+
+			"which is how the script is stored. Call %s with command=help for the rules.", ToolNameManageScript),
+	}
+}
+
+// addGateNotes tells the author of a saved version what the gates did: that
+// the stored source is the formatted one, and the findings a script saved
+// before the gates still carries, which did not refuse this save.
+func addGateNotes(out map[string]any, sent string, res scriptlint.Result) {
+	if res.Source != sent {
+		out["source_formatted"] = true
+		out["formatted_note"] = "The source was stored in the canonical format; read it back with get before patching it."
+	}
+	if len(res.Findings) > 0 {
+		out["findings"] = res.Findings
+	}
 }
