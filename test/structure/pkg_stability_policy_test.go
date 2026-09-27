@@ -87,10 +87,6 @@ type stabilityExemption struct {
 // condition that justified it.
 func stabilityAllowlist() map[string]stabilityExemption {
 	return map[string]stabilityExemption{
-		"pkg/admin": {
-			why:  "a complete mountable HTTP subsystem rather than a seam: it builds the /api/v1/admin router, and a consumer embedding the platform mounts that router on their own server exactly as internal/httpserver does. The single importer reflects there being one composition root in this module, not a narrow contract.",
-			exit: "retire if the admin API stops being independently mountable. #1078 decomposes the package but keeps it at pkg/admin.",
-		},
 		"pkg/database/migrate": {
 			why:  "the schema itself: it carries the embedded SQL migrations and the runner a consumer invokes to bring their own database up to the platform's schema before starting it.",
 			exit: "retire if migrations move behind a platform lifecycle call that a consumer never invokes directly.",

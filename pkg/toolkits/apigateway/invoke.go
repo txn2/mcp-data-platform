@@ -21,6 +21,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/formdata"
 	"github.com/txn2/mcp-data-platform/internal/inlinefit"
+	"github.com/txn2/mcp-data-platform/internal/listcut"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
@@ -148,6 +149,14 @@ type InvokeOutput struct {
 	// api_export arguments that stream this same call into a portal
 	// asset. The caller adds a name.
 	ExportArguments *InvokeInput `json:"export_arguments,omitempty"`
+	// BodyItems is set when a list body was cut to fit a model client's
+	// context budget (#1915): how many of the response's items are shown.
+	BodyItems *listcut.Count `json:"body_items,omitempty"`
+	// NextArguments is the api_invoke_endpoint call that reads on from a
+	// cut list, built from the paging parameters the operation declares
+	// (#1915). Absent when the operation declares none the gateway can
+	// advance.
+	NextArguments *InvokeInput `json:"next_arguments,omitempty"`
 	// Pagination is populated when the upstream response carries a
 	// recognizable cursor (RFC 5988 Link rel="next", @odata.nextLink,
 	// next_cursor, etc). The model uses this to decide whether to
@@ -265,20 +274,7 @@ func steerToExport(out *InvokeOutput, in InvokeInput, hasExport bool) {
 	if !out.BodyTruncated {
 		return
 	}
-	if in.OperationID != "" {
-		in.Method, in.Path = "", ""
-	}
-	in.TimeoutSeconds = 0
-	out.ExportArguments = &in
-}
-
-// contextBudgetHint is the steer on a body cut by a model client's
-// context budget. The budget bounds the rendered tool result, so the hint
-// does not quote it as a count of body bytes returned (issue #1606).
-func contextBudgetHint(budget, bodyBytes int64) string {
-	return fmt.Sprintf("response of %d bytes exceeded this client's context budget on a tool result (%d, tools.result_budget); "+
-		"the body is cut to fit it. Use api_export with export_arguments plus a name to stream the whole response into a "+
-		"portal asset (no model-context cost)", bodyBytes, budget)
+	out.ExportArguments = exportArguments(in)
 }
 
 // readCapHint is the steer on a body cut by the connection's read cap,
@@ -292,34 +288,6 @@ func readCapHint(readCap, declared int64) string {
 	return fmt.Sprintf("response %s exceeded the connection's max_response_bytes (%d), the most the gateway reads of one response; "+
 		"the body is cut at it. Use api_export with export_arguments plus a name to stream the whole response into a "+
 		"portal asset (no model-context cost)", size, readCap)
-}
-
-// fitToBudget holds a result to a model client's context budget and
-// returns the rendering to hand back. The budget is on the rendered tool
-// result, not on the bytes read from the upstream: the envelope and the
-// indentation the result is rendered with sit between the two, so a body
-// inside the read cap can still render past what a client accepts
-// (issue #1606). The flags are set before the fit, so the rendering it
-// measures is the one returned, and only a result that cannot be made to
-// fit by re-encoding alone is flagged as cut.
-func fitToBudget(out *InvokeOutput, in InvokeInput, budget int64, hasExport bool) []byte {
-	// A walk's body is a merged collection: cutting it would hand back a
-	// broken array whose resume signal points past items the caller never
-	// received, so a walk expresses the budget by refusing the page that
-	// would cross it, which invokeWalk has already done. A result with no
-	// body has nothing to shorten. Neither takes a setter, so the fit
-	// re-encodes but never cuts.
-	var setBody func(string)
-	body := ""
-	if out.WalkStats == nil && out.Body != nil {
-		body, setBody = inlinefit.BodyText(out.Body), func(s string) { out.Body = s }
-	}
-	if setBody != nil && !out.BodyTruncated && inlinefit.NeedsCut(out, int(budget)) {
-		out.BodyTruncated = true
-		out.Hint = contextBudgetHint(budget, out.BodyBytes)
-	}
-	steerToExport(out, in, hasExport)
-	return inlinefit.Fit(out, int(budget), body, setBody)
 }
 
 // walkBudgetHint is the steer on a walk stopped by a model client's

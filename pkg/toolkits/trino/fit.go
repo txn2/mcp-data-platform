@@ -34,7 +34,7 @@ type fittedQuery struct {
 // handed back when this deployment registers it. Called by the platform's
 // result-budget middleware, and only for a result past the budget. A
 // result it cannot read, or one whose header alone is past the budget, is
-// declined and cut by the generic text cut.
+// declined, and reaches the model whole.
 func (t *Toolkit) FitResult(tool string, args json.RawMessage, res *mcp.CallToolResult, budget int) bool {
 	if tool != toolQuery {
 		return false

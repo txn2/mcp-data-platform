@@ -531,10 +531,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url. Every response reports body_bytes, the size " +
 			"of the body read; a result past this client's context budget (tools.result_budget, default 32 KiB, a " +
-			"budget on the rendered tool result) is re-encoded compactly, and one still past it has its body " +
-			"cut to fit, is flagged with body_truncated, and " +
-			"export_arguments carries the api_export call " +
-			"that streams the whole response into an asset. A response's pagination signal is " +
+			"budget on the rendered tool result) is re-encoded compactly. A list body still past it is cut on " +
+			"whole items and flagged with body_truncated; body_items says how many are shown of how many, " +
+			"next_arguments (when the operation declares paging parameters) is the api_invoke_endpoint call " +
+			"that reads the items after them, and export_arguments is the api_export call that streams the " +
+			"whole response into an asset. Any other body is cut to a prefix, flagged the same way and steered to api_export. A response's pagination signal is " +
 			"reported in `pagination` and not followed; pass `paginate` to walk every page in " +
 			"this one call and receive the merged array (api_export takes the same block and " +
 			"streams the walk into an asset). Use list_connections to discover " +
