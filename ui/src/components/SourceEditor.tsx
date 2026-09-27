@@ -4,6 +4,12 @@ import { EditorView } from "@codemirror/view";
 import { IndentIncrease, Loader2, WrapText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { codeMirrorEditExtensions } from "@/lib/codemirror";
+import {
+  lineMarking,
+  markLines,
+  selectedLinesListener,
+  type SelectedLines,
+} from "@/lib/codemirrorLines";
 import { languageForContentType } from "@/components/renderers/registry";
 import {
   formatErrorMessage,
@@ -18,6 +24,11 @@ interface SourceEditorProps {
   contentType: string;
   fileName?: string;
   onChange: (value: string) => void;
+  /** markedLines are lines to mark and scroll to, as the script page's Flow
+   * tab asks for when a card is opened (#1906). */
+  markedLines?: number[];
+  /** onSelectLines reports the lines the reader selects, or null. */
+  onSelectLines?: (lines: SelectedLines | null) => void;
 }
 
 /**
@@ -36,7 +47,14 @@ interface SourceEditorProps {
  * with a reindented one as an ordinary edit: the document is dirty, undo
  * restores it, and nothing is stored until Save.
  */
-export function SourceEditor({ content, contentType, fileName, onChange }: SourceEditorProps) {
+export function SourceEditor({
+  content,
+  contentType,
+  fileName,
+  onChange,
+  markedLines,
+  onSelectLines,
+}: SourceEditorProps) {
   const viewRef = useRef<EditorView | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const parser = formatParserFor(contentType, fileName);
@@ -44,10 +62,26 @@ export function SourceEditor({ content, contentType, fileName, onChange }: Sourc
   const { wrap, toggleWrap, decideWrap } = useOpeningWrap(viewRef, hostRef, content);
   const { status, runFormat, clearStatus } = useFormat(viewRef, parser);
 
+  // The selection callback is read through a ref so a new function from the
+  // parent does not rebuild the editor's extensions.
+  const onSelectRef = useRef(onSelectLines);
+  useEffect(() => {
+    onSelectRef.current = onSelectLines;
+  }, [onSelectLines]);
+
   const extensions = useMemo(() => {
-    const base = codeMirrorEditExtensions(languageForContentType(contentType, fileName));
+    const base = [
+      ...codeMirrorEditExtensions(languageForContentType(contentType, fileName)),
+      lineMarking(),
+      selectedLinesListener((lines) => onSelectRef.current?.(lines)),
+    ];
     return wrap ? [...base, EditorView.lineWrapping] : base;
   }, [contentType, fileName, wrap]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view && markedLines) markLines(view, markedLines);
+  }, [markedLines]);
 
   const handleChange = useCallback(
     (value: string) => {
@@ -100,6 +134,7 @@ export function SourceEditor({ content, contentType, fileName, onChange }: Sourc
           onChange={handleChange}
           onCreateEditor={(view) => {
             viewRef.current = view;
+            if (markedLines) markLines(view, markedLines);
             decideWrap();
           }}
           className="rounded-md border text-sm"

@@ -76,6 +76,7 @@ internal/httpserver -> internal/httpserver/instanceheader
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
 internal/httpserver -> internal/httpserver/scripthttp
+internal/httpserver -> internal/httpserver/scripthttp/flowhttp
 internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/tablehttp
 internal/httpserver -> internal/httpserver/tablesource
@@ -208,6 +209,9 @@ internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/scripthttp/fireshttp -> internal/httpjson
 internal/httpserver/scripthttp/fireshttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp/fireshttp -> pkg/script
+internal/httpserver/scripthttp/flowhttp -> internal/httpjson
+internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow
+internal/httpserver/scripthttp/flowhttp -> pkg/script
 internal/httpserver/scripthttp/granthttp -> internal/httpjson
 internal/httpserver/scripthttp/granthttp -> internal/logsan
 internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant
@@ -557,6 +561,9 @@ internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/textpatch
 internal/platform/scriptexec -> pkg/toolkit
+internal/platform/scriptflow -> internal/platform/scriptrun
+internal/platform/scriptflow -> internal/scriptconst
+internal/platform/scriptflow -> internal/sqltables
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptindex -> pkg/indexjobs
@@ -588,6 +595,7 @@ internal/platform/scriptout/exportrecord -> internal/platform/starlarkconv
 internal/platform/scriptout/exportrecord -> internal/tablexlsx
 internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
+internal/platform/scriptrun -> internal/platform/scriptdialect
 internal/platform/scriptrun -> internal/platform/scriptguard
 internal/platform/scriptrun -> internal/platform/scriptlex
 internal/platform/scriptrun -> internal/platform/scriptlive
@@ -597,6 +605,7 @@ internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> internal/portal/contentrefs
+internal/platform/scriptrun -> internal/scriptconst
 internal/platform/scriptrun -> internal/scriptdate
 internal/platform/scriptrun -> internal/scriptdest
 internal/platform/scriptrun -> internal/scriptreserved

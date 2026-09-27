@@ -57,7 +57,7 @@ platform.export(name="b", rows=[], destination="acme-drop", key="2026/sales.csv"
 // be incomplete and a reviewer must be told rather than shown a false one.
 func TestValidate_DynamicDestinationIsReported(t *testing.T) {
 	report := Validate(`
-where = "acme-" + "drop"
+where = "acme-" + run.params["region"]
 platform.export(name="a", rows=[], destination=where)
 `)
 	assert.True(t, report.DynamicDestinations)
@@ -252,7 +252,7 @@ platform.call("show_scripts")
 // a list short — and a list a reader trusts must say when it is.
 func TestValidate_DynamicToolIsReported(t *testing.T) {
 	report := Validate(`
-tool = "trino_" + "execute"
+tool = "trino_" + run.params["verb"]
 platform.call(tool, {"connection": "warehouse"})
 `)
 	assert.True(t, report.OK, report.Findings)
@@ -275,7 +275,7 @@ platform.call("trino_execute", args)
 
 	// A computed connection VALUE inside a readable dict is the same gap the
 	// query binding reports for a computed connection= keyword.
-	report = Validate(`platform.call("trino_execute", {"connection": "prod" + "-west"})`)
+	report = Validate(`platform.call("trino_execute", {"connection": "prod-" + run.params["r"]})`)
 	assert.True(t, report.DynamicConnections)
 	assert.Empty(t, report.Connections)
 	assert.False(t, report.DynamicTools, "the tool name was a literal")
@@ -389,7 +389,7 @@ func TestValidate_NoCallMeansAnEmptyToolList(t *testing.T) {
 // to a reviewer.
 func TestValidate_DynamicConnectionIsReported(t *testing.T) {
 	report := Validate(`
-conn = "prod" + "-west"
+conn = "prod-" + run.params["region"]
 platform.query(connection=conn, sql="SELECT 1")
 `)
 	require.True(t, report.OK)
@@ -547,4 +547,76 @@ func TestValidate_ReservedWordStatementsKeepTheirCorrection(t *testing.T) {
 	}
 	f := findingFor(t, Validate("class Foo:\n    pass\n"), "got class")
 	assert.Contains(t, f.Hint, "no classes")
+}
+
+// A connection, tool or destination named through a module constant is named
+// by the source as plainly as a literal (#1906), and the lists report the value
+// with nothing marked dynamic.
+func TestValidate_ModuleConstantsAreReadByValue(t *testing.T) {
+	report := Validate(`
+WAREHOUSE = "warehouse"
+REGION = "prod" + "-west"
+TOOL = "api_invoke_endpoint"
+DROP = "{}-drop".format("acme")
+platform.query("SELECT 1", connection=WAREHOUSE)
+platform.query("SELECT 2", connection=REGION)
+platform.call(TOOL, {"connection": "crm", "method": "GET", "path": "/x"})
+platform.export("out", [], format="csv", destination=DROP, key="k.csv")
+`)
+	require.True(t, report.OK, "%+v", report.Findings)
+	assert.Equal(t, []string{"crm", "prod-west", "warehouse"}, report.Connections)
+	assert.False(t, report.DynamicConnections)
+	assert.Equal(t, []string{"api_invoke_endpoint"}, report.Tools)
+	assert.False(t, report.DynamicTools)
+	assert.Equal(t, []string{"acme-drop"}, report.Destinations)
+	assert.False(t, report.DynamicDestinations)
+}
+
+// A name is a constant only where the resolver binds it at module scope and the
+// module binds it once: a parameter sharing the name, a reassigned name and a
+// name bound under a top-level if are all computed.
+func TestValidate_NotEveryNamedValueIsAConstant(t *testing.T) {
+	cases := map[string]string{
+		"parameter shadows the constant": `
+WAREHOUSE = "warehouse"
+def pull(WAREHOUSE):
+    platform.query("SELECT 1", connection=WAREHOUSE)
+pull(run.params["c"])
+`,
+		"reassigned": `
+CONN = "a"
+CONN = "b"
+platform.query("SELECT 1", connection=CONN)
+`,
+		"bound under an if": `
+if run.params.get("x"):
+    CONN = "a"
+platform.query("SELECT 1", connection=CONN)
+`,
+		"built from a parameter": `
+CONN = "db-" + run.params["env"]
+platform.query("SELECT 1", connection=CONN)
+`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			report := Validate(src)
+			assert.Empty(t, report.Connections)
+			assert.True(t, report.DynamicConnections)
+		})
+	}
+}
+
+// Parse hands a reader the resolved tree Validate reads, comments kept, and
+// refuses what Validate refuses.
+func TestParse(t *testing.T) {
+	file, err := Parse("# rows\nrows = platform.query(\"SELECT 1\")\n")
+	require.NoError(t, err)
+	require.Len(t, file.Stmts, 1)
+	require.NotNil(t, file.Stmts[0].Comments())
+
+	_, err = Parse("import os\n")
+	assert.Error(t, err)
+	_, err = Parse("undefined_name()\n")
+	assert.Error(t, err)
 }

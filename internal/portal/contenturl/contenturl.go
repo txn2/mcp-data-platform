@@ -101,6 +101,19 @@ func ClampTTL(ttl time.Duration) time.Duration {
 	return min(ttl, MaxTTL)
 }
 
+// Minter signs a default-lifetime link to one asset version under base, the
+// portal's public address. It is nil where there is no key to sign with, which
+// is what a surface handing out links reads as "hand out none".
+func Minter(key []byte, base string) func(assetID string, version int) (string, time.Time) {
+	if key == nil {
+		return nil
+	}
+	return func(assetID string, version int) (string, time.Time) {
+		expires := time.Now().Add(DefaultTTL).Truncate(time.Second)
+		return base + Path + Sign(key, Target{AssetID: assetID, Version: version, Expires: expires}), expires
+	}
+}
+
 func mac(key []byte, payload string) []byte {
 	m := hmac.New(sha256.New, key)
 	_, _ = m.Write([]byte(payload)) // a hash.Hash never returns an error

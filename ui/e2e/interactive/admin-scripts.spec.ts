@@ -103,8 +103,10 @@ test.describe("Admin script pages", () => {
     // There is one script page rather than two: everything an owner has is
     // here for every script — run it, edit it, check the edit, re-time it,
     // read its history.
+    // The code opens on its Flow tab (#1906); the owner's controls are on Source.
+    await expect(page.getByRole("tab", { name: "Flow" })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "Source" }).click();
     await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Source" })).toBeVisible();
     await expect(page.getByText("Version history")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Run history" })).toBeVisible();
     // Including removing it (#1575), which is the owner's control and an

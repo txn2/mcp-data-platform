@@ -177,7 +177,7 @@ platform.export("b", [], "csv", destination = "acme-drop", key = "b.csv")
 // a destination the source computes is not readable from the source, so there
 // is nothing to check. DynamicDestinations is what reports it instead.
 func TestCheckDestinations_IgnoresAComputedDestination(t *testing.T) {
-	report := Validate(`where = "dr" + "op"
+	report := Validate(`where = "dr" + run.params["x"]
 platform.export("x", [], "csv", destination = where, key = "x.csv")
 `)
 	require.True(t, report.DynamicDestinations)

@@ -8,6 +8,7 @@ import {
   openScriptRunsTab,
   openScriptSchedulesTab,
   openScriptSource,
+  openScriptFlow,
   openScriptSchedule,
   openScriptState,
   openScriptVersionHistory,
@@ -74,6 +75,15 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptState,
+  },
+  {
+    // The code drawn as the work it does (#1906): the Flow tab the page opens
+    // on, derived from the saved version's source, with one card selected and
+    // read in the panel beside the diagram.
+    slug: "script-flow",
+    path: "/portal/automations/script-005",
+    category: "user",
+    beforeCapture: openScriptFlow,
   },
   {
     // The code, and everything done to it, in one place (#1406): the portal's

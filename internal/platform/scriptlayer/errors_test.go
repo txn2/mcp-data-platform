@@ -152,7 +152,7 @@ func TestValidate_InlineSourceNeedsNoStoredScript(t *testing.T) {
 func TestValidate_ReportsADynamicConnection(t *testing.T) {
 	h, _ := newHandle()
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdValidate, Source: "c = \"a\" + \"b\"\nplatform.query(connection=c, sql=\"SELECT 1\")",
+		Command: cmdValidate, Source: "c = \"a\" + run.params[\"b\"]\nplatform.query(connection=c, sql=\"SELECT 1\")",
 	}))
 	assert.Equal(t, true, fields["dynamic_connections"])
 	assert.Contains(t, fields["connections_note"], "incomplete")
@@ -168,7 +168,7 @@ func TestValidate_ReportsRefreshTargets(t *testing.T) {
 	assert.Equal(t, false, fields["dynamic_refresh_targets"])
 
 	fields = resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdValidate, Source: "n = \"a\" + \"b\"\nplatform.publish_data(n, {\"a\": 1})",
+		Command: cmdValidate, Source: "n = \"a\" + run.params[\"b\"]\nplatform.publish_data(n, {\"a\": 1})",
 	}))
 	assert.Equal(t, true, fields["dynamic_refresh_targets"])
 	assert.Contains(t, fields["refresh_targets_note"], "incomplete")

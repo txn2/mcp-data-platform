@@ -170,9 +170,52 @@ search matches the script on. A description long enough to be a document in its 
 is still saved, with a suggestion that the background might belong in a knowledge page you
 link to.
 
+## The flow of the work
+
+The code is one card with two tabs, **Flow** and **Source**, and Flow is the one that opens,
+for the script's owner and for everyone else who reads it (#1906). It draws the script as
+the work it does: where the data comes from, what happens to it, and where it goes, the way
+a pipeline tool draws a job.
+
+![Script flow](../images/screenshots/light/user-script-flow-light.webp#only-light)![Script flow](../images/screenshots/dark/user-script-flow-dark.webp#only-dark)
+
+Nobody draws it. The platform reads the diagram off the saved version's source, so a new
+version has a new diagram and the diagram cannot disagree with the code. An edit you have
+not saved yet is drawn once you save it.
+
+- **Left to right** is the order data moves.
+- **Each card is one thing the script does** on the platform: a query, an API call, a
+  write, an export, a table registered over an export, a notification, the state it saves.
+  The colored bar says whether it is an input, a read, a write or an output.
+- A card's first line is the action and where it goes; the next is the purpose the author
+  wrote on the call; grey lines are the tables, paths and files it touches.
+- **An arrow** means the result of one card is used by the next. Hovering it names the
+  functions that reshaped the data on the way. An arrow a longer path already implies is
+  left out.
+- **A grey box** is a function of the script; the cards inside run as part of it. A helper
+  that only makes one call is not a box: its name is a chip on the card, beside the loop
+  the card repeats in.
+- **A dashed card** names something the script only computes when it runs, written as
+  `{the code}`. The diagram never guesses a name.
+- **run.state** is what the previous run saved, and the dashed arrow back to it is this run
+  saving for the next.
+
+Select a card to read it in full beside the diagram: what it reaches, what feeds it and
+what it feeds, and the lines it came from. Double-click it, or press **Show in Source**, to
+open those lines on the Source tab. It works the other way too: lines you select on the
+Source tab light up the cards they produce when you come back to Flow. The parameters a run
+takes are listed beside the diagram rather than drawn as wires; selecting one lights up
+exactly the steps its value reaches.
+
+A version that does not parse (one saved before a rule of the language changed) shows what
+is wrong with it in place of a diagram. The diagram is served from
+`GET /api/v1/portal/scripts/{id}/versions/{version}/graph`, readable by everyone who can
+read the source, and `GET /api/v1/admin/scripts/{id}/versions/{version}/graph` for an
+administrator. It is not part of any tool response: an agent reads the code.
+
 ## The code, and running it
 
-On a script you own, the source is editable in place, with Starlark highlighted as the
+On the Source tab of a script you own, the source is editable in place, with Starlark highlighted as the
 Python dialect it is. Saving makes the edit the version that runs: `run_script` executes
 it, any schedule fires it, and it runs under the access you hold when you save.
 
@@ -181,7 +224,7 @@ it, any schedule fires it, and it runs under the access you hold when you save.
 Source that does not parse is refused when you save it, naming what to fix, rather than
 failing at the next run with nobody watching.
 
-**Run** and **Dry run** sit side by side above the editor, because they are the same
+**Run** and **Dry run** sit side by side above the editor, on the Source tab, because they are the same
 question asked of two texts: Run executes the saved version, a dry run executes what is
 on screen. One parameter form below the editor supplies the values for both.
 
@@ -223,7 +266,7 @@ nobody has dry-run says so.
 
 ## Version history
 
-Folded into the Source section is every version of the script, each with its author and,
+Folded into the Source tab is every version of the script, each with its author and,
 on a script you own, the roles they held at the save, which are the roles a run of that
 version presents. It
 opens on a reveal rather than standing as a section of its own: the editor above it

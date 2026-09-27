@@ -8369,6 +8369,62 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/scripts/{id}/versions/{version}/graph": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script version's flow graph",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/flowhttp.graphResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/sessions": {
             "get": {
                 "security": [
@@ -20683,6 +20739,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/scripts/{id}/versions/{version}/graph": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. Readable by everyone signed in, as the source is.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script version's flow graph",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/flowhttp.graphResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/search": {
             "get": {
                 "security": [
@@ -28222,6 +28340,62 @@ const docTemplate = `{
                 }
             }
         },
+        "flowhttp.graphResponse": {
+            "type": "object",
+            "properties": {
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Edge"
+                    }
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptrun.Finding"
+                    }
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Group"
+                    }
+                },
+                "lines": {
+                    "description": "Lines is the source's line count, for the reader's scale.",
+                    "type": "integer",
+                    "example": 136
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Node"
+                    }
+                },
+                "ok": {
+                    "description": "OK is false when the source does not parse or resolve. Findings then\nsays why, and the diagram is empty.",
+                    "type": "boolean"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Param"
+                    }
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "script_a1b2c3"
+                },
+                "truncated": {
+                    "description": "Truncated is true when the script expands into more steps than one\ndiagram draws; the graph holds the first ones.",
+                    "type": "boolean"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
         "gateway.ConnectionStatus": {
             "type": "object",
             "properties": {
@@ -33203,6 +33377,148 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "scriptflow.Edge": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "data"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "via": {
+                    "description": "Via names the functions that reshaped the value on the way.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "scriptflow.Group": {
+            "type": "object",
+            "properties": {
+                "called_from": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "caption": {
+                    "type": "string"
+                },
+                "def_line": {
+                    "type": "integer",
+                    "example": 12
+                },
+                "id": {
+                    "type": "string",
+                    "example": "/load_orders"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "load_orders(day)"
+                },
+                "parent": {
+                    "description": "Parent is the id of the enclosing box, empty at the top level.",
+                    "type": "string"
+                }
+            }
+        },
+        "scriptflow.Node": {
+            "type": "object",
+            "properties": {
+                "computed": {
+                    "description": "Computed is true when what the step reaches is only known at run time;\nthe computed part is written as {its source} in the text above.",
+                    "type": "boolean"
+                },
+                "detail": {
+                    "description": "Detail is the tables, paths or keys the step touches.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "end_line": {
+                    "type": "integer",
+                    "example": 44
+                },
+                "group": {
+                    "description": "Group is the id of the function box the step is drawn in, empty at the\ntop level.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "op:3"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "query"
+                },
+                "line": {
+                    "description": "Line and EndLine are the platform call's lines. Site is the line the\nfolded wrapper named in Wrapper is called from.",
+                    "type": "integer",
+                    "example": 42
+                },
+                "loops": {
+                    "description": "Loops are the for statements the step repeats in, outermost first.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "purpose": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string",
+                    "example": "reads"
+                },
+                "site": {
+                    "type": "integer"
+                },
+                "subtitle": {
+                    "type": "string"
+                },
+                "title": {
+                    "description": "Title is the action and where it goes; Subtitle the operation, name or\npath; Purpose the purpose sentence the author wrote on the call.",
+                    "type": "string",
+                    "example": "Query warehouse"
+                },
+                "wrapper": {
+                    "type": "string"
+                }
+            }
+        },
+        "scriptflow.Param": {
+            "type": "object",
+            "properties": {
+                "decides": {
+                    "description": "Decides is true when the value is read by a condition, so it decides\nwhich steps run.",
+                    "type": "boolean"
+                },
+                "line": {
+                    "description": "Line is where the source first reads it.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "name": {
+                    "type": "string",
+                    "example": "day"
+                },
+                "reaches": {
+                    "description": "Reaches lists the steps whose arguments the parameter's value reaches.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

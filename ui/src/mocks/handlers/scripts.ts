@@ -4,6 +4,7 @@ import { producedByScript, type MockProducedItem } from "../data/producers";
 import type { ScriptVersion } from "@/api/admin/types";
 import type { ScriptGrant, ScriptSchedule } from "@/api/portal/hooks/scripts";
 import { buildMockScheduleTimeline } from "../data/scheduleTimeline";
+import { mockScriptFlows } from "../data/scriptFlows";
 import {
   MOCK_SCRIPTS_NOW,
   mockBindableConnections,
@@ -770,6 +771,20 @@ export const scriptHandlers = [
     const list = versions[String(params.id)] ?? [];
     return HttpResponse.json({ data: list, total: list.length });
   }),
+
+  // A version drawn as a diagram (#1906). The fixtures are the server's own
+  // answers for the mocked sources; a version the mocks do not carry (one an
+  // edit saved during a session) is not found, as it would be for a version
+  // that does not exist.
+  ...[PORTAL_BASE, ADMIN_BASE].map((base) =>
+    http.get(`${base}/scripts/:id/versions/:version/graph`, ({ params }) => {
+      const graph = mockScriptFlows[`${params.id}:${params.version}`];
+      if (!graph) {
+        return HttpResponse.json({ detail: "version not found" }, { status: 404 });
+      }
+      return HttpResponse.json(graph);
+    }),
+  ),
 
   // The owner's cadence controls (#1307). They mutate the fixture in place, so
   // saving a cadence and then pausing it behaves as it does against the server

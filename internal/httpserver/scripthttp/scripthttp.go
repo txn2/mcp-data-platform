@@ -285,7 +285,7 @@ type referenced struct {
 // @Security     BearerAuth
 // @Router       /admin/scripts/{id}/versions/{version} [get]
 func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
-	sc, v, ok := h.loadScriptVersion(w, r)
+	sc, v, ok := h.LoadScriptVersion(w, r)
 	if !ok {
 		return
 	}
@@ -342,10 +342,10 @@ func (h *Handler) loadScript(w http.ResponseWriter, r *http.Request) (*script.Sc
 	return sc, true
 }
 
-// loadScriptVersion resolves both the script and the version named by the path.
+// LoadScriptVersion resolves both the script and the version named by the path.
 // The version alone does not answer what the script is executing today, which
 // is what a review is read against.
-func (h *Handler) loadScriptVersion(w http.ResponseWriter, r *http.Request) (*script.Script, *script.Version, bool) {
+func (h *Handler) LoadScriptVersion(w http.ResponseWriter, r *http.Request) (*script.Script, *script.Version, bool) {
 	sc, ok := h.loadScript(w, r)
 	if !ok {
 		return nil, nil, false

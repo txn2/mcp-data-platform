@@ -49,9 +49,9 @@ import (
 	"go.starlark.net/lib/json"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
@@ -485,33 +485,6 @@ type WriteRecord struct {
 	Call string `json:"call"`
 }
 
-// fileOptions is the dialect every managed script is parsed and resolved under.
-//
-// while and recursion are OFF. Both are unbounded control flow whose cost
-// cannot be read off the source, and a script that needs either is doing
-// computation that belongs in SQL. This is the deliberate restrictiveness of
-// the feature, not an oversight, and it is the only pair of switches here that
-// is about safety.
-//
-// TopLevelControl and GlobalReassign are ON, and both defaults are inverted on
-// purpose. Starlark's defaults come from Bazel, where a .bzl file is a
-// DECLARATION loaded by other files: top-level control flow and rebinding a
-// top-level name would make what a file declares depend on evaluation order. A
-// managed script is the opposite — a procedure executed once, top to bottom, by
-// one runner, loaded by nobody. Under the Bazel defaults an author could not
-// write `total = 0` and then accumulate into it inside a loop without wrapping
-// the whole script in a function, which is friction that buys no safety and no
-// determinism: neither switch has anything to do with either. `load` stays
-// file-local (and there is nothing to load).
-var fileOptions = &syntax.FileOptions{
-	Set:               true,
-	While:             false,
-	TopLevelControl:   true,
-	GlobalReassign:    true,
-	LoadBindsGlobally: false,
-	Recursion:         false,
-}
-
 // Run executes a script and returns its result. The error is non-nil when the
 // script itself failed — a Starlark error, a refused host call, or a limit —
 // and the returned Result still carries whatever log and metrics the run
@@ -555,7 +528,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	go watchCancel(runCtx, thread, done)
 
 	started := time.Now()
-	globals, execErr := starlark.ExecFileOptions(fileOptions, thread, opts.Name, opts.Source, predeclared(host))
+	globals, execErr := starlark.ExecFileOptions(scriptdialect.Options, thread, opts.Name, opts.Source, predeclared(host))
 	if settled := host.mem.Settle(globals); execErr == nil && settled != nil {
 		execErr = settled
 	}
