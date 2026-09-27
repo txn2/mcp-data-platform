@@ -374,5 +374,5 @@ func (r *runner) runURL(scriptID, runID string) string {
 	if r.portalURL == "" {
 		return ""
 	}
-	return strings.TrimRight(r.portalURL, "/") + "/portal/scripts/" + scriptID + "/runs/" + runID
+	return strings.TrimRight(r.portalURL, "/") + "/portal/automations/" + scriptID + "/runs/" + runID
 }

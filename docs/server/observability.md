@@ -173,7 +173,7 @@ sum by (script) (increase(script_missed_fires_total[24h]))
 histogram_quantile(0.95, sum by (le) (rate(script_run_duration_seconds_bucket[24h])))
 ```
 
-The portal's admin Scripts page reads these on its Runs tab, beside the run
+The portal's admin Automations page reads these on its Runs tab, beside the run
 rows themselves; see [Admin portal](../portal/index.md).
 
 **Enrichment overhead**: `mcp_enrichment_bytes_total` accumulates the byte

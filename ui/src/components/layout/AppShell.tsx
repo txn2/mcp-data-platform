@@ -78,7 +78,7 @@ import { SectionIntro } from "@/components/patterns/SectionIntro";
 import { AdminPages } from "./AdminPages";
 import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
 import {
-  canonicalRoute,
+  redirectFor,
   isAdminRoute,
   isCollapsingRoute,
   isInSection,
@@ -100,7 +100,7 @@ const pageTitles: Record<string, string> = {
   "/feedback": "Inbox",
   "/knowledge": "Knowledge",
   "/prompts": "Prompts",
-  "/scripts": "Scripts",
+  "/automations": "Automations",
   "/settings": "Settings",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
@@ -116,7 +116,7 @@ const pageTitles: Record<string, string> = {
   "/admin/personas": "Personas",
   "/admin/prompts": "Prompts",
   "/admin/resources": "Resources",
-  "/admin/scripts": "Scripts",
+  "/admin/automations": "Automations",
   "/admin/sessions": "Sessions",
   "/admin/calls": "Calls",
   "/admin/keys": "Keys",
@@ -131,8 +131,8 @@ const pageTitles: Record<string, string> = {
 // every entry is one prefix and one word, and the list grows with each section
 // that gains a detail view.
 const detailTitles: readonly { prefix: string; title: string }[] = [
-  { prefix: "/scripts/", title: "Script" },
-  { prefix: "/admin/scripts/", title: "Script" },
+  { prefix: "/automations/", title: "Script" },
+  { prefix: "/admin/automations/", title: "Script" },
   { prefix: "/admin/collections/", title: "Collection" },
   { prefix: "/admin/sessions/", title: "Session" },
   { prefix: "/activity/sessions/", title: "Session" },
@@ -385,7 +385,7 @@ export function AppShell() {
   // #661), or that carries a trailing slash, is sent to the one the reader
   // meant. That table lives in lib/portalRoutes so the redirects and the
   // recognition below cannot disagree about which paths are real (#1359).
-  const redirectTo = canonicalRoute(route);
+  const redirectTo = redirectFor(currentPath);
   useEffect(() => {
     if (redirectTo) navigate(redirectTo, { replace: true });
   }, [redirectTo, navigate]);
@@ -543,7 +543,7 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!adminRoute && isInSection(route, "/scripts") && (
+          {!adminRoute && isInSection(route, "/automations") && (
             <PortalScriptRoutes route={route} onNavigate={navigate} />
           )}
           {collectionAssetMatch && (

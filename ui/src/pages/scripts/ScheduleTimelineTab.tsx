@@ -52,7 +52,7 @@ import {
 interface Props {
   basePath: string;
   onNavigate: (path: string) => void;
-  /** onShowScripts moves the page to its Scripts tab, which is where a
+  /** onShowScripts moves the page to its Automations tab, which is where a
    * schedule is set. */
   onShowScripts: () => void;
 }
@@ -82,12 +82,12 @@ export function ScheduleTimelineTab({
         icon={CalendarClock}
         action={
           <Button variant="outline" size="sm" onClick={onShowScripts}>
-            Go to Scripts
+            Go to Automations
           </Button>
         }
       >
-        No script runs on a schedule yet. A schedule is set on a script's own
-        page, and every scheduled script is drawn here at the times it fires.
+        No automation runs on a schedule yet. A schedule is set on an automation's
+        own page, and every scheduled automation is drawn here at the times it fires.
       </EmptyState>
     );
   }

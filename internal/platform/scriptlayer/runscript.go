@@ -350,7 +350,8 @@ func orEmptyOutputs(outputs []script.RunOutput) []script.RunOutput {
 }
 
 // runScriptDescription is the tool description an agent reads.
-const runScriptDescription = `Execute a managed script's latest saved version and return what it produced.
+const runScriptDescription = `Run an automation on request: execute a managed script's latest saved version
+and return what it produced.
 
 The platform runs the script itself, as the script's own principal, presenting
 the roles its author held when that version was saved — not as you, and not with your

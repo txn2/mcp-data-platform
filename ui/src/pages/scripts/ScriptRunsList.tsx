@@ -70,7 +70,7 @@ export function ScriptRunsList({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Script</TableHead>
+              <TableHead>Automation</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Trigger</TableHead>
               <TableHead>When</TableHead>
@@ -144,7 +144,7 @@ function ListingState({
     <EmptyState icon={Activity}>
       {audience === "admin"
         ? "Nothing has run yet. A run happens when a schedule fires or somebody asks for one, and a run always executes a saved version."
-        : "None of your scripts has run yet. A run happens when a schedule fires or when somebody asks for one, and a run always executes a saved version."}
+        : "None of your automations has run yet. A run happens when a schedule fires or when somebody asks for one, and a run always executes a saved version."}
     </EmptyState>
   );
 }
@@ -164,9 +164,9 @@ function CapNotice({
   return (
     <p className="pb-2 text-xs text-muted-foreground">
       Showing the {limit} most recent runs across{" "}
-      {audience === "admin" ? "every script" : "your scripts"}. Older ones are kept until
-      this deployment's retention window ends, and each script's own page carries its full
-      history.
+      {audience === "admin" ? "every automation" : "your automations"}. Older ones are kept
+      until this deployment's retention window ends, and each automation's own page
+      carries its full history.
     </p>
   );
 }

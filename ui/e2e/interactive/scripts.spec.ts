@@ -10,9 +10,9 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 async function gotoScripts(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto("/portal/scripts");
+  await page.goto("/portal/automations");
   await expect(
-    page.getByRole("heading", { name: "Scripts", level: 1 }),
+    page.getByRole("heading", { name: "Automations", level: 1 }),
   ).toBeVisible();
 }
 
@@ -42,14 +42,14 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("Paused")).toBeVisible();
   });
 
-  test("says plainly when there are no scripts at all", async ({ page }) => {
+  test("says plainly when there are no automations at all", async ({ page }) => {
     await authenticate(page);
     // The mock server answers this surface as empty when the page URL asks it
     // to; the app itself ignores the parameter. Intercepting the request from
     // the test cannot work here, because the mock service worker answers it
     // before it ever reaches the network.
-    await page.goto("/portal/scripts?empty=scripts");
-    await expect(page.getByText("You have no scripts yet")).toBeVisible();
+    await page.goto("/portal/automations?empty=scripts");
+    await expect(page.getByText("You have no automations yet")).toBeVisible();
   });
 
   test("opens one script's details, its source, and its run history", async ({
@@ -337,11 +337,10 @@ test.describe("Portal script pages", () => {
 
     await expect(main.getByTestId("script-health-total")).toBeVisible();
     await expect(main.getByText(/\d+ scheduled/)).toBeVisible();
-    await expect(page.getByText(/Automation/i)).toHaveCount(0);
 
     // The three bordered tiles are gone, and with them the only other controls
     // that used to count this listing.
-    await expect(main.getByRole("button", { name: /^Scripts \d/ })).toHaveCount(0);
+    await expect(main.getByRole("button", { name: /^(Scripts|Automations) \d/ })).toHaveCount(0);
     await expect(main.getByRole("button", { name: /^Failing/ })).toHaveCount(0);
 
     // The failed count is pressable, states that it is pressed, and leaves
@@ -363,11 +362,11 @@ test.describe("Portal script pages", () => {
   test("narrows the listing by what the reader typed", async ({ page }) => {
     await gotoScripts(page);
 
-    await page.getByLabel("Search scripts").fill("margin");
+    await page.getByLabel("Search automations").fill("margin");
     await expect(page.getByText("My Margin Check")).toBeVisible();
     await expect(page.getByText("Daily Sales Report")).toHaveCount(0);
 
-    await page.getByLabel("Search scripts").fill("");
+    await page.getByLabel("Search automations").fill("");
     await expect(page.getByText("Daily Sales Report")).toBeVisible();
   });
 
@@ -402,7 +401,7 @@ test.describe("Portal script pages", () => {
       .filter({ hasText: /Daily Sales Report/ })
       .first()
       .click();
-    await expect(page).toHaveURL(/\/scripts\/script-001\/runs\//);
+    await expect(page).toHaveURL(/\/automations\/script-001\/runs\//);
     await expect(page.getByText(/wrote asset version 42/)).toBeVisible();
   });
 
@@ -561,9 +560,9 @@ test.describe("Portal script pages", () => {
       page.getByRole("heading", { name: "Warehouse Freshness Check" }),
     ).toBeVisible();
 
-    await page.locator("main").getByRole("button", { name: "Scripts" }).click();
+    await page.locator("main").getByRole("button", { name: "Automations" }).click();
     await expect(
-      page.getByRole("heading", { name: "Scripts", level: 1 }),
+      page.getByRole("heading", { name: "Automations", level: 1 }),
     ).toBeVisible();
     // Back on the listing, which opens on the caller's own scripts (#1795).
     await expect(page.getByText("My Margin Check")).toBeVisible();

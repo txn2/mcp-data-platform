@@ -106,10 +106,10 @@ var capabilities = []capability{
 			"rather than enumerate."
 	}},
 	{tool: toolManageScript, line: func(map[string]bool) string {
-		return "Settled, repeating work becomes a script. Keep using the query tools while you " +
-			"are still exploring; once the logic is worked out and the work will repeat, write " +
-			"it with `manage_script` (command `help` first) so it is re-run rather than " +
-			"re-derived through a conversation."
+		return "Automations are scripts. Explore with the query tools; once the logic is " +
+			"settled and will repeat, or the user asks for an automation or scheduled work, " +
+			"build it with `manage_script` (command `help` first), and `schedule_set` when it " +
+			"should repeat, so it is re-run rather than re-derived."
 	}},
 	{tool: toolMemoryCapture, line: func(map[string]bool) string {
 		return "Capture what you learn, with the call that proves it. `memory_capture` records a " +

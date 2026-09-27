@@ -139,7 +139,7 @@ test.describe("The viewer fits a phone screen", () => {
   });
 
   test("a managed script draws no side scroll", async ({ page }) => {
-    await openAtPhoneWidth(page, "/portal/scripts/script-001");
+    await openAtPhoneWidth(page, "/portal/automations/script-001");
     await expectNoSideScroll(page);
     await expectActionsOnScreen(page);
   });

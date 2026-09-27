@@ -50,7 +50,7 @@ Recording is **best effort and never fails the write**, on the same reasoning th
 | --- | --- |
 | An asset's **Written by** panel ([Assets](../portal/assets.md)) | What has written this report, beside the provenance panel that answers what its content was built from |
 | A resource's **Written by** panel ([Resources](../portal/resources.md)) | What has written this file |
-| A script's **Files written** section ([Scripts](../portal/scripts.md)) | Every asset and resource this script has created or modified, across every run |
+| A script's **Files written** section ([Automations](../portal/scripts.md)) | Every asset and resource this script has created or modified, across every run |
 
 The REST routes behind them are `GET /api/v1/portal/assets/{id}/producers`, `GET /api/v1/portal/resources/{id}/producers`, and `GET /api/v1/portal/scripts/{id}/produced`. The first two require the same access the file's own page requires; the third is the script's owner and administrators, which is the rule every other script route applies.
 

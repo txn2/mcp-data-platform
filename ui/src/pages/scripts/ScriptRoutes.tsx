@@ -12,7 +12,7 @@ import { sectionOf } from "./producedPaths";
 // cross-script Runs listing links to (#1405). A run has no page of its own —
 // it is read in the history on its script's page — so this address opens that
 // page with the run it named already open.
-const RUN_ROUTE = /^\/scripts\/([^/]+)\/runs\/([^/]+)$/;
+const RUN_ROUTE = /^\/automations\/([^/]+)\/runs\/([^/]+)$/;
 
 export function PortalScriptRoutes({
   route,
@@ -21,7 +21,7 @@ export function PortalScriptRoutes({
   route: string;
   onNavigate: (path: string) => void;
 }) {
-  if (route === "/scripts") return <MyScriptsPage onNavigate={onNavigate} />;
+  if (route === "/automations") return <MyScriptsPage onNavigate={onNavigate} />;
 
   const run = route.match(RUN_ROUTE);
   if (run) {
@@ -30,19 +30,19 @@ export function PortalScriptRoutes({
         scriptId={run[1]!}
         openRunId={run[2]!}
         onNavigate={onNavigate}
-        onBack={() => onNavigate("/scripts")}
+        onBack={() => onNavigate("/automations")}
         filePath={portalFilePath}
       />
     );
   }
 
-  const detail = route.match(/^\/scripts\/([^/]+)$/);
+  const detail = route.match(/^\/automations\/([^/]+)$/);
   if (!detail) return null;
   return (
     <ScriptDetailPage
       scriptId={detail[1]!}
       onNavigate={onNavigate}
-      onBack={() => onNavigate("/scripts")}
+      onBack={() => onNavigate("/automations")}
       filePath={portalFilePath}
     />
   );

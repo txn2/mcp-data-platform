@@ -69,23 +69,23 @@ afterEach(cleanup);
 describe("MyScriptsPage", () => {
   // #1891: a third tab, between the two that were there, and the page still
   // opens on the listing.
-  it("reads Scripts, Schedules, Runs, and opens on Scripts", () => {
+  it("reads Automations, Schedules, Runs, and opens on Automations", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
     // The page's own strip is the first; the listing has a scope switch below it.
     const strip = screen.getAllByRole("tablist")[0]!;
     expect(within(strip).getAllByRole("tab").map((t) => t.textContent)).toEqual([
-      "Scripts",
+      "Automations",
       "Schedules",
       "Runs",
     ]);
-    expect(screen.getByRole("tab", { name: "Scripts" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("sends a reader with nothing scheduled from Schedules back to Scripts", () => {
+  it("sends a reader with nothing scheduled from Schedules back to Automations", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Schedules" }));
-    fireEvent.click(screen.getByRole("button", { name: "Go to Scripts" }));
-    expect(screen.getByRole("tab", { name: "Scripts" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Go to Automations" }));
+    expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
   });
   it("opens on the scripts a person owns", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
@@ -101,6 +101,6 @@ describe("MyScriptsPage", () => {
 
     expect(screen.getByText("trino: table not found: sales.daily")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001/runs/run-042");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-001/runs/run-042");
   });
 });

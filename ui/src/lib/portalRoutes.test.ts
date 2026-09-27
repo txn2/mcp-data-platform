@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { canonicalRoute, isAdminRoute, isKnownRoute } from "./portalRoutes";
+import { canonicalRoute, isAdminRoute, isKnownRoute, redirectFor } from "./portalRoutes";
 
 describe("isKnownRoute", () => {
   it("recognizes a section index and its detail alike", () => {
-    expect(isKnownRoute("/scripts")).toBe(true);
-    expect(isKnownRoute("/scripts/script-001")).toBe(true);
+    expect(isKnownRoute("/automations")).toBe(true);
+    expect(isKnownRoute("/automations/script-001")).toBe(true);
     expect(isKnownRoute("/admin/calls/call-1")).toBe(true);
     expect(isKnownRoute("/collections/c-1/assets/a-1")).toBe(true);
   });
@@ -21,14 +21,14 @@ describe("isKnownRoute", () => {
   // A section index with a trailing slash is not the detail of a record whose
   // id is the empty string, and must not be treated as one.
   it("does not read a trailing slash as an identifier", () => {
-    expect(isKnownRoute("/scripts/")).toBe(false);
+    expect(isKnownRoute("/automations/")).toBe(false);
     expect(isKnownRoute("/assets/")).toBe(false);
   });
 
   it("does not let a detail pattern swallow a deeper path", () => {
     expect(isKnownRoute("/collections/c-1/nonesuch")).toBe(false);
-    expect(isKnownRoute("/scripts/script-001/nonesuch")).toBe(false);
-    expect(isKnownRoute("/admin/scripts/script-001/nonesuch")).toBe(false);
+    expect(isKnownRoute("/automations/script-001/nonesuch")).toBe(false);
+    expect(isKnownRoute("/admin/automations/script-001/nonesuch")).toBe(false);
   });
 
   // One managed resource (#1470), in both sections that list resources. A
@@ -44,9 +44,9 @@ describe("isKnownRoute", () => {
   // One run of one script (#1405), which is the address the cross-script Runs
   // listing links to.
   it("recognizes a run under its script", () => {
-    expect(isKnownRoute("/scripts/script-001/runs/run-042")).toBe(true);
+    expect(isKnownRoute("/automations/script-001/runs/run-042")).toBe(true);
     // The administrator's section links to the same shape (#1407).
-    expect(isKnownRoute("/admin/scripts/script-001/runs/run-042")).toBe(true);
+    expect(isKnownRoute("/admin/automations/script-001/runs/run-042")).toBe(true);
   });
 });
 
@@ -66,15 +66,34 @@ describe("canonicalRoute", () => {
   });
 
   it("drops a trailing slash from a route that exists without one", () => {
-    expect(canonicalRoute("/scripts/")).toBe("/scripts");
+    expect(canonicalRoute("/automations/")).toBe("/automations");
     expect(canonicalRoute("/admin/tools/")).toBe("/admin/tools");
     expect(canonicalRoute("/collections/c-1/")).toBe("/collections/c-1");
   });
 
   it("leaves a route that is already canonical alone", () => {
     expect(canonicalRoute("/")).toBeNull();
-    expect(canonicalRoute("/scripts")).toBeNull();
-    expect(canonicalRoute("/scripts/script-001")).toBeNull();
+    expect(canonicalRoute("/automations")).toBeNull();
+    expect(canonicalRoute("/automations/script-001")).toBeNull();
+  });
+
+  // #1912: the section moved, and a link built under the old prefix (a mailed
+  // failed-run link, a show_scripts URL, a bookmark) lands on the same page.
+  it("sends every path under the old scripts section to the same path under automations", () => {
+    expect(canonicalRoute("/scripts")).toBe("/automations");
+    expect(canonicalRoute("/scripts/script-001")).toBe("/automations/script-001");
+    expect(canonicalRoute("/scripts/script-001/runs/run-042")).toBe(
+      "/automations/script-001/runs/run-042",
+    );
+    expect(canonicalRoute("/admin/scripts")).toBe("/admin/automations");
+    expect(canonicalRoute("/admin/scripts/script-001")).toBe("/admin/automations/script-001");
+    expect(canonicalRoute("/admin/scripts/script-001/runs/run-042")).toBe(
+      "/admin/automations/script-001/runs/run-042",
+    );
+    expect(canonicalRoute("/scripts/")).toBe("/automations");
+    // A prefix is a whole segment: a path that merely starts with the letters
+    // is not under the section.
+    expect(canonicalRoute("/scriptsx")).toBeNull();
   });
 
   // An unknown path is a not-found page. Redirecting it would land the reader
@@ -90,7 +109,7 @@ describe("isAdminRoute", () => {
     expect(isAdminRoute("/admin")).toBe(true);
     expect(isAdminRoute("/admin/tools")).toBe(true);
     expect(isAdminRoute("/administrators")).toBe(false);
-    expect(isAdminRoute("/scripts")).toBe(false);
+    expect(isAdminRoute("/automations")).toBe(false);
   });
 });
 
@@ -159,5 +178,22 @@ describe("the routes the shell renders", () => {
 
   it.each([...samples].sort())("renders %s, so the table knows it", (route) => {
     expect(isKnownRoute(route)).toBe(true);
+  });
+});
+
+describe("redirectFor", () => {
+  it("carries the query string and hash of a moved path to its new place", () => {
+    expect(redirectFor("/scripts/script-001/runs/run-042?x=1#source")).toBe(
+      "/automations/script-001/runs/run-042?x=1#source",
+    );
+    expect(redirectFor("/admin/scripts#runs")).toBe("/admin/automations#runs");
+  });
+
+  it("lets a target that names its own tab keep it", () => {
+    expect(redirectFor("/my-knowledge?x=1")).toBe("/knowledge#insights");
+  });
+
+  it("answers null for a path rendered where it is", () => {
+    expect(redirectFor("/automations/script-001?x=1")).toBeNull();
   });
 });

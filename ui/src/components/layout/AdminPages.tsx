@@ -198,7 +198,7 @@ export function AdminPages({
           onBack={() => onBack("/admin/resources")}
           onOpenFolder={(tab, path) => navigate(folderAddress("/admin/resources", tab, path))}
           onNavigate={navigate}
-          scriptPath={(id) => `/admin/scripts/${encodeURIComponent(id)}`}
+          scriptPath={(id) => `/admin/automations/${encodeURIComponent(id)}`}
           sessionPath={(id) => `/admin/sessions/${encodeURIComponent(id)}`}
         />
       )}
@@ -213,7 +213,7 @@ export function AdminPages({
       {isInSection(route, "/admin/calls") && (
         <CallRoutes route={route} onNavigate={navigate} />
       )}
-      {isInSection(route, "/admin/scripts") && (
+      {isInSection(route, "/admin/automations") && (
         <AdminScriptRoutes route={route} onNavigate={navigate} />
       )}
       {isInSection(route, "/admin/webhooks") && (

@@ -1,5 +1,10 @@
 # Writing a managed script
 
+An automation is work that runs on a schedule or when someone asks, keeps the
+record of every run, and carries its state from one run to the next. The
+platform builds an automation as a managed script, so a request to automate
+something, or to run it every Monday, is answered by writing one.
+
 A managed script is a small Starlark program the platform stores, versions, and
 runs unattended: a KPI report, a recurring export, a dashboard refresh. Write
 one when the logic is settled and the work will repeat; keep using the query

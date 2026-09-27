@@ -107,8 +107,9 @@ nav:
       - What Produced a File: server/content-producers.md
       - Registered Tables: server/registered-tables.md
       - Session-Start Notices: server/session-notices.md
-      - Managed Scripts: scripts/running.md
-      - Reading XML in a Script: scripts/xml.md
+      - Automations:
+        - Managed Scripts: scripts/running.md
+        - Reading XML in a Script: scripts/xml.md
       - Knowledge Capture: knowledge/overview.md
       - Knowledge Governance: knowledge/governance.md
       - Memory Layer: memory/overview.md
@@ -193,7 +194,7 @@ nav:
       - Inbox: portal/feedback.md
       - Knowledge and Memory: portal/knowledge.md
       - Prompts: portal/prompts.md
-      - Scripts: portal/scripts.md
+      - Automations: portal/scripts.md
       - Settings: portal/settings.md
     - Administration:
       - Dashboard: portal/admin-dashboard.md

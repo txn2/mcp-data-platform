@@ -99,10 +99,10 @@ describe("what produced a file has a surface", () => {
 
   it("opens the script that wrote the file", async () => {
     const onNavigate = vi.fn();
-    renderPanel({ scriptPath: (id) => `/scripts/${id}`, onNavigate });
+    renderPanel({ scriptPath: (id) => `/automations/${id}`, onNavigate });
 
     fireEvent.click(await screen.findByText("daily-sales"));
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/script-1");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-1");
   });
 
   it("opens the session that wrote the file", async () => {
@@ -120,7 +120,7 @@ describe("what produced a file has a surface", () => {
   it("reports a script that no longer exists, without linking to it", async () => {
     const onNavigate = vi.fn();
     stubApi(body(producer({ exists: false, label: "quarterly-rollup" })));
-    renderPanel({ scriptPath: (id) => `/scripts/${id}`, onNavigate });
+    renderPanel({ scriptPath: (id) => `/automations/${id}`, onNavigate });
 
     expect(await screen.findByText("quarterly-rollup")).toBeInTheDocument();
     expect(screen.getByText(/This script no longer exists/)).toBeInTheDocument();

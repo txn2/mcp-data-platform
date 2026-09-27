@@ -41,6 +41,9 @@ export function ScriptRow({
         </div>
         <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
       </TableCell>
+      <TableCell className="text-xs" data-testid="automation-kind">
+        Script
+      </TableCell>
       <TableCell className="text-xs">
         {script.owner_email ? (
           // The author reads as a person, the way every other people-bearing

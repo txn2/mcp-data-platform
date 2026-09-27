@@ -102,7 +102,7 @@ function answer(data: ScheduleTimeline | undefined, extra: object = {}) {
   } as never);
 }
 
-function renderTab(basePath = "/scripts") {
+function renderTab(basePath = "/automations") {
   render(
     <ScheduleTimelineTab
       basePath={basePath}
@@ -164,9 +164,9 @@ describe("ScheduleTimelineTab", () => {
   });
 
   it("opens the script when a row is clicked, under the page's own section", () => {
-    renderTab("/admin/scripts");
+    renderTab("/admin/automations");
     fireEvent.click(screen.getByTestId("schedule-row-s-wd"));
-    expect(onNavigate).toHaveBeenCalledWith("/admin/scripts/s-wd");
+    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/s-wd");
   });
 
   it("opens the script when its name is clicked, which reads as a link", () => {
@@ -176,7 +176,7 @@ describe("ScheduleTimelineTab", () => {
     );
     expect(name.getAttribute("fill")).toBe("hsl(var(--primary))");
     fireEvent.click(name);
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/s-5m");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/s-5m");
   });
 
   it("opens the script from the keyboard", () => {
@@ -184,7 +184,7 @@ describe("ScheduleTimelineTab", () => {
     fireEvent.keyDown(screen.getByTestId("schedule-row-s-5m"), {
       key: "Enter",
     });
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/s-5m");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/s-5m");
   });
 
   it("states a focused fire in the viewer's zone and the schedule's own", () => {
@@ -232,13 +232,13 @@ describe("ScheduleTimelineTab", () => {
     expect(marks.querySelectorAll("circle")).toHaveLength(3);
   });
 
-  it("shows an empty state that leads to the Scripts tab, not three empty axes", () => {
+  it("shows an empty state that leads to the Automations tab, not three empty axes", () => {
     const data = timeline();
     for (const s of data.sections) s.rows = [];
     answer(data);
     renderTab();
     expect(screen.queryByText("Intraday")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Go to Scripts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to Automations" }));
     expect(onShowScripts).toHaveBeenCalled();
   });
 

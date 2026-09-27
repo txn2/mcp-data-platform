@@ -16,9 +16,9 @@ import (
 // another.
 func scriptRunSubject(p notification.Payload) string {
 	if p.ItemTitle == "" {
-		return "A scheduled script failed"
+		return "A scheduled automation failed"
 	}
-	return fmt.Sprintf("The scheduled script %q failed", p.ItemTitle)
+	return fmt.Sprintf("The scheduled automation %q failed", p.ItemTitle)
 }
 
 // scriptRunBody is the alert's prose body: what failed, and what the script had
@@ -27,7 +27,7 @@ func scriptRunSubject(p notification.Payload) string {
 // output, not something a person wrote.
 func scriptRunBody(p notification.Payload) string {
 	sentences := []string{
-		"The platform ran this script on its schedule and the run did not finish.",
+		"The platform ran this automation on its schedule and the run did not finish.",
 	}
 	if p.ItemID != "" {
 		sentences = append(sentences, fmt.Sprintf("Its run is %s.", p.ItemID))
