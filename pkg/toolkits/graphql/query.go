@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
-	"github.com/txn2/mcp-data-platform/internal/inlinefit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -68,12 +67,16 @@ type QueryOutput struct {
 	ValidationWarnings []string `json:"validation_warnings,omitempty"`
 	// DataBytes is the size of the data read.
 	DataBytes int `json:"data_bytes"`
-	// DataTruncated reports data withheld because the rendered result
-	// would exceed a model client's context budget (tools.result_budget,
-	// #1878). A cut JSON document cannot be parsed, so the data is
-	// omitted rather than halved; export_arguments carries the call that
+	// DataTruncated reports data cut or withheld because the rendered
+	// result would exceed a model client's context budget
+	// (tools.result_budget, #1878). A list in the data is cut on its items,
+	// so what is shown stays valid JSON and data_items says how much of it
+	// is shown (#1915); other data is withheld whole, since a JSON document
+	// cut in half cannot be parsed. export_arguments carries the call that
 	// streams it whole.
 	DataTruncated bool `json:"data_truncated,omitempty"`
+	// DataItems is how many of the list's items a cut shows (#1915).
+	DataItems *DataItems `json:"data_items,omitempty"`
 	// ExportArguments is the graphql_export call that writes this same
 	// result to an asset, present when the data did not fit inline.
 	ExportArguments map[string]any `json:"export_arguments,omitempty"`
@@ -282,64 +285,6 @@ func applyExecution(out *QueryOutput, res *execution) {
 	out.Data = res.parsed.Data
 	out.Errors = res.parsed.Errors
 	out.Extensions = res.parsed.Extensions
-}
-
-// FitResult holds a graphql_query result to a model client's context
-// budget (#1878). Dropping the indentation is tried first; when that is
-// not enough the data is withheld whole, since a JSON document cut in half
-// cannot be parsed, and the graphql_export call that streams it is handed
-// back instead. Called by the platform's result-budget middleware, and only
-// for a result past the budget. A result still past it with its data
-// withheld -- a large errors array -- is declined, and cut by the generic
-// text cut.
-func (*Toolkit) FitResult(tool string, args json.RawMessage, res *mcp.CallToolResult, budget int) bool {
-	if tool != ToolQuery {
-		return false
-	}
-	var out QueryOutput
-	if !toolkit.DecodeStructured(res.StructuredContent, &out) {
-		return false
-	}
-	var in QueryInput
-	if len(args) > 0 && json.Unmarshal(args, &in) != nil {
-		return false
-	}
-	text, ok := inlinefit.RenderWithin(out, budget)
-	if !ok {
-		withholdData(&out, in, budget)
-		text, ok = inlinefit.RenderWithin(out, budget)
-	}
-	if !ok && out.ExportArguments["query"] != nil {
-		// The echoed document is itself past the budget. The caller wrote
-		// it, so the steer names it rather than carrying it.
-		delete(out.ExportArguments, "query")
-		out.Note += " export_arguments omit the query document, which alone is past the budget: pass the same query you sent."
-		text, ok = inlinefit.RenderWithin(out, budget)
-	}
-	if !ok {
-		return false
-	}
-	return toolkit.SetFittedResult(res, text, out) == nil
-}
-
-// withholdData drops a result's data and steers to graphql_export.
-func withholdData(out *QueryOutput, in QueryInput, budget int) {
-	out.Data = nil
-	out.DataTruncated = true
-	out.ExportArguments = map[string]any{
-		"connection": in.Connection,
-		"query":      in.Query,
-	}
-	if len(in.Variables) > 0 {
-		out.ExportArguments["variables"] = in.Variables
-	}
-	if in.OperationName != "" {
-		out.ExportArguments["operation_name"] = in.OperationName
-	}
-	out.Note = strings.TrimSpace(out.Note + fmt.Sprintf(
-		" The result held %d bytes of data, past this client's context budget on a tool result (%d, tools.result_budget); "+
-			"call graphql_export with export_arguments to write it to an asset and read it from there.",
-		out.DataBytes, budget))
 }
 
 // decodeVariables reads the variables argument in either form the

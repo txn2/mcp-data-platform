@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -290,38 +291,119 @@ func modelQuery(t *testing.T, tk *Toolkit, in QueryInput, budget int) (*mcp.Call
 	return res, &out
 }
 
-func TestDataPastTheContextBudgetIsWithheldWholeWithTheExportCall(t *testing.T) {
+// listAnswer is a GraphQL answer carrying a connection of n edges.
+func listAnswer(n int) string {
+	edges := make([]string, 0, n)
+	for i := range n {
+		edges = append(edges, fmt.Sprintf(`{"node":{"urn":"urn:%d","name":%q}}`, i, strings.Repeat("n", 40)))
+	}
+	return `{"data":{"datasets":{"edges":[` + strings.Join(edges, ",") + `],"pageInfo":{"hasNextPage":true}}}}`
+}
+
+// TestDataPastTheContextBudgetIsCutOnItsItems: an answer past the budget
+// comes back with its list cut on whole items, still valid JSON, saying how
+// many are shown of how many, with the export call that writes it whole
+// (#1915).
+func TestDataPastTheContextBudgetIsCutOnItsItems(t *testing.T) {
 	u := newUpstream(t)
-	u.respond = answer(`{"data":{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}}`)
+	u.respond = answer(listAnswer(100))
 	tk := newToolkit(t, u, "flat", nil)
 
 	res, out := modelQuery(t, tk, QueryInput{
 		Connection: "gql", Query: datasetDocument,
 		Variables: jsonRaw(t, map[string]any{"urn": "u"}),
-	}, 512)
+	}, 2048)
 
-	if !out.DataTruncated {
+	if !out.DataTruncated || out.DataItems == nil {
 		t.Fatal("a result past the budget was returned whole")
 	}
-	// A JSON document cut in half cannot be parsed, so it is withheld
-	// rather than halved.
-	if len(out.Data) != 0 {
-		t.Errorf("data = %s; want it withheld", out.Data)
+	var data struct {
+		Datasets struct {
+			Edges []struct {
+				Node struct{ URN string } `json:"node"`
+			} `json:"edges"`
+			PageInfo map[string]any `json:"pageInfo"`
+		} `json:"datasets"`
 	}
-	if out.DataBytes == 0 {
-		t.Error("the caller cannot see how much was withheld")
+	if err := json.Unmarshal(out.Data, &data); err != nil {
+		t.Fatalf("cut data is not valid JSON: %v", err)
+	}
+	edges := data.Datasets.Edges
+	if len(edges) == 0 || len(edges) != out.DataItems.Shown || out.DataItems.Total != 100 || out.DataItems.Path != "datasets.edges" {
+		t.Fatalf("data_items = %+v with %d edges; want the edges shown of 100", out.DataItems, len(edges))
+	}
+	for i, e := range edges {
+		if e.Node.URN != fmt.Sprintf("urn:%d", i) {
+			t.Fatalf("edge %d = %s; want the first edges in order", i, e.Node.URN)
+		}
+	}
+	if data.Datasets.PageInfo == nil {
+		t.Error("the rest of the connection object was dropped")
 	}
 	if out.ExportArguments["connection"] != "gql" || out.ExportArguments["query"] != datasetDocument || out.ExportArguments["variables"] == nil {
 		t.Errorf("export arguments = %v", out.ExportArguments)
 	}
-	if !strings.Contains(out.Note, "graphql_export") || !strings.Contains(out.Note, "(512, tools.result_budget)") {
-		t.Errorf("note = %q; the caller needs to be told where the data is and what cut it", out.Note)
+	for _, want := range []string{"holds 100 items", "graphql_export", "(2048, tools.result_budget)"} {
+		if !strings.Contains(out.Note, want) {
+			t.Errorf("note = %q; want %q", out.Note, want)
+		}
 	}
-	if text, _ := res.Content[0].(*mcp.TextContent); len(text.Text) > 512 {
-		t.Errorf("text is %d characters; want it inside the 512 budget", len(text.Text))
+	if text, _ := res.Content[0].(*mcp.TextContent); len(text.Text) > 2048 {
+		t.Errorf("text is %d characters; want it inside the 2048 budget", len(text.Text))
 	}
-	if structured, _ := res.StructuredContent.(json.RawMessage); len(structured) > 512 {
+	if structured, _ := res.StructuredContent.(json.RawMessage); len(structured) > 2048 {
 		t.Errorf("structured content is %d bytes; want the fitted copy", len(structured))
+	}
+}
+
+// TestACutKeepsNumbersAsSent: an id past 2^53 in a cut list comes back as
+// the endpoint wrote it, not rounded through a float64.
+func TestACutKeepsNumbersAsSent(t *testing.T) {
+	tk := NewMulti(MultiConfig{})
+	items := make([]string, 0, 200)
+	for i := range 200 {
+		items = append(items, fmt.Sprintf(`{"id":9007199254740993,"n":%d,"pad":%q}`, i, strings.Repeat("p", 30)))
+	}
+	data := `{"rows":[` + strings.Join(items, ",") + `]}`
+	res := &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: strings.Repeat("x", 20000)}},
+		StructuredContent: QueryOutput{Connection: "gql", Status: 200, Data: json.RawMessage(data), DataBytes: len(data)},
+	}
+	if !tk.FitResult(ToolQuery, json.RawMessage(`{"connection":"gql","query":"{ rows { id } }"}`), res, 2048) {
+		t.Fatal("FitResult declined a list it can cut")
+	}
+	var out QueryOutput
+	decodeResult(t, res, &out)
+	if out.DataItems == nil || !strings.Contains(string(out.Data), "9007199254740993") || strings.Contains(string(out.Data), "9007199254740992") {
+		t.Errorf("data = %.200s; want the id kept as sent", out.Data)
+	}
+}
+
+// TestDataWithNoListIsWithheldWhole: an answer with no list the cut can
+// name, or whose first item alone is past the budget, has its data
+// withheld whole and steered to graphql_export, as before #1915.
+func TestDataWithNoListIsWithheldWhole(t *testing.T) {
+	tk := NewMulti(MultiConfig{})
+	for _, data := range []string{
+		`{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}`,
+		`{"a":[` + strings.Repeat(`"xxxxxxxxxx",`, 400) + `"x"],"b":[1]}`,
+		`[{"blob":"` + strings.Repeat("x", 4000) + `"},{"blob":"y"}]`,
+	} {
+		res := &mcp.CallToolResult{
+			Content:           []mcp.Content{&mcp.TextContent{Text: strings.Repeat("x", 5000)}},
+			StructuredContent: QueryOutput{Connection: "gql", Status: 200, Data: json.RawMessage(data), DataBytes: len(data)},
+		}
+		if !tk.FitResult(ToolQuery, json.RawMessage(`{"connection":"gql","query":"{ x }"}`), res, 1024) {
+			t.Fatalf("FitResult declined data it can withhold: %.40s", data)
+		}
+		var out QueryOutput
+		decodeResult(t, res, &out)
+		if !out.DataTruncated || len(out.Data) != 0 || out.DataItems != nil || out.ExportArguments["connection"] != "gql" {
+			t.Errorf("out: truncated=%v data=%d bytes items=%+v export=%v; want the data withheld", out.DataTruncated, len(out.Data), out.DataItems, out.ExportArguments)
+		}
+		if !strings.Contains(out.Note, "graphql_export") {
+			t.Errorf("note = %q", out.Note)
+		}
 	}
 }
 
@@ -340,7 +422,7 @@ func TestACallerWithNoContextBudgetGetsTheDataWhole(t *testing.T) {
 
 // TestFitResultDeclinesWhatItCannotShape: another tool, unreadable
 // structured output or arguments, and a result whose errors alone are past
-// the budget are declined, so the generic cut applies.
+// the budget are declined and left whole.
 func TestFitResultDeclinesWhatItCannotShape(t *testing.T) {
 	tk := NewMulti(MultiConfig{})
 	big := QueryOutput{Connection: "gql", Errors: []Error{{Message: strings.Repeat("e", 2000)}}}
@@ -451,13 +533,13 @@ func TestIdentityPassthroughRefusesAnAnonymousCall(t *testing.T) {
 // and the note says to pass the same query, rather than the fit failing.
 func TestADocumentPastTheBudgetIsNamedNotEchoed(t *testing.T) {
 	u := newUpstream(t)
-	u.respond = answer(`{"data":{"dataset":{"urn":"` + strings.Repeat("x", 4000) + `"}}}`)
+	u.respond = answer(listAnswer(100))
 	tk := newToolkit(t, u, "flat", nil)
 	document := datasetDocument + strings.Repeat(" ", 2000)
 
 	res, out := modelQuery(t, tk, QueryInput{Connection: "gql", Query: document, Variables: jsonRaw(t, map[string]any{"urn": "u"})}, 1024)
 	if !out.DataTruncated || out.ExportArguments["query"] != nil || out.ExportArguments["connection"] != "gql" {
-		t.Errorf("truncated=%v export=%v; want the data withheld and the document not echoed", out.DataTruncated, out.ExportArguments)
+		t.Errorf("truncated=%v export=%v; want the data cut and the document not echoed", out.DataTruncated, out.ExportArguments)
 	}
 	if !strings.Contains(out.Note, "omit the query document") {
 		t.Errorf("note = %q", out.Note)

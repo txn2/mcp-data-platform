@@ -1628,6 +1628,12 @@ definitions:
           the rendered result, which the platform's context budget bounds and
           which a cut body may make smaller than this (issues #1606, #1878).
         type: integer
+      body_items:
+        allOf:
+        - $ref: '#/definitions/listcut.Count'
+        description: |-
+          BodyItems is set when a list body was cut to fit a model client's
+          context budget (#1915): how many of the response's items are shown.
       body_truncated:
         type: boolean
       duration_ms:
@@ -1657,6 +1663,14 @@ definitions:
         type: string
       items_merged:
         type: integer
+      next_arguments:
+        allOf:
+        - $ref: '#/definitions/apigateway.InvokeInput'
+        description: |-
+          NextArguments is the api_invoke_endpoint call that reads on from a
+          cut list, built from the paging parameters the operation declares
+          (#1915). Absent when the operation declares none the gateway can
+          advance.
       pages_fetched:
         type: integer
       pagination:
@@ -4319,6 +4333,122 @@ definitions:
         type: string
       version:
         example: 2
+        type: integer
+    type: object
+  listcut.Count:
+    properties:
+      shown:
+        description: 'Shown is the number of items kept: the first ones.'
+        type: integer
+      total:
+        description: Total is the number of items in the list.
+        type: integer
+    type: object
+  memory.Record:
+    properties:
+      category:
+        example: business_context
+        type: string
+      confidence:
+        example: high
+        type: string
+      content:
+        example: The daily_sales table in the retail schema is partitioned by date.
+        type: string
+      created_at:
+        example: "2026-03-18T08:11:08Z"
+        type: string
+      created_by:
+        example: sarah.chen@example.com
+        type: string
+      dimension:
+        example: knowledge
+        type: string
+      embedding:
+        items:
+          type: number
+        type: array
+      embedding_model:
+        description: |-
+          EmbeddingModel records the provider model that produced Embedding
+          (e.g. "nomic-embed-text"); EmbeddingTextHash is the SHA-256 of the
+          content fed to the embedder. They are the breadcrumbs the indexjobs
+          memory consumer uses to dedup re-embeds and detect model-swap gaps.
+          The synchronous write path stamps both when the embedder is healthy;
+          they are empty/nil on rows embedded before the column existed or
+          saved during an embedder outage (the reconciler later backfills).
+        type: string
+      embedding_text_hash:
+        items:
+          type: integer
+        type: array
+      entity_urns:
+        items:
+          type: string
+        type: array
+      id:
+        example: mem_a1b2c3d4e5f6
+        type: string
+      last_verified:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      persona:
+        example: admin
+        type: string
+      related_columns:
+        items:
+          $ref: '#/definitions/memory.RelatedColumn'
+        type: array
+      sink_class:
+        description: |-
+          SinkClass is the #633 organizing axis (personal_preference,
+          business_knowledge, schema_entity, operational_rule, episodic_event). It
+          drives routing in the unified write path. Empty on rows captured before
+          the axis existed; DeriveSinkClass reconstructs it from Dimension on read.
+        example: schema_entity
+        type: string
+      source:
+        example: user
+        type: string
+      stale_at:
+        type: string
+      stale_reason:
+        type: string
+      status:
+        example: active
+        type: string
+      updated_at:
+        example: "2026-03-18T08:11:08Z"
+        type: string
+    type: object
+  memory.RelatedColumn:
+    properties:
+      column:
+        example: amount
+        type: string
+      relevance:
+        example: direct
+        type: string
+      urn:
+        example: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
+        type: string
+    type: object
+  memoryapi.recordListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/memory.Record'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 212
         type: integer
     type: object
   mention.Person:
@@ -14016,6 +14146,60 @@ paths:
       summary: Get insight stats
       tags:
       - Knowledge
+  /admin/memory/records:
+    get:
+      description: Returns paginated memory records written by any user, newest first,
+        with the portal memory list's filters plus created_by to narrow to one author.
+      parameters:
+      - description: Filter by author email
+        in: query
+        name: created_by
+        type: string
+      - description: Filter by dimension
+        in: query
+        name: dimension
+        type: string
+      - description: Filter by sink class
+        in: query
+        name: sink_class
+        type: string
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by source
+        in: query
+        name: source
+        type: string
+      - description: 'Results per page (default: 20, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      - description: 'Offset for pagination (default: 0)'
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/memoryapi.recordListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List every memory record
+      tags:
+      - Memory
   /admin/notification-channels:
     get:
       description: Returns every configured notification channel. A channel holds

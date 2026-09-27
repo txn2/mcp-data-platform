@@ -37,6 +37,8 @@ internal/admin/graphqlapi -> pkg/toolkits/graphql
 internal/admin/insightobs -> internal/tableavail
 internal/admin/insightobs -> pkg/query
 internal/admin/insightobs -> pkg/toolkits/knowledge
+internal/admin/memoryapi -> internal/httpjson
+internal/admin/memoryapi -> pkg/memory
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
@@ -66,6 +68,7 @@ internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/apikeyissue
 internal/httpserver -> internal/httpserver/accessgate
+internal/httpserver -> internal/httpserver/adminwire
 internal/httpserver -> internal/httpserver/apiwire
 internal/httpserver -> internal/httpserver/attachhttp
 internal/httpserver -> internal/httpserver/datahubapi
@@ -144,6 +147,8 @@ internal/httpserver -> pkg/toolkits/portal
 internal/httpserver -> pkg/toolkits/trino
 internal/httpserver/accessgate -> internal/logsan
 internal/httpserver/accessgate -> pkg/portal
+internal/httpserver/adminwire -> pkg/admin
+internal/httpserver/adminwire -> pkg/platform
 internal/httpserver/apishttp -> internal/httpjson
 internal/httpserver/apishttp -> pkg/toolkits/apigateway
 internal/httpserver/apiwire -> internal/httpserver/apishttp
@@ -263,6 +268,7 @@ internal/httpserver/webhookwire -> pkg/platform
 internal/httpserver/webhookwire -> pkg/platform/fieldcrypt
 internal/httpserver/webhookwire -> pkg/resource
 internal/inlinefit -> pkg/toolkit
+internal/listcut -> internal/pagenext
 internal/notification/notifychannel -> pkg/notification
 internal/notification/notifypost -> pkg/notification
 internal/notification/notifyprefs -> pkg/notification
@@ -830,6 +836,7 @@ pkg/admin -> internal/admin/catalogapi
 pkg/admin -> internal/admin/connoauthapi
 pkg/admin -> internal/admin/graphqlapi
 pkg/admin -> internal/admin/insightobs
+pkg/admin -> internal/admin/memoryapi
 pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
@@ -1168,9 +1175,11 @@ pkg/toolkits/apigateway -> internal/conncatchup
 pkg/toolkits/apigateway -> internal/connprobe
 pkg/toolkits/apigateway -> internal/formdata
 pkg/toolkits/apigateway -> internal/inlinefit
+pkg/toolkits/apigateway -> internal/listcut
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
 pkg/toolkits/apigateway -> internal/opranking
+pkg/toolkits/apigateway -> internal/pagenext
 pkg/toolkits/apigateway -> internal/pagewalk
 pkg/toolkits/apigateway -> internal/soap
 pkg/toolkits/apigateway -> internal/upstreamauth
@@ -1209,6 +1218,7 @@ pkg/toolkits/graphql -> internal/conncatchup
 pkg/toolkits/graphql -> internal/connprobe
 pkg/toolkits/graphql -> internal/gqlschema
 pkg/toolkits/graphql -> internal/inlinefit
+pkg/toolkits/graphql -> internal/listcut
 pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget
 pkg/toolkits/graphql -> internal/opranking

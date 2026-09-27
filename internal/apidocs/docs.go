@@ -5839,6 +5839,90 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/memory/records": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated memory records written by any user, newest first, with the portal memory list's filters plus created_by to narrow to one author.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Memory"
+                ],
+                "summary": "List every memory record",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by author email",
+                        "name": "created_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by dimension",
+                        "name": "dimension",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by sink class",
+                        "name": "sink_class",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by source",
+                        "name": "source",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/memoryapi.recordListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/notification-channels": {
             "get": {
                 "security": [
@@ -25951,6 +26035,14 @@ const docTemplate = `{
                     "description": "BodyBytes is the size of the body as read from the upstream,\nbefore decoding. Reported on every response; zero when no body was\nreturned. It is not what the call cost a model's context: that is\nthe rendered result, which the platform's context budget bounds and\nwhich a cut body may make smaller than this (issues #1606, #1878).",
                     "type": "integer"
                 },
+                "body_items": {
+                    "description": "BodyItems is set when a list body was cut to fit a model client's\ncontext budget (#1915): how many of the response's items are shown.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/listcut.Count"
+                        }
+                    ]
+                },
                 "body_truncated": {
                     "type": "boolean"
                 },
@@ -25983,6 +26075,14 @@ const docTemplate = `{
                 },
                 "items_merged": {
                     "type": "integer"
+                },
+                "next_arguments": {
+                    "description": "NextArguments is the api_invoke_endpoint call that reads on from a\ncut list, built from the paging parameters the operation declares\n(#1915). Absent when the operation declares none the gateway can\nadvance.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/apigateway.InvokeInput"
+                        }
+                    ]
                 },
                 "pages_fetched": {
                     "type": "integer"
@@ -29354,6 +29454,154 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 2
+                }
+            }
+        },
+        "listcut.Count": {
+            "type": "object",
+            "properties": {
+                "shown": {
+                    "description": "Shown is the number of items kept: the first ones.",
+                    "type": "integer"
+                },
+                "total": {
+                    "description": "Total is the number of items in the list.",
+                    "type": "integer"
+                }
+            }
+        },
+        "memory.Record": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "example": "business_context"
+                },
+                "confidence": {
+                    "type": "string",
+                    "example": "high"
+                },
+                "content": {
+                    "type": "string",
+                    "example": "The daily_sales table in the retail schema is partitioned by date."
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-03-18T08:11:08Z"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "sarah.chen@example.com"
+                },
+                "dimension": {
+                    "type": "string",
+                    "example": "knowledge"
+                },
+                "embedding": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "embedding_model": {
+                    "description": "EmbeddingModel records the provider model that produced Embedding\n(e.g. \"nomic-embed-text\"); EmbeddingTextHash is the SHA-256 of the\ncontent fed to the embedder. They are the breadcrumbs the indexjobs\nmemory consumer uses to dedup re-embeds and detect model-swap gaps.\nThe synchronous write path stamps both when the embedder is healthy;\nthey are empty/nil on rows embedded before the column existed or\nsaved during an embedder outage (the reconciler later backfills).",
+                    "type": "string"
+                },
+                "embedding_text_hash": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string",
+                    "example": "mem_a1b2c3d4e5f6"
+                },
+                "last_verified": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "admin"
+                },
+                "related_columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/memory.RelatedColumn"
+                    }
+                },
+                "sink_class": {
+                    "description": "SinkClass is the #633 organizing axis (personal_preference,\nbusiness_knowledge, schema_entity, operational_rule, episodic_event). It\ndrives routing in the unified write path. Empty on rows captured before\nthe axis existed; DeriveSinkClass reconstructs it from Dimension on read.",
+                    "type": "string",
+                    "example": "schema_entity"
+                },
+                "source": {
+                    "type": "string",
+                    "example": "user"
+                },
+                "stale_at": {
+                    "type": "string"
+                },
+                "stale_reason": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "active"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-03-18T08:11:08Z"
+                }
+            }
+        },
+        "memory.RelatedColumn": {
+            "type": "object",
+            "properties": {
+                "column": {
+                    "type": "string",
+                    "example": "amount"
+                },
+                "relevance": {
+                    "type": "string",
+                    "example": "direct"
+                },
+                "urn": {
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+                }
+            }
+        },
+        "memoryapi.recordListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/memory.Record"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 212
                 }
             }
         },

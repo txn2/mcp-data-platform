@@ -1,10 +1,10 @@
 ---
-description: REST API reference for knowledge management. Endpoints for listing, filtering, approving, and rejecting insights. Changeset management and rollback.
+description: REST API reference for knowledge management. Endpoints for listing, filtering, approving, and rejecting insights. Changeset management and rollback. Listing every user's memory records.
 ---
 
 # Admin API
 
-The Admin REST API provides HTTP endpoints for managing knowledge insights and changesets outside the MCP protocol. Use it for building dashboards, integrating with existing governance tools, or scripting batch operations.
+The Admin REST API provides HTTP endpoints for managing knowledge insights and changesets, and for listing every user's memory records, outside the MCP protocol. Use it for building dashboards, integrating with existing governance tools, or scripting batch operations.
 
 ## Authentication
 
@@ -438,6 +438,66 @@ curl -X POST "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z
 | `404` | Changeset not found. |
 | `409` | Already rolled back, or a newer changeset has since modified the same aspect. |
 | `422` | Changeset contains change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts). |
+
+## Memory Record Endpoints
+
+### List Memory Records
+
+```
+GET /api/v1/admin/memory/records
+```
+
+Returns every memory record on the deployment, whoever wrote it, newest first. The portal's `GET /api/v1/portal/memory/records` lists only the caller's own records; this route is how an administrator sees, counts and audits all of them. It takes the portal route's filters and its `limit`/`offset` paging, plus `created_by` to narrow to one author.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `created_by` | string | Filter by the author's email |
+| `dimension` | string | Filter by dimension |
+| `sink_class` | string | Filter by sink class |
+| `category` | string | Filter by category |
+| `status` | string | Filter by status |
+| `source` | string | Filter by source |
+| `limit` | integer | Results per page (default: 20, max: 100) |
+| `offset` | integer | Records to skip (default: 0) |
+
+**Example:**
+
+```bash
+curl -s "https://mcp.example.com/api/v1/admin/memory/records?created_by=sarah.chen@example.com&limit=50" \
+  -H "Authorization: Bearer $ADMIN_API_KEY" | jq
+```
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "mem_a1b2c3d4e5f6",
+      "created_at": "2026-03-18T08:11:08Z",
+      "updated_at": "2026-03-18T08:11:08Z",
+      "created_by": "sarah.chen@example.com",
+      "persona": "analyst",
+      "dimension": "knowledge",
+      "content": "The daily_sales table in the retail schema is partitioned by date.",
+      "category": "business_context",
+      "confidence": "high",
+      "source": "user",
+      "entity_urns": [],
+      "related_columns": [],
+      "metadata": {},
+      "status": "active"
+    }
+  ],
+  "total": 212,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The route is registered only when the deployment has a memory store (a database). Like every route here it is behind the admin gate, so a caller without the admin persona is refused.
 
 ## Error Responses
 

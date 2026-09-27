@@ -298,6 +298,9 @@ type Deps struct {
 	// alongside the history so an admin reads it as a recent window rather
 	// than a complete record. Zero omits the claim.
 	NotificationRetention time.Duration
+	// MemoryRecords lists every memory record on the deployment, whoever
+	// wrote it (#1926). nil disables /api/v1/admin/memory/records.
+	MemoryRecords MemoryLister
 
 	// ConnectionCatchUp puts a connection the store holds into service on
 	// this replica before the reload bus announces it, so a connection saved
@@ -470,6 +473,7 @@ func (h *Handler) registerRoutes() {
 	h.registerIndexJobsRoutes()
 	h.registerSettingsRoutes()
 	h.registerNotificationRoutes()
+	h.registerMemoryRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a
