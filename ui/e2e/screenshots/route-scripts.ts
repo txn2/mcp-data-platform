@@ -28,14 +28,14 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // on what schedule, and how its last run went, over the three tiles that
     // count them and also filter them (#1405).
     slug: "scripts",
-    path: "/portal/scripts",
+    path: "/portal/automations",
     category: "user",
   },
   {
     // The same page for an account with no scripts at all, which is what most
     // people see before an agent has written one for them.
     slug: "scripts-empty",
-    path: "/portal/scripts?empty=scripts",
+    path: "/portal/automations?empty=scripts",
     category: "user",
   },
   {
@@ -43,7 +43,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // which version runs, when it fires next — and the parameters a run binds
     // against, read in the same section (#1406).
     slug: "script-detail",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
   },
   {
@@ -52,7 +52,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // agent. The read state is on the detail capture above, where the
     // description is already rendered as markdown.
     slug: "script-documentation",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptDocumentation,
   },
@@ -62,7 +62,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // zone, and the binding every fire passes are already in frame; what this
     // one adds is the state a report sits in when its owner has stopped it.
     slug: "script-schedule-paused",
-    path: "/portal/scripts/script-003",
+    path: "/portal/automations/script-003",
     category: "user",
     beforeCapture: openScriptSchedule,
   },
@@ -71,7 +71,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // the next run reads, the revision and the run that wrote it, and the two
     // resets. The run history above it states what each run read and saved.
     slug: "script-state",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptState,
   },
@@ -81,7 +81,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // reads as, with Run and Dry run side by side over the one parameter form
     // they both bind. The saved version is the version that runs.
     slug: "script-source",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptSource,
   },
@@ -90,7 +90,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // real execution as themselves that persisted nothing, with the shape of
     // each output and the log it printed.
     slug: "script-dry-run",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptDryRun,
   },
@@ -99,7 +99,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // (#1406): the versions before the one in the editor, each with the roles
     // a run of it presents.
     slug: "script-versions",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptVersionHistory,
   },
@@ -107,7 +107,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // The refresh history of one script: a success, a failure with its reason,
     // and a fire skipped because the previous run was still going.
     slug: "script-runs",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptRunHistory,
   },
@@ -115,7 +115,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // One run opened in place: what it was given, what it cost, the asset
     // version it produced, and the log it printed while working.
     slug: "script-run-log",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptRunLog,
   },
@@ -126,7 +126,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // It is the answer to "what does this script touch" and "what goes stale
     // if I retire it", which no run history can give.
     slug: "script-produced",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptProduced,
   },
@@ -136,7 +136,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // it carried -- and what does not, because "delete the script" reads to a
     // lot of people as "delete the reports it wrote".
     slug: "script-delete",
-    path: "/portal/scripts/script-001",
+    path: "/portal/automations/script-001",
     category: "user",
     beforeCapture: openScriptDelete,
   },
@@ -146,7 +146,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // Multi-day, and a monthly review in another zone under Long-term. Before
     // the run capture, because the tab it selects persists like that one's.
     slug: "scripts-schedules",
-    path: "/portal/scripts",
+    path: "/portal/automations",
     category: "user",
     beforeCapture: openScriptSchedulesTab,
   },
@@ -159,7 +159,7 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     // capture is: the tab it selects persists on the page these captures share,
     // so it must not sit in front of the ones that read the script listing.
     slug: "scripts-runs",
-    path: "/portal/scripts",
+    path: "/portal/automations",
     category: "user",
     beforeCapture: openScriptRunsTab,
   },
@@ -170,7 +170,7 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     // The administrator's listing: every script on the platform and what it is
     // executing (#1307). A row opens the same detail page its owner opens.
     slug: "admin-scripts",
-    path: "/portal/admin/scripts",
+    path: "/portal/admin/automations",
     category: "admin",
   },
   {
@@ -179,7 +179,7 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     // re-timing, and the version history with the roles each version runs
     // under.
     slug: "admin-script-detail",
-    path: "/portal/admin/scripts/script-001",
+    path: "/portal/admin/automations/script-001",
     category: "admin",
     beforeCapture: openScriptVersionHistory,
   },
@@ -189,7 +189,7 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     // hands over what its owner sees, edits, runs, and schedules, and
     // re-captures the authority its runs present.
     slug: "admin-script-owner",
-    path: "/portal/admin/scripts/script-001",
+    path: "/portal/admin/automations/script-001",
     category: "admin",
     beforeCapture: openScriptOwner,
   },
@@ -198,7 +198,7 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     // script under the administrator's section. Beside the run capture, and in
     // front of it, for the reason that one gives.
     slug: "admin-script-schedules",
-    path: "/portal/admin/scripts",
+    path: "/portal/admin/automations",
     category: "admin",
     beforeCapture: openScriptSchedulesTab,
   },
@@ -210,7 +210,7 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     // captures share, so it must not sit in front of the ones that read the
     // script listing.
     slug: "admin-script-runs",
-    path: "/portal/admin/scripts",
+    path: "/portal/admin/automations",
     category: "admin",
     beforeCapture: openScriptRunsTab,
   },

@@ -67,7 +67,7 @@ describe("EntityChip", () => {
     const a = container.querySelector("a");
     expect(a).not.toBeNull();
     fireEvent.click(a!);
-    expect(onNavigate).toHaveBeenCalledWith(`/scripts/${id}`);
+    expect(onNavigate).toHaveBeenCalledWith(`/automations/${id}`);
   });
 
   it("renders a destination-less type as a neutral, non-link chip (connection)", () => {

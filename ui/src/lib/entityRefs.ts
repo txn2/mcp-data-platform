@@ -47,7 +47,7 @@ export function entityHref(type: string, id: string): string | null {
       // A cited managed script (#1855) opens its script page. The server only
       // hands a reader a script citation they may open, so the link is never
       // offered to someone the page would refuse.
-      return `/scripts/${id}`;
+      return `/automations/${id}`;
     default:
       // Connections have no per-instance portal page. A DataHub URN does, but it
       // is keyed by the whole URN rather than a simple id, so it is built by

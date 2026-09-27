@@ -40,7 +40,7 @@ them.
 | [Inbox](feedback.md) | Everything addressed to you: threads on your work, and the notifications the platform has sent you |
 | [Knowledge and Memory](knowledge.md) | Promoted pages, the catalog, the graph, insights, and captured memory |
 | [Prompts](prompts.md) | The prompt library, collections, authoring, versions, and diffs |
-| [Scripts](scripts.md) | A script's page: schedule, source, versions, runs, and state |
+| [Automations](scripts.md) | Work that runs on a schedule or on request, built as scripts: a script's schedule, source, versions, runs, and state |
 | [Settings](settings.md) | Notification delivery, category toggles, and what has been sent to you |
 
 **Administration**

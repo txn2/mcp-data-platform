@@ -11,12 +11,12 @@ import { authenticate } from "../screenshots/helpers/auth";
 // 200-row cap returned, so "A-Z" would silently mean "A-Z within the most
 // recently updated 200".
 
-const SCRIPTS = "/portal/scripts";
+const SCRIPTS = "/portal/automations";
 
 async function openScripts(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto(SCRIPTS);
-  await expect(page.getByRole("columnheader", { name: /Script/ })).toBeVisible({
+  await expect(page.getByRole("columnheader", { name: /Automation/ })).toBeVisible({
     timeout: 20_000,
   });
 }
@@ -58,11 +58,11 @@ test.describe("The listing can be ordered", () => {
     expect(queries.some((q) => q.includes("sort=updated_at") && q.includes("dir=desc"))).toBe(true);
   });
 
-  test("clicking Script orders by name and marks the header", async ({ page }) => {
+  test("clicking Automation orders by name and marks the header", async ({ page }) => {
     await recordQueries(page);
     await openScripts(page);
 
-    await page.getByRole("columnheader", { name: /Script/ }).click();
+    await page.getByRole("columnheader", { name: /Automation/ }).click();
     await expect
       .poll(async () => (await listingQueries(page)).some((q) => q.includes("sort=display_name")))
       .toBe(true);
@@ -75,7 +75,7 @@ test.describe("The listing can be ordered", () => {
   test("clicking it again reverses the listing", async ({ page }) => {
     await openScripts(page);
 
-    const header = page.getByRole("columnheader", { name: /Script/ });
+    const header = page.getByRole("columnheader", { name: /Automation/ });
     await header.click();
     const ascending = await names(page);
     await header.click();
@@ -137,7 +137,7 @@ test.describe("The health line", () => {
     await expect(failing).toHaveAttribute("aria-pressed", "true");
 
     // Every row left is one whose last run failed.
-    const statuses = await page.locator("tbody tr td:nth-child(4)").allInnerTexts();
+    const statuses = await page.locator("tbody tr td:nth-child(5)").allInnerTexts();
     for (const status of statuses) {
       expect(status.toLowerCase()).toContain("failed");
     }
@@ -183,7 +183,7 @@ test.describe("Scope", () => {
     const count = await rows.count();
     let sawUnowned = false;
     for (let i = 0; i < count; i += 1) {
-      const lastRun = (await rows.nth(i).locator("td:nth-child(4)").innerText()).trim();
+      const lastRun = (await rows.nth(i).locator("td:nth-child(5)").innerText()).trim();
       if (lastRun === "—") sawUnowned = true;
     }
     expect(sawUnowned, "scope=all should list a script the reader does not own").toBe(true);
@@ -194,6 +194,6 @@ test.describe("Row click", () => {
   test("a row opens the script, unchanged", async ({ page }) => {
     await openScripts(page);
     await page.locator("tbody tr").first().click();
-    await expect(page).toHaveURL(/\/portal\/scripts\/.+/);
+    await expect(page).toHaveURL(/\/portal\/automations\/.+/);
   });
 });

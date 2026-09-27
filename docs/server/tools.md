@@ -41,8 +41,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
 | Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
-| Platform | `manage_script` | Author, validate, and dry-run managed scripts: small governed Starlark programs for a process whose logic is settled and will repeat |
-| Platform | `show_scripts` | Open the user's scripts, their schedules, and their run history in the portal (presentation-only; call only when the user wants to see them) |
+| Platform | `manage_script` | Build and change automations. Author, validate, and dry-run managed scripts: small governed Starlark programs for a process whose logic is settled and will repeat, and the tool for a request to automate work or run it on a schedule |
+| Platform | `show_scripts` | Open the user's automations (scripts), their schedules, and their run history on the portal's Automations page (presentation-only; call only when the user wants to see them) |
 
 ---
 

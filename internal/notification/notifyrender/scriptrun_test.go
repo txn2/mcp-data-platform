@@ -94,3 +94,14 @@ func TestScriptRunRendersThroughTheRealTemplates(t *testing.T) {
 		t.Error("both bodies must carry the failure")
 	}
 }
+
+// TestScriptRunSubject_SpeaksOfAutomations pins the section's name in the
+// inbox (#1912): the recipient owns an automation, whose kind is a script.
+func TestScriptRunSubject_SpeaksOfAutomations(t *testing.T) {
+	if got := scriptRunSubject(notification.Payload{Kind: notification.KindScriptRun}); got != "A scheduled automation failed" {
+		t.Errorf("bare subject = %q", got)
+	}
+	if got := scriptRunSubject(scriptRunNotification().Payload); got != `The scheduled automation "daily-sales" failed` {
+		t.Errorf("titled subject = %q", got)
+	}
+}

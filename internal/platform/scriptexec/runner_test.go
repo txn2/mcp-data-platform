@@ -408,3 +408,12 @@ func TestRunner_WithoutASubjectResolverStaysKeyedByAddress(t *testing.T) {
 	assert.Equal(t, "", seen.OnBehalfOfSub)
 	assert.Equal(t, "", r.authorSubject(context.Background(), nil))
 }
+
+// TestRunURL_OpensTheRunUnderAutomations pins the link mailed with a failed
+// run (#1912): the section is Automations, and a deployment that does not know
+// its own address sends no link rather than a guessed one.
+func TestRunURL_OpensTheRunUnderAutomations(t *testing.T) {
+	r := newRunner(&fakeRuns{}, Config{PortalURL: "https://portal.example.com/"})
+	assert.Equal(t, "https://portal.example.com/portal/automations/s1/runs/run_1", r.runURL("s1", "run_1"))
+	assert.Empty(t, newRunner(&fakeRuns{}, Config{}).runURL("s1", "run_1"))
+}

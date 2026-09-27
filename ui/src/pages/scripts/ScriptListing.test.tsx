@@ -74,7 +74,7 @@ function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
 // list renders the listing as the person who owns the scripts reads it, which
 // is what most of these assertions are about.
 function list() {
-  return render(<ScriptListing audience="owner" basePath="/scripts" onNavigate={onNavigate} />);
+  return render(<ScriptListing audience="owner" basePath="/automations" onNavigate={onNavigate} />);
 }
 
 // The listing calls the hook TWICE per render: once for the rows and once,
@@ -121,12 +121,31 @@ describe("ScriptListing", () => {
     expect(screen.queryByText("0 7 * * 1-5")).not.toBeInTheDocument();
   });
 
+  // #1912: the section lists automations, and each row says which kind it is
+  // so a second kind has a place to appear. Every automation is a script today.
+  it("states each automation's kind as Script", () => {
+    mockScripts.mockReturnValue(answer([row()]));
+    list();
+
+    expect(screen.getByRole("columnheader", { name: "Kind" })).toBeInTheDocument();
+    expect(screen.getByTestId("automation-kind")).toHaveTextContent("Script");
+  });
+
+  it("tells an owner with nothing yet to ask an agent to automate the work", () => {
+    mockScripts.mockReturnValue(answer([]));
+    list();
+
+    expect(
+      screen.getByText(/Ask an agent to automate a report or an export you run repeatedly/),
+    ).toBeInTheDocument();
+  });
+
   it("shows a loading state rather than an empty one while the listing is in flight", () => {
     mockScripts.mockReturnValue(loading());
     list();
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
-    expect(screen.queryByText(/You have no scripts yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/You have no automations yet/)).not.toBeInTheDocument();
   });
 
   it("opens the script when its row is clicked", () => {
@@ -134,7 +153,7 @@ describe("ScriptListing", () => {
     list();
 
     fireEvent.click(screen.getByText("Daily Sales Report"));
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-001");
   });
 });
 
@@ -147,7 +166,7 @@ describe("ScriptListing: the health line", () => {
     );
     list();
 
-    expect(screen.getByTestId("script-health-total")).toHaveTextContent("240 scripts");
+    expect(screen.getByTestId("script-health-total")).toHaveTextContent("240 automations");
     expect(screen.getByText(/96 scheduled/)).toBeInTheDocument();
   });
 
@@ -209,7 +228,7 @@ describe("ScriptListing: ordering", () => {
     mockScripts.mockReturnValue(answer([row()]));
     list();
 
-    fireEvent.click(screen.getByText("Script"));
+    fireEvent.click(screen.getByText("Automation"));
     await waitFor(() => {
       // A text column reads A-Z when it first becomes the sorted one.
       expect(lastFilter()).toMatchObject({ sort: "display_name", dir: "asc" });
@@ -268,7 +287,7 @@ describe("ScriptListing: the filter bar", () => {
     mockScripts.mockReturnValue(answer(corpus));
     list();
 
-    fireEvent.change(screen.getByLabelText("Search scripts"), {
+    fireEvent.change(screen.getByLabelText("Search automations"), {
       target: { value: "sales" },
     });
     await waitFor(() => {
@@ -280,7 +299,7 @@ describe("ScriptListing: the filter bar", () => {
     mockScripts.mockReturnValue(answer(corpus));
     list();
 
-    const box = screen.getByLabelText("Search scripts");
+    const box = screen.getByLabelText("Search automations");
     fireEvent.change(box, { target: { value: "sales" } });
     await waitFor(() => expect(filters().some((f) => f["search"] === "sales")).toBe(true));
 
@@ -295,11 +314,11 @@ describe("ScriptListing: the filter bar", () => {
     });
     list();
 
-    fireEvent.change(screen.getByLabelText("Search scripts"), {
+    fireEvent.change(screen.getByLabelText("Search automations"), {
       target: { value: "nothing-matches-this" },
     });
     await waitFor(() => {
-      expect(screen.getByText(/No script you can see matches that/)).toBeInTheDocument();
+      expect(screen.getByText(/No automation you can see matches that/)).toBeInTheDocument();
     });
   });
 });
@@ -370,7 +389,7 @@ describe("ScriptListing: the administrator's reading", () => {
   it("names who each script belongs to, and offers no scope tabs", () => {
     mockScripts.mockReturnValue(answer([row()]));
     render(
-      <ScriptListing audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />,
+      <ScriptListing audience="admin" basePath="/admin/automations" onNavigate={onNavigate} />,
     );
 
     expect(screen.getByText(/sarah\.chen/)).toBeInTheDocument();

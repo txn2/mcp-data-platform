@@ -33,7 +33,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/knowledge/catalog",
   "/prompts",
   "/scratch-tables",
-  "/scripts",
+  "/automations",
   "/admin",
   "/admin/assets",
   "/admin/audit",
@@ -48,7 +48,7 @@ const KNOWN_ROUTES: readonly string[] = [
   "/admin/personas",
   "/admin/prompts",
   "/admin/resources",
-  "/admin/scripts",
+  "/admin/automations",
   "/admin/sessions",
   "/admin/calls",
   "/admin/keys",
@@ -81,13 +81,13 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // One registered table (#1472): the address the Scratch Tables listing opens
   // on row click, so a registration can be linked to rather than only found.
   /^\/scratch-tables\/[^/]+$/,
-  /^\/scripts\/[^/]+$/,
+  /^\/automations\/[^/]+$/,
   // One run of one script (#1405): the address the cross-script Runs listing
   // links to, which opens that run in its script's history. Both script shapes
-  // are matched exactly rather than as "anything under /scripts", so a path
+  // are matched exactly rather than as "anything under /automations", so a path
   // under a script that names no page gets the not-found page instead of a
   // blank one.
-  /^\/scripts\/[^/]+\/runs\/[^/]+$/,
+  /^\/automations\/[^/]+\/runs\/[^/]+$/,
   /^\/admin\/assets\/.+$/,
   /^\/admin\/collections\/.+$/,
   /^\/admin\/resources\/[^/]+$/,
@@ -96,11 +96,11 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   /^\/admin\/calls\/.+$/,
   // The administrator's script section matches the same two shapes the
   // owner's does (#1407): one script, and one run of one script. Both are
-  // matched exactly rather than as "anything under /admin/scripts", so a path
+  // matched exactly rather than as "anything under /admin/automations", so a path
   // under a script that names no page gets the not-found page instead of a
   // blank one.
-  /^\/admin\/scripts\/[^/]+$/,
-  /^\/admin\/scripts\/[^/]+\/runs\/[^/]+$/,
+  /^\/admin\/automations\/[^/]+$/,
+  /^\/admin\/automations\/[^/]+\/runs\/[^/]+$/,
   // One webhook source, and its editor; /admin/webhooks/new is the first
   // shape, which the section tells apart from a source (#1870).
   /^\/admin\/webhooks\/[^/]+$/,
@@ -125,6 +125,24 @@ const ALIASES: ReadonlyMap<string, string> = new Map([
   ["/my-knowledge", "/knowledge#insights"],
   ["/admin/knowledge", "/knowledge#insights"],
 ]);
+
+// MOVED_PREFIXES are sections that moved to a new prefix with every path under
+// them intact. The scripts section became Automations (#1912), and a run link
+// mailed with a failed run, a show_scripts URL, and a bookmark were all built
+// under the old prefix, so each has to land on the same script or run it named.
+const MOVED_PREFIXES: readonly (readonly [string, string])[] = [
+  ["/scripts", "/automations"],
+  ["/admin/scripts", "/admin/automations"],
+];
+
+/** movedPrefixTarget rewrites a path under a moved section to its new prefix,
+ * or returns null when the path is under none. */
+function movedPrefixTarget(route: string): string | null {
+  for (const [from, to] of MOVED_PREFIXES) {
+    if (isInSection(route, from)) return to + route.slice(from.length);
+  }
+  return null;
+}
 
 /** isAdminRoute reports whether a path belongs to the administrator's section,
  * which the shell answers for before it answers whether the path exists. */
@@ -162,10 +180,11 @@ export function isKnownRoute(route: string): boolean {
  * canonicalRoute is where a path should be sent instead of being rendered, or
  * null when the path is already the one to render.
  *
- * Two rules, in order. A retired or guessed name redirects to the surface it
- * meant. Otherwise a trailing slash is dropped when what is left is a real
- * route, because "/scripts/" is a typing artifact rather than a request for a
- * script whose id is the empty string.
+ * Three rules, in order. A retired or guessed name redirects to the surface it
+ * meant. A path under a section that moved keeps everything after the section's
+ * prefix and takes the new one. Otherwise a trailing slash is dropped when what
+ * is left is a real route, because "/automations/" is a typing artifact rather
+ * than a request for a script whose id is the empty string.
  *
  * A path that is neither is left alone: an unknown path is a not-found page,
  * not a redirect to somewhere the reader did not ask for.
@@ -173,12 +192,30 @@ export function isKnownRoute(route: string): boolean {
 export function canonicalRoute(route: string): string | null {
   const alias = ALIASES.get(route);
   if (alias) return alias;
+  const moved = movedPrefixTarget(route);
+  if (moved) return canonicalRoute(moved) ?? moved;
   if (route.length > 1 && route.endsWith("/")) {
     const trimmed = route.replace(/\/+$/, "") || "/";
     const target = ALIASES.get(trimmed) ?? (isKnownRoute(trimmed) ? trimmed : null);
     if (target) return target;
   }
   return null;
+}
+
+/**
+ * redirectFor is where a full path (route plus any query string and hash)
+ * should be sent, or null when it is rendered where it is.
+ *
+ * The query string and hash the reader arrived with go along, unless the
+ * target names its own tab: a run link mailed under /scripts before the section
+ * became Automations (#1912) keeps whatever it carried after the path.
+ */
+export function redirectFor(path: string): string | null {
+  const cut = path.search(/[?#]/);
+  const route = cut >= 0 ? path.slice(0, cut) : path;
+  const target = canonicalRoute(route);
+  if (!target || cut < 0 || target.includes("#")) return target;
+  return target + path.slice(cut);
 }
 
 /**

@@ -61,7 +61,7 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       // A script that wrote this asset opens on the reader's own scripts
       // section, which shows it to its owner and to an administrator and
       // answers everybody else not-found -- the same rule its page applies.
-      scriptPath={(id) => `/scripts/${encodeURIComponent(id)}`}
+      scriptPath={(id) => `/automations/${encodeURIComponent(id)}`}
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

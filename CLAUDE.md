@@ -482,6 +482,8 @@ before.
 
 ### Managed Scripts
 
+The portal names this section **Automations** (`/portal/automations` and `/portal/admin/automations`; the old `/portal/scripts` paths redirect with the rest of the path intact, #1912). A script is the one kind of automation that exists: the MCP tools, the REST API under `/api/v1/*/scripts`, `mcp:script:` references, `script:` principals, tables, metrics and config keys keep the script name.
+
 Authoring needs no configuration and is available wherever there is a database.
 A saved script runs: `run_script` and a schedule execute the latest saved
 version, presenting the roles its author held at the save, and the persona

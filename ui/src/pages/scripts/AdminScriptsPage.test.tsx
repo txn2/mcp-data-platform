@@ -77,23 +77,23 @@ afterEach(cleanup);
 describe("AdminScriptsPage", () => {
   // #1891: a third tab, between the two that were there, and the page still
   // opens on the listing.
-  it("reads Scripts, Schedules, Runs, and opens on Scripts", () => {
+  it("reads Automations, Schedules, Runs, and opens on Automations", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
     // The page's own strip is the first; the listing has a scope switch below it.
     const strip = screen.getAllByRole("tablist")[0]!;
     expect(within(strip).getAllByRole("tab").map((t) => t.textContent)).toEqual([
-      "Scripts",
+      "Automations",
       "Schedules",
       "Runs",
     ]);
-    expect(screen.getByRole("tab", { name: "Scripts" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("sends a reader with nothing scheduled from Schedules back to Scripts", () => {
+  it("sends a reader with nothing scheduled from Schedules back to Automations", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Schedules" }));
-    fireEvent.click(screen.getByRole("button", { name: "Go to Scripts" }));
-    expect(screen.getByRole("tab", { name: "Scripts" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Go to Automations" }));
+    expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
   });
   it("lists every script with whose it is", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
@@ -111,7 +111,7 @@ describe("AdminScriptsPage", () => {
     // The listing lists; the detail page is where an administrator runs, edits
     // and schedules. A second surface here would have been a second answer to
     // what an administrator can do with a script.
-    expect(onNavigate).toHaveBeenCalledWith("/admin/scripts/script-001");
+    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/script-001");
   });
 
   it("switches to what the platform has been running", () => {
@@ -132,6 +132,6 @@ describe("AdminScriptsPage", () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Runs" }));
     fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
 
-    expect(onNavigate).toHaveBeenCalledWith("/admin/scripts/script-001/runs/run-042");
+    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/script-001/runs/run-042");
   });
 });

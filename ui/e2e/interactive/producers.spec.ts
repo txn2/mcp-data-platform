@@ -44,7 +44,7 @@ test.describe("What produced a file", () => {
     await openAssetSidebar(page);
 
     await page.getByTestId("producers-panel").getByText("daily-sales-report").click();
-    await expect(page).toHaveURL(/\/portal\/scripts\/script-001$/);
+    await expect(page).toHaveURL(/\/portal\/automations\/script-001$/);
 
     const written = page.getByTestId("script-produced");
     await written.scrollIntoViewIfNeeded();
@@ -62,7 +62,7 @@ test.describe("What produced a file", () => {
     page,
   }) => {
     await authenticate(page);
-    await page.goto("/portal/scripts/script-001");
+    await page.goto("/portal/automations/script-001");
 
     const written = page.getByTestId("script-produced");
     await written.scrollIntoViewIfNeeded();
@@ -71,7 +71,7 @@ test.describe("What produced a file", () => {
     await expect(written.getByText("deleted")).toBeVisible();
 
     await written.getByText("ast-removed").click();
-    await expect(page).toHaveURL(/\/portal\/scripts\/script-001$/);
+    await expect(page).toHaveURL(/\/portal\/automations\/script-001$/);
   });
 
   test("a script that no longer exists is named and not linked", async ({ page }) => {
@@ -101,6 +101,6 @@ test.describe("What produced a file", () => {
     await expect(panel.getByText("marcus.webb@example.com")).toBeVisible();
 
     await panel.getByText("warehouse-freshness").click();
-    await expect(page).toHaveURL(/\/portal\/scripts\/script-003$/);
+    await expect(page).toHaveURL(/\/portal\/automations\/script-003$/);
   });
 });

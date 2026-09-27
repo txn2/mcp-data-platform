@@ -66,12 +66,12 @@ func (h *Handle) registerShowScripts(server *mcp.Server) {
 func (h *Handle) handleShowScripts(_ context.Context, input showScriptsInput) (*mcp.CallToolResult, any, error) {
 	result := map[string]any{
 		"shown":   true,
-		"message": "Opened the script pages in the portal, where the user can see each script, its schedule, and its run history.",
+		"message": "Opened the Automations pages in the portal, where the user can see each automation, its schedule, and its run history.",
 		"hint": "This shows a page to the human. To read a script, its runs, or its log yourself, " +
 			"use manage_script.",
 	}
 	if h.portalURL != "" {
-		result["url"] = h.portalURL + "/portal/scripts"
+		result["url"] = h.portalURL + "/portal/automations"
 	}
 	if input.Search != "" {
 		result["search"] = input.Search

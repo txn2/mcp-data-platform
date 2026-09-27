@@ -48,7 +48,7 @@ import { ScriptRunsList } from "./ScriptRunsList";
 // they have to go looking for by hand.
 
 /** SECTION is the section a link from this page opens under. */
-const SECTION = "/admin/scripts";
+const SECTION = "/admin/automations";
 
 const RUN_SERIES: TimeseriesSeries[] = [
   { dataKey: "success_count", name: "Succeeded", stroke: "hsl(142, 76%, 36%)" },
@@ -71,7 +71,7 @@ interface Narrowed {
 export function ScriptRunsTab({ onNavigate }: { onNavigate: (path: string) => void }) {
   const { preset, setPreset } = useTimeRangeStore();
   // The listing is read for one reason: the metric series label a script by
-  // NAME, and a link needs the id. It is the same query the Scripts tab reads,
+  // NAME, and a link needs the id. It is the same query the Automations tab reads,
   // so on this page it costs nothing.
   const { data: listing } = useScriptListing();
   const [narrowed, setNarrowed] = useState<Narrowed | null>(null);
@@ -80,7 +80,7 @@ export function ScriptRunsTab({ onNavigate }: { onNavigate: (path: string) => vo
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Every run the platform executed, across every script.
+          Every run the platform executed, across every automation.
         </p>
         <SegmentedControl
           label="Time range"
@@ -188,7 +188,7 @@ function RunMetrics({
       </SectionCard>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <SectionCard title="Busiest scripts">
+        <SectionCard title="Busiest automations">
           <ScriptMetricRows
             data={vectorToBreakdown(byScript.data, "script")}
             isLoading={byScript.isLoading}

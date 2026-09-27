@@ -104,7 +104,7 @@ export function ScriptListing({ audience, basePath, onNavigate }: Props) {
         onToggleFailing={state.toggleFailing}
       />
 
-      <SectionCard title={audience === "admin" ? "All scripts" : "Scripts"}>
+      <SectionCard title={audience === "admin" ? "All automations" : "Automations"}>
         <ScriptsSection
           rows={state.shown}
           audience={audience}
@@ -282,7 +282,7 @@ function ScriptHealth({
   return (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
       <span data-testid="script-health-total">
-        {total} {total === 1 ? "script" : "scripts"}
+        {total} {total === 1 ? "automation" : "automations"}
       </span>
       {/* The page says so when it is not the whole answer. total counts the
           predicate; shown is what the cap returned. */}
@@ -356,14 +356,14 @@ function ScriptFilterBar({
           value={scope}
           onChange={onScope}
           options={SCRIPT_SCOPE_OPTIONS}
-          label="Whose scripts"
+          label="Whose automations"
         />
       )}
       <SearchInput
         value={search}
         onChange={(e) => onSearch(e.target.value)}
-        placeholder="Search scripts..."
-        aria-label="Search scripts"
+        placeholder="Search automations..."
+        aria-label="Search automations"
         className="w-full sm:w-64"
       />
       <FilterSelect
@@ -444,12 +444,15 @@ function ScriptsSection({
       <TableHeader>
         <TableRow>
           <SortableHead
-            label="Script"
+            label="Automation"
             sortKey="display_name"
             sortBy={sort.key}
             sortDir={sort.dir}
             onSort={onSort}
           />
+          {/* What kind of automation each row is (#1912). Every one is a
+              script today; the column is where a second kind is told apart. */}
+          <TableHead>Kind</TableHead>
           <SortableHead
             label="Author"
             sortKey="owner_email"
@@ -490,24 +493,24 @@ function NothingToList({ audience, narrowed }: { audience: Audience; narrowed: b
   if (narrowed) {
     return (
       <EmptyState icon={FileCode2}>
-        No script you can see matches that. Clear the search or the filters above to see
-        the rest.
+        No automation you can see matches that. Clear the search or the filters above to
+        see the rest.
       </EmptyState>
     );
   }
   if (audience === "admin") {
     return (
       <EmptyState icon={FileCode2}>
-        No scripts have been authored yet. An agent creates one through the manage_script
-        tool, or a person writes one on their own scripts page; it appears here as soon as
-        it exists.
+        No automations exist yet. An agent creates one as a script through the
+        manage_script tool, or a person writes one on their own Automations page; it
+        appears here as soon as it exists.
       </EmptyState>
     );
   }
   return (
     <EmptyState icon={FileCode2}>
-      You have no scripts yet. Ask an agent to write one for a report or an export you
-      run repeatedly. A script runs as soon as it is saved, under the access you hold.
+      You have no automations yet. Ask an agent to automate a report or an export you run
+      repeatedly. An automation runs as soon as it is saved, under the access you hold.
     </EmptyState>
   );
 }

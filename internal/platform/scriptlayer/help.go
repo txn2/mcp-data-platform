@@ -14,7 +14,9 @@ import (
 // has read far less of than Python, and the failures it produces are
 // predictable — an import, a try block, an f-string, a clock read. Stating what
 // is absent up front costs a paragraph and saves a round trip per script.
-const manageScriptDescription = "Author, validate, and dry-run managed scripts: small Starlark programs the " +
+const manageScriptDescription = "Build and change automations. The unit of an automation is a managed " +
+	"script, so this is the tool for a request to automate work or to run it on a schedule or on its own. " +
+	"Author, validate, and dry-run managed scripts: small Starlark programs the " +
 	"platform stores, versions, and governs so a solved process (a KPI report, a recurring export) can be " +
 	"re-run without deriving it again through a conversation. Write a script when the logic is settled and " +
 	"the work will repeat; keep using the query tools directly while you are still exploring. " +

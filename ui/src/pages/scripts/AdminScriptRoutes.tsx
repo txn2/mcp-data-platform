@@ -15,7 +15,7 @@ import { sectionOf } from "./producedPaths";
 // cross-script Runs listing links to (#1407). A run has no page of its own —
 // it is read in the history on its script's page — so this address opens that
 // page with the run it named already open.
-const RUN_ROUTE = /^\/admin\/scripts\/([^/]+)\/runs\/([^/]+)$/;
+const RUN_ROUTE = /^\/admin\/automations\/([^/]+)\/runs\/([^/]+)$/;
 
 export function AdminScriptRoutes({
   route,
@@ -24,7 +24,7 @@ export function AdminScriptRoutes({
   route: string;
   onNavigate: (path: string) => void;
 }) {
-  if (route === "/admin/scripts") return <AdminScriptsPage onNavigate={onNavigate} />;
+  if (route === "/admin/automations") return <AdminScriptsPage onNavigate={onNavigate} />;
 
   const run = route.match(RUN_ROUTE);
   if (run) {
@@ -32,21 +32,21 @@ export function AdminScriptRoutes({
       <ScriptDetailPage
         scriptId={run[1]!}
         openRunId={run[2]!}
-        backLabel="All scripts"
-        onBack={() => onNavigate("/admin/scripts")}
+        backLabel="All automations"
+        onBack={() => onNavigate("/admin/automations")}
         onNavigate={onNavigate}
         filePath={adminFilePath}
       />
     );
   }
 
-  const detail = route.match(/^\/admin\/scripts\/([^/]+)$/);
+  const detail = route.match(/^\/admin\/automations\/([^/]+)$/);
   if (!detail) return null;
   return (
     <ScriptDetailPage
       scriptId={detail[1]!}
-      backLabel="All scripts"
-      onBack={() => onNavigate("/admin/scripts")}
+      backLabel="All automations"
+      onBack={() => onNavigate("/admin/automations")}
       onNavigate={onNavigate}
       filePath={adminFilePath}
     />

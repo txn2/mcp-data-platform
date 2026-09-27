@@ -22,7 +22,7 @@ interface Props {
 
 export function MyScriptsPage({ onNavigate }: Props) {
   // Controlled, so the Schedules tab's empty state can send the reader to the
-  // Scripts tab, where a schedule is set.
+  // Automations tab, where a schedule is set.
   const [tab, setTab] = useState("scripts");
   return (
     <Tabs value={tab} onValueChange={setTab} className="gap-4">
@@ -34,7 +34,7 @@ export function MyScriptsPage({ onNavigate }: Props) {
           value="scripts"
           className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
         >
-          Scripts
+          Automations
         </TabsTrigger>
         <TabsTrigger
           value="schedules"
@@ -51,19 +51,19 @@ export function MyScriptsPage({ onNavigate }: Props) {
       </TabsList>
 
       <TabsContent value="scripts">
-        <ScriptListing audience="owner" basePath="/scripts" onNavigate={onNavigate} />
+        <ScriptListing audience="owner" basePath="/automations" onNavigate={onNavigate} />
       </TabsContent>
 
       <TabsContent value="schedules">
         <ScheduleTimelineTab
-          basePath="/scripts"
+          basePath="/automations"
           onNavigate={onNavigate}
           onShowScripts={() => setTab("scripts")}
         />
       </TabsContent>
 
       <TabsContent value="runs">
-        <ScriptRunsList audience="owner" basePath="/scripts" onNavigate={onNavigate} />
+        <ScriptRunsList audience="owner" basePath="/automations" onNavigate={onNavigate} />
       </TabsContent>
     </Tabs>
   );

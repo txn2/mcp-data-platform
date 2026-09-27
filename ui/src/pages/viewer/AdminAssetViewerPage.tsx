@@ -64,7 +64,7 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       assetPath={(id) => `/admin/assets/${encodeURIComponent(id)}`}
       // An operator opens a script that wrote this asset in the console's own
       // scripts section, which holds every script rather than their own.
-      scriptPath={(id) => `/admin/scripts/${encodeURIComponent(id)}`}
+      scriptPath={(id) => `/admin/automations/${encodeURIComponent(id)}`}
       // The stored tile is read through the console's own route: the portal's
       // view grant is owner, share and collection, with no admin arm, so an
       // operator reading someone else's asset is refused the portal one.

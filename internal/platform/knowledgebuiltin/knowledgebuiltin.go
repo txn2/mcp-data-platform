@@ -55,8 +55,8 @@ var pageMetas = []pageMeta{
 	{
 		file:    "writing-managed-scripts.md",
 		slug:    "platform-writing-managed-scripts",
-		summary: "How to write a managed script: the Starlark dialect's deliberate absences, the tools a script can call and the persona that decides them, DECIMAL columns arriving as strings, the validate/dry-run loop, and what a save makes runnable.",
-		tags:    []string{"scripts", "starlark", "authoring"},
+		summary: "How to build an automation, which the platform builds as a managed script: the Starlark dialect's deliberate absences, the tools a script can call and the persona that decides them, DECIMAL columns arriving as strings, the validate/dry-run loop, and what a save makes runnable.",
+		tags:    []string{"scripts", "automation", "starlark", "authoring"},
 	},
 	{
 		file:    "script-outputs-and-export-identity.md",

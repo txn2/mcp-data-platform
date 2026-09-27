@@ -21,12 +21,12 @@ afterEach(cleanup);
 
 describe("PortalScriptRoutes", () => {
   it("opens the listing at the section index", () => {
-    render(<PortalScriptRoutes route="/scripts" onNavigate={onNavigate} />);
+    render(<PortalScriptRoutes route="/automations" onNavigate={onNavigate} />);
     expect(screen.getByTestId("listing")).toBeInTheDocument();
   });
 
   it("opens one script, naming no run", () => {
-    render(<PortalScriptRoutes route="/scripts/script-001" onNavigate={onNavigate} />);
+    render(<PortalScriptRoutes route="/automations/script-001" onNavigate={onNavigate} />);
     const detail = screen.getByTestId("detail");
     expect(detail).toHaveAttribute("data-script", "script-001");
     expect(detail).toHaveAttribute("data-run", "");
@@ -35,7 +35,7 @@ describe("PortalScriptRoutes", () => {
   // #1405: a run has no page of its own, so its address opens its script's page
   // with that run already open.
   it("opens one run on its script's page", () => {
-    render(<PortalScriptRoutes route="/scripts/script-001/runs/run-042" onNavigate={onNavigate} />);
+    render(<PortalScriptRoutes route="/automations/script-001/runs/run-042" onNavigate={onNavigate} />);
     const detail = screen.getByTestId("detail");
     expect(detail).toHaveAttribute("data-script", "script-001");
     expect(detail).toHaveAttribute("data-run", "run-042");
@@ -45,7 +45,7 @@ describe("PortalScriptRoutes", () => {
   // a slash: the shell answers it with the not-found page.
   it("renders nothing for a path under a script that names no page", () => {
     const { container } = render(
-      <PortalScriptRoutes route="/scripts/script-001/nonesuch" onNavigate={onNavigate} />,
+      <PortalScriptRoutes route="/automations/script-001/nonesuch" onNavigate={onNavigate} />,
     );
     expect(container).toBeEmptyDOMElement();
   });

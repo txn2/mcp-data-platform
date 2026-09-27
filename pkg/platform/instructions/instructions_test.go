@@ -447,3 +447,15 @@ func TestBuild_NamesTheReferenceRule(t *testing.T) {
 		t.Errorf("the reference rule reached a caller without save_asset: %q", other)
 	}
 }
+
+// TestBuild_AnswersAnAutomationRequestWithManageScript pins the request side of
+// the script guidance (#1912): a person who asks for an automation or for work
+// on a schedule gets a script without having to know the word.
+func TestBuild_AnswersAnAutomationRequestWithManageScript(t *testing.T) {
+	baseline := Build([]string{toolManageScript})
+	for _, want := range []string{"Automations are scripts", "asks for an automation", "`manage_script`", "`schedule_set`"} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("baseline is missing %q:\n%s", want, baseline)
+		}
+	}
+}

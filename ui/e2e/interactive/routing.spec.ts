@@ -62,18 +62,32 @@ test.describe("A path the portal has no page for", () => {
 
   test("drops a trailing slash from a section that exists without one", async ({ page }) => {
     await authenticate(page);
-    await page.goto("/portal/scripts/");
+    await page.goto("/portal/automations/");
 
-    await expect(page).toHaveURL(/\/portal\/scripts$/);
-    await expect(page.getByRole("heading", { name: "Scripts", level: 1 })).toBeVisible();
+    await expect(page).toHaveURL(/\/portal\/automations$/);
+    await expect(page.getByRole("heading", { name: "Automations", level: 1 })).toBeVisible();
+  });
+
+  // #1912: the section moved to /automations, and a run link mailed under the
+  // old prefix, with whatever it carried after the path, lands on that run.
+  test("sends an old scripts link to the same page under automations", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/scripts/script-001/runs/run-001?x=1#source");
+
+    await expect(page).toHaveURL(/\/portal\/automations\/script-001\/runs\/run-001\?x=1#source$/);
+    await expect(page.getByRole("heading", { name: "Script", level: 1 })).toBeVisible();
+
+    await page.goto("/portal/admin/scripts");
+    await expect(page).toHaveURL(/\/portal\/admin\/automations$/);
+    await expect(page.getByRole("heading", { name: "Automations", level: 1 })).toBeVisible();
   });
 
   // A real page is not collateral damage: recognition runs before the switch,
   // so every route that renders something has to still render it.
   test("still renders a section and a detail it does have", async ({ page }) => {
     await authenticate(page);
-    await page.goto("/portal/scripts");
-    await expect(page.getByRole("heading", { name: "Scripts", level: 1 })).toBeVisible();
+    await page.goto("/portal/automations");
+    await expect(page.getByRole("heading", { name: "Automations", level: 1 })).toBeVisible();
 
     await page.getByRole("row").filter({ hasText: "Daily Sales Report" }).click();
     await expect(page.getByRole("heading", { name: "Daily Sales Report" })).toBeVisible();

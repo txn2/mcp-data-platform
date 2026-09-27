@@ -23,7 +23,7 @@ export function PortalResourceViewer({
       // A script that wrote this file opens on the reader's own scripts
       // section, which shows it to its owner and to an administrator and
       // answers everybody else not-found -- the same rule its page applies.
-      scriptPath={(id) => `/scripts/${encodeURIComponent(id)}`}
+      scriptPath={(id) => `/automations/${encodeURIComponent(id)}`}
       sessionPath={mySessionPath}
     />
   );

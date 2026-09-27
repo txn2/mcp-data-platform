@@ -34,7 +34,7 @@ function run(overrides: Partial<PortalScriptRun> = {}): PortalScriptRun {
 
 // owned renders the listing as the person who owns the scripts reads it.
 function owned() {
-  return render(<ScriptRunsList audience="owner" basePath="/scripts" onNavigate={onNavigate} />);
+  return render(<ScriptRunsList audience="owner" basePath="/automations" onNavigate={onNavigate} />);
 }
 
 beforeEach(() => {
@@ -57,14 +57,14 @@ describe("ScriptRunsList", () => {
   it("opens the run from the row", () => {
     owned();
     fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001/runs/run-042");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-001/runs/run-042");
   });
 
   it("opens the script from its name, without opening the run", () => {
     owned();
     fireEvent.click(screen.getByRole("button", { name: "Daily Sales Report" }));
     expect(onNavigate).toHaveBeenCalledTimes(1);
-    expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001");
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-001");
   });
 
   // The reason a run failed decides which run anybody opens, so it is in the
@@ -106,7 +106,7 @@ describe("ScriptRunsList", () => {
     mockRuns.mockReturnValue(query({ data: [run(), run({ id: "run-043" })], total: 2, limit: 2 }));
     owned();
     expect(
-      screen.getByText(/Showing the 2 most recent runs across your scripts/),
+      screen.getByText(/Showing the 2 most recent runs across your automations/),
     ).toBeInTheDocument();
   });
 
@@ -118,14 +118,14 @@ describe("ScriptRunsList", () => {
   it("says plainly when nothing has run yet", () => {
     mockRuns.mockReturnValue(query({ data: [], total: 0, limit: 50 }));
     owned();
-    expect(screen.getByText(/None of your scripts has run yet/)).toBeInTheDocument();
+    expect(screen.getByText(/None of your automations has run yet/)).toBeInTheDocument();
   });
 
   it("reports a listing that could not be loaded instead of showing it as empty", () => {
     mockRuns.mockReturnValue(query(undefined, { error: new Error("boom") }));
     owned();
     expect(screen.getByText(/run history could not be loaded/)).toBeInTheDocument();
-    expect(screen.queryByText(/None of your scripts has run yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/None of your automations has run yet/)).not.toBeInTheDocument();
   });
 
   it("shows a loading state rather than an empty one while the listing is in flight", () => {
@@ -140,16 +140,16 @@ describe("ScriptRunsList", () => {
 describe("ScriptRunsList: the administrator's reading", () => {
   it("opens a run under the section the reader came from", () => {
     render(
-      <ScriptRunsList audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />,
+      <ScriptRunsList audience="admin" basePath="/admin/automations" onNavigate={onNavigate} />,
     );
     fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
-    expect(onNavigate).toHaveBeenCalledWith("/admin/scripts/script-001/runs/run-042");
+    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/script-001/runs/run-042");
   });
 
   it("says nothing has run in the platform's terms rather than the reader's", () => {
     mockRuns.mockReturnValue(query({ data: [], total: 0, limit: 50 }));
     render(
-      <ScriptRunsList audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />,
+      <ScriptRunsList audience="admin" basePath="/admin/automations" onNavigate={onNavigate} />,
     );
     expect(screen.getByText(/^Nothing has run yet/)).toBeInTheDocument();
   });
@@ -161,7 +161,7 @@ describe("ScriptRunsList: the administrator's reading", () => {
     render(
       <ScriptRunsList
         audience="admin"
-        basePath="/admin/scripts"
+        basePath="/admin/automations"
         onNavigate={onNavigate}
         scriptId="script-001"
         scriptName="Daily Sales Report"
@@ -177,7 +177,7 @@ describe("ScriptRunsList: the administrator's reading", () => {
 
   it("offers no way to clear a narrowing there is none of", () => {
     render(
-      <ScriptRunsList audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />,
+      <ScriptRunsList audience="admin" basePath="/admin/automations" onNavigate={onNavigate} />,
     );
     expect(screen.queryByRole("button", { name: "Show every script" })).not.toBeInTheDocument();
   });

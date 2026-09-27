@@ -68,7 +68,7 @@ export function ScriptDetailPage({
   scriptId,
   onBack,
   onNavigate,
-  backLabel = "Scripts",
+  backLabel = "Automations",
   openRunId,
   filePath,
 }: Props) {

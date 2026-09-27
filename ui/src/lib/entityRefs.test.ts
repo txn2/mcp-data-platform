@@ -25,11 +25,11 @@ describe("entityHref", () => {
 
   it("routes a cited script to its script page (#1855)", () => {
     const id = "6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55";
-    expect(entityHref("script", id)).toBe(`/scripts/${id}`);
+    expect(entityHref("script", id)).toBe(`/automations/${id}`);
     expect(entityHref("script", "../x")).toBeNull();
     const parsed = parseRef(`mcp:script:${id}`);
     expect(parsed).toEqual({ urn: `mcp:script:${id}`, type: "script", id, fallbackLabel: id });
-    expect(refHref(parsed!.type, parsed!.id, parsed!.urn)).toBe(`/scripts/${id}`);
+    expect(refHref(parsed!.type, parsed!.id, parsed!.urn)).toBe(`/automations/${id}`);
     expect(extractRefUrns(`Kept in sync by [the backfill](mcp:script:${id}).`)).toEqual([`mcp:script:${id}`]);
   });
 

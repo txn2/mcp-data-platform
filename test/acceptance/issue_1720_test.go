@@ -501,7 +501,7 @@ platform.notify(
 	// Every post from a monitor leads back to the run, so a reader who wants
 	// to know what produced the number can open it.
 	msgs := mattermostPosts(t, env)
-	if !containing(msgs, "/portal/scripts/") {
+	if !containing(msgs, "/portal/automations/") {
 		t.Error("the post does not link back to the run that produced it")
 	}
 }

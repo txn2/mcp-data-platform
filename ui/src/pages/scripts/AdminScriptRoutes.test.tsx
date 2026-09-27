@@ -34,24 +34,24 @@ afterEach(cleanup);
 
 describe("AdminScriptRoutes", () => {
   it("opens the listing at the section index", () => {
-    render(<AdminScriptRoutes route="/admin/scripts" onNavigate={onNavigate} />);
+    render(<AdminScriptRoutes route="/admin/automations" onNavigate={onNavigate} />);
     expect(screen.getByTestId("listing")).toBeInTheDocument();
   });
 
   it("opens one script on the same page its owner opens", () => {
-    render(<AdminScriptRoutes route="/admin/scripts/script-001" onNavigate={onNavigate} />);
+    render(<AdminScriptRoutes route="/admin/automations/script-001" onNavigate={onNavigate} />);
     const detail = screen.getByTestId("detail");
     expect(detail).toHaveAttribute("data-script", "script-001");
     expect(detail).toHaveAttribute("data-run", "");
     // The way back is the section the reader came from, not the owner's.
-    expect(detail).toHaveAttribute("data-back", "All scripts");
+    expect(detail).toHaveAttribute("data-back", "All automations");
   });
 
   // #1407: a run in the operator's listing opens its script's page with that
   // run already open, which is what the owner's section does too.
   it("opens one run on its script's page", () => {
     render(
-      <AdminScriptRoutes route="/admin/scripts/script-001/runs/run-042" onNavigate={onNavigate} />,
+      <AdminScriptRoutes route="/admin/automations/script-001/runs/run-042" onNavigate={onNavigate} />,
     );
     const detail = screen.getByTestId("detail");
     expect(detail).toHaveAttribute("data-script", "script-001");
@@ -62,7 +62,7 @@ describe("AdminScriptRoutes", () => {
   // a slash: the shell answers it with the not-found page.
   it("renders nothing for a path under a script that names no page", () => {
     const { container } = render(
-      <AdminScriptRoutes route="/admin/scripts/script-001/nonesuch" onNavigate={onNavigate} />,
+      <AdminScriptRoutes route="/admin/automations/script-001/nonesuch" onNavigate={onNavigate} />,
     );
     expect(container).toBeEmptyDOMElement();
   });

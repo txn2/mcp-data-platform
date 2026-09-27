@@ -8,8 +8,8 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 async function gotoAdminScripts(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto("/portal/admin/scripts");
-  await expect(page.getByText("All scripts")).toBeVisible();
+  await page.goto("/portal/admin/automations");
+  await expect(page.getByText("All automations")).toBeVisible();
 }
 
 test.describe("Admin script pages", () => {
@@ -37,11 +37,11 @@ test.describe("Admin script pages", () => {
   test("narrows every script by what an administrator typed", async ({ page }) => {
     await gotoAdminScripts(page);
 
-    await page.getByLabel("Search scripts").fill("margin");
+    await page.getByLabel("Search automations").fill("margin");
     await expect(page.getByText("My Margin Check")).toBeVisible();
     await expect(page.getByText("Daily Sales Report")).toHaveCount(0);
 
-    await page.getByLabel("Search scripts").fill("");
+    await page.getByLabel("Search automations").fill("");
     await expect(page.getByText("Daily Sales Report")).toBeVisible();
   });
 
@@ -66,7 +66,7 @@ test.describe("Admin script pages", () => {
     await page.getByRole("tab", { name: "Runs" }).click();
 
     await page.getByRole("row").filter({ hasText: /Daily Sales Report/ }).first().click();
-    await expect(page).toHaveURL(/\/admin\/scripts\/script-001\/runs\//);
+    await expect(page).toHaveURL(/\/admin\/automations\/script-001\/runs\//);
     await expect(page.getByText(/wrote asset version 42/)).toBeVisible();
   });
 
@@ -77,7 +77,7 @@ test.describe("Admin script pages", () => {
     await page.getByRole("tab", { name: "Runs" }).click();
 
     const busiest = page.locator("div[data-slot=card]").filter({
-      has: page.getByRole("heading", { name: "Busiest scripts" }),
+      has: page.getByRole("heading", { name: "Busiest automations" }),
     });
     await busiest.getByRole("button", { name: "Runs" }).first().click();
     await expect(page.getByText(/Narrowed to/)).toBeVisible();
@@ -86,7 +86,7 @@ test.describe("Admin script pages", () => {
     await expect(page.getByText(/Narrowed to/)).toHaveCount(0);
 
     await busiest.getByRole("button", { name: "Daily Sales Report" }).click();
-    await expect(page).toHaveURL(/\/admin\/scripts\/script-001$/);
+    await expect(page).toHaveURL(/\/admin\/automations\/script-001$/);
   });
 
   test("a row opens the script, where an administrator does everything an owner does", async ({
@@ -95,7 +95,7 @@ test.describe("Admin script pages", () => {
     await gotoAdminScripts(page);
 
     await page.getByRole("row").filter({ hasText: "daily-sales-report" }).click();
-    await expect(page).toHaveURL(/\/admin\/scripts\/script-001$/);
+    await expect(page).toHaveURL(/\/admin\/automations\/script-001$/);
     // The shell names the page for what it is showing, which a detail route
     // under a section it does not know would otherwise get wrong.
     await expect(page.getByRole("heading", { name: "Script", level: 1 })).toBeVisible();

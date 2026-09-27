@@ -10,7 +10,7 @@ export function sourceLabel(source?: string): string {
     case "mcp":
       return "Agent via MCP transport";
     case "rest":
-      return "External automation via gateway REST shim (e.g. NiFi, cronjobs)";
+      return "External client via the gateway REST shim (e.g. NiFi, cron jobs)";
     case "admin":
       return "Portal-driven tool execution via admin REST API";
     default:

@@ -1069,3 +1069,12 @@ func TestHasStore(t *testing.T) {
 	var nilHandle *Handle
 	assert.False(t, nilHandle.HasStore(), "a nil layer registers nothing")
 }
+
+// TestToolDescriptions_SayTheyBuildAutomations pins what tools/list tells an
+// agent (#1912): a request to automate work is a manage_script request, and
+// run_script runs an automation on request.
+func TestToolDescriptions_SayTheyBuildAutomations(t *testing.T) {
+	assert.True(t, strings.HasPrefix(manageScriptDescription, "Build and change automations."))
+	assert.Contains(t, manageScriptDescription, "managed script")
+	assert.True(t, strings.HasPrefix(runScriptDescription, "Run an automation on request"))
+}

@@ -1,5 +1,5 @@
 ---
-description: "Administering the portal's content: assets, collections, resources, prompts, and scripts across every owner."
+description: "Administering the portal's content: assets, collections, resources, prompts, and automations (scripts) across every owner."
 ---
 
 # Content
@@ -78,18 +78,19 @@ Features:
 - **Tags** — Comma-separated labels set on create and edit, shown as chips in the expanded row
 - **Promotion review queue** — A panel at the top of the page lists personal prompts whose owners have requested promotion, showing the owner, the requested scope (persona with the target personas, or global), and the description. **Approve** applies the requested scope/personas and marks the prompt approved; **Reject** clears the request and leaves it personal. If the promoted name already exists in the shared namespace, approval is blocked with a conflict so the owner renames first. The panel is hidden when no requests are pending.
 
-## Scripts (Admin)
+## Automations (Admin)
 
-The Scripts page is the operator's view of the platform's managed scripts:
-every script that exists, and what has been running. A saved script runs — the
+The Automations page (`/portal/admin/automations`) is the operator's view of the
+platform's automations, each of which is a managed script: every script that
+exists, and what has been running. A saved script runs — the
 latest saved version is what `run_script` and a schedule execute, presenting
 the roles its author held at the save — so this page lists and explains rather
 than gating anything. See
 [Managed Scripts: Security Model](../scripts/security.md).
 
-![Admin Scripts](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
+![Admin Automations](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Automations](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
 
-**All scripts** lists every script by name, owner, schedule and last run. The
+**All automations** lists every script by name, kind, owner, schedule and last run. The
 schedule is the cadence in words — "Every weekday at 7:00 AM,
 America/Los_Angeles" — with what it is doing underneath it (the next fire,
 paused, or no fire due), and a script with no cadence reads **On demand**; the
@@ -111,7 +112,7 @@ them — and one filter bar narrows it: a search box and a facet each for author
 category, tag and status, every one a query predicate answered by the server over
 every script rather than over the rows this page happened to load. The Script,
 Author and Updated headers order it, in the store and ahead of the page cap. It
-is the same listing the owners read on their own Scripts page, without the scope
+is the same listing the owners read on their own Automations page, without the scope
 tabs, which an administrator has no use for: one listing, so the two surfaces
 cannot drift apart.
 

@@ -34,7 +34,7 @@ func TestHandleShowScripts_NamesThePagesWhenTheDeploymentHasAnAddress(t *testing
 	require.NoError(t, err)
 
 	out := resultFields(t, res)
-	assert.Equal(t, "https://portal.example.com/portal/scripts", out["url"])
+	assert.Equal(t, "https://portal.example.com/portal/automations", out["url"])
 	assert.Equal(t, "sales", out["search"])
 }
 
@@ -86,7 +86,7 @@ func TestShowScripts_CalledOverASession(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 
 	out := resultFields(t, res)
-	assert.Equal(t, "https://portal.example.com/portal/scripts", out["url"])
+	assert.Equal(t, "https://portal.example.com/portal/automations", out["url"])
 	assert.Equal(t, "sales", out["search"])
 }
 

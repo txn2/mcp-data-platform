@@ -33,7 +33,7 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
           value="scripts"
           className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
         >
-          Scripts
+          Automations
         </TabsTrigger>
         <TabsTrigger
           value="schedules"
@@ -51,7 +51,7 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
 
       <TabsContent value="schedules">
         <ScheduleTimelineTab
-          basePath="/admin/scripts"
+          basePath="/admin/automations"
           onNavigate={onNavigate}
           onShowScripts={() => setTab("scripts")}
         />
@@ -62,7 +62,7 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
       </TabsContent>
 
       <TabsContent value="scripts">
-        <ScriptListing audience="admin" basePath="/admin/scripts" onNavigate={onNavigate} />
+        <ScriptListing audience="admin" basePath="/admin/automations" onNavigate={onNavigate} />
       </TabsContent>
     </Tabs>
   );

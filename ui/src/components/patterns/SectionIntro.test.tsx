@@ -62,7 +62,7 @@ describe("sectionIntroPath", () => {
       ["/", "/"],
       ["/collections", "/"],
       ["/prompts", "/prompts"],
-      ["/scripts", "/scripts"],
+      ["/automations", "/automations"],
       ["/resources", "/resources"],
       ["/resources/lib/user-1", "/resources"],
       ["/scratch-tables", "/scratch-tables"],
@@ -89,7 +89,7 @@ describe("sectionIntroPath", () => {
       "/prompts/pr-1",
       // One knowledge page open is a detail view, even though the hub renders it.
       "/knowledge/pages/kp-1",
-      "/scripts/sc-1",
+      "/automations/sc-1",
       "/scratch-tables/tbl-1",
       "/activity/sessions/ses-1",
       "/activity/calls/call-1",

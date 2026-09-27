@@ -137,10 +137,10 @@ export const SECTION_INTROS: SectionIntroCopy[] = [
     storageKey: "portal.intro.prompts",
   },
   {
-    path: "/scripts",
-    summary: "Code an agent can write, run on demand or on a schedule.",
+    path: "/automations",
+    summary: "Work that runs on a schedule or when someone asks.",
     about:
-      "A script queries data, calls APIs, and writes assets and resources. Each run keeps its output and its history, and a script carries one object of state from one run to the next.",
+      "An automation keeps the record of every run and carries its state from one run to the next, so a report lands every weekday and an export refreshes each month without anyone rebuilding it. An agent builds one as a script: it queries data, calls APIs, and writes assets and resources.",
     storageKey: "portal.intro.scripts",
   },
   {

@@ -762,7 +762,7 @@ their script on: `GET` and `PUT /api/v1/portal/scripts/{id}/schedule`, and `POST
 /api/v1/portal/scripts/{id}/schedule/enable` and `.../disable`, restricted to
 the script's owner and to administrators and answering "not yours" exactly as
 they answer "no such script". See
-[Scripts in the portal](../portal/scripts.md#the-schedule).
+[Automations in the portal](../portal/scripts.md#the-schedule).
 
 A cadence on a disabled or retired script saves and stays inert — which both
 the tool and the page say plainly rather than leaving an owner waiting on an
@@ -816,7 +816,7 @@ than 28 is Intraday, at least four is Multi-day, and fewer is Long-term. The
 rate is measured over four weeks rather than over the week drawn, so a monthly
 job whose fire lands this week is still filed as monthly. A section with no
 schedule is not drawn, and with nothing scheduled the tab says so and points to
-the Scripts tab.
+the Automations tab.
 
 A row's color says what kind of schedule it is, read from the typical gap
 between its fires: every few minutes, hourly, daily, weekly, or monthly or
@@ -1781,7 +1781,7 @@ see [a worker that dies](#a-worker-that-dies).
 
 ## Seeing what happened
 
-The portal's **Scripts** page is the human view of all of this: every script you
+The portal's **Automations** page is the human view of all of this: every script you
 can see, its owner where that is not you, its cadence and next fire, and how its
 last run went.
 

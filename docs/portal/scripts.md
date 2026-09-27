@@ -1,16 +1,23 @@
 ---
-description: "Managed scripts in the portal: the list, one script's page, its schedule, source, versions, runs, and state."
+description: "Automations in the portal: work that runs on a schedule or on request, built as managed scripts. The list, one script's page, its schedule, source, versions, runs, and state."
 ---
 
-# Scripts
+# Automations
 
-A script is a program the platform runs for you: an agent writes one once, and from then
-on it produces the same report, dashboard refresh, or export on a schedule or on request.
-A script runs as soon as it is saved, under the access its author holds. The Scripts page
-is where you see what you have, what is scheduled, and how it has been going, over two
-tabs: **Scripts** and **Runs**.
+An automation is work that runs on its own: a report that lands every weekday at 7 AM, an
+export that refreshes monthly, an ingest that runs when somebody asks. It keeps the record
+of every run and carries its state from one run to the next. An agent builds an automation
+as a script, a program the platform stores and runs for you, so asking an agent to
+"automate this" or "run this every Monday" is enough; you do not need to ask for a script.
+Every automation is a script today, and the listing states each one's kind.
 
-![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
+A script runs as soon as it is saved, under the access its author holds. The Automations
+page (`/portal/automations`) is where you see what you have, when it fires, and how it has
+been going, over three tabs: **Automations**, **Schedules** and **Runs**. A link built
+under the old `/portal/scripts` address, such as one in an email sent before the section
+was renamed, opens the same page under `/portal/automations`.
+
+![Automations](../images/screenshots/light/user-scripts-light.webp#only-light)![Automations](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
 Above the table is one line of numbers: how many scripts, how many are scheduled
 (anything with a cadence, paused or not), and how many failed their last run. Only the
@@ -28,8 +35,9 @@ produced. Its run history, its state and every action stay with its owner. An
 administrator can move a script to another owner, which is how one arrives in Mine that
 you did not write.
 
-Each row states what is worth knowing at a glance: what the script is called, its
-schedule and next fire, and how its most recent run ended. A script that will execute
+Each row states what is worth knowing at a glance: what the automation is called, its
+kind (**Script**, for every automation today), its schedule and next fire, and how its most
+recent run ended. A script that will execute
 nothing carries a badge beside its name — **disabled**, or its lifecycle status — because
 that is the exception you scan a list for; the version a run executes is true of every
 healthy script and is stated on the script's own page. Opening a row opens the script, the
@@ -45,7 +53,7 @@ author, category, tag and status. The search matches what a script is called and
 says about itself. Every axis is applied by the server, so each covers every script you
 can see rather than only the ones already on screen.
 
-The **Script**, **Author** and **Updated** headers order the listing, and clicking one
+The **Automation**, **Author** and **Updated** headers order the listing, and clicking one
 again reverses it. The ordering is the server's, which is why it is trustworthy: the
 listing is capped, so sorting the rows already on screen would have meant "A–Z within the
 most recently updated 200" while reading as "A–Z". **Last run** carries no sort control,
@@ -57,12 +65,13 @@ answer what is running and when, and a cron expression is not an answer to that.
 schedule with no phrase for it is named as a custom schedule; the expression itself is in
 the schedule editor on the script's own page, which is where one is read and written.
 
-Before an agent has written anything for you, the page says so rather than showing an
-empty table.
+Before an agent has built anything for you, the page says so rather than showing an
+empty table, and suggests asking an agent to automate a report or an export you run
+repeatedly.
 
-![No scripts yet](../images/screenshots/light/user-scripts-empty-light.webp#only-light)![No scripts yet](../images/screenshots/dark/user-scripts-empty-dark.webp#only-dark)
+![No automations yet](../images/screenshots/light/user-scripts-empty-light.webp#only-light)![No automations yet](../images/screenshots/dark/user-scripts-empty-dark.webp#only-dark)
 
-## When your scripts fire
+## When your automations fire
 
 The **Schedules** tab draws when every scheduled script fires: one row per
 script, a mark at each fire, on the viewer's own clock. Schedules that fire
@@ -72,16 +81,16 @@ Hovering a row gives the exact time of a fire, and clicking it opens the script.
 [Seeing every schedule at once](../scripts/running.md#seeing-every-schedule-at-once)
 covers how a schedule's section and color are chosen.
 
-![When your scripts fire](../images/screenshots/light/user-scripts-schedules-light.webp#only-light)![When your scripts fire](../images/screenshots/dark/user-scripts-schedules-dark.webp#only-dark)
+![When your automations fire](../images/screenshots/light/user-scripts-schedules-light.webp#only-light)![When your automations fire](../images/screenshots/dark/user-scripts-schedules-dark.webp#only-dark)
 
-## Every run, across your scripts
+## Every run, across your automations
 
 The **Runs** tab answers the question the run history on one script cannot: not how is
-this report going, but how are your scripts going, all of them. Every run of every script
-you own, newest first, with what triggered it, how it ended, how long it took, and — when
+this report going, but how are your automations going, all of them. Every run of every
+automation you own, newest first, with what triggered it, how it ended, how long it took, and — when
 it failed — the reason, in the row rather than behind it.
 
-![Runs across your scripts](../images/screenshots/light/user-scripts-runs-light.webp#only-light)![Runs across your scripts](../images/screenshots/dark/user-scripts-runs-dark.webp#only-dark)
+![Runs across your automations](../images/screenshots/light/user-scripts-runs-light.webp#only-light)![Runs across your automations](../images/screenshots/dark/user-scripts-runs-dark.webp#only-dark)
 
 Opening a row opens that run: the script's page, with the run's log, its parameters and
 what it produced already open. The script's name in the row opens the script itself. A
@@ -361,8 +370,10 @@ answers with the same account of what went and what stayed.
 
 ## Asking for the pages
 
-Ask your agent to show you your scripts — "show me my scripts", "what scripts do I
-have", "did the daily report run" — and it opens this page with the `show_scripts` tool.
+Ask your agent to show you your automations — "show me my automations", "what scripts do
+I have", "did the daily report run" — and it opens this page with the `show_scripts` tool.
+Ask it to "automate this" or "run this every Monday" and it builds a script with
+`manage_script`.
 That tool only opens the pages; every script operation an agent performs for its own
 work uses `manage_script`, which renders nothing.
 
