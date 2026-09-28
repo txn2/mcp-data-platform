@@ -88,13 +88,13 @@ func unique1579() string { return fmt.Sprintf("%d", time.Now().UnixNano()%1_000_
 // Both people in these tests pass the SAME name, which is the premise.
 func createScript1579(t *testing.T, c *client, name, source string, params []any) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1579: a script whose principal is shared with another owner's script of the same name.",
 		"source":      source,
 		"params":      params,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
@@ -137,24 +137,27 @@ func mustSucceed1579(t *testing.T, c *client, name string, args map[string]any) 
 // NAME and so keeping the principal it shares with the other owner's script of
 // that name. A probe saved under a name of its own would present a principal
 // nobody else has, and the collision this file is about would never arise.
-func becomeUpdater1579(t *testing.T, c *client, scriptName string) {
+//
+// ownAsset is an asset of the caller's own, which the draft the save records
+// (#1939) writes its description over.
+func becomeUpdater1579(t *testing.T, c *client, scriptName, ownAsset string) {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	c.saveEdit(map[string]any{
 		"command": "update", "name": scriptName, "source": scriptUpdate1579,
 		"params": []any{map[string]any{
 			"name": "asset_id", "type": "string", "required": true,
 			"description": "The asset this run writes a description over.",
 		}},
-	})
+	}, map[string]any{"asset_id": ownAsset})
 }
 
 // becomeInventory1579 saves the inventory probe over an existing script,
 // keeping its name and its id, so what it enumerates is that same script's.
 func becomeInventory1579(t *testing.T, c *client, scriptName string) {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	c.saveEdit(map[string]any{
 		"command": "update", "name": scriptName, "source": scriptInventory1579,
-	})
+	}, nil)
 }
 
 // scriptIDOf1579 returns the id of the calling person's script of this name,
@@ -257,7 +260,7 @@ func TestIssue1579_ARunDoesNotOwnAnotherOwnersSameNamedScriptsOutput(t *testing.
 	// would present a principal of its own and the collision would never
 	// arise. Saving a new source over that script keeps its name, and so keeps
 	// the principal it shares with the owner's daily-sales.
-	becomeUpdater1579(t, c.peer, c.scriptName)
+	becomeUpdater1579(t, c.peer, c.scriptName, c.peerAsset)
 
 	// The peer's run reaching for the owner's output.
 	refused := run1579(t, c.peer, c.scriptName, map[string]any{"asset_id": c.ownerAsset})
@@ -329,13 +332,13 @@ func TestIssue1579_TheRankedSearchDoesNotCrossOwners(t *testing.T) {
 	id := unique1579()
 	c := twoSameNamedScripts1579(t, id)
 
-	c.peer.call("manage_script", map[string]any{
+	c.peer.saveEdit(map[string]any{
 		"command": "update", "name": c.scriptName, "source": scriptSearch1579,
 		"params": []any{map[string]any{
 			"name": "query", "type": "string", "required": true,
 			"description": "What this run searches its own assets for.",
 		}},
-	})
+	}, nil)
 	run := mustSucceed1579(t, c.peer, c.scriptName, map[string]any{"query": "acceptance-1579"})
 	names := printed1579(t, run, "SEARCH")
 	if strings.Contains(names, c.ownerOutput) {
@@ -475,7 +478,7 @@ func TestIssue1579_TheCollisionIsIndependentOfTheArgumentForm(t *testing.T) {
 		t.Fatalf("two owners' same-named scripts wrote one asset row: %q", ownerAsset)
 	}
 
-	becomeUpdater1579(t, peer, scriptName)
+	becomeUpdater1579(t, peer, scriptName, peerAsset)
 	refused := run1579(t, peer, scriptName, map[string]any{"asset_id": ownerAsset})
 	if status, _ := refused["status"].(string); status != "failed" {
 		t.Fatalf("a run reached another owner's same-named script's output: %v", refused)

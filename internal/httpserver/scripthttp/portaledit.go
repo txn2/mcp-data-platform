@@ -3,11 +3,13 @@ package scripthttp
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -27,9 +29,21 @@ import (
 // inside the domain limit is never refused here.
 const maxSourceBodyBytes = 1 << 20
 
-// sourceRequest is a change to a script's code.
+// sourceRequest is a change to a script's code. ChangeSummary and UserAgreed
+// carry a change in what the automation does (#1942): what it will now do
+// differently, in plain words, and that the person saving agreed to it.
 type sourceRequest struct {
-	Source string `json:"source"`
+	Source        string `json:"source"`
+	ChangeSummary string `json:"change_summary,omitempty"`
+	UserAgreed    bool   `json:"user_agreed,omitempty"`
+}
+
+// changeNeededProblem is the refusal of a save that changes what the
+// automation does without a summary of the change (#1942): the differences
+// the person saving is asked to describe and agree to.
+type changeNeededProblem struct {
+	httpjson.ProblemDetail
+	Differences []scriptbehavior.Difference `json:"differences"`
 }
 
 // sourceResponse reports the saved edit.
@@ -44,7 +58,7 @@ type sourceResponse struct {
 // portalSetSource saves a new version of a script's source.
 //
 // @Summary      Edit a script's source
-// @Description  Saves new Starlark for a script the caller owns; the saved version is the version that runs. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.
+// @Description  Saves new Starlark for a script the caller owns; the saved version is the version that runs. The source is parsed, formatted, linted and its tests run before anything is stored (400 names what failed). A version whose replay of the script's recent runs, or whose reach, differs from the saved one is refused with 409 and the differences until it carries change_summary and user_agreed. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Accept       json
 // @Produce      json
@@ -54,6 +68,7 @@ type sourceResponse struct {
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  changeNeededProblem
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -72,19 +87,43 @@ func (h *Handler) portalSetSource(w http.ResponseWriter, r *http.Request, user *
 		httpjson.WriteError(w, http.StatusBadRequest, detail)
 		return
 	}
-	gated := scriptlint.Check(req.Source, scriptlint.For(sc))
-	if len(gated.Refused) > 0 {
-		httpjson.WriteError(w, http.StatusBadRequest, scriptlint.Detail(gated.Refused))
+	gate := h.gate()
+	gated := gate.Check(r.Context(), scriptsave.Request{
+		Existing: sc, Name: sc.Name, Source: req.Source,
+		Caller:        scriptsave.Caller{Email: user.owner(), Admin: user.IsAdmin},
+		ChangeSummary: req.ChangeSummary, Agreed: req.UserAgreed,
+	})
+	if gated.ChangeNeeded {
+		httpjson.WriteJSON(w, http.StatusConflict, changeNeededProblem{
+			ProblemDetail: httpjson.ProblemDetail{
+				Type: httpjson.ProblemTypePrefix + "behavior_change", Title: http.StatusText(http.StatusConflict),
+				Status: http.StatusConflict, Detail: gated.Refusal,
+			},
+			Differences: gated.Differences,
+		})
+		return
+	}
+	if gated.Refused() {
+		httpjson.WriteError(w, http.StatusBadRequest, gated.Refusal)
 		return
 	}
 	before := *sc
 	after := *sc
-	after.Source = gated.Source
+	gated.Apply(&after)
 	if err := after.Validate(); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.landEdit(w, r, &before, &after, user)
+}
+
+// gate is the save gate every source edit crosses, the lint and tests alone
+// when the deployment gave none.
+func (h *Handler) gate() *scriptsave.Gate {
+	if h.deps.Gate == nil {
+		return &scriptsave.Gate{Destinations: h.deps.Destinations}
+	}
+	return h.deps.Gate
 }
 
 // refuseSource applies the same static read the tool applies before storing an
@@ -137,6 +176,10 @@ func (h *Handler) landEdit(
 ) {
 	if !h.applyEdit(w, r, before, after, user) {
 		return
+	}
+	// The recordings the saved tests name are kept past the retention sweep.
+	if err := h.gate().Keep(r.Context(), after, user.owner()); err != nil {
+		slog.Warn("failed to keep the recordings a script's tests name", "script", after.Name, "error", err)
 	}
 	httpjson.WriteJSON(w, http.StatusOK, sourceResponse{
 		Applied: true,

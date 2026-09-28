@@ -184,7 +184,7 @@ func TestIssue1879_ALargeMemberExtractsInsideARun(t *testing.T) {
 	t.Logf("archive %s: %.0f bytes compressed, member %d bytes", archiveRef, stored, memberSize)
 
 	name := "acc-1879-large-" + stamp
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1879: extract a large archive member from a run.",
 		"source": fmt.Sprintf(`def main():
@@ -202,7 +202,7 @@ func TestIssue1879_ALargeMemberExtractsInsideARun(t *testing.T) {
     print("reference=" + m["reference"])
     print("content_type=" + m["content_type"])
 `, archiveRef, issue1879Path+"/staging-"+stamp),
-	})
+	}, nil)
 	if created["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}
@@ -455,21 +455,32 @@ func TestIssue1879_ADraftExtractsOnlyWithAllowWrites(t *testing.T) {
 		issue1879Entry{name: "draft.csv", body: "a\n1\n"}))
 	dest := issue1879Path + "/draft-" + stamp
 	name := "acc-1879-draft-" + stamp
+	// The folder is a parameter, so the draft the save records (#1939)
+	// extracts into one of its own and the criterion's folder starts empty.
 	source := fmt.Sprintf(`def main():
     """Extracts the archive and prints where its member was written."""
-    ext = platform.call("manage_resource", {"action": "extract", "reference": %q, "path": %q})
+    ext = platform.call("manage_resource", {"action": "extract", "reference": %q, "path": run.params["path"]})
     print("wrote=" + ext["members"][0]["uri"])
-`, ref, dest)
-	created := c.call("manage_script", map[string]any{
-		"command": "create", "name": name, "source": source,
+`, ref)
+	pathParam := []any{map[string]any{"name": "path", "type": "string", "required": true}}
+	created := c.saveScript(map[string]any{
+		"command": "create", "name": name, "source": source, "params": pathParam,
 		"description": "Acceptance #1879: extract from a draft.",
-	})
+	}, map[string]any{"path": dest + "-recording"})
 	if created["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}
+	recorded := c.call("manage_resource", map[string]any{"action": "get", "path": dest + "-recording", "filename": "draft.csv"})
+	if rec, _ := recorded["resource"].(map[string]any); rec != nil {
+		if id, _ := rec["resource_id"].(string); id != "" {
+			issue1879Cleanup(t, c, "mcp:resource:"+id)
+		}
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
-	barred := c.call("manage_script", map[string]any{"command": "run_draft", "name": name, "source": source})
+	barred := c.call("manage_script", map[string]any{
+		"command": "run_draft", "name": name, "source": source, "args": map[string]any{"path": dest},
+	})
 	if barred["status"] != "failed" || !strings.Contains(fmt.Sprint(barred["error"]), "manage_resource action=extract") {
 		t.Fatalf("a draft without allow_writes must stop at the extract and name it: %v", barred)
 	}
@@ -479,6 +490,7 @@ func TestIssue1879_ADraftExtractsOnlyWithAllowWrites(t *testing.T) {
 
 	allowed := c.call("manage_script", map[string]any{
 		"command": "run_draft", "name": name, "source": source, "allow_writes": true,
+		"args": map[string]any{"path": dest},
 	})
 	if allowed["status"] != "succeeded" {
 		t.Fatalf("run_draft allow_writes=true did not extract: %v", allowed)

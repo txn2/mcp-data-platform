@@ -91,11 +91,11 @@ func TestIssue1859_AScriptSeesAThrottledExportAndCarriesOn(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1859-throttled-" + stamp
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1859: a throttled export is handled by the script.",
 		"source":      fmt.Sprintf(issue1859ExportSource, apiTestConnection, "throttled-"+stamp+".json"),
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 90})
@@ -124,7 +124,7 @@ func TestIssue1859_AScriptSeesAThrottledExportAndCarriesOn(t *testing.T) {
 func TestIssue1859_AnUpstreamTimeoutFailsTheRunAsRetryable(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1859-timeout-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1859: an upstream timeout is transient.",
 		"source": fmt.Sprintf(`
@@ -138,7 +138,7 @@ def main():
         "timeout_seconds": 1,
     })
 `, apiTestConnection),
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 60})
@@ -162,7 +162,7 @@ def main():
 func TestIssue1859_AScriptErrorStaysDeterministic(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1859-fail-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1859: a script error is deterministic.",
 		"source": `
@@ -170,7 +170,7 @@ def main():
     """Fails the way a script does when its input is not what it expects."""
     fail("the input was not what this script expects")
 `,
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 60})

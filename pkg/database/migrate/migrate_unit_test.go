@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 330
+	migrateTestFileCount    = 332
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -818,4 +818,9 @@ func resolveColumnConstants(source, columnList string) string {
 		columnList = strings.ReplaceAll(columnList, m[1], `"`+m[2]+`"`)
 	}
 	return columnList
+}
+
+// The real-Postgres gate's end state is the highest embedded migration.
+func TestFinalEmbeddedVersionIsTheHighestMigration(t *testing.T) {
+	assert.Equal(t, uint(migrateTestFileCount/2), finalEmbeddedVersion(t))
 }

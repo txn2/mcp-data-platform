@@ -110,12 +110,12 @@ func TestIssue1818_ATrinoExportKeepsALeadingSign(t *testing.T) {
 func runExportScript(t *testing.T, c *client, name, source string) string {
 	t.Helper()
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance: a script export read back through a registered table.",
 		"source":      source,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

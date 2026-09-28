@@ -105,9 +105,19 @@ func portalStore() *stubStore {
 	s.scripts = append(s.scripts, script.Script{
 		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com", Enabled: true, Status: script.StatusActive,
+		// A script saved before tests were required, reaching what the edit
+		// tests' source reaches, so an edit of it is refused only for what
+		// the gate is asked about.
+		Source: carolsSource, TestsOptional: true,
 	})
 	return s
 }
+
+// carolsSource is the saved source of carol's script.
+const carolsSource = "def main():\n" +
+	"    \"\"\"Exports the daily rows.\"\"\"\n" +
+	"    res = platform.query(connection = \"warehouse\", sql = \"SELECT 1\")\n" +
+	"    platform.export(name = \"daily\", rows = res[\"rows\"])\n"
 
 // portalDeps assembles the portal handler dependencies for one caller.
 func portalDeps(store *stubStore, runs *stubRuns, contracts *stubContracts, user *PortalIdentity) Deps {

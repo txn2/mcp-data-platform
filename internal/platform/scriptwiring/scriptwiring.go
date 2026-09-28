@@ -20,6 +20,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -43,6 +45,7 @@ import (
 //
 // Wire builds both halves and registers the tool layer, returning the handle.
 func Wire(deps Deps) *scriptexec.Handle {
+	recordings := recordingsOver(deps.DB)
 	scripts := scriptexec.New(scriptexec.Config{
 		DB:     deps.DB,
 		DSN:    deps.DSN,
@@ -70,6 +73,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Destinations:          deps.Destinations,
 		PortalURL:             deps.PortalURL,
 		RunRetention:          deps.RunRetention,
+		Recordings:            recordings,
 		Limits:                runLimits(deps.Worker),
 		Admission:             admission(deps.Worker),
 		MaxReclaims:           deps.Worker.MaxReclaims,
@@ -93,10 +97,22 @@ func Wire(deps Deps) *scriptexec.Handle {
 		// A draft allowed to write persists its exports through the writer a
 		// platform run uses, over the same stores (#1822).
 		DraftExports: draftExports(scripts),
+		Recordings:   recordings,
 	})
 	layer.RegisterTool(deps.Server)
 	deps.Bind(layer)
 	return scripts
+}
+
+// recordingsOver is the store of every run's and draft's host calls and their
+// answers, which a script's tests and a save's replay are answered from
+// (#1939, #1942): one store, so what a run records a save reads. Nil with no
+// database, which keeps nothing.
+func recordingsOver(db *sql.DB) scriptrec.Store {
+	if db == nil {
+		return nil
+	}
+	return recstore.New(db)
 }
 
 // draftExports adapts the execution handle's draft writer to the draft

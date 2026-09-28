@@ -57,11 +57,11 @@ const xlsxContentType1849 = "application/vnd.openxmlformats-officedocument.sprea
 // saveScript1849 creates a script this file owns and deletes it afterwards.
 func saveScript1849(t *testing.T, c *client, name, source string) {
 	t.Helper()
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1849: platform.export writes an Excel workbook.",
 		"params":      []any{map[string]any{"name": "day", "type": "string"}},
-	})
+	}, nil)
 	if created["status"] == "invalid" {
 		t.Fatalf("script %s was refused on save: %v", name, created["findings"])
 	}

@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -37,6 +38,18 @@ var pagesFS embed.FS
 // the help text cannot drift apart. The content-types page takes its tables
 // the same way; see contenttypes.go.
 const dialectPlaceholder = "{{DIALECT_CONTRACT}}"
+
+// referencePlaceholder marks where the reference script page receives the
+// built-in example it shows, so the page shows the script the gates hold to
+// the rules rather than a copy of it.
+const referencePlaceholder = "{{REFERENCE_SCRIPT}}"
+
+// referenceScript is the reference example's source, without its final
+// newline, for the fenced block the placeholder sits in.
+func referenceScript() string {
+	ex, _ := scriptexamples.Lookup(scriptexamples.ReferenceName)
+	return strings.TrimRight(ex.Source, "\n")
+}
 
 // pageMeta is the shipped metadata of one page. The title is the body file's
 // leading H1 (one source for it); slug, summary, and tags live here so they
@@ -57,6 +70,12 @@ var pageMetas = []pageMeta{
 		slug:    "platform-writing-managed-scripts",
 		summary: "How to build an automation, which the platform builds as a managed script: the Starlark dialect's deliberate absences, the tools a script can call and the persona that decides them, DECIMAL columns arriving as strings, the validate/dry-run loop, and what a save makes runnable.",
 		tags:    []string{"scripts", "automation", "starlark", "authoring"},
+	},
+	{
+		file:    "reference-script.md",
+		slug:    "platform-reference-script",
+		summary: "A whole automation written as a saved one is: helpers with docstrings, the work in main(), a pinned date window, a watermark in state, bound SQL, a failure that says why, an export and a result, and the tests it is saved with, with how each test is recorded and written.",
+		tags:    []string{"scripts", "automation", "tests", "authoring", "example"},
 	},
 	{
 		file:    "script-outputs-and-export-identity.md",
@@ -117,6 +136,7 @@ func Pages() ([]knowledgepage.BuiltinPage, error) {
 			return nil, fmt.Errorf("knowledgebuiltin: %s: %w", m.file, err)
 		}
 		body = strings.ReplaceAll(body, dialectPlaceholder, scriptlayer.DialectContract)
+		body = strings.ReplaceAll(body, referencePlaceholder, referenceScript())
 		body = strings.ReplaceAll(body, textTypesPlaceholder, contentTypeTable(true))
 		body = strings.ReplaceAll(body, binaryTypesPlaceholder, contentTypeTable(false))
 		pages = append(pages, knowledgepage.BuiltinPage{

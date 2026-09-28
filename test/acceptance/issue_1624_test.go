@@ -57,12 +57,12 @@ const scriptCallsAnEndpoint1624 = `def main():
 func runScript1624(t *testing.T, c *client, name, source string) {
 	t.Helper()
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1624: a run's calls are audited and not cataloged.",
 		"source":      source,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

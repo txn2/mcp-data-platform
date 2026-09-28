@@ -151,7 +151,7 @@ func TestScheduleSet_OnAScriptTheRunGateRefusesSaysNothingWillRunIt(t *testing.T
 func TestScheduleSet_BindsAgainstTheLiveContract(t *testing.T) {
 	h, _ := newHandle()
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 		Params: []script.Param{{Name: "report_date", Type: script.ParamTypeDate, Required: true}},
 	})
 	require.False(t, res.IsError, resultText(res))
@@ -273,7 +273,7 @@ func TestScheduleList(t *testing.T) {
 
 	t.Run("a script with no schedule says so", func(t *testing.T) {
 		res := call(t, h, authorCtx(), manageScriptInput{
-			Command: cmdCreate, Name: "other", Source: inMain("print(1)\n"),
+			Command: cmdCreate, Name: "other", Source: tested(inMain("print(1)\n")),
 		})
 		require.False(t, res.IsError, resultText(res))
 		fields := resultFields(t, call(t, h, authorCtx(),
@@ -300,7 +300,7 @@ func TestScheduleList(t *testing.T) {
 func TestScheduleCommands_WithoutAScheduleStore(t *testing.T) {
 	h := New(Config{Store: &scheduleless{newMemStore()}, AdminPersona: "admin"})
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 	})
 	require.False(t, res.IsError, resultText(res))
 
@@ -342,6 +342,7 @@ func (s *scheduleless) Delete(ctx context.Context, id string) (script.Removed, e
 func (s *scheduleless) List(ctx context.Context, f script.ListFilter) ([]script.Script, error) {
 	return s.inner.List(ctx, f)
 }
+
 func (s *scheduleless) Count(ctx context.Context, f script.ListFilter) (int, error) {
 	rows, err := s.List(ctx, f)
 	return len(rows), err

@@ -82,13 +82,13 @@ func setup1588(t *testing.T) produced1588 {
 		outputName:     "acceptance-1588-output-" + id,
 		collectionName: "acceptance-1588-pack-" + id,
 	}
-	p.owner.call("manage_script", map[string]any{
+	p.owner.saveScript(map[string]any{
 		"command":     "create",
 		"name":        p.scriptName,
 		"description": "Acceptance #1588: a script whose outputs a transfer must account for.",
 		"source":      scriptOutputs1588,
 		"params":      params1588(),
-	})
+	}, nil)
 	// Whoever ends up with the script deletes it; the same command from the
 	// other person is refused and ignored.
 	t.Cleanup(func() {
@@ -355,11 +355,11 @@ func TestIssue1588_AScriptWithNoOutputsMovesAsItAlwaysHas(t *testing.T) {
 	peer := connectAs(t, devPeerAPIKey)
 	admin := connect(t)
 	scriptName := "acceptance-1588-unrun-" + id
-	owner.call("manage_script", map[string]any{
+	owner.saveScript(map[string]any{
 		"command": "create", "name": scriptName,
 		"description": "Acceptance #1588: a script that has never run.",
 		"source":      scriptOutputs1588, "params": params1588(),
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": scriptName})
 		_, _, _ = peer.callRaw("manage_script", map[string]any{"command": "delete", "name": scriptName})

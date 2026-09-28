@@ -37,10 +37,13 @@ export function ValidationReport({
     ? ["Parses", "Nothing was executed and nothing was saved."]
     : unparsed
       ? ["Does not parse", "This cannot be saved until it parses."]
-      : [
-          "Needs changes",
-          "This cannot be saved until the findings below are fixed.",
-        ];
+      : report.save_refusal &&
+          !report.findings.some((f) => f.severity === "error")
+        ? ["Not saved yet", "Saving it is refused for the reason below."]
+        : [
+            "Needs changes",
+            "This cannot be saved until the findings below are fixed.",
+          ];
   return (
     <div className="space-y-3 rounded-md border p-3">
       <div className="flex items-center gap-2">
@@ -49,6 +52,12 @@ export function ValidationReport({
       </div>
 
       <Findings findings={report.findings} />
+
+      {report.save_refusal && (
+        <p className="text-sm text-destructive">{report.save_refusal}</p>
+      )}
+
+      <TestSummary report={report} />
 
       <ReachLists report={report} />
 
@@ -60,6 +69,44 @@ export function ValidationReport({
         This is what the EDIT reaches. Version {contract.version} keeps running
         until the edit is saved.
       </p>
+    </div>
+  );
+}
+
+// TestSummary is what the source's tests found (#1939, #1940) and what the
+// edit does differently from the saved version (#1942), the two things a save
+// runs beside the findings.
+function TestSummary({ report }: { report: ScriptValidation }) {
+  const tests = report.tests;
+  const differences = report.differences ?? [];
+  if (!tests && differences.length === 0) return null;
+  return (
+    <div className="space-y-1 text-sm">
+      {tests && (
+        <p>
+          Tests: {tests.passed} passed, {tests.failed} failed. They reach{" "}
+          {tests.coverage.covered} of {tests.coverage.statements} statements (
+          {Math.round(tests.coverage.percent)}%)
+          {tests.coverage.missed_lines.length > 0 &&
+            `; not reached: lines ${tests.coverage.missed_lines.join(", ")}`}
+          .
+        </p>
+      )}
+      {tests?.tests
+        .filter((t) => !t.passed)
+        .map((t) => (
+          <p key={t.name} className="text-xs text-destructive">
+            {t.name}
+            {t.line ? ` (line ${t.line})` : ""}: {t.failure}
+          </p>
+        ))}
+      {differences.length > 0 && (
+        <ul className="list-disc pl-5 text-xs">
+          {differences.map((d, i) => (
+            <li key={`${d.kind}-${d.subject}-${i}`}>{d.detail}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -162,6 +209,13 @@ export function DryRunReport({ result }: { result: ScriptDryRun }) {
       </dl>
 
       <DryRunOutputs result={result} />
+
+      {result.recording && (
+        <p className="text-xs text-muted-foreground">
+          Recorded as {result.recording}: a test replays this run with
+          testing.replay("{result.recording}").
+        </p>
+      )}
 
       <RefusedWrite result={result} />
 

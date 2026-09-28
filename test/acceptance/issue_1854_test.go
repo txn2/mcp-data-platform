@@ -40,19 +40,24 @@ func TestIssue1854_ATrinoExportInsideARunIsListedAsItsOutput(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1854-" + stamp
-	c.call("manage_script", map[string]any{
+	// The export's name is a parameter, so the draft the save records
+	// (#1939) writes an asset of its own and the run's is the one it made.
+	c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1854: a trino_export inside a run is its output.",
 		"source": fmt.Sprintf(`def main():
     """Exports one query result through trino_export."""
-    platform.call("trino_export", {"connection": %q, "sql": "SELECT 1 AS n, 'a' AS label", "name": "acc-1854-%s", "format": "csv"})
+    platform.call("trino_export", {"connection": %q, "sql": "SELECT 1 AS n, 'a' AS label", "name": run.params["output"], "format": "csv"})
 `,
-			scratchResourceConnection, stamp),
-		"params": []any{map[string]any{"name": "day", "type": "string"}},
-	})
+			scratchResourceConnection),
+		"params": []any{
+			map[string]any{"name": "day", "type": "string"},
+			map[string]any{"name": "output", "type": "string", "required": true},
+		},
+	}, map[string]any{"output": "acc-1854-" + stamp + "-draft"})
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
-	out := c.call("run_script", map[string]any{"name": name, "args": map[string]any{}, "wait_seconds": 120})
+	out := c.call("run_script", map[string]any{"name": name, "args": map[string]any{"output": "acc-1854-" + stamp}, "wait_seconds": 120})
 	if out["status"] != "succeeded" {
 		t.Fatalf("the run did not succeed: %v", out)
 	}
@@ -77,7 +82,7 @@ func TestIssue1854_ATrinoExportInsideARunIsListedAsItsOutput(t *testing.T) {
 
 	// The next run writes the next version of the same asset: a named export
 	// inside a run keeps one identity, as platform.export does.
-	again := c.call("run_script", map[string]any{"name": name, "args": map[string]any{}, "wait_seconds": 120})
+	again := c.call("run_script", map[string]any{"name": name, "args": map[string]any{"output": "acc-1854-" + stamp}, "wait_seconds": 120})
 	next := trinoExportOutput1854(again["outputs"])
 	if next == nil || next["asset_id"] != assetID || next["asset_version"] != float64(2) {
 		t.Errorf("the second run's output = %v; want version 2 of asset %s", next, assetID)

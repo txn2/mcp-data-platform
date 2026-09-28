@@ -29,11 +29,11 @@ import (
 // save1845 saves source as a script and returns its id.
 func save1845(t *testing.T, c *client, name, source string) string {
 	t.Helper()
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1845: a run hands a value back.",
 		"params":      []any{map[string]any{"name": "n", "type": "int", "required": true}},
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create %s: %v", name, created)
 	}

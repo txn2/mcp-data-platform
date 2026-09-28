@@ -695,20 +695,24 @@ print("rows: %d" % res["row_count"])
 platform.export(name="daily-sales", rows=res["rows"], format="csv")
 `)
 
-// authorScript creates a script through the real tool. Saving is all it takes
-// for the script to run: the version create wrote is the version a run
-// executes.
+// authorScript saves a script as its author. Saving is all it takes for the
+// script to run: the version the store wrote is the version a run executes.
+// It is written to the store rather than through the tool because what these
+// tests exercise is the run, not the save gate, which gates_test.go and the
+// acceptance tests hold to its tests; with no tests, it is a script saved
+// before they were required.
 func authorScript(t *testing.T, h execHarness, source string) {
 	t.Helper()
 	if !strings.Contains(source, "def main(") {
 		source = inMain(source)
 	}
-	res := call(t, h.handle, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", DisplayName: "Daily", Source: source,
-		Params: []script.Param{{Name: "day", Type: script.ParamTypeString, Required: true}},
-	})
-	require.False(t, res.IsError, resultText(res))
-	require.Equal(t, "created", resultFields(t, res)["status"], resultText(res))
+	sc := &script.Script{
+		Name: "daily", DisplayName: "Daily", Source: source, OwnerEmail: "jane@example.com",
+		Params:  []script.Param{{Name: "day", Type: script.ParamTypeString, Required: true}},
+		Enabled: true, Status: script.StatusActive, Tags: []string{}, TestsOptional: true,
+	}
+	require.NoError(t, sc.Validate())
+	require.NoError(t, h.store.Create(context.Background(), sc, callerAuthor(authorCtx())))
 }
 
 // runScript calls the run_script tool over a real client session.
@@ -809,6 +813,7 @@ func TestIntegration_RunExecutesTheLatestSavedVersion(t *testing.T) {
 		Command: cmdUpdate, Name: "daily", Source: edited,
 	})
 	require.False(t, res.IsError, resultText(res))
+	require.Equal(t, "updated", resultFields(t, res)["status"], resultText(res))
 
 	out, isErr = runScript(ctx, t, session, map[string]any{
 		"name": "daily", "args": map[string]any{"day": "2026-08-12"},

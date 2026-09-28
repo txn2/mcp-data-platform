@@ -149,6 +149,7 @@ func lint(source string, entry bool) []finding {
 	l.functions()
 	l.names()
 	l.hostCalls()
+	l.tests()
 	slices.SortFunc(l.found, func(a, b finding) int {
 		if a.line != b.line {
 			return a.line - b.line

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq" // postgres driver for the real-database gate
@@ -12,9 +14,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// expectedFinalVersion is the highest migration the embedded set defines. Bump
-// this when adding a migration so the gate asserts the full set applied.
-const expectedFinalVersion = 165
+// finalEmbeddedVersion is the highest migration the embedded set defines, read
+// from the files rather than written down, so a new migration cannot leave the
+// gate asserting an older end state.
+func finalEmbeddedVersion(t *testing.T) uint {
+	t.Helper()
+	entries, err := migrations.ReadDir("migrations")
+	require.NoError(t, err)
+	var highest uint
+	for _, e := range entries {
+		prefix, _, ok := strings.Cut(e.Name(), "_")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseUint(prefix, 10, 32)
+		require.NoError(t, err, "migration %s has no numeric prefix", e.Name())
+		highest = max(highest, uint(n))
+	}
+	require.NotZero(t, highest, "no migrations are embedded")
+	return highest
+}
 
 // TestMigrationsAgainstRealPostgres applies the embedded migrations to a real
 // PostgreSQL (pgvector) instance and exercises the full lifecycle: up, seed,
@@ -55,7 +74,7 @@ func TestMigrationsAgainstRealPostgres(t *testing.T) {
 	version, dirty, err := Version(db)
 	require.NoError(t, err, "read migration version")
 	require.False(t, dirty, "migrations left the database dirty")
-	require.Equal(t, uint(expectedFinalVersion), version, "did not reach the final migration")
+	require.Equal(t, finalEmbeddedVersion(t), version, "did not reach the final migration")
 
 	// 2. Seed against the migrated schema. Catches seed rot (a seed that
 	//    references a dropped table or a changed constraint).
@@ -80,7 +99,7 @@ func TestMigrationsAgainstRealPostgres(t *testing.T) {
 	version, dirty, err = Version(db)
 	require.NoError(t, err, "read migration version after the step round-trip")
 	require.False(t, dirty, "a down/up round-trip left the database dirty")
-	require.Equal(t, uint(expectedFinalVersion), version, "did not return to the final migration")
+	require.Equal(t, finalEmbeddedVersion(t), version, "did not return to the final migration")
 }
 
 // resetSchema drops and recreates the public schema so each run starts empty,

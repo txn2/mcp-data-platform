@@ -353,12 +353,12 @@ func TestIssue1663_AScriptOutputLandsInTheLibraryAndVersions(t *testing.T) {
 	filename := "acc-1663-script-" + stamp + ".csv"
 
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1663: an output written to the managed-resource library.",
 		"source":      fmt.Sprintf(issue1663ScriptSource, filename),
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create: %v", created)
 	}
@@ -366,9 +366,11 @@ func TestIssue1663_AScriptOutputLandsInTheLibraryAndVersions(t *testing.T) {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
 
+	// The draft the save recorded (#1939) wrote the file's first version,
+	// with its writes allowed, so the script's own runs write the next two.
 	first := issue1663RunScript(t, c, name)
-	if first["version"] != "1" {
-		t.Fatalf("the first run recorded version %v; want 1: %v", first["version"], first)
+	if first["version"] != "2" {
+		t.Fatalf("the first run recorded version %v; want 2, after the draft's: %v", first["version"], first)
 	}
 	reference, _ := first["reference"].(string)
 	if !strings.HasPrefix(reference, "mcp:resource:") {
@@ -383,8 +385,8 @@ func TestIssue1663_AScriptOutputLandsInTheLibraryAndVersions(t *testing.T) {
 	if second["resource_id"] != first["resource_id"] {
 		t.Fatalf("the second run wrote a different file: %v then %v", first["resource_id"], second["resource_id"])
 	}
-	if second["version"] != "2" {
-		t.Errorf("the second run recorded version %v; want 2", second["version"])
+	if second["version"] != "3" {
+		t.Errorf("the second run recorded version %v; want 3", second["version"])
 	}
 	if second["uri"] != uri {
 		t.Errorf("the file's address moved between runs: %v", second["uri"])

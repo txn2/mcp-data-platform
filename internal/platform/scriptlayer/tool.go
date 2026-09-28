@@ -38,6 +38,8 @@ const (
 	cmdGetRun     = "get_run"
 	cmdCancelRun  = "cancel_run"
 	cmdState      = "state"
+	cmdTest       = "test"
+	cmdRecording  = "recording"
 
 	cmdScheduleSet     = "schedule_set"
 	cmdScheduleList    = "schedule_list"
@@ -94,6 +96,12 @@ type manageScriptInput struct {
 	// what makes it a rehearsal; this is how an author exercises a pipeline
 	// whose next step reads what the last one created.
 	AllowWrites bool `json:"allow_writes,omitempty"`
+
+	// ChangeSummary and UserAgreed carry a behavior change on a save (#1942):
+	// what the new version does differently, in plain language, and the
+	// confirmation that the person the automation runs for agreed to it.
+	ChangeSummary string `json:"change_summary,omitempty"`
+	UserAgreed    bool   `json:"user_agreed,omitempty"`
 
 	// Cron and Timezone carry the cadence for schedule_set. Args carries the
 	// schedule's bound parameter values — the same vocabulary run_draft binds,
@@ -186,6 +194,8 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdGetRun:     h.handleGetRun,
 		cmdCancelRun:  h.handleCancelRun,
 		cmdState:      h.handleState,
+		cmdTest:       h.handleTest,
+		cmdRecording:  h.handleRecording,
 
 		cmdScheduleSet:     h.handleScheduleSet,
 		cmdScheduleList:    h.handleScheduleList,
@@ -285,7 +295,7 @@ func manageScriptSchema() any {
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
 				cmdOutline, cmdStats, cmdDiff, cmdVersions, cmdRuns, cmdGetRun, cmdCancelRun, cmdState,
-				cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
+				cmdTest, cmdRecording, cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
 			},
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
 				"script for this platform before: it states the dialect and what is available.",
@@ -361,6 +371,18 @@ func manageScriptSchema() any {
 				"it. A draft of a script that is not saved yet cannot write to the portal destination, " +
 				"which is the saved script's own asset; it can write to resources and to a bucket.",
 		},
+		"change_summary": map[string]any{
+			keyType: valString,
+			keyDescription: "For create, update and patch: what this version of the automation will do " +
+				"differently, in plain words for the person it runs for, not code. A save whose replay of " +
+				"the script's recent runs or whose reach differs from the saved version is refused " +
+				"without it, naming the differences; validate lists them without saving.",
+		},
+		"user_agreed": map[string]any{
+			keyType: valBoolean,
+			keyDescription: "With change_summary: true once the person the automation runs for has " +
+				"read the summary and agreed to the change. Both are kept on the version.",
+		},
 		"cron": map[string]any{
 			keyType: valString,
 			keyDescription: "Cadence for schedule_set: a standard five-field cron expression " +
@@ -373,7 +395,7 @@ func manageScriptSchema() any {
 		},
 		"run_id": map[string]any{
 			keyType:        valString,
-			keyDescription: "Identifies one run for get_run and cancel_run; run_script and the runs listing report it.",
+			keyDescription: "Identifies one run for get_run, cancel_run and recording; run_script, run_draft and the runs listing report it.",
 		},
 		"run_status": map[string]any{
 			keyType: valString,

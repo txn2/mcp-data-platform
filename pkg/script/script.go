@@ -166,6 +166,20 @@ type Script struct {
 	// new version of it is refused only for a lint finding the version before
 	// it did not have. The store sets it; nothing an author sends changes it.
 	Legacy bool `json:"-"`
+
+	// TestsOptional is true for a script that existed before tests were
+	// required (#1939). It saves without tests; a version of it that has tests
+	// must keep them passing and may not lower their coverage. The store sets
+	// it; nothing an author sends changes it.
+	TestsOptional bool `json:"-"`
+
+	// ChangeSummary is the agreed behavior change the save in progress
+	// carries (#1942): what the automation now does differently, in plain
+	// language, and ChangeAgreedBy who confirmed that the person it runs for
+	// agreed. Both are written onto the version the save creates and never
+	// read back onto a script: a version's own record is where they live.
+	ChangeSummary  string `json:"-"`
+	ChangeAgreedBy string `json:"-"`
 }
 
 // OwnedBy reports whether the named caller owns this script, which is the

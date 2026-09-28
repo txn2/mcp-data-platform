@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -55,6 +57,11 @@ type Deps struct {
 	// version reading as one nobody dry-ran — the state before the account
 	// existed — rather than failing the run.
 	DryRuns script.DryRunStore
+
+	// Gate is what every source edit crosses (#1939, #1940, #1942): the lint,
+	// the script's tests and what the new version does differently. Nil
+	// checks the lint and the tests with no recording readable.
+	Gate *scriptsave.Gate
 
 	// Drafts executes a draft under the calling person's own identity. Nil
 	// leaves the dry-run route unmounted; validate needs nothing but the

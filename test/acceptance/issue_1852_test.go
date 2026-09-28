@@ -30,11 +30,11 @@ const issue1852Select = "SELECT 'x' AS zeta, 1 AS alpha, true AS mid"
 // source keeps its work in main(), the shape the #1913 gates require.
 func runScript1852(t *testing.T, c *client, name, source string) map[string]any {
 	t.Helper()
-	saved := c.call("manage_script", map[string]any{
+	saved := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1852: query rows keep the SELECT's column order.",
 		"params":      []any{map[string]any{"name": "day", "type": "string"}},
-	})
+	}, nil)
 	if saved["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", saved)
 	}

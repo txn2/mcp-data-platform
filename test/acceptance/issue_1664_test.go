@@ -66,14 +66,24 @@ def main():
 func authorScript1664(t *testing.T, c *client, name, source string) {
 	t.Helper()
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	created := c.call("manage_script", map[string]any{
+	// A file an earlier run left would fail the draft the save records.
+	if id, found := resourceNamed1664(t, c, "acceptance-1664.txt"); found {
+		_, _ = c.rest(http.MethodDelete, "/api/v1/resources/"+id, http.NoBody)
+	}
+	created := c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1664: a draft does not write through platform.call.",
 		"source":      source,
-	})
+	}, nil)
 	if status, _ := created["status"].(string); status == "invalid" {
 		t.Fatalf("manage_script create refused %q: %v", name, created["findings"])
+	}
+	// The draft the save recorded (#1939) ran with its writes allowed; what
+	// it created is removed, so the criterion starts from the library it
+	// would have found.
+	if id, found := resourceNamed1664(t, c, "acceptance-1664.txt"); found {
+		_, _ = c.rest(http.MethodDelete, "/api/v1/resources/"+id, http.NoBody)
 	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})

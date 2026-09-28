@@ -3,6 +3,7 @@ package scriptlayer
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -147,7 +148,7 @@ func assembledServerWith(t *testing.T, destinations []script.Destination, inner 
 	const authorID = "user-jane@example.com"
 
 	store := newMemStore()
-	h := New(Config{Store: store, AdminPersona: "admin", Destinations: destinations})
+	h := New(Config{Store: store, AdminPersona: "admin", Destinations: destinations, Recordings: newMemRecordings()})
 	audit := &recordingAudit{}
 	queries := &recordingQueries{rows: []map[string]any{
 		{"region": "west", "total": float64(120)},
@@ -231,6 +232,56 @@ func callTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, arg
 	return out, false
 }
 
+// seed saves a script as the author directly in the store, for a test whose
+// subject is what happens to a saved script rather than the save. A saved
+// script with no tests is one saved before tests were required, so it is
+// marked so.
+func seed(t *testing.T, h harness, name, source string, params ...script.Param) {
+	t.Helper()
+	if params == nil {
+		params = []script.Param{}
+	}
+	sc := &script.Script{
+		Name: name, Source: source, OwnerEmail: "jane@example.com", Params: params,
+		Enabled: true, Status: script.StatusActive, Tags: []string{}, TestsOptional: true,
+	}
+	require.NoError(t, sc.Validate())
+	require.NoError(t, h.store.Create(context.Background(), sc, callerAuthor(authorCtx())))
+}
+
+// saved is what saveTested saves: a source under a name, the assertion its
+// test makes, the draft's parameter values, and anything more the create
+// carries.
+type saved struct {
+	name, source, assertion string
+	args, extra             map[string]any
+}
+
+// saveTested saves a script through the loop a script is saved by (#1939): a
+// draft of it records its host calls, and the source is saved with a test
+// replaying that recording and making the assertion.
+func saveTested(ctx context.Context, t *testing.T, session *mcp.ClientSession, s saved) map[string]any {
+	t.Helper()
+	draft := map[string]any{"command": "run_draft", "name": s.name, "source": s.source}
+	if s.args != nil {
+		draft["args"] = s.args
+	}
+	if params, ok := s.extra["params"]; ok {
+		draft["params"] = params
+	}
+	drafted, isErr := callTool(ctx, t, session, draft)
+	require.False(t, isErr, drafted)
+	require.Equal(t, "succeeded", drafted["status"], drafted)
+	id, ok := drafted["recording"].(string)
+	require.True(t, ok, "the draft names the recording a test replays: %v", drafted)
+	create := map[string]any{"command": "create", "name": s.name, "source": replaying(s.source, id, s.assertion)}
+	maps.Copy(create, s.extra)
+	created, isErr := callTool(ctx, t, session, create)
+	require.False(t, isErr, created)
+	require.Equal(t, "created", created["status"], created)
+	return created
+}
+
 // TestIntegration_AuthorValidateRunDraft is the #1283 definition of done: an
 // agent authors a script through the real tool, validate reports the
 // capabilities and connections it references, and run_draft executes it through
@@ -253,12 +304,17 @@ for row in res["rows"]:
 platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 `)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "daily-sales", "source": source,
-		"params": []map[string]any{{"name": "day", "type": "date", "required": true}},
+	saveTested(ctx, t, session, saved{
+		name: "daily-sales", source: source,
+		assertion: `assert.eq([r["total"] for r in testing.outputs().exports[0].rows], [120, 80])`,
+		args:      map[string]any{"day": "2026-08-13"},
+		extra: map[string]any{
+			"params": []map[string]any{{"name": "day", "type": "date", "required": true}},
+		},
 	})
-	require.False(t, isErr, created)
-	assert.Equal(t, "created", created["status"])
+	// The draft that recorded queried; the save's test replayed that
+	// recording and reached nothing (#1939).
+	require.Len(t, h.queries.calls(), 1)
 
 	validated, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "validate", "name": "daily-sales",
@@ -303,11 +359,11 @@ platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 	// The SQL that crossed the chain carries bound literals, not the
 	// placeholders the author wrote, and carries the row cap.
 	calls := h.queries.calls()
-	require.Len(t, calls, 1)
-	assert.Contains(t, calls[0].SQL, "region IN ('west', 'east')")
-	assert.NotContains(t, calls[0].SQL, ":day")
-	assert.Equal(t, "warehouse", calls[0].Connection)
-	assert.Positive(t, calls[0].Limit)
+	require.Len(t, calls, 2)
+	assert.Contains(t, calls[1].SQL, "region IN ('west', 'east')")
+	assert.NotContains(t, calls[1].SQL, ":day")
+	assert.Equal(t, "warehouse", calls[1].Connection)
+	assert.Positive(t, calls[1].Limit)
 
 	// The draft run persisted nothing: the version a platform run would
 	// execute is still the one create wrote.
@@ -329,11 +385,7 @@ func TestIntegration_DraftRunCarriesTheAuthorIdentityAndIsAudited(t *testing.T) 
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "one-query",
-		"source": inMain("platform.query(sql = \"SELECT 1\")\n"),
-	})
-	require.False(t, isErr)
+	seed(t, h, "one-query", inMain("platform.query(sql = \"SELECT 1\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "one-query"})
 	require.False(t, isErr, ran)
@@ -372,10 +424,7 @@ func TestIntegration_ScriptQueryIsNotBlockedByTheSearchFirstGate(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, direct.IsError, "the search-first gate must still hold for the agent itself")
 
-	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "gated", "source": inMain("platform.query(sql = \"SELECT 1\")\n"),
-	})
-	require.False(t, isErr)
+	seed(t, h, "gated", inMain("platform.query(sql = \"SELECT 1\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "gated"})
 	require.False(t, isErr, ran)
@@ -391,11 +440,7 @@ func TestIntegration_RunDraftReportsAFailedRunWithItsLog(t *testing.T) {
 	h.queries.fail = "Query failed: table sales does not exist"
 	session := connectAgent(ctx, t, h.server)
 
-	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "broken-query",
-		"source": inMain("print(\"starting\")\nplatform.query(sql = \"SELECT 1 FROM sales\")\n"),
-	})
-	require.False(t, isErr)
+	seed(t, h, "broken-query", inMain("print(\"starting\")\nplatform.query(sql = \"SELECT 1 FROM sales\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "broken-query"})
 	require.False(t, isErr, ran)
@@ -412,11 +457,7 @@ func TestIntegration_RunDraftChecksParametersBeforeRunning(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "needs-params", "source": inMain("print(run.params[\"day\"])\n"),
-		"params": []map[string]any{{"name": "day", "type": "date", "required": true}},
-	})
-	require.False(t, isErr)
+	seed(t, h, "needs-params", inMain("print(run.params[\"day\"])\n"), script.Param{Name: "day", Type: script.ParamTypeDate, Required: true})
 
 	res, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "needs-params", "args": map[string]any{"dya": "2026-08-13"},
@@ -474,11 +515,7 @@ func TestIntegration_OneRunIsOneSession(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "three-queries",
-		"source": inMain("for _ in range(3):\n    platform.query(sql = \"SELECT 1\")\n"),
-	})
-	require.False(t, isErr)
+	seed(t, h, "three-queries", inMain("for _ in range(3):\n    platform.query(sql = \"SELECT 1\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "three-queries"})
 	require.False(t, isErr, ran)
@@ -510,11 +547,8 @@ func TestIntegration_DisabledScriptDoesNotRun(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
+	seed(t, h, "off", inMain("platform.query(sql = \"SELECT 1\")\n"))
 	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "off", "source": inMain("platform.query(sql = \"SELECT 1\")\n"),
-	})
-	require.False(t, isErr)
-	_, isErr = callTool(ctx, t, session, map[string]any{
 		"command": "update", "name": "off", "enabled": false,
 	})
 	require.False(t, isErr)
@@ -534,10 +568,7 @@ func TestIntegration_RunDraftExecutesTheSourceItWasGiven(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "probe", "source": inMain("print(\"saved\")\n"),
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "probe", inMain("print(\"saved\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "probe",
@@ -565,10 +596,7 @@ func TestIntegration_RunDraftWithNoSourceRunsTheSavedVersion(t *testing.T) {
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "probe", "source": inMain("print(\"saved\")\n"),
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "probe", inMain("print(\"saved\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "probe",
@@ -586,10 +614,7 @@ func TestIntegration_RunDraftRefusesASubmittedSourceThatDoesNotValidate(t *testi
 	h := assembledServer(t)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "probe", "source": inMain("print(\"saved\")\n"),
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "probe", inMain("print(\"saved\")\n"))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "probe", "source": "def f(:\n",
@@ -609,10 +634,7 @@ func TestIntegration_ValidateRefusesAnUndeclaredDestination(t *testing.T) {
 	source := inMain(`res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
 platform.export("top-stores", res["rows"], "csv", destination = "drop", key = "top-stores.csv")
 `)
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "top-stores", "source": source,
-	})
-	require.False(t, isErr, created, "the source is storable; only this deployment cannot serve it")
+	seed(t, h, "top-stores", source)
 
 	validated, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "validate", "name": "top-stores",
@@ -647,10 +669,7 @@ func TestIntegration_ValidateAcceptsADeclaredDestination(t *testing.T) {
 	session := connectAgent(ctx, t, h.server)
 
 	source := inMain(`platform.export("top-stores", [], "csv", destination = "drop", key = "top-stores.csv")` + "\n")
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "top-stores", "source": source,
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "top-stores", source)
 
 	validated, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "validate", "name": "top-stores",
@@ -688,10 +707,7 @@ func TestIntegration_SumIsAvailableToAScript(t *testing.T) {
 	source := inMain(`res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
 print("total %d" % sum([float(r["total"]) for r in res["rows"]]))
 `)
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "totals", "source": source,
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "totals", source)
 
 	validated, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "validate", "name": "totals",
@@ -710,7 +726,7 @@ print("total %d" % sum([float(r["total"]) for r in res["rows"]]))
 // TestIntegration_RunDraftPacesARateLimitedCall is the draft half of the #1533
 // acceptance: a draft shares its author's bucket with the agent driving it, and
 // a call the limiter refuses is waited out under DraftTimeout rather than
-// failing the draft. With one token a second and a burst of three, create and
+// failing the draft. With one token a second and a burst of three, get and
 // run_draft spend two, the first query spends the third, and the second query
 // is refused once and admitted a second later.
 func TestIntegration_RunDraftPacesARateLimitedCall(t *testing.T) {
@@ -720,11 +736,9 @@ func TestIntegration_RunDraftPacesARateLimitedCall(t *testing.T) {
 	h := assembledServerWith(t, nil, limiter.Middleware())
 	session := connectAgent(ctx, t, h.server)
 
-	_, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "two-queries",
-		"source": inMain("a = platform.query(sql = \"SELECT 1\")\nprint(len(a[\"rows\"]))\nb = platform.query(sql = \"SELECT 2\")\nprint(len(b[\"rows\"]))\n"),
-	})
-	require.False(t, isErr)
+	seed(t, h, "two-queries", inMain("a = platform.query(sql = \"SELECT 1\")\nprint(len(a[\"rows\"]))\nb = platform.query(sql = \"SELECT 2\")\nprint(len(b[\"rows\"]))\n"))
+	got, isErr := callTool(ctx, t, session, map[string]any{"command": "get", "name": "two-queries"})
+	require.False(t, isErr, got)
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "two-queries"})
 	require.False(t, isErr, ran)

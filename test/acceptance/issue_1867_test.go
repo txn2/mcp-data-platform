@@ -47,10 +47,10 @@ def main():
 func script1867(t *testing.T, c *client, what, source string) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1867-%s-%d", what, time.Now().UnixNano())
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1867: " + what,
-	})
+	}, nil)
 	if created["status"] == "invalid" {
 		t.Fatalf("script %s was refused on save: %v", name, created["findings"])
 	}

@@ -30,7 +30,8 @@ import (
 func TestIssue1861_ARunOverItsMemoryBudgetFails(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1861-budget-%d", time.Now().UnixNano())
-	created := c.call("manage_script", map[string]any{
+	// It exists to fail, so no draft records it (#1939).
+	created := c.seedPreGate(t, map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1861: a run over its memory budget.",
 		"source": fmt.Sprintf(`def main():
@@ -75,10 +76,10 @@ func TestIssue1861_DraftAndRunReportPeakMemory(t *testing.T) {
     platform.query(connection = %q, sql = "SELECT 1 AS one")
     print(len(rows))
 `, scratchResourceConnection)
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1861: peak memory is reported.",
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create %s: %v", name, created)
 	}
@@ -126,12 +127,12 @@ func TestIssue1861_AppendedPagesLandAsOneFileAndOneTable(t *testing.T) {
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1861-append-" + stamp
 	table := "acc_1861_pages_" + stamp
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1861: pages appended to one output.",
 		"source": fmt.Sprintf(issue1861AppendSource, scratchResourceConnection,
 			"acceptance/issue-1861/pages-"+stamp+".jsonl", scratchResourceConnection, table),
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create %s: %v", name, created)
 	}

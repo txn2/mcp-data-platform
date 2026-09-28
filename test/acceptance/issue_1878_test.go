@@ -403,12 +403,12 @@ func TestIssue1878_AScriptRunIsNeverFitted(t *testing.T) {
 	gqlName := issue1277Connect(t, c, "script-1878", nil)
 	const name = "acceptance-1878-never-fitted"
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1878: a run is not held to the model-context budget.",
 		"source":      issue1878Script(gqlName),
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

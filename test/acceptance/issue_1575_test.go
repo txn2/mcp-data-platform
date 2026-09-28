@@ -72,7 +72,7 @@ func unique1575() string {
 // by. It removes the script when the test ends unless the test removed it.
 func createScript1575(t *testing.T, c *client, name string) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1575: a script deleted from the portal.",
@@ -83,7 +83,7 @@ func createScript1575(t *testing.T, c *client, name string) string {
 				"description": "The output name this run writes.",
 			},
 		},
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

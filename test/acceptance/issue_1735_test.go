@@ -85,12 +85,12 @@ func issue1735Author(t *testing.T, c *client, label, source string) string {
 	t.Helper()
 	name := fmt.Sprintf("acceptance-1735-%s", label)
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1735: reading XML in a managed script.",
 		"source":      source,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
@@ -133,7 +133,9 @@ func TestIssue1735_TheXMLModuleIsInTheEnvironmentValidateResolvesAgainst(t *test
 			"    doc = xml.decode(\"<a/>\")\n    print(xml.encode(doc))\n" +
 			"    print(xml.find(doc, \"//a\"))\n    print(xml.findall(doc, \"a\"))\n",
 	})
-	if ok, _ := report["ok"].(bool); !ok {
+	// Every name resolves; a save would still want a test (#1939), which is
+	// not what this criterion is about.
+	if findings, _ := report["findings"].([]any); len(findings) != 0 {
 		t.Fatalf("validate refused a script using the xml module: %v", report)
 	}
 

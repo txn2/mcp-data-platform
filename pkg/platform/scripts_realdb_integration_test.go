@@ -130,7 +130,8 @@ func TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres(t *testing.
 
 	created, res := callScript(t, c, map[string]any{
 		"command": "create", "name": "wiring-check",
-		"source": "def main():\n    \"\"\"Reports on yesterday.\"\"\"\n    print(\"reporting on \" + date.add_days(date.of(run.fire_time), -1))\n",
+		"source": "def main():\n    \"\"\"Reports on yesterday.\"\"\"\n    print(\"reporting on \" + date.add_days(date.of(run.fire_time), -1))\n" +
+			"\ndef test_main():\n    \"\"\"Reports the day.\"\"\"\n    main()\n    assert.contains(testing.outputs().log, \"reporting on \")\n",
 		"params": []map[string]any{{"name": "day", "type": "date", "required": true}},
 	})
 	require.False(t, res.IsError, created)
@@ -156,6 +157,12 @@ func TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres(t *testing.
 	assert.NotEmpty(t, author, "the version records who wrote it")
 	assert.Equal(t, "applied", status, "a save produces an applied version")
 
+	// A script created now is held to its tests on every save (#1939,
+	// migration 000166).
+	var testsOptional bool
+	require.NoError(t, c.db.QueryRow(`SELECT tests_optional FROM scripts WHERE name = $1`, "wiring-check").Scan(&testsOptional))
+	assert.False(t, testsOptional)
+
 	listed, res := callScript(t, c, map[string]any{"command": "list"})
 	require.False(t, res.IsError, listed)
 	assert.EqualValues(t, 1, listed["count"])
@@ -168,12 +175,12 @@ func TestRealDB_ManageScriptEditFunnelVersionsThroughPostgres(t *testing.T) {
 	c := newScriptClient(t)
 
 	_, res := callScript(t, c, map[string]any{
-		"command": "create", "name": "versioned", "source": "def main():\n    \"\"\"Prints one.\"\"\"\n    print(\"one\")\n",
+		"command": "create", "name": "versioned", "source": printing("one"),
 	})
 	require.False(t, res.IsError)
 
 	updated, res := callScript(t, c, map[string]any{
-		"command": "update", "name": "versioned", "source": "def main():\n    \"\"\"Prints two.\"\"\"\n    print(\"two\")\n",
+		"command": "update", "name": "versioned", "source": printing("two"),
 	})
 	require.False(t, res.IsError, updated)
 	assert.Equal(t, "updated", updated["status"])
@@ -184,6 +191,12 @@ func TestRealDB_ManageScriptEditFunnelVersionsThroughPostgres(t *testing.T) {
 	assert.EqualValues(t, 1, diff["from_version"])
 	assert.EqualValues(t, 2, diff["to_version"])
 	assert.Contains(t, diff["diff"], "two")
+}
+
+// printing is a script that prints word, with the test it is saved with.
+func printing(word string) string {
+	return "def main():\n    \"\"\"Prints a word.\"\"\"\n    print(\"" + word + "\")\n" +
+		"\ndef test_main():\n    \"\"\"Prints the word.\"\"\"\n    main()\n    assert.eq(testing.outputs().log, \"" + word + "\\n\")\n"
 }
 
 // TestRealDB_ManageScriptValidateAndHelpAnswerThroughThePlatform covers the two
@@ -200,8 +213,10 @@ func TestRealDB_ManageScriptValidateAndHelpAnswerThroughThePlatform(t *testing.T
 		"source":  "def main():\n    \"\"\"Queries the warehouse.\"\"\"\n    platform.query(connection = \"warehouse\", sql = \"SELECT 1\")\n",
 	})
 	require.False(t, res.IsError, report)
-	assert.Equal(t, true, report["ok"])
 	assert.Equal(t, []any{"warehouse"}, report["connections"])
+	// It parses and passes the lint; a save would still want a test (#1939).
+	assert.Equal(t, false, report["ok"])
+	assert.Contains(t, report["save_refusal"], "no tests")
 
 	refused, res := callScript(t, c, map[string]any{"command": "validate", "source": "import os\n"})
 	require.False(t, res.IsError, refused)

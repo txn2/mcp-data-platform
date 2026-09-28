@@ -72,7 +72,7 @@ func seedIssue1795(t *testing.T, c *client) []string {
 			names = append(names, s.name)
 			continue
 		}
-		created := c.call("manage_script", map[string]any{
+		created := c.saveScript(map[string]any{
 			"command":      "create",
 			"name":         s.name,
 			"display_name": s.display,
@@ -80,7 +80,7 @@ func seedIssue1795(t *testing.T, c *client) []string {
 			"category":     "acceptance",
 			"tags":         []any{"acc1795"},
 			"purpose":      issue1795Purpose,
-		})
+		}, nil)
 		if created["status"] != "created" {
 			t.Fatalf("manage_script create %s: %v", s.name, created)
 		}

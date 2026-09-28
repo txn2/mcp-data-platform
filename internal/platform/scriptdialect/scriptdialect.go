@@ -114,38 +114,64 @@ func topLevelCalls(stmts []syntax.Stmt, name string) bool {
 	})
 }
 
+// Hooks is what a caller asks Exec to do beyond loading a script's module and
+// calling its main(). The zero value asks for nothing more.
+type Hooks struct {
+	// AtMainEnd, when not nil, is called on the thread as main() finishes, by
+	// whichever caller called it, while main's frame is still live: at each
+	// return and at the end of its body. It is how a caller measures what main
+	// holds when it ends, which is gone by the time Exec returns; an error from
+	// it fails the run at that point.
+	AtMainEnd func(*starlark.Thread) error
+	// Entry, when not empty, is the top-level function called after the module
+	// loads in place of main(): a test (#1939). It takes no arguments.
+	Entry string
+	// Cover, when not nil, is told each statement of the script as it is about
+	// to run (#1940); see Instrument.
+	Cover *Coverage
+}
+
 // Exec loads a script's module and then calls its main() when the platform
-// owns that call (EntryPoint, #1944). What main returns is not the run's
-// result; platform.result is the one way a script reports one. The module's
-// globals are returned whatever happened, since a caller that measures the
-// run walks them.
-//
-// atMainEnd, when not nil, is called on the thread as main() finishes, by
-// whichever caller called it, while main's frame is still live: at each
-// return and at the end of its body. It is how a caller measures what main
-// holds when it ends, which is gone by the time Exec returns; an error from
-// it fails the run at that point.
-func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict, atMainEnd func(*starlark.Thread) error) (starlark.StringDict, error) {
+// owns that call (EntryPoint, #1944), or the function hooks.Entry names. What
+// the function returns is not the run's result; platform.result is the one way
+// a script reports one. The module's globals are returned whatever happened,
+// since a caller that measures the run walks them.
+func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict, hooks Hooks) (starlark.StringDict, error) {
 	file, err := Options.Parse(name, source, 0)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the parser's own message is what the author reads
 	}
-	if atMainEnd != nil {
-		env = withMainEnd(file, env, atMainEnd)
+	// Instrumented first, so the statement withMainEnd appends to main is not
+	// counted as the author's.
+	if hooks.Cover != nil {
+		env = hooks.Cover.instrument(file, env)
+	}
+	if hooks.AtMainEnd != nil {
+		env = withMainEnd(file, env, hooks.AtMainEnd)
 	}
 	prog, err := starlark.FileProgram(file, env.Has)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the resolver's own message is what the author reads
 	}
 	globals, err := prog.Init(thread, env)
-	if err != nil || EntryPoint(file) == nil {
+	if err != nil {
 		return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
 	}
-	main, ok := globals[EntryPointName].(starlark.Callable)
+	entry := hooks.Entry
+	if entry == "" {
+		if EntryPoint(file) == nil {
+			return globals, nil
+		}
+		entry = EntryPointName
+	}
+	fn, ok := globals[entry].(starlark.Callable)
 	if !ok {
+		if hooks.Entry != "" {
+			return globals, fmt.Errorf("the script defines no function %s", entry)
+		}
 		return globals, nil
 	}
-	_, err = starlark.Call(thread, main, nil, nil)
+	_, err = starlark.Call(thread, fn, nil, nil)
 	return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
 }
 

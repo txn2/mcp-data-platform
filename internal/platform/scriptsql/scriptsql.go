@@ -1,4 +1,8 @@
-package scriptrun
+// Package scriptsql binds a managed script's platform.query parameters into its
+// SQL (#1389): each :name placeholder becomes a SQL literal rendered from the
+// value the script passed, and a registered table's record becomes its quoted
+// name (#1948).
+package scriptsql
 
 import (
 	"errors"
@@ -24,7 +28,7 @@ const (
 	bitSize64   = 64
 )
 
-// bindSQL substitutes :name placeholders in sql with SQL literals rendered from
+// Bind substitutes :name placeholders in sql with SQL literals rendered from
 // params, and returns the statement to execute.
 //
 // This exists so a script never has to build SQL by concatenation. An author
@@ -43,7 +47,7 @@ const (
 // Every placeholder must have a value and every value must be used: an unbound
 // placeholder would reach the query engine as syntax, and an unused value is
 // nearly always a typo in one name or the other.
-func bindSQL(sql string, params *starlark.Dict) (string, error) {
+func Bind(sql string, params *starlark.Dict) (string, error) {
 	values, err := bindValues(params)
 	if err != nil {
 		return "", err

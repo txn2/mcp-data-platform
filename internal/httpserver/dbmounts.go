@@ -34,6 +34,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
@@ -269,7 +271,8 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	deps.Connections = scriptConnectionEnumerator(lister)
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
-		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget())
+		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).
+		WithRecordings(deps.Gate.Recordings)
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)
 	// A version drawn as a diagram (#1906) and a run drawn on it (#1907).
@@ -304,6 +307,12 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		// from the producer relation rather than walked out of run history.
 		Produced: producedview.New(
 			producedby.NewPostgres(p.DB()), p.PortalAssetStore(), p.ResourceStore(), p.PortalCollectionStore(), store),
+		// The gate a source edit crosses, over the recordings runs and drafts
+		// keep (#1939, #1942): the same one manage_script saves through.
+		Gate: &scriptsave.Gate{
+			Recordings: recstore.New(p.DB()), Destinations: p.Config().Scripts.ScriptDestinations(),
+			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
+		},
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {
 		deps.Audit = auditStore

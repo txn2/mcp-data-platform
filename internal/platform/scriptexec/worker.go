@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -128,8 +129,10 @@ type workerConfig struct {
 	// platform sees a failing or slowing automation without querying the run
 	// table (#1307). Nil is a no-op: every method on *observability.Metrics is
 	// nil-safe, and a deployment without observability still executes runs.
-	metrics     *observability.Metrics
-	retention   time.Duration
+	metrics   *observability.Metrics
+	retention time.Duration
+	// recordings is swept with the runs, at retention (#1939).
+	recordings  scriptrec.Store
 	pollEvery   time.Duration
 	lease       time.Duration
 	maxAttempts int
@@ -398,6 +401,22 @@ func (w *worker) maybePurge(ctx context.Context) {
 	}
 	if purged > 0 {
 		slog.Info("scripts: run retention sweep", "rows", purged, "retention", w.cfg.retention)
+	}
+	w.purgeRecordings(ctx)
+}
+
+// purgeRecordings sweeps the recordings past retention that no test keeps.
+func (w *worker) purgeRecordings(ctx context.Context) {
+	if w.cfg.recordings == nil {
+		return
+	}
+	purged, err := w.cfg.recordings.Purge(ctx, w.cfg.retention)
+	if err != nil {
+		slog.Warn("scripts: recording retention sweep failed", logKeyError, err)
+		return
+	}
+	if purged > 0 {
+		slog.Info("scripts: recording retention sweep", "rows", purged, "retention", w.cfg.retention)
 	}
 }
 

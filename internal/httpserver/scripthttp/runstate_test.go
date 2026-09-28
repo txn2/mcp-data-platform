@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -62,20 +61,4 @@ func TestPortalRun_ReportsCauseLivenessAndTheHolder(t *testing.T) {
 	require.NotNil(t, detail.HeartbeatAt)
 	require.Len(t, detail.Attempts, 1)
 	assert.Equal(t, runstate.AttemptLeaseExpired, detail.Attempts[0].Outcome)
-}
-
-// TestDryRunFailureMessage_ByCause: only a script failure that repeats sends
-// the author to the script (#1935); an upstream or a declared temporary
-// failure says to try again.
-func TestDryRunFailureMessage_ByCause(t *testing.T) {
-	assert.Contains(t, dryRunFailureMessage(&scriptrun.WriteRecord{Tool: "manage_asset"}, runstate.CauseScript), "allow_writes")
-	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseUpstream), "outside the script")
-	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseTransient), "outside the script")
-	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseMemory), "append=True")
-	assert.Contains(t, dryRunFailureMessage(nil, runstate.CauseScript), "fails the same way again, fix the script")
-}
-
-func TestDraftMetrics_CarriesThePeak(t *testing.T) {
-	m := draftMetrics(&scriptrun.Result{Steps: 5, PeakMemory: 4096})
-	assert.Equal(t, int64(4096), m.PeakMemoryBytes)
 }

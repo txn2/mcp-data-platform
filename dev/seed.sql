@@ -1852,6 +1852,12 @@ ON CONFLICT (id) DO NOTHING;
 --
 -- The sources are the real Starlark the engine runs, and each version carries
 -- the roles its author held, which are the roles a run of it presents.
+--
+-- They are seeded as scripts saved before tests were required
+-- (tests_optional, #1939): a test replays a recording of a run, and a seeded
+-- script has no run to record until the stack runs it. An edit of one saves
+-- without tests; once a run or a dry run has recorded it, a test can name that
+-- recording, and from then on its tests must keep passing.
 -- ============================================================================
 
 -- Every run of a fixture script goes, not only the runs this file wrote
@@ -1876,7 +1882,7 @@ DELETE FROM script_versions WHERE script_id IN (
 
 INSERT INTO scripts (
   id, name, display_name, description, source_code, params,
-  owner_email, tags, enabled, status, version, created_at, updated_at
+  owner_email, tags, enabled, status, version, created_at, updated_at, tests_optional
 ) VALUES
 (
   'e1e1e1e1-0000-4000-8000-000000000001',
@@ -1885,7 +1891,7 @@ INSERT INTO scripts (
   E'SALES_BY_REGION = "SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region"\n\ndef main():\n    """Exports yesterday''s revenue by region for the morning review."""\n    day = run.params["report_date"]\n    rows = platform.query(\n        connection = "acme",\n        sql = SALES_BY_REGION,\n        params = {"d": day},\n    )["rows"]\n\n    platform.export(name = "daily-sales", rows = rows, format = "csv")\n    print("wrote %d regions for %s" % (len(rows), day))\n',
   '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
   'analyst@example.com', '{sales,reporting}', true, 'active', 2,
-  NOW() - interval '40 days', NOW() - interval '30 days'
+  NOW() - interval '40 days', NOW() - interval '30 days', true
 ),
 (
   'e1e1e1e1-0000-4000-8000-000000000002',
@@ -1894,7 +1900,7 @@ INSERT INTO scripts (
   E'DORMANT = "SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff"\n\ndef main():\n    """Exports the accounts with no orders since the cutoff date."""\n    rows = platform.query(\n        connection = "acme",\n        sql = DORMANT,\n        params = {"cutoff": run.params["cutoff"]},\n    )["rows"]\n\n    platform.export(name = "dormant-accounts", rows = rows, format = "csv")\n',
   '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
   'analyst@example.com', '{retention}', true, 'active', 1,
-  NOW() - interval '3 days', NOW() - interval '3 days'
+  NOW() - interval '3 days', NOW() - interval '3 days', true
 ),
 (
   'e1e1e1e1-0000-4000-8000-000000000003',
@@ -1903,7 +1909,7 @@ INSERT INTO scripts (
   E'TABLE_STATS = "SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats"\n\ndef main():\n    """Exports the row count and latest load time of every warehouse table."""\n    rows = platform.query(connection = "acme", sql = TABLE_STATS)["rows"]\n    platform.export(name = "freshness", rows = rows, format = "csv")\n',
   '[]'::jsonb,
   'admin@example.com', '{operations}', true, 'active', 5,
-  NOW() - interval '60 days', NOW() - interval '21 days'
+  NOW() - interval '60 days', NOW() - interval '21 days', true
 )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name, display_name = EXCLUDED.display_name,
@@ -1911,7 +1917,7 @@ ON CONFLICT (id) DO UPDATE SET
   params = EXCLUDED.params,
   owner_email = EXCLUDED.owner_email, tags = EXCLUDED.tags,
   enabled = EXCLUDED.enabled, status = EXCLUDED.status, version = EXCLUDED.version,
-  updated_at = EXCLUDED.updated_at;
+  updated_at = EXCLUDED.updated_at, tests_optional = EXCLUDED.tests_optional;
 
 -- Version history. The analyst authored their own scripts, so their versions
 -- carry the analyst's roles — which are the roles a run of each version

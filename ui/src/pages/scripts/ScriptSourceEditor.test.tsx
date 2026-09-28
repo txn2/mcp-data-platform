@@ -7,6 +7,7 @@ import {
   act,
 } from "@testing-library/react";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
+import { ApiError } from "@/api/portal/client";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
 
 // The editor's own behaviour is what matters here: what a save submits, and
@@ -167,7 +168,10 @@ describe("ScriptSourceEditor: saving", () => {
       target: { value: "print(2)\n" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(save).toHaveBeenCalledWith("print(2)\n", expect.anything());
+    expect(save).toHaveBeenCalledWith(
+      { source: "print(2)\n" },
+      expect.anything(),
+    );
   });
 
   it("throws the edit away on revert", () => {
@@ -240,6 +244,53 @@ describe("ScriptSourceEditor: saving", () => {
     expect(screen.getByLabelText("Source text")).toHaveValue("def broken(:\n");
   });
 
+  // A save refused because the edit changes what the automation does (#1942)
+  // asks the person saving what it will now do differently, and saves again
+  // with their words and their agreement.
+  it("asks for the change in plain words when the edit changes what runs", () => {
+    renderEditor();
+    fireEvent.change(screen.getByLabelText("Source text"), {
+      target: { value: "print(2)\n" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const onError = save.mock.calls[0]![1].onError as (e: unknown) => void;
+    act(() =>
+      onError(
+        new ApiError(409, "this version changes what the automation does", {
+          differences: [
+            {
+              run: "srun_1",
+              kind: "column",
+              subject: "n",
+              detail: 'output "daily" no longer has column "n"',
+            },
+          ],
+        }),
+      ),
+    );
+    expect(
+      screen.getByText("This edit changes what the automation does"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('output "daily" no longer has column "n"'),
+    ).toBeInTheDocument();
+    const agree = screen.getByRole("button", { name: "I agree, save" });
+    expect(agree).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("What will it do differently?"), {
+      target: { value: "The daily file drops the count." },
+    });
+    fireEvent.click(agree);
+    expect(save).toHaveBeenLastCalledWith(
+      {
+        source: "print(2)\n",
+        change_summary: "The daily file drops the count.",
+        user_agreed: true,
+      },
+      expect.anything(),
+    );
+  });
+
   it("disables both controls while a save is in flight", () => {
     mockSave.mockReturnValue({ mutate: save, isPending: true } as never);
     renderEditor();
@@ -255,6 +306,61 @@ describe("ScriptSourceEditor: saving", () => {
 // are on the editor because that is where the author is; neither one stores
 // anything.
 describe("ScriptSourceEditor: checking an edit", () => {
+  it("reports the tests, their coverage and what the edit changes (#1939, #1942)", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+    act(() =>
+      validate.mock.calls[0]![1].onSuccess({
+        ok: false,
+        findings: [],
+        capabilities: [],
+        connections: [],
+        destinations: [],
+        dynamic_connections: false,
+        dynamic_destinations: false,
+        save_refusal: "this version changes what the automation does",
+        tests: {
+          tests: [
+            { name: "test_a", passed: true },
+            {
+              name: "test_b",
+              passed: false,
+              failure: "assert.eq: got 2, want 3",
+              line: 9,
+            },
+          ],
+          passed: 1,
+          failed: 1,
+          coverage: {
+            statements: 10,
+            covered: 8,
+            percent: 80,
+            missed_lines: [4, 5],
+          },
+        },
+        differences: [
+          {
+            kind: "rows",
+            subject: "w",
+            detail: 'output "w" has 2 rows, where it had 3',
+          },
+        ],
+      }),
+    );
+    expect(screen.getByText("Not saved yet")).toBeInTheDocument();
+    expect(
+      screen.getByText(/changes what the automation does/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/1 passed, 1 failed/)).toBeInTheDocument();
+    expect(screen.getByText(/not reached: lines 4, 5/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/test_b \(line 9\): assert.eq/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('output "w" has 2 rows, where it had 3'),
+    ).toBeInTheDocument();
+  });
+
   it("validates the text on screen and reports what it would reach", () => {
     renderEditor();
     fireEvent.change(screen.getByLabelText("Source text"), {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -61,4 +62,14 @@ func TestRunLimits_AndAdmission(t *testing.T) {
 	assert.Equal(t, 3, admission(cfg).Fixed)
 	assert.True(t, admission(scriptadmit.Config{Concurrency: "lots"}).Adaptive(),
 		"a value validation would have refused runs adaptive")
+}
+
+// A deployment with a database keeps recordings in it, and one without keeps
+// none (#1939).
+func TestRecordingsOver(t *testing.T) {
+	assert.Nil(t, recordingsOver(nil))
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	assert.NotNil(t, recordingsOver(db))
 }

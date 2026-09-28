@@ -43,6 +43,7 @@ import (
 	stdjson "encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sync/atomic"
 	"time"
 
@@ -264,6 +265,61 @@ type Options struct {
 	// MaxMemoryBytes is the memory the run may hold, measured at every host
 	// call (#1861). Zero sets no budget; the peak is measured either way.
 	MaxMemoryBytes int64
+
+	// OnCall, when not nil, is told every tool call a host binding made and
+	// the answer the binding was finally given, after any pacing and retry:
+	// what a recording holds (#1939).
+	OnCall func(tool string, args, out map[string]any, err error)
+
+	// Test, when not nil, makes the execution one of the script's tests
+	// (#1939) rather than a run.
+	Test *TestHooks
+}
+
+// TestHooks turn an execution into one of the script's tests (#1939, #1940).
+type TestHooks struct {
+	// Entry is the test function called in place of main().
+	Entry string
+	// Env binds testing and assert in place of the stubs a run sees.
+	Env starlark.StringDict
+	// Observe is shown every output the execution produces, an ExportRequest
+	// or a PublishRequest, whether it was written or previewed, and each
+	// state it stages, a *script.StateWrite. An appended output is shown page
+	// by page (Append set), and again whole (Spooled set) when the run ends.
+	Observe func(any)
+	// Cover records the statements that ran. Each costs the interpreter
+	// scriptdialect.CoverStepsPerStatement steps, which are added to the cap.
+	Cover *scriptdialect.Coverage
+}
+
+// hooks is what Exec is asked to do for this execution.
+func (o Options) hooks(atMainEnd func(*starlark.Thread) error) scriptdialect.Hooks {
+	h := scriptdialect.Hooks{AtMainEnd: atMainEnd}
+	if o.Test != nil {
+		h.Entry, h.Cover = o.Test.Entry, o.Test.Cover
+	}
+	return h
+}
+
+// observe shows a test an output the execution produced.
+func (o Options) observe(req any) {
+	if o.Test != nil && o.Test.Observe != nil {
+		o.Test.Observe(req)
+	}
+}
+
+// overStep reports whether th is past its cap once the steps coverage spent
+// are taken off it, raising the cap to fit them when it is not (#1940).
+func (o Options) overStep(th *starlark.Thread) bool {
+	if o.Test == nil || o.Test.Cover == nil {
+		return true
+	}
+	allowed := o.MaxSteps + scriptdialect.CoverStepsPerStatement*o.Test.Cover.Calls()
+	if th.ExecutionSteps() >= allowed {
+		return true
+	}
+	th.SetMaxExecutionSteps(allowed)
+	return false
 }
 
 // withDefaults fills unset limits with the draft defaults.
@@ -515,8 +571,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// which one fired is the only way to tell an author "your script is too
 	// expensive" apart from "your query took too long".
 	thread.OnMaxSteps = func(th *starlark.Thread) {
-		overStep.Store(true)
-		th.Cancel("too many steps")
+		if opts.overStep(th) {
+			overStep.Store(true)
+			th.Cancel("too many steps")
+		}
 	}
 
 	// The interpreter has no notion of a context, so cancellation is bridged:
@@ -527,7 +585,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	go watchCancel(runCtx, thread, done)
 
 	started := time.Now()
-	globals, execErr := scriptdialect.Exec(thread, opts.Name, opts.Source, predeclared(host), host.mem.Ended)
+	globals, execErr := scriptdialect.Exec(thread, opts.Name, opts.Source, predeclared(host), opts.hooks(host.mem.Ended))
 	if settled := host.mem.Settle(globals); execErr == nil && settled != nil {
 		execErr = settled
 	}
@@ -614,7 +672,15 @@ func (e *execError) Unwrap() error { return e.cause }
 // one and absent from the other is the defect that let the contract advertise
 // a built-in the environment did not have (#1414): validation would resolve a
 // name the run cannot bind, or refuse one it can.
-var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", scriptsum.Name, "fail"}
+var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", scriptsum.Name, "fail", TestingName, AssertName}
+
+// TestingName and AssertName are the modules a test uses (#1939). A run binds
+// each to a value that refuses every use, so a test's body resolves in the
+// module a run loads and fails if main() reaches it.
+const (
+	TestingName = "testing"
+	AssertName  = "assert"
+)
 
 // predeclared builds the global environment a script sees. Everything absent
 // from this dict is absent from the language: no imports, no filesystem, no
@@ -622,7 +688,7 @@ var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", script
 //
 // Its keys are PredeclaredNames, which TestPredeclaredMatchesNames pins.
 func predeclared(host *hostState) starlark.StringDict {
-	return starlark.StringDict{
+	env := starlark.StringDict{
 		"platform": &starlarkstruct.Module{
 			Name: "platform",
 			Members: starlark.StringDict{
@@ -643,5 +709,39 @@ func predeclared(host *hostState) starlark.StringDict {
 		"run":          host.runValue(),
 		scriptsum.Name: scriptsum.Builtin,
 		"fail":         scriptguard.Fail, // the universe's, plus retryable= (#1935)
+		TestingName:    testOnly(TestingName),
+		AssertName:     testOnly(AssertName),
 	}
+	if host.opts.Test != nil {
+		maps.Copy(env, host.opts.Test.Env)
+	}
+	return env
+}
+
+// testOnly is what a run binds a test module's name to: any use of it fails,
+// saying where it belongs.
+type testOnly string
+
+// String, Type, Freeze, Truth and AttrNames make the stub a Starlark value
+// that reads as the module it stands in for.
+func (t testOnly) String() string { return string(t) }
+
+// Type is the module's.
+func (testOnly) Type() string { return "module" }
+
+// Freeze has nothing to freeze.
+func (testOnly) Freeze() {}
+
+// Truth is a module's.
+func (testOnly) Truth() starlark.Bool { return starlark.True }
+
+// AttrNames lists nothing: every attribute is refused.
+func (testOnly) AttrNames() []string { return nil }
+
+// Hash is the module name's, so the stub can key a dict as a module can.
+func (t testOnly) Hash() (uint32, error) { return starlark.String(t).Hash() } //nolint:wrapcheck // a string's hash cannot fail
+
+// Attr refuses every attribute, naming where the module belongs.
+func (t testOnly) Attr(name string) (starlark.Value, error) {
+	return nil, fmt.Errorf("module %s.%s is available only inside a %s function; a run never calls one", t, name, scriptdialect.TestPrefix+"*")
 }

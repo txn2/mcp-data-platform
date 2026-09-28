@@ -49,6 +49,7 @@ func (f *failingStore) List(ctx context.Context, filter script.ListFilter) ([]sc
 	}
 	return f.memStore.List(ctx, filter)
 }
+
 func (f *failingStore) Count(ctx context.Context, filter script.ListFilter) (int, error) {
 	rows, err := f.List(ctx, filter)
 	return len(rows), err
@@ -87,7 +88,7 @@ func TestStoreFailuresAreReportedWithoutLeakingDetail(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
 		h, store := newFailingHandle()
 		store.createErr = boom
-		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a", Source: inMain("print(1)\n")})
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a", Source: tested(inMain("print(1)\n"))})
 		assert.True(t, res.IsError)
 		assert.Equal(t, "failed to create script", resultText(res))
 	})
@@ -145,8 +146,11 @@ func TestValidate_InlineSourceNeedsNoStoredScript(t *testing.T) {
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdValidate, Source: inMain("platform.query(connection=\"warehouse\", sql=\"SELECT 1\")"),
 	}))
-	assert.Equal(t, true, fields["ok"])
 	assert.Equal(t, []any{"warehouse"}, fields["connections"])
+	// It parses and passes the lint, and a save would still be refused: it
+	// has no test yet (#1939).
+	assert.Equal(t, false, fields["ok"])
+	assert.Contains(t, fields["save_refusal"], "no tests")
 }
 
 func TestValidate_ReportsADynamicConnection(t *testing.T) {
@@ -161,7 +165,7 @@ func TestValidate_ReportsADynamicConnection(t *testing.T) {
 func TestValidate_ReportsRefreshTargets(t *testing.T) {
 	h, _ := newHandle()
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdValidate, Source: inMain("platform.publish_data(\"dash\", {\"a\": 1})"),
+		Command: cmdValidate, Source: tested(inMain("platform.publish_data(\"dash\", {\"a\": 1})")),
 	}))
 	assert.Equal(t, true, fields["ok"])
 	assert.Equal(t, []any{"dash"}, fields["refresh_targets"])

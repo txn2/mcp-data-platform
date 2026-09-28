@@ -62,15 +62,17 @@ func TestIssue1937_ASaveStoresTheFormattedSource(t *testing.T) {
 	}
 	draft := c.call("manage_script", map[string]any{"command": "run_draft", "name": name, "source": untidy1937})
 
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": untidy1937,
 		"description": "Acceptance #1937: stored in the canonical format.",
-	})
+	}, nil)
 	if created["status"] != "created" || created["source_formatted"] != true {
 		t.Fatalf("create: %v", created)
 	}
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
-	if got["source"] != tidy1937 {
+	// The stored source is the formatted one, followed by the test it was
+	// saved with (#1939).
+	if !strings.HasPrefix(fmt.Sprint(got["source"]), strings.TrimRight(tidy1937, "\n")+"\n\ndef test_") {
 		t.Fatalf("the stored source is not the formatted one:\n%v", got["source"])
 	}
 	for _, comment := range []string{"# The regions report.", "# every region we sell in"} {
@@ -94,10 +96,10 @@ func TestIssue1937_SavingTheStoredSourceChangesNothing(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1937-again-%d", time.Now().UnixNano())
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": untidy1937,
 		"description": "Acceptance #1937: saved twice.",
-	})
+	}, nil)
 	before := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	again := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": before["source"]})
 	if again["status"] != "updated" {

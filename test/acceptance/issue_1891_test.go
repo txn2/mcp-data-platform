@@ -36,10 +36,10 @@ const source1891 = "def main():\n    \"\"\"Does nothing.\"\"\"\n    pass\n"
 func schedule1891(t *testing.T, c *client, label, cron, zone string) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1891-%s-%d", label, time.Now().UnixNano())
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source1891,
 		"description": "Acceptance #1891: a schedule the Schedules tab draws.",
-	})
+	}, nil)
 	id, _ := created["id"].(string)
 	if id == "" {
 		t.Fatalf("manage_script create returned no id: %v", created)

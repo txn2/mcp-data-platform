@@ -61,11 +61,11 @@ func issueKey1846(t *testing.T, admin *client, attributes map[string]any) (name,
 func script1846(t *testing.T, c *client) (name, id string) {
 	t.Helper()
 	name = fmt.Sprintf("acc-1846-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source1846,
 		"description": "Acceptance #1846: a grant and a caller-bound parameter.",
 		"params":      []any{map[string]any{"name": "tenant", "type": "string", "bind": "caller.tenant"}},
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	id, _ = got["id"].(string)

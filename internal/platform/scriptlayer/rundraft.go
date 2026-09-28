@@ -2,13 +2,18 @@ package scriptlayer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -22,15 +27,22 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		return errResult, nil, nil
 	}
 	report := scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.destinations)
-	// The gates, as a save of this source would apply them (#1913): the script
+	// The gate, as a save of this source would apply it (#1913): the script
 	// named when it exists and the caller could save into it, otherwise a new
-	// one. The findings' lines are formatted_source's, the stored form.
-	gated := scriptlint.Check(source, scriptlint.For(h.validateTarget(ctx, input)))
-	report = scriptlint.Merge(report, gated)
+	// one. The findings' lines are formatted_source's, the stored form, and
+	// the tests' report and the differences from the saved version are what a
+	// save would be told (#1939, #1942).
+	target := h.validateTarget(ctx, input)
+	name := input.Name
+	if target != nil {
+		name = target.Name
+	}
+	gated := h.gate.Check(ctx, h.saveRequest(ctx, target, name, source, input))
+	report = scriptlint.Merge(report, gated.Lint)
 	out := map[string]any{
-		"ok":                      report.OK,
+		"ok":                      report.OK && !gated.Refused(),
 		"findings":                report.Findings,
-		"formatted_source":        gated.Source,
+		"formatted_source":        gated.Lint.Source,
 		"capabilities":            report.Capabilities,
 		"tools":                   report.Tools,
 		"connections":             report.Connections,
@@ -55,8 +67,82 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 	if report.DynamicTools {
 		out["tools_note"] = "At least one platform.call computes the tool it invokes instead of naming one, so this tool list is incomplete."
 	}
+	addTestNotes(out, gated)
+	if report.OK && gated.Refused() {
+		out["save_refusal"] = gated.Refusal
+	}
 	if !report.OK {
 		out["help"] = fmt.Sprintf("Call %s with command=help for the dialect contract and worked examples.", ToolNameManageScript)
+	}
+	return jsonResult(out)
+}
+
+// handleTest runs a script's tests (#1939): the saved script's, or the tests
+// in the source sent. Every host call a test makes is answered from the
+// recording it names, so nothing reaches an upstream and nothing is written.
+func (h *Handle) handleTest(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	source, errResult := h.draftSource(ctx, input)
+	if errResult != nil {
+		return errResult, nil, nil
+	}
+	target := h.validateTarget(ctx, input)
+	caller := scriptsave.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx)}
+	report, err := scripttest.Run(ctx, scripttest.Request{
+		Source: source, Name: orScriptName(input.Name), Destinations: h.destinations,
+		Load: h.gate.Loader(target, caller), MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
+	})
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
+	return jsonResult(map[string]any{
+		"ok": report.OK(), "tests": report.Tests, "passed": report.Passed, "failed": report.Failed,
+		"coverage": report.Coverage, "min_coverage_percent": scriptsave.MinCoverage,
+	})
+}
+
+// orScriptName is the name a script is labeled with in a traceback.
+func orScriptName(name string) string {
+	if name == "" {
+		return "script"
+	}
+	return name
+}
+
+// handleRecording returns one recording (#1939): what the run started from
+// and every host call it made with the answer it was given. It holds upstream
+// rows, so it is read under the rules run history is: the script's owner and
+// administrators, and the author of a draft of a script not yet saved.
+func (h *Handle) handleRecording(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
+	if input.RunID == "" {
+		return errorResult("run_id is required: the run or draft whose recording to read"), nil, nil
+	}
+	notFound := errorResult(fmt.Sprintf("no recording %q you can read", input.RunID))
+	if h.recordings == nil {
+		return notFound, nil, nil
+	}
+	stored, err := h.recordings.Get(ctx, input.RunID)
+	if errors.Is(err, scriptrec.ErrNotFound) {
+		return notFound, nil, nil
+	}
+	if err != nil {
+		slog.Error("failed to read a script recording", logKeyError, err)
+		return errorResult("failed to read the recording"), nil, nil
+	}
+	var sc *script.Script
+	if stored.ScriptID != "" {
+		sc, _ = h.store.GetByID(ctx, stored.ScriptID)
+	}
+	if !scriptsave.Readable(stored.Meta, sc, scriptsave.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx)}) {
+		return notFound, nil, nil
+	}
+	out := map[string]any{"recording": stored.Meta}
+	if stored.Replayable() {
+		rec, err := scriptrec.Decode(stored.Data)
+		if err != nil {
+			return errorResult(err.Error()), nil, nil
+		}
+		out["started_from"] = rec.Header
+		out["calls"] = rec.Calls
 	}
 	return jsonResult(out)
 }
@@ -114,7 +200,8 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 		return errorResult(scriptdraft.ErrNoIdentity.Error()), nil, nil
 	}
 	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
-		WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).Run(ctx, scriptdraft.Request{
+		WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
+		WithRecordings(h.recordings).Run(ctx, scriptdraft.Request{
 		Source: source, Name: sc.Name, Script: sc, Params: params,
 		// The live state, so the draft reads what a platform run created now
 		// would read. Nothing is written back: what the draft would have saved
@@ -224,6 +311,12 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		if result.State != nil {
 			out["state"] = orEmptyParams(result.State.Value)
 		}
+	}
+	if outcome.Recorded {
+		// What a test replays (#1939).
+		out["recording"] = outcome.RunID
+		out["recording_note"] = fmt.Sprintf("This draft's host calls and their answers were recorded. A test replays them "+
+			"with testing.replay(%q); see command=help for how a test is written.", outcome.RunID)
 	}
 	if runErr != nil {
 		out[fieldStatus] = "failed"

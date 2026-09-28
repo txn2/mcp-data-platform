@@ -482,10 +482,10 @@ def main():
     )
 `, chanMattermost, marker)
 
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": scriptName,
 		"display_name": "Acceptance 1720 monitor", "source": source,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		c.call("manage_script", map[string]any{"command": "delete", "name": scriptName})
 	})

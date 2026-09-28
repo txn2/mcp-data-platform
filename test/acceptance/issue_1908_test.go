@@ -44,7 +44,7 @@ func compare1908(t *testing.T, c *client, id string, newer, older int) []map[str
 
 func update1908(t *testing.T, c *client, name, source string) {
 	t.Helper()
-	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": source}); out["error"] != nil || out["status"] == "invalid" {
+	if out := c.saveEdit(map[string]any{"command": "update", "name": name, "source": source}, nil); out["error"] != nil || out["status"] == "invalid" {
 		t.Fatalf("update refused: %v", out)
 	}
 }

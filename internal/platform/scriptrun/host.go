@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsql"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
@@ -27,12 +28,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// toolQuery is the tool platform.query names. Every host binding issues an
+// ToolQuery is the tool platform.query names. Every host binding issues an
 // ordinary platform tool call over the run's MCP session — the named helpers
 // with a constant here, platform.call with the name the author wrote — so a
 // script's query is authorized, rate limited, and audited by exactly the
 // middleware an agent's query goes through.
-const toolQuery = "trino_query"
+const ToolQuery = "trino_query"
 
 // Member names of the platform module.
 //
@@ -249,6 +250,7 @@ func (h *hostState) saveState(_ *starlark.Thread, b *starlark.Builtin, args star
 		return nil, argErr(b, err)
 	}
 	h.state = &script.StateWrite{Value: object}
+	h.opts.observe(h.state)
 	return starlark.None, nil
 }
 
@@ -351,7 +353,7 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
 	}
-	bound, err := bindSQL(sql, params)
+	bound, err := scriptsql.Bind(sql, params)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -360,7 +362,7 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if connection != "" {
 		call["connection"] = connection
 	}
-	out, err := h.callTool(toolQuery, call)
+	out, err := h.callTool(ToolQuery, call)
 	if err != nil {
 		return nil, argErr(b, err)
 	}
@@ -773,6 +775,7 @@ func publishPayload(b *starlark.Builtin, data starlark.Value) (any, error) {
 // FormatDataPayload the writer uses, so the size a draft reports is the size a
 // platform run splices.
 func (h *hostState) persistOrPreviewPublish(b *starlark.Builtin, req PublishRequest) (ExportRecord, error) {
+	h.opts.observe(req)
 	record := ExportRecord{
 		Name: req.Name, Destination: script.DestinationPortal, Format: PublishFormat,
 		RowCount: PublishRowCount(req.Data), Refresh: true,
@@ -1073,6 +1076,7 @@ func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 // has to be the number a real run would write, not a format-independent
 // estimate of it.
 func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (ExportRecord, error) {
+	h.opts.observe(req)
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
 		RowCount: req.RowCount(), Document: req.Body != nil, Sheets: req.Sheets(),

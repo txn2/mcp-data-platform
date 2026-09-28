@@ -50,12 +50,12 @@ def main():
 func createScript1804(t *testing.T, c *client) string {
 	t.Helper()
 	name := fmt.Sprintf("acceptance-1804-%d", time.Now().UnixNano()%1_000_000_000)
-	out := c.call("manage_script", map[string]any{
+	out := c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1804: a patch whose replacement key is wrong must be refused.",
 		"source":      script1804,
-	})
+	}, nil)
 	if status, _ := out["status"].(string); status == "" || status == "invalid" {
 		t.Fatalf("manage_script create did not save the script: %v", out)
 	}

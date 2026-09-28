@@ -11,8 +11,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -37,16 +37,17 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 		return jsonResult(refusedReport("the source does not parse, so it was not saved", report))
 	}
 	sent := sc.Source
-	gated := scriptlint.Check(sent, scriptlint.For(nil))
-	if len(gated.Refused) > 0 {
-		return jsonResult(gateRefusal("the source does not pass the authoring gates, so it was not saved", gated))
+	gated := h.gate.Check(ctx, h.saveRequest(ctx, nil, sc.Name, sent, input))
+	if gated.Refused() {
+		return jsonResult(saveRefusal(gated))
 	}
-	sc.Source = gated.Source
+	sc.Source = gated.Lint.Source
 	author := callerAuthor(ctx)
 	if err := h.store.Create(ctx, sc, author); err != nil {
 		slog.Error("failed to create script", fieldName, input.Name, logKeyError, err)
 		return errorResult("failed to create script"), nil, nil
 	}
+	h.keepRecordings(ctx, sc)
 	out := map[string]any{
 		fieldStatus: "created", "id": sc.ID, fieldName: sc.Name, fieldVersion: sc.Version,
 		"next": "Saved, and it runs: run_script executes it under the access you held when you saved it, and a schedule you set will fire it. Use run_draft to iterate on changes before saving them.",
@@ -54,6 +55,24 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	addDescriptionNotice(out, sc)
 	addGateNotes(out, sent, gated)
 	return jsonResult(out)
+}
+
+// saveRequest is the gate's request for a save of source into existing (nil
+// for a new script) by the caller, carrying the change summary they sent.
+func (h *Handle) saveRequest(ctx context.Context, existing *script.Script, name, source string, input manageScriptInput) scriptsave.Request {
+	return scriptsave.Request{
+		Existing: existing, Name: name, Source: source,
+		Caller:        scriptsave.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx)},
+		ChangeSummary: input.ChangeSummary, Agreed: input.UserAgreed,
+	}
+}
+
+// keepRecordings keeps the recordings the saved source's tests name past the
+// retention sweep. A failure is logged: the save landed.
+func (h *Handle) keepRecordings(ctx context.Context, sc *script.Script) {
+	if err := h.gate.Keep(ctx, sc, resolveEmail(ctx)); err != nil {
+		slog.Warn("failed to keep the recordings a script's tests name", fieldName, sc.Name, logKeyError, err)
+	}
 }
 
 // addDescriptionNotice attaches the non-blocking signal that a description has
@@ -107,8 +126,8 @@ func (h *Handle) handleUpdate(ctx context.Context, input manageScriptInput) (*mc
 // applyUpdates mutates the script in place from the sent fields, then validates
 // the resulting record as a whole. The gates' result is returned when source
 // was sent, nil otherwise.
-func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input manageScriptInput) (*scriptlint.Result, *mcp.CallToolResult) {
-	gated, errResult := gateSource(sc, input.Source, "the edit")
+func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input manageScriptInput) (*scriptsave.Result, *mcp.CallToolResult) {
+	gated, errResult := h.gateSource(ctx, sc, input.Source, "the edit", input)
 	if errResult != nil {
 		return nil, errResult
 	}
@@ -131,11 +150,12 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 	return gated, nil
 }
 
-// gateSource puts new source for sc through the validator and the authoring
-// gates and, when both pass, sets it as the formatted source. Empty source
-// means none was sent: nothing is checked and nil is returned. what names the
-// change in a refusal ("the edit", "the patch").
-func gateSource(sc *script.Script, source, what string) (*scriptlint.Result, *mcp.CallToolResult) {
+// gateSource puts new source for sc through the validator and the save gate
+// (internal/platform/scriptsave) and, when both pass, sets it as the formatted
+// source with the change it carries. Empty source means none was sent:
+// nothing is checked and nil is returned. what names the change in a refusal
+// ("the edit", "the patch").
+func (h *Handle) gateSource(ctx context.Context, sc *script.Script, source, what string, input manageScriptInput) (*scriptsave.Result, *mcp.CallToolResult) {
 	if source == "" {
 		return nil, nil
 	}
@@ -143,12 +163,12 @@ func gateSource(sc *script.Script, source, what string) (*scriptlint.Result, *mc
 		result, _, _ := jsonResult(refusedReport("the source does not parse, so "+what+" was not saved", report))
 		return nil, result
 	}
-	gated := scriptlint.Check(source, scriptlint.For(sc))
-	if len(gated.Refused) > 0 {
-		result, _, _ := jsonResult(gateRefusal("the source does not pass the authoring gates, so "+what+" was not saved", gated))
+	gated := h.gate.Check(ctx, h.saveRequest(ctx, sc, sc.Name, source, input))
+	if gated.Refused() {
+		result, _, _ := jsonResult(saveRefusal(gated))
 		return nil, result
 	}
-	sc.Source = gated.Source
+	gated.Apply(sc)
 	return &gated, nil
 }
 
@@ -189,6 +209,9 @@ func (h *Handle) persist(ctx context.Context, before, after *script.Script, extr
 	})
 	if err != nil {
 		return editError(err), nil, nil
+	}
+	if after.Source != before.Source {
+		h.keepRecordings(ctx, after)
 	}
 	out := map[string]any{fieldName: after.Name, fieldVersion: after.Version}
 	maps.Copy(out, extra)
@@ -376,24 +399,43 @@ func (h *Handle) validateTarget(ctx context.Context, input manageScriptInput) *s
 	return sc
 }
 
-// gateRefusal renders a save the gates refused: the reason, every finding on
-// the formatted source (the refused ones as errors), and the formatted source
-// the findings' lines refer to.
-func gateRefusal(reason string, res scriptlint.Result) map[string]any {
-	return map[string]any{
+// saveRefusal renders a save the gate refused: the reason, every finding on
+// the formatted source (the refused ones as errors), the formatted source the
+// findings' lines refer to, and the tests' report and behavior comparison when
+// the gate got that far.
+func saveRefusal(res scriptsave.Result) map[string]any {
+	out := map[string]any{
 		fieldStatus:        "invalid",
-		fieldMessage:       reason,
-		"findings":         res.Findings,
-		"formatted_source": res.Source,
-		"help": fmt.Sprintf("Fix each error finding and save again. Line numbers refer to formatted_source, "+
+		fieldMessage:       res.Refusal,
+		"findings":         res.Lint.Findings,
+		"formatted_source": res.Lint.Source,
+		"help": fmt.Sprintf("Fix what the message names and save again. Line numbers refer to formatted_source, "+
 			"which is how the script is stored. Call %s with command=help for the rules.", ToolNameManageScript),
+	}
+	addTestNotes(out, res)
+	return out
+}
+
+// addTestNotes carries the tests' report and the behavior comparison into a
+// response.
+func addTestNotes(out map[string]any, res scriptsave.Result) {
+	if res.Tests != nil {
+		out["tests"] = res.Tests
+	}
+	if len(res.Differences) > 0 || len(res.Replayed) > 0 {
+		out["differences"] = res.Differences
+		out["replayed"] = res.Replayed
+	}
+	if res.ChangeNeeded {
+		out["change_needed"] = true
 	}
 }
 
 // addGateNotes tells the author of a saved version what the gates did: that
 // the stored source is the formatted one, and the findings a script saved
 // before the gates still carries, which did not refuse this save.
-func addGateNotes(out map[string]any, sent string, res scriptlint.Result) {
+func addGateNotes(out map[string]any, sent string, gated scriptsave.Result) {
+	res := gated.Lint
 	if res.Source != sent {
 		out["source_formatted"] = true
 		out["formatted_note"] = "The source was stored in the canonical format; read it back with get before patching it."
@@ -401,4 +443,5 @@ func addGateNotes(out map[string]any, sent string, res scriptlint.Result) {
 	if len(res.Findings) > 0 {
 		out["findings"] = res.Findings
 	}
+	addTestNotes(out, gated)
 }

@@ -13,10 +13,12 @@ import (
 )
 
 // untidy is a valid new-shape script in a layout nobody would store.
-const untidy = "def main():\n  '''Exports one row.'''\n  platform.export(name='x',rows=[{'a':1}],format='csv')  # the output\n"
+const untidy = "def main():\n  '''Exports one row.'''\n  platform.export(name='x',rows=[{'a':1}],format='csv')  # the output\n" +
+	"def test_main():\n  '''Exports it.'''\n  main()\n  assert.eq(testing.outputs().exports[0].row_count,1)\n"
 
 // tidy is untidy as the formatter stores it.
-const tidy = "def main():\n    \"\"\"Exports one row.\"\"\"\n    platform.export(name = \"x\", rows = [{\"a\": 1}], format = \"csv\")  # the output\n"
+const tidy = "def main():\n    \"\"\"Exports one row.\"\"\"\n    platform.export(name = \"x\", rows = [{\"a\": 1}], format = \"csv\")  # the output\n" +
+	"\ndef test_main():\n    \"\"\"Exports it.\"\"\"\n    main()\n    assert.eq(testing.outputs().exports[0].row_count, 1)\n"
 
 // A save stores the formatted source and says so; saving that source again
 // changes nothing in it (#1937).
@@ -58,7 +60,7 @@ func TestGates_CreateRefusesAFindingAndNamesIt(t *testing.T) {
 	assert.Contains(t, fields, "formatted_source")
 
 	res = call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("rows = platform.query(\"SELECT 1\")\nprint(rows)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("rows = [1]\nprint(rows)\n")),
 	})
 	assert.Equal(t, "created", resultFields(t, res)[fieldStatus], resultText(res))
 }
@@ -89,7 +91,7 @@ func seedLegacy(t *testing.T, store *memStore, source string) {
 	t.Helper()
 	sc := &script.Script{
 		Name: "old", DisplayName: "Old", Source: source, OwnerEmail: "jane@example.com",
-		Enabled: true, Status: script.StatusActive, Legacy: true,
+		Enabled: true, Status: script.StatusActive, Legacy: true, TestsOptional: true,
 	}
 	require.NoError(t, store.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
 }

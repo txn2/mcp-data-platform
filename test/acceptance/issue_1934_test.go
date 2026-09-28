@@ -40,12 +40,12 @@ func issue1934Failing(info map[string]any, name string) map[string]any {
 func TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := fmt.Sprintf("acc-1934-%d", time.Now().UnixNano())
-	owner.call("manage_script", map[string]any{
+	owner.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1934: an automation that fails, then is fixed.",
 		"source": "def main():\n    \"\"\"Fails the way a script meeting input it does not expect fails.\"\"\"\n" +
 			"    fail(\"the input was not what this script expects\")\n",
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	run := owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60})
 	if run["status"] != "failed" {
@@ -76,7 +76,7 @@ func TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds(t *testing.T
 		t.Errorf("a failure already briefed is announced as new again: %v", again)
 	}
 
-	owner.call("manage_script", map[string]any{"command": "update", "name": name, "source": "def main():\n    \"\"\"Succeeds.\"\"\"\n    print(\"fixed\")\n"})
+	owner.saveEdit(map[string]any{"command": "update", "name": name, "source": "def main():\n    \"\"\"Succeeds.\"\"\"\n    print(\"fixed\")\n"}, nil)
 	if fixed := owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60}); fixed["status"] != "succeeded" {
 		t.Fatalf("the fixed run did not succeed: %v", fixed)
 	}
@@ -90,11 +90,11 @@ func TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds(t *testing.T
 func TestIssue1934_AnotherOwnersFailureIsNotBriefed(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := fmt.Sprintf("acc-1934-other-%d", time.Now().UnixNano())
-	owner.call("manage_script", map[string]any{
+	owner.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1934: a failure only its owner is told about.",
 		"source":      "def main():\n    \"\"\"Fails.\"\"\"\n    fail(\"boom\")\n",
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60})
 

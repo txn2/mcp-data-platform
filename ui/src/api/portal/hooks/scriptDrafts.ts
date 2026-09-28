@@ -38,6 +38,41 @@ export interface ScriptValidation {
   reads_state?: boolean;
   saves_state?: boolean;
   note?: string;
+  // save_refusal is why saving this source would be refused (#1939, #1942),
+  // absent when a save would go through; tests is the report of its tests and
+  // differences what it does differently from the saved version.
+  save_refusal?: string;
+  tests?: ScriptTestReport;
+  differences?: ScriptBehaviorDifference[];
+}
+
+// ScriptTestReport is what a source's test_* functions found (#1939, #1940).
+export interface ScriptTestReport {
+  tests: {
+    name: string;
+    passed: boolean;
+    recording?: string;
+    failure?: string;
+    line?: number;
+  }[];
+  passed: number;
+  failed: number;
+  coverage: {
+    statements: number;
+    covered: number;
+    percent: number;
+    missed_lines: number[];
+  };
+}
+
+// ScriptBehaviorDifference is one thing an edit does differently from the
+// saved version (#1942): in a recorded run replayed through both, or in what
+// the edit reaches. detail is the sentence the person agreeing reads.
+export interface ScriptBehaviorDifference {
+  run?: string;
+  kind: string;
+  subject: string;
+  detail: string;
 }
 
 // useValidateScriptSource parses an edit and reports what it would reach.
@@ -79,6 +114,9 @@ export interface ScriptDryRun {
   // none. At most one: the refusal ends the run.
   refused_write?: ScriptDryRunWrite;
   message: string;
+  // recording is the id a test replays this dry run's host calls by,
+  // testing.replay("<recording>") (#1939).
+  recording?: string;
 }
 
 // ScriptDryRunWrite is one persisting platform.call: the tool, and the action

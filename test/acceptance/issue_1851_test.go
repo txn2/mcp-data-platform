@@ -47,14 +47,14 @@ func issue1851Script(t *testing.T, c *client) (name, output string) {
 	t.Helper()
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name, output = "acc-1851-"+stamp, "acc-1851-out-"+stamp
-	saved := c.call("manage_script", map[string]any{
+	saved := c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1851: a script output a pinned table is registered over.",
 		"source":      fmt.Sprintf(issue1851Source, output),
 		"params": []any{map[string]any{
 			"name": "label", "type": "string", "required": true, "description": "What each row is labelled.",
 		}},
-	})
+	}, nil)
 	if saved["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", saved)
 	}

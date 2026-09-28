@@ -63,7 +63,7 @@ func unique1593() string {
 // id the portal route addresses it by.
 func createScript1593(t *testing.T, c *client, name string) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1593: the account a delete gives of itself.",
@@ -74,7 +74,7 @@ func createScript1593(t *testing.T, c *client, name string) string {
 				"description": "The output name this run writes.",
 			},
 		},
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
@@ -239,13 +239,15 @@ func TestIssue1593_SaveSaysTheSameOnBothSurfaces(t *testing.T) {
 	portalID := createScript1593(t, owner, portalName)
 
 	edited := scriptSource1593 + "\n# edited by acceptance #1593\n"
-	toolOut := owner.call("manage_script", map[string]any{
+	toolOut := owner.saveEdit(map[string]any{
 		"command": "update", "name": toolName, "source": edited,
-	})
+	}, nil)
 	toolMessage, _ := toolOut["message"].(string)
 
+	// The portal save carries the test a save needs, as the tool's did.
+	portalEdit := owner.tested(map[string]any{"command": "update", "name": portalName, "source": edited}, nil)
 	status, body := owner.rest(http.MethodPut, "/api/v1/portal/scripts/"+portalID+"/source",
-		strings.NewReader(mustJSON1593(t, map[string]any{"source": edited})))
+		strings.NewReader(mustJSON1593(t, map[string]any{"source": portalEdit["source"]})))
 	if status != http.StatusOK {
 		t.Fatalf("PUT portal script source: status %d: %v", status, body)
 	}
