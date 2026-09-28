@@ -54,6 +54,9 @@ func (h *hostState) appendExport(b *starlark.Builtin, page ExportRequest) (starl
 	if err := out.Spooled.Append(page.Columns, page.Rows); err != nil {
 		return nil, argErr(b, err)
 	}
+	// A test sees the pages as they are written; the whole is written, and
+	// shown to it, only when the run ends.
+	h.opts.observe(page)
 	h.mem.Holding(h.appendedBytes())
 	return exportrecord.AppendingValue(exportrecord.Appending{
 		Name: out.Name, Destination: out.Destination.Name, Format: out.Format,

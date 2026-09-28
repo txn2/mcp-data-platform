@@ -35,6 +35,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -132,6 +133,10 @@ type Config struct {
 
 	// RunRetention overrides DefaultRunRetention.
 	RunRetention time.Duration
+
+	// Recordings keeps each run's host calls and their answers (#1939), and
+	// is swept at RunRetention with the runs. Nil keeps none.
+	Recordings scriptrec.Store
 
 	// Limits are a platform run's ceilings: its wall-clock timeout, its
 	// interpreter steps, and the rows one platform.query may return. Zero
@@ -284,6 +289,7 @@ func New(cfg Config) *Handle {
 		versions:    stores.versions,
 		runner:      newRunner(stores.runs, cfg),
 		retention:   orDefaultRetention(cfg.RunRetention),
+		recordings:  cfg.Recordings,
 		notifier:    notifier,
 		metrics:     cfg.Metrics,
 		lease:       LeaseFor(cfg.Limits.WithDefaults().Timeout),

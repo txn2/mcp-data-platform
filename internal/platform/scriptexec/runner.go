@@ -14,6 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -59,6 +60,9 @@ type runner struct {
 	limits scriptrun.PlatformLimits
 	// reportEvery is liveReportEvery, shortened by tests.
 	reportEvery time.Duration
+	// recordings keeps what each run's host calls were answered (#1939);
+	// nil keeps nothing.
+	recordings scriptrec.Store
 }
 
 // newRunner builds the executor the worker drives.
@@ -67,7 +71,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 		runs: runs, server: cfg.Server, export: cfg.Export,
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
-		reportEvery: liveReportEvery,
+		reportEvery: liveReportEvery, recordings: cfg.Recordings,
 	}
 }
 
@@ -113,6 +117,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.RunURL = r.runURL(sc.ID, run.ID)
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
 	opts.Live = scriptlive.New(opts.MaxLogBytes, r.limits.ResultMaxBytes)
+	rec := r.record(&opts)
 
 	// The reporter writes what the run has reported so far to its row while
 	// it executes, and stops it when a cancel is requested (#1847).
@@ -123,6 +128,11 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	result, runErr := scriptrun.Run(runCtx, opts)
 	rep.finish()
 
+	rec.SaveTo(ctx, r.recordings, scriptrec.Meta{
+		RunID: run.ID, ScriptID: sc.ID, ScriptName: sc.Name, Kind: scriptrec.KindRun,
+		RecordedBy: sc.OwnerEmail, Version: v.Version, SourceSHA256: scriptrec.SourceHash(v.Source),
+		Succeeded: runErr == nil,
+	})
 	outcome := attemptFrom(result, runErr)
 	// A run stopped on request ends canceled, not failed. One that reported
 	// success as the request landed finished, and the request decided nothing.
@@ -132,6 +142,22 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	}
 	r.recordAudit(ctx, run, sc, v, outcome.result)
 	return outcome
+}
+
+// record starts the recording of the run opts describe and routes its host
+// calls and writes through it, or returns nil when this deployment keeps
+// none.
+func (r *runner) record(opts *scriptrun.Options) *scriptrec.Recorder {
+	if r.recordings == nil {
+		return nil
+	}
+	rec := scriptrec.NewRecorder(scriptrec.Header{
+		RunID: opts.RunID, FireTime: opts.FireTime, Params: opts.Params, State: opts.State,
+		RunURL: opts.RunURL, MaxRows: opts.MaxRows, Preview: opts.Exporter == nil,
+	})
+	opts.OnCall = rec.OnCall
+	opts.Exporter = rec.Exporter(opts.Exporter)
+	return rec
 }
 
 // cancelledError is the error a canceled run records.

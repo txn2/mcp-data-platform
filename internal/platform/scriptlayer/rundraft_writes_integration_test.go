@@ -56,10 +56,7 @@ func TestIntegration_ADraftDoesNotLandThroughPlatformCall(t *testing.T) {
 	h := writeToolServer(t, &calls)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "ingest", "source": ingestSource,
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "ingest", ingestSource)
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "ingest",
@@ -93,13 +90,9 @@ func TestIntegration_ADraftThatWroteNothingSaysWriteClassCallsAreRefused(t *test
 	h := writeToolServer(t, &calls)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "reader",
-		"source": inMain(`platform.call("manage_table", {"action": "list"})
+	seed(t, h, "reader", inMain(`platform.call("manage_table", {"action": "list"})
 platform.call("vendor__list_contacts", {})
-`),
-	})
-	require.False(t, isErr, created)
+`))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "reader",
@@ -125,10 +118,7 @@ func TestIntegration_ADraftWithAllowWritesLandsAndReportsEveryWrite(t *testing.T
 	h := writeToolServer(t, &calls)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "ingest", "source": ingestSource,
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "ingest", ingestSource)
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "ingest", "allow_writes": true,
@@ -194,8 +184,7 @@ func TestIntegration_AllowWritesWritesTheExport(t *testing.T) {
 	h.handle.draftExports = writer.exports
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{"command": "create", "name": "mixed", "source": mixedSource})
-	require.False(t, isErr, created)
+	seed(t, h, "mixed", mixedSource)
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "mixed", "allow_writes": true,
@@ -231,11 +220,7 @@ func TestIntegration_ABarredDraftStillPreviewsTheExport(t *testing.T) {
 	h.handle.draftExports = writer.exports
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "exportonly",
-		"source": inMain(`platform.export(name="daily", rows=[{"a": 1}], format="csv")`),
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "exportonly", inMain(`platform.export(name="daily", rows=[{"a": 1}], format="csv")`))
 	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "exportonly"})
 	require.False(t, isErr, ran)
 
@@ -256,8 +241,7 @@ func TestIntegration_AllowWritesWithNowhereToWritePreviewsAndSaysSo(t *testing.T
 	h := writeToolServer(t, &calls)
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{"command": "create", "name": "mixed", "source": mixedSource})
-	require.False(t, isErr, created)
+	seed(t, h, "mixed", mixedSource)
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "mixed", "allow_writes": true,
 	})
@@ -349,11 +333,7 @@ func TestIntegration_ADraftRefusesAToolNobodyClassified(t *testing.T) {
 		})
 	session := connectAgent(ctx, t, h.server)
 
-	created, isErr := callTool(ctx, t, session, map[string]any{
-		"command": "create", "name": "vendor",
-		"source": inMain(`platform.call("vendor__create_invoice", {"amount": 10})`),
-	})
-	require.False(t, isErr, created)
+	seed(t, h, "vendor", inMain(`platform.call("vendor__create_invoice", {"amount": 10})`))
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "vendor",

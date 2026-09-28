@@ -60,9 +60,9 @@ func unique1551() string {
 }
 
 // createScript saves a script owned by the calling person and returns its name.
-func createScript1551(t *testing.T, c *client, name, source string) string {
+func createScript1551(t *testing.T, c *client, name, source string, draft ...map[string]any) string {
 	t.Helper()
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScriptCovering(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1551: a script whose output belongs to the person who owns it.",
@@ -71,7 +71,7 @@ func createScript1551(t *testing.T, c *client, name, source string) string {
 			"name": "output", "type": "string", "required": true,
 			"description": "The output name this run writes.",
 		}},
-	})
+	}, draft...)
 	if created["status"] == "invalid" {
 		t.Fatalf("script %s was refused on save: %v", name, created["findings"])
 	}
@@ -402,8 +402,8 @@ def main():
     """Creates one managed resource and prints the id it was filed under."""
     res = platform.call("manage_resource", {
         "action": "create",
-        "display_name": "` + resourceName + `",
-        "filename": "` + resourceName + `.csv",
+        "display_name": run.params["output"],
+        "filename": run.params["output"] + ".csv",
         "path": "acceptance",
         "content": "region,units\nnorth,41\n",
         "content_type": "text/csv",
@@ -411,7 +411,9 @@ def main():
     })
     print(res["resource_id"])
 `
-	createScript1551(t, owner, scriptName, source)
+	// The draft a save records writes a file of its own, so the run's is the
+	// first of its name.
+	createScript1551(t, owner, scriptName, source, map[string]any{"output": resourceName + "-draft"})
 	run := runScript1551(t, owner, scriptName, map[string]any{"output": resourceName})
 
 	resourceID := strings.TrimSpace(lastLine1551(run))

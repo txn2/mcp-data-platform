@@ -26,11 +26,11 @@ import (
 func issue1935Run(t *testing.T, c *client, label, source string) map[string]any {
 	t.Helper()
 	name := fmt.Sprintf("acc-1935-%s-%d", label, time.Now().UnixNano())
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1935: " + label,
 		"source":      source,
-	})
+	}, nil)
 	if created["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}
@@ -118,14 +118,14 @@ func TestIssue1935_ARepeatedFailureEmailSaysToCorrectTheScript(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	db := issue1904DB(t)
 	name := fmt.Sprintf("acc-1935-mail-%d", time.Now().UnixNano())
-	created := owner.call("manage_script", map[string]any{
+	created := owner.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1935: a failure that repeats",
 		"source": `def main():
     """Fails the way a script handed input it does not expect does."""
     fail("the input was not what this script expects")
 `,
-	})
+	}, nil)
 	if created["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}

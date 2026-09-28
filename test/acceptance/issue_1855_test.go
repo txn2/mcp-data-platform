@@ -35,11 +35,11 @@ import (
 func script1855(t *testing.T, owner *client) string {
 	t.Helper()
 	name := fmt.Sprintf("acc-1855-%d", time.Now().UnixNano())
-	created := owner.call("manage_script", map[string]any{
+	created := owner.saveScript(map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1855: the script a knowledge page cites.",
 		"source":      "def main():\n    \"\"\"Reports that the orders are synced.\"\"\"\n    print(\"orders synced\")\n",
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create %s: %v", name, created)
 	}

@@ -86,10 +86,10 @@ func TestIssue1944_TopLevelWorkIsRefusedAndMainRunsTheSame(t *testing.T) {
 	}
 
 	draft := c.call("manage_script", map[string]any{"command": "run_draft", "name": name, "source": topLevel1944})
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": inMain1944,
 		"description": "Acceptance #1944: the same work in main().",
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("the script in main() did not save: %v", created)
 	}
@@ -130,11 +130,11 @@ func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 	db := issue1904DB(t)
 	name := name1944("legacy")
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": inMain1944,
 		"description": "Acceptance #1944: a script saved before main().",
-	})
-	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, source_code = $2 WHERE name = $1`, name, topLevel1944)
+	}, nil)
+	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, source_code = $2 WHERE name = $1`, name, topLevel1944)
 	issue1904Exec(t, db, `UPDATE script_versions SET source_code = $2
 		WHERE script_id = (SELECT id FROM scripts WHERE name = $1)`, name, topLevel1944)
 
@@ -151,6 +151,7 @@ func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 			WHERE s.name = $1 AND r.trigger_kind = 'schedule' AND r.status = 'succeeded'`, name) > 0
 	})
 
+	// A script saved before the gates saves without tests (#1939).
 	edited := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": "# still at the top level\n" + topLevel1944})
 	if edited["status"] != "updated" {
 		t.Errorf("a new version of the older script did not save: %v", edited)

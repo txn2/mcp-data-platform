@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -258,4 +259,50 @@ func TestRun_HoldsADraftToTheMemoryBudget(t *testing.T) {
 	require.True(t, outcome.Failed())
 	assert.Contains(t, outcome.Err.Error(), "64 KiB memory budget")
 	assert.Positive(t, outcome.Result.PeakMemory)
+}
+
+// recordings is an in-memory scriptrec.Store.
+type recordings struct{ saved []scriptrec.Stored }
+
+func (r *recordings) Save(_ context.Context, rec scriptrec.Stored) error {
+	r.saved = append(r.saved, rec)
+	return nil
+}
+
+func (*recordings) Get(context.Context, string) (*scriptrec.Stored, error) {
+	return nil, scriptrec.ErrNotFound
+}
+
+func (*recordings) Recent(context.Context, string, int) ([]scriptrec.Stored, error) {
+	return nil, nil
+}
+func (*recordings) Keep(context.Context, string, string, []string) error { return nil }
+func (*recordings) Purge(context.Context, time.Duration) (int64, error)  { return 0, nil }
+
+// A draft is recorded under its run id, for the script's tests to replay
+// (#1939); a draft of a script not yet saved names no script.
+func TestRun_RecordsTheDraft(t *testing.T) {
+	st := &recordings{}
+	outcome, err := New(server(t), nil).WithRecordings(st).Run(context.Background(), Request{
+		Source: "print(1)\n", Name: "greeter", Identity: jane,
+	})
+	require.NoError(t, err)
+	assert.True(t, outcome.Recorded)
+	require.Len(t, st.saved, 1)
+	assert.Equal(t, outcome.RunID, st.saved[0].RunID)
+	assert.Equal(t, scriptrec.KindDraft, st.saved[0].Kind)
+	assert.Equal(t, jane.Email, st.saved[0].RecordedBy)
+	assert.Empty(t, st.saved[0].ScriptID)
+
+	_, err = New(server(t), nil).WithRecordings(st).Run(context.Background(), Request{
+		Source: "print(1)\n", Name: "greeter", Identity: jane, Script: &script.Script{ID: "s1"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "s1", st.saved[1].ScriptID)
+
+	outcome, err = New(server(t), nil).Run(context.Background(), Request{Source: "print(1)\n", Name: "g", Identity: jane})
+	require.NoError(t, err)
+	assert.False(t, outcome.Recorded, "a deployment keeping no recordings records nothing")
+	var none *Runner
+	assert.Nil(t, none.WithRecordings(st))
 }

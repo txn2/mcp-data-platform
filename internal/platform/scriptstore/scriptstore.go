@@ -55,7 +55,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 // place so the scan order in scanScript cannot drift from the query.
 const scriptColumns = `id, name, display_name, description, category, source_code, params,
 	owner_email, tags, enabled, status, superseded_by,
-	deprecated_at, version, created_at, updated_at, legacy`
+	deprecated_at, version, created_at, updated_at, legacy, tests_optional`
 
 // scriptSelect is the base SELECT for the script columns.
 // scriptsTable is the one place the table's name is written. Every statement
@@ -78,7 +78,7 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
 		&s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.Legacy)
+		&s.CreatedAt, &s.UpdatedAt, &s.Legacy, &s.TestsOptional)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script row: %w", err)
 	}

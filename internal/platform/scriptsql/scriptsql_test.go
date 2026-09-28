@@ -1,4 +1,4 @@
-package scriptrun
+package scriptsql
 
 import (
 	"testing"
@@ -29,8 +29,8 @@ func params(t *testing.T, bindings ...binding) *starlark.Dict {
 	return d
 }
 
-// bind is shorthand for one binding.
-func bind(name string, value any) binding { return binding{name: name, value: value} }
+// bound is shorthand for one binding.
+func bound(name string, value any) binding { return binding{name: name, value: value} }
 
 func TestBindSQL_Literals(t *testing.T) {
 	cases := []struct {
@@ -39,21 +39,21 @@ func TestBindSQL_Literals(t *testing.T) {
 		args []binding
 		want string
 	}{
-		{"string quoted", "WHERE r = :r", []binding{bind("r", "west")}, "WHERE r = 'west'"},
-		{"quote doubled", "WHERE r = :r", []binding{bind("r", "o'brien")}, "WHERE r = 'o''brien'"},
-		{"injection is a value", "WHERE r = :r", []binding{bind("r", "x' OR '1'='1")}, "WHERE r = 'x'' OR ''1''=''1'"},
-		{"int", "LIMIT :n", []binding{bind("n", int64(5))}, "LIMIT 5"},
-		{"float", "WHERE f > :f", []binding{bind("f", 1.5)}, "WHERE f > 1.5"},
-		{"bool", "WHERE b = :b", []binding{bind("b", true)}, "WHERE b = TRUE"},
-		{"false", "WHERE b = :b", []binding{bind("b", false)}, "WHERE b = FALSE"},
-		{"none", "WHERE x IS :x", []binding{bind("x", nil)}, "WHERE x IS NULL"},
-		{"list", "WHERE r IN :rs", []binding{bind("rs", []any{"a", "b"})}, "WHERE r IN ('a', 'b')"},
-		{"list of ints", "WHERE n IN :ns", []binding{bind("ns", []any{int64(1), int64(2)})}, "WHERE n IN (1, 2)"},
-		{"repeated placeholder", "WHERE a = :v OR b = :v", []binding{bind("v", "x")}, "WHERE a = 'x' OR b = 'x'"},
+		{"string quoted", "WHERE r = :r", []binding{bound("r", "west")}, "WHERE r = 'west'"},
+		{"quote doubled", "WHERE r = :r", []binding{bound("r", "o'brien")}, "WHERE r = 'o''brien'"},
+		{"injection is a value", "WHERE r = :r", []binding{bound("r", "x' OR '1'='1")}, "WHERE r = 'x'' OR ''1''=''1'"},
+		{"int", "LIMIT :n", []binding{bound("n", int64(5))}, "LIMIT 5"},
+		{"float", "WHERE f > :f", []binding{bound("f", 1.5)}, "WHERE f > 1.5"},
+		{"bool", "WHERE b = :b", []binding{bound("b", true)}, "WHERE b = TRUE"},
+		{"false", "WHERE b = :b", []binding{bound("b", false)}, "WHERE b = FALSE"},
+		{"none", "WHERE x IS :x", []binding{bound("x", nil)}, "WHERE x IS NULL"},
+		{"list", "WHERE r IN :rs", []binding{bound("rs", []any{"a", "b"})}, "WHERE r IN ('a', 'b')"},
+		{"list of ints", "WHERE n IN :ns", []binding{bound("ns", []any{int64(1), int64(2)})}, "WHERE n IN (1, 2)"},
+		{"repeated placeholder", "WHERE a = :v OR b = :v", []binding{bound("v", "x")}, "WHERE a = 'x' OR b = 'x'"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := bindSQL(tc.sql, params(t, tc.args...))
+			got, err := Bind(tc.sql, params(t, tc.args...))
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -70,12 +70,12 @@ func TestBindSQL_SkipsNonCode(t *testing.T) {
 		args []binding
 		want string
 	}{
-		{"string literal", "SELECT ':r' , :r", []binding{bind("r", "x")}, "SELECT ':r' , 'x'"},
-		{"escaped quote in literal", "SELECT 'it''s :r', :r", []binding{bind("r", "x")}, "SELECT 'it''s :r', 'x'"},
-		{"quoted identifier", `SELECT ":r", :r`, []binding{bind("r", "x")}, `SELECT ":r", 'x'`},
-		{"line comment", "-- :r\nSELECT :r", []binding{bind("r", "x")}, "-- :r\nSELECT 'x'"},
-		{"block comment", "/* :r */ SELECT :r", []binding{bind("r", "x")}, "/* :r */ SELECT 'x'"},
-		{"cast is not a placeholder", "SELECT x::varchar, :r", []binding{bind("r", "x")}, "SELECT x::varchar, 'x'"},
+		{"string literal", "SELECT ':r' , :r", []binding{bound("r", "x")}, "SELECT ':r' , 'x'"},
+		{"escaped quote in literal", "SELECT 'it''s :r', :r", []binding{bound("r", "x")}, "SELECT 'it''s :r', 'x'"},
+		{"quoted identifier", `SELECT ":r", :r`, []binding{bound("r", "x")}, `SELECT ":r", 'x'`},
+		{"line comment", "-- :r\nSELECT :r", []binding{bound("r", "x")}, "-- :r\nSELECT 'x'"},
+		{"block comment", "/* :r */ SELECT :r", []binding{bound("r", "x")}, "/* :r */ SELECT 'x'"},
+		{"cast is not a placeholder", "SELECT x::varchar, :r", []binding{bound("r", "x")}, "SELECT x::varchar, 'x'"},
 		{"bare colon", "SELECT 1 : 2", nil, "SELECT 1 : 2"},
 		{"unterminated literal swallows the rest", "SELECT ':r", nil, "SELECT ':r"},
 		{"unterminated comment swallows the rest", "SELECT /* :r", nil, "SELECT /* :r"},
@@ -83,7 +83,7 @@ func TestBindSQL_SkipsNonCode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := bindSQL(tc.sql, params(t, tc.args...))
+			got, err := Bind(tc.sql, params(t, tc.args...))
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -98,14 +98,14 @@ func TestBindSQL_Refusals(t *testing.T) {
 		wantErr string
 	}{
 		{"unbound placeholder", "WHERE r = :r", nil, "has no bound value"},
-		{"unused value", "SELECT 1", []binding{bind("r", "x")}, "no :r placeholder"},
-		{"empty list", "WHERE r IN :rs", []binding{bind("rs", []any{})}, "empty list"},
-		{"nested list", "WHERE r IN :rs", []binding{bind("rs", []any{[]any{"a"}})}, "may not contain lists"},
-		{"nul byte", "WHERE r = :r", []binding{bind("r", "a\x00b")}, "NUL byte"},
+		{"unused value", "SELECT 1", []binding{bound("r", "x")}, "no :r placeholder"},
+		{"empty list", "WHERE r IN :rs", []binding{bound("rs", []any{})}, "empty list"},
+		{"nested list", "WHERE r IN :rs", []binding{bound("rs", []any{[]any{"a"}})}, "may not contain lists"},
+		{"nul byte", "WHERE r = :r", []binding{bound("r", "a\x00b")}, "NUL byte"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := bindSQL(tc.sql, params(t, tc.args...))
+			_, err := Bind(tc.sql, params(t, tc.args...))
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
@@ -116,7 +116,7 @@ func TestBindSQL_Refusals(t *testing.T) {
 		for i := range big {
 			big[i] = int64(i)
 		}
-		_, err := bindSQL("WHERE n IN :ns", params(t, bind("ns", big)))
+		_, err := Bind("WHERE n IN :ns", params(t, bound("ns", big)))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bind limit")
 	})
@@ -124,7 +124,7 @@ func TestBindSQL_Refusals(t *testing.T) {
 	t.Run("non-string key", func(t *testing.T) {
 		d := starlark.NewDict(1)
 		require.NoError(t, d.SetKey(starlark.MakeInt(1), starlark.String("x")))
-		_, err := bindSQL("SELECT 1", d)
+		_, err := Bind("SELECT 1", d)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "keys must be strings")
 	})
@@ -132,14 +132,14 @@ func TestBindSQL_Refusals(t *testing.T) {
 	t.Run("unbindable value", func(t *testing.T) {
 		d := starlark.NewDict(1)
 		require.NoError(t, d.SetKey(starlark.String("t"), starlark.Tuple{starlark.String("a")}))
-		_, err := bindSQL("WHERE x = :t", d)
+		_, err := Bind("WHERE x = :t", d)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cannot leave the script")
 	})
 }
 
 func TestBindSQL_NilParams(t *testing.T) {
-	got, err := bindSQL("SELECT 1", nil)
+	got, err := Bind("SELECT 1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "SELECT 1", got)
 }
@@ -150,12 +150,12 @@ func TestBindSQL_NilParams(t *testing.T) {
 // is refused, naming why.
 func TestBindSQL_ATableRecordBindsAsItsName(t *testing.T) {
 	record := map[string]any{"connection": "scratch", "query_table": "scratch.analyst.orders", "follow": true}
-	got, err := bindSQL("SELECT count(*) FROM :t", params(t, bind("t", record)))
+	got, err := Bind("SELECT count(*) FROM :t", params(t, bound("t", record)))
 	require.NoError(t, err)
 	assert.Equal(t, `SELECT count(*) FROM "scratch"."analyst"."orders"`, got)
 
 	odd := map[string]any{"query_table": `scratch.x.a"b`}
-	got, err = bindSQL("FROM :t", params(t, bind("t", odd)))
+	got, err = Bind("FROM :t", params(t, bound("t", odd)))
 	require.NoError(t, err)
 	assert.Equal(t, `FROM "scratch"."x"."a""b"`, got, "an embedded quote cannot end the identifier")
 
@@ -171,7 +171,7 @@ func TestBindSQL_ATableRecordBindsAsItsName(t *testing.T) {
 		"not a string at all": {map[string]any{"query_table": int64(3)}, `pass the record`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := bindSQL("FROM :t", params(t, bind("t", tc.record)))
+			_, err := Bind("FROM :t", params(t, bound("t", tc.record)))
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.want)
 		})

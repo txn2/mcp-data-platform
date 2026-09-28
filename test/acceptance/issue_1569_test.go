@@ -112,7 +112,10 @@ func unique1569() string {
 // when the test ends unless the test removed it itself.
 func createScript1569(t *testing.T, c *client, name string) {
 	t.Helper()
-	created := c.call("manage_script", map[string]any{
+	// One draft per mode, so the tests a save needs (#1939) reach all three;
+	// the drafts write under names of their own, and the replace names no
+	// resource and fails, which its test asserts.
+	created := c.saveScriptCovering(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1569: a script whose writes are recorded against it.",
@@ -127,7 +130,11 @@ func createScript1569(t *testing.T, c *client, name string) {
 				"description": "The output name, resource name, or resource reference.",
 			},
 		},
-	})
+	},
+		map[string]any{"mode": "export", "target": name + "-recorded"},
+		map[string]any{"mode": "create_resource", "target": name + "-recorded"},
+		map[string]any{"mode": "replace", "target": "mcp:resource:00000000000000000000000000000000"},
+	)
 	if created["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}

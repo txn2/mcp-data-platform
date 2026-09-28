@@ -210,7 +210,7 @@ func TestIssue1907_ARunOfAnOlderVersionIsDrawnOnThatVersion(t *testing.T) {
 	runID, _ := run1907(t, c, name)
 	v2 := v1 + `    platform.export("acc-1907-v2", rows["rows"], format = "csv")
 `
-	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2}); out["status"] != "updated" {
+	if out := c.saveEdit(map[string]any{"command": "update", "name": name, "source": v2}, nil); out["status"] != "updated" {
 		t.Fatalf("update refused: %v", out)
 	}
 	flow := runFlow1907(t, c, id, runID)

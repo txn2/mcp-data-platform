@@ -73,7 +73,7 @@ for row in res["rows"]:
 	assert.Equal(t, 1, result.Queries)
 	assert.Positive(t, result.Steps)
 	require.Len(t, caller.calls, 1)
-	assert.Equal(t, toolQuery, caller.calls[0].name)
+	assert.Equal(t, ToolQuery, caller.calls[0].name)
 	assert.Equal(t, "primary", caller.calls[0].args["connection"])
 	assert.Equal(t, DraftMaxRows, caller.calls[0].args["limit"],
 		"the row cap is pushed down to the query rather than trusted to come back small")
@@ -228,7 +228,7 @@ func TestRun_WriteSQLReachesTheQueryToolThatRefusesIt(t *testing.T) {
 	assert.Contains(t, err.Error(), "trino_execute",
 		"the tool's own refusal reaches the author, naming the tool platform.call can invoke")
 	require.Len(t, caller.calls, 1, "the statement is the query tool's to refuse, so it reaches it")
-	assert.Equal(t, toolQuery, caller.calls[0].name)
+	assert.Equal(t, ToolQuery, caller.calls[0].name)
 	assert.Equal(t, "INSERT INTO sales VALUES (1)", caller.calls[0].args["sql"])
 }
 

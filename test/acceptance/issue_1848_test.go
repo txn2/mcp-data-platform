@@ -45,10 +45,10 @@ def main():
 func save1848(t *testing.T, c *client) (name, id string) {
 	t.Helper()
 	name = fmt.Sprintf("acc-1848-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source1848,
 		"description": "Acceptance #1848: tags and metadata on an output.",
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	id, _ = got["id"].(string)

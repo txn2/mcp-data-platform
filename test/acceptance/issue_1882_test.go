@@ -69,11 +69,11 @@ func unique1882() string {
 func exportWorkbook1882(t *testing.T, c *client) string {
 	t.Helper()
 	name := "acc-1882-" + unique1882()
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": fmt.Sprintf(issue1882Source, name),
 		"description": "Acceptance #1882: a workbook written by platform.export gets no tile.",
 		"params":      []any{map[string]any{"name": "day", "type": "string"}},
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	out := c.call("run_script", map[string]any{"name": name, "args": map[string]any{}, "wait_seconds": 120})

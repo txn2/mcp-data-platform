@@ -32,6 +32,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -130,6 +131,9 @@ type Outcome struct {
 	// AllowWrites is whether the draft was run with its writes allowed, which
 	// decides what Persisted says it did.
 	AllowWrites bool
+	// Recorded is true when the draft's host calls and their answers were
+	// kept (#1939): a test replays it as testing.replay(RunID).
+	Recorded bool
 }
 
 // Failed reports whether the script itself failed.
@@ -159,6 +163,17 @@ type Runner struct {
 	// platform run on this replica meets: a draft runs on a serving replica,
 	// where an out-of-memory kill costs every session on it. Zero sets none.
 	memoryBudget int64
+	// recordings keeps what each draft's host calls were answered, for the
+	// script's tests to replay (#1939). Nil keeps nothing.
+	recordings scriptrec.Store
+}
+
+// WithRecordings returns the Runner keeping each draft's recording in store.
+func (r *Runner) WithRecordings(store scriptrec.Store) *Runner {
+	if r != nil {
+		r.recordings = store
+	}
+	return r
 }
 
 // WithMemoryBudget returns the Runner with the memory one draft may hold.
@@ -256,7 +271,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		return nil, err
 	}
 	defer cleanup()
-	result, runErr := scriptrun.Run(ctx, scriptrun.Options{
+	opts := scriptrun.Options{
 		Source: req.Source, Name: req.Name, RunID: runID,
 		// The fire time is pinned here, once, and handed to the script as
 		// run.fire_time: even a draft never reads a clock, so what an author
@@ -271,8 +286,36 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		Classifier:     r.classifier,
 		Exporter:       r.exporterFor(req, runID, caller),
 		MaxMemoryBytes: r.memoryBudget,
+	}
+	rec := r.record(&opts)
+	result, runErr := scriptrun.Run(ctx, opts)
+	out := &Outcome{RunID: runID, Result: result, Err: runErr, AllowWrites: req.AllowWrites}
+	if rec != nil {
+		meta := scriptrec.Meta{
+			RunID: runID, ScriptName: req.Name, Kind: scriptrec.KindDraft,
+			RecordedBy: req.Identity.Email, SourceSHA256: scriptrec.SourceHash(req.Source), Succeeded: runErr == nil,
+		}
+		if req.Script != nil {
+			meta.ScriptID = req.Script.ID
+		}
+		out.Recorded = rec.SaveTo(ctx, r.recordings, meta)
+	}
+	return out, nil
+}
+
+// record starts the recording of the draft opts describe, or returns nil when
+// this deployment keeps none.
+func (r *Runner) record(opts *scriptrun.Options) *scriptrec.Recorder {
+	if r.recordings == nil {
+		return nil
+	}
+	rec := scriptrec.NewRecorder(scriptrec.Header{
+		RunID: opts.RunID, FireTime: opts.FireTime, Params: opts.Params, State: opts.State,
+		MaxRows: scriptrun.DraftMaxRows, Preview: opts.Exporter == nil,
 	})
-	return &Outcome{RunID: runID, Result: result, Err: runErr, AllowWrites: req.AllowWrites}, nil
+	opts.OnCall = rec.OnCall
+	opts.Exporter = rec.Exporter(opts.Exporter)
+	return rec
 }
 
 // exporterFor is the writer a draft's exports go through: none, so every export

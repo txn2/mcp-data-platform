@@ -6,7 +6,9 @@ import {
   useScriptConnections,
   useValidateScriptSource,
 } from "@/api/portal/hooks/scripts";
+import { ApiError } from "@/api/portal/client";
 import type {
+  ScriptBehaviorDifference,
   ScriptConnectionChoice,
   ScriptContract,
   ScriptDryRun,
@@ -19,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { CT } from "@/lib/contentType";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
+import { ScriptChangeDialog } from "./ScriptChangeDialog";
 import { ScriptCodeCard } from "./ScriptCodeCard";
 import { DryRunReport, ValidationReport } from "./ScriptDraftChecks";
 import {
@@ -89,6 +92,13 @@ export function ScriptSourceEditor({
   // sticky checkbox would make the next dry run write because the last one had
   // to (#1664).
   const [allowWrites, setAllowWrites] = useState(false);
+  // change is a save refused because the edit changes what the automation
+  // does (#1942): the text that was sent and what it does differently, held
+  // while the person saving writes the change down.
+  const [change, setChange] = useState<{
+    source: string;
+    differences: ScriptBehaviorDifference[];
+  } | null>(null);
 
   const params = draftParams;
   // A dry run executes as the author, so the connections it may name are the
@@ -109,19 +119,33 @@ export function ScriptSourceEditor({
       failure: e instanceof Error ? e.message : fallback,
     });
 
-  const submit = () => {
+  const submit = (summary?: string) => {
     setResults(NOTHING_YET);
-    const sent = current;
-    save.mutate(sent, {
-      onSuccess: (res) => {
-        setResults({ ...NOTHING_YET, outcome: res.message });
-        setSubmitted(sent);
-        // The applied edit IS the live source now, so the draft is dropped and
-        // the editor follows the record.
-        if (res.applied) setDraft(null);
+    const sent = summary === undefined ? current : (change?.source ?? current);
+    save.mutate(
+      summary === undefined
+        ? { source: sent }
+        : { source: sent, change_summary: summary, user_agreed: true },
+      {
+        onSuccess: (res) => {
+          setChange(null);
+          setResults({ ...NOTHING_YET, outcome: res.message });
+          setSubmitted(sent);
+          // The applied edit IS the live source now, so the draft is dropped
+          // and the editor follows the record.
+          if (res.applied) setDraft(null);
+        },
+        onError: (e) => {
+          const differences = behaviorChange(e);
+          if (differences) {
+            setChange({ source: sent, differences });
+            return;
+          }
+          setChange(null);
+          fail("The source could not be saved")(e);
+        },
       },
-      onError: fail("The source could not be saved"),
-    });
+    );
   };
 
   const check = () => {
@@ -181,7 +205,7 @@ export function ScriptSourceEditor({
           onValidate={check}
           onDryRun={execute}
           onRun={queue}
-          onSave={submit}
+          onSave={() => submit()}
         />
       }
       // The diagram is of the saved version, the one that runs: an unsaved
@@ -234,10 +258,30 @@ export function ScriptSourceEditor({
           />
 
           <ScriptVersionHistory scriptId={scriptId} contract={contract} />
+
+          {change && (
+            <ScriptChangeDialog
+              differences={change.differences}
+              saving={save.isPending}
+              onSave={(summary) => submit(summary)}
+              onCancel={() => setChange(null)}
+            />
+          )}
         </div>
       )}
     />
   );
+}
+
+// behaviorChange is the differences a save was refused for when it changed
+// what the automation does (409, #1942), or null for any other failure.
+function behaviorChange(e: unknown): ScriptBehaviorDifference[] | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null;
+  const body = e.body as
+    { differences?: ScriptBehaviorDifference[] } | undefined;
+  return body?.differences && body.differences.length > 0
+    ? body.differences
+    : null;
 }
 
 // Results is what the last action said. All five are cleared together, so the

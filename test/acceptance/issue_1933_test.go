@@ -49,10 +49,10 @@ def main():
 func TestIssue1933_TheCardAFailedCallWasMadeFromIsTheFailedCard(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1933-weather-%d", time.Now().UnixNano())
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": weather1933,
 		"description": "Acceptance #1933: a failure after an upstream 500.",
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	scriptID, _ := created["id"].(string)
 	if scriptID == "" {

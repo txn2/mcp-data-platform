@@ -56,10 +56,10 @@ func closedObjects1945(path string, v any) []string {
 func TestIssue1945_ANestedKeyALaterReleaseAddsValidates(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := fmt.Sprintf("acc-1945-%d", time.Now().UnixNano())
-	owner.call("manage_script", map[string]any{
+	owner.saveScript(map[string]any{
 		"command": "create", "name": name, "description": "Acceptance #1945: an automation that fails.",
 		"source": "def main():\n    \"\"\"Fails.\"\"\"\n    fail(\"the input was not what this script expects\")\n",
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	if run := owner.call("run_script", map[string]any{"name": name, "wait_seconds": 60}); run["status"] != "failed" {
 		t.Fatalf("the run did not fail: %v", run)

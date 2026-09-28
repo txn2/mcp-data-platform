@@ -16,7 +16,7 @@ import (
 // mirrored by scanVersion so the scan order cannot drift from the query.
 const versionColumns = `id, script_id, version, display_name, description,
 	category, source_code, params, tags, author, author_roles, status,
-	created_at`
+	created_at, change_summary, change_agreed_by, change_agreed_at`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -27,7 +27,8 @@ func scanVersion(sc rowScanner) (*script.Version, error) {
 	var paramsJSON []byte
 	err := sc.Scan(&v.ID, &v.ScriptID, &v.Version, &v.DisplayName, &v.Description,
 		&v.Category, &v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author,
-		pq.Array(&v.AuthorRoles), &v.Status, &v.CreatedAt)
+		pq.Array(&v.AuthorRoles), &v.Status, &v.CreatedAt,
+		&v.ChangeSummary, &v.ChangeAgreedBy, &v.ChangeAgreedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
 	}
@@ -74,14 +75,18 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 	if roles == nil {
 		roles = []string{}
 	}
+	// change_agreed_at is the time of the save, and only for a save that
+	// carried a change.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO script_versions (script_id, version, display_name, description,
 		                             category, source_code, params, tags, author,
-		                             author_roles, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		                             author_roles, status, change_summary,
+		                             change_agreed_by, change_agreed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text, $13::text,
+		        CASE WHEN $12::text = '' THEN NULL ELSE NOW() END)`,
 		ins.ScriptID, ins.Version, ins.Snapshot.DisplayName, ins.Snapshot.Description,
 		ins.Snapshot.Category, ins.Snapshot.Source, paramsJSON, pq.Array(tags),
-		ins.Author.Email, pq.Array(roles), ins.Status)
+		ins.Author.Email, pq.Array(roles), ins.Status, ins.Snapshot.ChangeSummary, ins.Snapshot.ChangeAgreedBy)
 	if err != nil {
 		return fmt.Errorf("insert script version: %w", err)
 	}

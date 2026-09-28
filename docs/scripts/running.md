@@ -691,11 +691,14 @@ its rule, its line in the formatted source, and the fix, in the shape
 | `function-length` | a function has more than 40 statements |
 | `nesting-depth` | blocks nest more than 4 deep |
 | `unused-variable`, `unused-parameter` | a local or a parameter is never read (a name starting with `_` is exempt) |
-| `shadowed-name` | a name hides `platform`, `json`, `xml`, `date`, `run`, `sum` or `fail` |
+| `shadowed-name` | a name hides `platform`, `json`, `xml`, `date`, `run`, `sum`, `fail`, `testing` or `assert` |
 | `missing-docstring` | a function's body does not open with a docstring |
 | `sql-built-from-values` | the SQL passed to `platform.query` is built with `+`, `%` or `.format()` from values rather than bound with `params=` |
 | `call-in-loop` | `platform.query`, `platform.call` or `platform.export` runs once per element of a collection; a loop over `range()` that fetches one page per pass is not counted |
 | `save-state-without-read` | `platform.save_state` is called and `run.state` is never read |
+| `test-called` | the script calls one of its `test_*` functions, which only the test runner calls |
+| `test-module-outside-test` | `testing` or `assert` is used outside a `test_*` function |
+| `constant-assertion` | an assertion compares only values written into the test |
 
 The docstring rule is also what labels the [flow diagram](#documenting-a-script):
 a function's box carries the first sentence of its docstring when no comment
@@ -706,6 +709,107 @@ says in plain words what that step does.
 including work at their top level, and keep their schedules. A new version of
 one is refused only for a finding the version it replaces did not have; the
 findings it already carried are reported with the save and do not block it.
+
+### Tests, and what a save runs
+
+Every draft run and every run records each host call it makes and the answer
+it was given, with the parameters, state and fire time it started from. A run
+cannot read a clock or a random number and every effect goes through a host
+binding, so a recording replays exactly. `run_draft` returns its recording's id
+as `recording`; the portal's dry run returns it too.
+
+A script carries its tests beside `main()`, versioned with its source: a
+top-level `def` whose name starts with `test_`. A test names a recording once,
+as a string literal, calls `main()` or any other function, and asserts on what
+the execution produced. Every host call is answered from the recording, so a
+test never reaches an upstream, and a write binding keeps what it would have
+written.
+
+```python
+QUERY = "SELECT region, SUM(net) AS net FROM sales WHERE day = DATE :day GROUP BY region"
+
+def main():
+    """Exports yesterday's net sales by region."""
+    day = date.add_days(date.of(run.fire_time), -1)
+    rows = platform.query(QUERY, connection = "warehouse", params = {"day": day})["rows"]
+    platform.export(name = "net-by-region", rows = rows, format = "csv")
+
+def test_net_by_region():
+    """The recorded run exports each region's net sales."""
+    testing.replay("dpx_recording_of_a_draft")
+    main()
+    out = testing.outputs().exports[0]
+    assert.eq([r["region"] for r in out.rows], ["east", "west"])
+    assert.eq(out.rows[0]["net"], 1200)
+```
+
+The other scripts on this page show one feature each and leave their tests
+out; a script saved today carries them. A whole script written the way a saved
+one is, with a pure-function test, a test for each recorded path and a test of
+its failure, is the built-in example `example-weekly-revenue`
+(`manage_script get`), which the built-in knowledge page
+`mcp:knowledge_page:platform-reference-script` shows with how each of its
+tests was recorded and written. The instruction baseline names the page, and
+the gates hold the example to every rule a save applies.
+
+| `testing` | |
+|---|---|
+| `testing.replay("<run id>")` | the recording every host call in the test is answered from |
+| `testing.outputs()` | what the execution produced so far, written nowhere (an appended output as one output, page by page as it is written): `exports` (each with `name`, `format`, `destination`, `key`, `columns`, `rows`, `row_count`, `body`), `publishes`, `notifies` (each notify call's arguments), `calls` (every tool call), `state`, `result`, `log` |
+
+`assert.eq`, `assert.ne`, `assert.true` and `assert.contains` fail the test at
+their line, saying what they got; `assert.fails(fn, *args)` returns the message
+`fn` failed with. Neither module exists in a run, and a schedule never runs a
+test. A call the recording holds no answer for fails the test naming the call,
+for example `the recording holds no answer for platform.query("select 1")`. A
+test that names no recording has no answers: its tool calls fail and its
+exports are previewed.
+
+`manage_script command=test` runs the tests of the source sent, or of the saved
+script, and reports each test's result, the failing assertion and its line, and
+statement coverage: how many of the script's statements the tests reached and
+the lines of the ones they did not. Coverage counts statements; the branches
+inside one expression (`a if c else b`, `and`, `or`, a comprehension's `if`)
+are not measured. `command=recording` with `run_id` reads a recording.
+
+A save runs the tests:
+
+- A script is saved only with at least one test, every test passing, and at
+  least 80% of its statements reached; the refusal names the lines no test
+  reached.
+- A test that makes no assertion is refused.
+- A test that still passes when the recorded query rows are altered (the last
+  row of each result dropped, and the first row's values changed) is refused:
+  its assertions do not read what the script made of the data. A test that
+  the run fails, with `assert.fails(main)`, is not altered: a failure that holds
+  whatever the rows were is what it checks. Nor is a test whose execution
+  produced no output at all (nothing exported, refreshed, staged, returned,
+  or sent through a tool other than the query tool): nothing came of the rows
+  for an assertion to read.
+- A script saved before tests were required saves without them. Once it has
+  tests, they must keep passing, and a version may not reach less of the
+  script than the version before it.
+
+### What a new version changes
+
+A new version of a script that has run replays the script's five most recent
+recorded runs through both the saved version and the new one, and compares
+what they produced: an output's rows, columns and their types, the state it
+would save, the notifications it posts, `platform.result`, and any host call
+the recordings do not hold. It also compares what each version reaches: the
+tools, connections, destinations and host bindings. A recorded run the saved
+version itself cannot replay (it was recorded under an older version) is not
+compared.
+
+No difference and no new reach: the save goes through, which is how a refactor
+is shown to be safe. Otherwise the save is refused, naming each difference,
+until it carries `change_summary`, what the automation will now do
+differently in plain words for the person it runs for, and `user_agreed=true`,
+once that person has agreed. Both are kept on the version with who saved it
+and when. A person approves behavior, never code; there is no second approver.
+`validate` reports the same differences without saving, so the change can be
+described before it is asked for. In the portal editor, a save refused this way
+lists the differences and asks for the summary.
 
 ### Checking an edit before saving it
 
@@ -1998,6 +2102,15 @@ The sweep deletes only terminal rows (`succeeded`, `failed`, `skipped_overlap`)
 whose `finished_at` is older than the window, and it runs at most hourly, on the
 replicas that run a worker (`internal/platform/scriptstore/runs.go`,
 `PurgeRuns`).
+
+Recordings (`script_recordings`) are swept in the same pass at the same
+retention, except a recording a test in the script's latest version names: the
+test needs it, so it is kept until a later version stops naming it. A recording
+holds upstream rows and responses, so it is read under the rules run history
+is, by the script's current owner and administrators, and a draft's also by
+the person who ran it. One run's recording holds at most
+8 MiB compressed; a run past that keeps its history and no recording, and says
+why.
 
 **What is kept is not what a page shows.** The store caps any run listing at 50
 rows (`defaultRunListLimit`), and each surface asks for what it can display and

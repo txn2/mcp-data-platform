@@ -7,8 +7,11 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -127,7 +130,13 @@ func (m *memStore) snapshot(sc *script.Script, author script.Author, status stri
 		Source: sc.Source,
 		Params: sc.Params, Tags: sc.Tags, Author: author.Email, AuthorRoles: author.Roles,
 		Status: status, CreatedAt: time.Now().UTC(),
+		ChangeSummary: sc.ChangeSummary, ChangeAgreedBy: sc.ChangeAgreedBy,
 	})
+	if sc.ChangeSummary != "" {
+		// The real store stamps the agreement with the time of the save.
+		at := time.Now().UTC()
+		m.versions[sc.ID][len(m.versions[sc.ID])-1].ChangeAgreedAt = &at
+	}
 }
 
 func (m *memStore) GetByName(_ context.Context, owner, name string) (*script.Script, error) {
@@ -342,12 +351,19 @@ func inMain(body string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// tested gives a fixture the test a script created since #1939 is saved with:
+// one that calls main() with no recording and asserts it called no tool, which
+// a fixture making no host call passes with every statement reached.
+func tested(source string) string {
+	return source + "\ndef test_main():\n    \"\"\"Runs main, which calls no tool.\"\"\"\n    main()\n    assert.eq(testing.outputs().calls, [])\n"
+}
+
 // createDaily creates a working script owned by the author.
 func createDaily(t *testing.T, h *Handle) *mcp.CallToolResult {
 	t.Helper()
 	return call(t, h, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", DisplayName: "Daily",
-		Source: inMain("print(\"hello\")\n"),
+		Source: tested(inMain("print(\"hello\")\n")),
 	})
 }
 
@@ -356,7 +372,7 @@ func createAdmins(t *testing.T, h *Handle) *mcp.CallToolResult {
 	t.Helper()
 	return call(t, h, adminCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "shared", DisplayName: "Shared",
-		Source: inMain("print(\"hello\")\n"),
+		Source: tested(inMain("print(\"hello\")\n")),
 	})
 }
 
@@ -421,9 +437,9 @@ func TestCreate_Refusals(t *testing.T) {
 		input   manageScriptInput
 		wantErr string
 	}{
-		{"no name", authorCtx(), manageScriptInput{Command: cmdCreate, Source: inMain("print(1)\n")}, "name is required"},
+		{"no name", authorCtx(), manageScriptInput{Command: cmdCreate, Source: tested(inMain("print(1)\n"))}, "name is required"},
 		{"no source", authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a"}, "source is required"},
-		{"bad params", authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a", Source: inMain("print(1)\n"), Params: []script.Param{{Name: "A"}}}, "lowercase letter"},
+		{"bad params", authorCtx(), manageScriptInput{Command: cmdCreate, Name: "a", Source: tested(inMain("print(1)\n")), Params: []script.Param{{Name: "A"}}}, "lowercase letter"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -442,7 +458,7 @@ func TestCreate_NamesAreUniquePerOwner(t *testing.T) {
 	createDaily(t, h)
 
 	res := call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 	})
 
 	require.False(t, res.IsError, resultText(res))
@@ -457,7 +473,7 @@ func TestUpdate_AppliesToTheLiveRowAndAdvancesTheVersion(t *testing.T) {
 	createDaily(t, h)
 
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdUpdate, Name: "daily", Source: inMain("print(\"changed\")\n"),
+		Command: cmdUpdate, Name: "daily", Source: tested(inMain("print(\"changed\")\n")),
 	})
 	require.False(t, res.IsError, resultText(res))
 	fields := resultFields(t, res)
@@ -465,13 +481,13 @@ func TestUpdate_AppliesToTheLiveRowAndAdvancesTheVersion(t *testing.T) {
 	assert.EqualValues(t, 2, fields["version"])
 	assert.Contains(t, fields["message"], "this version is what runs now")
 	for _, sc := range store.scripts {
-		assert.Equal(t, inMain("print(\"changed\")\n"), sc.Source)
+		assert.Equal(t, tested(inMain("print(\"changed\")\n")), sc.Source)
 		assert.Equal(t, 2, sc.Version)
 
 		v, err := store.GetVersion(context.Background(), sc.ID, sc.Version)
 		require.NoError(t, err)
 		require.NotNil(t, v)
-		assert.Equal(t, inMain("print(\"changed\")\n"), v.Source,
+		assert.Equal(t, tested(inMain("print(\"changed\")\n")), v.Source,
 			"the version the run gate points at carries the edited source")
 	}
 }
@@ -484,14 +500,14 @@ func TestUpdate_AppliesDirectlyToASharedScript(t *testing.T) {
 	createAdmins(t, h)
 
 	res := call(t, h, adminCtx(), manageScriptInput{
-		Command: cmdUpdate, Name: "shared", Source: inMain("print(\"changed\")\n"),
+		Command: cmdUpdate, Name: "shared", Source: tested(inMain("print(\"changed\")\n")),
 	})
 	require.False(t, res.IsError, resultText(res))
 	fields := resultFields(t, res)
 	assert.Equal(t, "updated", fields["status"])
 	assert.EqualValues(t, 2, fields["version"])
 	for _, sc := range store.scripts {
-		assert.Equal(t, inMain("print(\"changed\")\n"), sc.Source, "the live row serves the edited source")
+		assert.Equal(t, tested(inMain("print(\"changed\")\n")), sc.Source, "the live row serves the edited source")
 	}
 }
 
@@ -525,7 +541,7 @@ func TestUpdate_DoesNotClaimADeprecatedScriptRuns(t *testing.T) {
 	require.False(t, res.IsError, resultText(res))
 
 	res = call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdUpdate, Name: "daily", Source: inMain("print(\"changed\")\n"),
+		Command: cmdUpdate, Name: "daily", Source: tested(inMain("print(\"changed\")\n")),
 	})
 	require.False(t, res.IsError, resultText(res))
 	message, _ := resultFields(t, res)["message"].(string)
@@ -750,9 +766,9 @@ func TestGet_NotFound(t *testing.T) {
 func TestList_ShowsEveryScript(t *testing.T) {
 	h, _ := newHandle()
 	createDaily(t, h) // jane's
-	call(t, h, adminCtx(), manageScriptInput{Command: cmdCreate, Name: "admin-private", Source: inMain("print(1)\n")})
+	call(t, h, adminCtx(), manageScriptInput{Command: cmdCreate, Name: "admin-private", Source: tested(inMain("print(1)\n"))})
 	call(t, h, callerCtx("bob@example.com", "analyst"), manageScriptInput{
-		Command: cmdCreate, Name: "bobs-report", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "bobs-report", Source: tested(inMain("print(1)\n")),
 	})
 
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdList}))
@@ -794,8 +810,8 @@ func listedNames(t *testing.T, fields map[string]any) []string {
 func TestRead_AnotherPersonsDefinitionIsReadable(t *testing.T) {
 	h, _ := newHandle()
 	bob := callerCtx("bob@example.com", "data-engineer")
-	call(t, h, bob, manageScriptInput{Command: cmdCreate, Name: "bobs-report", Source: inMain("print(1)\n")})
-	call(t, h, bob, manageScriptInput{Command: cmdUpdate, Name: "bobs-report", Source: inMain("print(2)\n")})
+	call(t, h, bob, manageScriptInput{Command: cmdCreate, Name: "bobs-report", Source: tested(inMain("print(1)\n"))})
+	call(t, h, bob, manageScriptInput{Command: cmdUpdate, Name: "bobs-report", Source: tested(inMain("print(2)\n"))})
 
 	// A name is its owner's; without owner_email the caller's own is meant.
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdGet, Name: "bobs-report"})
@@ -812,7 +828,7 @@ func TestRead_AnotherPersonsDefinitionIsReadable(t *testing.T) {
 		return resultFields(t, res)
 	}
 	got := read(cmdGet)
-	assert.Equal(t, inMain("print(2)\n"), got[fieldSource])
+	assert.Equal(t, tested(inMain("print(2)\n")), got[fieldSource])
 	assert.NotContains(t, got, "live_runs", "the runs are the owner's")
 	assert.Contains(t, read(cmdGetContent)["content"], "print(2)")
 	assert.Contains(t, fmt.Sprint(read(cmdDiff)), "print(1)")
@@ -932,7 +948,7 @@ func TestCreate_CarriesTheCategory(t *testing.T) {
 	h, store := newHandle()
 
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 		Category: new("reporting"), Tags: []string{"sales"},
 	})
 
@@ -950,7 +966,7 @@ func TestCreate_RefusesACategoryThatIsNotASlug(t *testing.T) {
 	h, _ := newHandle()
 
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"), Category: new("Sales Reports"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")), Category: new("Sales Reports"),
 	})
 
 	assert.True(t, res.IsError)
@@ -983,7 +999,7 @@ func TestUpdate_CarriesTheCategory(t *testing.T) {
 func TestUpdate_ClearsACategoryWhenAskedTo(t *testing.T) {
 	h, store := newHandle()
 	call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 		Category: new("reporting"), Tags: []string{"sales"},
 	})
 
@@ -1042,11 +1058,11 @@ func TestUpdate_CarriesTheLongDescriptionAdvisory(t *testing.T) {
 func TestList_NarrowsByCategoryAndTag(t *testing.T) {
 	h, _ := newHandle()
 	call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily-sales", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily-sales", Source: tested(inMain("print(1)\n")),
 		Category: new("reporting"), Tags: []string{"sales"},
 	})
 	call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "margin-check", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "margin-check", Source: tested(inMain("print(1)\n")),
 		Category: new("finance"), Tags: []string{"margins"},
 	})
 
@@ -1091,4 +1107,78 @@ func TestToolDescriptions_SayTheyBuildAutomations(t *testing.T) {
 	assert.True(t, strings.HasPrefix(manageScriptDescription, "Build and change automations."))
 	assert.Contains(t, manageScriptDescription, "managed script")
 	assert.True(t, strings.HasPrefix(runScriptDescription, "Run an automation on request"))
+}
+
+// memRecordings is an in-memory scriptrec.Store, modeling the Postgres one:
+// Save replaces by run id, Recent is a script's replayable successful runs
+// newest first, and Keep attaches a caller's unsaved drafts to the script.
+type memRecordings struct {
+	mu   sync.Mutex
+	recs []scriptrec.Stored
+}
+
+func newMemRecordings() *memRecordings { return &memRecordings{} }
+
+func (m *memRecordings) Save(_ context.Context, rec scriptrec.Stored) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rec.Bytes = len(rec.Data)
+	rec.CreatedAt = time.Now()
+	for i := range m.recs {
+		if m.recs[i].RunID == rec.RunID {
+			m.recs[i] = rec
+			return nil
+		}
+	}
+	m.recs = append(m.recs, rec)
+	return nil
+}
+
+func (m *memRecordings) Get(_ context.Context, runID string) (*scriptrec.Stored, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.recs {
+		if r.RunID == runID {
+			out := r
+			return &out, nil
+		}
+	}
+	return nil, scriptrec.ErrNotFound
+}
+
+func (m *memRecordings) Recent(_ context.Context, scriptID string, limit int) ([]scriptrec.Stored, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []scriptrec.Stored{}
+	for i := len(m.recs) - 1; i >= 0 && len(out) < limit; i-- {
+		r := m.recs[i]
+		if r.ScriptID == scriptID && r.Kind == scriptrec.KindRun && r.Succeeded && r.Data != nil {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (m *memRecordings) Keep(_ context.Context, scriptID, author string, runIDs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.recs {
+		named := slices.Contains(runIDs, m.recs[i].RunID)
+		if named && m.recs[i].ScriptID == "" && m.recs[i].RecordedBy == author {
+			m.recs[i].ScriptID = scriptID
+		}
+		if m.recs[i].ScriptID == scriptID {
+			m.recs[i].Kept = named
+		}
+	}
+	return nil
+}
+
+func (*memRecordings) Purge(context.Context, time.Duration) (int64, error) { return 0, nil }
+
+// replaying is the test a fixture saved through the real loop carries: it
+// replays the recording runID, runs main(), and makes the assertion given.
+func replaying(source, runID, assertion string) string {
+	return source + "\ndef test_recorded_run():\n    \"\"\"The recorded run replays.\"\"\"\n    testing.replay(\"" +
+		runID + "\")\n    main()\n    " + assertion + "\n"
 }

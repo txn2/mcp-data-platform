@@ -594,8 +594,10 @@ func TestIssue1833_SampleSQLAndTheListingFollowTheFormat(t *testing.T) {
 	}{
 		{"csv", "acc-1833-sample-" + stamp + ".csv", "text/csv", []byte("id,name\n1,a\n"), true, "id VARCHAR"},
 		{"jsonl", "acc-1833-sample-" + stamp + ".jsonl", "application/x-ndjson", []byte("{\"id\":1}\n"), false, "id BIGINT"},
-		{"parquet", "acc-1833-sample-" + stamp + ".parquet", tableparquet.ContentType, issue1833Fixture(t, "all_types"),
-			false, "b BOOLEAN"},
+		{
+			"parquet", "acc-1833-sample-" + stamp + ".parquet", tableparquet.ContentType, issue1833Fixture(t, "all_types"),
+			false, "b BOOLEAN",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.format, func(t *testing.T) {
@@ -697,10 +699,10 @@ def main():
     platform.save_state(state)
 `, name, scratchResourceConnection, table)
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1833: rows exported as Parquet and registered in one call.",
-	})
+	}, nil)
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	state := issue1663RunScript(t, c, name)
@@ -740,8 +742,10 @@ func TestIssue1833_TheToolsSayWhatEachFormatDeclares(t *testing.T) {
 		descriptions[tool.Name] = tool.Description
 		schemas[tool.Name] = fmt.Sprint(tool.InputSchema)
 	}
-	for _, want := range []string{"CSV, JSON-lines or Parquet", "A CSV's columns all come back as VARCHAR",
-		"typed from every record", "declares its own columns and types", "column_types"} {
+	for _, want := range []string{
+		"CSV, JSON-lines or Parquet", "A CSV's columns all come back as VARCHAR",
+		"typed from every record", "declares its own columns and types", "column_types",
+	} {
 		if !strings.Contains(descriptions["manage_table"], want) {
 			t.Errorf("manage_table's description does not say %q", want)
 		}

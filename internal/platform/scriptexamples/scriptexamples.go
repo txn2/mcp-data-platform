@@ -12,7 +12,12 @@ type Example struct {
 	Source      string
 }
 
-// All is the seeded worked scripts. Three, not ten: they exist to show
+// ReferenceName is the complete reference script: every idiom a saved
+// automation is built from, and the tests it is saved with (#1939). The
+// built-in knowledge page platform-reference-script shows it verbatim.
+const ReferenceName = "example-weekly-revenue"
+
+// All is the seeded worked scripts. Four, not ten: they exist to show
 // the shape of a script and the idioms every job needs — a date derived from
 // the pinned fire time, a bound parameter, and a watermark carried in the
 // script's state — not to be a cookbook that invites copying without reading.
@@ -52,6 +57,17 @@ def main():
         rows = rows,
         format = "csv",
     )
+
+def test_daily_sales():
+    """The recorded run exports each region's total under yesterday's date."""
+
+    # The recording is the id run_draft returned for a draft of this script.
+    testing.replay("dpx_recording_of_a_draft")
+    main()
+    out = testing.outputs().exports[0]
+    assert.eq(out.name, "daily-sales-" + date.add_days(date.of(run.fire_time), -1))
+    assert.eq([r["region"] for r in out.rows], ["east", "west"])
+    assert.eq(out.rows[0]["total"], 1200)
 `,
 	},
 	{
@@ -96,6 +112,22 @@ def main():
     summary = rollup(result["rows"], run.params["grain"])
     print(json.encode(summary))
     platform.export(name = "region-rollup", rows = summary, format = "json")
+
+def test_rollup_adds_up_each_grain():
+    """Rows that share a region add up to one total."""
+    rows = [
+        {"region": "east", "total": 2},
+        {"region": "east", "total": 3},
+        {"region": "west", "total": 1},
+    ]
+    assert.eq(rollup(rows, "region"), [{"key": "east", "total": 5}, {"key": "west", "total": 1}])
+
+def test_recorded_rollup():
+    """The recorded run exports the month's totals for the chosen regions."""
+    testing.replay("dpx_recording_of_a_draft")
+    main()
+    out = testing.outputs().exports[0]
+    assert.eq(sum([r["total"] for r in out.rows]), 5400)
 `,
 	},
 	{
@@ -134,6 +166,92 @@ def main():
     # Saved only if the run succeeds, and only if no other run of this script
     # wrote state in between. A run that fails above leaves the watermark alone.
     platform.save_state({"synced_through": until, "last_delta_rows": len(rows)})
+
+def test_recorded_sync():
+    """The recorded run exports what changed and moves the watermark to its fire time."""
+    testing.replay("dpx_recording_of_a_draft")
+    main()
+    out = testing.outputs()
+    assert.eq(out.exports[0].rows[0]["order_id"], 1001)
+    assert.eq(out.state, {"synced_through": run.fire_time, "last_delta_rows": 3})
+`,
+	},
+	{
+		Name: ReferenceName,
+		Description: "The reference script: helpers with docstrings, a bound connection parameter, a watermark in state, " +
+			"a failure that says why, an export and a result, and the tests it is saved with.",
+		Source: `# A weekly revenue report, written as every saved automation is: constants
+# and functions at the top level, the work in main(), and the tests it is
+# saved with at the end.
+
+REVENUE_BY_REGION = """
+    SELECT region, sum(amount) AS revenue, count(*) AS orders
+      FROM sales.orders
+     WHERE order_date > DATE :since AND order_date <= DATE :through
+     GROUP BY region
+     ORDER BY region
+"""
+
+def window(state, fire_time):
+    """The days since the last reported one, through the day before the fire."""
+    through = date.add_days(date.of(fire_time), -1)
+    since = state.get("reported_through", date.add_days(through, -7))
+    return since, through
+
+def summarize(rows):
+    """The regions that had orders, and their revenue added up."""
+    kept = [r for r in rows if r["orders"] > 0]
+
+    # A DECIMAL column arrives as a string: convert before adding.
+    return kept, sum([float(r["revenue"]) for r in kept])
+
+def main():
+    """Exports the week's revenue by region and moves the watermark."""
+    since, through = window(run.state, run.fire_time)
+    result = platform.query(
+        connection = run.params["connection"],
+        sql = REVENUE_BY_REGION,
+        params = {"since": since, "through": through},
+    )
+    kept, total = summarize(result["rows"])
+    if not kept:
+        fail("no orders between %s and %s" % (since, through))
+    platform.export(name = "weekly-revenue", rows = kept, format = "csv")
+    platform.save_state({"reported_through": through})
+    platform.result({"regions": len(kept), "revenue": total})
+
+def test_summarize_keeps_regions_with_orders():
+    """A region with no orders is left out, and revenue adds up as numbers."""
+    rows = [
+        {"region": "east", "revenue": "10.50", "orders": 2},
+        {"region": "west", "revenue": "0", "orders": 0},
+    ]
+    kept, total = summarize(rows)
+    assert.eq([r["region"] for r in kept], ["east"])
+    assert.eq(total, 10.5)
+
+def test_window_starts_at_the_watermark():
+    """A saved watermark starts the window; the fire time ends it."""
+    since, through = window({"reported_through": "2026-09-13"}, "2026-09-21T07:00:00Z")
+    assert.eq(since, "2026-09-13")
+    assert.eq(through, "2026-09-20")
+
+def test_a_recorded_week():
+    """The recorded week exports each region and moves the watermark."""
+
+    # The id run_draft returned for a draft of this script.
+    testing.replay("dpx_recording_of_a_draft")
+    main()
+    out = testing.outputs()
+    assert.eq([r["region"] for r in out.exports[0].rows], ["east", "west"])
+    assert.eq(out.state, {"reported_through": "2026-09-20"})
+    assert.eq(out.result["regions"], 2)
+
+def test_an_empty_week_fails():
+    """A week with no orders fails naming the window and saves nothing."""
+    testing.replay("dpx_recording_of_an_empty_week")
+    assert.contains(assert.fails(main), "no orders between")
+    assert.eq(testing.outputs().state, None)
 `,
 	},
 }

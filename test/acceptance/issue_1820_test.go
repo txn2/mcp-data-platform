@@ -104,10 +104,10 @@ func TestIssue1820_AScriptRegistersJSONLinesAndEveryStringComesBack(t *testing.T
 		"acc-1820-"+stamp+".jsonl", scratchResourceConnection, table)
 
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1820: rows exported as JSON lines and registered in one call.",
-	})
+	}, nil)
 	if created["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", created["findings"])
 	}

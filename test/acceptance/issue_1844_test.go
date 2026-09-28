@@ -59,10 +59,10 @@ def main():
 func save1844(t *testing.T, c *client) (name, id string) {
 	t.Helper()
 	name = fmt.Sprintf("acc-1844-%d", time.Now().UnixNano())
-	if saved := c.call("manage_script", map[string]any{
+	if saved := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source1844, "params": params1844,
 		"description": "Acceptance #1844: list and date_range parameters.",
-	}); saved["status"] == "invalid" {
+	}, nil); saved["status"] == "invalid" {
 		t.Fatalf("the script was refused on save: %v", saved)
 	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })

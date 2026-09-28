@@ -146,6 +146,7 @@ var capabilities = []capability{
 // the baseline pointing an agent at nothing.
 const (
 	PageWritingManagedScripts = "platform-writing-managed-scripts"
+	PageReferenceScript       = "platform-reference-script"
 	PageScriptOutputs         = "platform-script-outputs-and-export-identity"
 	PageSemiDynamicDashboards = "platform-semi-dynamic-dashboards"
 	PageAssetReferences       = "platform-asset-references-and-the-refresh-loop"
@@ -169,15 +170,19 @@ type baselinePage struct {
 var baselinePages = []baselinePage{
 	{
 		toolManageScript, PageWritingManagedScripts,
-		"the Starlark dialect and its absences, what a script may call and who decides it, and the validate/dry-run loop",
+		"the Starlark dialect, what a script may call and who decides, the draft and test loop",
+	},
+	{
+		toolManageScript, PageReferenceScript,
+		"a whole script with the tests a save needs",
 	},
 	{
 		toolManageScript, PageScriptOutputs,
-		"where a script's output lands: a stable name refreshes one asset, a dated name archives",
+		"where a script's output lands: a stable name refreshes, a dated name archives",
 	},
 	{
 		toolManageScript, PageSemiDynamicDashboards,
-		"composing a whole document every run versus publishing one whose data region a scheduled script refreshes",
+		"a whole document each run, or one whose data region a schedule refreshes",
 	},
 	{
 		toolSaveAsset, PageAssetReferences,

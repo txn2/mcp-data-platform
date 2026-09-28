@@ -93,7 +93,7 @@ func (h *Handle) handlePatch(ctx context.Context, input manageScriptInput) (*mcp
 		return jsonResult(report)
 	}
 	before := *existing
-	gated, errResult := gateSource(existing, res.Body, "the patch")
+	gated, errResult := h.gateSource(ctx, existing, res.Body, "the patch", input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -239,6 +239,12 @@ func versionFields(v *script.Version, withRoles bool) map[string]any {
 	}
 	if withRoles {
 		fields["author_roles"] = orEmpty(v.AuthorRoles)
+	}
+	// What the version does differently, as the person it runs for agreed to
+	// it (#1942).
+	if v.ChangeSummary != "" {
+		fields["change_summary"], fields["change_agreed_by"] = v.ChangeSummary, v.ChangeAgreedBy
+		fields["change_agreed_at"] = v.ChangeAgreedAt
 	}
 	return fields
 }

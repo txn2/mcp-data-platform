@@ -91,49 +91,89 @@ func refusalError(res *mcp.CallToolResult) error {
 // consumes the steps an unlimited one would; only wall-clock time differs, and
 // wall-clock time was never part of the determinism contract.
 func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, error) {
+	if h.opts.Test != nil {
+		// A test's answers are the ones a run was finally given, so there is
+		// nothing to pace or retry (#1939).
+		return h.opts.Caller.CallTool(h.callCtx(), tool, args) //nolint:wrapcheck // wrapped by the calling binding
+	}
+	out, err := h.pacedCall(tool, args)
+	if h.opts.OnCall != nil {
+		h.opts.OnCall(tool, args, out, err)
+	}
+	return out, err
+}
+
+// pacedCall issues one call, waiting and issuing it again as callTool says.
+func (h *hostState) pacedCall(tool string, args map[string]any) (map[string]any, error) {
 	for retry := 0; ; {
 		out, err := h.opts.Caller.CallTool(h.callCtx(), tool, args)
-		var refusal *RefusalError
-		if err != nil && errors.As(err, &refusal) && refusal.Code == upstreamretry.CodeUnavailable {
-			// The upstream did not answer; the run it ends is not the script's.
-			return nil, scriptguard.NewUpstreamError(tool, err)
-		}
-		if err == nil {
-			h.mem.Called(tool)
-			advice := upstreamretry.FromResult(out)
-			wait, again := advice.Wait(retry, h.remaining())
+		if err != nil {
+			again, refusedErr := h.onRefusal(tool, err)
 			if !again {
-				h.noteUpstreamGiveUp(tool, advice, retry)
-				h.upstream.Note(tool, out)
-				return out, nil
+				return nil, refusedErr
 			}
-			if !sleepWithin(h.ctx, wait) {
-				return nil, scriptguard.NewUpstreamError(tool, fmt.Errorf("waiting %s to retry %s after the upstream answered %s: %w",
-					wait, tool, advice.Answer(), h.ctx.Err()))
-			}
-			retry++
-			h.log.Print(fmt.Sprintf("upstream answered %s to %s; waited %s and retried (%d of %d)",
-				advice.Answer(), tool, wait, retry, upstreamretry.MaxRetries))
 			continue
 		}
-		if refusal == nil || refusal.Code != toolratelimit.CodeRateLimited {
-			// Returned as the Caller produced it: the binding that asked names
-			// itself around the error, and the text is the tool's own.
-			h.upstream.Clear()
-			return out, err //nolint:wrapcheck // wrapped by the calling binding (argErr)
+		done, err := h.answered(tool, out, retry)
+		if err != nil {
+			return nil, err
 		}
-		wait := refusal.RetryAfter
-		if wait <= 0 {
-			wait = minPace
+		if done {
+			return out, nil
 		}
-		if !sleepWithin(h.ctx, wait) {
-			return nil, fmt.Errorf("waiting %s to retry %s after a rate-limit refusal: %w", wait, tool, h.ctx.Err())
-		}
-		// Written after the wait, so the line records what was actually spent:
-		// a deadline that arrives mid-wait fails the run with the reason above
-		// rather than logging a wait that did not complete.
-		h.log.Print(fmt.Sprintf("rate limit: %s was refused; waited %s and retried", tool, wait))
+		retry++
 	}
+}
+
+// onRefusal decides what callTool does with a failed call: again when it was
+// refused for timing alone and the wait it named has been made, and
+// otherwise the error the binding is handed.
+func (h *hostState) onRefusal(tool string, err error) (bool, error) {
+	var refusal *RefusalError
+	if errors.As(err, &refusal) && refusal.Code == upstreamretry.CodeUnavailable {
+		// The upstream did not answer; the run it ends is not the script's.
+		return false, scriptguard.NewUpstreamError(tool, err)
+	}
+	if refusal == nil || refusal.Code != toolratelimit.CodeRateLimited {
+		// Returned as the Caller produced it: the binding that asked names
+		// itself around the error, and the text is the tool's own.
+		h.upstream.Clear()
+		return false, err
+	}
+	wait := refusal.RetryAfter
+	if wait <= 0 {
+		wait = minPace
+	}
+	if !sleepWithin(h.ctx, wait) {
+		return false, fmt.Errorf("waiting %s to retry %s after a rate-limit refusal: %w", wait, tool, h.ctx.Err())
+	}
+	// Written after the wait, so the line records what was actually spent:
+	// a deadline that arrives mid-wait fails the run with the reason above
+	// rather than logging a wait that did not complete.
+	h.log.Print(fmt.Sprintf("rate limit: %s was refused; waited %s and retried", tool, wait))
+	return true, nil
+}
+
+// answered decides what callTool does with an answer: done when it is the one
+// the script is handed, and otherwise the wait the upstream asked for has
+// been made and the call is issued again. The error is a wait the run's
+// deadline cut short.
+func (h *hostState) answered(tool string, out map[string]any, retry int) (bool, error) {
+	h.mem.Called(tool)
+	advice := upstreamretry.FromResult(out)
+	wait, again := advice.Wait(retry, h.remaining())
+	if !again {
+		h.noteUpstreamGiveUp(tool, advice, retry)
+		h.upstream.Note(tool, out)
+		return true, nil
+	}
+	if !sleepWithin(h.ctx, wait) {
+		return false, scriptguard.NewUpstreamError(tool, fmt.Errorf("waiting %s to retry %s after the upstream answered %s: %w",
+			wait, tool, advice.Answer(), h.ctx.Err()))
+	}
+	h.log.Print(fmt.Sprintf("upstream answered %s to %s; waited %s and retried (%d of %d)",
+		advice.Answer(), tool, wait, retry+1, upstreamretry.MaxRetries))
+	return false, nil
 }
 
 // noteUpstreamGiveUp records, when the host retried an upstream and it still

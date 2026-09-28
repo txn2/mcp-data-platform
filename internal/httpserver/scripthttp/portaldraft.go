@@ -6,15 +6,17 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
-	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/draftview"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
-	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -93,6 +95,12 @@ type validateResponse struct {
 	DynamicTools          bool `json:"dynamic_tools"`
 	// Note states any such gap in the author's terms.
 	Note string `json:"note,omitempty"`
+	// SaveRefusal is why a save of the source would be refused, Tests the
+	// report of its tests (#1939, #1940), and Differences what it does
+	// differently from the saved version (#1942).
+	SaveRefusal string                      `json:"save_refusal,omitempty"`
+	Tests       *scripttest.Report          `json:"tests,omitempty"`
+	Differences []scriptbehavior.Difference `json:"differences"`
 }
 
 // portalValidateSource parses an edit and reports what it would reach.
@@ -121,11 +129,18 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	source := script.DraftSource(req.Source, sc)
-	// The authoring gates as a save of this source would apply them (#1913).
-	report := scriptlint.Merge(scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.deps.Destinations),
-		scriptlint.Check(source, scriptlint.For(sc)))
+	// The gate as a save of this source would apply it (#1913): the lint, the
+	// tests, and what the new version does differently (#1939, #1942).
+	gated := h.gate().Check(r.Context(), scriptsave.Request{
+		Existing: sc, Name: sc.Name, Source: source,
+		Caller: scriptsave.Caller{Email: user.owner(), Admin: user.IsAdmin},
+	})
+	report := scriptlint.Merge(scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.deps.Destinations), gated.Lint)
 	httpjson.WriteJSON(w, http.StatusOK, validateResponse{
-		OK:                    report.OK,
+		OK:                    report.OK && !gated.Refused(),
+		SaveRefusal:           gated.Refusal,
+		Tests:                 gated.Tests,
+		Differences:           gated.Differences,
 		Findings:              report.Findings,
 		Capabilities:          report.Capabilities,
 		Connections:           report.Connections,
@@ -136,7 +151,7 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 		DynamicDestinations:   report.DynamicDestinations,
 		DynamicRefreshTargets: report.DynamicRefreshTargets,
 		DynamicTools:          report.DynamicTools,
-		Note:                  incompleteNote(report),
+		Note:                  draftview.IncompleteNote(report),
 	})
 }
 
@@ -167,6 +182,10 @@ type dryRunResponse struct {
 	// that deliberately wrote nothing is the sentence most likely to be
 	// misread.
 	Message string `json:"message"`
+	// Recording is the run id a test replays this draft's recorded host
+	// calls by, testing.replay("<recording>"), absent when none was kept
+	// (#1939).
+	Recording string `json:"recording,omitempty"`
 }
 
 // portalDryRunSource executes an edit as the caller and reports what it did.
@@ -255,41 +274,21 @@ func decodeDraftRequest(w http.ResponseWriter, r *http.Request) (draftRequest, b
 	return req, true
 }
 
-// incompleteNote states that a validate report's lists are known to be short,
-// which is the one thing an author reading them must not miss.
-func incompleteNote(report scriptrun.Report) string {
-	var gaps []string
-	if report.DynamicConnections {
-		gaps = append(gaps, "at least one call computes its connection instead of naming one, or passes platform.call an argument set that cannot be read from the source, so the connection list is incomplete")
-	}
-	if report.DynamicDestinations {
-		gaps = append(gaps, "at least one platform.export call computes its destination instead of naming one, so the destination list is incomplete")
-	}
-	if report.DynamicRefreshTargets {
-		gaps = append(gaps, "at least one platform.publish_data call computes the output name it refreshes, so the refresh-target list is incomplete")
-	}
-	if report.DynamicTools {
-		gaps = append(gaps, "at least one platform.call computes the tool it invokes instead of naming one, so the tool list is incomplete")
-	}
-	if len(gaps) == 0 {
-		return ""
-	}
-	note := strings.Join(gaps, "; and ")
-	return strings.ToUpper(note[:1]) + note[1:] + "."
-}
-
 // draftOutcome renders one executed draft.
 func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 	out := dryRunResponse{
 		RunID: outcome.RunID, Status: script.RunStatusSucceeded,
-		Outputs: draftOutputs(outcome),
+		Outputs: draftview.Outputs(outcome),
 		Writes:  []scriptrun.WriteRecord{},
 		Message: outcome.Persisted("dry run"),
+	}
+	if outcome.Recorded {
+		out.Recording = outcome.RunID
 	}
 	if outcome.Result != nil {
 		out.Log = outcome.Result.Log
 		out.LogTruncated = outcome.Result.LogTruncated
-		out.Metrics = draftMetrics(outcome.Result)
+		out.Metrics = draftview.Metrics(outcome.Result)
 		out.RefusedWrite = outcome.Result.RefusedWrite
 		if len(outcome.Result.Writes) > 0 {
 			out.Writes = outcome.Result.Writes
@@ -301,67 +300,7 @@ func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
 	if outcome.Failed() {
 		out.Status = script.RunStatusFailed
 		out.Error = outcome.Err.Error()
-		out.Message = dryRunFailureMessage(out.RefusedWrite, scriptguard.Cause(outcome.Err))
-	}
-	return out
-}
-
-// dryRunFailureMessage separates the failures an author acts on differently: a
-// script that is wrong, a script that is right but wanted to write, an
-// upstream that was briefly unavailable, and a run that held too much (#1859).
-func dryRunFailureMessage(refused *scriptrun.WriteRecord, cause string) string {
-	switch {
-	case refused != nil:
-		return "The dry run stopped at a call that persists (refused_write), because a dry run does not " +
-			"write. Run it again with allow_writes to let it write for real, and it will report every " +
-			"write it made."
-	case cause == runstate.CauseUpstream || cause == runstate.CauseTransient:
-		return "The failure was outside the script: a service it called was unavailable or answered with an " +
-			"error, or the script reported it as temporary. Dry-run it again in a moment."
-	case cause == runstate.CauseMemory:
-		return "The dry run held more memory than a run is allowed. Page the work and export each page " +
-			"with platform.export(..., append=True), and keep only what the next page needs."
-	default:
-		return "The script raised this failure. If it reacted to something outside the script, dry-run it " +
-			"again in a moment; if it fails the same way again, fix the script and dry-run it again."
-	}
-}
-
-// draftMetrics projects the engine's result into the metrics shape every other
-// run surface reports, so a draft's cost is read in the same units as a
-// platform run's.
-func draftMetrics(result *scriptrun.Result) script.RunMetrics {
-	return script.RunMetrics{
-		Steps:      result.Steps,
-		DurationMS: result.Duration.Milliseconds(),
-		Queries:    result.Queries,
-		Exports:    len(result.Exports),
-		// What the draft was measured holding at its peak (#1861).
-		PeakMemoryBytes: result.PeakMemory,
-	}
-}
-
-// draftOutputs is the shape of what the run would have written. Every entry is
-// a preview by construction, so the locators a persisted output carries are
-// absent rather than empty.
-func draftOutputs(outcome *scriptdraft.Outcome) []script.DryRunOutput {
-	out := []script.DryRunOutput{}
-	if outcome.Result == nil {
-		return out
-	}
-	for _, e := range outcome.Result.Exports {
-		o := script.DryRunOutput{
-			Name: e.Name, Destination: e.Destination, Format: e.Format,
-			RowCount: e.RowCount, Document: e.Document, Refresh: e.Refresh, Bytes: e.Bytes,
-			Written: !e.Preview,
-		}
-		if o.Written {
-			o.Reference = exporttable.Reference(e.ResourceRef, e.AssetID)
-		}
-		if e.Table != nil {
-			o.Table = e.Table.QueryTable
-		}
-		out = append(out, o)
+		out.Message = draftview.FailureMessage(out.RefusedWrite, scriptguard.Cause(outcome.Err))
 	}
 	return out
 }

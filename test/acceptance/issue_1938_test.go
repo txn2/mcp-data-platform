@@ -42,28 +42,40 @@ func long1938(n int) string {
 
 var rules1938 = []rule1938{
 	{"cyclomatic-complexity", 1, branches1938(11), branches1938(9)},
-	{"cognitive-complexity", 1,
+	{
+		"cognitive-complexity", 1,
 		"def main():\n    \"\"\"Nests.\"\"\"\n    for a in [1, 2]:\n        if a and a > 1 or a < 0:\n            for b in range(a):\n                if b:\n                    print(1 if b else 2)\n                elif a:\n                    print(3)\n                else:\n                    print(4)\n",
-		"def band(a, b):\n    \"\"\"Prints one band.\"\"\"\n    if b:\n        print(1)\n    elif a:\n        print(3)\n\ndef main():\n    \"\"\"Nests less.\"\"\"\n    for a in [1, 2]:\n        for b in range(a):\n            band(a, b)\n"},
+		"def band(a, b):\n    \"\"\"Prints one band.\"\"\"\n    if b:\n        print(1)\n    elif a:\n        print(3)\n\ndef main():\n    \"\"\"Nests less.\"\"\"\n    for a in [1, 2]:\n        for b in range(a):\n            band(a, b)\n",
+	},
 	{"function-length", 1, long1938(40), long1938(39)},
-	{"nesting-depth", 7,
+	{
+		"nesting-depth", 7,
 		"def main():\n    \"\"\"Nests.\"\"\"\n    for a in [1]:\n        for b in [a]:\n            if b:\n                if a:\n                    if b > 1:\n                        print(a, b)\n",
-		"def main():\n    \"\"\"Nests less.\"\"\"\n    for a in [1]:\n        for b in [a]:\n            if b and a and b > 1:\n                print(a, b)\n"},
+		"def main():\n    \"\"\"Nests less.\"\"\"\n    for a in [1]:\n        for b in [a]:\n            if b and a and b > 1:\n                print(a, b)\n",
+	},
 	{"unused-variable", 3, "def main():\n    \"\"\"Doc.\"\"\"\n    x = 1\n    print(2)\n", "def main():\n    \"\"\"Doc.\"\"\"\n    print(2)\n"},
-	{"unused-parameter", 1,
+	{
+		"unused-parameter", 1,
 		"def show(a, b):\n    \"\"\"Shows a.\"\"\"\n    print(a)\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    show(1, 2)\n",
-		"def show(a):\n    \"\"\"Shows a.\"\"\"\n    print(a)\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    show(1)\n"},
+		"def show(a):\n    \"\"\"Shows a.\"\"\"\n    print(a)\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    show(1)\n",
+	},
 	{"shadowed-name", 3, "def main():\n    \"\"\"Doc.\"\"\"\n    date = \"2026-01-01\"\n    print(date)\n", "def main():\n    \"\"\"Doc.\"\"\"\n    day = \"2026-01-01\"\n    print(day)\n"},
 	{"missing-docstring", 1, "def main():\n    print(1)\n", "def main():\n    \"\"\"Prints one.\"\"\"\n    print(1)\n"},
-	{"sql-built-from-values", 4,
+	{
+		"sql-built-from-values", 4,
 		"def main():\n    \"\"\"Doc.\"\"\"\n    day = run.params.get(\"day\", \"2026-01-01\")\n    platform.query(\"SELECT 1 WHERE d = '\" + day + \"'\", connection = \"acme-warehouse\")\n",
-		"def main():\n    \"\"\"Doc.\"\"\"\n    day = run.params.get(\"day\", \"2026-01-01\")\n    platform.query(\"SELECT 1 WHERE d = :day\", connection = \"acme-warehouse\", params = {\"day\": day})\n"},
-	{"call-in-loop", 4,
+		"def main():\n    \"\"\"Doc.\"\"\"\n    day = run.params.get(\"day\", \"2026-01-01\")\n    platform.query(\"SELECT 1 WHERE d = :day\", connection = \"acme-warehouse\", params = {\"day\": day})\n",
+	},
+	{
+		"call-in-loop", 4,
 		"def main():\n    \"\"\"Doc.\"\"\"\n    for r in [\"a\", \"b\"]:\n        platform.query(\"SELECT :r\", connection = \"acme-warehouse\", params = {\"r\": r})\n",
-		"def main():\n    \"\"\"Doc.\"\"\"\n    platform.query(\"SELECT 1 WHERE r IN :rs\", connection = \"acme-warehouse\", params = {\"rs\": [\"a\", \"b\"]})\n"},
-	{"save-state-without-read", 3,
+		"def main():\n    \"\"\"Doc.\"\"\"\n    platform.query(\"SELECT 1 WHERE r IN :rs\", connection = \"acme-warehouse\", params = {\"rs\": [\"a\", \"b\"]})\n",
+	},
+	{
+		"save-state-without-read", 3,
 		"def main():\n    \"\"\"Doc.\"\"\"\n    platform.save_state({\"n\": 1})\n",
-		"def main():\n    \"\"\"Doc.\"\"\"\n    platform.save_state({\"n\": run.state.get(\"n\", 0) + 1})\n"},
+		"def main():\n    \"\"\"Doc.\"\"\"\n    platform.save_state({\"n\": run.state.get(\"n\", 0) + 1})\n",
+	},
 }
 
 // refusedRules1938 is every rule a refused save names with a line and a hint.
@@ -99,9 +111,19 @@ func TestIssue1938_EachRuleIsRefusedAndTheCorrectionSaves(t *testing.T) {
 			if line, ok := refusedRules1938(refused)[tc.rule]; refused["status"] != "invalid" || !ok || line != tc.line {
 				t.Fatalf("save: want %s refused on line %v: %v", tc.rule, tc.line, refused)
 			}
-			saved := c.call("manage_script", map[string]any{
+			create := map[string]any{
 				"command": "create", "name": name, "source": tc.corrected, "description": "Acceptance #1938.",
-			})
+			}
+			var paths []map[string]any
+			if tc.rule == "cyclomatic-complexity" {
+				// Nine branches on x: a draft for each, so the tests a save
+				// needs (#1939) reach them.
+				create["params"] = []any{map[string]any{"name": "x", "type": "int"}}
+				for x := range 9 {
+					paths = append(paths, map[string]any{"x": x})
+				}
+			}
+			saved := c.saveScriptCovering(create, paths...)
 			if saved["status"] != "created" {
 				t.Errorf("the corrected script did not save: %v", saved)
 			}
@@ -118,12 +140,13 @@ func TestIssue1938_AnOlderScriptIsRefusedOnlyForWhatAnEditAdds(t *testing.T) {
 	name := fmt.Sprintf("acc-1938-legacy-%d", time.Now().UnixNano())
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	const old = "def show(a, b):\n    print(a)\n\nshow(1, 2)\n"
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": "def main():\n    \"\"\"Doc.\"\"\"\n    print(1)\n",
 		"description": "Acceptance #1938: a script saved before the gates.",
-	})
-	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, source_code = $2 WHERE name = $1`, name, old)
+	}, nil)
+	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, source_code = $2 WHERE name = $1`, name, old)
 
+	// A script saved before the gates saves without tests (#1939).
 	kept := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": "# a comment\n" + old})
 	if kept["status"] != "updated" || len(findings1944(kept)) == 0 {
 		t.Fatalf("an edit adding no finding: %v", kept)
@@ -149,8 +172,13 @@ func TestIssue1938_TheBuiltInExamplesPassEveryRule(t *testing.T) {
 		name, _ := e.(map[string]any)["name"].(string)
 		source := c.call("manage_script", map[string]any{"command": "get", "name": name})["source"]
 		out := c.call("manage_script", map[string]any{"command": "validate", "source": source})
-		if out["ok"] != true || len(findings1944(out)) != 0 || out["formatted_source"] != source {
-			t.Errorf("%s: %v", name, out["findings"])
+		// An example's test names the recording an author's own draft would
+		// return, a placeholder no deployment holds, so a save of it as sent
+		// is refused for that alone (#1939).
+		refusal, _ := out["save_refusal"].(string)
+		if len(findings1944(out)) != 0 || out["formatted_source"] != source ||
+			!strings.Contains(refusal, "reading recording dpx_recording_of_a_draft") {
+			t.Errorf("%s: %v %s", name, out["findings"], refusal)
 		}
 	}
 	if !strings.Contains(fmt.Sprint(help["dialect"]), "THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS") {

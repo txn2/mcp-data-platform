@@ -20,7 +20,7 @@ import (
 var versionSelectColumns = []string{
 	"id", "script_id", "version", "display_name", "description", "category",
 	"source_code", "params", "tags", "author", "author_roles", "status",
-	"created_at",
+	"created_at", "change_summary", "change_agreed_by", "change_agreed_at",
 }
 
 // versionRow returns one full version row in versionColumns order.
@@ -28,7 +28,7 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 	return []driver.Value{
 		"sver_1", "script_1", version, "Daily", "A daily report", "",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
-		pq.Array([]string{"analyst"}), status, rowTime,
+		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil,
 	}
 }
 

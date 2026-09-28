@@ -35,10 +35,16 @@ import (
 func script1906(t *testing.T, c *client, label, source string) (id, name string) {
 	t.Helper()
 	name = fmt.Sprintf("acc-1906-%s-%d", label, time.Now().UnixNano())
-	created := c.call("manage_script", map[string]any{
+	save := c.saveScript
+	if source == threeSteps1906 {
+		// Drawn and never run: it calls an endpoint and reads a table the
+		// stack does not serve, so no draft records it (#1939).
+		save = func(create, _ map[string]any) map[string]any { return c.seedPreGate(t, create) }
+	}
+	created := save(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1906: a script the Flow tab draws.",
-	})
+	}, nil)
 	id, _ = created["id"].(string)
 	if created["status"] != "created" || id == "" {
 		t.Fatalf("manage_script create returned no id: %v", created)
@@ -351,7 +357,7 @@ func TestIssue1906_SavingAVersionThatAddsAnExportAddsItsCard(t *testing.T) {
 	id, name := script1906(t, c, "version", v1)
 	v2 := v1 + `    platform.export("b", rows["rows"], format = "jsonl", destination = "resources", key = "acc-1906/b.jsonl")
 `
-	out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2})
+	out := c.saveEdit(map[string]any{"command": "update", "name": name, "source": v2}, nil)
 	if out["status"] != "updated" {
 		t.Fatalf("update refused: %v", out)
 	}

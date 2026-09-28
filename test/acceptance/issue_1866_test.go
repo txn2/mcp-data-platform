@@ -56,10 +56,10 @@ const (
 func script1866(t *testing.T, owner *client) (name, id string) {
 	t.Helper()
 	name = fmt.Sprintf("acc-1866-%d", time.Now().UnixNano())
-	created := owner.call("manage_script", map[string]any{
+	created := owner.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source1866,
 		"description": "Acceptance #1866: a script another person reads.",
-	})
+	}, nil)
 	id, _ = created["id"].(string)
 	if id == "" {
 		t.Fatalf("manage_script create returned no id: %v", created)
@@ -67,10 +67,16 @@ func script1866(t *testing.T, owner *client) (name, id string) {
 	t.Cleanup(func() {
 		_, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
-	if updated := owner.call("manage_script", map[string]any{"command": "update", "name": name, "source": edited1866}); updated["status"] == "invalid" {
+	if updated := owner.saveEdit(map[string]any{"command": "update", "name": name, "source": edited1866}, nil); updated["status"] == "invalid" {
 		t.Fatalf("manage_script update refused the edit: %v", updated["findings"])
 	}
 	return name, id
+}
+
+// carries1866 reports whether a source read back is edited1866 with the test
+// it was saved with (#1939).
+func carries1866(source any) bool {
+	return strings.HasPrefix(fmt.Sprint(source), strings.TrimRight(edited1866, "\n")+"\n\ndef test_")
 }
 
 // TestIssue1866_AnotherPersonsScriptIsReadableThroughTheTool is the MCP half:
@@ -85,7 +91,7 @@ func TestIssue1866_AnotherPersonsScriptIsReadableThroughTheTool(t *testing.T) {
 	}
 
 	got := peer.call("manage_script", named("get"))
-	if got["source"] != edited1866 {
+	if !carries1866(got["source"]) {
 		t.Errorf("get: source = %q, want the owner's live source", got["source"])
 	}
 	if _, ok := got["live_runs"]; ok {
@@ -136,7 +142,7 @@ func TestIssue1866_ActingOnAnotherPersonsScriptStaysTheOwners(t *testing.T) {
 	if !res.IsError || !strings.Contains(text, "only a script's owner or an administrator") {
 		t.Errorf("run_script by a reader who does not own it: error=%v %q", res.IsError, text)
 	}
-	if got := owner.call("manage_script", map[string]any{"command": "get", "name": name}); got["source"] != edited1866 {
+	if got := owner.call("manage_script", map[string]any{"command": "get", "name": name}); !carries1866(got["source"]) {
 		t.Errorf("the refused commands changed the script: %v", got["source"])
 	}
 }
@@ -153,7 +159,7 @@ func TestIssue1866_ThePortalScriptPageReadsTheDefinition(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("GET the script as its reader: status %d, %v", status, page)
 	}
-	if page["owned"] != false || page["source"] != edited1866 {
+	if page["owned"] != false || !carries1866(page["source"]) {
 		t.Errorf("the script page's record: owned=%v source=%q; want false and the live source", page["owned"], page["source"])
 	}
 

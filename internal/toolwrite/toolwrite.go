@@ -275,7 +275,8 @@ var actionTools = map[string]actionRule{
 	"manage_prompt": {arg: "command", reads: set(
 		"list", "get", "use", "locate", "get_content", "outline", "stats", "diff",
 	), writes: set("create", "update", "delete", "patch", "attach_script", "detach_script")},
-	// manage_script: authoring and scheduling write. state reads unless its
+	// manage_script: authoring and scheduling write. test and recording
+	// read: a test answers from a recording and writes nothing. state reads unless its
 	// state_action sets or clears, and an absent state_action is a get, as
 	// scriptlayer treats it. run_draft is a write because a draft may write
 	// when asked to, and a run may not start another run at all, which
@@ -283,7 +284,7 @@ var actionTools = map[string]actionRule{
 	"manage_script": {arg: "command", reads: set(
 		"get", "list", "validate", "help",
 		"locate", "get_content", "outline", "stats", "diff",
-		"versions", "runs", "get_run", "schedule_list",
+		"versions", "runs", "get_run", "schedule_list", "test", "recording",
 	), writes: set(
 		"create", "update", "delete", "patch", "run_draft", "cancel_run",
 		"schedule_set", "schedule_enable", "schedule_disable",

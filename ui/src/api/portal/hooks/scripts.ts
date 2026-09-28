@@ -293,8 +293,10 @@ export {
 export {
   useDryRunScript,
   useValidateScriptSource,
+  type ScriptBehaviorDifference,
   type ScriptDryRun,
   type ScriptDryRunWrite,
+  type ScriptTestReport,
   type ScriptValidation,
 } from "./scriptDrafts";
 
@@ -392,15 +394,25 @@ export interface ScriptSourceOutcome {
   message: string;
 }
 
+// ScriptSourceSave is one save of a script's code. change_summary and
+// user_agreed carry a change in what the automation does (#1942): a save whose
+// replay of the script's recent runs, or whose reach, differs from the saved
+// version is refused with 409 and the differences until it carries both.
+export interface ScriptSourceSave {
+  source: string;
+  change_summary?: string;
+  user_agreed?: boolean;
+}
+
 // useSaveScriptSource saves new Starlark for a script. The saved version is
 // what runs from here on.
 export function useSaveScriptSource(scriptID: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (source: string) =>
+    mutationFn: (save: ScriptSourceSave) =>
       apiFetch<ScriptSourceOutcome>(`/scripts/${scriptID}/source`, {
         method: "PUT",
-        body: JSON.stringify({ source }),
+        body: JSON.stringify(save),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });

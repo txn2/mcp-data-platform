@@ -21,7 +21,7 @@ import (
 func stateScript(t *testing.T) (*Handle, *memStore) {
 	t.Helper()
 	h, store := newHandle()
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "sync", Source: inMain("print(run.state)")})
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "sync", Source: tested(inMain("print(run.state)"))})
 	require.False(t, res.IsError, resultText(res))
 	return h, store
 }

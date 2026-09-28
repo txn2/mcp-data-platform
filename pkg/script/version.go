@@ -64,6 +64,13 @@ type Version struct {
 	AuthorRoles []string  `json:"author_roles,omitempty" example:"analyst"`
 	Status      string    `json:"status" example:"applied"`
 	CreatedAt   time.Time `json:"created_at" example:"2026-08-13T14:30:00Z"`
+	// ChangeSummary is what this version does differently from the one before
+	// it, in plain language, when its save changed the script's behavior
+	// (#1942); ChangeAgreedBy confirmed the person it runs for agreed, at
+	// ChangeAgreedAt. All three are empty for a version that changed none.
+	ChangeSummary  string     `json:"change_summary,omitempty" example:"Adds a column with the order's region"`
+	ChangeAgreedBy string     `json:"change_agreed_by,omitempty" example:"jane@example.com"`
+	ChangeAgreedAt *time.Time `json:"change_agreed_at,omitempty" example:"2026-08-13T14:30:00Z"`
 }
 
 // VersionStore is the versioning capability of a script store. The PostgreSQL

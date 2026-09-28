@@ -23,7 +23,10 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -68,6 +71,10 @@ type Config struct {
 	// deployment, which the help reports so an author sizes a script against
 	// the limits it will actually meet (#1843). Zero fields are the defaults.
 	RunLimits scriptrun.PlatformLimits
+	// Recordings keeps what each run and draft's host calls were answered, for
+	// a script's tests and a save's replay (#1939, #1942). Nil builds one over
+	// DB.
+	Recordings scriptrec.Store
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -110,6 +117,10 @@ type Handle struct {
 	// handed a store rather than building one, since that store's write path is
 	// the caller's to wire.
 	indexProducer *indexjobs.Producer
+	// recordings keeps runs' and drafts' recordings, and gate is what every
+	// save of a script's source crosses (#1939, #1940, #1942).
+	recordings scriptrec.Store
+	gate       *scriptsave.Gate
 }
 
 // New assembles the script layer.
@@ -123,6 +134,13 @@ func New(cfg Config) *Handle {
 	if h.store == nil && cfg.DB != nil {
 		h.indexProducer = indexjobs.NewProducer(scriptindex.SourceKind)
 		h.store = scriptstore.New(cfg.DB, indexjobs.WithProducer(h.indexProducer))
+	}
+	h.recordings = cfg.Recordings
+	if h.recordings == nil && cfg.DB != nil {
+		h.recordings = recstore.New(cfg.DB)
+	}
+	h.gate = &scriptsave.Gate{
+		Recordings: h.recordings, Destinations: cfg.Destinations, MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
 	}
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)

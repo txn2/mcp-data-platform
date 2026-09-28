@@ -63,8 +63,9 @@ func corpus(t *testing.T) map[string]string {
 
 // TestScriptCorpusPassesTheGates is #1937 and #1938's corpus check: every
 // script the platform shows an author is already in the canonical format,
-// passes every lint rule as a script created today, and formats to a tree the
-// dialect parses the same way, stable on a second pass.
+// passes every lint rule as a script created today, formats to a tree the
+// dialect parses the same way, stable on a second pass; and every built-in
+// example carries tests (#1939).
 func TestScriptCorpusPassesTheGates(t *testing.T) {
 	for name, src := range corpus(t) {
 		t.Run(name, func(t *testing.T) {
@@ -73,6 +74,14 @@ func TestScriptCorpusPassesTheGates(t *testing.T) {
 			assert.Empty(t, res.Findings, "%+v", res.Findings)
 			assert.Equal(t, src, res.Source, "the published script is already in the canonical format")
 			assertFormatKeepsTheProgram(t, src)
+			// The built-in examples are the templates an author copies whole,
+			// so each carries the tests a save needs (#1939). A script in
+			// docs/scripts/ shows one feature, and says its tests are left out.
+			if !strings.Contains(name, ".md#") {
+				file, err := scriptdialect.Options.Parse(name, src, 0)
+				require.NoError(t, err)
+				assert.NotEmpty(t, scriptdialect.Tests(file), "a built-in example carries the tests a save needs")
+			}
 		})
 	}
 }

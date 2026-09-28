@@ -20534,7 +20534,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Saves new Starlark for a script the caller owns; the saved version is the version that runs. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.",
+                "description": "Saves new Starlark for a script the caller owns; the saved version is the version that runs. The source is parsed, formatted, linted and its tests run before anything is stored (400 names what failed). A version whose replay of the script's recent runs, or whose reach, differs from the saved one is refused with 409 and the differences until it carries change_summary and user_agreed. Restricted to the script's owner and to administrators.",
                 "consumes": [
                     "application/json"
                 ],
@@ -20586,6 +20586,12 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.changeNeededProblem"
                         }
                     },
                     "500": {
@@ -33866,6 +33872,19 @@ const docTemplate = `{
                     "type": "string",
                     "example": "reporting"
                 },
+                "change_agreed_at": {
+                    "type": "string",
+                    "example": "2026-08-13T14:30:00Z"
+                },
+                "change_agreed_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "change_summary": {
+                    "description": "ChangeSummary is what this version does differently from the one before\nit, in plain language, when its save changed the script's behavior\n(#1942); ChangeAgreedBy confirmed the person it runs for agreed, at\nChangeAgreedAt. All three are empty for a version that changed none.",
+                    "type": "string",
+                    "example": "Adds a column with the order's region"
+                },
                 "created_at": {
                     "type": "string",
                     "example": "2026-08-13T14:30:00Z"
@@ -33912,6 +33931,25 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "scriptbehavior.Difference": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "run": {
+                    "description": "Run is the recorded run the difference showed in, empty for reach.",
+                    "type": "string"
+                },
+                "subject": {
+                    "description": "Subject is what differs: an output's name, a column, a tool.",
+                    "type": "string"
                 }
             }
         },
@@ -34307,6 +34345,33 @@ const docTemplate = `{
                 }
             }
         },
+        "scripthttp.changeNeededProblem": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "resource not found"
+                },
+                "differences": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptbehavior.Difference"
+                    }
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Not Found"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "about:blank"
+                }
+            }
+        },
         "scripthttp.connectionChoicesResponse": {
             "type": "object",
             "properties": {
@@ -34386,6 +34451,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/script.DryRunOutput"
                     }
+                },
+                "recording": {
+                    "description": "Recording is the run id a test replays this draft's recorded host\ncalls by, testing.replay(\"\u003crecording\u003e\"), absent when none was kept\n(#1939).",
+                    "type": "string"
                 },
                 "refused_write": {
                     "description": "RefusedWrite is the call the write barrier stopped, absent when it\nstopped none. At most one: the refusal ends the run.",
@@ -35133,8 +35202,14 @@ const docTemplate = `{
         "scripthttp.sourceRequest": {
             "type": "object",
             "properties": {
+                "change_summary": {
+                    "type": "string"
+                },
                 "source": {
                     "type": "string"
+                },
+                "user_agreed": {
+                    "type": "boolean"
                 }
             }
         },
@@ -35176,6 +35251,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "differences": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptbehavior.Difference"
+                    }
+                },
                 "dynamic_connections": {
                     "description": "DynamicConnections, DynamicDestinations and DynamicRefreshTargets report\nthat a list above is known to be incomplete because a call computes its\ntarget instead of naming one. Reporting the gap is the point: a list that\nsilently omitted a computed name would be a false statement.",
                     "type": "boolean"
@@ -35209,6 +35290,13 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "save_refusal": {
+                    "description": "SaveRefusal is why a save of the source would be refused, Tests the\nreport of its tests (#1939, #1940), and Differences what it does\ndifferently from the saved version (#1942).",
+                    "type": "string"
+                },
+                "tests": {
+                    "$ref": "#/definitions/scripttest.Report"
                 },
                 "tools": {
                     "description": "Tools are the tool names the edit passes to platform.call literally, so\nthe author sees the reach of the open half of the surface before a run\nexercises it (#1419).",
@@ -35299,6 +35387,70 @@ const docTemplate = `{
                 },
                 "tool": {
                     "description": "Tool is the tool name the script passed.",
+                    "type": "string"
+                }
+            }
+        },
+        "scripttest.Coverage": {
+            "type": "object",
+            "properties": {
+                "covered": {
+                    "type": "integer"
+                },
+                "missed_lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "percent": {
+                    "type": "number"
+                },
+                "statements": {
+                    "type": "integer"
+                }
+            }
+        },
+        "scripttest.Report": {
+            "type": "object",
+            "properties": {
+                "coverage": {
+                    "$ref": "#/definitions/scripttest.Coverage"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "passed": {
+                    "type": "integer"
+                },
+                "tests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripttest.Result"
+                    }
+                }
+            }
+        },
+        "scripttest.Result": {
+            "type": "object",
+            "properties": {
+                "failure": {
+                    "description": "Failure is what failed: the assertion, or the error the execution\nstopped with. Line is the line of the script it happened at.",
+                    "type": "string"
+                },
+                "line": {
+                    "type": "integer"
+                },
+                "log": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "passed": {
+                    "type": "boolean"
+                },
+                "recording": {
                     "type": "string"
                 }
             }

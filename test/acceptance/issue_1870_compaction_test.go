@@ -730,7 +730,9 @@ func issue1870StartReader(t *testing.T, c *client, source string) *issue1870Read
 			"connection": issue1870Conn, "purpose": issue1870Purpose, "sql": "DROP TABLE IF EXISTS " + r.sink,
 		})
 	})
-	out := c.call("manage_script", map[string]any{
+	// Its branches wait on events and saved state no draft sets up, so it is
+	// seeded rather than recorded (#1939).
+	out := c.seedPreGate(t, map[string]any{
 		"command": "create", "name": r.script,
 		"description": "Acceptance #1870: reads a webhook source every minute, each event once.",
 		"source":      issue1870ReaderScript(source, r.sink),

@@ -58,12 +58,12 @@ def main():
 // returns the id the portal route addresses it by.
 func createScript1639(t *testing.T, c *client, name string) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1639: a script whose authors outlive its ownership.",
 		"source":      scriptSource1639,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
@@ -125,9 +125,9 @@ func TestIssue1639_EveryVersionNamesItsAuthorNewestFirst(t *testing.T) {
 	owner := connectAs(t, devOwnerAPIKey)
 	name := "acceptance-1639-history-" + unique1579()
 	createScript1639(t, owner, name)
-	owner.call("manage_script", map[string]any{
+	owner.saveEdit(map[string]any{
 		"command": "update", "name": name, "source": scriptSource1639Edited,
-	})
+	}, nil)
 
 	entries := versions1639(t, owner, map[string]any{"name": name})
 	if len(entries) != 2 {
@@ -171,9 +171,9 @@ func TestIssue1639_TheAuthorSurvivesAnOwnerTransfer(t *testing.T) {
 
 	name := "acceptance-1639-transfer-" + unique1579()
 	scriptID := createScript1639(t, owner, name)
-	owner.call("manage_script", map[string]any{
+	owner.saveEdit(map[string]any{
 		"command": "update", "name": name, "source": scriptSource1639Edited,
-	})
+	}, nil)
 	t.Cleanup(func() {
 		_, _, _ = peer.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

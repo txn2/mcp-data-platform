@@ -64,9 +64,10 @@ func runnableHandle(t *testing.T) (*Handle, *memStore, *stubRuns) {
 	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
 
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n"),
+		Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n")),
 	})
 	require.False(t, res.IsError, resultText(res))
+	require.Equal(t, "created", resultFields(t, res)[fieldStatus], resultText(res))
 	return h, store, runs
 }
 
@@ -330,7 +331,7 @@ func TestRunCommands_UnavailableWithoutAQueue(t *testing.T) {
 func TestRunScript_ExecutesTheCurrentVersion(t *testing.T) {
 	h, store, runs := runnableHandle(t)
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdUpdate, Name: "daily", Source: inMain("print(2)\n"),
+		Command: cmdUpdate, Name: "daily", Source: tested(inMain("print(2)\n")),
 	})
 	require.False(t, res.IsError, resultText(res))
 
@@ -349,7 +350,7 @@ func TestRunScript_ExecutesTheCurrentVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, v)
 	assert.Equal(t, v.ID, run.VersionID, "the queued run names the snapshot the worker loads")
-	assert.Equal(t, inMain("print(2)\n"), v.Source, "and that snapshot carries the edited source")
+	assert.Equal(t, tested(inMain("print(2)\n")), v.Source, "and that snapshot carries the edited source")
 }
 
 // TestRunScript_WithoutAVersionStoreIsUnavailable covers a store that cannot
@@ -360,7 +361,7 @@ func TestRunScript_WithoutAVersionStoreIsUnavailable(t *testing.T) {
 	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
 	require.Nil(t, h.versions)
 
-	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n")})
+	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
 	require.False(t, res.IsError, resultText(res))
 
 	out := runScriptCall(t, h, runScriptInput{Name: "daily"})
@@ -403,6 +404,7 @@ func (s *unversionedStore) Delete(ctx context.Context, id string) (script.Remove
 func (s *unversionedStore) List(ctx context.Context, filter script.ListFilter) ([]script.Script, error) {
 	return s.inner.List(ctx, filter)
 }
+
 func (s *unversionedStore) Count(ctx context.Context, filter script.ListFilter) (int, error) {
 	rows, err := s.List(ctx, filter)
 	return len(rows), err
@@ -514,7 +516,7 @@ func TestEmaillessCallersAreDistinctOwners(t *testing.T) {
 	sarah := callerCtxWithoutEmail("oidc|sarah", "analyst")
 	marcus := callerCtxWithoutEmail("oidc|marcus", "analyst")
 
-	res := call(t, h, sarah, manageScriptInput{Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n")})
+	res := call(t, h, sarah, manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
 	require.False(t, res.IsError, resultText(res))
 
 	sc, err := store.GetByName(context.Background(), "oidc|sarah", "daily")
@@ -539,7 +541,7 @@ func TestUnidentifiedCallerIsStillAnOwner(t *testing.T) {
 	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
 	ctx := middleware.WithPlatformContext(context.Background(), middleware.NewPlatformContext("req_1"))
 
-	res := call(t, h, ctx, manageScriptInput{Command: cmdCreate, Name: "daily", Source: inMain("print(1)\n")})
+	res := call(t, h, ctx, manageScriptInput{Command: cmdCreate, Name: "daily", Source: tested(inMain("print(1)\n"))})
 	require.False(t, res.IsError, resultText(res))
 	assert.False(t, call(t, h, ctx, manageScriptInput{Command: cmdGet, Name: "daily"}).IsError)
 }
@@ -645,7 +647,7 @@ func TestRunScript_ABoundParameterIsTheCallers(t *testing.T) {
 	store, runs := newMemStore(), newStubRuns()
 	h := New(Config{Store: store, Runs: runs, AdminPersona: "admin"})
 	res := call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdCreate, Name: "tenant-report", Source: inMain("print(run.params.tenant)\n"),
+		Command: cmdCreate, Name: "tenant-report", Source: tested(inMain("print(run.params.get(\"tenant\", \"\"))\n")),
 		Params: []script.Param{{Name: "tenant", Type: script.ParamTypeString, Bind: "caller.tenant"}},
 	})
 	require.False(t, res.IsError, resultText(res))

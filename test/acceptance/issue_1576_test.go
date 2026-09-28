@@ -90,7 +90,10 @@ func upload1576(t *testing.T, c *client, name string) (reference, id string) {
 // replaces a named resource's content.
 func refreshScript1576(t *testing.T, c *client, name string) string {
 	t.Helper()
-	created := c.call("manage_script", map[string]any{
+	// The draft a save records (#1939) writes over a file of its own, so the
+	// criterion's resource is written only by the runs it makes.
+	scratch, _ := upload1576(t, c, name+"-recording")
+	created := c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1576: replaces the content of a managed resource on a schedule.",
@@ -105,7 +108,7 @@ func refreshScript1576(t *testing.T, c *client, name string) string {
 				"description": "The bytes the run writes over it.",
 			},
 		},
-	})
+	}, map[string]any{"reference": scratch, "content": "recorded,1\n"})
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create %s: %v", name, created)
 	}

@@ -76,7 +76,7 @@ def main():
     rows = platform.query("SELECT 1 AS n", connection = "acme")
     platform.export("acc-1909", rows["rows"], format = "csv")
 `
-	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2}); out["error"] != nil || out["status"] == "invalid" {
+	if out := c.saveEdit(map[string]any{"command": "update", "name": name, "source": v2}, nil); out["error"] != nil || out["status"] == "invalid" {
 		t.Fatalf("update refused: %v", out)
 	}
 	awaitTile1909(t, c, id, first)

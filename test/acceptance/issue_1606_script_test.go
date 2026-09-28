@@ -48,12 +48,12 @@ func TestIssue1606_AScriptRunReceivesTheWholeResponse(t *testing.T) {
 	c := connect(t)
 	const name = "acceptance-1606-whole"
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1606: a run is not held to the model-context budget.",
 		"source":      scriptReadsAWholeResponse1606,
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("manage_script create: %v", created)
 	}

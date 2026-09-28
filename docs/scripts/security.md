@@ -736,6 +736,28 @@ version later carries that exact code, in either order, and to no other. It is
 owner-and-admin reading like every other run record, and it is bounded at
 write: an author keeps the newest handful of accounts per script.
 
+### Recordings hold what upstreams answered
+
+Every draft run and every run records each host call and its answer
+(`internal/platform/scriptrec`, `script_recordings`), which a script's tests and
+a save's replay are answered from. A recording therefore holds rows and API
+responses the run's author could read, so it is read only where run history is:
+by the script's current owner and administrators, and a draft also by the person
+who ran it (`scriptsave.Readable`). A run's recording is not its former owner's
+once the script has moved. A test names its recording
+and is run under the saver's access to it: a test in someone else's script that
+names a recording the saver cannot read fails as one that is missing. Replaying
+a recording reaches no upstream and writes nothing: a write binding keeps what
+it would have written. Recordings are swept with run history, and one a test
+in the script's latest version names is kept until a later version stops
+naming it.
+
+A save that changes what the automation does needs a plain-language summary of
+the change and the confirmation that the person it runs for agreed (#1942).
+That is a record of consent to behavior, kept on the version; it is not a
+second approver, and it adds no authority: a run still presents its version
+author's roles, checked at every call.
+
 ### Schedules: cadence, and nothing else
 
 A schedule confers no authority. It names when the script runs and with which

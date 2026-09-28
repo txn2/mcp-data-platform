@@ -48,10 +48,10 @@ func TestIssue1948_ARegisteredTableIsReadBackThroughItsRecord(t *testing.T) {
 	name := "acc-1948-" + stamp
 	source := fmt.Sprintf(readBack1948, "orders-"+stamp+".jsonl", scratchResourceConnection,
 		"acc_1948_"+stamp, scratchResourceConnection)
-	created := c.call("manage_script", map[string]any{
+	created := c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1948: a registered table read back through its record.",
-	})
+	}, nil)
 	if created["status"] != "created" {
 		t.Fatalf("the script was not saved: %v", created)
 	}
