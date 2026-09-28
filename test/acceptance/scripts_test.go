@@ -18,11 +18,12 @@ import (
 // source, params, ...); args binds the draft's parameters. It fails the test
 // when the draft fails or the save is refused, and returns the create's answer.
 //
-// The assertion is read off the draft: the row count of each output, the value
-// platform.result handed back, the state the run would save, and failing all
-// three the log. A test written this way asserts what the script made of the
-// data, so the save's check that a test depends on the recorded rows holds it
-// to something.
+// The assertion is read off the draft: the length of everything it exported,
+// notified and published as JSON (so the test reads every output, #1952), the
+// row count of each output, the value platform.result handed back, the state
+// the run would save, and failing all of them the log. A test written this way
+// asserts what the script made of the data, so the save's check that a test
+// depends on the recorded rows holds it to something.
 func (c *client) saveScript(create, args map[string]any) map[string]any {
 	c.t.Helper()
 	return c.saveScriptCovering(create, args)
@@ -109,8 +110,53 @@ func (c *client) tested(save, args map[string]any) map[string]any {
 		c.t.Fatalf("the draft of %v kept no recording: %v", save["name"], ran)
 	}
 	withTest := maps.Clone(save)
-	withTest["source"] = strings.TrimRight(source, "\n") + "\n" + recordedTest(recording, ran)
+	base := strings.TrimRight(source, "\n") + "\n"
+	withTest["source"] = base + recordedTest(recording, ran, c.producedDigest(name, base, recording, ran))
 	return withTest
+}
+
+// producedDigest is the length of everything a replay of the recording
+// exports, notifies and publishes, as JSON: what the saved test pins so that
+// it reads every output it produces (#1952). It is measured by running a
+// probe test through command=test, which replays the recording without
+// saving anything.
+func (c *client) producedDigest(name, base, recording string, ran map[string]any) int {
+	c.t.Helper()
+	probe := base + testHead(recording) + "    " + entryCall(ran) + "\n" +
+		"    print(\"digest:%d\" % len(json.encode(" + producedExpr + ")))\n"
+	tested := c.call("manage_script", map[string]any{"command": "test", "name": name, "source": probe})
+	tests, _ := tested["tests"].([]any)
+	if len(tests) == 0 {
+		c.t.Fatalf("the probe of %v's outputs ran no test: %v", name, tested)
+	}
+	first, _ := tests[0].(map[string]any)
+	log, _ := first["log"].(string)
+	_, digest, found := strings.Cut(log, "digest:")
+	n, err := strconv.Atoi(strings.TrimSpace(digest))
+	if !found || err != nil {
+		c.t.Fatalf("the probe of %v's outputs printed no digest: %v", name, first)
+	}
+	return n
+}
+
+// producedExpr is what a recorded-draft test reads of testing.outputs() as a
+// whole: every export (its rows, every column, or its body), every
+// notification and every published region.
+const producedExpr = "[out.exports, out.notifies, out.publishes]"
+
+func testHead(recording string) string {
+	return "\ndef test_recorded_draft():\n" +
+		"    \"\"\"The recorded draft replays to what it produced.\"\"\"\n" +
+		"    testing.replay(" + strconv.Quote(recording) + ")\n"
+}
+
+// entryCall is how a recorded-draft test calls main(): directly, or, for a
+// draft that failed, expecting the failure it ended with.
+func entryCall(ran map[string]any) string {
+	if ran["status"] != "succeeded" {
+		return "assert.contains(assert.fails(main), " + strconv.Quote(failureLine(ran)) + ")\n    out = testing.outputs()"
+	}
+	return "main()\n    out = testing.outputs()"
 }
 
 // stoppedAtAWrite reports whether a draft failed because it wrote, or read
@@ -164,15 +210,15 @@ func draftArgs(params any) map[string]any {
 	return args
 }
 
-// recordedTest is the test_* function saveScript saves a script with.
-func recordedTest(recording string, ran map[string]any) string {
-	head := "\ndef test_recorded_draft():\n" +
-		"    \"\"\"The recorded draft replays to what it produced.\"\"\"\n" +
-		"    testing.replay(" + strconv.Quote(recording) + ")\n"
+// recordedTest is the test_* function saveScript saves a script with: it
+// replays the draft, pins the digest of everything the draft produced, and
+// asserts the row count of each output, the value platform.result handed
+// back and the state the run would save, and failing all of them the log.
+func recordedTest(recording string, ran map[string]any, digest int) string {
+	asserts := []string{fmt.Sprintf("assert.eq(len(json.encode(%s)), %d)", producedExpr, digest)}
 	if ran["status"] != "succeeded" {
-		return head + "    assert.contains(assert.fails(main), " + strconv.Quote(failureLine(ran)) + ")\n"
+		return testHead(recording) + "    " + entryCall(ran) + "\n    " + strings.Join(asserts, "\n    ") + "\n"
 	}
-	var asserts []string
 	if exports, _ := ran["exports"].([]any); len(exports) > 0 {
 		counts := make([]string, 0, len(exports))
 		for _, e := range exports {
@@ -187,11 +233,11 @@ func recordedTest(recording string, ran map[string]any) string {
 	if state, ok := ran["state"]; ok && state != nil {
 		asserts = append(asserts, "assert.eq(out.state, json.decode("+jsonLiteral(state)+"))")
 	}
-	if len(asserts) == 0 {
+	if len(asserts) == 1 {
 		log, _ := ran["log"].(string)
 		asserts = append(asserts, "assert.eq(out.log, "+strconv.Quote(log)+")")
 	}
-	return head + "    main()\n    out = testing.outputs()\n    " + strings.Join(asserts, "\n    ") + "\n"
+	return testHead(recording) + "    " + entryCall(ran) + "\n    " + strings.Join(asserts, "\n    ") + "\n"
 }
 
 // failureLine is the opening words of the failure a draft ended with, which
@@ -257,7 +303,7 @@ func (c *client) seedPreGate(t *testing.T, create map[string]any) map[string]any
 		t.Fatalf("seedPreGate: the stand-in was not saved: %v", out)
 	}
 	db := issue1904DB(t)
-	issue1904Exec(t, db, `UPDATE scripts SET source_code = $2, tests_optional = TRUE WHERE id = $1`, id, create["source"])
+	issue1904Exec(t, db, `UPDATE scripts SET source_code = $2, tests_optional = TRUE, outputs_read_optional = TRUE WHERE id = $1`, id, create["source"])
 	issue1904Exec(t, db, `UPDATE script_versions SET source_code = $2 WHERE script_id = $1`, id, create["source"])
 	return out
 }

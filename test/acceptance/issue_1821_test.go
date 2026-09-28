@@ -28,21 +28,27 @@ import (
 
 // issue1821Watchdog reads the target's state and prints it. %s is the extra
 // argument text, which is empty or names a state_action.
-const issue1821Watchdog = `
-got = platform.call("manage_script", {"command": "state", "name": %q%s})
-print("watched: " + json.encode(got["state"]))
+const issue1821Watchdog = `def main():
+    """Prints the target's state."""
+    got = platform.call("manage_script", {"command": "state", "name": %q%s})
+    print("watched: " + json.encode(got["state"]))
 `
+
+// issue1821SetTarget gives the target the state the criteria read back.
+func issue1821SetTarget(c *client, name string) {
+	c.call("manage_script", map[string]any{
+		"command": "state", "name": name, "state_action": "set",
+		"state": map[string]any{"cursor": "2026-09-21"},
+	})
+}
 
 // issue1821Target authors the script whose state the watchdog reads and gives
 // it a state, returning its name.
 func issue1821Target(t *testing.T, c *client, stamp string) string {
 	t.Helper()
 	name := "acc-1821-target-" + stamp
-	authorScript1664(t, c, name, "print(\"target\")\n")
-	c.call("manage_script", map[string]any{
-		"command": "state", "name": name, "state_action": "set",
-		"state": map[string]any{"cursor": "2026-09-21"},
-	})
+	authorScript1664(t, c, name, "def main():\n    \"\"\"Prints target.\"\"\"\n    print(\"target\")\n")
+	issue1821SetTarget(c, name)
 	return name
 }
 
@@ -87,8 +93,13 @@ func TestIssue1821_ADraftStillRefusesAStateWrite(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			name := "acc-1821-writer-" + action + "-" + stamp
 			authorScript1664(t, c, name, fmt.Sprintf(
-				"platform.call(\"manage_script\", {\"command\": \"state\", \"name\": %q, \"state_action\": %q, \"state\": {}})\n",
+				"def main():\n    \"\"\"Writes the target's state.\"\"\"\n"+
+					"    platform.call(\"manage_script\", {\"command\": \"state\", \"name\": %q, \"state_action\": %q, \"state\": {}})\n",
 				target, action))
+			// Saving records a draft of the writer with its writes allowed
+			// (saveScript), which wrote the target's state; the criterion is
+			// the refused draft below, so the state is put back first.
+			issue1821SetTarget(c, target)
 
 			ran := draftRun1664(t, c, map[string]any{"name": name})
 			if status, _ := ran["status"].(string); status != "failed" {
@@ -117,10 +128,11 @@ func TestIssue1821_ADraftReadsTheResourceLibrary(t *testing.T) {
 	c := connect(t)
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1821-library-" + stamp
-	authorScript1664(t, c, name, `
-listed = platform.call("manage_resource", {"action": "list", "path": "acceptance"})
-got = platform.call("manage_resource", {"action": "get", "reference": "mcp:resource:00000000-0000-0000-0000-000000000000"})
-print("listed and got: " + str(got["found"]))
+	authorScript1664(t, c, name, `def main():
+    """Lists a folder and gets a reference that names nothing."""
+    listed = platform.call("manage_resource", {"action": "list", "path": "acceptance"})
+    got = platform.call("manage_resource", {"action": "get", "reference": "mcp:resource:00000000-0000-0000-0000-000000000000"})
+    print("listed and got: " + str(got["found"]) + " after " + str(len(listed["resources"])))
 `)
 
 	ran := draftRun1664(t, c, map[string]any{"name": name})

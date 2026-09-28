@@ -31,16 +31,25 @@ func branchy1940(marker string) string {
 
 var params1940 = []any{map[string]any{"name": "many", "type": "bool"}}
 
-// replaying1940 is a test replaying recording and asserting the export's
-// row count.
+// replaying1940 is a test replaying recording and asserting what the export
+// held, every column of it, and what the run handed back: rows is 2 for the
+// branch that exports the query's rows and 4 for the one that doubles them.
 func replaying1940(name, recording string, rows int) string {
+	ns, result := "[3, 4]", "None"
+	if rows == 4 {
+		ns, result = "[3, 4, 3, 4]", `{"rows": 4}`
+	}
 	return fmt.Sprintf(`
 def %s():
     """The recorded draft exports its rows."""
     testing.replay(%q)
     main()
-    assert.eq(testing.outputs().exports[0].row_count, %d)
-`, name, recording, rows)
+    out = testing.outputs()
+    assert.eq(out.exports[0].row_count, %d)
+    assert.eq([r["n"] for r in out.exports[0].rows], %s)
+    assert.eq([r["mark"][:14] for r in out.exports[0].rows], ["acceptance1940"] * %d)
+    assert.eq(out.result, %s)
+`, name, recording, rows, ns, rows, result)
 }
 
 // drafted1940 drafts source as name with args and returns the recording.

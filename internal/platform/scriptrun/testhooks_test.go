@@ -95,3 +95,45 @@ type callerFunc func(context.Context, string, map[string]any) (map[string]any, e
 func (f callerFunc) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
 	return f(ctx, name, args)
 }
+
+// A test whose inputs can be set reads run from them once set, and from the
+// run's own until then (#1953); the record reads like a run's either way.
+func TestATestReadsTheRunItsInputsSet(t *testing.T) {
+	inputs := &TestInputs{}
+	set := starlark.NewBuiltin("set", func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
+		inputs.Params, inputs.State, inputs.Set = map[string]any{"p": "given"}, map[string]any{"last": 2}, true
+		return starlark.None, nil
+	})
+	res, err := Run(context.Background(), Options{
+		Source: `def main():
+    """Prints what the run carries."""
+    print(run.params, run.state, run.run_id)
+
+def test_main():
+    """Prints before and after the inputs are set."""
+    main()
+    print(type(run), sorted(dir(run)), bool(run), "run(" in str(run))
+    testing()
+    main()
+    print(getattr(run, "nothing", "none"))
+`,
+		RunID:  "r1",
+		Params: map[string]any{"p": "recorded"},
+		Test: &TestHooks{
+			Entry:  "test_main",
+			Env:    starlark.StringDict{TestingName: set},
+			Inputs: inputs,
+		},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, res.Log, `{"p": "recorded"} {} r1`)
+	assert.Contains(t, res.Log, `struct ["fire_time", "params", "run_id", "state"] True True`, "the type a run reads")
+	assert.Contains(t, res.Log, `{"p": "given"} {"last": 2} r1`)
+	assert.Contains(t, res.Log, "none")
+
+	_, err = Run(context.Background(), Options{
+		Source: "def main():\n    \"\"\"Hashes run.\"\"\"\n    print({run: 1})\n",
+		Test:   &TestHooks{Entry: "main", Inputs: &TestInputs{}},
+	})
+	require.Error(t, err, "run is not hashable in a test, as in a run")
+}

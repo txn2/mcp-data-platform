@@ -31,6 +31,7 @@ func SQLSamples() map[string]string {
 		Tags:       []string{"weekly"},
 		Status:     "active",
 		Search:     "refresh",
+		PreHarness: true,
 		Sort:       script.SortName,
 		Limit:      25,
 	}

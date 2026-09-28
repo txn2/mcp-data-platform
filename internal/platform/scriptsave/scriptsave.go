@@ -6,7 +6,8 @@
 //
 // A script created since tests were required is saved only with at least one
 // test, every test passing, and at least MinCoverage percent of its statements
-// reached. A script saved before (script.Script.TestsOptional) saves without
+// reached; one created since #1952 also only while its tests read every output
+// their executions produce (script.Script.OutputsReadOptional). A script saved before (script.Script.TestsOptional) saves without
 // tests; a version of it that has tests must keep them passing and may not
 // reach fewer statements than the version before it.
 //
@@ -47,6 +48,9 @@ type Gate struct {
 	Destinations []script.Destination
 	// MaxMemoryBytes is the memory one test or replay may hold.
 	MaxMemoryBytes int64
+	// Contracts is what an answer a test declares is held to (#1953); nil
+	// checks none.
+	Contracts scripttest.Contracts
 }
 
 // Caller is who is saving.
@@ -147,6 +151,12 @@ func (g *Gate) checkTests(ctx context.Context, req Request, source string, res *
 		return fmt.Sprintf("the tests reach %d of %d statements (%.0f%%), under the %.0f%% a script is saved with, so it was not saved; "+
 			"add tests that reach lines %s", report.Coverage.Covered, report.Coverage.Statements,
 			report.Coverage.Percent, MinCoverage, lines(report.Coverage.MissedLines))
+	// After coverage: an output behind a branch no test takes is the
+	// coverage rule's to report (#1952).
+	case len(report.Tests) > 0 && (req.Existing == nil || !req.Existing.OutputsReadOptional) && len(report.Unread) > 0:
+		return "the tests leave what the script produced unread, so it was not saved: " + unread(report.Unread) +
+			". Assert on each: a row's column (out.exports[0].rows[0][\"region\"]) or the whole rows " +
+			"(assert.eq(out.exports[0].rows, [...])), out.state, out.notifies[i], out.result"
 	case !required && len(report.Tests) > 0:
 		return g.keepsCoverage(ctx, req, report)
 	}
@@ -169,6 +179,7 @@ func (g *Gate) testRequest(req Request, source string) scripttest.Request {
 	return scripttest.Request{
 		Source: source, Name: req.Name, Destinations: g.Destinations,
 		Load: g.Loader(req.Existing, req.Caller), MaxMemoryBytes: g.MaxMemoryBytes,
+		Contracts: g.Contracts,
 	}
 }
 
@@ -279,6 +290,15 @@ func failures(report *scripttest.Report) string {
 		parts = append(parts, t.Name+where+": "+t.Failure)
 	}
 	return strings.Join(parts, " | ")
+}
+
+// unread is each output no test read, as a sentence.
+func unread(outputs []string) string {
+	parts := make([]string, 0, len(outputs))
+	for _, o := range outputs {
+		parts = append(parts, o+" is never asserted on")
+	}
+	return strings.Join(parts, "; ")
 }
 
 func lines(ls []int) string {

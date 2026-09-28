@@ -135,7 +135,14 @@ func TestIssue1834_AReferenceThatDoesNotResolveFailsTheRun(t *testing.T) {
 // run, and the declaration is reported as the tool call it is.
 func TestIssue1834_ValidateWarnsAboutAnUndeclaredReference(t *testing.T) {
 	c := connect(t)
-	source := fmt.Sprintf(issue1834Source, "mcp://global/brand/logo.svg", issue1834Undeclared)
+	// With the test a save needs (#1939), so validate's ok is the warning's
+	// question alone.
+	source := fmt.Sprintf(issue1834Source, "mcp://global/brand/logo.svg", issue1834Undeclared) + `
+def test_main():
+    """The report is one document naming both images."""
+    main()
+    assert.contains(testing.outputs().exports[0].body, UNDECLARED)
+`
 	out := c.call("manage_script", map[string]any{"command": "validate", "source": source})
 	if out["ok"] != true {
 		t.Fatalf("a warning stopped the script from validating: %v", out)

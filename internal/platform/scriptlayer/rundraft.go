@@ -90,13 +90,14 @@ func (h *Handle) handleTest(ctx context.Context, input manageScriptInput) (*mcp.
 	report, err := scripttest.Run(ctx, scripttest.Request{
 		Source: source, Name: orScriptName(input.Name), Destinations: h.destinations,
 		Load: h.gate.Loader(target, caller), MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
+		Contracts: h.gate.Contracts,
 	})
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
 	return jsonResult(map[string]any{
 		"ok": report.OK(), "tests": report.Tests, "passed": report.Passed, "failed": report.Failed,
-		"coverage": report.Coverage, "min_coverage_percent": scriptsave.MinCoverage,
+		"coverage": report.Coverage, "min_coverage_percent": scriptsave.MinCoverage, "unread": report.Unread,
 	})
 }
 
@@ -343,7 +344,9 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 func draftFailureMessage(result *scriptrun.Result) string {
 	if refused := refusedWriteOf(result); refused != nil {
 		return "The draft stopped at a call that persists (refused_write), because a draft does not write. " +
-			"Run it again with allow_writes to let it write for real, and it will report every write it made."
+			"Its recording holds every call before the write: a test replays it and answers the write with " +
+			"testing.answer(tool, args, answer), so the script is tested and saved without writing anything. " +
+			"Run it again with allow_writes only to write for real; it will report every write it made."
 	}
 	return "The script raised this failure. If it reacted to something outside the script, such as an upstream " +
 		"that answered with an error, running the draft again may pass; if it fails the same way again, fix the " +

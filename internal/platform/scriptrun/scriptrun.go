@@ -290,6 +290,9 @@ type TestHooks struct {
 	// Cover records the statements that ran. Each costs the interpreter
 	// scriptdialect.CoverStepsPerStatement steps, which are added to the cap.
 	Cover *scriptdialect.Coverage
+	// Inputs, when not nil, is what run.params and run.state read once a test
+	// has set them (testing.set_run, #1953), in place of the recording's.
+	Inputs *TestInputs
 }
 
 // hooks is what Exec is asked to do for this execution.
@@ -706,7 +709,7 @@ func predeclared(host *hostState) starlark.StringDict {
 		"json":         json.Module,
 		"xml":          scriptxml.Module,
 		"date":         scriptdate.Module,
-		"run":          host.runValue(),
+		"run":          host.runBinding(),
 		scriptsum.Name: scriptsum.Builtin,
 		"fail":         scriptguard.Fail, // the universe's, plus retryable= (#1935)
 		TestingName:    testOnly(TestingName),

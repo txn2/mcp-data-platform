@@ -24,15 +24,26 @@ type Replay struct {
 	byTool  map[string][]int
 	usedAt  map[int]bool
 	lenient bool
+	// answers is consulted before the recording: a test's declared answers
+	// (#1953).
+	answers Answerer
+}
+
+// Answerer answers a tool call before the recording is consulted. ok is false
+// when it holds no answer for the call; errText is set when the answer it
+// holds is a failure.
+type Answerer interface {
+	Answer(tool string, args map[string]any) (out map[string]any, errText string, ok bool)
 }
 
 // Made is one tool call an execution made against a Replay, with what it was
-// answered.
+// answered. Declared is true when a test's declared answer answered it.
 type Made struct {
-	Tool  string
-	Args  map[string]any
-	Out   map[string]any
-	Error string
+	Tool     string
+	Args     map[string]any
+	Out      map[string]any
+	Error    string
+	Declared bool
 }
 
 // MissingError is a call the recording holds no answer for. Its text names
@@ -47,7 +58,8 @@ type MissingError struct {
 func (e *MissingError) Error() string {
 	if e.Held == 0 {
 		return "the recording holds no answer for " + e.Call +
-			"; record a run that makes it (run_draft, with allow_writes=true for a call that writes) and replay that one"
+			"; declare the answer it gets with testing.answer(tool, args, answer), or record a run that makes it " +
+			"(run_draft) and replay that one"
 	}
 	return fmt.Sprintf("the recording holds %d answer(s) for %s, and it was called again", e.Held, e.Call)
 }
@@ -70,6 +82,13 @@ func NewReplay(rec *Recording) *Replay {
 // calls a script makes after reading altered rows carry altered arguments.
 func (r *Replay) Lenient() *Replay {
 	r.lenient = true
+	return r
+}
+
+// WithAnswers returns the replay answering a tool call from a before the
+// recording.
+func (r *Replay) WithAnswers(a Answerer) *Replay {
+	r.answers = a
 	return r
 }
 
@@ -119,6 +138,15 @@ func toolOf(key string) string {
 
 // CallTool answers one tool call from the recording.
 func (r *Replay) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
+	if r.answers != nil {
+		if out, errText, ok := r.answers.Answer(name, args); ok {
+			r.made = append(r.made, Made{Tool: name, Args: args, Out: out, Error: errText, Declared: true})
+			if errText != "" {
+				return nil, errors.New(errText)
+			}
+			return cloneMap(out), nil
+		}
+	}
 	c, err := r.next(ToolKey(name, args), DescribeCall(name, args))
 	if err != nil {
 		r.made = append(r.made, Made{Tool: name, Args: args, Error: err.Error()})

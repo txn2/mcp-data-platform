@@ -60,13 +60,12 @@ def main():
     })
 `
 
-// issue1677Save creates the ticket's script and fails on a refused save, whose
-// findings would otherwise surface later as "script not found".
+// issue1677Save creates the ticket's script with the test a save needs
+// (saveScript) and fails on a refused save, whose findings would otherwise
+// surface later as "script not found".
 func issue1677Save(t *testing.T, c *client, args map[string]any) {
 	t.Helper()
-	if saved := c.call("manage_script", args); saved["status"] == "invalid" {
-		t.Fatalf("the script was refused on save: %v", saved)
-	}
+	c.saveScript(args, nil)
 }
 
 func issue1677Address(filename string) map[string]any {
@@ -247,6 +246,14 @@ func TestIssue1677_AFileARunFiledByAddressIsFoldedIntoTheSessionsLibrary(t *test
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
+	// Saving recorded a draft with its writes allowed (saveScript), which
+	// filed both files at the session's own address; the criterion starts
+	// from an address nothing has been filed at.
+	for _, f := range []string{rolling, probeFile} {
+		_, _, _ = c.callRaw("manage_resource", map[string]any{
+			"action": "delete", "path": issue1677Folder, "filename": f, "force": true,
+		})
+	}
 	owned := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	address, _ := owned["owner_email"].(string)
 	if !strings.Contains(address, "@") {

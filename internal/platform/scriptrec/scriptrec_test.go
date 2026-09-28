@@ -247,3 +247,42 @@ func TestRecordingKeepsToolOutputsListed(t *testing.T) {
 	require.True(t, ok)
 	plain.RecordToolOutput(context.Background(), script.RunOutput{}) // a writer that lists none is passed nothing
 }
+
+// answers is a declared-answer source holding one answer per tool.
+type answers map[string]struct {
+	out     map[string]any
+	errText string
+}
+
+func (a answers) Answer(tool string, _ map[string]any) (out map[string]any, errText string, ok bool) {
+	got, ok := a[tool]
+	return got.out, got.errText, ok
+}
+
+// A declared answer is consulted before the recording, and says so in what
+// the execution made (#1953).
+func TestADeclaredAnswerIsConsultedBeforeTheRecording(t *testing.T) {
+	r := NewReplay(&Recording{Calls: []Call{{Key: ToolKey("q", nil), Tool: "q", Out: map[string]any{"from": "recording"}}}}).
+		WithAnswers(answers{
+			"write": {out: map[string]any{"id": "r1"}},
+			"fails": {errText: "refused"},
+		})
+	out, err := r.CallTool(context.Background(), "write", map[string]any{"a": 1})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"id": "r1"}, out)
+	_, err = r.CallTool(context.Background(), "fails", nil)
+	require.EqualError(t, err, "refused")
+	out, err = r.CallTool(context.Background(), "q", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "recording", out["from"])
+
+	made := r.Made()
+	require.Len(t, made, 3)
+	assert.True(t, made[0].Declared)
+	assert.True(t, made[1].Declared)
+	assert.Equal(t, "refused", made[1].Error)
+	assert.False(t, made[2].Declared)
+
+	_, err = r.CallTool(context.Background(), "missing", nil)
+	assert.ErrorContains(t, err, "declare the answer it gets with testing.answer")
+}

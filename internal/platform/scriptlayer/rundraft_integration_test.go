@@ -306,7 +306,7 @@ platform.export(name = "daily-sales", rows = res["rows"], format = "csv")
 
 	saveTested(ctx, t, session, saved{
 		name: "daily-sales", source: source,
-		assertion: `assert.eq([r["total"] for r in testing.outputs().exports[0].rows], [120, 80])`,
+		assertion: `assert.eq([(r["region"], r["total"]) for r in testing.outputs().exports[0].rows], [("west", 120), ("east", 80)])`,
 		args:      map[string]any{"day": "2026-08-13"},
 		extra: map[string]any{
 			"params": []map[string]any{{"name": "day", "type": "date", "required": true}},

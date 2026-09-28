@@ -27,6 +27,10 @@ type produced struct {
 	state     *script.StateWrite
 	replay    *scriptrec.Replay
 	live      *scriptlive.Live
+	declared  *declared
+	// reads records what the test reads of testing.outputs(); nil for an
+	// execution whose reads count for nothing.
+	reads *reads
 	// asserts is how many assertions the test made, and failures how many of
 	// them were assert.fails catching the failure it expected.
 	asserts  int
@@ -75,11 +79,12 @@ func (p *produced) nothing() bool {
 }
 
 // value is testing.outputs(): what the test's execution produced, as a struct
-// a test asserts on. Nothing it holds was written anywhere.
+// a test asserts on. Nothing it holds was written anywhere. What the test
+// reads of it is recorded in p.reads (#1952).
 func (p *produced) value() (starlark.Value, error) {
 	exports := make([]starlark.Value, 0, len(p.exports))
 	for _, req := range p.exports {
-		v, err := exportValue(req)
+		v, err := p.exportValue(req)
 		if err != nil {
 			return nil, err
 		}
@@ -91,8 +96,16 @@ func (p *produced) value() (starlark.Value, error) {
 		if err != nil {
 			return nil, fmt.Errorf("converting published data %q: %w", req.Name, err)
 		}
-		publishes = append(publishes, starlarkstruct.FromStringDict(starlarkstruct.Default,
-			starlark.StringDict{"name": starlark.String(req.Name), "data": data}))
+		id := publishID(req.Name)
+		publishes = append(publishes, &watched{
+			typ:    "publish",
+			fields: starlark.StringDict{"name": starlark.String(req.Name), "data": data},
+			onAttr: func(name string) {
+				if name == "data" {
+					p.reads.mark(id)
+				}
+			},
+		})
 	}
 	calls, notifies, err := p.calls()
 	if err != nil {
@@ -107,7 +120,7 @@ func (p *produced) value() (starlark.Value, error) {
 		return nil, err
 	}
 	logText, _ := p.live.Log()
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+	return &watched{typ: "outputs", fields: starlark.StringDict{
 		"exports":   starlark.NewList(exports),
 		"publishes": starlark.NewList(publishes),
 		"notifies":  starlark.NewList(notifies),
@@ -115,26 +128,43 @@ func (p *produced) value() (starlark.Value, error) {
 		"state":     state,
 		"result":    result,
 		"log":       starlark.String(logText),
-	}), nil
+	}, onAttr: func(name string) {
+		switch name {
+		case "state":
+			p.reads.mark(stateID)
+		case "result":
+			p.reads.mark(resultID)
+		}
+	}}, nil
 }
 
 // calls is every tool call the execution made, and the notify calls among
-// them as their arguments.
+// them as their arguments. A notification's arguments are read as the
+// notification, whichever of the two the test reads them through.
 func (p *produced) calls() (calls, notifies []starlark.Value, err error) {
 	made := p.replay.Made()
+	ids := p.notifyIDs()
 	calls = make([]starlark.Value, 0, len(made))
 	notifies = []starlark.Value{}
-	for _, m := range made {
+	for i, m := range made {
 		args, err := starlarkconv.ToStarlark(m.Args)
 		if err != nil {
 			return nil, nil, fmt.Errorf("converting the arguments of %s: %w", m.Tool, err)
 		}
-		calls = append(calls, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-			"tool": starlark.String(m.Tool), "args": args, "error": starlark.String(m.Error),
-		}))
-		if m.Tool == toolNotify {
+		if d, ok := args.(*starlark.Dict); ok && m.Tool == toolNotify {
+			// A notify that failed sent nothing, so reading it reads no output.
+			ref, sent := ids[i]
+			args = newTracked(d, "notify", func(string) {
+				if sent {
+					p.reads.mark(ref.id)
+				}
+			})
 			notifies = append(notifies, args)
 		}
+		calls = append(calls, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"tool": starlark.String(m.Tool), "args": args, "error": starlark.String(m.Error),
+			"declared": starlark.Bool(m.Declared),
+		}))
 	}
 	return calls, notifies, nil
 }
@@ -166,14 +196,13 @@ func (p *produced) resultValue() (starlark.Value, error) {
 	return out, nil
 }
 
-// exportValue is one output as a test reads it.
-func exportValue(req scriptrun.ExportRequest) (starlark.Value, error) {
-	rows, err := starlarkconv.ToStarlark(req.Rows)
+// exportValue is one output as a test reads it: each row says which of its
+// columns the test read, and the output its body or, when it has no rows, that
+// the test read it at all.
+func (p *produced) exportValue(req scriptrun.ExportRequest) (starlark.Value, error) {
+	rows, err := p.rowsValue(req)
 	if err != nil {
-		return nil, fmt.Errorf("converting the rows of output %q: %w", req.Name, err)
-	}
-	if req.Rows == nil {
-		rows = starlark.NewList(nil)
+		return nil, err
 	}
 	columns := make([]starlark.Value, 0, len(req.Columns))
 	for _, c := range req.Columns {
@@ -183,7 +212,8 @@ func exportValue(req scriptrun.ExportRequest) (starlark.Value, error) {
 	if req.Body != nil {
 		body = starlark.String(*req.Body)
 	}
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+	id := exportID(req.Name)
+	return &watched{typ: "export", fields: starlark.StringDict{
 		"name":        starlark.String(req.Name),
 		"format":      starlark.String(req.Format),
 		"destination": starlark.String(req.Destination.Name),
@@ -192,5 +222,26 @@ func exportValue(req scriptrun.ExportRequest) (starlark.Value, error) {
 		"rows":        rows,
 		"row_count":   starlark.MakeInt(req.RowCount()),
 		"body":        body,
-	}), nil
+	}, onAttr: func(string) { p.reads.mark(id) }}, nil
+}
+
+// rowsValue is an output's rows, each marking the column a test reads.
+func (p *produced) rowsValue(req scriptrun.ExportRequest) (starlark.Value, error) {
+	items := make([]starlark.Value, 0, len(req.Rows))
+	for _, row := range req.Rows {
+		v, err := starlarkconv.ToStarlark(row)
+		if err != nil {
+			return nil, fmt.Errorf("converting the rows of output %q: %w", req.Name, err)
+		}
+		if d, ok := v.(*starlark.Dict); ok {
+			name := req.Name
+			v = newTracked(d, "row", func(column string) {
+				if column != "" {
+					p.reads.mark(columnID(name, column))
+				}
+			})
+		}
+		items = append(items, v)
+	}
+	return starlark.NewList(items), nil
 }

@@ -171,6 +171,18 @@ describes the three axes and what a row's color and marks say.
 
 ![Script schedules](../images/screenshots/light/admin-admin-script-schedules-light.webp#only-light)![Script schedules](../images/screenshots/dark/admin-admin-script-schedules-dark.webp#only-dark)
 
+### Saved before tests
+
+A script saved before lint and tests were required keeps running and saving
+as it did: its lint findings are warnings, and its tests are optional. The
+**Saved before tests** tab lists the ones that still have lint findings or no
+tests, with how many of each, so the older set can be brought up over time. A
+row opens the script. Clearing a script's findings and giving it a test takes
+it off the list. Only administrators see the tab; it reads
+`GET /api/v1/admin/scripts/legacy`.
+
+![Saved before tests](../images/screenshots/light/admin-admin-script-pre-harness-light.webp#only-light)![Saved before tests](../images/screenshots/dark/admin-admin-script-pre-harness-dark.webp#only-dark)
+
 ### Runs
 
 The other question an operator has is what has been running. The **Runs** tab

@@ -43,8 +43,9 @@ func FailureMessage(refused *scriptrun.WriteRecord, cause string) string {
 	switch {
 	case refused != nil:
 		return "The dry run stopped at a call that persists (refused_write), because a dry run does not " +
-			"write. Run it again with allow_writes to let it write for real, and it will report every " +
-			"write it made."
+			"write. Its recording holds every call before the write, and a test answers the write with " +
+			"testing.answer(tool, args, answer), so nothing is written. Run it again with allow_writes only " +
+			"to write for real; it will report every write it made."
 	case cause == runstate.CauseUpstream || cause == runstate.CauseTransient:
 		return "The failure was outside the script: a service it called was unavailable or answered with an " +
 			"error, or the script reported it as temporary. Dry-run it again in a moment."

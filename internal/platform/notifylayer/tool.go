@@ -264,3 +264,10 @@ func carries(kind string) string {
 		return "a title, a body and a link"
 	}
 }
+
+// AnswerContracts is what the notify tool always answers a send or a publish
+// (#1953): the body a managed script's test is held to when it declares the
+// answer platform.notify or platform.publish gets.
+func AnswerContracts() []toolkit.AnswerContract {
+	return []toolkit.AnswerContract{toolkit.ContractFor[sendResult](ToolName, "action", actionSend, actionPublish)}
+}
