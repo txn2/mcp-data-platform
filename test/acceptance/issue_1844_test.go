@@ -44,23 +44,27 @@ var params1844 = []any{
 }
 
 // source1844 reads the list, binds it into a query as IN (...), and prints
-// what it saw.
-var source1844 = fmt.Sprintf(`ids = run.params["ids"]
-print("type", type(ids), "len", len(ids))
-rows = platform.query(connection=%q,
-    sql="SELECT x FROM UNNEST(ARRAY['a', 'b', 'c']) AS t(x) WHERE x IN :ids ORDER BY x",
-    params={"ids": ids})["rows"]
-print("matched", ",".join([r["x"] for r in rows]))
-print("from", run.params["period"]["from"])
+// what it saw, from main() as the #1913 gates require of a saved script.
+var source1844 = fmt.Sprintf(`MATCH_SQL = "SELECT x FROM UNNEST(ARRAY['a', 'b', 'c']) AS t(x) WHERE x IN :ids ORDER BY x"
+
+def main():
+    """Prints the list it was given and the values the query matched with it."""
+    ids = run.params["ids"]
+    print("type", type(ids), "len", len(ids))
+    rows = platform.query(connection = %q, sql = MATCH_SQL, params = {"ids": ids})["rows"]
+    print("matched", ",".join([r["x"] for r in rows]))
+    print("from", run.params["period"]["from"])
 `, scratchResourceConnection)
 
 func save1844(t *testing.T, c *client) (name, id string) {
 	t.Helper()
 	name = fmt.Sprintf("acc-1844-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	if saved := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source1844, "params": params1844,
 		"description": "Acceptance #1844: list and date_range parameters.",
-	})
+	}); saved["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", saved)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	id, _ = got["id"].(string)

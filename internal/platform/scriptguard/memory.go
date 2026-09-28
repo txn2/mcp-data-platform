@@ -361,6 +361,21 @@ func (m *Meter) Settle(globals starlark.StringDict) error {
 	return m.refusal(settleAt)
 }
 
+// Ended measures what the thread holds as the script's main() finishes, its
+// frame still live, and refuses when that is over the budget: what main built
+// after its last host call is in its locals, which Settle, reading the globals
+// once the module has returned, can no longer see.
+func (m *Meter) Ended(thread *starlark.Thread) error {
+	if m == nil || thread == nil {
+		return nil
+	}
+	m.walk(thread)
+	if m.within() {
+		return nil
+	}
+	return m.refusal(settleAt)
+}
+
 // walk replaces the estimate with a fresh measure of what the thread holds.
 func (m *Meter) walk(thread *starlark.Thread) {
 	w := walker{seen: map[any]bool{}}

@@ -198,7 +198,4 @@ func TestValidate_ReadsTheLibraryDestinationFromTheSource(t *testing.T) {
 	report := Validate(`platform.export(name="orders", rows=[], destination="resources", key="datasets/orders.csv")`)
 	assert.Contains(t, report.Destinations, script.DestinationResources)
 	assert.True(t, report.OK, "the built-in destination is not a finding: %+v", report.Findings)
-
-	checked := WithDestinationCheck(report, nil)
-	assert.True(t, checked.OK, "a built-in destination needs no configuration: %+v", checked.Findings)
 }

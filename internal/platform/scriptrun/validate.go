@@ -17,7 +17,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlex"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
-	"github.com/txn2/mcp-data-platform/internal/scriptdest"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -31,6 +30,9 @@ const (
 
 // Finding is one thing the validator noticed, addressed to the author.
 type Finding struct {
+	// Rule names the authoring gate a finding comes from (internal/platform/
+	// scriptlint, #1913), empty for the validator's own findings.
+	Rule     string `json:"rule,omitempty" example:"cyclomatic-complexity"`
 	Severity string `json:"severity" example:"error"`
 	Line     int    `json:"line,omitempty" example:"12"`
 	Message  string `json:"message"`
@@ -88,61 +90,6 @@ type Report struct {
 	// source: an access written as run.state, and the save_state member in
 	// Capabilities.
 	script.StateUse
-}
-
-// CheckDestinations reports each destination a source names literally that the
-// deployment does not declare.
-//
-// Validate itself is deployment-independent — it parses source and reads what
-// the code reaches — so this is a separate pass over its report, applied by the
-// surfaces that know the configured set. Splitting it that way keeps a save
-// working when configuration changes underneath a stored script, while the
-// surface whose job is answering "would this run" answers it (#1415).
-//
-// It reads report.Destinations, which holds only the destinations named as
-// string literals in the source. A call that computes its destination is
-// invisible there and is reported by report.DynamicDestinations instead: its
-// address is not readable from the source, so there is nothing to check.
-//
-// The refusal is scriptdest.Resolve's, so validate and the run say the same
-// thing about the same script.
-func CheckDestinations(report Report, declared []script.Destination) []Finding {
-	var findings []Finding
-	for _, name := range report.Destinations {
-		if _, err := scriptdest.Resolve(name, declared); err != nil {
-			findings = append(findings, Finding{
-				Severity: SeverityError,
-				Message:  err.Error(),
-				Hint: "Name a destination this deployment declares, or write to " +
-					script.DestinationPortal + " or " + script.DestinationResources +
-					", which are always available. " +
-					"A destination is deployment configuration (scripts.destinations), " +
-					"not something the script can add.",
-			})
-		}
-	}
-	return findings
-}
-
-// WithDestinationCheck returns report with CheckDestinations' findings folded
-// in and OK recomputed, which is the whole of what a validating surface does
-// with them. It exists so the tool arm and the portal editor cannot fold them
-// in differently.
-func WithDestinationCheck(report Report, declared []script.Destination) Report {
-	found := CheckDestinations(report, declared)
-	if len(found) == 0 {
-		return report
-	}
-	// Built fresh rather than appended onto the caller's slice: the two share a
-	// backing array, and sorting in place would reorder findings the caller
-	// still holds.
-	merged := make([]Finding, 0, len(report.Findings)+len(found))
-	merged = append(merged, report.Findings...)
-	merged = append(merged, found...)
-	sortFindings(merged)
-	report.Findings = merged
-	report.OK = !hasErrors(merged)
-	return report
 }
 
 // hasErrors reports whether any finding blocks execution.
@@ -343,7 +290,7 @@ func scanSource(source string) []Finding {
 	matches := scriptlex.Scan(source)
 	findings := make([]Finding, 0, len(matches))
 	for _, m := range matches {
-		findings = append(findings, Finding(m))
+		findings = append(findings, Finding{Severity: m.Severity, Line: m.Line, Message: m.Message, Hint: m.Hint})
 	}
 	return findings
 }

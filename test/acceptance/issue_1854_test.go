@@ -43,7 +43,10 @@ func TestIssue1854_ATrinoExportInsideARunIsListedAsItsOutput(t *testing.T) {
 	c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1854: a trino_export inside a run is its output.",
-		"source": fmt.Sprintf(`platform.call("trino_export", {"connection": %q, "sql": "SELECT 1 AS n, 'a' AS label", "name": "acc-1854-%s", "format": "csv"})`+"\n",
+		"source": fmt.Sprintf(`def main():
+    """Exports one query result through trino_export."""
+    platform.call("trino_export", {"connection": %q, "sql": "SELECT 1 AS n, 'a' AS label", "name": "acc-1854-%s", "format": "csv"})
+`,
 			scratchResourceConnection, stamp),
 		"params": []any{map[string]any{"name": "day", "type": "string"}},
 	})

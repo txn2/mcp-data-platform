@@ -18,7 +18,8 @@ import (
 // What these hold, against the running platform: an administrator issues a
 // non-admin API key carrying a tenant attribute; the script's owner grants the
 // key; the key runs the script over POST /api/v1/portal/scripts/{id}/runs and
-// reads that run, cannot read the source or the versions, gets 404 on a script
+// reads that run, reads the definition every signed-in caller reads (#1866)
+// but not the state, cannot change the script, gets 404 on a script
 // it was not granted, and finds the script in its scope=granted catalog; a
 // parameter bound to caller.tenant takes the key's attribute, a body value for
 // it is 400 and a key without the attribute is 403; the grant is listed on the
@@ -31,8 +32,11 @@ import (
 // strings; manage_script's `params` is an array of objects.
 
 // source1846 prints the tenant it was bound to and hands it back.
-const source1846 = `print("tenant", run.params["tenant"])
-platform.result({"tenant": run.params["tenant"]})
+const source1846 = `
+def main():
+    """Prints the tenant the run was bound to and hands it back."""
+    print("tenant", run.params["tenant"])
+    platform.result({"tenant": run.params["tenant"]})
 `
 
 // issueKey1846 creates a non-admin API key and deletes it at cleanup.
@@ -104,15 +108,12 @@ func TestIssue1846_AGrantedKeyRunsTheScriptAsItsTenant(t *testing.T) {
 		t.Errorf("the grantee reading its own run answered %d %v", status, again)
 	}
 
-	for _, path := range []string{"/versions", "/state"} {
-		if status, _ := app.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+path, http.NoBody); status != http.StatusNotFound {
-			t.Errorf("the grantee reading %s answered %d; want 404", path, status)
-		}
+	// The definition is everyone's (#1866); the state is the owner's.
+	if status, _ := app.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/versions", http.NoBody); status != http.StatusOK {
+		t.Errorf("the grantee reading the version history answered %d; want 200, the definition is readable", status)
 	}
-	if status, body := app.rest(http.MethodGet, "/api/v1/portal/scripts/"+id, http.NoBody); status == http.StatusOK {
-		if src, _ := body["source"].(string); src != "" {
-			t.Errorf("the grantee read the source: %q", src)
-		}
+	if status, _ := app.rest(http.MethodGet, "/api/v1/portal/scripts/"+id+"/state", http.NoBody); status != http.StatusNotFound {
+		t.Errorf("the grantee reading the state answered %d; want 404", status)
 	}
 	if status, _ := app.rest(http.MethodPut, "/api/v1/portal/scripts/"+id+"/metadata",
 		jsonBody(t, map[string]any{"display_name": "taken"})); status != http.StatusNotFound {

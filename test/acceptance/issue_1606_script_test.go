@@ -23,32 +23,40 @@ import "testing"
 // object carrying the sized content, so a run that was held to the budget
 // would see a cut prefix string where this reads a parsed object: indexing
 // into it at all proves the body arrived whole and parseable, and its length
-// proves no bytes were dropped.
+// proves no bytes were dropped. It counts its runs in state, which is the read
+// of run.state a script that saves state has to make.
 const scriptReadsAWholeResponse1606 = `
-res = platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "method": "GET",
-    "path": "/v1/sized",
-    "query_params": {"bytes": 200000},
-    "purpose": "Acceptance #1606: a run reads a whole response, not one cut to a model's budget.",
-})
-platform.save_state({
-    "content_len": str(len(res["body"]["body"])),
-    "body_bytes": str(res["body_bytes"]),
-    "truncated": str(res.get("body_truncated", False)),
-})
+def main():
+    """Reads a response far past the model budget and records what arrived."""
+    res = platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/v1/sized",
+        "query_params": {"bytes": 200000},
+        "purpose": "Acceptance #1606: a run reads a whole response, not one cut to a model's budget.",
+    })
+    runs = int(run.state.get("runs", "0")) + 1
+    platform.save_state({
+        "runs": str(runs),
+        "content_len": str(len(res["body"]["body"])),
+        "body_bytes": str(res["body_bytes"]),
+        "truncated": str(res.get("body_truncated", False)),
+    })
 `
 
 func TestIssue1606_AScriptRunReceivesTheWholeResponse(t *testing.T) {
 	c := connect(t)
 	const name = "acceptance-1606-whole"
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1606: a run is not held to the model-context budget.",
 		"source":      scriptReadsAWholeResponse1606,
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create: %v", created)
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

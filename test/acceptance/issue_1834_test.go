@@ -35,11 +35,16 @@ import (
 const issue1834Undeclared = "mcp://global/acceptance/issue-1834-undeclared.png"
 
 // issue1834Source publishes a report naming the declared file and the
-// undeclared one, and prints what the export reported.
+// undeclared one, and prints what the export reported. Both are module
+// constants, the one place a literal may sit outside main().
 const issue1834Source = `LOGO = %q
-html = "<html><body><img src='" + LOGO + "' alt='logo'><img src='%s'><h1>Weekly</h1></body></html>"
-out = platform.export(name="Acceptance 1834 report", rows=html, format="html", references=[LOGO])
-print("declared", out.get("references"), "undeclared", out.get("undeclared_references"))
+UNDECLARED = "%s"
+
+def main():
+    """Publishes the weekly report and prints the references its export reported."""
+    html = "<html><body><img src='" + LOGO + "' alt='logo'><img src='" + UNDECLARED + "'><h1>Weekly</h1></body></html>"
+    out = platform.export(name = "Acceptance 1834 report", rows = html, format = "html", references = [LOGO])
+    print("declared", out.get("references"), "undeclared", out.get("undeclared_references"))
 `
 
 // runScript1834 runs a saved script and waits for its answer, whatever the

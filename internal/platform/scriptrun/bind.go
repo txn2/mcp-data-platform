@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -216,7 +217,9 @@ func isNameByte(c byte) bool { return isNameStart(c) || (c >= '0' && c <= '9') }
 // sqlLiteral renders one bound value as a SQL literal. The set of accepted
 // types is closed on purpose: anything richer than a scalar or a list of
 // scalars has no unambiguous literal form, and inventing one would put the
-// platform in the business of guessing what an author meant.
+// platform in the business of guessing what an author meant. The one dict it
+// takes is the table record platform.export(..., register=...) hands back,
+// which binds as that table's name (#1948).
 func sqlLiteral(v any) (string, error) {
 	switch t := v.(type) {
 	case nil:
@@ -230,6 +233,8 @@ func sqlLiteral(v any) (string, error) {
 		return quoteSQLString(t)
 	case []any:
 		return sqlList(t)
+	case map[string]any:
+		return sqlTableName(t)
 	default:
 		return sqlNumberLiteral(v)
 	}
@@ -269,4 +274,31 @@ func sqlList(items []any) (string, error) {
 		parts = append(parts, lit)
 	}
 	return "(" + strings.Join(parts, ", ") + ")", nil
+}
+
+// tableNameParts is catalog, schema and table.
+const tableNameParts = 3
+
+// sqlTableName renders the table record a registration returned as the
+// table's name: each part of catalog.schema.table double-quoted, embedded
+// quotes doubled, so the name is an identifier and nothing else (#1948). It is
+// how a script reads back a table it registered without building SQL by
+// concatenation, which the save gates refuse. It reaches nothing a literal
+// name in the SQL could not: the query runs under its author's roles.
+func sqlTableName(record map[string]any) (string, error) {
+	name, _ := record["query_table"].(string)
+	if name == "" {
+		if preview, _ := record["preview"].(bool); preview {
+			return "", errors.New("the table record has no query_table: a draft without allow_writes registers nothing, so there is no table to read")
+		}
+		return "", errors.New(`a dict binds only as a table: pass the record platform.export(..., register=...) returned, which carries "query_table"`)
+	}
+	parts := strings.Split(name, ".")
+	if len(parts) != tableNameParts || slices.Contains(parts, "") || strings.ContainsRune(name, 0) {
+		return "", fmt.Errorf("query_table %q is not catalog.schema.table", name)
+	}
+	for i, p := range parts {
+		parts[i] = `"` + strings.ReplaceAll(p, `"`, `""`) + `"`
+	}
+	return strings.Join(parts, "."), nil
 }

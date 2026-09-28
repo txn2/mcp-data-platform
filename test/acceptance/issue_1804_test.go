@@ -33,11 +33,17 @@ import (
 // parameter with two meaningful ones are exercised: the reproduction ran with
 // `dry_run: true` and on a real save, and both are checked here.
 
-// script1804 is the three-line source every criterion patches. The lines are
-// distinct so a deletion cannot hide as a coincidence.
+// script1804 is the source every criterion patches: three distinct constant
+// lines, so a deletion cannot hide as a coincidence, and the main() the #1913
+// gates require of a saved script. main never names BBB, so deleting that line
+// leaves a script that still passes the gates.
 const script1804 = `AAA = "one"
 BBB = "two"
 CCC = "three"
+
+def main():
+    """Prints the first and last constants."""
+    print(AAA, CCC)
 `
 
 // createScript1804 saves a script through the tool and removes it afterwards.
@@ -50,8 +56,8 @@ func createScript1804(t *testing.T, c *client) string {
 		"description": "Acceptance #1804: a patch whose replacement key is wrong must be refused.",
 		"source":      script1804,
 	})
-	if status, _ := out["status"].(string); status == "" {
-		t.Fatalf("manage_script create returned no status: %v", out)
+	if status, _ := out["status"].(string); status == "" || status == "invalid" {
+		t.Fatalf("manage_script create did not save the script: %v", out)
 	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})

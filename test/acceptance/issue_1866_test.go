@@ -34,10 +34,21 @@ import (
 // string fields ahead of a byte file part) and a JSON PATCH whose `scope` and
 // `scope_id` are strings; each has that one form.
 
+// source1866 and edited1866 are written in the formatter's own form (the shape
+// the #1913 gates require, formatted as a save stores it), so the source a
+// reader is served compares equal to the one the owner sent.
 const (
 	persona1866 = "collaborator"
-	source1866  = "rows = [\"a\", \"b\"]\nprint(len(rows))\n"
-	edited1866  = "rows = [\"a\", \"b\", \"c\"]\nprint(len(rows))\n"
+	source1866  = `def main():
+    """Prints how many rows there are."""
+    rows = ["a", "b"]
+    print(len(rows))
+`
+	edited1866 = `def main():
+    """Prints how many rows there are."""
+    rows = ["a", "b", "c"]
+    print(len(rows))
+`
 )
 
 // script1866 creates a script as the owner, edits it once so it has a
@@ -56,7 +67,9 @@ func script1866(t *testing.T, owner *client) (name, id string) {
 	t.Cleanup(func() {
 		_, _, _ = owner.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
-	owner.call("manage_script", map[string]any{"command": "update", "name": name, "source": edited1866})
+	if updated := owner.call("manage_script", map[string]any{"command": "update", "name": name, "source": edited1866}); updated["status"] == "invalid" {
+		t.Fatalf("manage_script update refused the edit: %v", updated["findings"])
+	}
 	return name, id
 }
 

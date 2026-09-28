@@ -473,11 +473,13 @@ func TestIssue1723_ScriptPostsThroughPlatformNotify(t *testing.T) {
 	marker := fmt.Sprintf("acc-1720 from a script %d", time.Now().UnixNano())
 	scriptName := fmt.Sprintf("acc-1720-monitor-%d", time.Now().UnixNano())
 	source := fmt.Sprintf(`
-platform.notify(
-    channel=%q,
-    title=%q,
-    body="The monitor found 812 rows over threshold.",
-)
+def main():
+    """Posts what the monitor found to the operations channel."""
+    platform.notify(
+        channel = %q,
+        title = %q,
+        body = "The monitor found 812 rows over threshold.",
+    )
 `, chanMattermost, marker)
 
 	c.call("manage_script", map[string]any{

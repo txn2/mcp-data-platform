@@ -672,22 +672,29 @@ func TestIssue1833_AScriptExportsParquetAndATypedTableInOneCall(t *testing.T) {
 	stamp := issue1833Stamp()
 	name := "acc-1833-" + stamp
 	table := "acc_1833_script_" + stamp
-	source := fmt.Sprintf(`
-out = platform.export(
-    name="Acceptance 1833 script",
-    rows=[{"id": 1, "amount": 1.5, "ok": True, "who": "a", "tags": ["x", "y"], "shop": {"n": "N", "s": 3}},
-          {"id": 2, "amount": 2, "ok": False, "who": None, "tags": [], "shop": {"n": "S", "s": 4}}],
-    format="parquet",
-    destination="resources",
-    key="acceptance/issue-1833/%s.parquet",
-    register={"connection": %q, "table_name": %q},
-)
-platform.save_state({
-    "query_table": out["table"]["query_table"],
-    "registration_id": out["table"]["registration_id"],
-    "format": out["table"]["format"],
-    "types": [c["name"] + " " + c["type"] for c in out["table"]["column_types"]],
-})
+	source := fmt.Sprintf(`ROWS = [
+    {"id": 1, "amount": 1.5, "ok": True, "who": "a", "tags": ["x", "y"], "shop": {"n": "N", "s": 3}},
+    {"id": 2, "amount": 2, "ok": False, "who": None, "tags": [], "shop": {"n": "S", "s": 4}},
+]
+
+def main():
+    """Exports the rows as Parquet, registers them as a table, and records the table in state."""
+    out = platform.export(
+        name = "Acceptance 1833 script",
+        rows = ROWS,
+        format = "parquet",
+        destination = "resources",
+        key = "acceptance/issue-1833/%s.parquet",
+        register = {"connection": %q, "table_name": %q},
+    )
+    state = dict(run.state)
+    state.update({
+        "query_table": out["table"]["query_table"],
+        "registration_id": out["table"]["registration_id"],
+        "format": out["table"]["format"],
+        "types": [c["name"] + " " + c["type"] for c in out["table"]["column_types"]],
+    })
+    platform.save_state(state)
 `, name, scratchResourceConnection, table)
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	c.call("manage_script", map[string]any{

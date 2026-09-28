@@ -184,19 +184,28 @@ func TestIssue1879_ALargeMemberExtractsInsideARun(t *testing.T) {
 	t.Logf("archive %s: %.0f bytes compressed, member %d bytes", archiveRef, stored, memberSize)
 
 	name := "acc-1879-large-" + stamp
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1879: extract a large archive member from a run.",
-		"source": fmt.Sprintf(`ext = platform.call("manage_resource", {
-    "action": "extract", "reference": %q, "path": %q,
-    "members": "*.csv", "filename": "large.csv", "if_exists": "replace",
-})
-m = ext["members"][0]
-print("size=" + str(m["size_bytes"]))
-print("reference=" + m["reference"])
-print("content_type=" + m["content_type"])
+		"source": fmt.Sprintf(`def main():
+    """Extracts the archive's CSV member and prints what was stored."""
+    ext = platform.call("manage_resource", {
+        "action": "extract",
+        "reference": %q,
+        "path": %q,
+        "members": "*.csv",
+        "filename": "large.csv",
+        "if_exists": "replace",
+    })
+    m = ext["members"][0]
+    print("size=" + str(m["size_bytes"]))
+    print("reference=" + m["reference"])
+    print("content_type=" + m["content_type"])
 `, archiveRef, issue1879Path+"/staging-"+stamp),
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 540})
@@ -446,13 +455,18 @@ func TestIssue1879_ADraftExtractsOnlyWithAllowWrites(t *testing.T) {
 		issue1879Entry{name: "draft.csv", body: "a\n1\n"}))
 	dest := issue1879Path + "/draft-" + stamp
 	name := "acc-1879-draft-" + stamp
-	source := fmt.Sprintf(`ext = platform.call("manage_resource", {"action": "extract", "reference": %q, "path": %q})
-print("wrote=" + ext["members"][0]["uri"])
+	source := fmt.Sprintf(`def main():
+    """Extracts the archive and prints where its member was written."""
+    ext = platform.call("manage_resource", {"action": "extract", "reference": %q, "path": %q})
+    print("wrote=" + ext["members"][0]["uri"])
 `, ref, dest)
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1879: extract from a draft.",
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", created["findings"])
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	barred := c.call("manage_script", map[string]any{"command": "run_draft", "name": name, "source": source})

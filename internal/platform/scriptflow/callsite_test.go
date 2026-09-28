@@ -43,9 +43,11 @@ func (r *recorder) PublishData(ctx context.Context, _ scriptrun.PublishRequest) 
 
 // The call site a real run records for each call is the call site the graph
 // records on the card that makes it (#1907): the join the run overlay draws
-// with, proved against the interpreter rather than assumed.
+// with, proved against the interpreter rather than assumed. It holds for a
+// script whose top level calls main() and for one whose main() the platform
+// calls (#1944), where the run has no module frame and the graph adds no site.
 func TestCallSite_TheRunAndTheGraphAgree(t *testing.T) {
-	src := `
+	const body = `
 def fetch(path):
     return platform.call("api_invoke_endpoint", {"connection": "crm", "method": "GET", "path": path})
 
@@ -59,9 +61,17 @@ def main():
     for day in ["d1", "d2"]:
         stage(day)
     platform.query("SELECT 2")
-
-main()
 `
+	for name, src := range map[string]string{
+		"the top level calls main": body + "\nmain()\n",
+		"the platform calls main":  body,
+	} {
+		t.Run(name, func(t *testing.T) { assertRunMatchesGraph(t, src) })
+	}
+}
+
+func assertRunMatchesGraph(t *testing.T, src string) {
+	t.Helper()
 	rec := &recorder{}
 	_, err := scriptrun.Run(context.Background(), scriptrun.Options{
 		// The name a run executes under is the script's own.

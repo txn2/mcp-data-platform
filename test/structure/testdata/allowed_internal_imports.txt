@@ -205,6 +205,7 @@ internal/httpserver/scripthttp -> internal/platform/runcontrol
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptgrant
 internal/httpserver/scripthttp -> internal/platform/scriptguard
+internal/httpserver/scripthttp -> internal/platform/scriptlint
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> internal/producedview
 internal/httpserver/scripthttp -> internal/runstate
@@ -580,6 +581,7 @@ internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/textpatch
 internal/platform/scriptexec -> pkg/toolkit
+internal/platform/scriptflow -> internal/platform/scriptdialect
 internal/platform/scriptflow -> internal/platform/scriptrun
 internal/platform/scriptflow -> internal/scriptconst
 internal/platform/scriptflow -> internal/sqltables
@@ -587,6 +589,7 @@ internal/platform/scriptflow/flowcompare -> internal/platform/scriptflow
 internal/platform/scriptflow/flowrun -> internal/platform/scriptflow
 internal/platform/scriptflow/flowrun -> internal/scriptcallsite
 internal/platform/scriptflow/flowrun -> pkg/script
+internal/platform/scriptfmt -> internal/platform/scriptdialect
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptguard -> internal/upstreamretry
@@ -594,8 +597,10 @@ internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
 internal/platform/scriptlayer -> internal/platform/runcontrol
 internal/platform/scriptlayer -> internal/platform/scriptdraft
+internal/platform/scriptlayer -> internal/platform/scriptexamples
 internal/platform/scriptlayer -> internal/platform/scriptgrant
 internal/platform/scriptlayer -> internal/platform/scriptindex
+internal/platform/scriptlayer -> internal/platform/scriptlint
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptstore
 internal/platform/scriptlayer -> internal/runstate
@@ -606,6 +611,12 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptlayer -> pkg/toolkit
+internal/platform/scriptlint -> internal/platform/scriptdialect
+internal/platform/scriptlint -> internal/platform/scriptfmt
+internal/platform/scriptlint -> internal/platform/scriptrun
+internal/platform/scriptlint -> internal/scriptconst
+internal/platform/scriptlint -> internal/scriptdest
+internal/platform/scriptlint -> pkg/script
 internal/platform/scriptlive -> internal/platform/starlarkconv
 internal/platform/scriptlive -> pkg/script
 internal/platform/scriptout -> internal/platform/starlarkconv

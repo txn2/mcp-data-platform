@@ -7,6 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -20,10 +21,16 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	report := scriptrun.WithDestinationCheck(scriptrun.Validate(source), h.destinations)
+	report := scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.destinations)
+	// The gates, as a save of this source would apply them (#1913): the script
+	// named when it exists and the caller could save into it, otherwise a new
+	// one. The findings' lines are formatted_source's, the stored form.
+	gated := scriptlint.Check(source, scriptlint.For(h.validateTarget(ctx, input)))
+	report = scriptlint.Merge(report, gated)
 	out := map[string]any{
 		"ok":                      report.OK,
 		"findings":                report.Findings,
+		"formatted_source":        gated.Source,
 		"capabilities":            report.Capabilities,
 		"tools":                   report.Tools,
 		"connections":             report.Connections,
@@ -167,22 +174,13 @@ func (h *Handle) draftSource(ctx context.Context, input manageScriptInput) (stri
 	return sc.Source, nil
 }
 
-// refuseDraftSource applies the static read before a draft executes, so a draft
-// refuses what the rest of the surface refuses: a source that cannot parse, one
-// carrying an inline credential, and one naming a destination this deployment
-// does not declare. Without it a draft run would be the one way to execute
-// source every other path rejects, and the destination refusal would arrive
-// only after the script's queries had run (#1415).
+// refuseDraftSource refuses a draft whose source every other path would refuse
+// (scriptlint.DraftRefusal).
 func refuseDraftSource(source string, destinations []script.Destination) *mcp.CallToolResult {
-	report := scriptrun.WithDestinationCheck(scriptrun.Validate(source), destinations)
-	if report.OK {
-		return nil
+	if detail := scriptlint.DraftRefusal(source, destinations); detail != "" {
+		return errorResult(detail)
 	}
-	detail := "the source does not pass validation, so it was not run"
-	if len(report.Findings) > 0 {
-		detail += ": " + report.Findings[0].Message
-	}
-	return errorResult(detail)
+	return nil
 }
 
 // runnable refuses a draft run of a script that has been taken out of service,

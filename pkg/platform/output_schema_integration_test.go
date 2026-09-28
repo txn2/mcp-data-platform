@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,6 +78,18 @@ func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
 	sessionID := sessionIDFromSC(t, infoRes.StructuredContent)
 	require.NotEmpty(t, sessionID, "platform_info mints a session_id")
 
+	// #1945: a key a later release adds to a nested object of platform_info
+	// (notices gained failing_automations in v1.137.1) validates against the
+	// schema this release advertised, so a client that cached tools/list keeps
+	// working across the upgrade.
+	var later map[string]any
+	raw, err := json.Marshal(infoRes.StructuredContent)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &later))
+	later["notices"] = map[string]any{"since": "2026-09-27T00:00:00Z", "added_next_release": []any{map[string]any{"name": "x"}}}
+	validatePlatformSC(t, infoSchema, later)
+	assertNoClosedObject(t, rawAdvertisedSchemas(ctx, t, cs))
+
 	// The session-threaded tools.
 	calls := []struct {
 		tool string
@@ -111,6 +124,54 @@ func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
 		t.Run("error envelope validates: "+tool, func(t *testing.T) {
 			validatePlatformSC(t, resolved, envelope)
 		})
+	}
+}
+
+// rawAdvertisedSchemas lists the tools and returns each advertised output
+// schema as the JSON a client receives.
+func rawAdvertisedSchemas(ctx context.Context, t *testing.T, cs *mcp.ClientSession) map[string]any {
+	t.Helper()
+	lt, err := cs.ListTools(ctx, &mcp.ListToolsParams{})
+	require.NoError(t, err)
+	out := map[string]any{}
+	for _, tool := range lt.Tools {
+		if tool.OutputSchema == nil {
+			continue
+		}
+		raw, err := json.Marshal(tool.OutputSchema)
+		require.NoError(t, err)
+		var v any
+		require.NoError(t, json.Unmarshal(raw, &v))
+		out[tool.Name] = v
+	}
+	return out
+}
+
+// assertNoClosedObject fails for every object anywhere in an advertised schema
+// that refuses keys it does not declare (#1945).
+func assertNoClosedObject(t *testing.T, schemas map[string]any) {
+	t.Helper()
+	require.NotEmpty(t, schemas)
+	var walk func(tool, path string, v any)
+	walk = func(tool, path string, v any) {
+		switch n := v.(type) {
+		case map[string]any:
+			for _, key := range []string{"additionalProperties", "unevaluatedProperties"} {
+				if b, ok := n[key].(bool); ok && !b {
+					t.Errorf("%s: the object at %s is advertised closed", tool, path)
+				}
+			}
+			for k, child := range n {
+				walk(tool, path+"/"+k, child)
+			}
+		case []any:
+			for i, child := range n {
+				walk(tool, path+"/"+strconv.Itoa(i), child)
+			}
+		}
+	}
+	for tool, schema := range schemas {
+		walk(tool, "", schema)
 	}
 }
 

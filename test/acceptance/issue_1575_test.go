@@ -52,12 +52,15 @@ import (
 // exercises both halves of what a delete must and must not take: the asset it
 // produced, which survives, and the state it carried, which does not.
 const scriptSource1575 = `
-platform.export(
-    name=run.params["target"],
-    rows=[{"region": "north", "units": 41}],
-    format="csv",
-)
-platform.save_state({"last_target": run.params["target"]})
+def main():
+    """Exports the target output and records it as the last target."""
+    _previous = run.state.get("last_target", "")
+    platform.export(
+        name = run.params["target"],
+        rows = [{"region": "north", "units": 41}],
+        format = "csv",
+    )
+    platform.save_state({"last_target": run.params["target"]})
 `
 
 func unique1575() string {

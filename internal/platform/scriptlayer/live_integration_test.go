@@ -12,11 +12,11 @@ import (
 )
 
 // resultSource hands back an answer and reports its progress on the way.
-const resultSource = `
-res = platform.query(connection="warehouse", sql="SELECT 1")
+var resultSource = inMain(`
+platform.query(connection="warehouse", sql="SELECT 1")
 platform.progress("counted", done=1, total=1)
 platform.result({"total": 42, "day": run.params["day"]})
-`
+`)
 
 // TestIntegration_RunScriptHandsBackTheResult is #1845 over MCP: run_script
 // and get_run both carry the value platform.result set, as JSON, beside the

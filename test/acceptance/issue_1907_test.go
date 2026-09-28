@@ -99,15 +99,18 @@ func idOf1907(t *testing.T, flow map[string]any, prefix, sub string) string {
 
 const helperRun1907 = `
 def fetch(path):
+    """Reads one path from the fixture."""
     return platform.call("api_invoke_endpoint", {
         "connection": "api-test-fixture", "method": "GET", "path": path,
         "purpose": "Acceptance #1907: read " + path,
     })
 
-rows = platform.query("SELECT 1 AS n", connection="acme")
-fetch("/echo")
-fetch("/identity")
-platform.export("acc-1907", rows["rows"], format="csv")
+def main():
+    """Queries a row, reads two fixture paths, and exports the row."""
+    rows = platform.query("SELECT 1 AS n", connection = "acme")
+    fetch("/echo")
+    fetch("/identity")
+    platform.export("acc-1907", rows["rows"], format = "csv")
 `
 
 func TestIssue1907_EveryAuditedCallOfARunIsOnACardOrListed(t *testing.T) {
@@ -158,11 +161,16 @@ func TestIssue1907_EveryAuditedCallOfARunIsOnACardOrListed(t *testing.T) {
 	}
 }
 
+// failRun1907 counts its runs in state, the read of run.state a script that
+// saves state has to make; the save is the step after the failing export.
 const failRun1907 = `
-rows = platform.query("SELECT 1 AS n", connection="acme")
-platform.export("acc-1907-fail", rows["rows"], format="csv", destination="resources",
-                key="acc-1907/fail.csv", register={"connection": "no-such-connection"})
-platform.save_state({"after": 1})
+def main():
+    """Exports a row registered on a connection that does not exist, then saves state."""
+    runs = run.state.get("runs", 0) + 1
+    rows = platform.query("SELECT 1 AS n", connection = "acme")
+    platform.export("acc-1907-fail", rows["rows"], format = "csv", destination = "resources",
+                    key = "acc-1907/fail.csv", register = {"connection": "no-such-connection"})
+    platform.save_state({"after": 1, "runs": runs})
 `
 
 func TestIssue1907_AFailedExportIsTheFailedCard(t *testing.T) {
@@ -193,11 +201,16 @@ func TestIssue1907_AFailedExportIsTheFailedCard(t *testing.T) {
 
 func TestIssue1907_ARunOfAnOlderVersionIsDrawnOnThatVersion(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	v1 := "rows = platform.query(\"SELECT 1 AS n\", connection=\"acme\")\n"
+	v1 := `def main():
+    """Queries one row."""
+    rows = platform.query("SELECT 1 AS n", connection = "acme")
+    print(len(rows["rows"]))
+`
 	id, name := script1906(t, c, "older", v1)
 	runID, _ := run1907(t, c, name)
-	v2 := v1 + "platform.export(\"acc-1907-v2\", rows[\"rows\"], format=\"csv\")\n"
-	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2}); out["error"] != nil {
+	v2 := v1 + `    platform.export("acc-1907-v2", rows["rows"], format = "csv")
+`
+	if out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2}); out["status"] != "updated" {
 		t.Fatalf("update refused: %v", out)
 	}
 	flow := runFlow1907(t, c, id, runID)

@@ -40,7 +40,7 @@ func script1906(t *testing.T, c *client, label, source string) (id, name string)
 		"description": "Acceptance #1906: a script the Flow tab draws.",
 	})
 	id, _ = created["id"].(string)
-	if id == "" {
+	if created["status"] != "created" || id == "" {
 		t.Fatalf("manage_script create returned no id: %v", created)
 	}
 	t.Cleanup(func() {
@@ -122,17 +122,19 @@ func (g graph1906) hasEdge(from, to any) bool {
 }
 
 const threeSteps1906 = `
-orders = platform.query("SELECT id, total FROM acme.sales.orders", connection="acme")
-ids = [r["id"] for r in orders["rows"]]
-people = platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "method": "GET",
-    "path": "/people",
-    "purpose": "Acceptance #1906: look up the people behind the orders.",
-    "query": {"ids": ids},
-})
-platform.export("orders-people", people["rows"], format="csv", destination="resources",
-                key="acc-1906/orders.csv", register={"connection": "acme", "table_name": "acc_1906_orders"})
+def main():
+    """Looks up the people behind the orders and lands them as a table."""
+    orders = platform.query("SELECT id, total FROM acme.sales.orders", connection = "acme")
+    ids = [r["id"] for r in orders["rows"]]
+    people = platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/people",
+        "purpose": "Acceptance #1906: look up the people behind the orders.",
+        "query": {"ids": ids},
+    })
+    platform.export("orders-people", people["rows"], format = "csv", destination = "resources",
+                    key = "acc-1906/orders.csv", register = {"connection": "acme", "table_name": "acc_1906_orders"})
 `
 
 func TestIssue1906_TheThreeStepsTheTableAndTheEdgesBetweenThem(t *testing.T) {
@@ -169,18 +171,23 @@ func TestIssue1906_TheThreeStepsTheTableAndTheEdgesBetweenThem(t *testing.T) {
 
 const helper1906 = `
 def fetch(path, why):
+    """Reads one path from the fixture."""
     return platform.call("api_invoke_endpoint", {"connection": "api-test-fixture", "method": "GET", "path": path, "purpose": why})
 
 # Pull both lists and write them out.
 def pull():
+    """Reads the people and the orders."""
     a = fetch("/people", "Acceptance #1906: read the people.")
     b = fetch("/orders", "Acceptance #1906: read the orders.")
     return a["rows"] + b["rows"]
 
 def report(rows):
-    platform.export("both", rows, format="csv")
+    """Writes the rows out as CSV."""
+    platform.export("both", rows, format = "csv")
 
-report(pull())
+def main():
+    """Pulls both lists and reports them."""
+    report(pull())
 `
 
 func TestIssue1906_AHelperCalledTwiceIsTwoStepsInOneBoxAndAWrapperIsAChip(t *testing.T) {
@@ -230,8 +237,11 @@ func TestIssue1906_AHelperCalledTwiceIsTwoStepsInOneBoxAndAWrapperIsAChip(t *tes
 
 const constant1906 = `
 WAREHOUSE = "acme"
-rows = platform.query("SELECT 1 AS n", connection=WAREHOUSE)
-platform.export("one", rows["rows"], format="csv")
+
+def main():
+    """Queries one row and exports it."""
+    rows = platform.query("SELECT 1 AS n", connection = WAREHOUSE)
+    platform.export("one", rows["rows"], format = "csv")
 `
 
 func TestIssue1906_AModuleConstantIsShownByValueAndValidateReportsIt(t *testing.T) {
@@ -256,8 +266,10 @@ func TestIssue1906_AModuleConstantIsShownByValueAndValidateReportsIt(t *testing.
 func TestIssue1906_AComputedDestinationIsMarkedNeverGuessed(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
 	id, _ := script1906(t, c, "dest", `
-where = run.params.get("where", "portal")
-platform.export("out", [], format="csv", destination=where, key="acc-1906/out.csv")
+def main():
+    """Exports to the destination the caller names."""
+    where = run.params.get("where", "portal")
+    platform.export("out", [], format = "csv", destination = where, key = "acc-1906/out.csv")
 `)
 	g := portalGraph1906(t, c, id, 1)
 	exp := g.titled(t, "Export CSV to")
@@ -271,13 +283,17 @@ platform.export("out", [], format="csv", destination=where, key="acc-1906/out.cs
 
 func TestIssue1906_AParameterReachesExactlyItsSteps(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
+	// day reaches the first query as a bound parameter: SQL built from a value
+	// with + is refused on save since #1913.
 	id, _ := script1906(t, c, "param", `
-day = run.params.get("day", "2026-01-01")
-mode = run.params.get("mode", "full")
-rows = platform.query("SELECT 1 AS n WHERE '" + day + "' <> ''", connection="acme")
-if mode == "full":
-    platform.export("all", rows["rows"], format="csv")
-platform.query("SELECT 2 AS n", connection="acme")
+def main():
+    """Queries the day and exports it when the mode is full."""
+    day = run.params.get("day", "2026-01-01")
+    mode = run.params.get("mode", "full")
+    rows = platform.query("SELECT 1 AS n WHERE :day <> ''", connection = "acme", params = {"day": day})
+    if mode == "full":
+        platform.export("all", rows["rows"], format = "csv")
+    platform.query("SELECT 2 AS n", connection = "acme")
 `)
 	g := portalGraph1906(t, c, id, 1)
 	byName := map[string]map[string]any{}
@@ -300,9 +316,11 @@ platform.query("SELECT 2 AS n", connection="acme")
 func TestIssue1906_StateIsReadAndSavedForTheNextRun(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
 	id, _ := script1906(t, c, "state", `
-since = run.state.get("since", 0)
-rows = platform.query("SELECT 1 AS n WHERE 1 > " + str(since), connection="acme")
-platform.save_state({"since": len(rows["rows"])})
+def main():
+    """Queries past the saved mark and saves the next one."""
+    since = run.state.get("since", 0)
+    rows = platform.query("SELECT 1 AS n WHERE 1 > :since", connection = "acme", params = {"since": since})
+    platform.save_state({"since": len(rows["rows"])})
 `)
 	g := portalGraph1906(t, c, id, 1)
 	if g.nodes[0]["id"] != "state" || g.nodes[0]["role"] != "input" {
@@ -325,11 +343,16 @@ platform.save_state({"since": len(rows["rows"])})
 
 func TestIssue1906_SavingAVersionThatAddsAnExportAddsItsCard(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	v1 := "rows = platform.query(\"SELECT 1 AS n\", connection=\"acme\")\nplatform.export(\"a\", rows[\"rows\"], format=\"csv\")\n"
+	v1 := `def main():
+    """Queries one row and exports it."""
+    rows = platform.query("SELECT 1 AS n", connection = "acme")
+    platform.export("a", rows["rows"], format = "csv")
+`
 	id, name := script1906(t, c, "version", v1)
-	v2 := v1 + "platform.export(\"b\", rows[\"rows\"], format=\"jsonl\", destination=\"resources\", key=\"acc-1906/b.jsonl\")\n"
+	v2 := v1 + `    platform.export("b", rows["rows"], format = "jsonl", destination = "resources", key = "acc-1906/b.jsonl")
+`
 	out := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": v2})
-	if msg, _ := out["error"].(string); msg != "" {
+	if out["status"] != "updated" {
 		t.Fatalf("update refused: %v", out)
 	}
 	g1, g2 := portalGraph1906(t, c, id, 1), portalGraph1906(t, c, id, 2)
@@ -351,7 +374,7 @@ func TestIssue1906_SavingAVersionThatAddsAnExportAddsItsCard(t *testing.T) {
 // stored version is rewritten in the database to stand for one saved then.
 func TestIssue1906_AVersionThatNoLongerParsesAnswersItsFindings(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	id, _ := script1906(t, c, "legacy", "platform.query(\"SELECT 1\", connection=\"acme\")\n")
+	id, _ := script1906(t, c, "legacy", "def main():\n    \"\"\"Queries one row.\"\"\"\n    platform.query(\"SELECT 1\", connection = \"acme\")\n")
 	db := issue1904DB(t)
 	issue1904Exec(t, db, `UPDATE script_versions SET source_code = $1 WHERE script_id = $2 AND version = 1`,
 		"def load():\n    platform.query(\"SELECT 1\")\nload()\n", id)
@@ -371,7 +394,7 @@ func TestIssue1906_AVersionThatNoLongerParsesAnswersItsFindings(t *testing.T) {
 
 func TestIssue1906_AScriptWithNoPlatformCallsIsEmptyListsNotNull(t *testing.T) {
 	c := connectAs(t, devOwnerAPIKey)
-	id, _ := script1906(t, c, "empty", "x = 1 + 2\nprint(x)\n")
+	id, _ := script1906(t, c, "empty", "def main():\n    \"\"\"Prints a sum.\"\"\"\n    x = 1 + 2\n    print(x)\n")
 	status, body := c.restText(fmt.Sprintf("/api/v1/portal/scripts/%s/versions/1/graph", id))
 	if status != http.StatusOK {
 		t.Fatalf("status %d: %s", status, body)

@@ -26,7 +26,9 @@ import (
 // `timezone` are typed string in its schema, so each is sent once as that
 // literal.
 
-const source1891 = "x = 1\n"
+// source1891 does nothing: these criteria are about when a schedule fires,
+// not about what the run does.
+const source1891 = "def main():\n    \"\"\"Does nothing.\"\"\"\n    pass\n"
 
 // schedule1891 creates a script owned by c's identity, schedules it, and
 // returns its id. The script and its schedule are deleted when the test ends,

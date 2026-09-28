@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -119,7 +120,10 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 	if !ok {
 		return
 	}
-	report := scriptrun.WithDestinationCheck(scriptrun.Validate(script.DraftSource(req.Source, sc)), h.deps.Destinations)
+	source := script.DraftSource(req.Source, sc)
+	// The authoring gates as a save of this source would apply them (#1913).
+	report := scriptlint.Merge(scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.deps.Destinations),
+		scriptlint.Check(source, scriptlint.For(sc)))
 	httpjson.WriteJSON(w, http.StatusOK, validateResponse{
 		OK:                    report.OK,
 		Findings:              report.Findings,
@@ -196,7 +200,7 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	source := script.DraftSource(req.Source, sc)
-	if detail := refuseDraftSource(source, h.deps.Destinations); detail != "" {
+	if detail := scriptlint.DraftRefusal(source, h.deps.Destinations); detail != "" {
 		httpjson.WriteError(w, http.StatusBadRequest, detail)
 		return
 	}

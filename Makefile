@@ -47,7 +47,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui state-readers-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui realdb-lane state-readers-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -143,7 +143,7 @@ test-realdb:
 		$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/ >/dev/null; \
 	TESTDB_DSN="postgres://test:test@localhost:$$pg_port/postgres?sslmode=disable" \
 	TESTDB_TEMPLATE="$(REALDB_TEMPLATE)" \
-		$(GOTEST) -count=1 -p 4 -tags=integration -run 'RealDB' ./...
+		$(GOTEST) -count=1 -p 4 -tags=integration -run 'RealDB' $(REALDB_PKGS)
 	@echo "Real-DB gate passed."
 
 # Live post-deploy smoke: connects to a RUNNING MCP server as a real MCP client
@@ -183,6 +183,9 @@ smoke:
 REALDB_PG_CONTAINER := mcpdp-realdb-pg
 REALDB_PG_IMAGE     := pgvector/pgvector:pg16
 REALDB_TEMPLATE     := testdb_template
+# REALDB_PKGS is what test-realdb runs: every package, unless realdb-lane
+# narrows it to the packages a branch can break (#1947).
+REALDB_PKGS         ?= ./...
 
 MIGRATE_PG_IMAGES := \
 	pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc \
@@ -822,13 +825,31 @@ preverify-fast:
 	@$(MAKE) --no-print-directory state-readers-check
 	@$(MAKE) --no-print-directory dead-code
 
+## realdb-lane: Run the RealDB tests of every changed package and every package importing one (#1947)
+## make preverify runs no test behind the integration build tag, so a change
+## that broke a real-database test was first reported by verify's Docker lane
+## (#1913: three pkg/platform tests creating scripts the save gates refused).
+## scripts/realdb-lane.py names the packages; test-realdb runs them against
+## one Postgres. Nothing to run is not a failure.
+realdb-lane:
+	@pkgs="$$(python3 scripts/realdb-lane.py)"; \
+	if [ -z "$$pkgs" ]; then echo "realdb-lane: no changed package has a RealDB test to run"; exit 0; fi; \
+	echo "realdb-lane: $$(echo $$pkgs | wc -w | tr -d ' ') package(s)"; \
+	$(MAKE) --no-print-directory test-realdb REALDB_PKGS="$$pkgs" || { \
+		echo "realdb-lane: reproduce with: make test-realdb REALDB_PKGS=\"$$pkgs\"" >&2; exit 1; }
+
 ## preverify: the gates that decide most verify failures, in minutes (#1856)
-## preverify-fast, the patch-scoped lint and the schedule lane over the
-## changed packages. A branch that passes it fails verify only on the full
-## unit run, coverage, security, the real-DB lane, or the UI lane.
+## preverify-fast, the patch-scoped lint, both halves of the schedule lane
+## (the changed Go packages, then the changed vitest files beside the full
+## suite, #1929), and the RealDB tests of the changed packages and every
+## package importing one (#1947). A branch that passes it fails verify only on
+## the full unit run, coverage, security, the rest of the real-DB lane, or the
+## rest of the UI lane.
 preverify: preverify-fast
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory schedule-lane
+	@$(MAKE) --no-print-directory schedule-lane-ui
+	@$(MAKE) --no-print-directory realdb-lane
 
 ## verify-lint: the two lint targets, in order.
 ##

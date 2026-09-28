@@ -34,7 +34,9 @@ func findings1853(t *testing.T, c *client, source string) []string {
 
 func TestIssue1853_AStringLiteralFIsNotAnFString(t *testing.T) {
 	c := connect(t)
-	source := "q = {\"script\": {\"params\": {\"f\": \"field.name\"}}}\nr = q[\"script\"][\"params\"]\nx = r[\"f\"]\n"
+	source := "def main():\n    \"\"\"Reads a value keyed by the string f.\"\"\"\n" +
+		"    q = {\"script\": {\"params\": {\"f\": \"field.name\"}}}\n    r = q[\"script\"][\"params\"]\n" +
+		"    x = r[\"f\"]\n    print(x)\n"
 	if got := findings1853(t, c, source); len(got) != 0 {
 		t.Errorf("findings = %v; want none for the ticket's lines", got)
 	}
@@ -42,7 +44,8 @@ func TestIssue1853_AStringLiteralFIsNotAnFString(t *testing.T) {
 
 func TestIssue1853_PythonIsmsInStringsAndCommentsAreNotFindings(t *testing.T) {
 	c := connect(t)
-	source := "# we used to import datetime and open(files)\nsql = \"SELECT datetime, random.x FROM t\"\n"
+	source := "# we used to import datetime and open(files)\nSQL = \"SELECT datetime, random.x FROM t\"\n\n" +
+		"def main():\n    \"\"\"Prints a query whose text names Python modules.\"\"\"\n    print(SQL)\n"
 	if got := findings1853(t, c, source); len(got) != 0 {
 		t.Errorf("findings = %v; want none for text inside a comment and a string", got)
 	}

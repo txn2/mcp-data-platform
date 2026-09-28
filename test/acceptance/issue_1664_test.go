@@ -31,30 +31,34 @@ import (
 // draftLandsAResource1664 is the shape the issue reports: a script whose whole
 // purpose is landing something.
 const draftLandsAResource1664 = `
-res = platform.call("manage_resource", {
-    "action": "create",
-    "filename": "acceptance-1664.txt",
-    "display_name": "Acceptance 1664",
-    "path": "acceptance",
-    "description": "Acceptance #1664: filed by a draft that was allowed to write.",
-    "content": "landed by a draft\n",
-    "content_type": "text/plain",
-})
-print("resource_id=" + str(res.get("resource_id", "")))
+def main():
+    """Files one text resource and prints its id."""
+    res = platform.call("manage_resource", {
+        "action": "create",
+        "filename": "acceptance-1664.txt",
+        "display_name": "Acceptance 1664",
+        "path": "acceptance",
+        "description": "Acceptance #1664: filed by a draft that was allowed to write.",
+        "content": "landed by a draft\n",
+        "content_type": "text/plain",
+    })
+    print("resource_id=" + str(res.get("resource_id", "")))
 `
 
 // draftReadsOnly1664 reaches the read half of the management surface, plus an
 // api pull.
 const draftReadsOnly1664 = `
-assets = platform.call("manage_asset", {"action": "list", "limit": 1})
-print("assets=" + str(type(assets)))
-pulled = platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "method": "GET",
-    "path": "/v1/pagination/link",
-    "purpose": "Acceptance #1664: a draft's read-only pull is not a write.",
-})
-print("status=" + str(pulled.get("status", 0)))
+def main():
+    """Lists one asset and pulls one page from the api fixture."""
+    assets = platform.call("manage_asset", {"action": "list", "limit": 1})
+    print("assets=" + str(type(assets)))
+    pulled = platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "method": "GET",
+        "path": "/v1/pagination/link",
+        "purpose": "Acceptance #1664: a draft's read-only pull is not a write.",
+    })
+    print("status=" + str(pulled.get("status", 0)))
 `
 
 // authorScript1664 creates a script under a name this file owns and removes it
@@ -62,12 +66,15 @@ print("status=" + str(pulled.get("status", 0)))
 func authorScript1664(t *testing.T, c *client, name, source string) {
 	t.Helper()
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1664: a draft does not write through platform.call.",
 		"source":      source,
 	})
+	if status, _ := created["status"].(string); status == "invalid" {
+		t.Fatalf("manage_script create refused %q: %v", name, created["findings"])
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})
@@ -221,12 +228,14 @@ func TestIssue1664_AnOperationIDIsClassifiedByWhatItSends(t *testing.T) {
 
 	const readName = "acceptance-1664-op-read"
 	authorScript1664(t, c, readName, fmt.Sprintf(`
-res = platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "operation_id": %q,
-    "purpose": "Acceptance #1664: a pull addressed by operation id.",
-})
-print("status=" + str(res.get("status", 0)))
+def main():
+    """Pulls from the api fixture by operation id."""
+    res = platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "operation_id": %q,
+        "purpose": "Acceptance #1664: a pull addressed by operation id.",
+    })
+    print("status=" + str(res.get("status", 0)))
 `, read))
 	ran := draftRun1664(t, c, map[string]any{"name": readName})
 	if status, _ := ran["status"].(string); status != "succeeded" {
@@ -235,12 +244,14 @@ print("status=" + str(res.get("status", 0)))
 
 	const writeName = "acceptance-1664-op-write"
 	authorScript1664(t, c, writeName, fmt.Sprintf(`
-platform.call("api_invoke_endpoint", {
-    "connection": "api-test-fixture",
-    "operation_id": %q,
-    "body": {},
-    "purpose": "Acceptance #1664: a write addressed by operation id.",
-})
+def main():
+    """Sends a write to the api fixture by operation id."""
+    platform.call("api_invoke_endpoint", {
+        "connection": "api-test-fixture",
+        "operation_id": %q,
+        "body": {},
+        "purpose": "Acceptance #1664: a write addressed by operation id.",
+    })
 `, write))
 	ran = draftRun1664(t, c, map[string]any{"name": writeName})
 	if status, _ := ran["status"].(string); status != "failed" {

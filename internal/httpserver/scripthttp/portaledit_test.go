@@ -25,7 +25,10 @@ const sourcePath = "/api/v1/portal/scripts/script_2/source"
 
 // editedSource is the request the tests send: valid Starlark reaching for one
 // connection and one export.
-const editedSource = "res = platform.query(connection=\"warehouse\", sql=\"SELECT 2\")\nplatform.export(name=\"daily\", rows=res[\"rows\"])\n"
+const editedSource = "def main():\n" +
+	"    \"\"\"Exports the daily rows.\"\"\"\n" +
+	"    res = platform.query(connection = \"warehouse\", sql = \"SELECT 2\")\n" +
+	"    platform.export(name = \"daily\", rows = res[\"rows\"])\n"
 
 // editedBody is that source as a request body.
 var editedBody = `{"source":` + strconv.Quote(editedSource) + `}`
@@ -255,4 +258,55 @@ func TestPortalGetScript_CarriesTheLiveSourceForItsOwner(t *testing.T) {
 	decodeInto(t, rec, &seen)
 	assert.False(t, seen.Owned, "a stranger does not own the script")
 	assert.Equal(t, reportSource, seen.Source, "the code is the definition")
+}
+
+// TestPortalSetSource_StoresTheFormattedSource is #1937 on the editor: the
+// portal saves through the same gates as the tool, so the version it stores,
+// and the source the editor shows after the save, is the formatted one.
+func TestPortalSetSource_StoresTheFormattedSource(t *testing.T) {
+	store := newEditStore()
+	untidy := "def main():\n  '''Exports the daily rows.'''\n  res=platform.query(connection='warehouse',sql='SELECT 2')\n  platform.export(name='daily',rows=res['rows'])\n"
+	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
+		`{"source":`+strconv.Quote(untidy)+`}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NotNil(t, store.updated)
+	assert.Equal(t, editedSource, store.updated.Source)
+}
+
+// TestPortalSetSource_RefusesWhatTheGatesRefuse: a save with a lint finding is
+// refused with every refused finding's line, rule and hint, and nothing is
+// written. A script saved before the gates saves an edit that adds none.
+func TestPortalSetSource_RefusesWhatTheGatesRefuse(t *testing.T) {
+	store := newEditStore()
+	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
+		`{"source":"def main():\n    print(1)\n"}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "line 1: `main` has no docstring (missing-docstring)")
+	assert.Nil(t, store.updated)
+
+	legacy := newEditStore()
+	for i := range legacy.scripts {
+		legacy.scripts[i].Legacy = true
+		legacy.scripts[i].Source = "print(1)\n"
+	}
+	rec = servePortalRequest(t, editDeps(legacy, carol), http.MethodPut, sourcePath, `{"source":"print(2)\n"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	rec = servePortalRequest(t, editDeps(legacy, carol), http.MethodPut, sourcePath, `{"source":"def f():\n    return 1\n\nprint(2)\n"}`)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "missing-docstring")
+	assert.NotContains(t, rec.Body.String(), "entry-point")
+}
+
+// TestPortalValidateSource_ReportsTheGates: Validate in the editor shows the
+// gates' findings, each with its rule, and says the save would be refused.
+func TestPortalValidateSource_ReportsTheGates(t *testing.T) {
+	deps, _, _ := draftDeps(portalStore(), carol)
+	rec := servePortalRequest(t, deps, http.MethodPost, validatePath, draftBody("def main():\n    print(1)\n"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body validateResponse
+	decodeInto(t, rec, &body)
+	assert.False(t, body.OK)
+	require.Len(t, body.Findings, 1)
+	assert.Equal(t, "missing-docstring", body.Findings[0].Rule)
+	assert.Equal(t, 1, body.Findings[0].Line)
 }

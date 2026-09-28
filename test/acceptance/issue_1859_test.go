@@ -68,17 +68,20 @@ func TestIssue1859_ApiExportToAResourceReturnsANon2xxAsData(t *testing.T) {
 // what the script was handed. The first verb is the connection, the second the
 // file name.
 const issue1859ExportSource = `
-exp = platform.call("api_export", {
-    "connection": %q,
-    "method": "GET",
-    "path": "/v1/status/429",
-    "name": "Acceptance 1859 throttled",
-    "resource": {"path": "acceptance/issue-1859", "filename": %q, "change_summary": "acceptance #1859"},
-    "purpose": "Acceptance #1859: a throttled download is data.",
-})
-if exp.get("upstream_status") != 200:
-    print("download returned upstream HTTP {}".format(exp.get("upstream_status")))
-platform.save_state({"status": exp.get("upstream_status"), "unchanged": exp.get("resource_unchanged")})
+def main():
+    """Downloads the throttled fixture into a resource and records what it was handed."""
+    _previous = run.state.get("status", 0)
+    exp = platform.call("api_export", {
+        "connection": %q,
+        "method": "GET",
+        "path": "/v1/status/429",
+        "name": "Acceptance 1859 throttled",
+        "resource": {"path": "acceptance/issue-1859", "filename": %q, "change_summary": "acceptance #1859"},
+        "purpose": "Acceptance #1859: a throttled download is data.",
+    })
+    if exp.get("upstream_status") != 200:
+        print("download returned upstream HTTP {}".format(exp.get("upstream_status")))
+    platform.save_state({"status": exp.get("upstream_status"), "unchanged": exp.get("resource_unchanged")})
 `
 
 // TestIssue1859_AScriptSeesAThrottledExportAndCarriesOn is the ticket's
@@ -124,10 +127,16 @@ func TestIssue1859_AnUpstreamTimeoutFailsTheRunAsRetryable(t *testing.T) {
 	c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1859: an upstream timeout is transient.",
-		"source": fmt.Sprintf(`platform.call("api_invoke_endpoint", {
-    "connection": %q, "method": "GET", "path": "/v1/slow",
-    "query_params": {"ms": 5000}, "timeout_seconds": 1,
-})
+		"source": fmt.Sprintf(`
+def main():
+    """Calls an upstream that answers after the call's timeout."""
+    platform.call("api_invoke_endpoint", {
+        "connection": %q,
+        "method": "GET",
+        "path": "/v1/slow",
+        "query_params": {"ms": 5000},
+        "timeout_seconds": 1,
+    })
 `, apiTestConnection),
 	})
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
@@ -156,7 +165,11 @@ func TestIssue1859_AScriptErrorStaysDeterministic(t *testing.T) {
 	c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1859: a script error is deterministic.",
-		"source":      `fail("the input was not what this script expects")`,
+		"source": `
+def main():
+    """Fails the way a script does when its input is not what it expects."""
+    fail("the input was not what this script expects")
+`,
 	})
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 

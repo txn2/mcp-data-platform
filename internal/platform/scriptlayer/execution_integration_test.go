@@ -686,25 +686,29 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 }
 
 // reportSource is a script that queries and writes one output.
-const reportSource = `res = platform.query(
+var reportSource = inMain(`res = platform.query(
     connection = "warehouse",
     sql = "SELECT region, total FROM sales WHERE d = :day",
     params = {"day": run.params["day"]},
 )
 print("rows: %d" % res["row_count"])
 platform.export(name="daily-sales", rows=res["rows"], format="csv")
-`
+`)
 
 // authorScript creates a script through the real tool. Saving is all it takes
 // for the script to run: the version create wrote is the version a run
 // executes.
 func authorScript(t *testing.T, h execHarness, source string) {
 	t.Helper()
+	if !strings.Contains(source, "def main(") {
+		source = inMain(source)
+	}
 	res := call(t, h.handle, authorCtx(), manageScriptInput{
 		Command: cmdCreate, Name: "daily", DisplayName: "Daily", Source: source,
 		Params: []script.Param{{Name: "day", Type: script.ParamTypeString, Required: true}},
 	})
 	require.False(t, res.IsError, resultText(res))
+	require.Equal(t, "created", resultFields(t, res)["status"], resultText(res))
 }
 
 // runScript calls the run_script tool over a real client session.
@@ -818,7 +822,7 @@ func TestIntegration_RunExecutesTheLatestSavedVersion(t *testing.T) {
 // deliverySource is a script that computes one result and both refreshes its
 // portal asset and delivers the same rows to an external system — the shape the
 // destination axis exists for.
-const deliverySource = `res = platform.query(
+var deliverySource = inMain(`res = platform.query(
     connection = "warehouse",
     sql = "SELECT region, total FROM sales WHERE d = :day",
     params = {"day": run.params["day"]},
@@ -831,7 +835,7 @@ platform.export(
     destination = "acme-drop",
     key = "2026/08/sales.csv",
 )
-`
+`)
 
 // acmeDrop is the configured external destination: a named platform
 // connection, a bucket, and the prefix everything written here sits under.
@@ -1117,7 +1121,7 @@ func TestIntegration_RunScriptIsUnavailableWithoutAQueue(t *testing.T) {
 // etlSource is the automation the closed capability list blocked: fetch from an
 // external API server-side, then land the result in the warehouse. Both halves
 // are platform.call.
-const etlSource = `resp = platform.call("api_invoke_endpoint", {
+var etlSource = inMain(`resp = platform.call("api_invoke_endpoint", {
     "connection": "util",
     "operation_id": "fetch_forecast",
     "body": {"office": "PSR"},
@@ -1131,7 +1135,7 @@ platform.call("trino_execute", {
     "sql": "REFRESH MATERIALIZED VIEW forecast",
 })
 platform.export(name="forecast", rows=periods, format="json")
-`
+`)
 
 // TestIntegration_ScriptCallsTheToolsItsAuthorCanCall is #1419's definition of
 // done, proved against the assembled system: a saved script reaches

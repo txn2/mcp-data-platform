@@ -41,13 +41,17 @@ import (
 // scriptSource1639 is a script that runs nothing external, because these
 // criteria are about the record of who SAVED a version, not about execution.
 const scriptSource1639 = `
-print("acceptance 1639")
+def main():
+    """Prints one line."""
+    print("acceptance 1639")
 `
 
 // scriptSource1639Edited is the second save, which is what produces a second
 // version to read an author off.
 const scriptSource1639Edited = `
-print("acceptance 1639, edited")
+def main():
+    """Prints one line, edited."""
+    print("acceptance 1639, edited")
 `
 
 // createScript1639 saves a script owned and authored by the calling person and

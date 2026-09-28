@@ -130,7 +130,7 @@ func TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres(t *testing.
 
 	created, res := callScript(t, c, map[string]any{
 		"command": "create", "name": "wiring-check",
-		"source": "print(\"reporting on \" + date.add_days(date.of(run.fire_time), -1))\n",
+		"source": "def main():\n    \"\"\"Reports on yesterday.\"\"\"\n    print(\"reporting on \" + date.add_days(date.of(run.fire_time), -1))\n",
 		"params": []map[string]any{{"name": "day", "type": "date", "required": true}},
 	})
 	require.False(t, res.IsError, created)
@@ -168,12 +168,12 @@ func TestRealDB_ManageScriptEditFunnelVersionsThroughPostgres(t *testing.T) {
 	c := newScriptClient(t)
 
 	_, res := callScript(t, c, map[string]any{
-		"command": "create", "name": "versioned", "source": "print(\"one\")\n",
+		"command": "create", "name": "versioned", "source": "def main():\n    \"\"\"Prints one.\"\"\"\n    print(\"one\")\n",
 	})
 	require.False(t, res.IsError)
 
 	updated, res := callScript(t, c, map[string]any{
-		"command": "update", "name": "versioned", "source": "print(\"two\")\n",
+		"command": "update", "name": "versioned", "source": "def main():\n    \"\"\"Prints two.\"\"\"\n    print(\"two\")\n",
 	})
 	require.False(t, res.IsError, updated)
 	assert.Equal(t, "updated", updated["status"])
@@ -197,7 +197,7 @@ func TestRealDB_ManageScriptValidateAndHelpAnswerThroughThePlatform(t *testing.T
 
 	report, res := callScript(t, c, map[string]any{
 		"command": "validate",
-		"source":  "platform.query(connection=\"warehouse\", sql=\"SELECT 1\")\n",
+		"source":  "def main():\n    \"\"\"Queries the warehouse.\"\"\"\n    platform.query(connection = \"warehouse\", sql = \"SELECT 1\")\n",
 	})
 	require.False(t, res.IsError, report)
 	assert.Equal(t, true, report["ok"])

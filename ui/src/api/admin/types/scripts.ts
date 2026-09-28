@@ -68,6 +68,9 @@ export interface ReferencedCapabilities {
 // ScriptFinding is one validator complaint about the source. The hint is the
 // corrective action, which is most of a finding's value.
 export interface ScriptFinding {
+  // rule names the authoring gate a finding comes from (#1913), absent for
+  // the validator's own findings.
+  rule?: string;
   severity: string;
   message: string;
   line?: number;
@@ -108,7 +111,12 @@ export interface ScriptDryRunAccount {
   error?: string;
   log?: string;
   log_truncated?: boolean;
-  metrics: { steps: number; duration_ms: number; queries: number; exports: number };
+  metrics: {
+    steps: number;
+    duration_ms: number;
+    queries: number;
+    exports: number;
+  };
   outputs?: ScriptDryRunOutput[];
   // state_written is the state the draft would have saved, absent when the
   // source saved none; a draft persists it no more than an output.

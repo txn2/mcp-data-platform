@@ -47,13 +47,15 @@ import (
 // a managed resource its author uploaded, which is the write a move used to
 // revoke.
 const scriptSource1576 = `
-result = platform.call("manage_resource", {
-    "action": "replace_content",
-    "reference": run.params["reference"],
-    "content": run.params["content"],
-    "change_summary": "Acceptance #1576: the scheduled refresh.",
-})
-print("replaced to version %s" % result["version"])
+def main():
+    """Writes the given bytes over the named managed resource."""
+    result = platform.call("manage_resource", {
+        "action": "replace_content",
+        "reference": run.params["reference"],
+        "content": run.params["content"],
+        "change_summary": "Acceptance #1576: the scheduled refresh.",
+    })
+    print("replaced to version %s" % result["version"])
 `
 
 func stamp1576() string { return fmt.Sprintf("%d", time.Now().UnixNano()) }
@@ -88,7 +90,7 @@ func upload1576(t *testing.T, c *client, name string) (reference, id string) {
 // replaces a named resource's content.
 func refreshScript1576(t *testing.T, c *client, name string) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1576: replaces the content of a managed resource on a schedule.",
@@ -104,6 +106,9 @@ func refreshScript1576(t *testing.T, c *client, name string) string {
 			},
 		},
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create %s: %v", name, created)
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

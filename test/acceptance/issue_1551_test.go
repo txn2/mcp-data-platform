@@ -33,19 +33,24 @@ import (
 // scriptSource writes one CSV output whose rows come from the run's own
 // arguments, so no query engine is needed to prove who the output belongs to.
 const scriptSource1551 = `
-rows = [{"region": "north", "units": 41}, {"region": "south", "units": 17}]
-platform.export(name=run.params["output"], rows=rows, format="csv")
+ROWS = [{"region": "north", "units": 41}, {"region": "south", "units": 17}]
+
+def main():
+    """Writes the fixed rows as the CSV output the run names."""
+    platform.export(name = run.params["output"], rows = ROWS, format = "csv")
 `
 
 // scriptSourceSaveAsset makes the same point through save_asset called from
 // inside the run, which stamps ownership on its own path.
 const scriptSourceSaveAsset1551 = `
-platform.call("save_asset", {
-    "name": run.params["output"],
-    "content": "# Written by save_asset from inside a run\n",
-    "content_type": "text/markdown",
-    "description": "Acceptance #1551: a save_asset write made inside a run.",
-})
+def main():
+    """Saves one markdown asset under the output name the run names."""
+    platform.call("save_asset", {
+        "name": run.params["output"],
+        "content": "# Written by save_asset from inside a run\n",
+        "content_type": "text/markdown",
+        "description": "Acceptance #1551: a save_asset write made inside a run.",
+    })
 `
 
 // unique names one run of this file, so a re-run does not collide with the
@@ -57,7 +62,7 @@ func unique1551() string {
 // createScript saves a script owned by the calling person and returns its name.
 func createScript1551(t *testing.T, c *client, name, source string) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1551: a script whose output belongs to the person who owns it.",
@@ -67,6 +72,9 @@ func createScript1551(t *testing.T, c *client, name, source string) string {
 			"description": "The output name this run writes.",
 		}},
 	})
+	if created["status"] == "invalid" {
+		t.Fatalf("script %s was refused on save: %v", name, created["findings"])
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{
 			"command": "delete", "name": name,
@@ -390,16 +398,18 @@ func TestIssue1551_TheResourcesPathIsUnchanged(t *testing.T) {
 	resourceName := "acceptance-1551-reference-" + id
 
 	source := `
-res = platform.call("manage_resource", {
-    "action": "create",
-    "display_name": "` + resourceName + `",
-    "filename": "` + resourceName + `.csv",
-    "path": "acceptance",
-    "content": "region,units\nnorth,41\n",
-    "content_type": "text/csv",
-    "description": "Acceptance #1551: a managed resource written from inside a run.",
-})
-print(res["resource_id"])
+def main():
+    """Creates one managed resource and prints the id it was filed under."""
+    res = platform.call("manage_resource", {
+        "action": "create",
+        "display_name": "` + resourceName + `",
+        "filename": "` + resourceName + `.csv",
+        "path": "acceptance",
+        "content": "region,units\nnorth,41\n",
+        "content_type": "text/csv",
+        "description": "Acceptance #1551: a managed resource written from inside a run.",
+    })
+    print(res["resource_id"])
 `
 	createScript1551(t, owner, scriptName, source)
 	run := runScript1551(t, owner, scriptName, map[string]any{"output": resourceName})
@@ -421,8 +431,23 @@ print(res["resource_id"])
 	if found, _ := mine["found"].(bool); !found {
 		t.Fatalf("the resource a run wrote is not in the owner's library: %v", mine)
 	}
-	if scope := resourceScope1551(mine); scope != devOwnerEmail {
-		t.Fatalf("the resource is filed under %q, want the address the run acts for", scope)
+	// The run files where the owner's own session files (#1677): one library,
+	// keyed by the owner's subject once the platform has seen them sign in.
+	direct := owner.call("manage_resource", map[string]any{
+		"action": "create", "display_name": resourceName + "-direct", "filename": resourceName + "-direct.csv",
+		"path": "acceptance", "content": "region,units\nsouth,7\n", "content_type": "text/csv",
+		"description": "Acceptance #1551: the library the owner's own session writes to.",
+	})
+	directID, _ := direct["resource_id"].(string)
+	t.Cleanup(func() {
+		_, _, _ = owner.callRaw("manage_resource", map[string]any{"action": "delete", "resource_id": directID})
+	})
+	ownLibrary := resourceScope1551(owner.call("fetch", map[string]any{
+		"reference": "mcp:resource:" + directID,
+		"purpose":   "Acceptance #1551: the library the owner's own session files into.",
+	}))
+	if scope := resourceScope1551(mine); scope == "" || scope != ownLibrary {
+		t.Fatalf("the run filed the resource under %q; the owner's own session files under %q", scope, ownLibrary)
 	}
 
 	peer := connectAs(t, devPeerAPIKey)
@@ -481,10 +506,12 @@ func TestIssue1551_ARunsOwnListingStaysItsOutputs(t *testing.T) {
 	})
 
 	source := `
-platform.export(name=run.params["output"], rows=[{"region": "north"}], format="csv")
-listed = platform.call("manage_asset", {"action": "list", "limit": 200})
-for asset in listed["assets"]:
-    print(asset["name"])
+def main():
+    """Writes one output, then prints the name of every asset the run can list."""
+    platform.export(name = run.params["output"], rows = [{"region": "north"}], format = "csv")
+    listed = platform.call("manage_asset", {"action": "list", "limit": 200})
+    for asset in listed["assets"]:
+        print(asset["name"])
 `
 	createScript1551(t, owner, scriptName, source)
 	run := runScript1551(t, owner, scriptName, map[string]any{"output": outputName})

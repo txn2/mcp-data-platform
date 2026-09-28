@@ -27,33 +27,47 @@ const issue1677Folder = "acceptance/issue-1677"
 
 // issue1677ScriptSource writes two files at the ticket's folder from inside a
 // run -- one through the managed-resource destination of platform.export, one
-// through manage_resource -- and records where each landed.
+// through manage_resource -- and records where each landed. The work sits in
+// main(), the shape the #1913 gates require of a saved script; the prior
+// export id is read from run.state because a script that saves state reads it.
 const issue1677ScriptSource = `
-out = platform.export(
-    name="Acceptance 1677 export",
-    rows=[{"probe": 1}],
-    format="csv",
-    destination="resources",
-    key="acceptance/issue-1677/%s",
-)
-made = platform.call("manage_resource", {
-    "action": "create",
-    "path": "acceptance/issue-1677",
-    "filename": "%s",
-    "display_name": "Acceptance 1677 run probe",
-    "description": "Written by manage_resource from inside a run.",
-    "content": "probe,1\n",
-    "content_type": "text/csv",
-    "if_exists": "replace",
-})
-platform.save_state({
-    "export_id": out["resource_id"],
-    "export_uri": out["uri"],
-    "export_version": str(out["version"]),
-    "probe_uri": made["uri"],
-    "probe_scope_id": made["scope_id"],
-})
+def main():
+    """Files two resources at the ticket's folder and records where they landed."""
+    print("previous export:", run.state.get("export_id", "none"))
+    out = platform.export(
+        name = "Acceptance 1677 export",
+        rows = [{"probe": 1}],
+        format = "csv",
+        destination = "resources",
+        key = "acceptance/issue-1677/%s",
+    )
+    made = platform.call("manage_resource", {
+        "action": "create",
+        "path": "acceptance/issue-1677",
+        "filename": "%s",
+        "display_name": "Acceptance 1677 run probe",
+        "description": "Written by manage_resource from inside a run.",
+        "content": "probe,1\n",
+        "content_type": "text/csv",
+        "if_exists": "replace",
+    })
+    platform.save_state({
+        "export_id": out["resource_id"],
+        "export_uri": out["uri"],
+        "export_version": str(out["version"]),
+        "probe_uri": made["uri"],
+        "probe_scope_id": made["scope_id"],
+    })
 `
+
+// issue1677Save creates the ticket's script and fails on a refused save, whose
+// findings would otherwise surface later as "script not found".
+func issue1677Save(t *testing.T, c *client, args map[string]any) {
+	t.Helper()
+	if saved := c.call("manage_script", args); saved["status"] == "invalid" {
+		t.Fatalf("the script was refused on save: %v", saved)
+	}
+}
 
 func issue1677Address(filename string) map[string]any {
 	return map[string]any{"path": issue1677Folder, "filename": filename}
@@ -103,7 +117,7 @@ func issue1677Library(t *testing.T, uri string) string {
 func issue1677Script(t *testing.T, c *client, name, exportFile, probeFile string) map[string]any {
 	t.Helper()
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	issue1677Save(t, c, map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1677: a run files where its author's session looks.",
@@ -226,7 +240,7 @@ func TestIssue1677_AFileARunFiledByAddressIsFoldedIntoTheSessionsLibrary(t *test
 	// assumed from the key the harness holds.
 	name := "acc-1677-fold-" + stamp
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	issue1677Save(t, c, map[string]any{
 		"command": "create", "name": name, "description": "Acceptance #1677: fold.",
 		"source": fmt.Sprintf(issue1677ScriptSource, rolling, probeFile),
 	})

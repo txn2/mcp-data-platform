@@ -149,8 +149,8 @@ func TestIssue1870_WindowsCompactOnceAndRetentionFollows(t *testing.T) {
 	})
 
 	t.Run("criterion 10: a reader every minute processes each event exactly once", func(t *testing.T) {
+		reader.waitForFailedRunRecovered(t, c, 8*time.Minute)
 		reader.waitFor(t, c, total+issue1870LateNew, 8*time.Minute)
-		reader.assertFailedRunRecovered(t, c)
 	})
 
 	t.Run("criterion 11: a source with no reader lands and compacts the same", func(t *testing.T) {
@@ -656,34 +656,51 @@ type issue1870Reader struct {
 	script, scriptID, sink string
 }
 
+// issue1870ReaderSource is the reader in the main() shape the #1913 gates
+// require of a saved script. The view, sink, connection and marker are module
+// constants the test formats in, so every SQL text built from them is a
+// constant; the watermark values reach the INSERT through trino_execute, which
+// takes SQL text alone.
 const issue1870ReaderSource = `
-view = %q
-sink = %q
-conn = %q
-marker = %q
-since = run.state.get("landed_through", "1970-01-01 00:00:00.000000")
-rows = platform.query(connection=conn, sql="SELECT CAST(max(landed_at) AS varchar) AS through FROM " + view)["rows"]
-through = rows[0]["through"]
-if through != None:
+VIEW = %q
+SINK = %q
+CONN = %q
+MARKER = %q
+THROUGH_SQL = "SELECT CAST(max(landed_at) AS varchar) AS through FROM " + VIEW
+MARKER_SQL = "SELECT count(*) AS n FROM " + SINK + " WHERE event_id = :marker"
+MARKER_INSERT = "INSERT INTO " + SINK + " VALUES ('" + MARKER + "', NULL)"
+
+def process(since, through):
+    """Inserts every event landed up to the watermark that the sink has not seen."""
     platform.call("trino_execute", {
-        "connection": conn,
+        "connection": CONN,
         "purpose": "Acceptance #1870: a reader processes new events once.",
-        "sql": "INSERT INTO " + sink + " SELECT event_id, min(landed_at) FROM " + view + " w" +
+        "sql": "INSERT INTO " + SINK + " SELECT event_id, min(landed_at) FROM " + VIEW + " w" +
                " WHERE w.landed_at > TIMESTAMP '" + since + "' - INTERVAL '30' SECOND" +
                " AND w.landed_at <= TIMESTAMP '" + through + "'" +
-               " AND NOT EXISTS (SELECT 1 FROM " + sink + " s WHERE s.event_id = w.event_id)" +
+               " AND NOT EXISTS (SELECT 1 FROM " + SINK + " s WHERE s.event_id = w.event_id)" +
                " GROUP BY event_id",
     })
-    failed = platform.query(connection=conn,
-        sql="SELECT count(*) AS n FROM " + sink + " WHERE event_id = '" + marker + "'")["rows"][0]["n"]
+
+def fail_once():
+    """Fails the first run after state was saved, once, recording it in the sink."""
+    failed = platform.query(connection = CONN, sql = MARKER_SQL, params = {"marker": MARKER})["rows"][0]["n"]
     if int(failed) == 0 and run.state.get("landed_through") != None:
         platform.call("trino_execute", {
-            "connection": conn,
+            "connection": CONN,
             "purpose": "Acceptance #1870: record the one failed run.",
-            "sql": "INSERT INTO " + sink + " VALUES ('" + marker + "', NULL)",
+            "sql": MARKER_INSERT,
         })
         fail("acceptance #1870: stopping after processing, before the watermark is saved")
-    platform.save_state({"landed_through": through})
+
+def main():
+    """Processes the events landed since the saved watermark, then advances it."""
+    since = run.state.get("landed_through", "1970-01-01 00:00:00.000000")
+    through = platform.query(connection = CONN, sql = THROUGH_SQL)["rows"][0]["through"]
+    if through != None:
+        process(since, through)
+        fail_once()
+        platform.save_state({"landed_through": through})
 `
 
 // issue1870FailedMarker is the sink row the reader writes when it fails its
@@ -692,6 +709,11 @@ const (
 	issue1870FailedMarker = "acceptance-failed-once"
 	issue1870NotMarker    = " WHERE event_id <> '" + issue1870FailedMarker + "'"
 )
+
+// issue1870ReaderScript is the reader's source for one source and its sink.
+func issue1870ReaderScript(source, sink string) string {
+	return fmt.Sprintf(issue1870ReaderSource, issue1870Table(source), sink, issue1870Conn, issue1870FailedMarker)
+}
 
 func issue1870StartReader(t *testing.T, c *client, source string) *issue1870Reader {
 	t.Helper()
@@ -711,13 +733,18 @@ func issue1870StartReader(t *testing.T, c *client, source string) *issue1870Read
 	out := c.call("manage_script", map[string]any{
 		"command": "create", "name": r.script,
 		"description": "Acceptance #1870: reads a webhook source every minute, each event once.",
-		"source":      fmt.Sprintf(issue1870ReaderSource, issue1870Table(source), r.sink, issue1870Conn, issue1870FailedMarker),
+		"source":      issue1870ReaderScript(source, r.sink),
 	})
 	r.scriptID, _ = out["id"].(string)
+	if r.scriptID == "" {
+		t.Fatalf("the reader script was not saved: %v", out)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": r.script}) })
-	c.call("manage_script", map[string]any{
+	if sched := c.call("manage_script", map[string]any{
 		"command": "schedule_set", "name": r.script, "cron": "* * * * *", "timezone": "UTC",
-	})
+	}); sched["error"] != nil {
+		t.Fatalf("scheduling the reader was refused: %v", sched)
+	}
 	return r
 }
 
@@ -739,25 +766,59 @@ func (r *issue1870Reader) waitFor(t *testing.T, c *client, want int, within time
 	}
 }
 
-// assertFailedRunRecovered checks a run failed in the middle and the reader
-// still processed every event once, which waitFor has just established.
-func (r *issue1870Reader) assertFailedRunRecovered(t *testing.T, c *client) {
+// waitForFailedRunRecovered waits until a run has failed in the middle and a
+// later run has succeeded after it, so the exactly-once count that follows is
+// read after the recovery rather than before the failure. The first run can
+// process every event on its own; the failure comes on the next fire.
+func (r *issue1870Reader) waitForFailedRunRecovered(t *testing.T, c *client, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for {
+		failed, succeeded, recovered := r.runs(t, c)
+		if recovered {
+			t.Logf("reader: %d runs succeeded, %d failed after processing and before saving", succeeded, failed)
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no run failed in the middle and was followed by a successful one within %s (%d failed, %d succeeded)",
+				within, failed, succeeded)
+		}
+		time.Sleep(15 * time.Second)
+	}
+}
+
+// runs counts the reader's failed and succeeded runs, and reports whether a
+// succeeded run fired after the first failed one. The runs route lists each
+// run's fire_time, which a scheduled run is created for and never moves.
+func (r *issue1870Reader) runs(t *testing.T, c *client) (failed, succeeded int, recovered bool) {
 	t.Helper()
 	status, body := c.rest(http.MethodGet, "/api/v1/portal/scripts/"+r.scriptID+"/runs", http.NoBody)
 	if status != http.StatusOK {
 		t.Fatalf("reading the reader's runs: %d %v", status, body)
 	}
-	var failed, succeeded int
+	var firstFailed time.Time
+	var succeededAt []time.Time
 	for _, raw := range body["data"].([]any) {
-		switch raw.(map[string]any)["status"] {
+		run, _ := raw.(map[string]any)
+		created, err := time.Parse(time.RFC3339Nano, fmt.Sprint(run["fire_time"]))
+		if err != nil {
+			t.Fatalf("a reader run lists no fire_time: %v", run)
+		}
+		switch run["status"] {
 		case "failed":
 			failed++
+			if firstFailed.IsZero() || created.Before(firstFailed) {
+				firstFailed = created
+			}
 		case "succeeded":
 			succeeded++
+			succeededAt = append(succeededAt, created)
 		}
 	}
-	if failed == 0 {
-		t.Fatalf("no run failed in the middle; the criterion needs one (%d succeeded)", succeeded)
+	for _, at := range succeededAt {
+		if !firstFailed.IsZero() && at.After(firstFailed) {
+			recovered = true
+		}
 	}
-	t.Logf("reader: %d runs succeeded, %d failed after processing and before saving", succeeded, failed)
+	return failed, succeeded, recovered
 }

@@ -51,6 +51,7 @@ const (
 	fieldStatus  = "status"
 	fieldVersion = "version"
 	fieldSource  = "source"
+	fieldMessage = "message"
 )
 
 // manageScriptInput is the input schema for the manage_script tool. Every field

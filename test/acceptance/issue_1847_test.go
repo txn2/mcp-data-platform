@@ -28,11 +28,17 @@ import (
 
 // slowSource1847 reports progress between queries, each of which waits on
 // Trino, so the run is observable while it executes.
-var slowSource1847 = fmt.Sprintf(`total = run.params["steps"]
-for i in range(total):
-    print("step", i + 1)
-    platform.progress("step", done=i + 1, total=total)
-    platform.query(connection=%q, sql="SELECT count(*) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) CROSS JOIN UNNEST(sequence(1, 100)) AS b(y)")
+var slowSource1847 = fmt.Sprintf(`
+CONNECTION = %q
+SLOW_SQL = "SELECT count(*) AS n FROM UNNEST(sequence(1, 10000)) AS a(x) CROSS JOIN UNNEST(sequence(1, 100)) AS b(y)"
+
+def main():
+    """Runs one slow query per step, reporting progress before each."""
+    total = run.params["steps"]
+    for i in range(total):
+        print("step", i + 1)
+        platform.progress("step", done = i + 1, total = total)
+        platform.query(connection = CONNECTION, sql = SLOW_SQL)
 `, scratchResourceConnection)
 
 // save1847 saves the slow script and returns its name and id.

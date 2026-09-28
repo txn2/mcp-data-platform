@@ -29,11 +29,14 @@ import (
 // save1845 saves source as a script and returns its id.
 func save1845(t *testing.T, c *client, name, source string) string {
 	t.Helper()
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1845: a run hands a value back.",
 		"params":      []any{map[string]any{"name": "n", "type": "int", "required": true}},
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create %s: %v", name, created)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	got := c.call("manage_script", map[string]any{"command": "get", "name": name})
 	id, _ := got["id"].(string)
@@ -44,7 +47,10 @@ func save1845(t *testing.T, c *client, name, source string) string {
 }
 
 // resultSource1845 returns the doubled parameter as its result.
-const resultSource1845 = `platform.result({"total": run.params["n"] * 2, "label": "doubled"})` + "\n"
+const resultSource1845 = `def main():
+    """Hands back the doubled parameter as the run's result."""
+    platform.result({"total": run.params["n"] * 2, "label": "doubled"})
+`
 
 func TestIssue1845_AWaitingRequestGetsTheResultOfARunThatFinishesInTime(t *testing.T) {
 	c := connect(t)
@@ -108,8 +114,14 @@ func TestIssue1845_RunScriptAndGetRunCarryTheResult(t *testing.T) {
 func TestIssue1845_AnOversizedOrNonJSONResultFailsTheRun(t *testing.T) {
 	c := connect(t)
 	for _, tc := range []struct{ source, want string }{
-		{`platform.result("x" * (run.params["n"] * 1024 * 1024))` + "\n", "over the 1048576-byte cap"},
-		{`platform.result(lambda: run.params["n"])` + "\n", "cannot be a JSON result"},
+		{`def main():
+    """Hands back a string of n MiB, past the result cap."""
+    platform.result("x" * (run.params["n"] * 1024 * 1024))
+`, "over the 1048576-byte cap"},
+		{`def main():
+    """Hands back a function, which has no JSON form."""
+    platform.result(lambda: run.params["n"])
+`, "cannot be a JSON result"},
 	} {
 		name := fmt.Sprintf("acc-1845-bad-%d", time.Now().UnixNano())
 		save1845(t, c, name, tc.source)

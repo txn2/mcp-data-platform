@@ -320,21 +320,26 @@ func TestIssue1663_GraphQLExportLandsTheSameWay(t *testing.T) {
 
 // issue1663ScriptSource writes one output to the built-in managed-resource
 // destination and records what it wrote, so the run's own record can be read
-// back through the tool surface.
+// back through the tool surface. It counts its runs in state, which is the read
+// of run.state a script that saves state has to make.
 const issue1663ScriptSource = `
-out = platform.export(
-    name="Acceptance 1663 script output",
-    rows=[{"store_id": 1, "units": 10}],
-    format="csv",
-    destination="resources",
-    key="acceptance/issue-1663/%s",
-)
-platform.save_state({
-    "resource_id": out["resource_id"],
-    "reference": out["reference"],
-    "uri": out["uri"],
-    "version": str(out["version"]),
-})
+def main():
+    """Writes one output to the managed-resource library and records where it landed."""
+    out = platform.export(
+        name = "Acceptance 1663 script output",
+        rows = [{"store_id": 1, "units": 10}],
+        format = "csv",
+        destination = "resources",
+        key = "acceptance/issue-1663/%s",
+    )
+    runs = int(run.state.get("runs", "0")) + 1
+    platform.save_state({
+        "runs": str(runs),
+        "resource_id": out["resource_id"],
+        "reference": out["reference"],
+        "uri": out["uri"],
+        "version": str(out["version"]),
+    })
 `
 
 // TestIssue1663_AScriptOutputLandsInTheLibraryAndVersions is the ticket's third
@@ -348,12 +353,15 @@ func TestIssue1663_AScriptOutputLandsInTheLibraryAndVersions(t *testing.T) {
 	filename := "acc-1663-script-" + stamp + ".csv"
 
 	_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command":     "create",
 		"name":        name,
 		"description": "Acceptance #1663: an output written to the managed-resource library.",
 		"source":      fmt.Sprintf(issue1663ScriptSource, filename),
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create: %v", created)
+	}
 	t.Cleanup(func() {
 		_, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name})
 	})

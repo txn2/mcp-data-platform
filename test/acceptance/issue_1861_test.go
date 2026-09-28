@@ -30,14 +30,19 @@ import (
 func TestIssue1861_ARunOverItsMemoryBudgetFails(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1861-budget-%d", time.Now().UnixNano())
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1861: a run over its memory budget.",
-		"source": fmt.Sprintf(`held = ["x" * 1024 + str(i) for i in range(200000)]
-platform.query(connection=%q, sql="SELECT 1 AS one")
-print(len(held))
+		"source": fmt.Sprintf(`def main():
+    """Holds about 200 MiB of strings across a host call."""
+    held = ["x" * 1024 + str(i) for i in range(200000)]
+    platform.query(connection = %q, sql = "SELECT 1 AS one")
+    print(len(held))
 `, scratchResourceConnection),
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create %s: %v", name, created)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 90})
@@ -64,14 +69,19 @@ print(len(held))
 func TestIssue1861_DraftAndRunReportPeakMemory(t *testing.T) {
 	c := connect(t)
 	name := fmt.Sprintf("acc-1861-peak-%d", time.Now().UnixNano())
-	source := fmt.Sprintf(`rows = [{"n": i, "label": "row " + str(i)} for i in range(20000)]
-platform.query(connection=%q, sql="SELECT 1 AS one")
-print(len(rows))
+	source := fmt.Sprintf(`def main():
+    """Holds 20,000 small dicts across a host call."""
+    rows = [{"n": i, "label": "row " + str(i)} for i in range(20000)]
+    platform.query(connection = %q, sql = "SELECT 1 AS one")
+    print(len(rows))
 `, scratchResourceConnection)
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name, "source": source,
 		"description": "Acceptance #1861: peak memory is reported.",
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create %s: %v", name, created)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	draft := c.call("manage_script", map[string]any{"command": "run_draft", "name": name, "source": source})
@@ -87,20 +97,25 @@ print(len(rows))
 }
 
 // issue1861AppendSource pages rows out of the warehouse and appends each page
-// to one output. Verbs: the connection (twice), the key, the table name.
-const issue1861AppendSource = `
-for page in range(3):
-    res = platform.query(connection=%q, sql="SELECT x AS n, 'page ' || CAST(%%d AS varchar) AS label FROM UNNEST(sequence(1, 500)) AS t(x)" %% page)
-    out = platform.export(
-        name="Acceptance 1861 pages",
-        rows=res["rows"],
-        format="jsonl",
-        destination="resources",
-        key=%q,
-        register={"connection": %q, "table_name": %q},
-        append=True,
-    )
-    print("appended page {}: {} rows so far".format(page, out["row_count"]))
+// to one output. Verbs: the connection (twice), the key, the table name. The
+// page number reaches the SQL as a bound parameter, and the loop is over
+// range(), the page loop the #1913 gates admit host calls in.
+const issue1861AppendSource = `PAGE_SQL = "SELECT x AS n, 'page ' || CAST(:page AS varchar) AS label FROM UNNEST(sequence(1, 500)) AS t(x)"
+
+def main():
+    """Appends three pages of warehouse rows to one output."""
+    for page in range(3):
+        res = platform.query(connection = %q, sql = PAGE_SQL, params = {"page": page})
+        out = platform.export(
+            name = "Acceptance 1861 pages",
+            rows = res["rows"],
+            format = "jsonl",
+            destination = "resources",
+            key = %q,
+            register = {"connection": %q, "table_name": %q},
+            append = True,
+        )
+        print("appended page {}: {} rows so far".format(page, out["row_count"]))
 `
 
 // TestIssue1861_AppendedPagesLandAsOneFileAndOneTable holds item 4: three
@@ -111,12 +126,15 @@ func TestIssue1861_AppendedPagesLandAsOneFileAndOneTable(t *testing.T) {
 	stamp := fmt.Sprintf("%d", time.Now().UnixNano())
 	name := "acc-1861-append-" + stamp
 	table := "acc_1861_pages_" + stamp
-	c.call("manage_script", map[string]any{
+	created := c.call("manage_script", map[string]any{
 		"command": "create", "name": name,
 		"description": "Acceptance #1861: pages appended to one output.",
 		"source": fmt.Sprintf(issue1861AppendSource, scratchResourceConnection,
 			"acceptance/issue-1861/pages-"+stamp+".jsonl", scratchResourceConnection, table),
 	})
+	if created["status"] != "created" {
+		t.Fatalf("manage_script create %s: %v", name, created)
+	}
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 
 	run := c.call("run_script", map[string]any{"name": name, "wait_seconds": 90})

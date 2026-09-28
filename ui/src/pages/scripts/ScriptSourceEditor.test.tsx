@@ -351,6 +351,39 @@ describe("ScriptSourceEditor: checking an edit", () => {
     expect(screen.getByText("Loop over a list.")).toBeInTheDocument();
   });
 
+  it("says a source the gates refuse needs changes, naming each rule", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+
+    act(() =>
+      validate.mock.calls[0]![1].onSuccess({
+        ok: false,
+        findings: [
+          {
+            rule: "missing-docstring",
+            severity: "error",
+            line: 1,
+            message: "`main` has no docstring",
+            hint: "Open the body with a one-sentence docstring.",
+          },
+        ],
+        capabilities: [],
+        connections: [],
+        destinations: [],
+        dynamic_connections: false,
+        dynamic_destinations: false,
+      }),
+    );
+    expect(screen.getByText("Needs changes")).toBeInTheDocument();
+    expect(screen.queryByText("Does not parse")).not.toBeInTheDocument();
+    expect(screen.getByText(/missing-docstring/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This cannot be saved until the findings below are fixed.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("dry-runs the text on screen and reports what it would have written", () => {
     renderEditor();
     fireEvent.change(screen.getByLabelText("Source text"), {
@@ -679,14 +712,18 @@ describe("ScriptSourceEditor: writing for real", () => {
             table: "scratch.uploads.analyst_staging",
           },
         ],
-        writes: [{ tool: "manage_table", call: "manage_table action=register" }],
+        writes: [
+          { tool: "manage_table", call: "manage_table action=register" },
+        ],
         message: "This dry run was run with allow_writes.",
       }),
     );
     expect(screen.getByText(/wrote 3 rows as jsonl/)).toBeInTheDocument();
     expect(screen.queryByText(/would write 3 rows/)).not.toBeInTheDocument();
     expect(screen.getByText("mcp:resource:res_1")).toBeInTheDocument();
-    expect(screen.getByText("scratch.uploads.analyst_staging")).toBeInTheDocument();
+    expect(
+      screen.getByText("scratch.uploads.analyst_staging"),
+    ).toBeInTheDocument();
   });
 
   it("clears the control after the run, so the next dry run is a rehearsal again", () => {
