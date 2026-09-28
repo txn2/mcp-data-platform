@@ -45,6 +45,7 @@ const (
 	RuleSQLFromValues    = "sql-built-from-values"
 	RuleCallInLoop       = "call-in-loop"
 	RuleStateWithoutRead = "save-state-without-read"
+	RuleLibraryEffect    = "library-effect"
 )
 
 // The limits, the ones this repository holds its own Go to where the two have

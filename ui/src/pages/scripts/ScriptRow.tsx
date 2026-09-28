@@ -36,13 +36,14 @@ export function ScriptRow({
           {/* The category appears once, beside the name. Tags leave the row
               entirely: a tag is how a script is FOUND, which is the facet
               above, not what a reader needs while scanning (#1795). */}
+          <LibraryBadge row={row} />
           {script.category && <Badge variant="muted">{script.category}</Badge>}
           <InertBadge row={row} />
         </div>
         <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
       </TableCell>
       <TableCell className="text-xs" data-testid="automation-kind">
-        Script
+        {script.library ? "Library" : "Script"}
       </TableCell>
       <TableCell className="text-xs">
         {script.owner_email ? (
@@ -68,6 +69,14 @@ export function ScriptRow({
   );
 }
 
+// LibraryBadge marks a library (#1941): code other scripts load, which is
+// never run or scheduled itself, so a reader scanning for what runs can pass
+// over it.
+export function LibraryBadge({ row }: { row: PortalScriptRow }) {
+  if (!row.script.library) return null;
+  return <Badge variant="info">Library</Badge>;
+}
+
 // InertBadge marks a script that will execute nothing — disabled, or retired.
 // It is a badge on the name rather than a column of its own (#1407): the
 // column it replaces said "Runs v3" on almost every row, which is a fact about
@@ -88,6 +97,11 @@ export function InertBadge({ row }: { row: PortalScriptRow }) {
 // written.
 export function ScheduleCell({ row }: { row: PortalScriptRow }) {
   const { schedule } = row;
+  // A library is never scheduled, so "On demand" would promise a run it
+  // cannot have.
+  if (row.script.library) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
   if (!schedule) {
     return <span className="text-xs text-muted-foreground">On demand</span>;
   }
@@ -118,7 +132,9 @@ function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): strin
 // carries none: a run is the owner's and the administrator's reading, and so is
 // the fact that one failed.
 export function LastRunCell({ row }: { row: PortalScriptRow }) {
-  if (!row.owned) {
+  // A library never runs, so "Never run" would read as a script waiting for
+  // its first run.
+  if (!row.owned || row.script.library) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   if (!row.last_run) {

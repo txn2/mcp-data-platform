@@ -14,6 +14,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
+// The kinds the listing narrows to with kind=.
+const (
+	KindLibrary    = "library"
+	KindAutomation = "automation"
+)
+
 // nonEmpty drops the empty values a repeated query parameter can carry, so
 // `?tag=&tag=sales` narrows by one tag rather than by one tag and an empty
 // string no script has.
@@ -62,6 +68,16 @@ func Filter(owner string, isAdmin bool, query url.Values) script.ListFilter {
 	}
 	if enabled, ok := parseBool(query.Get("enabled")); ok {
 		filter.Enabled = &enabled
+	}
+	// kind=library lists libraries and kind=automation the scripts that run
+	// (#1941); anything else lists both.
+	switch query.Get("kind") {
+	case KindLibrary:
+		library := true
+		filter.Library = &library
+	case KindAutomation:
+		library := false
+		filter.Library = &library
 	}
 	// owner narrows to one author, and naming one is itself a way of asking
 	// about somebody other than yourself: it selects the population rather

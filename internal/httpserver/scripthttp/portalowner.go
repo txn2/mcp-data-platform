@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/transferwords"
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -384,13 +385,14 @@ type deleteResponse struct {
 // portalDeleteScript removes a script.
 //
 // @Summary      Delete a script
-// @Description  Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store.
+// @Description  Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store. A library another script's current source loads is not removed: the answer is 409, naming the scripts (#1941).
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
 // @Success      200  {object}  deleteResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -432,6 +434,11 @@ func (h *Handler) portalDeleteScript(w http.ResponseWriter, r *http.Request, use
 func writeDeleteError(w http.ResponseWriter, err error, scriptID string) {
 	if errors.Is(err, script.ErrNotFound) {
 		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
+		return
+	}
+	var inUse *libraryuse.InUseError
+	if errors.As(err, &inUse) {
+		httpjson.WriteError(w, http.StatusConflict, inUse.Error())
 		return
 	}
 	slog.Error("failed to delete script", "error", logsan.SanitizeForLog(err.Error()), keyScriptID, scriptID)

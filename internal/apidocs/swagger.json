@@ -19048,7 +19048,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action \u2014 it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status and enabled parameters narrow the listing; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
+                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action \u2014 it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=library lists the libraries other scripts load (#1941) and kind=automation the scripts that run; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
                 "produces": [
                     "application/json"
                 ],
@@ -19106,6 +19106,16 @@
                         "type": "boolean",
                         "description": "Narrow to enabled or disabled scripts",
                         "name": "enabled",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "library",
+                            "automation"
+                        ],
+                        "type": "string",
+                        "description": "Narrow to libraries or to the scripts that run",
+                        "name": "kind",
                         "in": "query"
                     },
                     {
@@ -19395,7 +19405,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store.",
+                "description": "Removes a managed script and everything that belongs to it: its saved versions, its schedule, its run history, and the state it carried between runs. Restricted to the script's owner and to administrators, and answered as not-found for anybody else, so the refusal cannot be used to learn that a script exists. The assets and resources the script wrote are NOT removed, and the records naming it as their producer remain. It is the same removal manage_script command=delete performs, through the same store. A library another script's current source loads is not removed: the answer is 409, naming the scripts (#1941).",
                 "produces": [
                     "application/json"
                 ],
@@ -19427,6 +19437,12 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -29834,6 +29850,31 @@
                 }
             }
         },
+        "libraryuse.Use": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string",
+                    "example": "Weekly Sales"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "weekly-sales"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "3f0c9b1e-8a41-4c55-9d0e-2b7a6c1d4e5f"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
         "listcut.Count": {
             "type": "object",
             "properties": {
@@ -33336,6 +33377,16 @@
                         }
                     ]
                 },
+                "library": {
+                    "description": "Library is true for a library (#1941), which is loaded and never run.\nLoads is the library versions the source loads, as \"<name>@<version>\",\nand UsedBy, for a library, the scripts whose current source loads it.",
+                    "type": "boolean"
+                },
+                "loads": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "name": {
                     "type": "string",
                     "example": "daily-sales-report"
@@ -33385,6 +33436,12 @@
                         "sales",
                         "reporting"
                     ]
+                },
+                "used_by": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/libraryuse.Use"
+                    }
                 },
                 "version": {
                     "description": "Version is the version a run executes: the latest saved one.",
@@ -33892,6 +33949,16 @@
                 "id": {
                     "type": "string",
                     "example": "script_a1b2c3d4"
+                },
+                "library": {
+                    "description": "Library is true for a library: a script with no main(), pure code\nanother script loads by name and version (#1941). It is decided when the\nscript is created and does not change. Loads is the library versions\nthe current source loads, as \"<name>@<version>\". The store sets both\nfrom the source.",
+                    "type": "boolean"
+                },
+                "loads": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "name": {
                     "type": "string",
@@ -35367,6 +35434,16 @@
                         "$ref": "#/definitions/scriptrun.Finding"
                     }
                 },
+                "libraries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptlib.Ref"
+                    }
+                },
+                "library": {
+                    "description": "Library is true when the source is a library (#1941), and Libraries is\nthe library versions it loads.",
+                    "type": "boolean"
+                },
                 "note": {
                     "description": "Note states any such gap in the author's terms.",
                     "type": "string"
@@ -35441,6 +35518,19 @@
                 "total": {
                     "type": "integer",
                     "example": 4
+                }
+            }
+        },
+        "scriptlib.Ref": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "example": "date-windows"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 2
                 }
             }
         },

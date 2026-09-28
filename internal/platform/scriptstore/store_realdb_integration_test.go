@@ -26,7 +26,7 @@ import (
 func newScript(name, owner string) *script.Script {
 	return &script.Script{
 		Name: name, DisplayName: "Daily", Description: "A daily report",
-		Source: "print(1)\n", OwnerEmail: owner,
+		Source: "def main():\n    print(1)\n", OwnerEmail: owner,
 		Enabled: true,
 	}
 }
@@ -52,7 +52,7 @@ func TestRealDB_CreateNormalizesNilSlices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1, "a script never exists without the snapshot that explains it")
 	assert.Equal(t, script.VersionStatusApplied, versions[0].Status)
-	assert.Equal(t, "print(1)\n", versions[0].Source)
+	assert.Equal(t, "def main():\n    print(1)\n", versions[0].Source)
 }
 
 // TestRealDB_NamesAreUniquePerOwner exercises the unique index: two analysts

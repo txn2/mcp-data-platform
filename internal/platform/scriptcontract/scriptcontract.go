@@ -24,8 +24,10 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
   formatted_source; findings' line numbers refer to it.
   A save is refused while any of these holds, each finding naming its rule,
   its line and the fix:
-    entry-point / top-level-work   no main(), main with parameters, or work
-                                   at the top level
+    entry-point / top-level-work   main with parameters, or work at the top
+                                   level (a source with no main() is a
+                                   library; see LIBRARIES)
+    library-effect                 a library that names platform or run
     cyclomatic-complexity          a function with more than 10 paths
     cognitive-complexity           a function scoring more than 15
     function-length                more than 40 statements in a function
@@ -37,10 +39,14 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
     missing-docstring              a function whose body does not open with a
                                    """one-sentence docstring""" in plain words;
                                    the flow diagram shows it on the box
-    sql-built-from-values          SQL passed to platform.query built with +,
-                                   % or .format() from values: use :name and
-                                   params=
-    call-in-loop                   platform.query, platform.call or
+    sql-built-from-values          SQL passed to platform.query,
+                                   platform.execute, or a platform.call to
+                                   trino_query or trino_execute, built with +,
+                                   % or .format() from values: read with
+                                   platform.query and write with
+                                   platform.execute, using :name and params=
+    call-in-loop                   platform.query, platform.execute,
+                                   platform.call or
                                    platform.export once per element of a
                                    collection; a loop over range() that
                                    fetches one page per pass is not counted
@@ -62,8 +68,8 @@ WHAT IS AVAILABLE
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
       column name, in the SELECT's column order, so rows exported as they
       came keep the query's columns where it put them. It is the read tool, so a statement that modifies state —
-      INSERT, UPDATE, DELETE, CREATE, DROP — is refused by it, and the write
-      tool is reached with platform.call("trino_execute", {...}).
+      INSERT, UPDATE, DELETE, CREATE, DROP — is refused by it; send it
+      through platform.execute.
       Use :name placeholders and pass the values in params; the platform
       quotes them by type. Never build SQL by string concatenation.
       A table a register= made binds by its record: FROM :t with
@@ -75,6 +81,20 @@ WHAT IS AVAILABLE
       A SQL DECIMAL column arrives in the rows as a STRING, not a number, so
       pass it through float() before arithmetic:
       sum([float(r["total"]) for r in rows]).
+  platform.execute(sql, connection=..., params={})  Run a statement that
+      changes state -- INSERT, UPDATE, DELETE, CREATE, DROP -- through
+      trino_execute, and return its answer as platform.call would. Values
+      bind exactly as in platform.query: :name placeholders quoted by type, a
+      list as IN :name, and a table a register= made by its record, so free
+      text reaches a table as
+        out = platform.export("tickets", rows, format = "jsonl",
+                              destination = "resources", key = "tickets.jsonl",
+                              register = {"connection": "scratch"})
+        platform.execute("INSERT INTO lake.support.tickets SELECT * FROM :src",
+                         connection = "scratch", params = {"src": out["table"]})
+      It is a trino_execute call: authorized, audited and listed among a
+      draft's writes as that call is, and a draft refuses it unless the draft
+      was run with allow_writes.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,
                   append=False)
@@ -131,9 +151,8 @@ WHAT IS AVAILABLE
       from, "columns", and "column_types" as [{"name": ..., "type": ...}],
       the same entries manage_table reports.
       A registration that fails fails the run, naming the output. Pass
-      register by name, as destination and key are. This is the path for
-      free text into SQL: trino_execute binds no parameters, and
-      INSERT ... SELECT from the registered table does.
+      register by name, as destination and key are. Bind the record into
+      platform.execute to INSERT ... SELECT from the registered table.
       tags=["report:sales"] adds tags to a portal output's asset, and
       metadata={"region": "west"} (a small dict, 4 KiB as JSON) is stored on
       the version it writes beside run_id, script, script_version and
@@ -233,7 +252,7 @@ WHAT IS AVAILABLE
       In a draft run this writes nothing and reports the payload size it
       would splice.
   platform.call(tool, args={})  Call any platform tool by name and get its
-      structured result. This is the same mechanism the three helpers above
+      structured result. This is the same mechanism the helpers above
       are built on, with the tool left to you, and it is how a script reaches
       everything else the platform can do: writing a table with
       trino_execute, fetching an external API server-side with
@@ -260,7 +279,10 @@ WHAT IS AVAILABLE
       the roles you held when you saved the version, so a tool your persona
       does not allow is refused in the persona filter's own words. There is
       no separate script allowlist to consult.
-      Prefer the three helpers where they apply. They are not a restriction
+      Prefer the helpers where they apply; SQL goes through platform.query
+      and platform.execute, which bind values, and a platform.call to
+      trino_query or trino_execute with SQL built from values is refused on
+      save. They are not a restriction
       you are working around: platform.query pushes the row cap down into the
       query and FAILS a truncated result, which a raw trino_query call hands
       you to notice yourself, and platform.export keeps one asset per output
@@ -416,6 +438,34 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
                       not, or, pass, raise, return, try, while, with, yield.
                       load is the one an ETL script reaches for: def load(...)
                       does not parse. Name the step load_rows or write_rows.
+
+LIBRARIES
+  A library is a script with no main(): pure code other scripts load, so the
+  pagination, date windows and table shaping many scripts share are written
+  once. Create it with manage_script create like any script; with no main()
+  it is saved as a library. It is held to the same gates (format, lint,
+  tests, coverage) and its tests call its functions directly:
+      def last_week(day):
+          """The seven days before day, as {"from": ..., "to": ...}."""
+          ...
+      def test_last_week():
+          """A Monday's week."""
+          assert.eq(last_week("2026-09-28")["from"], "2026-09-21")
+  A library names neither platform nor run: it shapes data, and the script
+  that loads it makes the calls, so validate on that script still reports
+  everything it reaches. Pass a library function what it needs.
+  A script loads one version of a library at its top level:
+      load("lib:date-windows@2", "last_week", "month_of")
+  The version is required. A saved version never changes, so a new version of
+  the library changes no script until that script names it. A library may load
+  another library the same way; a load of a library or version that does not
+  exist, and a load cycle, are refused on save. validate reports library: true
+  for a library and the libraries a script loads with their versions; a run,
+  a draft and a test all run the version named.
+  A library's name is unique across the platform, and anyone may load any
+  library. A library is never run or scheduled itself, and it cannot be
+  deleted while a script's current source loads it. A script and a library do
+  not turn into each other: a script keeps its main(), and a library gets none.
 
 WHAT DETERMINISTIC MEANS HERE
   Same script version + same parameters + same state read + same underlying

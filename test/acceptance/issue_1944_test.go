@@ -49,6 +49,15 @@ func findings1944(out map[string]any) []map[string]any {
 	return found
 }
 
+func hasLibraryEffect1944(found []map[string]any) bool {
+	for _, f := range found {
+		if hint, _ := f["hint"].(string); f["rule"] == "library-effect" && strings.Contains(hint, "def main():") {
+			return true
+		}
+	}
+	return false
+}
+
 func hasFinding1944(found []map[string]any, rule string, line float64) bool {
 	for _, f := range found {
 		if f["rule"] == rule && f["line"] == line && f["hint"] != "" {
@@ -81,8 +90,11 @@ func TestIssue1944_TopLevelWorkIsRefusedAndMainRunsTheSame(t *testing.T) {
 			t.Errorf("no top-level-work finding with a hint on line %v: %v", line, found)
 		}
 	}
-	if hasFinding1944(found, "top-level-work", 1) || !hasFinding1944(found, "entry-point", 1) {
-		t.Errorf("want the missing main() on line 1 and no work there: %v", found)
+	// A source with no main() is a library since #1941, and a library may not
+	// name platform: that finding's hint is where the author is told to put
+	// the work in main().
+	if hasFinding1944(found, "top-level-work", 1) || !hasLibraryEffect1944(found) {
+		t.Errorf("want the missing main() reported and no work on line 1: %v", found)
 	}
 
 	draft := c.call("manage_script", map[string]any{"command": "run_draft", "name": name, "source": topLevel1944})

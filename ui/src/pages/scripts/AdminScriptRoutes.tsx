@@ -36,6 +36,7 @@ export function AdminScriptRoutes({
         onBack={() => onNavigate("/admin/automations")}
         onNavigate={onNavigate}
         filePath={adminFilePath}
+      basePath="/admin/automations"
       />
     );
   }
@@ -49,6 +50,7 @@ export function AdminScriptRoutes({
       onBack={() => onNavigate("/admin/automations")}
       onNavigate={onNavigate}
       filePath={adminFilePath}
+      basePath="/admin/automations"
     />
   );
 }

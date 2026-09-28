@@ -35,6 +35,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
@@ -137,6 +138,11 @@ type Config struct {
 	// Recordings keeps each run's host calls and their answers (#1939), and
 	// is swept at RunRetention with the runs. Nil keeps none.
 	Recordings scriptrec.Store
+
+	// Libraries is where the libraries a run's source loads are read from
+	// (#1941). Nil falls back to PostgreSQL over DB, and with no DB every
+	// load is refused.
+	Libraries scriptlib.Source
 
 	// Limits are a platform run's ceilings: its wall-clock timeout, its
 	// interpreter steps, and the rows one platform.query may return. Zero
@@ -310,6 +316,15 @@ func New(cfg Config) *Handle {
 		h.listener = pglisten.New(cfg.DSN, scriptstore.NotifyChannel, h)
 	}
 	return h
+}
+
+// libraries is where a run's loads are read from: the configured source, or
+// PostgreSQL over DB.
+func (c Config) libraries() scriptlib.Source {
+	if c.Libraries == nil && c.DB != nil {
+		return scriptstore.New(c.DB)
+	}
+	return c.Libraries
 }
 
 // stores resolves the stores the execution side reads and writes, preferring

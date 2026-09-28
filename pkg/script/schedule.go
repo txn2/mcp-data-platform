@@ -309,6 +309,9 @@ type ScheduleRequest struct {
 // creator survive an edit of the cadence, because the runs that point at it
 // point at the same automation.
 func BuildSchedule(sc *Script, prev *Schedule, req ScheduleRequest, now time.Time) (*Schedule, error) {
+	if sc.Library {
+		return nil, errLibraryNotRun
+	}
 	contract := sc.Params
 	sched := &Schedule{
 		ScriptID:  sc.ID,

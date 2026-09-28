@@ -31,6 +31,7 @@ import {
   ScriptParameterForm,
   type Values,
 } from "./ScriptParameterForm";
+import { LibrarySaveNotice, RunButtons } from "./ScriptEditorRunControls";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptSourceEditor is the code, editable by the person who owns it (#1307),
@@ -108,6 +109,10 @@ export function ScriptSourceEditor({
     declaresConnection(params),
   );
 
+  // A library (#1941) is never run, as itself or as a draft: it has no main()
+  // for either to execute, so the controls and the form that feed a run are
+  // absent rather than refused by the platform.
+  const library = Boolean(contract.library);
   const current = draft ?? source;
   const changed = current !== (submitted ?? source);
   const busy =
@@ -201,6 +206,7 @@ export function ScriptSourceEditor({
           // refusal is the gate's own, stated once at the top of the page, and
           // a button that cannot work is worse than its absence.
           runnable={!contract.refusal}
+          library={library}
           onRevert={revert}
           onValidate={check}
           onDryRun={execute}
@@ -222,11 +228,15 @@ export function ScriptSourceEditor({
       )}
       source={(link) => (
         <div className="space-y-3">
-          <SaveNotice
-            runnable={!contract.refusal}
-            version={contract.version}
-            changed={changed}
-          />
+          {library ? (
+            <LibrarySaveNotice version={contract.version} />
+          ) : (
+            <SaveNotice
+              runnable={!contract.refusal}
+              version={contract.version}
+              changed={changed}
+            />
+          )}
 
           <SourceEditor
             content={current}
@@ -237,19 +247,23 @@ export function ScriptSourceEditor({
             onSelectLines={link.onSelectLines}
           />
 
-          <RunParams
-            params={params}
-            values={values}
-            disabled={busy}
-            connections={connections?.data}
-            onChange={(name, value) => setValues({ ...values, [name]: value })}
-          />
+          {!library && (
+            <>
+              <RunParams
+                params={params}
+                values={values}
+                disabled={busy}
+                connections={connections?.data}
+                onChange={(name, value) => setValues({ ...values, [name]: value })}
+              />
 
-          <AllowWrites
-            checked={allowWrites}
-            disabled={busy}
-            onChange={setAllowWrites}
-          />
+              <AllowWrites
+                checked={allowWrites}
+                disabled={busy}
+                onChange={setAllowWrites}
+              />
+            </>
+          )}
 
           <EditorResults
             results={results}
@@ -313,6 +327,7 @@ function EditorActions({
   running,
   queueing,
   runnable,
+  library,
   onRevert,
   onValidate,
   onDryRun,
@@ -329,6 +344,8 @@ function EditorActions({
   running: boolean;
   queueing: boolean;
   runnable: boolean;
+  /** A library offers neither run: it has no main() to execute (#1941). */
+  library: boolean;
   onRevert: () => void;
   onValidate: () => void;
   onDryRun: () => void;
@@ -358,23 +375,15 @@ function EditorActions({
         >
           {validating ? "Checking..." : "Validate"}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy || unbound.length > 0}
-          onClick={onDryRun}
-        >
-          {running ? "Running..." : "Dry run"}
-        </Button>
-        {runnable && (
-          <Button
-            size="sm"
-            variant="outline"
+        {!library && (
+          <RunButtons
             disabled={busy || unbound.length > 0}
-            onClick={onRun}
-          >
-            {queueing ? "Queueing..." : "Run"}
-          </Button>
+            running={running}
+            queueing={queueing}
+            runnable={runnable}
+            onDryRun={onDryRun}
+            onRun={onRun}
+          />
         )}
         <Button size="sm" disabled={!changed || busy} onClick={onSave}>
           Save

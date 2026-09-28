@@ -353,6 +353,11 @@ func (s *Store) Contract(ctx context.Context, id string) (*script.Contract, erro
 	// validate reports; the revision is the store's. Together they tell a
 	// reader whether the next run continues from the last one's save.
 	c.State = script.ContractStateOf(scriptrun.Validate(sc.Source).StateUse, state)
+	if sc.Library {
+		if c.UsedBy, err = s.UsedBy(ctx, sc.Name); err != nil {
+			return nil, err
+		}
+	}
 	return &c, nil
 }
 

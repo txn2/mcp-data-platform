@@ -402,12 +402,16 @@ describe("ScriptSourceEditor: checking an edit", () => {
         connections: ["util"],
         destinations: [],
         tools: ["api_invoke_endpoint", "trino_execute"],
+        libraries: [{ name: "date-windows", version: 2 }],
         dynamic_connections: false,
         dynamic_destinations: false,
         dynamic_tools: false,
       }),
     );
     expect(screen.getByText("Tools")).toBeInTheDocument();
+    // The library versions the source loads (#1941).
+    expect(screen.getByText("Libraries")).toBeInTheDocument();
+    expect(screen.getByText("lib:date-windows@2")).toBeInTheDocument();
     expect(
       screen.getByText("api_invoke_endpoint, trino_execute"),
     ).toBeInTheDocument();
@@ -422,12 +426,14 @@ describe("ScriptSourceEditor: checking an edit", () => {
         connections: ["warehouse"],
         destinations: [],
         tools: [],
+        libraries: [],
         dynamic_connections: false,
         dynamic_destinations: false,
         dynamic_tools: false,
       }),
     );
     expect(screen.queryByText("Tools")).not.toBeInTheDocument();
+    expect(screen.queryByText("Libraries")).not.toBeInTheDocument();
   });
 
   it("shows each finding with the correction, which is most of its value", () => {

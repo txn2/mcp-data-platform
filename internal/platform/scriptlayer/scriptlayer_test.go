@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -117,10 +118,29 @@ func (m *memStore) Create(_ context.Context, sc *script.Script, author script.Au
 		// service.
 		sc.Status = script.StatusActive
 	}
+	// The real store decides whether a script is a library once, from the
+	// source it is created with (#1941).
+	sc.Library = scriptlib.SourceIsLibrary(sc.Source)
 	stored := *sc
 	m.scripts[sc.ID] = &stored
 	m.snapshot(sc, author, script.VersionStatusApplied)
 	return nil
+}
+
+// LibrarySource answers as the real store does: one saved version of a
+// library, by name.
+func (m *memStore) LibrarySource(_ context.Context, name string, version int) (string, error) {
+	for id, sc := range m.scripts {
+		if sc.Name != name || !sc.Library {
+			continue
+		}
+		for _, v := range m.versions[id] {
+			if v.Version == version {
+				return v.Source, nil
+			}
+		}
+	}
+	return "", scriptlib.ErrNotFound
 }
 
 func (m *memStore) snapshot(sc *script.Script, author script.Author, status string) {

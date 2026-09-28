@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
+import { ApiError } from "@/api/portal/client";
 import { ScriptDelete } from "./ScriptDelete";
 
 vi.mock("@/api/portal/hooks/scriptDelete", () => ({
@@ -180,5 +181,65 @@ describe("ScriptDelete", () => {
     open();
 
     expect(screen.getByText("Delete daily-sales-report?")).toBeInTheDocument();
+  });
+});
+
+// A library (#1941) has no schedule, runs or state, and the platform refuses
+// to delete one a script still loads.
+describe("ScriptDelete: a library", () => {
+  const library: Partial<ScriptContract> = {
+    name: "date-windows",
+    display_name: "Date Windows",
+    schedule: undefined,
+    state: undefined,
+    library: true,
+    loads: [],
+    used_by: [
+      {
+        script_id: "script-001",
+        name: "daily",
+        display_name: "Daily Sales Report",
+        owner_email: "sarah.chen@example.com",
+        version: 4,
+      },
+    ],
+  };
+
+  it("names its versions and the scripts that load it, and no schedule, runs or state", () => {
+    renderControl(library);
+
+    expect(screen.getByText(/Removing this library takes its saved versions/)).toBeInTheDocument();
+    open();
+
+    expect(screen.getByText("Delete Date Windows?")).toBeInTheDocument();
+    expect(screen.getByText(/v4 and every one before it/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/It is loaded by Daily Sales Report, so it will not be deleted until that script stops/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/run history/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/schedule/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/carries from one run to the next/)).not.toBeInTheDocument();
+  });
+
+  it("names no loading scripts when none load it", () => {
+    renderControl({ ...library, used_by: [] });
+
+    open();
+
+    expect(screen.queryByText(/It is loaded by/)).not.toBeInTheDocument();
+  });
+
+  it("shows the platform's own refusal when a script still loads it", async () => {
+    const detail =
+      "this library is loaded by daily, weekly, which would fail at their next run, so it was not deleted; change those scripts to stop loading it first";
+    mutateAsync = vi.fn().mockRejectedValue(new ApiError(409, detail));
+    mockDelete.mockReturnValue({ mutateAsync, isPending: false } as never);
+    renderControl(library);
+
+    open();
+    confirm();
+
+    await waitFor(() => expect(screen.getByText(detail)).toBeInTheDocument());
+    expect(onDeleted).not.toHaveBeenCalled();
   });
 });

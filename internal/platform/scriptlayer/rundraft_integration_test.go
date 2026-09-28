@@ -476,7 +476,7 @@ func TestIntegration_RunDraftNeedsAnAuthenticatedCaller(t *testing.T) {
 	h.RegisterTool(server)
 	require.NoError(t, store.Create(context.Background(), &script.Script{
 		Name: "x", OwnerEmail: "jane@example.com",
-		Source: "print(1)", Enabled: true,
+		Source: "def main():\n    print(1)\n", Enabled: true,
 	}, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
 
 	res := call(t, h, authorCtxWithoutUserID(), manageScriptInput{Command: cmdRunDraft, Name: "x"})
@@ -498,7 +498,7 @@ func TestIntegration_RunDraftWithoutAServerIsRefused(t *testing.T) {
 	h, store := newHandle()
 	require.NoError(t, store.Create(context.Background(), &script.Script{
 		Name: "x", OwnerEmail: "jane@example.com",
-		Source: "print(1)", Enabled: true,
+		Source: "def main():\n    print(1)\n", Enabled: true,
 	}, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdRunDraft, Name: "x"})
@@ -745,4 +745,41 @@ func TestIntegration_RunDraftPacesARateLimitedCall(t *testing.T) {
 	assert.Equal(t, "succeeded", ran["status"], ran)
 	assert.Len(t, h.queries.calls(), 2, "both queries were served, the second after a wait")
 	assert.Equal(t, "2\nrate limit: trino_query was refused; waited 1s and retried\n2\n", ran["log"])
+}
+
+// TestIntegration_ALibraryIsLoadedByItsPinnedVersion is #1941 through the
+// assembled server: a library saved through manage_script, then a second
+// version of it, and a draft of a script pinned to the first runs the first.
+func TestIntegration_ALibraryIsLoadedByItsPinnedVersion(t *testing.T) {
+	ctx := context.Background()
+	h := assembledServer(t)
+	session := connectAgent(ctx, t, h.server)
+
+	lib := func(factor string) string {
+		return "def scale(n):\n    \"\"\"Scales n.\"\"\"\n    return n * " + factor + "\n\n" +
+			"def test_scale():\n    \"\"\"Scales one.\"\"\"\n    assert.eq(scale(1), " + factor + ")\n"
+	}
+	created, isErr := callTool(ctx, t, session, map[string]any{"command": "create", "name": "scaler", "source": lib("2")})
+	require.False(t, isErr, created)
+	assert.Equal(t, true, created["library"])
+	assert.Contains(t, created["next"], `load("lib:scaler@1", "<function>")`)
+
+	updated, isErr := callTool(ctx, t, session, map[string]any{"command": "update", "name": "scaler", "source": lib("3")})
+	require.False(t, isErr, updated)
+
+	seed(t, h, "answer", "load(\"lib:scaler@1\", \"scale\")\n\n"+inMain("print(scale(21))\n"))
+	ran, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "answer"})
+	require.False(t, isErr, ran)
+	assert.Equal(t, "succeeded", ran["status"], ran["error"])
+	assert.Equal(t, "42\n", ran["log"], "the script pinned to @1 runs version 1")
+
+	ran, isErr = callTool(ctx, t, session, map[string]any{
+		"command": "run_draft", "name": "answer",
+		"source": "load(\"lib:scaler@2\", \"scale\")\n\n" + inMain("print(scale(21))\n"),
+	})
+	require.False(t, isErr, ran)
+	assert.Equal(t, "63\n", ran["log"], "repinned to @2, it runs version 2")
+
+	refused, isErr := callTool(ctx, t, session, map[string]any{"command": "run_draft", "name": "scaler"})
+	assert.True(t, isErr || refused["status"] != "succeeded", refused)
 }

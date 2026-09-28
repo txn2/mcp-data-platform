@@ -11,6 +11,7 @@ import (
 // The platform members the host-call rules are about.
 const (
 	memberQuery     = "query"
+	memberExecute   = "execute"
 	memberCall      = "call"
 	memberExport    = "export"
 	memberSaveState = "save_state"
@@ -19,7 +20,7 @@ const (
 // loopedMembers are the calls that reach an upstream or write an output: one
 // per element of a collection is the most common reason a migrated flow turns
 // slow or rate limited.
-var loopedMembers = []string{memberQuery, memberCall, memberExport}
+var loopedMembers = []string{memberQuery, memberExecute, memberCall, memberExport}
 
 // hostCalls applies the rules about how a script uses platform.*: SQL built
 // from values, an upstream call per element of a loop, and state saved without
@@ -63,8 +64,12 @@ func (h *hostScan) visit(n syntax.Node, inLoop bool) {
 		return
 	}
 	switch member {
-	case memberQuery:
-		h.l.sqlFromValues(c, h.assigned)
+	case memberQuery, memberExecute:
+		h.l.sqlFromValues(c, "platform."+member, callArg(c, "sql", 0), h.assigned)
+	case memberCall:
+		if tool, sql := sqlToolCall(c, h.assigned); sql != nil {
+			h.l.sqlFromValues(c, fmt.Sprintf("platform.call(%q)", tool), sql, h.assigned)
+		}
 	case memberSaveState:
 		h.saves = append(h.saves, c)
 	}
@@ -135,34 +140,102 @@ func isRange(e syntax.Expr) bool {
 	return ok && isName(c.Fn, "range")
 }
 
-// sqlFromValues reports a platform.query whose SQL is built with +, % or
-// .format() from something other than literals and module constants. SQL
-// assembled only from those is fixed text (a table name held in a constant),
-// which params= cannot express and which is not what this rule is about.
-func (l *linter) sqlFromValues(c *syntax.CallExpr, assigned map[*syntax.Ident][]syntax.Expr) {
-	sql := sqlArg(c)
+// sqlTools are the tools a platform.call sends SQL to. Neither takes bound
+// parameters, so SQL built from values reaches them as text (#1950).
+var sqlTools = []string{"trino_query", "trino_execute"}
+
+// sqlFromValues reports SQL, sent by the call through what, that is built
+// with +, % or .format() from something other than literals and module
+// constants. SQL assembled only from those is fixed text (a table name held
+// in a constant), which params= cannot express and which is not what this
+// rule is about.
+func (l *linter) sqlFromValues(c *syntax.CallExpr, what string, sql syntax.Expr, assigned map[*syntax.Ident][]syntax.Expr) {
 	if sql == nil {
 		return
 	}
-	candidates := []syntax.Expr{sql}
-	if id, ok := sql.(*syntax.Ident); ok {
-		if b, ok := id.Binding.(*resolve.Binding); ok && b.First != nil {
-			candidates = assigned[b.First]
-		}
-	}
-	for _, e := range candidates {
+	for _, e := range resolved(sql, assigned) {
 		if builtFromValues(e) {
 			if _, known := l.consts.String(e); !known {
 				l.add(finding{
 					rule: RuleSQLFromValues, subject: "", line: line(c),
-					message: "the SQL passed to platform.query is built from values with +, % or .format()",
-					hint: "Write a :name placeholder in the SQL and pass the value in params={\"name\": value}; the platform binds it by type. " +
+					message: "the SQL passed to " + what + " is built from values with +, % or .format()",
+					hint: "Send a read through platform.query and a write through platform.execute, with a :name placeholder in the SQL " +
+						"and the value in params={\"name\": value}; the platform binds it by type. " +
 						"A list binds as IN :name. A table a register= made binds by its record: FROM :t with params={\"t\": out[\"table\"]}.",
 				})
 				return
 			}
 		}
 	}
+}
+
+// resolved is the expressions e stands for: e itself, or every value a plain
+// assignment gives the name it is.
+func resolved(e syntax.Expr, assigned map[*syntax.Ident][]syntax.Expr) []syntax.Expr {
+	if id, ok := e.(*syntax.Ident); ok {
+		if b, ok := id.Binding.(*resolve.Binding); ok && b.First != nil {
+			return assigned[b.First]
+		}
+	}
+	return []syntax.Expr{e}
+}
+
+// sqlToolCall is the tool and the "sql" entry of a platform.call to a tool
+// that takes SQL, when the call names the tool literally and writes out its
+// argument dict (directly, or in a name assigned one).
+func sqlToolCall(c *syntax.CallExpr, assigned map[*syntax.Ident][]syntax.Expr) (string, syntax.Expr) {
+	tool, args := callArg(c, "tool", 0), callArg(c, "args", 1)
+	lit, ok := tool.(*syntax.Literal)
+	if !ok || args == nil {
+		return "", nil
+	}
+	name, _ := lit.Value.(string)
+	if !slices.Contains(sqlTools, name) {
+		return "", nil
+	}
+	for _, e := range resolved(args, assigned) {
+		if sql := dictEntry(e, "sql"); sql != nil {
+			return name, sql
+		}
+	}
+	return "", nil
+}
+
+// callArg is a call's argument by keyword, or by its position among the
+// positional arguments.
+func callArg(c *syntax.CallExpr, keyword string, position int) syntax.Expr {
+	n := 0
+	for _, a := range c.Args {
+		if kw, ok := a.(*syntax.BinaryExpr); ok && kw.Op == syntax.EQ {
+			if isName(kw.X, keyword) {
+				return kw.Y
+			}
+			continue
+		}
+		if n == position {
+			return a
+		}
+		n++
+	}
+	return nil
+}
+
+// dictEntry is the value a dict literal gives key.
+func dictEntry(e syntax.Expr, key string) syntax.Expr {
+	d, ok := e.(*syntax.DictExpr)
+	if !ok {
+		return nil
+	}
+	for _, el := range d.List {
+		entry, ok := el.(*syntax.DictEntry)
+		if !ok {
+			continue
+		}
+		if k, ok := entry.Key.(*syntax.Literal); ok && k.Value == key {
+			return entry.Value
+		}
+	}
+	return nil
 }
 
 // builtFromValues reports whether an expression builds a string.
@@ -177,21 +250,6 @@ func builtFromValues(e syntax.Expr) bool {
 		return ok && dot.Name.Name == "format"
 	}
 	return false
-}
-
-// sqlArg is the SQL a platform.query call passes: its first positional
-// argument or its sql= keyword.
-func sqlArg(c *syntax.CallExpr) syntax.Expr {
-	for _, a := range c.Args {
-		if kw, ok := a.(*syntax.BinaryExpr); ok && kw.Op == syntax.EQ {
-			if isName(kw.X, "sql") {
-				return kw.Y
-			}
-			continue
-		}
-		return a
-	}
-	return nil
 }
 
 // assignments maps each name's first binding to every value a plain

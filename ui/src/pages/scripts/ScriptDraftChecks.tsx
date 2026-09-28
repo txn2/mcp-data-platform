@@ -117,6 +117,7 @@ function TestSummary({ report }: { report: ScriptValidation }) {
 function ReachLists({ report }: { report: ScriptValidation }) {
   const tools = report.tools ?? [];
   const refreshes = report.refresh_targets ?? [];
+  const libraries = (report.libraries ?? []).map((l) => `lib:${l.name}@${l.version}`);
   return (
     <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
       <Reached label="Capabilities" values={report.capabilities} />
@@ -124,6 +125,7 @@ function ReachLists({ report }: { report: ScriptValidation }) {
       <Reached label="Output destinations" values={report.destinations} />
       {tools.length > 0 && <Reached label="Tools" values={tools} />}
       {refreshes.length > 0 && <Reached label="Refreshes" values={refreshes} />}
+      {libraries.length > 0 && <Reached label="Libraries" values={libraries} />}
       {(report.reads_state || report.saves_state) && (
         <Reached label="State" values={stateUse(report)} />
       )}

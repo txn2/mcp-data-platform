@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 )
 
 // Contract is what a reference to a script resolves to: everything a caller
@@ -55,6 +57,13 @@ type Contract struct {
 	// (#1537), and where that state stands. Nil only on a contract composed
 	// without a state read.
 	State *ContractState `json:"state,omitempty"`
+
+	// Library is true for a library (#1941), which is loaded and never run.
+	// Loads is the library versions the source loads, as "<name>@<version>",
+	// and UsedBy, for a library, the scripts whose current source loads it.
+	Library bool             `json:"library"`
+	Loads   []string         `json:"loads"`
+	UsedBy  []libraryuse.Use `json:"used_by"`
 }
 
 // ContractState is a script's state as the contract reports it: what the
@@ -196,6 +205,12 @@ func (c Contract) Text() string {
 		parts = append(parts, "Parameters: "+names)
 	}
 	parts = append(parts, c.runLine())
+	if len(c.Loads) > 0 {
+		parts = append(parts, "Loads: lib:"+strings.Join(c.Loads, ", lib:"))
+	}
+	if c.Library {
+		parts = append(parts, c.usedByLine())
+	}
 	if c.Schedule != nil {
 		parts = append(parts, fmt.Sprintf("Schedule: %s (%s)%s",
 			c.Schedule.CronSpec, c.Schedule.Timezone, c.Schedule.stateSuffix()))
@@ -210,6 +225,9 @@ func (c Contract) Text() string {
 // runLine states in one line whether anything will execute this script, naming
 // the refusal when there is one so a reader is never left to infer it.
 func (c Contract) runLine() string {
+	if c.Library {
+		return fmt.Sprintf("Library: other scripts load it by version, as load(\"lib:%s@%d\", ...); it is never run itself.", c.Name, c.Version)
+	}
 	if c.Refusal != "" {
 		return fmt.Sprintf("Runs: a run requested now would be refused: %s.", c.Refusal)
 	}
@@ -320,6 +338,9 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Params:      sc.Params,
 		Version:     sc.Version,
 		Refusal:     refusalText(RefuseRun(sc)),
+		Library:     sc.Library,
+		Loads:       append([]string{}, sc.Loads...),
+		UsedBy:      []libraryuse.Use{},
 	}
 	if sched != nil {
 		c.Schedule = contractSchedule(sched)
@@ -328,6 +349,18 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		c.LastRun = contractRun(lastRun)
 	}
 	return c
+}
+
+// usedByLine names the scripts loading a library and the version each loads.
+func (c Contract) usedByLine() string {
+	if len(c.UsedBy) == 0 {
+		return "Used by: no script loads it."
+	}
+	parts := make([]string, 0, len(c.UsedBy))
+	for _, u := range c.UsedBy {
+		parts = append(parts, fmt.Sprintf("%s (version %d)", u.Name, u.Version))
+	}
+	return "Used by: " + strings.Join(parts, ", ")
 }
 
 // refusalText renders a gate refusal as its message, or "" when the gate

@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -145,6 +146,7 @@ func New(cfg Config) *Handle {
 		Recordings: h.recordings, Destinations: cfg.Destinations, MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
 		Contracts: toolanswer.Live{Kits: cfg.Toolkits, Extra: notifylayer.AnswerContracts()},
 	}
+	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)
 	h.states, _ = h.store.(script.StateStore)

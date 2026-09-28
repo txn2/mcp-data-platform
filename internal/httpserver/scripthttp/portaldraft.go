@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/draftview"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -93,6 +94,10 @@ type validateResponse struct {
 	DynamicDestinations   bool `json:"dynamic_destinations"`
 	DynamicRefreshTargets bool `json:"dynamic_refresh_targets"`
 	DynamicTools          bool `json:"dynamic_tools"`
+	// Library is true when the source is a library (#1941), and Libraries is
+	// the library versions it loads.
+	Library   bool            `json:"library"`
+	Libraries []scriptlib.Ref `json:"libraries"`
 	// Note states any such gap in the author's terms.
 	Note string `json:"note,omitempty"`
 	// SaveRefusal is why a save of the source would be refused, Tests the
@@ -151,6 +156,8 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 		DynamicDestinations:   report.DynamicDestinations,
 		DynamicRefreshTargets: report.DynamicRefreshTargets,
 		DynamicTools:          report.DynamicTools,
+		Library:               report.Library,
+		Libraries:             report.Libraries,
 		Note:                  draftview.IncompleteNote(report),
 	})
 }

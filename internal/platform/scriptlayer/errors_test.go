@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -111,6 +112,15 @@ func TestStoreFailuresAreReportedWithoutLeakingDetail(t *testing.T) {
 		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
 		assert.True(t, res.IsError)
 		assert.Equal(t, "failed to delete script", resultText(res))
+	})
+
+	t.Run("a library in use", func(t *testing.T) {
+		h, store := newFailingHandle()
+		createDaily(t, h)
+		store.deleteErr = &libraryuse.InUseError{Users: []string{"weekly"}}
+		res := call(t, h, authorCtx(), manageScriptInput{Command: cmdDelete, Name: "daily"})
+		assert.True(t, res.IsError)
+		assert.Contains(t, resultText(res), "this library is loaded by weekly")
 	})
 
 	t.Run("list", func(t *testing.T) {

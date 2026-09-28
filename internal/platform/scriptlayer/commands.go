@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
@@ -51,6 +52,11 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	out := map[string]any{
 		fieldStatus: "created", "id": sc.ID, fieldName: sc.Name, fieldVersion: sc.Version,
 		"next": "Saved, and it runs: run_script executes it under the access you held when you saved it, and a schedule you set will fire it. Use run_draft to iterate on changes before saving them.",
+	}
+	if sc.Library {
+		out["library"] = true
+		out["next"] = fmt.Sprintf("Saved as a library, which is never run itself. A script loads this version with "+
+			"load(\"lib:%s@%d\", \"<function>\"); every later save is a new version, and a script keeps the version it names.", sc.Name, sc.Version)
 	}
 	addDescriptionNotice(out, sc)
 	addGateNotes(out, sent, gated)
@@ -249,6 +255,10 @@ func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mc
 		return errResult, nil, nil
 	}
 	removed, err := h.store.Delete(ctx, existing.ID)
+	var inUse *libraryuse.InUseError
+	if errors.As(err, &inUse) {
+		return errorResult(inUse.Error()), nil, nil
+	}
 	if err != nil {
 		slog.Error("failed to delete script", fieldName, existing.Name, logKeyError, err)
 		return errorResult("failed to delete script"), nil, nil
@@ -350,7 +360,7 @@ func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.
 			fieldName: sc.Name, "display_name": sc.DisplayName, "description": sc.Description,
 			"owner_email": sc.OwnerEmail, fieldStatus: sc.Status,
 			fieldVersion: sc.Version,
-			"category":   sc.Category, "tags": sc.Tags,
+			"category":   sc.Category, "tags": sc.Tags, "library": sc.Library,
 		})
 	}
 	return jsonResult(map[string]any{"scripts": items, "count": len(items)})

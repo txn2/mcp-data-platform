@@ -54,6 +54,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
@@ -270,6 +271,10 @@ type Options struct {
 	// the answer the binding was finally given, after any pacing and retry:
 	// what a recording holds (#1939).
 	OnCall func(tool string, args, out map[string]any, err error)
+
+	// Libraries is where the libraries the source loads are read from
+	// (#1941); nil refuses every load.
+	Libraries scriptlib.Source
 
 	// Test, when not nil, makes the execution one of the script's tests
 	// (#1939) rather than a run.
@@ -588,7 +593,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	go watchCancel(runCtx, thread, done)
 
 	started := time.Now()
-	globals, execErr := scriptdialect.Exec(thread, opts.Name, opts.Source, predeclared(host), opts.hooks(host.mem.Ended))
+	env := predeclared(host)
+	thread.Load = scriptlib.Loader(runCtx, opts.Libraries, libraryEnv(env))
+	globals, execErr := scriptdialect.Exec(thread, opts.Name, opts.Source, env, opts.hooks(host.mem.Ended))
 	if settled := host.mem.Settle(globals); execErr == nil && settled != nil {
 		execErr = settled
 	}
@@ -696,6 +703,7 @@ func predeclared(host *hostState) starlark.StringDict {
 			Name: "platform",
 			Members: starlark.StringDict{
 				"query":        starlark.NewBuiltin(CapabilityQuery, host.guarded(host.query)),
+				"execute":      starlark.NewBuiltin(CapabilityExecute, host.guarded(host.execute)),
 				"export":       starlark.NewBuiltin(CapabilityExport, host.guarded(host.export)),
 				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.guarded(host.publishData)),
 				"call":         starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
@@ -719,6 +727,15 @@ func predeclared(host *hostState) starlark.StringDict {
 		maps.Copy(env, host.opts.Test.Env)
 	}
 	return env
+}
+
+// libraryEnv is what a library sees: the script's environment without the
+// names that reach the run, since a library is pure code (#1941).
+func libraryEnv(env starlark.StringDict) starlark.StringDict {
+	out := maps.Clone(env)
+	delete(out, "platform")
+	delete(out, "run")
+	return out
 }
 
 // testOnly is what a run binds a test module's name to: any use of it fails,

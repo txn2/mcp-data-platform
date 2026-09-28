@@ -110,6 +110,7 @@ func (a *analyzer) nodes(s *step) []Node {
 // draws the table it registers.
 var memberCards = map[string]func(*card, *Node){
 	"query":        (*card).query,
+	"execute":      (*card).execute,
 	"publish_data": (*card).publishData,
 	"notify":       (*card).notify,
 	"publish":      (*card).publish,
@@ -143,6 +144,17 @@ func (c *card) query(n *Node) {
 	if !sqlFull && len(tables) == 0 {
 		n.Detail = []string{"SQL assembled at run time"}
 	}
+}
+
+// execute is platform.execute: the statement it writes with, on the
+// connection it names (#1950).
+func (c *card) execute(n *Node) {
+	conn, full := c.value(c.kw["connection"])
+	if c.kw["connection"] == nil {
+		conn = defaultConnection
+	}
+	c.writeStatement(n, c.arg("sql", 0), conn)
+	n.Computed = n.Computed || !full
 }
 
 func (c *card) export(n Node) []Node {

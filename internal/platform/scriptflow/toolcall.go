@@ -102,8 +102,14 @@ func (c *card) apiExport(n *Node, f map[string]syntax.Expr, conn string) {
 }
 
 func (c *card) trinoExecute(n *Node, f map[string]syntax.Expr, conn string) {
+	c.writeStatement(n, f["sql"], conn)
+}
+
+// writeStatement is the card of a statement that changes state: its verb and
+// the table it writes, read from the SQL.
+func (c *card) writeStatement(n *Node, sqlExpr syntax.Expr, conn string) {
 	n.Role, n.Kind, n.Title = RoleWrites, KindWrite, onConn("Write", conn)
-	sql, _ := c.value(f["sql"])
+	sql, _ := c.value(sqlExpr)
 	m := dmlRe.FindStringSubmatch(sql)
 	if m == nil {
 		n.Subtitle = "SQL assembled at run time"

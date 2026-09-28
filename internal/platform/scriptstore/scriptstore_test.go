@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -31,6 +33,7 @@ var scriptSelectColumns = []string{
 	"owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version",
 	"created_at", "updated_at", "legacy", "tests_optional", "outputs_read_optional",
+	"library", "library_loads",
 }
 
 var rowTime = time.Unix(1700000000, 0).UTC()
@@ -55,6 +58,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.owner, pq.Array([]string{}), true, "active",
 		"", nil, 1, rowTime, rowTime, false, false, false,
+		false, pq.Array([]string{}),
 	}
 }
 
@@ -205,8 +209,83 @@ func TestUpdate_MissingRowIsAnError(t *testing.T) {
 func expectLockedCascadeRead(mock sqlmock.Sqlmock, id string, schedule, runs, state bool) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE id = $1 FOR UPDATE")).WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
+	expectLibraryUnused(mock, id)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"a", "b", "c"}).AddRow(schedule, runs, state))
+}
+
+// expectLibraryUnused queues the read that refuses deleting a library another
+// script loads, answering that none does.
+func expectLibraryUnused(mock sqlmock.Sqlmock, id string) {
+	mock.ExpectQuery(regexp.QuoteMeta("unnest(u.library_loads)")).WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{"users"}).AddRow(pq.Array([]string{})))
+}
+
+// TestDelete_RefusesALibraryInUse: a library another script's current source
+// loads is not deleted, and the refusal names the scripts (#1941).
+func TestDelete_RefusesALibraryInUse(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("lib").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("lib"))
+	mock.ExpectQuery(regexp.QuoteMeta("unnest(u.library_loads)")).WithArgs("lib").
+		WillReturnRows(sqlmock.NewRows([]string{"users"}).AddRow(pq.Array([]string{"daily", "weekly"})))
+	mock.ExpectRollback()
+	_, err := s.Delete(context.Background(), "lib")
+	var inUse *libraryuse.InUseError
+	require.ErrorAs(t, err, &inUse)
+	assert.Equal(t, []string{"daily", "weekly"}, inUse.Users)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("lib").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("lib"))
+	mock.ExpectQuery(regexp.QuoteMeta("unnest(u.library_loads)")).WithArgs("lib").WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+	_, err = s.Delete(context.Background(), "lib")
+	assert.ErrorContains(t, err, "read the scripts loading a library")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestLibrarySource reads one version of a library and answers
+// scriptlib.ErrNotFound for one that does not exist.
+func TestLibrarySource(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE s.library AND s.name = $1 AND v.version = $2")).WithArgs("dates", 2).
+		WillReturnRows(sqlmock.NewRows([]string{"source_code"}).AddRow("def f():\n    return 1\n"))
+	src, err := s.LibrarySource(context.Background(), "dates", 2)
+	require.NoError(t, err)
+	assert.Equal(t, "def f():\n    return 1\n", src)
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE s.library")).WithArgs("dates", 9).WillReturnError(sql.ErrNoRows)
+	_, err = s.LibrarySource(context.Background(), "dates", 9)
+	require.ErrorIs(t, err, scriptlib.ErrNotFound)
+
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE s.library")).WithArgs("dates", 3).WillReturnError(errors.New("boom"))
+	_, err = s.LibrarySource(context.Background(), "dates", 3)
+	assert.ErrorContains(t, err, "read library dates@3")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUsedBy lists the scripts loading a library with the version each loads.
+func TestUsedBy(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("unnest(s.library_loads)")).WithArgs("dates").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "display_name", "owner_email", "version"}).
+			AddRow("s1", "weekly", "Weekly", "jane@example.com", 2))
+	uses, err := s.UsedBy(context.Background(), "dates")
+	require.NoError(t, err)
+	assert.Equal(t, []libraryuse.Use{{ScriptID: "s1", Name: "weekly", DisplayName: "Weekly", OwnerEmail: "jane@example.com", Version: 2}}, uses)
+
+	mock.ExpectQuery(regexp.QuoteMeta("unnest(s.library_loads)")).WithArgs("none").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "display_name", "owner_email", "version"}))
+	uses, err = s.UsedBy(context.Background(), "none")
+	require.NoError(t, err)
+	assert.Equal(t, []libraryuse.Use{}, uses, "an empty list is [], never null")
+
+	mock.ExpectQuery(regexp.QuoteMeta("unnest(s.library_loads)")).WillReturnError(errors.New("boom"))
+	_, err = s.UsedBy(context.Background(), "x")
+	assert.ErrorContains(t, err, "list the scripts loading x")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestDelete(t *testing.T) {
@@ -261,6 +340,7 @@ func TestDelete(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).WithArgs("unreadable").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("unreadable"))
+	expectLibraryUnused(mock, "unreadable")
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_schedules")).WithArgs("unreadable").
 		WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
@@ -301,6 +381,15 @@ func TestBuildListQuery(t *testing.T) {
 // category (#1369). The tag arm is an OVERLAP rather than a containment: naming
 // two tags asks for the scripts carrying either, which is the union of two
 // shelves and not their intersection.
+// TestBuildListQuery_Kind narrows to libraries or to the scripts that run
+// (#1941).
+func TestBuildListQuery_Kind(t *testing.T) {
+	library := true
+	query, args := buildListQuery(script.ListFilter{Library: &library})
+	assert.Contains(t, query, "library = $1")
+	assert.Equal(t, true, args[0])
+}
+
 func TestBuildListQuery_FacetAxes(t *testing.T) {
 	query, args := buildListQuery(script.ListFilter{Category: "reporting"})
 	assert.Contains(t, query, "category = $1")

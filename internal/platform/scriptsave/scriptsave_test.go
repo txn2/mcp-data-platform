@@ -310,7 +310,7 @@ func TestALintFindingRefusesBeforeTheTestsRun(t *testing.T) {
 	res := (&Gate{}).Check(context.Background(), Request{Name: "x", Source: "print(1)\n", Caller: jane})
 	assert.True(t, res.Refused())
 	assert.Nil(t, res.Tests)
-	assert.Contains(t, res.Refusal, "entry-point")
+	assert.Contains(t, res.Refusal, "top-level-work")
 }
 
 // replay runs source against run_9.
