@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -570,5 +571,22 @@ func TestInputSchema_ActionEnum(t *testing.T) {
 	}
 	if _, ok := s.Properties["channel"]; !ok {
 		t.Error("the rest of the inferred schema should be kept")
+	}
+}
+
+// A declared answer for platform.notify or platform.publish is held to what
+// the tool answers a send (#1953).
+func TestAnswerContractsCoverSendAndPublish(t *testing.T) {
+	contracts := AnswerContracts()
+	if len(contracts) != 1 {
+		t.Fatalf("contracts = %d, want 1", len(contracts))
+	}
+	c := contracts[0]
+	if c.Tool != ToolName || c.Arg != "action" || !slices.Equal(c.Values, []string{actionSend, actionPublish}) {
+		t.Fatalf("contract covers %s %s=%v", c.Tool, c.Arg, c.Values)
+	}
+	required := slices.Sorted(slices.Values(c.Schema.Required))
+	if want := []string{"channel", "delivered", "detail", "kind", "queued"}; !slices.Equal(required, want) {
+		t.Fatalf("required = %v, want %v", required, want)
 	}
 }

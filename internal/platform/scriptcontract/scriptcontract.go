@@ -460,12 +460,50 @@ TESTS, AND WHAT A SAVE RUNS
   literal; every host call the test makes is answered from it and nothing
   reaches an upstream. A call it holds no answer for fails the test naming
   the call, as the recording holds no answer for platform.query("select 1").
-  A test naming no recording has no answers: its tool calls fail, and its
-  exports are previewed. testing.outputs() is what the execution produced so
+  testing.answer(tool, args, answer) declares the answer a call gets, alone
+  or on top of a recording: a call to tool whose arguments include every key
+  and value in args is answered with answer (a dict, as the tool answers), or
+  with error="..." fails instead. Declared answers are matched in the order
+  they were declared, before the recording, and each answers one call. That
+  is how a test reaches a write no draft performed (a draft without
+  allow_writes stops at the write, and its recording holds every call before
+  it), a failure path, or a branch no recording takes:
+    def main():
+        """Files the day's extract and reports the resource it became."""
+        rows = platform.query(connection = "warehouse", sql = "select region, n from daily")["rows"]
+        content = "region,n\n" + "".join(["%s,%d\n" % (r["region"], r["n"]) for r in rows])
+        made = platform.call("manage_resource", {"action": "create", "filename": "daily.csv",
+                                                 "content_type": "text/csv", "content": content})
+        platform.result({"resource": made["resource_id"], "rows": len(rows)})
+
+    def test_files_the_extract():
+        """The recorded draft's rows are filed as one resource."""
+        testing.replay("dpx_0123abcd")
+        testing.answer("manage_resource", {"action": "create", "filename": "daily.csv"}, {
+            "resource_id": "r1", "reference": "mcp:resource:r1", "uri": "mcp://resources/r1/daily.csv",
+            "filename": "daily.csv", "display_name": "daily.csv", "scope": "user", "path": "",
+            "content_type": "text/csv", "size_bytes": 24, "message": "Created."})
+        main()
+        out = testing.outputs()
+        assert.eq(out.calls[1].args["content"], "region,n\neast,1\nwest,2\n")
+        assert.eq(out.result, {"resource": "r1", "rows": 2})
+  A declared answer is held to what the tool always answers, where the tool
+  declares that (manage_resource, manage_table, manage_asset, save_asset and
+  trino_execute do): an answer lacking a field the tool always returns, a
+  field of another type, or a nested key the tool never returns fails the
+  test naming the field. Where the tool declares nothing the answer is not
+  checked, and the test result says so in its notes. testing.set_run(state=,
+  params=) sets what run.state and run.params read for the rest of the test,
+  which is how a test reaches a branch that runs only when saved state is
+  present. A test naming no recording answers only what it declares, and
+  its exports are previewed. testing.outputs() is what the execution produced so
   far, written nowhere: exports (each with name, format, destination, key,
   columns, rows, row_count, body), publishes (name, data), notifies (each
-  notify call's arguments), calls (every tool call: tool, args, error), state
-  (what save_state staged, or None), result (platform.result, or None) and log.
+  notify call's arguments), calls (every tool call: tool, args, error, and
+  declared, true when a declared answer answered it), state (what save_state
+  staged, or None), result (platform.result, or None) and log. A row reads as
+  a dict (row["region"], row.get("n"), items, keys, values) but is its own
+  type: compare rows with assert.eq, which compares their contents, not ==.
   assert.eq(got, want, msg=""), assert.ne(got, other, msg=""),
   assert.true(cond, msg=""), assert.contains(container, item, msg="") fail
   the test at their line saying what they got; assert.fails(fn, *args) calls
@@ -482,11 +520,20 @@ TESTS, AND WHAT A SAVE RUNS
   A save runs the tests. A script is saved only with at least one test, every
   test passing, and at least 80% of its statements reached. A test is
   refused when it makes no assertion, and when it still passes after the
-  recorded query rows are altered (the last row dropped, the first row's
-  values changed): its assertions must read what the script made of the
-  data; a test that the run fails, assert.fails(main), is not altered,
-  nor one whose execution produced no output at all. A script saved before tests were required saves without them; once
-  it has tests, they must keep passing and may not reach less of it.
+  query rows it replays or declares are altered (the last row dropped, the
+  first row's values changed): its assertions must read what the script made
+  of the data; a test that the run fails, assert.fails(main), is not altered,
+  nor one whose execution produced no output at all. The tests together must
+  also read every output their executions produced: each column of each
+  export's rows (reading row["region"], or handing a row or the rows to an
+  assertion; reading .columns or .row_count does not read a column), the
+  staged state, each notification, each published region and
+  platform.result. One test may read what another produced. A save naming
+  one no test reads is refused, as output "weekly" column "region" is never
+  asserted on; command=test lists them under "unread". A script saved before
+  tests were required saves without them; once it has tests, they must keep
+  passing and may not reach less of it, and a script saved before its tests
+  had to read every output is not held to that.
   A new version of a script that has run also replays the script's recent
   recorded runs through both versions and compares what they produced (rows,
   columns and their types, the state saved, notifications, platform.result,

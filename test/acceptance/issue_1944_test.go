@@ -134,7 +134,7 @@ func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 		"command": "create", "name": name, "source": inMain1944,
 		"description": "Acceptance #1944: a script saved before main().",
 	}, nil)
-	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, source_code = $2 WHERE name = $1`, name, topLevel1944)
+	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, outputs_read_optional = TRUE, source_code = $2 WHERE name = $1`, name, topLevel1944)
 	issue1904Exec(t, db, `UPDATE script_versions SET source_code = $2
 		WHERE script_id = (SELECT id FROM scripts WHERE name = $1)`, name, topLevel1944)
 

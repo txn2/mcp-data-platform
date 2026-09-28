@@ -26,11 +26,13 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/legacyhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgebuiltin"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
@@ -41,6 +43,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/producedview"
+	"github.com/txn2/mcp-data-platform/internal/toolanswer"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -232,6 +235,9 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 	scripts.RegisterAdmin(mux, prefix, buildAdminAuth(p))
 	// A version drawn as a diagram (#1906), read through the same lookup.
 	flowhttp.ForAdmin(scripts, deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+	// The scripts saved before the harness that it has not caught up with
+	// (#1943).
+	legacyhttp.New(deps.Scripts).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }
 
 // mountScriptPortalAPI registers the portal script routes: the scripts a caller
@@ -312,6 +318,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 		Gate: &scriptsave.Gate{
 			Recordings: recstore.New(p.DB()), Destinations: p.Config().Scripts.ScriptDestinations(),
 			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
+			Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
 		},
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {

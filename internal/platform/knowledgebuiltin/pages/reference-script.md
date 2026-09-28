@@ -25,8 +25,8 @@ name (`example-weekly-revenue`), and it passes every check a save makes.
   adding.
 - **`fail()` names why.** An empty week is refused with the window it looked
   at, which is what the run record and its notification say.
-- **`platform.export` writes the output, `platform.result` hands back the
-  answer** to whoever ran the script.
+- **`platform.export` writes the output, `platform.notify` posts the week's
+  total, `platform.result` hands back the answer** to whoever ran the script.
 
 ## How its tests are written
 
@@ -43,23 +43,36 @@ flowchart LR
 
 1. Draft the script with `manage_script run_draft`. The draft records every
    host call it makes with the answer it got, and returns the recording's id
-   as `recording`.
+   as `recording`. A draft does not write: this one stops at
+   `platform.notify`, and its recording holds the query before it.
 2. Write a `test_*` function that names that id with
-   `testing.replay("<id>")`, calls `main()`, and asserts on
-   `testing.outputs()`: the rows exported, the state saved, the result. Every
-   host call is answered from the recording, so a test never reaches the
-   warehouse.
+   `testing.replay("<id>")`, declares the answer the write gets with
+   `testing.answer(tool, args, answer)`, calls `main()`, and asserts on
+   `testing.outputs()`: the rows exported, the notification, the state saved,
+   the result. Every host call is answered from the recording or the declared
+   answer, so a test never reaches the warehouse and posts nothing.
 3. For a path the first draft did not take, draft again with the inputs that
    take it and write a test for that recording, as `test_an_empty_week_fails`
-   does for a week with no orders.
+   does for a week with no orders. A path that depends on saved state takes
+   `testing.set_run(state = {...})` before `main()`, with the answers that
+   path's calls get declared.
 4. Test pure functions directly, with rows written into the test, as
    `test_summarize_keeps_regions_with_orders` does.
-5. Run `manage_script test` until every test passes and the coverage it
-   reports names no missed line you care about; then save.
+5. Run `manage_script test` until every test passes, the coverage it reports
+   names no missed line you care about, and nothing is listed under `unread`;
+   then save.
 
 A test must assert on what the script produced. A test with no assertion is
-refused, and so is one that still passes when the recorded rows are changed
-under it: its assertions are not reading the data.
+refused, and so is one that still passes when the rows it replays or declares
+are changed under it: its assertions are not reading the data. The tests
+together must read every output they produce, every column of every export
+included: `test_a_recorded_week` compares the whole exported rows rather than
+counting them.
+
+A declared answer is held to what the tool always answers. The notify tool
+answers a send with `channel`, `kind`, `queued`, `delivered` and `detail`, so
+`test_a_recorded_week` declares all five; leaving one out fails the test
+naming it.
 
 ## Changing it later
 

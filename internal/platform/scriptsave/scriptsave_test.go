@@ -116,6 +116,8 @@ def test_weekly():
     testing.replay("run_1")
     main()
     assert.eq(testing.outputs().exports[0].row_count, 2)
+    assert.eq([r["region"] for r in testing.outputs().exports[0].rows], ["east", "west"])
+    assert.eq([r["n"] for r in testing.outputs().exports[0].rows], [1, 2])
 `
 
 var jane = Caller{Email: "jane@example.com"}
@@ -198,15 +200,16 @@ func TestABehaviorChangeNeedsASummaryAndAgreement(t *testing.T) {
 	assert.Empty(t, res.Differences)
 	assert.Equal(t, []string{"run_9"}, res.Replayed)
 
-	// A column the export no longer carries.
-	dropped := strings.Replace(weekly, `rows = rows, format`, `rows = [{"region": r["region"]} for r in rows], format`, 1)
-	res = g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: dropped + replays, Caller: jane})
+	// A column the export no longer carries, whose test no longer reads it.
+	dropped := strings.Replace(weekly, `rows = rows, format`, `rows = [{"region": r["region"]} for r in rows], format`, 1) +
+		strings.Replace(replays, "    assert.eq([r[\"n\"] for r in testing.outputs().exports[0].rows], [1, 2])\n", "", 1)
+	res = g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: dropped, Caller: jane})
 	require.True(t, res.ChangeNeeded)
 	assert.Contains(t, res.Refusal, `output "weekly" no longer has column "n"`)
 	assert.Contains(t, res.Refusal, "change_summary")
 
 	res = g.Check(context.Background(), Request{
-		Existing: existing, Name: "weekly", Source: dropped + replays, Caller: jane,
+		Existing: existing, Name: "weekly", Source: dropped, Caller: jane,
 		ChangeSummary: "The weekly file no longer carries the count.", Agreed: true,
 	})
 	assert.Empty(t, res.Refusal)
@@ -215,7 +218,7 @@ func TestABehaviorChangeNeedsASummaryAndAgreement(t *testing.T) {
 
 	// A summary without the agreement is not enough.
 	res = g.Check(context.Background(), Request{
-		Existing: existing, Name: "weekly", Source: dropped + replays, Caller: jane, ChangeSummary: "x",
+		Existing: existing, Name: "weekly", Source: dropped, Caller: jane, ChangeSummary: "x",
 	})
 	assert.True(t, res.ChangeNeeded)
 }
@@ -338,4 +341,30 @@ func TestCoverageIsKeptOnlyAgainstTestsThatRan(t *testing.T) {
 	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: "def (", TestsOptional: true}
 	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + replays, Caller: jane})
 	assert.NotContains(t, res.Refusal, "coverage")
+}
+
+func TestANewScriptsTestsMustReadEveryOutputTheyProduce(t *testing.T) {
+	st := &store{}
+	record(t, st, "run_1", "", weekly)
+	g := &Gate{Recordings: st}
+	countOnly := weekly + `
+def test_weekly():
+    """The recorded run exports two regions."""
+    testing.replay("run_1")
+    main()
+    assert.eq(testing.outputs().exports[0].row_count, 2)
+`
+	res := g.Check(context.Background(), Request{Name: "weekly", Source: countOnly, Caller: jane})
+	require.True(t, res.Refused())
+	assert.Contains(t, res.Refusal, `output "weekly" column "region" is never asserted on; output "weekly" column "n" is never asserted on`)
+	assert.Equal(t, []string{`output "weekly" column "region"`, `output "weekly" column "n"`}, res.Tests.Unread)
+
+	res = g.Check(context.Background(), Request{Name: "weekly", Source: weekly + replays, Caller: jane})
+	assert.Empty(t, res.Refusal, "reading both columns saves")
+
+	// A script created before tests had to read their outputs keeps saving
+	// as it did.
+	older := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: countOnly, OutputsReadOptional: true}
+	res = g.Check(context.Background(), Request{Existing: older, Name: "weekly", Source: countOnly, Caller: jane})
+	assert.Empty(t, res.Refusal)
 }

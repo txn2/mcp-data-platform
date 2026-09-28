@@ -165,7 +165,8 @@ func TestValidate_ReportsADynamicConnection(t *testing.T) {
 func TestValidate_ReportsRefreshTargets(t *testing.T) {
 	h, _ := newHandle()
 	fields := resultFields(t, call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdValidate, Source: tested(inMain("platform.publish_data(\"dash\", {\"a\": 1})")),
+		Command: cmdValidate, Source: inMain("platform.publish_data(\"dash\", {\"a\": 1})") +
+			"\ndef test_main():\n    \"\"\"Refreshes the region.\"\"\"\n    main()\n    assert.eq(testing.outputs().publishes[0].data, {\"a\": 1})\n",
 	}))
 	assert.Equal(t, true, fields["ok"])
 	assert.Equal(t, []any{"dash"}, fields["refresh_targets"])

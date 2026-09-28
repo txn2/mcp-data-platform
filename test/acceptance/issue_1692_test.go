@@ -86,9 +86,11 @@ var issue1692Expected = map[string]issue1692Expectation{
 	// Writes that only add. An export lands a new asset, or the next
 	// version of a managed resource with the earlier versions kept;
 	// save_asset lands a new asset or a new version of one; a feedback
-	// thread accumulates a timeline and has no action that removes from it.
+	// thread accumulates a timeline and has no action that removes from it;
+	// a notification is queued, and nothing already sent is changed.
 	"save_asset":      {destructive: false},
 	"manage_feedback": {destructive: false},
+	"notify":          {destructive: false},
 	"trino_export":    {destructive: false},
 	"api_export":      {destructive: false},
 	"graphql_export":  {destructive: false},

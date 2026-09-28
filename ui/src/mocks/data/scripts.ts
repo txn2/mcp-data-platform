@@ -205,6 +205,12 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
       author_roles: ["analyst"],
       status: "applied",
       created_at: daysAgo(31),
+      // v2 changed what the report does, agreed with the person it runs for
+      // before it was saved (#1942), which the script page reads (#1943).
+      change_summary:
+        "The report now lists the regions by revenue, highest first, and remembers the last day it covered so a missed day is reported the next morning.",
+      change_agreed_by: "sarah.chen@example.com",
+      change_agreed_at: daysAgo(31),
     },
     {
       id: "sver-001-v1",
@@ -911,4 +917,32 @@ export const mockScriptStates: Record<string, ScriptState> = {
     updated_at: hoursAgo(2),
     run_id: "run-001",
   },
+};
+
+// mockPreHarnessScripts is the administrators' view of the automations saved
+// before lint and tests were required that still need bringing up (#1943).
+export const mockPreHarnessScripts = {
+  data: [
+    {
+      id: "script-003",
+      name: "warehouse-freshness",
+      display_name: "Warehouse Freshness Check",
+      owner_email: "sarah.chen@example.com",
+      updated_at: daysAgo(90),
+      lint_findings: 4,
+      tests: 0,
+    },
+    {
+      id: "script-004",
+      name: "my-margin-check",
+      display_name: "My Margin Check",
+      owner_email: "sarah.chen@example.com",
+      updated_at: daysAgo(45),
+      lint_findings: 0,
+      tests: 0,
+    },
+  ],
+  total: 2,
+  examined: 5,
+  pre_harness: 5,
 };

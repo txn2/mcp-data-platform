@@ -173,6 +173,11 @@ type Script struct {
 	// it; nothing an author sends changes it.
 	TestsOptional bool `json:"-"`
 
+	// OutputsReadOptional is true for a script that existed before its tests
+	// were required to read every output they produce (#1952). The store sets
+	// it; nothing an author sends changes it.
+	OutputsReadOptional bool `json:"-"`
+
 	// ChangeSummary is the agreed behavior change the save in progress
 	// carries (#1942): what the automation now does differently, in plain
 	// language, and ChangeAgreedBy who confirmed that the person it runs for
@@ -286,7 +291,10 @@ type ListFilter struct {
 	Category string
 	Tags     []string
 	Search   string // free-text search on name, display_name, description
-	Limit    int    // cap the number of rows returned; 0 means the store default
+	// PreHarness narrows to the scripts saved before the authoring harness
+	// (#1943): those still saved as legacy or without required tests.
+	PreHarness bool
+	Limit      int // cap the number of rows returned; 0 means the store default
 	// Sort names the column to order by and Desc the direction. An empty or
 	// unrecognized Sort falls back to the default, most-recently-updated
 	// first: a listing answers with the wrong order rather than refusing,

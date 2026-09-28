@@ -20,17 +20,20 @@ import (
 // fails, or whose script fails, under either one depends on the data. The
 // altered run answers a call whose arguments moved with the rows with the
 // answer its tool gave in the recording (scriptrec.Replay.Lenient). A
-// recording holding no query rows is not altered, and the test stands.
-func insensitive(ctx context.Context, req Request, name string, rec *scriptrec.Recording) string {
+// recording holding no query rows is not altered, and the test stands. The
+// rows of every answer the test declares (testing.answer, #1953) are altered
+// with the recording's, and a test whose only data is a declared answer is
+// held to them the same way.
+func insensitive(ctx context.Context, req Request, name string, rec *scriptrec.Recording, declaredRows bool) string {
 	alterations := []func([]any) []any{dropLastRow, changeFirstRow}
 	altered := 0
 	for _, alter := range alterations {
 		changed, ok := alterRecording(rec, alter)
-		if !ok {
+		if !ok && !declaredRows {
 			return ""
 		}
 		out, _, err := execute(ctx, req, execution{
-			entry: name, recording: rec.RunID, rec: changed, replay: scriptrec.NewReplay(changed).Lenient(),
+			entry: name, recording: rec.RunID, rec: changed, replay: scriptrec.NewReplay(changed).Lenient(), alter: alter,
 		})
 		if err != nil || out.asserts == 0 {
 			return ""
@@ -40,7 +43,7 @@ func insensitive(ctx context.Context, req Request, name string, rec *scriptrec.R
 	if altered == 0 {
 		return ""
 	}
-	return name + " still passes when the recorded query results change (the last row dropped, or the first " +
+	return name + " still passes when the query results it replays or declares change (the last row dropped, or the first " +
 		"row's values changed), so its assertions do not read what the script produced from them; assert on " +
 		"the exports, state, notifications or result the rows lead to"
 }

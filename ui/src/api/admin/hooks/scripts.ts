@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ScriptVersion, VersionDetail } from "../types/scripts";
+import type { PreHarnessListing, ScriptVersion, VersionDetail } from "../types/scripts";
 import { apiFetch } from "../client";
 
 // Managed-script admin hooks: one script's version history, and one version's
@@ -34,5 +34,15 @@ export function useScriptVersionDetail(scriptID: string | null, version: number 
     queryFn: () =>
       apiFetch<VersionDetail>(`/scripts/${scriptID}/versions/${version}`),
     enabled: !!scriptID && !!version,
+  });
+}
+
+// usePreHarnessScripts reads the automations saved before lint and tests were
+// required that still carry lint findings or have no tests (#1943). The route
+// is an administrator's.
+export function usePreHarnessScripts() {
+  return useQuery({
+    queryKey: [...scriptsKey, "legacy"],
+    queryFn: () => apiFetch<PreHarnessListing>("/scripts/legacy"),
   });
 }

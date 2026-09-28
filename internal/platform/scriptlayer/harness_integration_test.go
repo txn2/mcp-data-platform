@@ -19,7 +19,7 @@ const salesSource = `def main():
 `
 
 // salesAssertion is what a test of salesSource checks.
-const salesAssertion = `assert.eq([r["total"] for r in testing.outputs().exports[0].rows], [120, 80])`
+const salesAssertion = `assert.eq([(r["region"], r["total"]) for r in testing.outputs().exports[0].rows], [("west", 120), ("east", 80)])`
 
 // asRun files the draft recording id as a run of scriptID, which is what a
 // run of the saved script would have recorded: the save's replay reads a
@@ -73,12 +73,12 @@ func TestIntegration_TestCommandReplaysTheRecording(t *testing.T) {
 	assert.Equal(t, false, ran["ok"])
 	assert.Contains(t, firstFailure(ran), `the recording holds no answer for platform.query("SELECT 1")`)
 
-	wrong := strings.Replace(source, "[120, 80]", "[120, 81]", 1)
+	wrong := strings.Replace(source, `("east", 80)]`, `("east", 81)]`, 1)
 	ran, isErr = callTool(ctx, t, session, map[string]any{"command": "test", "name": "sales", "source": wrong})
 	require.False(t, isErr, ran)
 	tests, _ := ran["tests"].([]any)
 	first, _ := tests[0].(map[string]any)
-	assert.Contains(t, first["failure"], "assert.eq: got [120, 80], want [120, 81]")
+	assert.Contains(t, first["failure"], `assert.eq: got [("west", 120), ("east", 80)], want [("west", 120), ("east", 81)]`)
 	assert.EqualValues(t, 10, first["line"], "the assertion's own line")
 }
 

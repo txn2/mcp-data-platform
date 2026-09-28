@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/notifylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/toolanswer"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -296,7 +298,7 @@ def test_weekly():
     assert.eq(len(testing.outputs().exports), 1)
 `, rec)
 	assert.False(t, blind.OK())
-	assert.Contains(t, blind.Tests[0].Failure, "still passes when the recorded query results change")
+	assert.Contains(t, blind.Tests[0].Failure, "still passes when the query results it replays or declares change")
 
 	// Reading the rows is enough: dropping one changes the count, and
 	// changing the first changes its region.
@@ -435,7 +437,7 @@ def test_blind():
     assert.eq(len(testing.outputs().exports), 1)
 `, rec)
 	assert.False(t, blind.Tests[0].Passed)
-	assert.Contains(t, blind.Tests[0].Failure, "still passes when the recorded query results change")
+	assert.Contains(t, blind.Tests[0].Failure, "still passes when the query results it replays or declares change")
 }
 
 // An appended output is one output to a test, its pages in order, while the
@@ -482,8 +484,10 @@ func (w weekRows) CallTool(context.Context, string, map[string]any) (map[string]
 }
 
 // The reference script (#1939) passes every one of its own tests, reaches
-// the statements a save requires, and is not blind to its data: it is what
-// the platform-reference-script page shows an author.
+// the statements a save requires, is not blind to its data, reads every
+// output it produces (#1952) and answers the write its draft stopped at with
+// a declared answer the notify tool's contract accepts (#1953): it is what the
+// platform-reference-script page shows an author.
 func TestTheReferenceScriptPassesItsOwnTests(t *testing.T) {
 	ex, ok := scriptexamples.Lookup(scriptexamples.ReferenceName)
 	require.True(t, ok)
@@ -491,8 +495,11 @@ func TestTheReferenceScriptPassesItsOwnTests(t *testing.T) {
 	recordWeek := func(id string, rows weekRows) *scriptrec.Recording {
 		params := map[string]any{"connection": "warehouse"}
 		rec := scriptrec.NewRecorder(scriptrec.Header{RunID: id, FireTime: fire, Params: params, MaxRows: scriptrun.DraftMaxRows, Preview: true})
+		// Recorded as a draft is: behind the write barrier, so the draft of a
+		// week with orders stops at the notification it would post.
 		_, _ = scriptrun.Run(context.Background(), scriptrun.Options{
 			Source: ex.Source, Name: "weekly", RunID: id, FireTime: fire, Params: params, Caller: rows, OnCall: rec.OnCall,
+			Writes: scriptrun.WritesRefused,
 		})
 		data, reason := rec.Finish()
 		require.Empty(t, reason)
@@ -507,14 +514,19 @@ func TestTheReferenceScriptPassesItsOwnTests(t *testing.T) {
 		}),
 		"dpx_recording_of_an_empty_week": recordWeek("dpx_recording_of_an_empty_week", weekRows{}),
 	}
+	for _, c := range recordings["dpx_recording_of_a_draft"].Calls {
+		assert.NotEqual(t, "notify", c.Tool, "the draft stops at the notification and records no answer for it")
+	}
 	report, err := Run(context.Background(), Request{
-		Source: ex.Source, Name: "weekly",
+		Source: ex.Source, Name: "weekly", Contracts: toolanswer.New(notifylayer.AnswerContracts()...),
 		Load: func(_ context.Context, id string) (*scriptrec.Recording, error) { return recordings[id], nil },
 	})
 	require.NoError(t, err)
 	for _, test := range report.Tests {
 		assert.True(t, test.Passed, "%s: %s (line %d)", test.Name, test.Failure, test.Line)
+		assert.Empty(t, test.Notes, "the declared answer was checked against the notify tool's contract")
 	}
 	assert.Len(t, report.Tests, 4)
 	assert.GreaterOrEqual(t, report.Coverage.Percent, 80.0, "missed %v", report.Coverage.MissedLines)
+	assert.Empty(t, report.Unread)
 }

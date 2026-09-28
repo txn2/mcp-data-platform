@@ -8054,6 +8054,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/scripts/legacy": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every script saved before the formatter, lint and required tests (#1913) that still has a lint finding or no test, with the count of each. A script with no finding and at least one test is not listed. examined is how many such scripts were read (at most one store page) and pre_harness how many exist. Restricted to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List the scripts saved before the authoring harness that it has not caught up with",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/legacyhttp.Listing"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/scripts/runs": {
             "get": {
                 "security": [
@@ -29743,6 +29783,63 @@ const docTemplate = `{
                 }
             }
         },
+        "legacyhttp.Listing": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/legacyhttp.Script"
+                    }
+                },
+                "examined": {
+                    "type": "integer",
+                    "example": 40
+                },
+                "pre_harness": {
+                    "type": "integer",
+                    "example": 40
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "legacyhttp.Script": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string",
+                    "example": "Weekly sales"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b"
+                },
+                "lint_findings": {
+                    "description": "LintFindings is how many findings the lint reports on its source, and\nTests how many test_* functions it has.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "name": {
+                    "type": "string",
+                    "example": "weekly-sales"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "tests": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-08-13T14:30:00Z"
+                }
+            }
+        },
         "listcut.Count": {
             "type": "object",
             "properties": {
@@ -35428,6 +35525,13 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/scripttest.Result"
                     }
+                },
+                "unread": {
+                    "description": "Unread is every output the tests' executions produced that no test\nread (#1952), as output \"weekly\" column \"region\".",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -35446,6 +35550,13 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "notes": {
+                    "description": "Notes is what the author is told about a test that passed or failed\nalike: an answer declared for a tool that declares no answer contract,\nwhich nothing checked.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "passed": {
                     "type": "boolean"

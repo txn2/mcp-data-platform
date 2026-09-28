@@ -303,9 +303,14 @@ func (h *hostState) resolveDestination(name string) (script.Destination, error) 
 // daily report recompute "yesterday" identically when it is re-run months
 // later to explain what it said.
 func (h *hostState) runValue() starlark.Value {
-	params := starlark.NewDict(len(h.opts.Params))
-	for _, name := range starlarkconv.SortedKeys(h.opts.Params) {
-		v, err := starlarkconv.ToStarlark(h.opts.Params[name])
+	return h.runRecord(h.opts.Params, h.opts.State)
+}
+
+// runRecord is the frozen run record over the given parameters and state.
+func (h *hostState) runRecord(paramValues, stateValues map[string]any) *starlarkstruct.Struct {
+	params := starlark.NewDict(len(paramValues))
+	for _, name := range starlarkconv.SortedKeys(paramValues) {
+		v, err := starlarkconv.ToStarlark(paramValues[name])
 		if err != nil {
 			// Params are bound and type-checked by script.BindParams before a run
 			// exists, so an unconvertible value here is a defect in the caller,
@@ -315,9 +320,9 @@ func (h *hostState) runValue() starlark.Value {
 		}
 		_ = params.SetKey(starlark.String(name), v)
 	}
-	state := starlark.NewDict(len(h.opts.State))
-	for _, name := range starlarkconv.SortedKeys(h.opts.State) {
-		v, err := starlarkconv.ToStarlark(h.opts.State[name])
+	state := starlark.NewDict(len(stateValues))
+	for _, name := range starlarkconv.SortedKeys(stateValues) {
+		v, err := starlarkconv.ToStarlark(stateValues[name])
 		if err != nil {
 			// State was validated as JSON-representable when it was saved, so
 			// an unconvertible value here is a defect in the store, not author

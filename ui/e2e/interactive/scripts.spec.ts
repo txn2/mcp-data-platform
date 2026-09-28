@@ -84,6 +84,9 @@ test.describe("Portal script pages", () => {
     // Owner is last, and is the administrator's — the mock caller is one.
     await expect(page.getByRole("heading", { level: 3 })).toHaveText([
       "Details",
+      // What each version does differently, as agreed with the person it
+      // runs for (#1943): the mock's v2 carries a summary.
+      "What changed",
       "Schedule",
       "About",
       "Run history",

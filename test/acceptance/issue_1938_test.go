@@ -144,7 +144,7 @@ func TestIssue1938_AnOlderScriptIsRefusedOnlyForWhatAnEditAdds(t *testing.T) {
 		"command": "create", "name": name, "source": "def main():\n    \"\"\"Doc.\"\"\"\n    print(1)\n",
 		"description": "Acceptance #1938: a script saved before the gates.",
 	}, nil)
-	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, source_code = $2 WHERE name = $1`, name, old)
+	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, outputs_read_optional = TRUE, source_code = $2 WHERE name = $1`, name, old)
 
 	// A script saved before the gates saves without tests (#1939).
 	kept := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": "# a comment\n" + old})

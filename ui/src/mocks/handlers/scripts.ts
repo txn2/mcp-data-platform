@@ -16,6 +16,7 @@ import {
   mockScriptSchedules,
   mockScriptStates,
   mockScriptVersionDetails,
+  mockPreHarnessScripts,
   mockScriptVersions,
   mockScripts,
 } from "../data/scripts";
@@ -185,6 +186,9 @@ export const scriptHandlers = [
     // page say there is older history behind a full page.
     return HttpResponse.json({ data: all, total: all.length, limit: 50 });
   }),
+
+  // The automations saved before tests that still need bringing up (#1943).
+  http.get(`${ADMIN_BASE}/scripts/legacy`, () => HttpResponse.json(mockPreHarnessScripts)),
 
   http.get(`${ADMIN_BASE}/scripts/:id/versions`, ({ params }) => {
     const list = versions[String(params.id)] ?? [];
@@ -716,8 +720,9 @@ export const scriptHandlers = [
         },
         message:
           "The dry run stopped at a call that persists (refused_write), because a dry run does " +
-          "not write. Run it again with allow_writes to let it write for real, and it will " +
-          "report every write it made.",
+          "not write. Its recording holds every call before the write, and a test answers the " +
+          "write with testing.answer(tool, args, answer), so nothing is written. Run it again " +
+          "with allow_writes only to write for real; it will report every write it made.",
       });
     }
     if (lands) {

@@ -66,8 +66,13 @@ def test_daily_sales():
     main()
     out = testing.outputs().exports[0]
     assert.eq(out.name, "daily-sales-" + date.add_days(date.of(run.fire_time), -1))
-    assert.eq([r["region"] for r in out.rows], ["east", "west"])
-    assert.eq(out.rows[0]["total"], 1200)
+
+    # Every column the export carries is asserted on: a save refuses a test
+    # that leaves one unread.
+    assert.eq(out.rows, [
+        {"region": "east", "total": 1200, "orders": 14},
+        {"region": "west", "total": 800, "orders": 9},
+    ])
 `,
 	},
 	{
@@ -127,7 +132,7 @@ def test_recorded_rollup():
     testing.replay("dpx_recording_of_a_draft")
     main()
     out = testing.outputs().exports[0]
-    assert.eq(sum([r["total"] for r in out.rows]), 5400)
+    assert.eq(out.rows, [{"key": "east", "total": 3400}, {"key": "west", "total": 2000}])
 `,
 	},
 	{
@@ -172,14 +177,18 @@ def test_recorded_sync():
     testing.replay("dpx_recording_of_a_draft")
     main()
     out = testing.outputs()
-    assert.eq(out.exports[0].rows[0]["order_id"], 1001)
+    first = out.exports[0].rows[0]
+    assert.eq(first["order_id"], 1001)
+    assert.eq(first["region"], "east")
+    assert.eq(first["amount"], "120.00")
+    assert.eq(first["updated_at"], "2026-09-20 08:15:00.000 UTC")
     assert.eq(out.state, {"synced_through": run.fire_time, "last_delta_rows": 3})
 `,
 	},
 	{
 		Name: ReferenceName,
 		Description: "The reference script: helpers with docstrings, a bound connection parameter, a watermark in state, " +
-			"a failure that says why, an export and a result, and the tests it is saved with.",
+			"a failure that says why, an export, a notification and a result, and the tests it is saved with.",
 		Source: `# A weekly revenue report, written as every saved automation is: constants
 # and functions at the top level, the work in main(), and the tests it is
 # saved with at the end.
@@ -191,6 +200,9 @@ REVENUE_BY_REGION = """
      GROUP BY region
      ORDER BY region
 """
+
+# The channel the week's total is posted to.
+CHANNEL = "revenue"
 
 def window(state, fire_time):
     """The days since the last reported one, through the day before the fire."""
@@ -206,7 +218,7 @@ def summarize(rows):
     return kept, sum([float(r["revenue"]) for r in kept])
 
 def main():
-    """Exports the week's revenue by region and moves the watermark."""
+    """Exports the week's revenue by region, posts the total and moves the watermark."""
     since, through = window(run.state, run.fire_time)
     result = platform.query(
         connection = run.params["connection"],
@@ -217,6 +229,11 @@ def main():
     if not kept:
         fail("no orders between %s and %s" % (since, through))
     platform.export(name = "weekly-revenue", rows = kept, format = "csv")
+    platform.notify(
+        channel = CHANNEL,
+        title = "Weekly revenue through " + through,
+        body = "%d regions, %s in revenue" % (len(kept), total),
+    )
     platform.save_state({"reported_through": through})
     platform.result({"regions": len(kept), "revenue": total})
 
@@ -237,15 +254,28 @@ def test_window_starts_at_the_watermark():
     assert.eq(through, "2026-09-20")
 
 def test_a_recorded_week():
-    """The recorded week exports each region and moves the watermark."""
+    """The recorded week exports each region, posts the total and moves the watermark."""
 
-    # The id run_draft returned for a draft of this script.
+    # The id run_draft returned for a draft of this script. The draft stopped
+    # at the post, which a draft does not make, so the test declares what
+    # the notify tool answers it: nothing is posted, by the draft or the test.
     testing.replay("dpx_recording_of_a_draft")
+    testing.answer("notify", {"action": "send", "channel": CHANNEL}, {
+        "channel": CHANNEL,
+        "kind": "chat",
+        "queued": 1,
+        "delivered": False,
+        "detail": "accepted for delivery",
+    })
     main()
     out = testing.outputs()
-    assert.eq([r["region"] for r in out.exports[0].rows], ["east", "west"])
+    assert.eq(out.exports[0].rows, [
+        {"region": "east", "revenue": "10.50", "orders": 2},
+        {"region": "west", "revenue": "4.25", "orders": 1},
+    ])
+    assert.eq(out.notifies[0]["body"], "2 regions, 14.75 in revenue")
     assert.eq(out.state, {"reported_through": "2026-09-20"})
-    assert.eq(out.result["regions"], 2)
+    assert.eq(out.result, {"regions": 2, "revenue": 14.75})
 
 def test_an_empty_week_fails():
     """A week with no orders fails naming the window and saves nothing."""

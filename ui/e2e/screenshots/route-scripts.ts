@@ -5,6 +5,8 @@ import {
   openScriptOwner,
   openScriptRunHistory,
   openScriptRunLog,
+  openPreHarnessTab,
+  openScriptChanges,
   openScriptRunsTab,
   openScriptSchedulesTab,
   openScriptSource,
@@ -57,6 +59,14 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     slug: "script-detail",
     path: "/portal/automations/script-001",
     category: "user",
+  },
+  {
+    // What each version does differently, in the words the person it runs
+    // for agreed to, read without the code (#1943).
+    slug: "script-changes",
+    path: "/portal/automations/script-001",
+    category: "user",
+    beforeCapture: openScriptChanges,
   },
   {
     // The form an owner documents a script in (#1369): the four fields that say
@@ -240,6 +250,15 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/automations",
     category: "admin",
     beforeCapture: openScriptSchedulesTab,
+  },
+  {
+    // The automations saved before tests were required that still carry lint
+    // findings or have no tests (#1943). In front of the run capture for the
+    // reason that one gives.
+    slug: "admin-script-pre-harness",
+    path: "/portal/admin/automations",
+    category: "admin",
+    beforeCapture: openPreHarnessTab,
   },
   {
     // What the platform has been running unattended (#1307): the metrics the

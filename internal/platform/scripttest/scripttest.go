@@ -47,6 +47,8 @@ type Request struct {
 	Load         Loader
 	// MaxMemoryBytes is the memory one test may hold; zero sets no budget.
 	MaxMemoryBytes int64
+	// Contracts is what a declared answer is held to; nil checks none.
+	Contracts Contracts
 }
 
 // Result is one test's outcome.
@@ -59,6 +61,10 @@ type Result struct {
 	Failure string `json:"failure,omitempty"`
 	Line    int    `json:"line,omitempty"`
 	Log     string `json:"log,omitempty"`
+	// Notes is what the author is told about a test that passed or failed
+	// alike: an answer declared for a tool that declares no answer contract,
+	// which nothing checked.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // Coverage is the statements the tests reached.
@@ -75,6 +81,9 @@ type Report struct {
 	Passed   int      `json:"passed"`
 	Failed   int      `json:"failed"`
 	Coverage Coverage `json:"coverage"`
+	// Unread is every output the tests' executions produced that no test
+	// read (#1952), as output "weekly" column "region".
+	Unread []string `json:"unread"`
 }
 
 // OK reports whether the source has tests and every one passed.
@@ -98,9 +107,11 @@ func Run(ctx context.Context, req Request) (*Report, error) {
 		return nil, err
 	}
 	cover := scriptdialect.NewCoverage()
+	read := newReads()
+	seen := tally{cover: cover, reads: read}
 	report := &Report{Tests: []Result{}}
 	for _, name := range scriptdialect.Tests(file) {
-		res := runOne(ctx, req, name, replays[name], cover)
+		res := runOne(ctx, req, name, replays[name], seen)
 		if res.Passed {
 			report.Passed++
 		} else {
@@ -116,11 +127,19 @@ func Run(ctx context.Context, req Request) (*Report, error) {
 		Statements: cover.Total(), Covered: cover.Covered(),
 		Percent: cover.Percent(), MissedLines: missed,
 	}
+	report.Unread = read.unread()
 	return report, nil
 }
 
+// tally is what every test of a source adds to: the statements reached and
+// the outputs read.
+type tally struct {
+	cover *scriptdialect.Coverage
+	reads *reads
+}
+
 // runOne runs one test.
-func runOne(ctx context.Context, req Request, name, recording string, cover *scriptdialect.Coverage) Result {
+func runOne(ctx context.Context, req Request, name, recording string, seen tally) Result {
 	res := Result{Name: name, Recording: recording}
 	// A test that names no recording has no answers: its tool calls fail
 	// naming themselves, and its outputs are previewed, as a draft's are.
@@ -133,9 +152,14 @@ func runOne(ctx context.Context, req Request, name, recording string, cover *scr
 		}
 		rec = loaded
 	}
-	out, result, err := execute(ctx, req, execution{entry: name, recording: recording, rec: rec, cover: cover})
+	out, result, err := execute(ctx, req, execution{entry: name, recording: recording, rec: rec, cover: seen.cover, reads: seen.reads})
+	out.register(seen.reads)
 	if result != nil {
 		res.Log = result.Log
+	}
+	for _, tool := range out.declared.unchecked {
+		res.Notes = append(res.Notes, "the answer declared for "+tool+" was not checked against the tool: "+
+			tool+" declares no answer contract")
 	}
 	switch {
 	case err != nil:
@@ -153,7 +177,7 @@ func runOne(ctx context.Context, req Request, name, recording string, cover *scr
 		// read from them.
 		res.Passed = true
 	default:
-		res.Failure = insensitive(ctx, req, name, rec)
+		res.Failure = insensitive(ctx, req, name, rec, out.declared.rows)
 		res.Passed = res.Failure == ""
 	}
 	return res
@@ -167,6 +191,10 @@ type execution struct {
 	rec              *scriptrec.Recording
 	replay           *scriptrec.Replay
 	cover            *scriptdialect.Coverage
+	// alter, when set, alters the rows of every answer the test declares.
+	alter func([]any) []any
+	// reads, when set, records what the test reads of its outputs.
+	reads *reads
 }
 
 // execute runs one execution with every output observed.
@@ -178,7 +206,10 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 	entry, recording, cover := e.entry, e.recording, e.cover
 	h := rec.Header
 	live := scriptlive.New(scriptrun.MaxLogBytes, 0)
-	out := &produced{replay: replay, live: live}
+	answers := &declared{contracts: req.Contracts, alter: e.alter}
+	replay.WithAnswers(answers)
+	inputs := &scriptrun.TestInputs{}
+	out := &produced{replay: replay, live: live, declared: answers, reads: e.reads}
 	opts := scriptrun.Options{
 		Source: req.Source, Name: req.Name,
 		RunID: h.RunID, FireTime: h.FireTime, Params: h.Params, State: h.State, RunURL: h.RunURL,
@@ -187,9 +218,10 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 		MaxRows: h.MaxRows, MaxMemoryBytes: req.MaxMemoryBytes,
 		Test: &scriptrun.TestHooks{
 			Entry:   entry,
-			Env:     starlark.StringDict{scriptrun.TestingName: testingModule(recording, out), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},
+			Env:     starlark.StringDict{scriptrun.TestingName: testingModule(recording, out, inputs), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},
 			Observe: out.observe,
 			Cover:   cover,
+			Inputs:  inputs,
 		},
 	}
 	result, err := scriptrun.Run(ctx, opts)
@@ -197,7 +229,7 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 }
 
 // testingModule is the testing module one test is handed.
-func testingModule(recording string, out *produced) *starlarkstruct.Module {
+func testingModule(recording string, out *produced, inputs *scriptrun.TestInputs) *starlarkstruct.Module {
 	return &starlarkstruct.Module{Name: "testing", Members: starlark.StringDict{
 		"replay": starlark.NewBuiltin("testing.replay", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 			var id string
@@ -215,6 +247,8 @@ func testingModule(recording string, out *produced) *starlarkstruct.Module {
 			}
 			return out.value()
 		}),
+		"answer":  starlark.NewBuiltin("testing.answer", out.declared.answerBuiltin),
+		"set_run": setRunBuiltin(inputs),
 	}}
 }
 

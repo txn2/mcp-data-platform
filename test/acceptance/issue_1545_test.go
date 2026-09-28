@@ -12,7 +12,11 @@ func TestIssue1545_ValidateReportsStateUse(t *testing.T) {
 
 	stateful := c.call("manage_script", map[string]any{
 		"command": "validate",
-		"source":  "def main():\n    \"\"\"Advances the sync mark.\"\"\"\n    since = run.state.get(\"synced_through\", \"never\")\n    print(since)\n    platform.save_state({\"synced_through\": run.fire_time})\n",
+		"source": "def main():\n    \"\"\"Advances the sync mark.\"\"\"\n    since = run.state.get(\"synced_through\", \"never\")\n    print(since)\n    platform.save_state({\"synced_through\": run.fire_time})\n" +
+			"\ndef test_main():\n    \"\"\"The mark moves from the saved one to the fire time.\"\"\"\n" +
+			"    testing.set_run(state = {\"synced_through\": \"2026-09-01\"})\n    main()\n" +
+			"    assert.eq(testing.outputs().log, \"2026-09-01\\n\")\n" +
+			"    assert.eq(testing.outputs().state, {\"synced_through\": run.fire_time})\n",
 	})
 	if stateful["ok"] != true {
 		t.Fatalf("validate refused a well-formed source: %v", stateful)

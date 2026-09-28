@@ -168,6 +168,7 @@ function VersionRow({
           <div className="text-xs text-muted-foreground">
             written by {version.author || "unknown"} on {formatWhen(version.created_at)}
           </div>
+          {version.change_summary && <p className="text-sm">{version.change_summary}</p>}
         </div>
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
           {compareWith !== undefined && (

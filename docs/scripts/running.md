@@ -755,15 +755,95 @@ the gates hold the example to every rule a save applies.
 | `testing` | |
 |---|---|
 | `testing.replay("<run id>")` | the recording every host call in the test is answered from |
-| `testing.outputs()` | what the execution produced so far, written nowhere (an appended output as one output, page by page as it is written): `exports` (each with `name`, `format`, `destination`, `key`, `columns`, `rows`, `row_count`, `body`), `publishes`, `notifies` (each notify call's arguments), `calls` (every tool call), `state`, `result`, `log` |
+| `testing.answer(tool, args, answer)` | the answer a call gets, declared by the test: a call to `tool` whose arguments include every key and value in `args` is answered with `answer`, or with `error="..."` fails instead |
+| `testing.set_run(state=, params=)` | what `run.state` and `run.params` read for the rest of the test, in place of the recording's |
+| `testing.outputs()` | what the execution produced so far, written nowhere (an appended output as one output, page by page as it is written): `exports` (each with `name`, `format`, `destination`, `key`, `columns`, `rows`, `row_count`, `body`), `publishes`, `notifies` (each notify call's arguments), `calls` (every tool call, with `declared` true when a declared answer answered it), `state`, `result`, `log` |
+
+A row of an export reads as a dict (`row["region"]`, `row.get("n")`, `items`,
+`keys`, `values`) but is its own type, which is how the save knows which
+columns a test read. Compare rows with `assert.eq`, which compares their
+contents; `==` between a row and a dict is `False`.
 
 `assert.eq`, `assert.ne`, `assert.true` and `assert.contains` fail the test at
 their line, saying what they got; `assert.fails(fn, *args)` returns the message
 `fn` failed with. Neither module exists in a run, and a schedule never runs a
 test. A call the recording holds no answer for fails the test naming the call,
 for example `the recording holds no answer for platform.query("select 1")`. A
-test that names no recording has no answers: its tool calls fail and its
-exports are previewed.
+test that names no recording answers only what it declares, and its exports
+are previewed.
+
+#### Declaring the answer a call gets
+
+A recording holds only the calls a draft made. A draft stops at a write (a
+`platform.call` that creates a resource, registers a table, posts to an API,
+runs `trino_execute`, or a notification): its recording holds every call
+before the write and none after. A branch that runs only when saved state is
+present, or only when an upstream fails, is one no draft of a new script
+takes. A test reaches all of these by declaring the answers:
+
+```python
+QUERY = "SELECT region, n FROM daily"
+
+def main():
+    """Files the day's extract and reports the resource it became."""
+    rows = platform.query(QUERY, connection = "warehouse")["rows"]
+    content = "region,n\n" + "".join(["%s,%d\n" % (r["region"], r["n"]) for r in rows])
+    made = platform.call("manage_resource", {
+        "action": "create",
+        "filename": "daily.csv",
+        "content_type": "text/csv",
+        "content": content,
+    })
+    platform.result({"resource": made["resource_id"], "rows": len(rows)})
+
+def test_files_the_extract():
+    """The recorded draft's rows are filed as one resource."""
+    testing.replay("dpx_recording_of_a_draft")
+    testing.answer("manage_resource", {"action": "create", "filename": "daily.csv"}, {
+        "resource_id": "r1",
+        "reference": "mcp:resource:r1",
+        "uri": "mcp://resources/r1/daily.csv",
+        "filename": "daily.csv",
+        "display_name": "daily.csv",
+        "scope": "user",
+        "path": "",
+        "content_type": "text/csv",
+        "size_bytes": 24,
+        "message": "Created.",
+    })
+    main()
+    out = testing.outputs()
+    assert.eq(out.calls[1].args["content"], "region,n\neast,1\nwest,2\n")
+    assert.eq(out.result, {"resource": "r1", "rows": 2})
+
+def test_a_refused_create_fails_the_run():
+    """A create the platform refuses fails the run with its reason."""
+    testing.replay("dpx_recording_of_a_draft")
+    testing.answer("manage_resource", {"action": "create"}, error = "quota exceeded")
+    assert.contains(assert.fails(main), "quota exceeded")
+```
+
+Neither the draft nor the save created a resource: the draft stopped at the
+create, and the tests answered it. `testing.outputs().calls` is how a test
+asserts on what would have been written.
+
+- Declared answers are matched in the order they were declared, before the
+  recording, and each answers one call. A call nothing answers fails the test
+  naming it.
+- A declared answer is held to what the tool always answers, where the tool
+  declares that: `manage_resource`, `manage_table`, `manage_asset`,
+  `save_asset`, `trino_execute` and `notify` (which `platform.notify` and
+  `platform.publish` call) do. An answer lacking a field the tool always
+  returns, carrying a field of another type, or carrying a key a nested object
+  never has fails the test naming the field, so a test cannot rely on a shape
+  the tool never returns. The top level admits keys the answer does not name,
+  because the platform adds its own there. A tool that declares nothing is not
+  checked, and the test's result says so in its `notes`.
+- An answer carrying `rows` is altered by the check below the way a recorded
+  query result is, so a test whose only data is a declared answer is still
+  held to reading it.
+- `testing.set_run(state = {"last": 5})` before `main()` reaches the branch a
+  run with saved state takes; the calls that branch makes are declared.
 
 `manage_script command=test` runs the tests of the source sent, or of the saved
 script, and reports each test's result, the failing assertion and its line, and
@@ -778,17 +858,28 @@ A save runs the tests:
   least 80% of its statements reached; the refusal names the lines no test
   reached.
 - A test that makes no assertion is refused.
-- A test that still passes when the recorded query rows are altered (the last
-  row of each result dropped, and the first row's values changed) is refused:
-  its assertions do not read what the script made of the data. A test that
-  the run fails, with `assert.fails(main)`, is not altered: a failure that holds
-  whatever the rows were is what it checks. Nor is a test whose execution
-  produced no output at all (nothing exported, refreshed, staged, returned,
-  or sent through a tool other than the query tool): nothing came of the rows
-  for an assertion to read.
+- A test that still passes when the query rows it replays or declares are
+  altered (the last row of each result dropped, and the first row's values
+  changed) is refused: its assertions do not read what the script made of the
+  data. A test that the run fails, with `assert.fails(main)`, is not altered:
+  a failure that holds whatever the rows were is what it checks. Nor is a test
+  whose execution produced no output at all (nothing exported, refreshed,
+  staged, returned, or sent through a tool other than the query tool): nothing
+  came of the rows for an assertion to read.
+- The tests together read every output their executions produced: each
+  column of each export's rows, the staged state, each notification, each
+  published data region and `platform.result`. A column is read by reading it
+  from a row, or by handing a row or the rows to an assertion; `.row_count`
+  and `.columns` read no column. One test may read what another produced. A
+  save that leaves one unread is refused naming it, for example
+  `output "weekly" column "region" is never asserted on`, and `command=test`
+  lists them under `unread`. Only outputs the tests' executions produced
+  count: an output behind a branch no test takes is the coverage rule's to
+  report.
 - A script saved before tests were required saves without them. Once it has
   tests, they must keep passing, and a version may not reach less of the
-  script than the version before it.
+  script than the version before it. A script saved before its tests had to
+  read every output is not held to that rule.
 
 ### What a new version changes
 
@@ -809,7 +900,23 @@ once that person has agreed. Both are kept on the version with who saved it
 and when. A person approves behavior, never code; there is no second approver.
 `validate` reports the same differences without saving, so the change can be
 described before it is asked for. In the portal editor, a save refused this way
-lists the differences and asks for the summary.
+lists the differences and asks for the summary. The script's page lists every
+version's summary under **What changed**, with who saved it and when it was
+agreed, for anyone reading the automation: no code, diff, lint output or test
+result is shown there.
+
+![What changed](../images/screenshots/light/user-script-changes-light.webp#only-light)![What changed](../images/screenshots/dark/user-script-changes-dark.webp#only-dark)
+
+### Automations saved before tests
+
+A script saved before lint and tests were required keeps running and saving
+as it did. Administrators see the ones that still have lint findings or no
+tests on the **Saved before tests** tab of **Admin > Automations**, with the
+count of each; a row opens the script. Bringing a script's findings to zero
+and giving it a test takes it off the list. The same view is
+`GET /api/v1/admin/scripts/legacy`, which reports how many such scripts it
+examined (`examined`, at most one page) and how many there are
+(`pre_harness`).
 
 ### Checking an edit before saving it
 

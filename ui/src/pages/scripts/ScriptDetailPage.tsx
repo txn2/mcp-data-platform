@@ -31,6 +31,7 @@ import { ScriptCodeCard } from "./ScriptCodeCard";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
 import { SourceLines } from "./SourceLines";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
+import { ScriptChanges } from "./ScriptChanges";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
 // will execute it, on what schedule, and — for its owner — everything it has
@@ -141,6 +142,10 @@ function ScriptDetail({
       <SectionCard title="Details">
         <ScriptFacts contract={contract} />
       </SectionCard>
+
+      {/* What each version does differently, as agreed with the person it
+          runs for (#1943), read by owner and reader alike. */}
+      <ScriptChanges scriptId={scriptId} />
 
       {owned && <ScriptScheduleEditor scriptId={scriptId} contract={contract} />}
 

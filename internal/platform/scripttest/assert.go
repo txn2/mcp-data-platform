@@ -27,6 +27,9 @@ func assertModule(made, failures *int) *starlarkstruct.Module {
 	counted := func(name string, fn func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error)) *starlark.Builtin {
 		return starlark.NewBuiltin(name, func(th *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 			*made++
+			// What an assertion is handed is read (#1952), and compares as
+			// the plain values it holds.
+			args = plainTuple(args)
 			return fn(th, b, args, kwargs)
 		})
 	}

@@ -80,6 +80,7 @@ internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
 internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/scripthttp/flowhttp
+internal/httpserver -> internal/httpserver/scripthttp/legacyhttp
 internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/tablehttp
 internal/httpserver -> internal/httpserver/tablesource
@@ -96,6 +97,7 @@ internal/httpserver -> internal/platform/connreach
 internal/httpserver -> internal/platform/connscope
 internal/httpserver -> internal/platform/knowledgebuiltin
 internal/httpserver -> internal/platform/notifydelivery
+internal/httpserver -> internal/platform/notifylayer
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
 internal/httpserver -> internal/platform/scriptdraft
@@ -112,6 +114,7 @@ internal/httpserver -> internal/portal/portaldomain
 internal/httpserver -> internal/portal/producerapi
 internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
+internal/httpserver -> internal/toolanswer
 internal/httpserver -> internal/ui
 internal/httpserver -> internal/webhook/receiver
 internal/httpserver -> internal/webhook/whsource
@@ -237,6 +240,10 @@ internal/httpserver/scripthttp/flowhttp -> pkg/script
 internal/httpserver/scripthttp/granthttp -> internal/httpjson
 internal/httpserver/scripthttp/granthttp -> internal/logsan
 internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant
+internal/httpserver/scripthttp/legacyhttp -> internal/httpjson
+internal/httpserver/scripthttp/legacyhttp -> internal/platform/scriptdialect
+internal/httpserver/scripthttp/legacyhttp -> internal/platform/scriptlint
+internal/httpserver/scripthttp/legacyhttp -> pkg/script
 internal/httpserver/scripthttp/outputshttp -> internal/httpjson
 internal/httpserver/scripthttp/outputshttp -> pkg/script
 internal/httpserver/scripthttp/scriptlist -> pkg/script
@@ -612,6 +619,7 @@ internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptguard -> internal/upstreamretry
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
+internal/platform/scriptlayer -> internal/platform/notifylayer
 internal/platform/scriptlayer -> internal/platform/runcontrol
 internal/platform/scriptlayer -> internal/platform/scriptcontract
 internal/platform/scriptlayer -> internal/platform/scriptdraft
@@ -626,6 +634,7 @@ internal/platform/scriptlayer -> internal/platform/scriptsave
 internal/platform/scriptlayer -> internal/platform/scriptstore
 internal/platform/scriptlayer -> internal/platform/scripttest
 internal/platform/scriptlayer -> internal/runstate
+internal/platform/scriptlayer -> internal/toolanswer
 internal/platform/scriptlayer -> pkg/indexjobs
 internal/platform/scriptlayer -> pkg/middleware
 internal/platform/scriptlayer -> pkg/script
@@ -860,6 +869,8 @@ internal/soap -> internal/xmltree
 internal/tableavail -> pkg/query
 internal/tableparquet -> internal/tabletype
 internal/thumbtypes -> pkg/contenttype
+internal/toolanswer -> pkg/registry
+internal/toolanswer -> pkg/toolkit
 internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap

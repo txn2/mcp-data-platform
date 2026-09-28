@@ -14,11 +14,11 @@ import (
 
 // untidy is a valid new-shape script in a layout nobody would store.
 const untidy = "def main():\n  '''Exports one row.'''\n  platform.export(name='x',rows=[{'a':1}],format='csv')  # the output\n" +
-	"def test_main():\n  '''Exports it.'''\n  main()\n  assert.eq(testing.outputs().exports[0].row_count,1)\n"
+	"def test_main():\n  '''Exports it.'''\n  main()\n  assert.eq(testing.outputs().exports[0].rows[0]['a'],1)\n"
 
 // tidy is untidy as the formatter stores it.
 const tidy = "def main():\n    \"\"\"Exports one row.\"\"\"\n    platform.export(name = \"x\", rows = [{\"a\": 1}], format = \"csv\")  # the output\n" +
-	"\ndef test_main():\n    \"\"\"Exports it.\"\"\"\n    main()\n    assert.eq(testing.outputs().exports[0].row_count, 1)\n"
+	"\ndef test_main():\n    \"\"\"Exports it.\"\"\"\n    main()\n    assert.eq(testing.outputs().exports[0].rows[0][\"a\"], 1)\n"
 
 // A save stores the formatted source and says so; saving that source again
 // changes nothing in it (#1937).

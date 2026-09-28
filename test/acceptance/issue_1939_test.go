@@ -34,7 +34,7 @@ def test_marked():
 `, recording, assertion)
 }
 
-const assert1939 = `assert.eq([r["n"] for r in testing.outputs().exports[0].rows], [3, 4])`
+const assert1939 = `assert.eq([(r["mark"][:14], r["n"]) for r in testing.outputs().exports[0].rows], [("acceptance1939", 3), ("acceptance1939", 4)])`
 
 // trinoSaw1939 is how many queries Trino has run whose text carries marker,
 // read from Trino's own history rather than from the platform.
