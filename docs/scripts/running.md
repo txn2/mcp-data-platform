@@ -145,9 +145,9 @@ answering with an empty history.
 ### What a run may call
 
 A script calls the tools its author can call. `platform.query`,
-`platform.export` and `platform.publish_data` are named helpers for the three
-things a report usually does; `platform.call(tool, args)` invokes any other
-platform tool by name and hands the script its structured result:
+`platform.execute`, `platform.export` and `platform.publish_data` are named
+helpers for what a report usually does; `platform.call(tool, args)` invokes any
+other platform tool by name and hands the script its structured result:
 
 ```python
 def main():
@@ -195,16 +195,29 @@ See [Walking a paginated
 operation](../server/api-gateway.md#walking-a-paginated-operation) for how the
 next page is found and where the walk stops.
 
-A script is executed top to bottom; there is no `main` and nothing calls one.
+**SQL goes through `platform.query` and `platform.execute`.** Both take `:name`
+placeholders and render each value as a typed SQL literal: `platform.query`
+for a read, `platform.execute` for a statement that changes state (#1950).
+`trino_query` and `trino_execute` take no parameters, so a
+`platform.call("trino_execute", …)` has no safe way to put a value that came
+from outside into its statement: one apostrophe in an upstream field breaks
+it, and an upstream field can append statements of its own. A save is refused
+(`sql-built-from-values`) when the SQL passed to any of the four is built with
+`+`, `%` or `.format()` from values.
 
-**A statement passed to `trino_execute` is not parameter-bound.** `platform.query`
-takes `:name` placeholders and renders each value as a typed SQL literal;
-`platform.call("trino_execute", …)` has no such argument, so there is no safe
-way to put a value that came from outside into it. Do not build one by
-concatenation or `%` formatting: one apostrophe in an upstream field breaks the
-statement, and an upstream field can append statements of its own. Write out a
-statement whose text your script controls, or land the data as an output and
-load it with something that binds.
+```python
+def main():
+    """Closes one ticket."""
+    platform.execute(
+        "UPDATE lake.support.tickets SET status = 'closed' WHERE id = :id AND note = :note",
+        connection = "warehouse",
+        params = {"id": run.params["id"], "note": run.params["note"]},
+    )
+```
+
+`platform.execute` is a `trino_execute` call: it is authorized, audited and
+counted as a write exactly as that call is, and a draft stops at it unless the
+draft was run with `allow_writes`.
 
 Every one of those, the helpers included, is one ordinary MCP tool call over
 the run's own session. It is authorized by the persona filter at the moment it
@@ -685,7 +698,8 @@ its rule, its line in the formatted source, and the fix, in the shape
 
 | Rule | Refused when |
 |---|---|
-| `entry-point`, `top-level-work` | no `main()`, a `main()` with parameters, or work at the top level |
+| `entry-point`, `top-level-work` | a `main()` with parameters, or work at the top level (a source with no `main()` is a [library](#libraries)) |
+| `library-effect` | a library names `platform` or `run` |
 | `cyclomatic-complexity` | a function has more than 10 paths through it |
 | `cognitive-complexity` | a function scores more than 15 (nesting costs more the deeper it sits) |
 | `function-length` | a function has more than 40 statements |
@@ -693,8 +707,8 @@ its rule, its line in the formatted source, and the fix, in the shape
 | `unused-variable`, `unused-parameter` | a local or a parameter is never read (a name starting with `_` is exempt) |
 | `shadowed-name` | a name hides `platform`, `json`, `xml`, `date`, `run`, `sum`, `fail`, `testing` or `assert` |
 | `missing-docstring` | a function's body does not open with a docstring |
-| `sql-built-from-values` | the SQL passed to `platform.query` is built with `+`, `%` or `.format()` from values rather than bound with `params=` |
-| `call-in-loop` | `platform.query`, `platform.call` or `platform.export` runs once per element of a collection; a loop over `range()` that fetches one page per pass is not counted |
+| `sql-built-from-values` | the SQL passed to `platform.query`, `platform.execute`, or a `platform.call` to `trino_query` or `trino_execute` is built with `+`, `%` or `.format()` from values rather than bound with `params=` |
+| `call-in-loop` | `platform.query`, `platform.execute`, `platform.call` or `platform.export` runs once per element of a collection; a loop over `range()` that fetches one page per pass is not counted |
 | `save-state-without-read` | `platform.save_state` is called and `run.state` is never read |
 | `test-called` | the script calls one of its `test_*` functions, which only the test runner calls |
 | `test-module-outside-test` | `testing` or `assert` is used outside a `test_*` function |
@@ -906,6 +920,75 @@ agreed, for anyone reading the automation: no code, diff, lint output or test
 result is shown there.
 
 ![What changed](../images/screenshots/light/user-script-changes-light.webp#only-light)![What changed](../images/screenshots/dark/user-script-changes-dark.webp#only-dark)
+
+### Libraries
+
+A library is a script with no `main()`: pure code other scripts load, so the
+pagination, date windows, response handling and table shaping many scripts
+repeat is written once (#1941). It is created with `manage_script create` like
+any script, and a source with no `main()` is saved as a library. It is held to
+the same checks as a script: one format, the rules above, and tests reaching
+80% of its statements. Its tests call its functions directly:
+
+```python
+def last_week(day):
+    """The seven days before day."""
+    return {"from": date.add_days(day, -7), "to": date.add_days(day, -1)}
+
+def test_last_week():
+    """Checks a Monday's week."""
+    week = last_week("2026-09-28")
+    assert.eq(week["from"], "2026-09-21")
+    assert.eq(week["to"], "2026-09-27")
+```
+
+A library names neither `platform` nor `run`, and a save naming either is
+refused on the line that does (`library-effect`). A library shapes data; the
+script that loads it makes the calls, so `validate` on that script still
+reports everything it reaches.
+
+A script loads one version of a library at its top level:
+
+```python
+load("lib:date-windows@2", "last_week")
+
+def main():
+    """Exports last week's net sales."""
+    week = last_week(date.of(run.fire_time))
+    rows = platform.query(
+        "SELECT region, SUM(net) AS net FROM sales WHERE day BETWEEN DATE :from AND DATE :to GROUP BY region",
+        connection = "warehouse",
+        params = week,
+    )["rows"]
+    platform.export(name = "weekly-net", rows = rows, format = "csv")
+```
+
+- **The version is required.** Every save of a library is a new version, and a
+  saved version never changes, so a new version of a library changes no
+  script until that script names it. A run, a draft, a test and the replay a
+  save compares versions with all run the version named.
+- **A library may load another library** the same way. A load of a library or
+  a version that does not exist is refused on save, and so is a load cycle.
+  Since a load can only name a version already saved, two libraries cannot
+  come to load each other.
+- **Anyone may load any library.** A library reaches nothing, so loading one
+  grants nothing, and a library's name is unique across the platform, whoever
+  owns it. A library and another person's script may share a name: a load
+  resolves among libraries only.
+- **A library is never run or scheduled.** `run_script`, `run_draft` and a
+  schedule refuse it. It cannot be deleted while a script's current source
+  loads it; the refusal names those scripts.
+- **A script and a library do not turn into each other.** A script keeps its
+  `main()`, and a new version of a library cannot add one.
+
+`validate` reports `library: true` for a library and `libraries` for the
+library versions a script loads. The script's contract, the document a
+`mcp:script:` reference resolves to, says the same, and for a library lists the
+scripts using it. In the portal, **Automations** marks a library with a
+**Library** badge and filters **All**, **Automations** or **Libraries**
+(`GET /api/v1/portal/scripts?kind=library`), and a library's page shows how it
+is loaded and the automations that use it, under **Used by**, in place of
+running and scheduling it.
 
 ### Automations saved before tests
 
@@ -1814,9 +1897,9 @@ file, and a draft measures it as it measures any output.
 ### From rows to a table a query can read
 
 A script that loads API results into a warehouse table writes the rows to a
-file, registers the file as a table, and runs `INSERT ... SELECT` from it.
-`trino_execute` binds no parameters, so this is also the only safe way to put
-free text into SQL. One call does the first two steps:
+file, registers the file as a table, and runs `INSERT ... SELECT` from it with
+`platform.execute`, binding the table by the record the export returned. One
+call does the first two steps:
 
 ```python fragment
 out = platform.export(
@@ -1827,11 +1910,11 @@ out = platform.export(
     key="staging/acme/tickets.jsonl",
     register={"connection": "warehouse", "table_name": "acme_tickets_stage"},
 )
-platform.call("trino_execute", {
-    "connection": "warehouse",
-    "sql": "INSERT INTO lake.support.tickets SELECT id, subject, body FROM "
-           + out["table"]["query_table"],
-})
+platform.execute(
+    "INSERT INTO lake.support.tickets SELECT id, subject, body FROM :stage",
+    connection="warehouse",
+    params={"stage": out["table"]},
+)
 ```
 
 - `format="jsonl"` brings values back exactly. Every string survives the table

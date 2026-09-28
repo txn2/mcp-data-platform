@@ -205,12 +205,14 @@ internal/httpserver/scripthttp -> internal/httpserver/scripthttp/outputshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/statehttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/transferwords
+internal/httpserver/scripthttp -> internal/libraryuse
 internal/httpserver/scripthttp -> internal/logsan
 internal/httpserver/scripthttp -> internal/platform/runcontrol
 internal/httpserver/scripthttp -> internal/platform/scriptbehavior
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptgrant
 internal/httpserver/scripthttp -> internal/platform/scriptguard
+internal/httpserver/scripthttp -> internal/platform/scriptlib
 internal/httpserver/scripthttp -> internal/platform/scriptlint
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> internal/platform/scriptsave
@@ -573,6 +575,7 @@ internal/platform/scriptbehavior -> internal/platform/scriptrec
 internal/platform/scriptbehavior -> internal/platform/scriptrun
 internal/platform/scriptbehavior -> internal/platform/scripttest
 internal/platform/scriptcontract -> pkg/script
+internal/platform/scriptdraft -> internal/platform/scriptlib
 internal/platform/scriptdraft -> internal/platform/scriptrec
 internal/platform/scriptdraft -> internal/platform/scriptrun
 internal/platform/scriptdraft -> internal/toolwrite
@@ -586,6 +589,7 @@ internal/platform/scriptexec -> internal/notification/notifyqueue
 internal/platform/scriptexec -> internal/pglisten
 internal/platform/scriptexec -> internal/platform/scriptadmit
 internal/platform/scriptexec -> internal/platform/scriptguard
+internal/platform/scriptexec -> internal/platform/scriptlib
 internal/platform/scriptexec -> internal/platform/scriptlive
 internal/platform/scriptexec -> internal/platform/scriptrec
 internal/platform/scriptexec -> internal/platform/scriptrun
@@ -619,6 +623,7 @@ internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptguard -> internal/upstreamretry
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
+internal/platform/scriptlayer -> internal/libraryuse
 internal/platform/scriptlayer -> internal/platform/notifylayer
 internal/platform/scriptlayer -> internal/platform/runcontrol
 internal/platform/scriptlayer -> internal/platform/scriptcontract
@@ -626,6 +631,7 @@ internal/platform/scriptlayer -> internal/platform/scriptdraft
 internal/platform/scriptlayer -> internal/platform/scriptexamples
 internal/platform/scriptlayer -> internal/platform/scriptgrant
 internal/platform/scriptlayer -> internal/platform/scriptindex
+internal/platform/scriptlayer -> internal/platform/scriptlib
 internal/platform/scriptlayer -> internal/platform/scriptlint
 internal/platform/scriptlayer -> internal/platform/scriptrec
 internal/platform/scriptlayer -> internal/platform/scriptrec/recstore
@@ -642,6 +648,7 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptlayer -> pkg/toolkit
+internal/platform/scriptlib -> internal/platform/scriptdialect
 internal/platform/scriptlint -> internal/platform/scriptdialect
 internal/platform/scriptlint -> internal/platform/scriptfmt
 internal/platform/scriptlint -> internal/platform/scriptrun
@@ -667,6 +674,7 @@ internal/platform/scriptrun -> internal/platform/exporttable
 internal/platform/scriptrun -> internal/platform/scriptdialect
 internal/platform/scriptrun -> internal/platform/scriptguard
 internal/platform/scriptrun -> internal/platform/scriptlex
+internal/platform/scriptrun -> internal/platform/scriptlib
 internal/platform/scriptrun -> internal/platform/scriptlive
 internal/platform/scriptrun -> internal/platform/scriptout
 internal/platform/scriptrun -> internal/platform/scriptout/exportmeta
@@ -687,17 +695,21 @@ internal/platform/scriptrun -> internal/toolwrite
 internal/platform/scriptrun -> internal/upstreamretry
 internal/platform/scriptrun -> pkg/script
 internal/platform/scriptsave -> internal/platform/scriptbehavior
+internal/platform/scriptsave -> internal/platform/scriptlib
 internal/platform/scriptsave -> internal/platform/scriptlint
 internal/platform/scriptsave -> internal/platform/scriptrec
 internal/platform/scriptsave -> internal/platform/scriptrun
 internal/platform/scriptsave -> internal/platform/scripttest
 internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsql -> internal/platform/starlarkconv
+internal/platform/scriptstore -> internal/libraryuse
+internal/platform/scriptstore -> internal/platform/scriptlib
 internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> internal/runstate
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
 internal/platform/scripttest -> internal/platform/scriptdialect
+internal/platform/scripttest -> internal/platform/scriptlib
 internal/platform/scripttest -> internal/platform/scriptlive
 internal/platform/scripttest -> internal/platform/scriptrec
 internal/platform/scripttest -> internal/platform/scriptrun
@@ -1241,6 +1253,7 @@ pkg/resource -> internal/thumbtypes
 pkg/resource -> pkg/blobserve
 pkg/resource -> pkg/contenttype
 pkg/resource -> pkg/indexjobs
+pkg/script -> internal/libraryuse
 pkg/script -> internal/runstate
 pkg/script -> pkg/user
 pkg/semantic/datahub -> pkg/observability

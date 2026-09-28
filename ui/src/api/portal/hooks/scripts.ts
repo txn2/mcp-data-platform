@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Script, ScriptVersion } from "@/api/admin/types";
+import type { LibraryUse, Script, ScriptVersion } from "@/api/admin/types";
 import { ApiError, apiFetch } from "../client";
 import { scriptsKey } from "./scriptKeys";
 import { RUN_POLL_MS, hasRunInFlight } from "./scriptRuns";
@@ -259,6 +259,14 @@ export interface ScriptContract {
   last_successful_run?: ScriptContractRun;
   // state says whether this script carries anything between runs (#1537).
   state?: import("./scriptState").ScriptContractState;
+  // library is true for a library (#1941), which other scripts load and which
+  // is never run or scheduled. loads is the library versions this script's
+  // source loads, as "<name>@<version>"; used_by, for a library, is the
+  // scripts whose current source loads it. Both lists are always arrays from
+  // the server, and optional here for a server that predates them.
+  library?: boolean;
+  loads?: string[];
+  used_by?: LibraryUse[];
 }
 
 // PortalScriptRow is one script in the portal listing.
@@ -324,6 +332,7 @@ export {
 } from "./scriptGrants";
 
 export type {
+  ScriptKind,
   ScriptListFilter,
   ScriptListResponse,
   ScriptSortKey,

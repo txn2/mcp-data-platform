@@ -341,6 +341,8 @@ func RefuseRun(sc *Script) error {
 	switch {
 	case sc == nil:
 		return errors.New("the script does not exist")
+	case sc.Library:
+		return errLibraryNotRun
 	case !sc.Enabled:
 		return errors.New("the script is disabled")
 	case sc.Status == StatusSuperseded:
@@ -380,6 +382,8 @@ func RefuseDraftRun(sc *Script) error {
 	switch {
 	case sc == nil:
 		return errors.New("the script does not exist")
+	case sc.Library:
+		return errLibraryNotRun
 	case !sc.Enabled:
 		return errors.New("this script is disabled; enable it before running a draft")
 	case sc.Status == StatusSuperseded:

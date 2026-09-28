@@ -799,3 +799,124 @@ describe("ScriptDetailPage: the run history", () => {
     ).toBe("3");
   });
 });
+
+// A library (#1941) is never run or scheduled itself, so its page carries none
+// of what belongs to running, and says instead how it is loaded and by whom.
+describe("ScriptDetailPage: a library", () => {
+  const library: ScriptContract = {
+    id: "script-006",
+    name: "date-windows",
+    display_name: "Date Windows",
+    description: "The reporting windows the sales automations share.",
+    owner_email: "sarah.chen@example.com",
+    status: "active",
+    enabled: true,
+    params: [],
+    version: 2,
+    refusal:
+      'the script is a library, which other scripts load as load("lib:<name>@<version>", ...) and which is never run or scheduled itself; run its tests with manage_script command=test',
+    library: true,
+    loads: [],
+    used_by: [
+      {
+        script_id: "script-001",
+        name: "daily-sales-report",
+        display_name: "Daily Sales Report",
+        owner_email: "sarah.chen@example.com",
+        version: 2,
+      },
+    ],
+  };
+
+  function renderLibrary(
+    contract: ScriptContract = library,
+    owned = true,
+    basePath?: string,
+  ) {
+    mockContract.mockReturnValue(query({ contract, owned, source: "def f():\n    return 1\n" }));
+    render(
+      <ScriptDetailPage
+        scriptId="script-006"
+        onBack={onBack}
+        onNavigate={onNavigate}
+        basePath={basePath}
+      />,
+    );
+  }
+
+  it("is badged a library rather than as a script that is not running", () => {
+    renderLibrary();
+
+    expect(screen.getByText("Library")).toBeInTheDocument();
+    expect(screen.queryByText("Not running")).not.toBeInTheDocument();
+    expect(screen.queryByText(/never run or scheduled itself/)).not.toBeInTheDocument();
+  });
+
+  it("carries no schedule, runs, outputs, state or run access, and says who loads it", () => {
+    renderLibrary();
+
+    const sections = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(sections).toEqual(["Details", "About", "Used by", "Delete"]);
+  });
+
+  it("states its version and no schedule, next run or parameters", () => {
+    renderLibrary();
+
+    const details = within(
+      screen.getByRole("heading", { name: "Details" }).closest("div[data-slot=card]")! as HTMLElement,
+    );
+    expect(details.getByText("v2, the latest saved version")).toBeInTheDocument();
+    expect(details.queryByText("Schedule")).not.toBeInTheDocument();
+    expect(details.queryByText("Next run")).not.toBeInTheDocument();
+    expect(details.queryByText("Parameters")).not.toBeInTheDocument();
+  });
+
+  it("offers no Run and no Dry run beside its code, and no run form", () => {
+    renderLibrary();
+
+    openSource();
+    const code = within(screen.getByTestId("script-code"));
+    expect(code.queryByRole("button", { name: "Run" })).not.toBeInTheDocument();
+    expect(code.queryByRole("button", { name: "Dry run" })).not.toBeInTheDocument();
+    expect(code.getByRole("button", { name: "Validate" })).toBeInTheDocument();
+    expect(code.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(code.queryByText("Write for real")).not.toBeInTheDocument();
+    expect(code.getByText(/This is a library: other scripts load it by version/)).toBeInTheDocument();
+  });
+
+  it("lists the scripts that load it, each opening its own page", () => {
+    renderLibrary();
+
+    expect(screen.getByTestId("library-load-line")).toHaveTextContent(
+      'load("lib:date-windows@2", ...)',
+    );
+    const row = screen.getByTestId("used-by-script-001");
+    expect(row).toHaveTextContent("Daily Sales Report");
+    expect(row).toHaveTextContent("version 2");
+    fireEvent.click(row);
+    expect(onNavigate).toHaveBeenCalledWith("/automations/script-001");
+  });
+
+  it("opens a loading script under the administrator's section from there", () => {
+    renderLibrary(library, true, "/admin/automations");
+
+    fireEvent.click(screen.getByTestId("used-by-script-001"));
+    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/script-001");
+  });
+
+  it("says plainly when nothing loads it", () => {
+    renderLibrary({ ...library, used_by: [] });
+
+    expect(screen.getByText("No automation loads this library.")).toBeInTheDocument();
+  });
+
+  it("shows a reader who does not own it who loads it, and that changing it is the owner's", () => {
+    renderLibrary(library, false);
+
+    expect(screen.getByRole("heading", { name: "Used by" })).toBeInTheDocument();
+    openSource();
+    expect(screen.getByTestId("script-source-readonly")).toHaveTextContent(
+      "Read only. Changing this library is sarah.chen@example.com's and an administrator's.",
+    );
+  });
+});

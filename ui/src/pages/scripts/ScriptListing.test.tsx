@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
 import { ScriptListing } from "./ScriptListing";
 
@@ -431,5 +431,112 @@ describe("ScriptListing: grid and list", () => {
     list();
     expect(screen.queryByTestId("script-grid")).not.toBeInTheDocument();
     vi.unstubAllGlobals();
+  });
+});
+
+// A library (#1941) is code other scripts load and is never run or scheduled,
+// so the listing marks it and lets a reader narrow to either kind.
+describe("ScriptListing: libraries", () => {
+  function library(): PortalScriptRow {
+    return row({
+      script: {
+        ...row().script,
+        id: "script-006",
+        name: "date-windows",
+        display_name: "Date Windows",
+        library: true,
+        loads: [],
+      },
+      schedule: undefined,
+      last_run: undefined,
+    });
+  }
+
+  // listingFilter is the filter the rows were read under: each render asks
+  // for the rows first and the facet vocabulary second, and once anything is
+  // narrowed the vocabulary's filter carries an ordering too, so lastFilter
+  // cannot tell them apart.
+  function listingFilter(): Record<string, unknown> {
+    const all = filters();
+    return all[all.length - 2] ?? {};
+  }
+
+  // chooseKind opens the kind listbox from the keyboard (jsdom has no
+  // PointerEvent, see ui/README.md) and picks an option.
+  function chooseKind(option: string) {
+    fireEvent.keyDown(screen.getByLabelText("Filter by kind"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: option }));
+  }
+
+  it("badges a library and no other row", () => {
+    mockScripts.mockReturnValue(answer([row(), library()]));
+    list();
+
+    const lib = screen.getByTestId("script-row-script-006");
+    // The badge beside the name, and the Kind column that tells kinds apart.
+    expect(within(lib).getAllByText("Library")).toHaveLength(2);
+    expect(within(lib).getByTestId("automation-kind")).toHaveTextContent("Library");
+    const automation = screen.getByTestId("script-row-script-001");
+    expect(within(automation).queryByText("Library")).not.toBeInTheDocument();
+    expect(within(automation).getByTestId("automation-kind")).toHaveTextContent("Script");
+  });
+
+  it("promises a library neither a schedule nor a run", () => {
+    mockScripts.mockReturnValue(answer([library()]));
+    list();
+
+    const lib = screen.getByTestId("script-row-script-006");
+    expect(within(lib).queryByText("On demand")).not.toBeInTheDocument();
+    expect(within(lib).queryByText("Never run")).not.toBeInTheDocument();
+  });
+
+  it("badges a library's card in the grid", () => {
+    mockScripts.mockReturnValue(answer([library()]));
+    list();
+
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    expect(screen.getByTestId("script-card-script-006")).toHaveTextContent("Library");
+    fireEvent.click(screen.getByRole("button", { name: "Table view" }));
+  });
+
+  it("offers All, Automations and Libraries, and asks for no kind until one is chosen", () => {
+    mockScripts.mockReturnValue(answer([row(), library()]));
+    list();
+
+    expect(lastFilter()).not.toHaveProperty("kind");
+    fireEvent.keyDown(screen.getByLabelText("Filter by kind"), { key: "Enter" });
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "All",
+      "Automations",
+      "Libraries",
+    ]);
+  });
+
+  it("asks the server for the kind chosen, and for none once All is chosen again", () => {
+    mockScripts.mockReturnValue(answer([row(), library()]));
+    list();
+
+    chooseKind("Libraries");
+    expect(listingFilter()["kind"]).toBe("library");
+    // The vocabulary is read without it, so switching back stays possible.
+    expect(filters()[filters().length - 1]).not.toHaveProperty("kind");
+
+    chooseKind("Automations");
+    expect(listingFilter()["kind"]).toBe("automation");
+
+    chooseKind("All");
+    expect(listingFilter()).not.toHaveProperty("kind");
+  });
+
+  it("reads a kind that matched nothing as a narrowed listing, not an empty one", () => {
+    mockScripts.mockImplementation((filter) =>
+      (filter as Record<string, unknown> | undefined)?.["kind"] === "library"
+        ? answer([])
+        : answer([row()]),
+    );
+    list();
+
+    chooseKind("Libraries");
+    expect(screen.getByText(/No automation you can see matches that/)).toBeInTheDocument();
   });
 });

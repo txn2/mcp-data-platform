@@ -23,6 +23,11 @@ import { scheduleLine } from "./cadence";
 // list is the difference between deciding that and discovering it. It names
 // what stays for the opposite reason: "delete the script" reads to a lot of
 // people as "delete the reports it wrote", and that is not what happens.
+//
+// A library (#1941) has no schedule, runs or state, so its list is its
+// versions and the scripts that load it. The platform refuses to delete a
+// library a script still loads (409), and that refusal's own text is what the
+// dialog shows, since it names the scripts that would fail.
 
 interface Props {
   scriptId: string;
@@ -45,6 +50,8 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
       setConfirming(false);
       onDeleted();
     } catch (e: unknown) {
+      // An ApiError's message is the problem detail the route answered with,
+      // which for a library still loaded names the scripts loading it.
       setFailure(e instanceof Error ? e.message : "The script could not be deleted");
     }
   };
@@ -53,9 +60,9 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
     <SectionCard title="Delete">
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Removing this script takes everything that belongs to it: its saved versions, its
-          schedule, its run history, and the state it carries between runs. The files it
-          wrote are not part of that and stay where they are.
+          {contract.library
+            ? "Removing this library takes its saved versions. A library another script still loads is not deleted, because that script would fail at its next run."
+            : "Removing this script takes everything that belongs to it: its saved versions, its schedule, its run history, and the state it carries between runs. The files it wrote are not part of that and stay where they are."}
         </p>
         <Button
           size="sm"
@@ -75,7 +82,13 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
             if (!open) setFailure(null);
           }}
           title={`Delete ${name}?`}
-          description={<WhatGoes contract={contract} />}
+          description={
+            contract.library ? (
+              <LibraryWhatGoes contract={contract} />
+            ) : (
+              <WhatGoes contract={contract} />
+            )
+          }
           confirmLabel="Delete script"
           destructive
           loading={remove.isPending}
@@ -127,6 +140,28 @@ function WhatGoes({ contract }: { contract: ScriptContract }) {
         The assets and resources it wrote stay where they are, and they go on recording that
         this script wrote them.
       </span>
+    </span>
+  );
+}
+
+// LibraryWhatGoes is the confirmation's list for a library: its versions, and
+// the scripts loading it when there are any, because those are why the delete
+// will be refused. Phrasing content only, for the reason WhatGoes is.
+function LibraryWhatGoes({ contract }: { contract: ScriptContract }) {
+  const users = contract.used_by ?? [];
+  return (
+    <span className="block space-y-2">
+      <span className="block">This cannot be undone. Deleting the library also removes:</span>
+      <span className="block">
+        Every saved version of its code, v{contract.version} and every one before it.
+      </span>
+      {users.length > 0 && (
+        <span className="block">
+          It is loaded by {users.map((u) => u.display_name || u.name).join(", ")}, so it will not
+          be deleted until {users.length === 1 ? "that script stops" : "those scripts stop"}{" "}
+          loading it.
+        </span>
+      )}
     </span>
   );
 }

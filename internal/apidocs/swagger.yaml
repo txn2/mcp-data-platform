@@ -4498,6 +4498,24 @@ definitions:
         example: "2026-08-13T14:30:00Z"
         type: string
     type: object
+  libraryuse.Use:
+    properties:
+      display_name:
+        example: Weekly Sales
+        type: string
+      name:
+        example: weekly-sales
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      script_id:
+        example: 3f0c9b1e-8a41-4c55-9d0e-2b7a6c1d4e5f
+        type: string
+      version:
+        example: 2
+        type: integer
+    type: object
   listcut.Count:
     properties:
       shown:
@@ -7323,6 +7341,16 @@ definitions:
           LastRun is the most recent successful run, nil when the script has never
           completed one. It answers "what does this produce" with evidence rather
           than with a promise.
+      library:
+        description: |-
+          Library is true for a library (#1941), which is loaded and never run.
+          Loads is the library versions the source loads, as "<name>@<version>",
+          and UsedBy, for a library, the scripts whose current source loads it.
+        type: boolean
+      loads:
+        items:
+          type: string
+        type: array
       name:
         example: daily-sales-report
         type: string
@@ -7363,6 +7391,10 @@ definitions:
         - reporting
         items:
           type: string
+        type: array
+      used_by:
+        items:
+          $ref: '#/definitions/libraryuse.Use'
         type: array
       version:
         description: 'Version is the version a run executes: the latest saved one.'
@@ -7845,6 +7877,18 @@ definitions:
       id:
         example: script_a1b2c3d4
         type: string
+      library:
+        description: |-
+          Library is true for a library: a script with no main(), pure code
+          another script loads by name and version (#1941). It is decided when the
+          script is created and does not change. Loads is the library versions
+          the current source loads, as "<name>@<version>". The store sets both
+          from the source.
+        type: boolean
+      loads:
+        items:
+          type: string
+        type: array
       name:
         example: daily-sales-report
         type: string
@@ -9130,6 +9174,15 @@ definitions:
         items:
           $ref: '#/definitions/scriptrun.Finding'
         type: array
+      libraries:
+        items:
+          $ref: '#/definitions/scriptlib.Ref'
+        type: array
+      library:
+        description: |-
+          Library is true when the source is a library (#1941), and Libraries is
+          the library versions it loads.
+        type: boolean
       note:
         description: Note states any such gap in the author's terms.
         type: string
@@ -9190,6 +9243,15 @@ definitions:
         type: array
       total:
         example: 4
+        type: integer
+    type: object
+  scriptlib.Ref:
+    properties:
+      name:
+        example: date-windows
+        type: string
+      version:
+        example: 2
         type: integer
     type: object
   scriptrun.Finding:
@@ -23190,11 +23252,13 @@ paths:
         scope=granted lists the scripts granted to the caller's persona, roles or
         API key, each with its parameter contract, which is the catalog an application
         builds from. Administrators see every script either way. The category, tag,
-        search, owner, status and enabled parameters narrow the listing; tag may be
-        repeated, and a script matching any of the named tags is returned. sort and
-        dir order it in the store, ahead of the page cap, so an ordering is over every
-        matching script rather than over the page. total counts every script the predicate
-        matches, so it exceeds the rows returned when the listing was capped.
+        search, owner, status, enabled and kind parameters narrow the listing; kind=library
+        lists the libraries other scripts load (#1941) and kind=automation the scripts
+        that run; tag may be repeated, and a script matching any of the named tags
+        is returned. sort and dir order it in the store, ahead of the page cap, so
+        an ordering is over every matching script rather than over the page. total
+        counts every script the predicate matches, so it exceeds the rows returned
+        when the listing was capped.
       parameters:
       - description: 'Whose scripts to list: mine (default), all, or granted'
         enum:
@@ -23232,6 +23296,13 @@ paths:
         in: query
         name: enabled
         type: boolean
+      - description: Narrow to libraries or to the scripts that run
+        enum:
+        - library
+        - automation
+        in: query
+        name: kind
+        type: string
       - description: Order by this column; an unknown value falls back to updated_at
         enum:
         - name
@@ -23278,7 +23349,9 @@ paths:
         as not-found for anybody else, so the refusal cannot be used to learn that
         a script exists. The assets and resources the script wrote are NOT removed,
         and the records naming it as their producer remain. It is the same removal
-        manage_script command=delete performs, through the same store.'
+        manage_script command=delete performs, through the same store. A library another
+        script''s current source loads is not removed: the answer is 409, naming the
+        scripts (#1941).'
       parameters:
       - description: Script ID
         in: path
@@ -23298,6 +23371,10 @@ paths:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "500":

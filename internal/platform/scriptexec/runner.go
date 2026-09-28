@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -63,6 +64,8 @@ type runner struct {
 	// recordings keeps what each run's host calls were answered (#1939);
 	// nil keeps nothing.
 	recordings scriptrec.Store
+	// libraries is where a run's loads are read from (#1941).
+	libraries scriptlib.Source
 }
 
 // newRunner builds the executor the worker drives.
@@ -71,7 +74,7 @@ func newRunner(runs script.RunStore, cfg Config) *runner {
 		runs: runs, server: cfg.Server, export: cfg.Export,
 		audit: cfg.Audit, destinations: cfg.Destinations, subjects: cfg.Subjects,
 		portalURL: cfg.PortalURL, limits: cfg.Limits.WithDefaults(),
-		reportEvery: liveReportEvery, recordings: cfg.Recordings,
+		reportEvery: liveReportEvery, recordings: cfg.Recordings, libraries: cfg.libraries(),
 	}
 }
 
@@ -114,6 +117,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.State = run.StateRead
 	opts.Caller = caller
 	opts.Destinations = r.destinations
+	opts.Libraries = r.libraries
 	opts.RunURL = r.runURL(sc.ID, run.ID)
 	opts.Exporter = r.exporter(claimedRun{run: run, script: sc, version: v, subject: subject}, caller)
 	opts.Live = scriptlive.New(opts.MaxLogBytes, r.limits.ResultMaxBytes)

@@ -237,7 +237,11 @@ export const scriptHandlers = [
     const owner = query.get("owner");
     const status = query.get("status");
     const enabled = query.get("enabled");
+    // kind= narrows to the libraries or to the scripts that run (#1941), on
+    // the server; absent lists both.
+    const kind = query.get("kind");
     const matched = scripts
+      .filter((script) => !kind || (kind === "library") === Boolean(script.library))
       .filter((script) => !category || script.category === category)
       .filter(
         (script) =>
@@ -527,6 +531,19 @@ export const scriptHandlers = [
     const at = scripts.findIndex((s) => s.id === id);
     if (at === -1) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    // A library a script still loads is not deleted (#1941): the server
+    // answers 409 naming the scripts, in script.LibraryInUseMessage's words.
+    const users = contracts[id]?.used_by ?? [];
+    if (users.length > 0) {
+      return HttpResponse.json(
+        {
+          detail:
+            `this library is loaded by ${users.map((u) => u.name).join(", ")}, which would fail at ` +
+            "their next run, so it was not deleted; change those scripts to stop loading it first",
+        },
+        { status: 409 },
+      );
     }
     const [removed] = scripts.splice(at, 1);
     delete contracts[id];

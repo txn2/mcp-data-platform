@@ -54,6 +54,8 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		"dynamic_tools":           report.DynamicTools,
 		"reads_state":             report.Reads,
 		"saves_state":             report.Saves,
+		"library":                 report.Library,
+		"libraries":               report.Libraries,
 	}
 	if report.DynamicConnections {
 		out["connections_note"] = "At least one call computes its connection instead of naming one, or passes platform.call an argument set that cannot be read from the source, so this connection list is incomplete."
@@ -90,7 +92,7 @@ func (h *Handle) handleTest(ctx context.Context, input manageScriptInput) (*mcp.
 	report, err := scripttest.Run(ctx, scripttest.Request{
 		Source: source, Name: orScriptName(input.Name), Destinations: h.destinations,
 		Load: h.gate.Loader(target, caller), MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
-		Contracts: h.gate.Contracts,
+		Contracts: h.gate.Contracts, Libraries: h.gate.Libraries,
 	})
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -202,7 +204,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	}
 	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
 		WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
-		WithRecordings(h.recordings).Run(ctx, scriptdraft.Request{
+		WithRecordings(h.recordings).WithLibraries(h.gate.Libraries).Run(ctx, scriptdraft.Request{
 		Source: source, Name: sc.Name, Script: sc, Params: params,
 		// The live state, so the draft reads what a platform run created now
 		// would read. Nothing is written back: what the draft would have saved

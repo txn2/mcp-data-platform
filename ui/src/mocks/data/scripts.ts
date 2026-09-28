@@ -136,6 +136,8 @@ export const mockScripts: Script[] = [
     version: 2,
     category: "reporting",
     tags: ["sales", "weekly"],
+    library: false,
+    loads: ["date-windows@2"],
     updated_at: daysAgo(4),
   },
   {
@@ -190,9 +192,59 @@ export const mockScripts: Script[] = [
     tags: ["freshness"],
     updated_at: daysAgo(21),
   },
+  // A library (#1941): code the sales report loads, never run or scheduled
+  // itself. It has no schedule, no runs and no state in any fixture below.
+  {
+    id: "script-006",
+    name: "date-windows",
+    display_name: "Date Windows",
+    description: "The reporting windows the sales automations share.",
+    owner_email: "sarah.chen@example.com",
+    status: "active",
+    enabled: true,
+    version: 2,
+    tags: [],
+    library: true,
+    loads: [],
+    updated_at: daysAgo(6),
+  },
 ];
 
+// dateWindowsSource is the library's code: definitions and no main().
+const dateWindowsSource = `# The reporting windows the sales automations share.
+
+def trailing_days(end, days):
+    """The days-long window ending on end, as (start, end) ISO dates."""
+    return (time.parse_date(end).add_days(-(days - 1)).iso(), end)
+`;
+
 export const mockScriptVersions: Record<string, ScriptVersion[]> = {
+  "script-006": [
+    {
+      id: "sver-006-v2",
+      script_id: "script-006",
+      version: 2,
+      display_name: "Date Windows",
+      description: "The reporting windows the sales automations share.",
+      source: dateWindowsSource,
+      author: "sarah.chen@example.com",
+      author_roles: ["analyst"],
+      status: "applied",
+      created_at: daysAgo(6),
+    },
+    {
+      id: "sver-006-v1",
+      script_id: "script-006",
+      version: 1,
+      display_name: "Date Windows",
+      description: "The reporting windows the sales automations share.",
+      source: dateWindowsSource,
+      author: "sarah.chen@example.com",
+      author_roles: ["analyst"],
+      status: "applied",
+      created_at: daysAgo(40),
+    },
+  ],
   "script-001": [
     {
       id: "sver-001-v2",
@@ -780,6 +832,33 @@ export const mockScriptRunDetails: Record<string, ScriptRunDetail> = {
 // the version a run executes — and the refusal is empty because every fixture
 // script is in service.
 export const mockScriptContracts: Record<string, ScriptContract> = {
+  // The library (#1941). Its refusal is the run gate's own text, and used_by
+  // is the scripts whose current source loads it.
+  "script-006": {
+    id: "script-006",
+    name: "date-windows",
+    display_name: "Date Windows",
+    description: "The reporting windows the sales automations share.",
+    owner_email: "sarah.chen@example.com",
+    tags: [],
+    status: "active",
+    enabled: true,
+    params: [],
+    version: 2,
+    refusal:
+      'the script is a library, which other scripts load as load("lib:<name>@<version>", ...) and which is never run or scheduled itself; run its tests with manage_script command=test',
+    library: true,
+    loads: [],
+    used_by: [
+      {
+        script_id: "script-001",
+        name: "daily-sales-report",
+        display_name: "Daily Sales Report",
+        owner_email: "sarah.chen@example.com",
+        version: 2,
+      },
+    ],
+  },
   "script-001": {
     id: "script-001",
     name: "daily-sales-report",

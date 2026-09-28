@@ -283,6 +283,20 @@ platform.result({"ok": True})
 	assert.Equal(t, KindResult, g.Nodes[0].Kind)
 }
 
+func TestDerive_ExecuteCard(t *testing.T) {
+	g := deriveGraph(`
+platform.execute("INSERT INTO scratch.s.t SELECT * FROM :src", connection="acme", params={"src": run.params["t"]})
+platform.execute("DELETE FROM scratch.s.t", connection=run.params["c"])
+`)
+	require.True(t, g.OK, "%+v", g.Findings)
+	w := nodeByTitle(t, g, "Write acme")
+	assert.Equal(t, RoleWrites, w.Role)
+	assert.Equal(t, KindWrite, w.Kind)
+	assert.Equal(t, "INSERT scratch.s.t", w.Subtitle)
+	assert.False(t, w.Computed)
+	assert.True(t, nodeByTitle(t, g, "Write {").Computed, "a computed connection is shown as computed")
+}
+
 func TestDerive_MemberCards(t *testing.T) {
 	g := deriveGraph(`
 rows = platform.query("SELECT 1", connection="trino")

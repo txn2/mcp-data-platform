@@ -37,6 +37,10 @@ export interface ScriptValidation {
   // platform.save_state on the way out.
   reads_state?: boolean;
   saves_state?: boolean;
+  // library is true when the source defines no main() and so is a library
+  // (#1941); libraries is the library versions it loads.
+  library?: boolean;
+  libraries?: { name: string; version: number }[];
   note?: string;
   // save_refusal is why saving this source would be refused (#1939, #1942),
   // absent when a save would go through; tests is the report of its tests and

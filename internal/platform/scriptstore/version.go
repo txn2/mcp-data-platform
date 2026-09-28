@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -216,4 +218,70 @@ func (s *Store) GetVersionByID(ctx context.Context, id string) (*script.Version,
 		return nil, fmt.Errorf("get script version by id: %w", err)
 	}
 	return v, nil
+}
+
+// LibrarySource reads the source of one saved version of a library (#1941),
+// answering scriptlib.ErrNotFound when there is no library of that name or it
+// has no such version.
+func (s *Store) LibrarySource(ctx context.Context, name string, version int) (string, error) {
+	var source string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT v.source_code
+		  FROM script_versions v
+		  JOIN scripts s ON s.id = v.script_id
+		 WHERE s.library AND s.name = $1 AND v.version = $2`, name, version).Scan(&source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", scriptlib.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read library %s@%d: %w", name, version, err)
+	}
+	return source, nil
+}
+
+// usedByStmt is every script whose current source loads the library $1 names,
+// with the version it loads.
+const usedByStmt = `
+	SELECT s.id, s.name, s.display_name, s.owner_email, split_part(l, '@', 2)::int
+	  FROM scripts s, unnest(s.library_loads) AS l
+	 WHERE split_part(l, '@', 1) = $1
+	 ORDER BY s.name, s.owner_email`
+
+// UsedBy lists the scripts whose current source loads the named library.
+func (s *Store) UsedBy(ctx context.Context, library string) ([]libraryuse.Use, error) {
+	rows, err := s.db.QueryContext(ctx, usedByStmt, library)
+	if err != nil {
+		return nil, fmt.Errorf("list the scripts loading %s: %w", library, err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []libraryuse.Use{}
+	for rows.Next() {
+		var u libraryuse.Use
+		if err := rows.Scan(&u.ScriptID, &u.Name, &u.DisplayName, &u.OwnerEmail, &u.Version); err != nil {
+			return nil, fmt.Errorf("scan a script loading %s: %w", library, err)
+		}
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list the scripts loading %s: %w", library, err)
+	}
+	return out, nil
+}
+
+// refuseLibraryInUse refuses deleting a library another script's current
+// source loads: that script would fail at its next run.
+func refuseLibraryInUse(ctx context.Context, tx *sql.Tx, id string) error {
+	var users []string
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(array_agg(DISTINCT u.name ORDER BY u.name), '{}')
+		  FROM scripts lib, scripts u, unnest(u.library_loads) AS l
+		 WHERE lib.id = $1 AND lib.library AND u.id <> lib.id
+		   AND split_part(l, '@', 1) = lib.name`, id).Scan(pq.Array(&users))
+	if err != nil {
+		return fmt.Errorf("read the scripts loading a library: %w", err)
+	}
+	if len(users) > 0 {
+		return &libraryuse.InUseError{Users: users}
+	}
+	return nil
 }

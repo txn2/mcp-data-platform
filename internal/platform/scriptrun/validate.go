@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
 	"github.com/txn2/mcp-data-platform/internal/scriptreserved"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -84,6 +85,10 @@ type Report struct {
 	// instead, because the connection is the only claim this report makes
 	// about what is inside those arguments.
 	DynamicTools bool `json:"dynamic_tools"`
+	// Library is true when the source is a library: it defines no main()
+	// (#1941). Libraries is the library versions it loads, in source order.
+	Library   bool            `json:"library"`
+	Libraries []scriptlib.Ref `json:"libraries"`
 	// StateUse reports whether the source reads run.state and whether it calls
 	// platform.save_state (#1537), so a reader learns from the contract whether
 	// a run continues from the previous run's save. Both are read from the
@@ -105,7 +110,7 @@ func hasErrors(findings []Finding) bool {
 func Validate(source string) Report {
 	report := Report{
 		Capabilities: []string{}, Connections: []string{}, Tools: []string{},
-		Destinations: []string{}, RefreshTargets: []string{},
+		Destinations: []string{}, RefreshTargets: []string{}, Libraries: []scriptlib.Ref{},
 	}
 	findings := scanSource(source)
 
@@ -134,6 +139,14 @@ func Validate(source string) Report {
 	report.DynamicRefreshTargets = found.dynamicRefreshTargets
 	report.DynamicTools = found.dynamicTools
 	report.StateUse = script.StateUse{Reads: found.readsState, Saves: found.capabilities[CapabilitySaveState]}
+	report.Library = scriptlib.IsLibrary(file)
+	for _, ld := range scriptlib.Loads(file) {
+		if ld.Err != nil {
+			findings = append(findings, Finding{Severity: SeverityError, Line: ld.Line, Message: ld.Err.Error()})
+		} else if !slices.Contains(report.Libraries, ld.Ref) {
+			report.Libraries = append(report.Libraries, ld.Ref)
+		}
+	}
 
 	if resolveErr != nil {
 		findings = append(findings, translate(resolveFindings(resolveErr))...)
@@ -389,7 +402,7 @@ func (ins *inspection) visit(call *syntax.CallExpr, dot *syntax.DotExpr) {
 		return
 	}
 	switch name {
-	case CapabilityQuery:
+	case CapabilityQuery, CapabilityExecute:
 		ins.collectKeyword(call, "connection", ins.connections, &ins.dynamicConnections)
 	case CapabilityExport:
 		ins.visitExport(call, int(dot.NamePos.Line))
@@ -427,7 +440,7 @@ func hasStarArg(call *syntax.CallExpr) bool {
 // to as incomplete rather than reporting a shorter list as a complete one.
 func (ins *inspection) unreadable(name string) {
 	switch name {
-	case CapabilityQuery:
+	case CapabilityQuery, CapabilityExecute:
 		ins.dynamicConnections = true
 	case CapabilityExport:
 		ins.dynamicDestinations = true

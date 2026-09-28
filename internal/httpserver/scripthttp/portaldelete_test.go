@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/libraryuse"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -143,6 +144,18 @@ func TestPortalDeleteScript_RemovedByAnotherCallerFirst(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 	require.Len(t, log.events, 1, "the attempt is still an act on a script, and it did not do anything")
 	assert.False(t, log.events[0].Success)
+}
+
+// TestPortalDeleteScript_ALibraryInUseIsAConflict: a library another script
+// loads stays, and the answer names the scripts (#1941).
+func TestPortalDeleteScript_ALibraryInUseIsAConflict(t *testing.T) {
+	store := portalStore()
+	store.deleteErr = &libraryuse.InUseError{Users: []string{"daily", "weekly"}}
+
+	rec := servePortalRequest(t, ownerDeps(store, owner, &recordingAudit{}), http.MethodDelete, ownDeletePath, "")
+
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "this library is loaded by daily, weekly")
 }
 
 // TestPortalDeleteScript_RecordsTheAct proves the removal is in the audit log

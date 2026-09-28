@@ -20,18 +20,15 @@ import { ScriptDelete } from "./ScriptDelete";
 import { ScriptDocumentation } from "./ScriptDocumentation";
 import { ScriptOwnerTransfer } from "./ScriptOwnerTransfer";
 import type { ProducedTargetKind } from "@/api/portal/hooks/producers";
-import { ScriptProducedPanel } from "./ScriptProducedPanel";
-import { ScriptRunHistory } from "./ScriptRunHistory";
-import { ScriptLiveRuns } from "./ScriptRunAttempts";
 import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
 import { ScriptSourceEditor } from "./ScriptSourceEditor";
-import { ScriptGrantsCard } from "./ScriptGrantsCard";
-import { ScriptStateCard } from "./ScriptStateCard";
 import { ScriptCodeCard } from "./ScriptCodeCard";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
 import { SourceLines } from "./SourceLines";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 import { ScriptChanges } from "./ScriptChanges";
+import { ScriptUsedBy } from "./ScriptUsedBy";
+import { ScriptRunSections } from "./ScriptRunSections";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
 // will execute it, on what schedule, and — for its owner — everything it has
@@ -51,6 +48,12 @@ import { ScriptChanges } from "./ScriptChanges";
 // what the code has actually been doing. Source and run history are adjacent
 // because they are read together — an error in the history is answered by the
 // text above it.
+//
+// A library (#1941) is the same page without everything that belongs to
+// running: it is never run or scheduled itself, so it has no schedule, no
+// Run, no run history, nothing it produced, no state and nobody to grant a
+// run to. In their place it says how another script loads it and which
+// scripts do.
 
 interface Props {
   scriptId: string;
@@ -65,6 +68,9 @@ interface Props {
    * portal and the admin console hold the same file at different addresses;
    * absent, a produced file is named without being linked. */
   filePath?: (kind: ProducedTargetKind, id: string) => string;
+  /** basePath is the section another script opens under from this page:
+   * /automations or /admin/automations. */
+  basePath?: string;
 }
 
 export function ScriptDetailPage({
@@ -74,6 +80,7 @@ export function ScriptDetailPage({
   backLabel = "Automations",
   openRunId,
   filePath,
+  basePath = "/automations",
 }: Props) {
   const { data, isLoading, error } = useScriptContract(scriptId);
 
@@ -92,6 +99,7 @@ export function ScriptDetailPage({
       backLabel={backLabel}
       openRunId={openRunId}
       filePath={filePath}
+      basePath={basePath}
     />
   );
 }
@@ -107,6 +115,7 @@ function ScriptDetail({
   backLabel,
   openRunId,
   filePath,
+  basePath,
 }: {
   scriptId: string;
   data: { contract: ScriptContract; owned: boolean; source?: string; draft_params?: ScriptParam[] };
@@ -115,9 +124,13 @@ function ScriptDetail({
   backLabel: string;
   openRunId?: string;
   filePath?: (kind: ProducedTargetKind, id: string) => string;
+  basePath: string;
 }) {
-  const { contract, owned, source } = data;
-  const state = executionState(contract);
+  const { contract, owned } = data;
+  const library = Boolean(contract.library);
+  // What belongs to running -- the schedule, and the runs below the code --
+  // is the owner's, and a library has none of it (#1941).
+  const runs = owned && !library;
   // Moving a script to another person is an administrator's, and the only
   // control on this page that is not the owner's own (#1404).
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -130,14 +143,10 @@ function ScriptDetail({
         icon={FileCode2}
         title={contract.display_name || contract.name}
         urn={contract.name}
-        actions={<Badge variant={state.variant}>{state.label}</Badge>}
+        actions={<ExecutionBadge contract={contract} />}
       />
 
-      {state.detail && (
-        <Alert>
-          <AlertDescription>{state.detail}</AlertDescription>
-        </Alert>
-      )}
+      <RefusalNotice contract={contract} />
 
       <SectionCard title="Details">
         <ScriptFacts contract={contract} />
@@ -147,52 +156,25 @@ function ScriptDetail({
           runs for (#1943), read by owner and reader alike. */}
       <ScriptChanges scriptId={scriptId} />
 
-      {owned && <ScriptScheduleEditor scriptId={scriptId} contract={contract} />}
+      {runs && <ScriptScheduleEditor scriptId={scriptId} contract={contract} />}
 
       <ScriptDocumentation scriptId={scriptId} contract={contract} owned={owned} />
 
-      {owned && (
-        <>
-          {/* Keyed on the script for the same reason the schedule editor is:
-              this component sits at the same position in the tree for every
-              script, so an address change from one script to another would
-              otherwise carry a part-typed edit — and the values a real run
-              binds — onto the next one. */}
-          <ScriptSourceEditor
-            key={scriptId}
-            scriptId={scriptId}
-            contract={contract}
-            source={source ?? ""}
-            draftParams={draftParamsOf(data)}
-          />
-          {/* Runs that have not ended, above the history (#1860): a run whose
-              worker died can be older than the history's first page. */}
-          <ScriptLiveRuns scriptId={scriptId} />
-          <ScriptRunHistory
-            scriptId={scriptId}
-            openRunId={openRunId}
-            onNavigate={onNavigate}
-          />
-          {/* Everything the runs above have written, as one list rather than
-              per-run output lines (#1569). It reads after the history for the
-              same reason the history reads after the source: it is the
-              aggregate the individual accounts add up to. */}
-          <ScriptProducedPanel
-            scriptId={scriptId}
-            owner={contract.owner_email}
-            filePath={filePath}
-            onNavigate={onNavigate}
-          />
-          {/* The state the runs above carry between them (#1537), read after
-              the history because a watermark is explained by the run that
-              wrote it. Keyed on the script for the reason the editors are. */}
-          <ScriptStateCard key={`state-${scriptId}`} scriptId={scriptId} contract={contract} />
-          {/* Who else may run it (#1846), the owner's to decide. */}
-          <ScriptGrantsCard key={`grants-${scriptId}`} scriptId={scriptId} />
-        </>
-      )}
+      <ScriptCode scriptId={scriptId} data={data} />
 
-      {!owned && <ScriptSourceReadOnly scriptId={scriptId} contract={contract} source={source} />}
+      {/* Which scripts load this library, for every reader: a library is
+          loadable by anyone, so who depends on it is not the owner's alone. */}
+      {library && <ScriptUsedBy contract={contract} basePath={basePath} onNavigate={onNavigate} />}
+
+      {runs && (
+        <ScriptRunSections
+          scriptId={scriptId}
+          contract={contract}
+          openRunId={openRunId}
+          onNavigate={onNavigate}
+          filePath={filePath}
+        />
+      )}
 
       {isAdmin && <ScriptOwnerTransfer scriptId={scriptId} contract={contract} />}
 
@@ -206,6 +188,56 @@ function ScriptDetail({
         <ScriptDelete scriptId={scriptId} contract={contract} onDeleted={onBack} />
       )}
     </div>
+  );
+}
+
+// ExecutionBadge is the header's one-word answer to "what is this doing". A
+// library's refusal is what it is, not a fault: it is never run (#1941), so
+// it is badged as a library rather than as "Not running".
+function ExecutionBadge({ contract }: { contract: ScriptContract }) {
+  if (contract.library) return <Badge variant="info">Library</Badge>;
+  const state = executionState(contract);
+  return <Badge variant={state.variant}>{state.label}</Badge>;
+}
+
+// RefusalNotice is why nothing will run the script, in the run gate's own
+// words. A library says what it is in its header and its Used by section
+// instead, so it carries none.
+function RefusalNotice({ contract }: { contract: ScriptContract }) {
+  const state = executionState(contract);
+  if (contract.library || !state.detail) return null;
+  return (
+    <Alert>
+      <AlertDescription>{state.detail}</AlertDescription>
+    </Alert>
+  );
+}
+
+// ScriptCode is the code section: the editor for a reader the script belongs
+// to, and the read-only definition for everyone else (#1866).
+function ScriptCode({
+  scriptId,
+  data,
+}: {
+  scriptId: string;
+  data: { contract: ScriptContract; owned: boolean; source?: string; draft_params?: ScriptParam[] };
+}) {
+  const { contract, owned, source } = data;
+  if (!owned) {
+    return <ScriptSourceReadOnly scriptId={scriptId} contract={contract} source={source} />;
+  }
+  return (
+    // Keyed on the script for the same reason the schedule editor is: this
+    // component sits at the same position in the tree for every script, so an
+    // address change from one script to another would otherwise carry a
+    // part-typed edit — and the values a real run binds — onto the next one.
+    <ScriptSourceEditor
+      key={scriptId}
+      scriptId={scriptId}
+      contract={contract}
+      source={source ?? ""}
+      draftParams={draftParamsOf(data)}
+    />
   );
 }
 
@@ -236,8 +268,9 @@ function ScriptSourceReadOnly({
       source={(link) => (
         <div className="space-y-3" data-testid="script-source-readonly">
           <p className="text-xs text-muted-foreground">
-            Read only. Running, scheduling and changing this script are{" "}
-            {contract.owner_email || "its owner"}'s and an administrator's.
+            {contract.library
+              ? `Read only. Changing this library is ${contract.owner_email || "its owner"}'s and an administrator's.`
+              : `Read only. Running, scheduling and changing this script are ${contract.owner_email || "its owner"}'s and an administrator's.`}
           </p>
           <SourceLines
             source={source ?? ""}
@@ -287,6 +320,7 @@ function draftParamsOf(data: {
 // lines. They are the same kind of statement — what this script is and what it
 // takes — so they are read here rather than found separately (#1406).
 function ScriptFacts({ contract }: { contract: ScriptContract }) {
+  if (contract.library) return <LibraryFacts contract={contract} />;
   // In words, as every other surface states a cadence (#1405, #1407): the
   // expression is read and written in the schedule editor below, and a reader
   // asking what this script does is not asking what its cron field says.
@@ -314,6 +348,24 @@ function ScriptFacts({ contract }: { contract: ScriptContract }) {
         <ParameterTable contract={contract} />
       </div>
     </div>
+  );
+}
+
+// LibraryFacts is a library's summary: whose it is, its latest saved version,
+// and its status. A library takes no run
+// parameters and has no schedule, so neither is stated.
+function LibraryFacts({ contract }: { contract: ScriptContract }) {
+  const loads = contract.loads ?? [];
+  return (
+    <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+      <Fact label="Owner" value={contract.owner_email || "nobody"} />
+      <Fact label="Version" value={`v${contract.version}, the latest saved version`} />
+      <Fact
+        label="Status"
+        value={contract.enabled ? contract.status : `${contract.status} (disabled)`}
+      />
+      {loads.length > 0 && <Fact label="Loads" value={loads.map((l) => `lib:${l}`).join(", ")} />}
+    </dl>
   );
 }
 

@@ -32,6 +32,11 @@ export interface ScriptListFilter {
    */
   scope?: "mine" | "all";
   /**
+   * kind narrows to the libraries ("library") or to the scripts that run
+   * ("automation", #1941). Absent lists both.
+   */
+  kind?: ScriptKind;
+  /**
    * sort and dir order the listing IN THE STORE. Ordering in the browser
    * would order the page the cap returned, so "A-Z" would silently mean "A-Z
    * within the most recently updated 200.
@@ -45,6 +50,9 @@ export interface ScriptListFilter {
  * purpose: it is attached per page after the query, so ordering by it would
  * order the page rather than the listing.
  */
+/** ScriptKind is what kind= narrows the listing to. */
+export type ScriptKind = "library" | "automation";
+
 export type ScriptSortKey = "name" | "display_name" | "owner_email" | "created_at" | "updated_at";
 
 // useScriptListing reads the scripts this caller may see: their own, and every
@@ -75,6 +83,7 @@ const LIST_AXES = [
   "status",
   "enabled",
   "scope",
+  "kind",
   "sort",
   "dir",
 ] as const satisfies readonly (keyof ScriptListFilter)[];

@@ -3,6 +3,7 @@ import { FileCode2 } from "lucide-react";
 import { useScriptListing } from "@/api/portal/hooks/scripts";
 import type {
   PortalScriptRow,
+  ScriptKind,
   ScriptListFilter,
   ScriptListResponse,
 } from "@/api/portal/hooks/scripts";
@@ -84,9 +85,20 @@ interface Facets {
   category: string;
   tag: string;
   status: string;
+  /** kind is "" for both, or the one kind the listing narrows to (#1941). */
+  kind: "" | ScriptKind;
 }
 
-const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "" };
+const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "", kind: "" };
+
+// KIND_OPTIONS are the three answers to "which kind of script": every one, the
+// ones that run, and the libraries they load (#1941). Unlike the other facets
+// the vocabulary is fixed, so it is not read from the listing.
+const KIND_OPTIONS: FilterOption[] = [
+  { value: "", label: "All" },
+  { value: "automation", label: "Automations" },
+  { value: "library", label: "Libraries" },
+];
 
 export function ScriptListing({ audience, basePath, onNavigate }: Props) {
   const state = useListingState(audience);
@@ -254,6 +266,7 @@ function serverFilter(
   if (facets.tag) filter.tag = facets.tag;
   if (facets.status) filter.status = facets.status;
   if (facets.owner) filter.owner = facets.owner;
+  if (facets.kind) filter.kind = facets.kind;
   if (search) filter.search = search;
   return filter;
 }
@@ -279,7 +292,12 @@ function vocabularyFilter(
 // no scripts".
 function isNarrowed(filter: ScriptListFilter): boolean {
   return Boolean(
-    filter.category || filter.tag || filter.status || filter.owner || filter.search,
+    filter.category ||
+      filter.tag ||
+      filter.status ||
+      filter.owner ||
+      filter.kind ||
+      filter.search,
   );
 }
 
@@ -392,6 +410,12 @@ function ScriptFilterBar({
         placeholder="Search automations..."
         aria-label="Search automations"
         className="w-full sm:w-64"
+      />
+      <FilterSelect
+        label="Filter by kind"
+        value={facets.kind}
+        onChange={(kind) => set({ kind: kind as Facets["kind"] })}
+        options={KIND_OPTIONS}
       />
       <FilterSelect
         label="Filter by author"

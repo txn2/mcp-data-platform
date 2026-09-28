@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -62,4 +63,16 @@ func TestFilter_OrderingAndScope(t *testing.T) {
 	// author but the caller.
 	theirs := Filter(stranger, false, url.Values{"owner": {"dana@example.com"}})
 	assert.Equal(t, "dana@example.com", theirs.OwnerEmail)
+}
+
+// TestFilter_Kind: kind=library lists libraries, kind=automation the scripts
+// that run, and anything else both (#1941).
+func TestFilter_Kind(t *testing.T) {
+	lib := Filter("jane@example.com", false, url.Values{"kind": {KindLibrary}})
+	require.NotNil(t, lib.Library)
+	assert.True(t, *lib.Library)
+	auto := Filter("jane@example.com", true, url.Values{"kind": {KindAutomation}})
+	require.NotNil(t, auto.Library)
+	assert.False(t, *auto.Library)
+	assert.Nil(t, Filter("jane@example.com", false, url.Values{"kind": {"other"}}).Library)
 }

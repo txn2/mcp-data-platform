@@ -54,9 +54,17 @@ func TestGates_CreateRefusesAFindingAndNamesIt(t *testing.T) {
 	assert.Empty(t, store.scripts)
 	findings, _ := fields["findings"].([]any)
 	require.NotEmpty(t, findings)
-	first, _ := findings[0].(map[string]any)
-	assert.Equal(t, scriptlint.RuleEntryPoint, first["rule"])
-	assert.NotEmpty(t, first["hint"])
+	// A source with no main() is a library, and a library may not name
+	// platform; its work at the top level is the other finding (#1941).
+	rules := map[string]bool{}
+	for _, f := range findings {
+		m, _ := f.(map[string]any)
+		rule, _ := m["rule"].(string)
+		rules[rule] = true
+		assert.NotEmpty(t, m["hint"])
+	}
+	assert.True(t, rules[scriptlint.RuleLibraryEffect], "%v", rules)
+	assert.True(t, rules[scriptlint.RuleTopLevelWork], "%v", rules)
 	assert.Contains(t, fields, "formatted_source")
 
 	res = call(t, h, authorCtx(), manageScriptInput{

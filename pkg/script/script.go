@@ -178,6 +178,14 @@ type Script struct {
 	// it; nothing an author sends changes it.
 	OutputsReadOptional bool `json:"-"`
 
+	// Library is true for a library: a script with no main(), pure code
+	// another script loads by name and version (#1941). It is decided when the
+	// script is created and does not change. Loads is the library versions
+	// the current source loads, as "<name>@<version>". The store sets both
+	// from the source.
+	Library bool     `json:"library"`
+	Loads   []string `json:"loads"`
+
 	// ChangeSummary is the agreed behavior change the save in progress
 	// carries (#1942): what the automation now does differently, in plain
 	// language, and ChangeAgreedBy who confirmed that the person it runs for
@@ -294,7 +302,10 @@ type ListFilter struct {
 	// PreHarness narrows to the scripts saved before the authoring harness
 	// (#1943): those still saved as legacy or without required tests.
 	PreHarness bool
-	Limit      int // cap the number of rows returned; 0 means the store default
+	// Library narrows to libraries when true and to the scripts that run
+	// when false (#1941); nil lists both.
+	Library *bool
+	Limit   int // cap the number of rows returned; 0 means the store default
 	// Sort names the column to order by and Desc the direction. An empty or
 	// unrecognized Sort falls back to the default, most-recently-updated
 	// first: a listing answers with the wrong order rather than refusing,
@@ -362,6 +373,11 @@ func SortColumns() []SortColumn {
 // means somebody removed it in between, which is a not-found for the caller
 // rather than a failure of the platform.
 var ErrNotFound = errors.New("script not found")
+
+// errLibraryNotRun is why a library is never run or scheduled: it has no
+// main(), and the scripts that load it do the running (#1941).
+var errLibraryNotRun = errors.New("the script is a library, which other scripts load as " +
+	"load(\"lib:<name>@<version>\", ...) and which is never run or scheduled itself; run its tests with manage_script command=test")
 
 // Store defines the interface for script persistence. A script name is unique
 // within its owner and nowhere else, so every lookup by name names an owner

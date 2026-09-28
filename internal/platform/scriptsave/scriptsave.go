@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -51,6 +52,9 @@ type Gate struct {
 	// Contracts is what an answer a test declares is held to (#1953); nil
 	// checks none.
 	Contracts scripttest.Contracts
+	// Libraries is where the libraries a source loads are read from
+	// (#1941); nil refuses a source that loads any.
+	Libraries scriptlib.Source
 }
 
 // Caller is who is saving.
@@ -116,6 +120,9 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		return res
 	}
 	source := res.Lint.Source
+	if res.Refusal = g.checkLibraries(ctx, req, source); res.Refusal != "" {
+		return res
+	}
 	if res.Refusal = g.checkTests(ctx, req, source, &res); res.Refusal != "" {
 		return res
 	}
@@ -179,8 +186,66 @@ func (g *Gate) testRequest(req Request, source string) scripttest.Request {
 	return scripttest.Request{
 		Source: source, Name: req.Name, Destinations: g.Destinations,
 		Load: g.Loader(req.Existing, req.Caller), MaxMemoryBytes: g.MaxMemoryBytes,
-		Contracts: g.Contracts,
+		Contracts: g.Contracts, Libraries: g.Libraries,
 	}
+}
+
+// checkLibraries returns why the source's libraries refuse the save, or "":
+// a script and a library do not turn into each other, a new library's name is
+// not another library's, and every load names a library version that exists,
+// with no cycle among them (#1941).
+func (g *Gate) checkLibraries(ctx context.Context, req Request, source string) string {
+	library := scriptlib.SourceIsLibrary(source)
+	if refusal := kindChange(req.Existing, library); refusal != "" {
+		return refusal
+	}
+	self := ""
+	if library {
+		self = req.Name
+		if refusal := g.nameTaken(ctx, req); refusal != "" {
+			return refusal
+		}
+	}
+	problems := scriptlib.Check(ctx, g.Libraries, source, self)
+	if len(problems) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(problems))
+	for _, p := range problems {
+		parts = append(parts, fmt.Sprintf("line %d: %s", p.Line, p.Message))
+	}
+	return "a load names a library that cannot be loaded, so the source was not saved: " + strings.Join(parts, " | ")
+}
+
+// kindChange refuses a save that would turn a script into a library or a
+// library into a script: which one a script is was decided when it was
+// created, and the scripts loading a library, or the schedule running a
+// script, depend on it staying so.
+func kindChange(existing *script.Script, library bool) string {
+	switch {
+	case existing == nil || existing.Legacy || existing.Library == library:
+		return ""
+	case existing.Library:
+		return "this is a library, and a library defines no main(), so it was not saved; " +
+			"a script that runs is created as a new script that loads this library"
+	default:
+		return "this script defines no main(), which would make it a library, so it was not saved; " +
+			"keep the script's work in `def main():`, or create a new script for the library"
+	}
+}
+
+// nameTaken refuses creating a library under a name another library has: a
+// load names a library by name alone, so the name is unique across the
+// platform.
+func (g *Gate) nameTaken(ctx context.Context, req Request) string {
+	if req.Existing != nil || g.Libraries == nil {
+		return ""
+	}
+	if _, err := g.Libraries.LibrarySource(ctx, req.Name, 1); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("a library named %q already exists, and a library's name is unique across the platform, "+
+		"so it was not saved; choose another name", req.Name)
 }
 
 // compare fills the differences between the saved version and source.

@@ -32,6 +32,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
@@ -166,6 +167,17 @@ type Runner struct {
 	// recordings keeps what each draft's host calls were answered, for the
 	// script's tests to replay (#1939). Nil keeps nothing.
 	recordings scriptrec.Store
+	// libraries is where a draft's loads are read from (#1941).
+	libraries scriptlib.Source
+}
+
+// WithLibraries returns the Runner reading the libraries a draft loads from
+// src, the source a run and a test read.
+func (r *Runner) WithLibraries(src scriptlib.Source) *Runner {
+	if r != nil {
+		r.libraries = src
+	}
+	return r
 }
 
 // WithRecordings returns the Runner keeping each draft's recording in store.
@@ -286,6 +298,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		Classifier:     r.classifier,
 		Exporter:       r.exporterFor(req, runID, caller),
 		MaxMemoryBytes: r.memoryBudget,
+		Libraries:      r.libraries,
 	}
 	rec := r.record(&opts)
 	result, runErr := scriptrun.Run(ctx, opts)

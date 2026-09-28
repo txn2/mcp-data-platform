@@ -18,7 +18,24 @@ export interface Script {
   // filter on (#1369). Empty for a script nobody has filed.
   category?: string;
   tags?: string[];
+  // library is true for a library (#1941): a script with no main() that other
+  // scripts load as load("lib:<name>@<version>", ...) and that is never run
+  // or scheduled itself. loads is the library versions this script's current
+  // source loads, as "<name>@<version>". The server always sends both; they
+  // are optional here because an older server sends neither.
+  library?: boolean;
+  loads?: string[];
   updated_at: string;
+}
+
+// LibraryUse is one script whose current source loads a library (#1941), and
+// the version of the library it loads.
+export interface LibraryUse {
+  script_id: string;
+  name: string;
+  display_name: string;
+  owner_email: string;
+  version: number;
 }
 
 // ScriptVersion is one immutable snapshot with its author and the roles they

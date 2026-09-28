@@ -278,7 +278,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
 		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).
-		WithRecordings(deps.Gate.Recordings)
+		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries)
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)
 	// A version drawn as a diagram (#1906) and a run drawn on it (#1907).
@@ -319,6 +319,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 			Recordings: recstore.New(p.DB()), Destinations: p.Config().Scripts.ScriptDestinations(),
 			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
 			Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
+			Libraries:      store,
 		},
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {

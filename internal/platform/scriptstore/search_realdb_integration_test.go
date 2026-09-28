@@ -26,7 +26,7 @@ func seedScript(t *testing.T, s *Store, name, owner string, params []script.Para
 	sc := &script.Script{
 		Name: name, DisplayName: "Daily Sales Report",
 		Description: "Summarize yesterday's revenue by region",
-		Source:      "print(1)\n", OwnerEmail: owner,
+		Source:      "def main():\n    print(1)\n", OwnerEmail: owner,
 		Params: params, Enabled: true,
 		Tags: []string{"revenue"},
 	}

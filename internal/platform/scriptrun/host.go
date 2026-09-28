@@ -35,6 +35,14 @@ import (
 // middleware an agent's query goes through.
 const ToolQuery = "trino_query"
 
+// argSQL is the SQL argument of platform.query, platform.execute and the tool
+// calls they make.
+const argSQL = "sql"
+
+// ToolExecute is the tool platform.execute names: the statement that changes
+// state, bound as platform.query binds (#1950).
+const ToolExecute = "trino_execute"
+
 // Member names of the platform module.
 //
 // Three of them are named helpers over one tool call each, kept because they
@@ -47,8 +55,13 @@ const ToolQuery = "trino_query"
 // persona authorizes, decided by the persona filter at every call, at run time
 // (#1419).
 const (
-	CapabilityQuery  = "platform.query"
-	CapabilityExport = "platform.export"
+	CapabilityQuery = "platform.query"
+	// CapabilityExecute runs a statement that changes state, with its values
+	// bound by the binder platform.query uses (#1950). It is a trino_execute
+	// call, so it is authorized, audited and stopped by a draft's write
+	// barrier exactly as that call is.
+	CapabilityExecute = "platform.execute"
+	CapabilityExport  = "platform.export"
 	// CapabilityPublishData replaces the data region of a portal document this
 	// script already publishes, and touches nothing else in it. It is separate
 	// from CapabilityExport, whose document arm composes whole documents,
@@ -84,7 +97,7 @@ const (
 // run's persona authorizes, and what a script reaches is read from the source
 // by Validate, which reports the tool names it names.
 var Capabilities = []string{
-	CapabilityQuery, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
+	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
 	CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 }
 
@@ -352,7 +365,7 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 		params     *starlark.Dict
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		"sql", &sql, "connection?", &connection, "params?", &params); err != nil {
+		argSQL, &sql, "connection?", &connection, "params?", &params); err != nil {
 		return nil, argErr(b, err)
 	}
 	if h.opts.Caller == nil {
@@ -363,7 +376,7 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 		return nil, argErr(b, err)
 	}
 
-	call := map[string]any{"sql": bound, "limit": h.opts.MaxRows}
+	call := map[string]any{argSQL: bound, "limit": h.opts.MaxRows}
 	if connection != "" {
 		call["connection"] = connection
 	}
@@ -407,6 +420,39 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if err != nil {
 		return nil, argErr(b, err)
 	}
+	return h.invoke(b, tool, payload)
+}
+
+// execute implements platform.execute: bind the parameters as platform.query
+// does and issue the statement as the trino_execute call platform.call would,
+// so the write barrier, the write report and the audit row are that call's.
+func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var (
+		connection string
+		sql        string
+		params     *starlark.Dict
+	)
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
+		argSQL, &sql, "connection?", &connection, "params?", &params); err != nil {
+		return nil, argErr(b, err)
+	}
+	if h.opts.Caller == nil {
+		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
+	}
+	bound, err := scriptsql.Bind(sql, params)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	payload := map[string]any{argSQL: bound}
+	if connection != "" {
+		payload["connection"] = connection
+	}
+	return h.invoke(b, ToolExecute, payload)
+}
+
+// invoke issues one tool call for platform.call and platform.execute: the
+// write barrier, the call, the record of what it wrote, and the result.
+func (h *hostState) invoke(b *starlark.Builtin, tool string, payload map[string]any) (starlark.Value, error) {
 	decision, err := h.admitCall(b, tool, payload)
 	if err != nil {
 		return nil, err

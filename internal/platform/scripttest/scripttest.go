@@ -27,6 +27,7 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -49,6 +50,9 @@ type Request struct {
 	MaxMemoryBytes int64
 	// Contracts is what a declared answer is held to; nil checks none.
 	Contracts Contracts
+	// Libraries is where the libraries the source loads are read from
+	// (#1941), the same pinned source a run reads.
+	Libraries scriptlib.Source
 }
 
 // Result is one test's outcome.
@@ -215,7 +219,7 @@ func execute(ctx context.Context, req Request, e execution) (*produced, *scriptr
 		RunID: h.RunID, FireTime: h.FireTime, Params: h.Params, State: h.State, RunURL: h.RunURL,
 		Caller: replay, Exporter: replay.Exporter(), Destinations: req.Destinations,
 		Live: live, MaxSteps: scriptrun.RunMaxSteps, Timeout: scriptrun.DraftTimeout,
-		MaxRows: h.MaxRows, MaxMemoryBytes: req.MaxMemoryBytes,
+		MaxRows: h.MaxRows, MaxMemoryBytes: req.MaxMemoryBytes, Libraries: req.Libraries,
 		Test: &scriptrun.TestHooks{
 			Entry:   entry,
 			Env:     starlark.StringDict{scriptrun.TestingName: testingModule(recording, out, inputs), scriptrun.AssertName: assertModule(&out.asserts, &out.failures)},

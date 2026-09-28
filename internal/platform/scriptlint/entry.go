@@ -25,11 +25,7 @@ func (l *linter) entryPoint() {
 	}
 	switch {
 	case main == nil:
-		l.add(finding{
-			rule: RuleEntryPoint, subject: "missing", line: 1,
-			message: "the script defines no main()",
-			hint:    "Put the script's work in `def main():`. The platform calls main() after the script loads; the top level holds only definitions and constants.",
-		})
+		l.library()
 	case len(main.Params) > 0:
 		l.add(finding{
 			rule: RuleEntryPoint, subject: "params", line: line(main),
@@ -47,6 +43,28 @@ func (l *linter) entryPoint() {
 			})
 		}
 	}
+}
+
+// library holds a source with no main() to what a library is (#1941): pure
+// code another script loads, which names neither platform nor run. Each use is
+// a finding on its line; the first of each name is enough to fix the rest.
+func (l *linter) library() {
+	seen := map[string]bool{}
+	syntax.Walk(l.file, func(n syntax.Node) bool {
+		id, ok := n.(*syntax.Ident)
+		if !ok || !slices.Contains(hostNames, id.Name) || seen[id.Name] {
+			return true
+		}
+		seen[id.Name] = true
+		l.add(finding{
+			rule: RuleLibraryEffect, subject: id.Name, line: line(id),
+			message: "the source defines no main(), so it is a library, and a library may not name " + id.Name,
+			hint: "A library is pure code another script loads by version, as load(\"lib:<name>@<version>\", \"fn\"); " +
+				"the script that loads it makes the calls. Pass what the function needs as arguments. " +
+				"If this is meant to run on its own, put its work in `def main():`.",
+		})
+		return true
+	})
 }
 
 // declares reports whether a top-level statement only declares something.
