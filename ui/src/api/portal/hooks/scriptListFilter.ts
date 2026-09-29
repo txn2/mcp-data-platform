@@ -33,7 +33,7 @@ export interface ScriptListFilter {
   scope?: "mine" | "all";
   /**
    * kind narrows to the libraries ("library") or to the scripts that run
-   * ("automation", #1941). Absent lists both.
+   * ("script", #1941, #1970). Absent lists both.
    */
   kind?: ScriptKind;
   /**
@@ -51,7 +51,7 @@ export interface ScriptListFilter {
  * order the page rather than the listing.
  */
 /** ScriptKind is what kind= narrows the listing to. */
-export type ScriptKind = "library" | "automation";
+export type ScriptKind = "script" | "library";
 
 export type ScriptSortKey = "name" | "display_name" | "owner_email" | "created_at" | "updated_at";
 

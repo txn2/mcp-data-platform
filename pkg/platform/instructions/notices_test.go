@@ -104,15 +104,24 @@ func TestNoticesNoteComposesBeneathTheBaseline(t *testing.T) {
 // the one list not cleared by being shown.
 func TestNoticesNoteNamesFailingAutomations(t *testing.T) {
 	only := NoticesNote([]string{toolManageScript}, 0, 0, 2)
-	assert.Contains(t, only, "`notices.failing_automations` — 2 automations")
-	assert.Contains(t, only, "until a run of it succeeds")
+	assert.Contains(t, only, "`failing_automations` — 2 automations")
+	assert.NotContains(t, only, "`notices.failing_automations`", "the list is beside notices, not in it (#1971)")
+	assert.Contains(t, only, "This response carries a `failing_automations` list.")
+	assert.NotContains(t, only, "`notices` block", "there is no notices block to relay")
+	assert.Contains(t, only, "until a run of it succeeds, or until they disable it or mark it deprecated or superseded")
 	assert.Contains(t, only, "`manage_script` get_run")
+	assert.Contains(t, only, "`manage_script` update and `enabled` false", "#1973: disabling is how its owner takes it off the list")
 	assert.NotContains(t, only, "shown once", "a failing automation is listed again until it is fixed")
 
 	withoutTool := NoticesNote([]string{toolFetch}, 0, 0, 1)
-	assert.Contains(t, withoutTool, "`notices.failing_automations` — 1 automation ")
+	assert.Contains(t, withoutTool, "`failing_automations` — 1 automation ")
 	assert.NotContains(t, withoutTool, "get_run", "a tool the persona cannot reach is not named")
+	assert.NotContains(t, withoutTool, "`manage_script`", "a tool the persona cannot reach is not named")
 
 	mixed := NoticesNote(allNoticeTools, 1, 0, 1)
 	assert.Contains(t, mixed, "Feedback and shares are shown once")
+	assert.Contains(t, mixed, "This response carries a `notices` block and a `failing_automations` list.")
+
+	noticesOnly := NoticesNote(allNoticeTools, 1, 0, 0)
+	assert.Contains(t, noticesOnly, "This response carries a `notices` block.")
 }

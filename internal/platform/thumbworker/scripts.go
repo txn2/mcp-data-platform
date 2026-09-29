@@ -21,12 +21,24 @@ import (
 // if it were a document.
 const FlowTileType = "application/vnd.mcp-data-platform.flow-graph"
 
+// LibraryTileType is the content type a library's tile reaches the tile page
+// as (#1970): a library makes no platform calls, so it has no diagram to draw,
+// and its tile names it instead. The content is libraryTile's JSON.
+const LibraryTileType = "application/vnd.mcp-data-platform.library"
+
+// libraryTile is what a library's tile is drawn from, beside the name the tile
+// page is always handed.
+type libraryTile struct {
+	Version int `json:"version"`
+}
+
 // ScriptRenderer is the generation of a script's flow tile, apart from
 // Renderer so that redrawing every script tile does not redraw every asset's.
 // It starts where Renderer stood when scripts were first drawn.
 //
-// 3 draws the Structure view, the order the script runs in (#1972).
-const ScriptRenderer = 3
+// 3 draws the Structure view, the order the script runs in (#1972). 4 draws a
+// library as a library rather than as an empty diagram (#1970).
+const ScriptRenderer = 4
 
 // orphanBatch is how many deleted scripts' tiles one pass removes.
 const orphanBatch = 50
@@ -74,19 +86,20 @@ func (w *Worker) scriptJob(s scripttiles.Work) job {
 // drawScript draws a script's flow diagram, light and dark, and records it
 // against the version it was drawn from. A version that does not parse is
 // recorded as not drawable, with the parse error as the reason; a script with
-// no platform calls draws its empty diagram.
+// no platform calls draws its empty diagram, and a library its name and
+// version.
 func (w *Worker) drawScript(ctx context.Context, s scripttiles.Work) error {
 	g := scriptflow.Derive(s.Source)
 	if !g.OK {
 		w.failScript(ctx, s, parseReason(g))
 		return nil
 	}
-	payload, err := json.Marshal(g)
+	src, err := scriptTileSource(s, g)
 	if err != nil {
-		return fmt.Errorf("encoding the flow graph: %w", err)
+		return err
 	}
 	t := target{
-		src:    tileSource{contentType: FlowTileType, content: payload, name: s.Name},
+		src:    src,
 		bucket: w.deps.CollectionBucket,
 		blobs:  w.deps.AssetBlobs,
 		keyFor: func(variant string) string { return scripttiles.Key(w.deps.CollectionPrefix, s.ScriptID, variant) },
@@ -105,6 +118,23 @@ func (w *Worker) drawScript(ctx context.Context, s scripttiles.Work) error {
 		slog.Error("thumbnails: recording a script's tile failed", logKeyScript, logsan.SanitizeForLog(s.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 	return nil
+}
+
+// scriptTileSource is what the tile page is handed for a script: its flow
+// graph, or for a library the version its tile names.
+func scriptTileSource(s scripttiles.Work, g scriptflow.Graph) (tileSource, error) {
+	if s.Library {
+		payload, err := json.Marshal(libraryTile{Version: s.Version})
+		if err != nil {
+			return tileSource{}, fmt.Errorf("encoding the library tile: %w", err)
+		}
+		return tileSource{contentType: LibraryTileType, content: payload, name: s.Name}, nil
+	}
+	payload, err := json.Marshal(g)
+	if err != nil {
+		return tileSource{}, fmt.Errorf("encoding the flow graph: %w", err)
+	}
+	return tileSource{contentType: FlowTileType, content: payload, name: s.Name}, nil
 }
 
 // logKeyScript names a script in the log.

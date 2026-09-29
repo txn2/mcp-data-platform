@@ -113,3 +113,36 @@ func TestGraphRoutes_CompareWithAnOlderVersion(t *testing.T) {
 	rec = get(t, Deps{Load: deps.Load, SignedIn: deps.SignedIn}, "/api/v1/portal/scripts/s1/versions/3/graph?compare=1")
 	assert.Equal(t, http.StatusNotFound, rec.Code, "no version store, no comparison")
 }
+
+// #1970: a library's graph carries the functions a load can name, from the
+// version the path names; a script that runs carries none, even one saved
+// with no main() before libraries existed.
+func TestGraphRoutes_ALibraryCarriesItsFunctions(t *testing.T) {
+	const lib = "def last_week(today, days=7):\n    \"\"\"The seven days before today.\"\"\"\n    return today\n"
+	library := func(http.ResponseWriter, *http.Request) (*script.Script, *script.Version, bool) {
+		return &script.Script{ID: "l1", Name: "date-windows", Library: true}, &script.Version{ScriptID: "l1", Version: 2, Source: lib}, true
+	}
+	rec := get(t, Deps{Load: library, SignedIn: signedIn(true)}, "/api/v1/portal/scripts/l1/versions/2/graph")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Library *struct {
+			Functions []struct {
+				Name   string   `json:"name"`
+				Params []string `json:"params"`
+				Doc    string   `json:"doc"`
+			} `json:"functions"`
+			Load string `json:"load"`
+		} `json:"library"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NotNil(t, body.Library)
+	require.Len(t, body.Library.Functions, 1)
+	assert.Equal(t, "last_week", body.Library.Functions[0].Name)
+	assert.Equal(t, []string{"today", "days=7"}, body.Library.Functions[0].Params)
+	assert.Equal(t, "The seven days before today.", body.Library.Functions[0].Doc)
+	assert.Equal(t, `load("lib:date-windows@2", "last_week")`, body.Library.Load, "loaded from the version the path names")
+
+	rec = get(t, Deps{Load: version(lib), SignedIn: signedIn(true)}, "/api/v1/portal/scripts/s1/versions/3/graph")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), `"library"`)
+}

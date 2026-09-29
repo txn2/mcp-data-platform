@@ -72,13 +72,16 @@ export function ScriptDocumentation({ scriptId, contract, owned }: Props) {
 function DocumentationView({ contract, owned }: { contract: ScriptContract; owned: boolean }) {
   const facets = <ScriptFacetBadges category={contract.category} tags={contract.tags} />;
   if (!contract.description) {
+    // A library is loaded rather than run, so what its reader needs written
+    // down is what its functions do (#1970).
+    const advice = contract.library
+      ? "This library has no description. Write what its functions do and what they assume, so somebody loading it does not have to read the code."
+      : "This script has no description. Write what it produces, what its parameters mean, and what it assumes, so somebody reading it in six months does not have to read the code.";
     return (
       <div className="space-y-3">
         {facets}
         <p className="text-sm text-muted-foreground">
-          {owned
-            ? "This script has no description. Write what it produces, what its parameters mean, and what it assumes, so somebody reading it in six months does not have to read the code."
-            : "This script has no description."}
+          {owned ? advice : `This ${contract.library ? "library" : "script"} has no description.`}
         </p>
       </div>
     );

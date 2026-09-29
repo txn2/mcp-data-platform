@@ -1,0 +1,303 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "agent_instructions": {
+      "type": "string"
+    },
+    "config_version": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "type": "string"
+        },
+        "latest_version": {
+          "type": "string"
+        },
+        "supported_versions": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "api_version",
+        "supported_versions",
+        "latest_version"
+      ],
+      "type": "object"
+    },
+    "description": {
+      "type": "string"
+    },
+    "error": {
+      "description": "Machine-readable error envelope; present only when the call failed. Branch on error.code / error.category rather than parsing the message prose.",
+      "properties": {
+        "category": {
+          "description": "error category the caller can branch on (e.g. client_input, internal)",
+          "type": "string"
+        },
+        "code": {
+          "description": "stable snake_case error code (e.g. not_found, unauthorized)",
+          "type": "string"
+        },
+        "hint": {
+          "description": "corrective guidance for the caller, when available",
+          "type": "string"
+        },
+        "message": {
+          "description": "human-readable failure message",
+          "type": "string"
+        },
+        "retry_after_seconds": {
+          "description": "seconds after which the same call is expected to be admitted; present only on a rate_limited refusal",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "features": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_logging": {
+          "type": "boolean"
+        },
+        "knowledge_apply": {
+          "additionalProperties": false,
+          "properties": {
+            "datahub_connection": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "review_queue": {
+              "additionalProperties": false,
+              "properties": {
+                "oldest_pending_age_days": {
+                  "type": "integer"
+                },
+                "pending": {
+                  "type": "integer"
+                },
+                "pending_over_30d": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "pending"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "knowledge_capture": {
+          "type": "boolean"
+        },
+        "managed_resources": {
+          "type": "boolean"
+        },
+        "query_enrichment": {
+          "type": "boolean"
+        },
+        "semantic_enrichment": {
+          "type": "boolean"
+        },
+        "storage_enrichment": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "semantic_enrichment",
+        "query_enrichment",
+        "storage_enrichment",
+        "audit_logging",
+        "knowledge_capture",
+        "managed_resources"
+      ],
+      "type": "object"
+    },
+    "name": {
+      "type": "string"
+    },
+    "notices": {
+      "additionalProperties": false,
+      "properties": {
+        "feedback": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "asset_id": {
+                "type": "string"
+              },
+              "asset_name": {
+                "type": "string"
+              },
+              "asset_reference": {
+                "type": "string"
+              },
+              "author_email": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "last_activity_at": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "thread_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "kind",
+              "status",
+              "asset_id",
+              "asset_reference",
+              "last_activity_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "feedback_total": {
+          "type": "integer"
+        },
+        "new_shares": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "permission": {
+                "type": "string"
+              },
+              "reference": {
+                "type": "string"
+              },
+              "shared_at": {
+                "type": "string"
+              },
+              "shared_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "reference",
+              "shared_at"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "new_shares_truncated": {
+          "type": "boolean"
+        },
+        "since": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "since"
+      ],
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "persona": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "display_name"
+      ],
+      "type": [
+        "null",
+        "object"
+      ]
+    },
+    "portal_url": {
+      "type": "string"
+    },
+    "session_expires_at": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "null",
+        "array"
+      ]
+    },
+    "toolkit_descriptions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "toolkits": {
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "null",
+        "array"
+      ]
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

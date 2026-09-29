@@ -294,7 +294,7 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=library lists the libraries other scripts load (#1941) and kind=automation the scripts that run; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
+// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
 // @Tags         Scripts
 // @Produce      json
 // @Param        scope     query  string    false  "Whose scripts to list: mine (default), all, or granted"  Enums(mine, all, granted)
@@ -304,16 +304,21 @@ type portalScriptListResponse struct {
 // @Param        owner     query  string    false  "Narrow to one author's scripts, by email"
 // @Param        status    query  string    false  "Narrow to one lifecycle status"
 // @Param        enabled   query  boolean   false  "Narrow to enabled or disabled scripts"
-// @Param        kind      query  string    false  "Narrow to libraries or to the scripts that run"  Enums(library, automation)
+// @Param        kind      query  string    false  "Narrow to the scripts that run or to the libraries they load; any other value is refused"  Enums(script, library)
 // @Param        sort      query  string    false  "Order by this column; an unknown value falls back to updated_at"  Enums(name, display_name, owner_email, created_at, updated_at)
 // @Param        dir       query  string    false  "Order direction"  Enums(asc, desc)
 // @Success      200  {object}  portalScriptListResponse
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /portal/scripts [get]
 func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	if _, _, err := scriptlist.ParseKind(r.URL.Query().Get("kind")); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	filter := scriptlist.Filter(user.owner(), user.IsAdmin, r.URL.Query())
 	granted, err := h.grantedFilter(r, user, &filter)
 	if err != nil {

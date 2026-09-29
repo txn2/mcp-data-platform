@@ -42,6 +42,7 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const name = contract.display_name || contract.name;
+  const noun = contract.library ? "library" : "script";
 
   const submit = async () => {
     setFailure(null);
@@ -52,7 +53,7 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
     } catch (e: unknown) {
       // An ApiError's message is the problem detail the route answered with,
       // which for a library still loaded names the scripts loading it.
-      setFailure(e instanceof Error ? e.message : "The script could not be deleted");
+      setFailure(e instanceof Error ? e.message : `The ${noun} could not be deleted`);
     }
   };
 
@@ -73,7 +74,7 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
             setConfirming(true);
           }}
         >
-          Delete script
+          Delete {noun}
         </Button>
         <ConfirmDialog
           open={confirming}
@@ -89,7 +90,7 @@ export function ScriptDelete({ scriptId, contract, onDeleted }: Props) {
               <WhatGoes contract={contract} />
             )
           }
-          confirmLabel="Delete script"
+          confirmLabel={`Delete ${noun}`}
           destructive
           loading={remove.isPending}
           error={failure}

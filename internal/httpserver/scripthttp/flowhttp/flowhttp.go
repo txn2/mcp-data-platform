@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow/flowcompare"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -82,7 +83,7 @@ func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(htt
 // portalGraph returns one version's flow graph.
 //
 // @Summary      Get a script version's flow graph
-// @Description  Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. Readable by everyone signed in, as the source is.
+// @Description  Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. For a library, library lists each function a load can name, with its parameters as written and the first sentence of its docstring. For a library, library lists each function a load can name, with its parameters as written and the first sentence of its docstring. Readable by everyone signed in, as the source is.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id       path  string   true  "Script ID"
@@ -107,7 +108,7 @@ func (h *Handler) portalGraph(w http.ResponseWriter, r *http.Request) {
 // adminGraph returns one version's flow graph.
 //
 // @Summary      Get a script version's flow graph
-// @Description  Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram.
+// @Description  Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. For a library, library lists each function a load can name, with its parameters as written and the first sentence of its docstring.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id       path  string   true  "Script ID"
@@ -127,7 +128,7 @@ func (h *Handler) adminGraph(w http.ResponseWriter, r *http.Request) {
 // serve answers the graph of the version the path names, compared with an
 // older version when ?compare= names one.
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
-	_, v, ok := h.deps.Load(w, r)
+	sc, v, ok := h.deps.Load(w, r)
 	if !ok {
 		return
 	}
@@ -138,6 +139,11 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g = flowcompare.Compare(scriptflow.Derive(older.Source), g, older.Version)
+	}
+	// A library has no diagram; the Flow tab shows what it offers a load
+	// instead (#1970), from the version asked for.
+	if sc != nil && sc.Library {
+		g.Library = scriptflow.LibraryOf(scriptlib.Ref{Name: sc.Name, Version: v.Version}, v.Source)
 	}
 	httpjson.WriteJSON(w, http.StatusOK, graphResponse{ScriptID: v.ScriptID, Version: v.Version, Graph: g})
 }

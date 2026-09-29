@@ -247,6 +247,7 @@ internal/httpserver/scripthttp/flowhttp -> internal/httpserver/scripthttp
 internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow
 internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow/flowcompare
 internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptflow/flowrun
+internal/httpserver/scripthttp/flowhttp -> internal/platform/scriptlib
 internal/httpserver/scripthttp/flowhttp -> internal/platform/scripttiles
 internal/httpserver/scripthttp/flowhttp -> pkg/audit
 internal/httpserver/scripthttp/flowhttp -> pkg/blobserve
@@ -623,6 +624,7 @@ internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/textpatch
 internal/platform/scriptexec -> pkg/toolkit
 internal/platform/scriptflow -> internal/platform/scriptdialect
+internal/platform/scriptflow -> internal/platform/scriptlib
 internal/platform/scriptflow -> internal/platform/scriptrun
 internal/platform/scriptflow -> internal/scriptconst
 internal/platform/scriptflow -> internal/sqltables

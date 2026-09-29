@@ -65,14 +65,37 @@ func TestFilter_OrderingAndScope(t *testing.T) {
 	assert.Equal(t, "dana@example.com", theirs.OwnerEmail)
 }
 
-// TestFilter_Kind: kind=library lists libraries, kind=automation the scripts
-// that run, and anything else both (#1941).
+// TestFilter_Kind: kind=library lists libraries, kind=script the scripts
+// that run, and no kind both (#1941, #1970).
 func TestFilter_Kind(t *testing.T) {
 	lib := Filter("jane@example.com", false, url.Values{"kind": {KindLibrary}})
 	require.NotNil(t, lib.Library)
 	assert.True(t, *lib.Library)
-	auto := Filter("jane@example.com", true, url.Values{"kind": {KindAutomation}})
-	require.NotNil(t, auto.Library)
-	assert.False(t, *auto.Library)
-	assert.Nil(t, Filter("jane@example.com", false, url.Values{"kind": {"other"}}).Library)
+	scripts := Filter("jane@example.com", true, url.Values{"kind": {KindScript}})
+	require.NotNil(t, scripts.Library)
+	assert.False(t, *scripts.Library)
+	assert.Nil(t, Filter("jane@example.com", false, url.Values{}).Library)
+}
+
+// TestParseKind: the two kinds and no kind are read; any other value,
+// including the automation the listing named scripts by before #1970, is
+// refused.
+func TestParseKind(t *testing.T) {
+	_, named, err := ParseKind("")
+	require.NoError(t, err)
+	assert.False(t, named)
+	library, named, err := ParseKind(KindLibrary)
+	require.NoError(t, err)
+	assert.True(t, named)
+	assert.True(t, library)
+	library, named, err = ParseKind(KindScript)
+	require.NoError(t, err)
+	assert.True(t, named)
+	assert.False(t, library)
+	for _, bad := range []string{"automation", "Script", "other"} {
+		_, named, err := ParseKind(bad)
+		require.Error(t, err, bad)
+		assert.Contains(t, err.Error(), "unknown kind")
+		assert.False(t, named)
+	}
 }

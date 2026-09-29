@@ -91,12 +91,13 @@ interface Facets {
 
 const NO_FACETS: Facets = { owner: "", category: "", tag: "", status: "", kind: "" };
 
-// KIND_OPTIONS are the three answers to "which kind of script": every one, the
-// ones that run, and the libraries they load (#1941). Unlike the other facets
-// the vocabulary is fixed, so it is not read from the listing.
+// KIND_OPTIONS are the three answers to "which kind": every one, the scripts
+// that run, and the libraries they load (#1941), in the words of the Kind
+// column (#1970). Unlike the other facets the vocabulary is fixed, so it is not
+// read from the listing.
 const KIND_OPTIONS: FilterOption[] = [
   { value: "", label: "All" },
-  { value: "automation", label: "Automations" },
+  { value: "script", label: "Scripts" },
   { value: "library", label: "Libraries" },
 ];
 
@@ -506,8 +507,8 @@ function ScriptsSection({
             sortDir={sort.dir}
             onSort={onSort}
           />
-          {/* What kind of automation each row is (#1912). Every one is a
-              script today; the column is where a second kind is told apart. */}
+          {/* What kind of automation each row is (#1912): a script, which
+              runs, or a library other scripts load (#1941). */}
           <TableHead>Kind</TableHead>
           <SortableHead
             label="Author"

@@ -9,16 +9,35 @@
 package scriptlist
 
 import (
+	"fmt"
 	"net/url"
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// The kinds the listing narrows to with kind=.
+// The kinds the listing narrows to with kind=, in the words of the listing's
+// Kind column (#1970): a script is the kind that runs, a library the kind
+// other scripts load.
 const (
-	KindLibrary    = "library"
-	KindAutomation = "automation"
+	KindScript  = "script"
+	KindLibrary = "library"
 )
+
+// ParseKind reads kind=: whether it names libraries, and whether it names a
+// kind at all (an absent value lists both), or an error for a value that names
+// no kind.
+func ParseKind(v string) (library, named bool, err error) {
+	switch v {
+	case "":
+		return false, false, nil
+	case KindLibrary:
+		return true, true, nil
+	case KindScript:
+		return false, true, nil
+	default:
+		return false, false, fmt.Errorf("unknown kind %q: must be %s or %s", v, KindScript, KindLibrary)
+	}
+}
 
 // nonEmpty drops the empty values a repeated query parameter can carry, so
 // `?tag=&tag=sales` narrows by one tag rather than by one tag and an empty
@@ -69,14 +88,10 @@ func Filter(owner string, isAdmin bool, query url.Values) script.ListFilter {
 	if enabled, ok := parseBool(query.Get("enabled")); ok {
 		filter.Enabled = &enabled
 	}
-	// kind=library lists libraries and kind=automation the scripts that run
-	// (#1941); anything else lists both.
-	switch query.Get("kind") {
-	case KindLibrary:
-		library := true
-		filter.Library = &library
-	case KindAutomation:
-		library := false
+	// kind=library lists libraries and kind=script the scripts that run
+	// (#1941, #1970). A value that names no kind is refused by the handler
+	// through ParseKind before this runs; here it lists both.
+	if library, named, err := ParseKind(query.Get("kind")); err == nil && named {
 		filter.Library = &library
 	}
 	// owner narrows to one author, and naming one is itself a way of asking

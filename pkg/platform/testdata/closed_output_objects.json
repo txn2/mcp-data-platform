@@ -1,0 +1,359 @@
+{
+  "about": "Every object an output schema advertised closed (additionalProperties: false) in the tools/list of v1.135.2, v1.136.1 and v1.137.1, with the keys the earliest of them declared. A client still holding one of those lists rejects any other key there (#1971). v1.138.0 advertises every object open (#1945), so this set is final. Recorded from the platform TestRealDB_EveryToolAToolkitNamesIsRegisteredOnTheServer assembles, at each release.",
+  "objects": [
+    {
+      "tool": "fetch",
+      "pointer": "/properties/document",
+      "keys": [
+        "body",
+        "content",
+        "entity_urns",
+        "note",
+        "reference",
+        "references",
+        "source",
+        "tables",
+        "title",
+        "verifiable"
+      ]
+    },
+    {
+      "tool": "fetch",
+      "pointer": "/properties/document/properties/references/items",
+      "keys": [
+        "reference",
+        "type"
+      ]
+    },
+    {
+      "tool": "fetch",
+      "pointer": "/properties/document/properties/tables/items",
+      "keys": [
+        "column_types",
+        "columns",
+        "connection",
+        "follow",
+        "follow_error",
+        "format",
+        "query_table",
+        "registration_id",
+        "repair",
+        "sample_sql",
+        "stale"
+      ]
+    },
+    {
+      "tool": "fetch",
+      "pointer": "/properties/document/properties/tables/items/properties/column_types/items",
+      "keys": [
+        "name",
+        "type"
+      ]
+    },
+    {
+      "tool": "fetch",
+      "pointer": "/properties/document/properties/verifiable",
+      "keys": [
+        "connection",
+        "query_table",
+        "urn"
+      ]
+    },
+    {
+      "tool": "list_connections",
+      "pointer": "/properties/connections/items",
+      "keys": [
+        "catalog_id",
+        "connection",
+        "datahub_source_name",
+        "description",
+        "health",
+        "is_default",
+        "kind",
+        "knowledge_page_count",
+        "knowledge_pages",
+        "name",
+        "operation_count",
+        "read_only",
+        "reference"
+      ]
+    },
+    {
+      "tool": "list_connections",
+      "pointer": "/properties/connections/items/properties/health",
+      "keys": [
+        "last_error",
+        "last_success",
+        "reachable"
+      ]
+    },
+    {
+      "tool": "list_connections",
+      "pointer": "/properties/connections/items/properties/knowledge_pages/items",
+      "keys": [
+        "id",
+        "slug",
+        "title"
+      ]
+    },
+    {
+      "tool": "platform_find_tools",
+      "pointer": "/properties/tools/items",
+      "keys": [
+        "description",
+        "name",
+        "score"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/config_version",
+      "keys": [
+        "api_version",
+        "latest_version",
+        "supported_versions"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/features",
+      "keys": [
+        "audit_logging",
+        "knowledge_apply",
+        "knowledge_capture",
+        "managed_resources",
+        "query_enrichment",
+        "semantic_enrichment",
+        "storage_enrichment"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/features/properties/knowledge_apply",
+      "keys": [
+        "datahub_connection",
+        "enabled",
+        "review_queue"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/features/properties/knowledge_apply/properties/review_queue",
+      "keys": [
+        "oldest_pending_age_days",
+        "pending",
+        "pending_over_30d"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/notices",
+      "keys": [
+        "feedback",
+        "feedback_total",
+        "new_shares",
+        "new_shares_truncated",
+        "since"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/notices/properties/failing_automations/items",
+      "keys": [
+        "cause",
+        "consecutive_failures",
+        "display_name",
+        "error",
+        "failed_at",
+        "last_succeeded_at",
+        "name",
+        "new",
+        "reference",
+        "retryable",
+        "run_id",
+        "scheduled",
+        "version"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/notices/properties/feedback/items",
+      "keys": [
+        "asset_id",
+        "asset_name",
+        "asset_reference",
+        "author_email",
+        "kind",
+        "last_activity_at",
+        "status",
+        "thread_id",
+        "title"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/notices/properties/new_shares/items",
+      "keys": [
+        "id",
+        "kind",
+        "name",
+        "permission",
+        "reference",
+        "shared_at",
+        "shared_by"
+      ]
+    },
+    {
+      "tool": "platform_info",
+      "pointer": "/properties/persona",
+      "keys": [
+        "description",
+        "display_name",
+        "name"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/coverage/items",
+      "keys": [
+        "matched",
+        "matched_capped",
+        "shown",
+        "source",
+        "withheld"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/groups/items",
+      "keys": [
+        "hits",
+        "source"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/groups/items/properties/hits/items",
+      "keys": [
+        "captured_by",
+        "dimension",
+        "entity_urns",
+        "link",
+        "ref",
+        "reference",
+        "score",
+        "source",
+        "status",
+        "table",
+        "text",
+        "verifiable"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/groups/items/properties/hits/items/properties/link",
+      "keys": [
+        "description",
+        "mime_type",
+        "name",
+        "uri"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/groups/items/properties/hits/items/properties/table",
+      "keys": [
+        "column_types",
+        "columns",
+        "connection",
+        "follow",
+        "follow_error",
+        "format",
+        "query_table",
+        "registration_id",
+        "repair",
+        "sample_sql",
+        "stale"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/groups/items/properties/hits/items/properties/table/properties/column_types/items",
+      "keys": [
+        "name",
+        "type"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/groups/items/properties/hits/items/properties/verifiable",
+      "keys": [
+        "connection",
+        "query_table",
+        "urn"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/items/items",
+      "keys": [
+        "captured_by",
+        "dimension",
+        "entity_urns",
+        "link",
+        "ref",
+        "reference",
+        "score",
+        "source",
+        "status",
+        "table",
+        "text",
+        "verifiable"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/items/items/properties/link",
+      "keys": [
+        "description",
+        "mime_type",
+        "name",
+        "uri"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/items/items/properties/table",
+      "keys": [
+        "column_types",
+        "columns",
+        "connection",
+        "follow",
+        "follow_error",
+        "format",
+        "query_table",
+        "registration_id",
+        "repair",
+        "sample_sql",
+        "stale"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/items/items/properties/table/properties/column_types/items",
+      "keys": [
+        "name",
+        "type"
+      ]
+    },
+    {
+      "tool": "search",
+      "pointer": "/properties/items/items/properties/verifiable",
+      "keys": [
+        "connection",
+        "query_table",
+        "urn"
+      ]
+    }
+  ]
+}

@@ -235,3 +235,39 @@ func TestFlowTileType_TheTilePageKnowsIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(src), `export const FLOW_TILE_TYPE = "`+FlowTileType+`";`)
 }
+
+// #1970: a library's tile is drawn from its name and version, light and dark,
+// never as an empty flow diagram. A main-less script saved before libraries
+// existed is not one, and is drawn as its flow graph (TestDrawScript_
+// TheFlowGraphLightAndDark draws exactly such a source).
+func TestDrawScript_ALibraryIsDrawnAsALibrary(t *testing.T) {
+	d, blobs := &fakeDrawer{}, newBlobs()
+	w := worker(d, nil, blobs)
+	w.deps.CollectionPrefix = "p"
+	scripts := newFakeScripts(scripttiles.Work{
+		ScriptID: "lib1", Name: "date-windows", Version: 2, Library: true,
+		Source: "def last_week(today):\n    \"\"\"The seven days before today.\"\"\"\n    return today\n",
+	})
+	w.deps.Scripts = scripts
+
+	require.True(t, w.drawBatch(context.Background(), w.claimScripts(context.Background())))
+	require.Len(t, d.pages, 2)
+	for i, page := range d.pages {
+		data := payload(t, page)
+		assert.Equal(t, LibraryTileType, data["contentType"])
+		assert.Equal(t, "date-windows", data["name"])
+		content, ok := data["content"].(string)
+		require.True(t, ok, "the tile page is handed the library as text")
+		assert.JSONEq(t, `{"version":2}`, content)
+		assert.Equal(t, i == 1, page.Dark)
+	}
+	assert.Equal(t, "p/scripts/lib1/tile.png", scripts.recorded["lib1"])
+	assert.Equal(t, 2, scripts.versions["lib1"])
+}
+
+// The tile page tells a library by the content type the worker sends it as.
+func TestLibraryTileType_TheTilePageKnowsIt(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "ui", "src", "components", "thumbnail", "LibraryTile.tsx"))
+	require.NoError(t, err)
+	assert.Contains(t, string(src), `export const LIBRARY_TILE_TYPE = "`+LibraryTileType+`";`)
+}

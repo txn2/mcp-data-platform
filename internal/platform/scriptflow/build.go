@@ -4,9 +4,14 @@ import (
 	"cmp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 )
 
 // build turns the walk into the graph.
@@ -261,4 +266,78 @@ func (a *analyzer) buildParams() []Param {
 		return cmp.Compare(x.Name, y.Name)
 	})
 	return out
+}
+
+// Library is what a library defines for another script to load (#1970). A
+// library makes no platform calls, so its diagram is empty by definition; what
+// a reader of one needs is the functions it offers and how to load them.
+type Library struct {
+	// Functions is every function a load can name, in source order.
+	Functions []Function `json:"functions"`
+	// Load is the statement that loads every one of them from this version,
+	// empty when there is none to load.
+	Load string `json:"load,omitempty" example:"load(\"lib:date-windows@2\", \"last_week\")"`
+}
+
+// Function is one function a library defines at its top level.
+type Function struct {
+	Name string `json:"name" example:"last_week"`
+	// Params is each parameter as the source writes it, a default included.
+	Params []string `json:"params" example:"today,days=7"`
+	// Doc is the first sentence of the function's docstring.
+	Doc  string `json:"doc,omitempty" example:"The seven days before today."`
+	Line int    `json:"line" example:"12"`
+}
+
+// LibraryOf is what one version of a library offers a load: the functions its
+// source defines and the statement that loads them from that version. A source
+// that does not parse offers none; its graph already says why.
+func LibraryOf(ref scriptlib.Ref, source string) *Library {
+	file, err := scriptrun.Parse(source)
+	if err != nil {
+		return &Library{Functions: []Function{}}
+	}
+	lib := newAnalyzer(source, file).library()
+	if len(lib.Functions) > 0 {
+		args := make([]string, 0, len(lib.Functions))
+		args = append(args, strconv.Quote(ref.String()))
+		for _, fn := range lib.Functions {
+			args = append(args, strconv.Quote(fn.Name))
+		}
+		lib.Load = "load(" + strings.Join(args, ", ") + ")"
+	}
+	return lib
+}
+
+// library lists the functions file defines at its top level that a load can
+// name. A name beginning with an underscore is private to the library: load
+// refuses it, so it is not offered. A test_ function is the library's test,
+// run by the harness on a save, not a function a script loads.
+func (a *analyzer) library() *Library {
+	lib := &Library{Functions: []Function{}}
+	for _, s := range a.file.Stmts {
+		d, ok := s.(*syntax.DefStmt)
+		if !ok || strings.HasPrefix(d.Name.Name, "_") || scriptdialect.IsTest(d) {
+			continue
+		}
+		fn := Function{Name: d.Name.Name, Params: make([]string, 0, len(d.Params)), Line: int(d.Def.Line)}
+		for _, p := range d.Params {
+			fn.Params = append(fn.Params, a.paramText(p))
+		}
+		if len(d.Body) > 0 {
+			fn.Doc = clip(docSentence(d.Body[0]), maxCaption)
+		}
+		lib.Functions = append(lib.Functions, fn)
+	}
+	return lib
+}
+
+// paramText is one parameter as the source writes it: a name, name=default,
+// *args or **kwargs. A default is read through srcOf, which restores the
+// closing bracket the parser leaves out of an index or slice span.
+func (a *analyzer) paramText(p syntax.Expr) string {
+	if b, ok := p.(*syntax.BinaryExpr); ok && b.Op == syntax.EQ {
+		return a.srcOf(b.X) + "=" + a.srcOf(b.Y)
+	}
+	return a.srcOf(p)
 }

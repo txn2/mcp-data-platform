@@ -18,6 +18,7 @@ import { FlowCanvas } from "./FlowCanvas";
 import { layoutFlow, type FlowLayout } from "./flowLayout";
 import { lit, nodeLines, type Selection } from "./flowModel";
 import { FlowSidePanel } from "./FlowSidePanel";
+import { LibraryFunctions } from "./LibraryFunctions";
 import { FLOW_VIEWS, initialView, rememberView, type FlowView } from "./flowView";
 import { StructureCanvas } from "./StructureCanvas";
 import { layoutStructure, type StructureLayout } from "./structureLayout";
@@ -58,6 +59,11 @@ export function ScriptFlowView(props: Props) {
   const [full, setFull] = useState(false);
   useEscape(full, setFull);
   const shownView: FlowView = view === "timeline" && !runs.runId ? "structure" : view;
+  // A library has no diagram, no runs and no views to switch between: its tab
+  // is what it offers a load (#1970). The graph is the one VersionFlow reads,
+  // from the same cache.
+  const library = useScriptFlow(props.scriptId, props.version, compareWith).data?.library;
+  if (library) return <LibraryFunctions library={library} />;
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2" data-testid="flow-toolbar">

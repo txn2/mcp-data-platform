@@ -1,4 +1,4 @@
-import { FileCode2 } from "lucide-react";
+import { BookOpen, FileCode2 } from "lucide-react";
 import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
 import { ThumbCard } from "@/components/cards/ThumbCard";
 import { Badge } from "@/components/ui/badge";
@@ -51,11 +51,12 @@ function ScriptCard({
   const dark = useResolvedDark();
   return (
     // A script with no tile yet, or whose latest version cannot be drawn, is
-    // answered 404 and shows the icon a tile-less asset shows.
+    // answered 404 and shows the icon a tile-less asset shows; a library, the
+    // book its drawn tile carries (#1970).
     <ThumbCard
       onClick={() => onNavigate(`${basePath}/${script.id}`)}
       thumbnailSrc={scriptTileSrc(script.id, script.version, dark)}
-      fallbackIcon={FileCode2}
+      fallbackIcon={script.library ? BookOpen : FileCode2}
     >
       <div className="w-full space-y-2" data-testid={`script-card-${script.id}`}>
         <div className="flex flex-wrap items-center gap-2">

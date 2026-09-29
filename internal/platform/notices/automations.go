@@ -85,18 +85,24 @@ func (h *Handle) failingAutomations(ctx context.Context, c caller, since time.Ti
 	return out, total, nil
 }
 
-// owned is the caller's enabled automations, how each one's recent runs
-// stand, and which of them are scheduled.
+// owned is the caller's automations still in service, how each one's recent
+// runs stand, and which of them are scheduled.
 type owned struct {
 	scripts   []script.Script
 	streaks   map[string]runstate.FailureStreak
 	scheduled map[string]bool
 }
 
-// ownedRuns reads what owned holds for the caller.
+// ownedRuns reads what owned holds for the caller. An automation that was
+// disabled (its owner's decision) or deprecated or superseded (an
+// administrator's) is out of service by a decision already made, so its last
+// failure is not reported again (#1973); enabling it again, or returning it to
+// active, brings the failure back until a run succeeds.
 func (h *Handle) ownedRuns(ctx context.Context, email string) (owned, error) {
 	enabled := true
-	scripts, err := h.scripts.List(ctx, script.ListFilter{OwnerEmail: email, Enabled: &enabled})
+	scripts, err := h.scripts.List(ctx, script.ListFilter{
+		OwnerEmail: email, Enabled: &enabled, Status: script.StatusActive,
+	})
 	if err != nil {
 		return owned{}, fmt.Errorf("listing the caller's automations: %w", err)
 	}

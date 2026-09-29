@@ -109,7 +109,7 @@ describe("ScriptOwnerTransfer", () => {
     renderControl();
 
     expect(screen.getByText("sarah.chen@example.com")).toBeInTheDocument();
-    expect(screen.getByText(/only person who sees it/)).toBeInTheDocument();
+    expect(screen.getByText(/only person who edits it, runs it, schedules it, and reads its runs/)).toBeInTheDocument();
     // The consequence an administrator comes here for: the run identity is
     // re-captured from them.
     expect(screen.getByText(/a run presents the access you hold now/)).toBeInTheDocument();
@@ -158,7 +158,7 @@ describe("ScriptOwnerTransfer", () => {
     ask("Marcus Webb — marcus.webb@example.com");
 
     expect(screen.getByText(/Move this script from/)).toBeInTheDocument();
-    expect(screen.getByText(/sarah.chen@example.com will no longer see it/)).toBeInTheDocument();
+    expect(screen.getByText(/sarah.chen@example.com will no longer be able to edit it, run it or read its runs/)).toBeInTheDocument();
     expect(mutate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Transfer" }));

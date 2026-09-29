@@ -53,14 +53,14 @@ function renderControl(overrides: Partial<ScriptContract> = {}) {
 
 // open walks to the confirmation, which is the only place the delete can be
 // asked for: the control itself never removes anything.
-function open() {
-  fireEvent.click(screen.getByRole("button", { name: "Delete script" }));
+function open(kind = "script") {
+  fireEvent.click(screen.getByRole("button", { name: `Delete ${kind}` }));
 }
 
 // confirm presses the destructive button inside the dialog, which is a second
 // element bearing the same name as the control that opened it.
-function confirm() {
-  const buttons = screen.getAllByRole("button", { name: "Delete script" });
+function confirm(kind = "script") {
+  const buttons = screen.getAllByRole("button", { name: `Delete ${kind}` });
   fireEvent.click(buttons[buttons.length - 1]!);
 }
 
@@ -207,9 +207,11 @@ describe("ScriptDelete: a library", () => {
 
   it("names its versions and the scripts that load it, and no schedule, runs or state", () => {
     renderControl(library);
+    // It is a library on its own page, and never called a script there (#1970).
+    expect(screen.queryByRole("button", { name: "Delete script" })).not.toBeInTheDocument();
 
     expect(screen.getByText(/Removing this library takes its saved versions/)).toBeInTheDocument();
-    open();
+    open("library");
 
     expect(screen.getByText("Delete Date Windows?")).toBeInTheDocument();
     expect(screen.getByText(/v4 and every one before it/)).toBeInTheDocument();
@@ -224,7 +226,7 @@ describe("ScriptDelete: a library", () => {
   it("names no loading scripts when none load it", () => {
     renderControl({ ...library, used_by: [] });
 
-    open();
+    open("library");
 
     expect(screen.queryByText(/It is loaded by/)).not.toBeInTheDocument();
   });
@@ -236,8 +238,8 @@ describe("ScriptDelete: a library", () => {
     mockDelete.mockReturnValue({ mutateAsync, isPending: false } as never);
     renderControl(library);
 
-    open();
-    confirm();
+    open("library");
+    confirm("library");
 
     await waitFor(() => expect(screen.getByText(detail)).toBeInTheDocument());
     expect(onDeleted).not.toHaveBeenCalled();

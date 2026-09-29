@@ -419,3 +419,60 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
     expect(screen.getByTestId("flow-findings")).toHaveTextContent("nope");
   });
 });
+
+describe("ScriptFlowView: a library (#1970)", () => {
+  const emptyStructure = {
+    nodes: [
+      { id: "s:1", kind: "start" as const, line: 0 },
+      { id: "s:2", kind: "end" as const, line: 0 },
+    ],
+    edges: [{ from: "s:1", to: "s:2" }],
+    boxes: [],
+    functions: [],
+    truncated: false,
+  };
+  const libraryGraph = (library: ScriptFlow["library"]): ScriptFlow => ({
+    script_id: "lib-001",
+    version: 2,
+    ok: true,
+    findings: [],
+    nodes: [],
+    edges: [],
+    groups: [],
+    params: [],
+    lines: 9,
+    truncated: false,
+    structure: emptyStructure,
+    library,
+  });
+
+  it("lists each function with its parameters and docstring, and the line that loads them", () => {
+    answer(
+      libraryGraph({
+        functions: [
+          { name: "last_week", params: ["today", "days=7"], doc: "The seven days before today.", line: 1 },
+          { name: "quarter_of", params: ["month"], line: 5 },
+        ],
+        load: 'load("lib:date-windows@2", "last_week", "quarter_of")',
+      }),
+    );
+    renderView();
+    expect(screen.getByTestId("library-function-last_week")).toHaveTextContent("last_week(today, days=7)");
+    expect(screen.getByTestId("library-function-last_week")).toHaveTextContent("The seven days before today.");
+    expect(screen.getByTestId("library-function-quarter_of")).toHaveTextContent("quarter_of(month)");
+    expect(screen.getByTestId("library-load")).toHaveTextContent(
+      'load("lib:date-windows@2", "last_week", "quarter_of")',
+    );
+    expect(screen.getByRole("button", { name: "Copy the load line" })).toBeInTheDocument();
+    expect(screen.queryByText(/makes no platform calls/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("flow-toolbar")).not.toBeInTheDocument();
+  });
+
+  it("says a library with nothing to load has nothing to load, and offers no load line", () => {
+    answer(libraryGraph({ functions: [] }));
+    renderView();
+    expect(screen.getByTestId("library-functions")).toHaveTextContent("defines no function a script can load");
+    expect(screen.queryByTestId("library-load")).not.toBeInTheDocument();
+    expect(screen.queryByText(/makes no platform calls/)).not.toBeInTheDocument();
+  });
+});

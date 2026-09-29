@@ -984,10 +984,17 @@ def main():
 library versions a script loads. The script's contract, the document a
 `mcp:script:` reference resolves to, says the same, and for a library lists the
 scripts using it. In the portal, **Automations** marks a library with a
-**Library** badge and filters **All**, **Automations** or **Libraries**
-(`GET /api/v1/portal/scripts?kind=library`), and a library's page shows how it
-is loaded and the automations that use it, under **Used by**, in place of
-running and scheduling it.
+**Library** badge and filters **All**, **Scripts** or **Libraries**, the words
+of its **Kind** column (`GET /api/v1/portal/scripts?kind=script` or
+`?kind=library`; any other kind is refused with 400). A library's tile in the
+grid view is a book with its name and latest version, and a library's page
+shows how it is loaded and the automations that use it, under **Used by**, in
+place of running and scheduling it. Its **Flow** tab has no diagram, since a
+library makes no platform calls: it lists each function a script can load, with
+its parameters as written and the first sentence of its docstring, and the
+`load("lib:<name>@<version>", ...)` line that loads them all from the version
+shown. A function whose name begins with an underscore is private to the
+library, and a `test_` function is its test; neither is listed.
 
 ### Checking an edit before saving it
 
