@@ -51,7 +51,7 @@ func (h *Handle) registerRunScript(server *mcp.Server) {
 	if h.runs == nil {
 		return
 	}
-	mcp.AddTool(server, &mcp.Tool{
+	toolkit.AddTool(server, &mcp.Tool{
 		Name:        ToolNameRunScript,
 		Title:       "Run Script",
 		Description: runScriptDescription,

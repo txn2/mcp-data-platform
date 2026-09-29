@@ -1,9 +1,9 @@
 package toolkit
 
 import (
-	"encoding/json"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // ErrorResult builds an MCP tool result carrying an in-band error.
@@ -16,7 +16,7 @@ import (
 func ErrorResult(msg string) *mcp.CallToolResult {
 	// A struct with a single string field cannot fail to marshal, so the error
 	// is intentionally ignored rather than handled with an unreachable branch.
-	b, _ := json.Marshal(struct { //nolint:errcheck // marshaling one string field cannot fail
+	b, _ := wirejson.Marshal(struct { //nolint:errcheck // marshaling one string field cannot fail
 		Error string `json:"error"`
 	}{Error: msg})
 	return &mcp.CallToolResult{
@@ -29,9 +29,10 @@ func ErrorResult(msg string) *mcp.CallToolResult {
 // text block. A handler that must size a result before returning it — one
 // holding itself to a budget on what the client receives rather than on what it
 // read (issue #1606) — measures through this, so the budget cannot drift from
-// the encoder the result is actually built with.
+// the encoder the result is actually built with. It is the platform's response
+// encoder (internal/wirejson), so an empty list is [] rather than null (#1832).
 func MarshalResultJSON(v any) ([]byte, error) {
-	return json.MarshalIndent(v, "", "  ") //nolint:wrapcheck // the caller reports the marshal failure in its own terms
+	return wirejson.MarshalIndent(v, "", "  ") //nolint:wrapcheck // the caller reports the marshal failure in its own terms
 }
 
 // JSONResult marshals v to indented JSON and returns it as an MCP tool result.

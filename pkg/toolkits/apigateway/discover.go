@@ -2,13 +2,13 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -329,7 +329,7 @@ func specNames(c *conn) []string {
 // before re-marshaling, so the model sees that truncation happened
 // and can fall back to api_invoke_endpoint to probe the shape.
 func cappedJSONResult(out DiscoverOutput) *mcp.CallToolResult {
-	encoded, err := json.MarshalIndent(out, "", "  ")
+	encoded, err := wirejson.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return toolkit.ErrorResult("internal: marshal endpoint schema: " + err.Error())
 	}
@@ -346,7 +346,7 @@ func cappedJSONResult(out DiscoverOutput) *mcp.CallToolResult {
 		len(encoded), maxResponseChars)
 	out.Operation = &elided
 	out.Note = joinNotes(out.Note, elided.Note)
-	encoded, _ = json.MarshalIndent(out, "", "  ")
+	encoded, _ = wirejson.MarshalIndent(out, "", "  ")
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}},
 	}

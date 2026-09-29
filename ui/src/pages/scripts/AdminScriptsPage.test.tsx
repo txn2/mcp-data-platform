@@ -29,18 +29,6 @@ vi.mock("@/api/portal/hooks/scheduleTimeline", async (importActual) => ({
   })),
 }));
 
-// The Saved before tests tab reads the administrators' route (#1943).
-vi.mock("@/api/admin/hooks/scripts", () => ({
-  usePreHarnessScripts: vi.fn(() => ({
-    data: {
-      data: [{ id: "s9", name: "weekly", display_name: "Weekly sales", owner_email: "a@example.com", updated_at: "", lint_findings: 2, tests: 0 }],
-      total: 1, examined: 1, pre_harness: 1,
-    },
-    isLoading: false,
-    error: null,
-  })),
-}));
-
 import { useScriptListing, useScriptRunListing } from "@/api/portal/hooks/scripts";
 
 const mockScripts = vi.mocked(useScriptListing);
@@ -87,9 +75,9 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AdminScriptsPage", () => {
-  // #1891: a third tab, between the two that were there, and #1943 a fourth,
-  // and the page still opens on the listing.
-  it("reads Automations, Schedules, Runs, Saved before tests, and opens on Automations", () => {
+  // #1891: a third tab, between the two that were there, and the page still
+  // opens on the listing. #1965 removed the fourth.
+  it("reads Automations, Schedules, Runs, and opens on Automations", () => {
     render(<AdminScriptsPage onNavigate={onNavigate} />);
     // The page's own strip is the first; the listing has a scope switch below it.
     const strip = screen.getAllByRole("tablist")[0]!;
@@ -97,17 +85,8 @@ describe("AdminScriptsPage", () => {
       "Automations",
       "Schedules",
       "Runs",
-      "Saved before tests",
     ]);
     expect(screen.getByRole("tab", { name: "Automations" })).toHaveAttribute("aria-selected", "true");
-  });
-
-  it("shows the automations saved before tests on their own tab (#1943)", () => {
-    render(<AdminScriptsPage onNavigate={onNavigate} />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Saved before tests" }));
-    expect(screen.getByText("Weekly sales")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Weekly sales"));
-    expect(onNavigate).toHaveBeenCalledWith("/admin/automations/s9");
   });
 
   it("sends a reader with nothing scheduled from Schedules back to Automations", () => {

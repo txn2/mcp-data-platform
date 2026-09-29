@@ -9,7 +9,6 @@ package settingsapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/mail"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
@@ -246,7 +246,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 		w.Header().Set("Content-Type", "application/json")
 	}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }
 
 // writeError writes a JSON error response using RFC 9457 Problem Details.

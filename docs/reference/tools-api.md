@@ -6,6 +6,10 @@ description: Complete API specification for all MCP tools. Parameters, response 
 
 Complete specification for all MCP tools provided by mcp-data-platform.
 
+## Empty lists
+
+A list with nothing in it is `[]` in every tool result and every REST response, never `null`: an agent or a managed script can iterate a list field without first checking it for null. `manage_asset action=get_collection` on a collection whose section holds no assets returns `"items": []`, and on one with no sections `"sections": []`. Every platform tool result and REST body is encoded by one encoder that writes an empty list this way (#1832).
+
 ## Error contract
 
 Every failed tool call returns a uniform, self-describing error so an agent can tell a correctable mistake from a platform problem and act on it. A failure sets `isError: true` and carries both a human-readable text message and a machine-readable `structuredContent.error` object:

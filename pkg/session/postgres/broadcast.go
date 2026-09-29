@@ -58,8 +58,9 @@ const (
 // consumers (psql, ops scripts) can read it. Keep the field set
 // minimal; payloads >8 KB are rejected by postgres outright.
 type notifyPayload struct {
-	Method string         `json:"method"`
-	Params map[string]any `json:"params,omitempty"`
+	Method    string         `json:"method"`
+	Params    map[string]any `json:"params,omitempty"`
+	SessionID string         `json:"session_id,omitempty"`
 }
 
 // Broadcaster is a postgres-backed session.Broadcaster. Every active
@@ -221,8 +222,9 @@ func (b *Broadcaster) dispatchPayload(extra string) {
 		return
 	}
 	if err := b.local.Publish(context.Background(), session.Event{
-		Method: p.Method,
-		Params: p.Params,
+		Method:    p.Method,
+		Params:    p.Params,
+		SessionID: p.SessionID,
 	}); err != nil {
 		b.logger.Warn("session/broadcast/postgres: local publish failed",
 			"method", p.Method, "error", err)
@@ -316,7 +318,7 @@ func (b *Broadcaster) Publish(ctx context.Context, ev session.Event) error {
 	if b.closed.Load() {
 		return session.ErrBroadcasterClosed
 	}
-	body, err := json.Marshal(notifyPayload{Method: ev.Method, Params: ev.Params})
+	body, err := json.Marshal(notifyPayload{Method: ev.Method, Params: ev.Params, SessionID: ev.SessionID})
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}

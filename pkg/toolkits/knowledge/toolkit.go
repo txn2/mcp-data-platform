@@ -195,7 +195,7 @@ func (*Toolkit) Connection() string {
 // prompts.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.applyEnabled {
-		mcp.AddTool(s, &mcp.Tool{
+		toolkit.AddTool(s, &mcp.Tool{
 			Name:  applyToolName,
 			Title: "Apply Knowledge",
 			Description: "The review-and-apply gate of the knowledge loop. (The name is historical; read it as 'review and apply knowledge'.) " +

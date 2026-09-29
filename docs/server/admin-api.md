@@ -141,6 +141,10 @@ The portal requires authentication — access it with the same credentials used 
 
 See the [Admin Portal guide](../portal/index.md) for a complete visual walkthrough.
 
+## Empty Lists
+
+A list field with nothing in it is `[]` in every response, never `null` (#1832).
+
 ## Error Format
 
 All errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457):

@@ -312,7 +312,8 @@ volume metric can express. The current rules, derived from the real import graph
 - **`base-types-are-a-root`** — `pkg/toolkit` holds the shared toolkit types
   every toolkit implements and must stay a dependency root: it may import nothing
   first-party. When it needs behaviour from a higher layer, accept an interface
-  instead of importing the implementation.
+  instead of importing the implementation. `internal/wirejson`, the encoder every
+  response is written with (#1832), is allowed explicitly: it is a pinned leaf.
 - **`providers-do-not-depend-up`** — the provider abstractions (`pkg/semantic`,
   `pkg/query`, `pkg/storage`) are depended upon by the layers above them, so they
   must not import `pkg/platform`, `pkg/middleware`, `pkg/admin`, or a toolkit.
@@ -325,8 +326,8 @@ volume metric can express. The current rules, derived from the real import graph
   prefix, and fieldcrypt is a shared leaf that happens to live under the facade's
   directory rather than part of the facade.
 - **`leaf-utilities-import-nothing-first-party`** — `pkg/contenttype`,
-  `pkg/ratelimit`, `pkg/oidcdiscovery` and `pkg/platform/fieldcrypt` import
-  nothing first-party, which is what makes them safely reusable from any layer.
+  `pkg/ratelimit`, `pkg/oidcdiscovery`, `pkg/platform/fieldcrypt` and
+  `internal/wirejson` import nothing first-party, which is what makes them safely reusable from any layer.
   The rule pins that property so it cannot erode through one convenience import.
 - **`low-level-utilities-do-not-depend-up`** — `pkg/blobserve` and `pkg/textpatch`
   import only `pkg/contenttype`, so they are not leaves, but they must not reach

@@ -2,12 +2,13 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 const (
@@ -177,6 +178,6 @@ func isTimeout(err error) bool {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	body, _ := json.Marshal(map[string]string{"status": "error", "error": msg})
+	body, _ := wirejson.Marshal(map[string]string{"status": "error", "error": msg})
 	_, _ = w.Write(body)
 }

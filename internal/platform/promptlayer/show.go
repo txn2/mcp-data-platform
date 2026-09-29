@@ -40,7 +40,7 @@ func (h *Handle) RegisterShowPromptsTool(server *mcp.Server) {
 	if h == nil || h.store == nil {
 		return
 	}
-	mcp.AddTool(server, &mcp.Tool{
+	toolkit.AddTool(server, &mcp.Tool{
 		Name:  ToolNameShowPrompts,
 		Title: "Show Prompt Library",
 		Description: "Open the user's prompt library as an interactive visual browser (search, filter, " +

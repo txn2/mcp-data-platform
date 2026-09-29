@@ -12,12 +12,12 @@ package mentionhttp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	userdir "github.com/txn2/mcp-data-platform/pkg/user"
@@ -363,13 +363,13 @@ type errorBody struct {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errorBody{
+	_ = wirejson.Encode(w, errorBody{
 		Type:   "about:blank",
 		Title:  http.StatusText(status),
 		Status: status,

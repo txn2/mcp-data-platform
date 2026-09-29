@@ -997,31 +997,3 @@ export const mockScriptStates: Record<string, ScriptState> = {
     run_id: "run-001",
   },
 };
-
-// mockPreHarnessScripts is the administrators' view of the automations saved
-// before lint and tests were required that still need bringing up (#1943).
-export const mockPreHarnessScripts = {
-  data: [
-    {
-      id: "script-003",
-      name: "warehouse-freshness",
-      display_name: "Warehouse Freshness Check",
-      owner_email: "sarah.chen@example.com",
-      updated_at: daysAgo(90),
-      lint_findings: 4,
-      tests: 0,
-    },
-    {
-      id: "script-004",
-      name: "my-margin-check",
-      display_name: "My Margin Check",
-      owner_email: "sarah.chen@example.com",
-      updated_at: daysAgo(45),
-      lint_findings: 0,
-      tests: 0,
-    },
-  ],
-  total: 2,
-  examined: 5,
-  pre_harness: 5,
-};

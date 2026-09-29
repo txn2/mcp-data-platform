@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
@@ -1114,7 +1115,7 @@ const msgStorageRefused = "The storage backend did not accept the file. Nothing 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+	if err := wirejson.Encode(w, v); err != nil {
 		slog.Error("failed to write JSON response", msgError, err)
 	}
 }
@@ -1126,5 +1127,5 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	}
 	w.Header().Set(headerContentType, "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{msgError: msg})
+	_ = wirejson.Encode(w, map[string]string{msgError: msg})
 }

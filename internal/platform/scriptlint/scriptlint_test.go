@@ -41,7 +41,7 @@ func rules(res Result) []string {
 }
 
 func TestCheck_CleanScriptPasses(t *testing.T) {
-	res := Check(clean, Save{})
+	res := Check(clean)
 	assert.Empty(t, res.Findings)
 	assert.Empty(t, res.Refused)
 	assert.Equal(t, clean, res.Source, "already formatted source is stored byte for byte")
@@ -90,7 +90,7 @@ func TestCheck_EachRuleRefusesANewScript(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			require.True(t, scriptrun.Validate(tc.src).OK, "the case must be a runnable script: %+v", scriptrun.Validate(tc.src).Findings)
-			res := Check(tc.src, Save{})
+			res := Check(tc.src)
 			var hit *scriptrun.Finding
 			for i, f := range res.Refused {
 				if f.Rule == tc.rule {
@@ -120,48 +120,37 @@ func TestCheck_WhatIsNotAFinding(t *testing.T) {
 		"constants and load":     "\"\"\"Doc.\"\"\"\n\nA = [1, -2, {\"k\": (3, 4)}]\nB = A[0] + 2 if True else 3\nC = lambda x: x\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    print(A, B, C(1))\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			res := Check(src, Save{})
+			res := Check(src)
 			assert.Empty(t, res.Findings, "%v", res.Findings)
 		})
 	}
 }
 
-// A script saved before the gates: its top level may work, its existing
-// findings are reported and not refused, and an edit that adds one is refused
-// naming only that one.
-func TestCheck_LegacyRefusesOnlyWhatAnEditAdds(t *testing.T) {
-	previous := "rows = platform.query(\"SELECT 1\")[\"rows\"]\nfor r in rows:\n    platform.call(\"x\", {\"id\": r})\n"
-	edit := "# now with a comment\n" + previous + "extra = 1\n\ndef helper():\n    return 1\n"
-	res := Check(previous, Save{Legacy: true, Previous: previous})
-	assert.Empty(t, res.Refused)
+// A source written before the gates (work at the top level, a host call in a
+// loop) is held to every rule: each finding is an error and refuses the save.
+func TestCheck_EveryFindingRefuses(t *testing.T) {
+	src := "rows = platform.query(\"SELECT 1\")[\"rows\"]\nfor r in rows:\n    platform.call(\"x\", {\"id\": r})\n"
+	res := Check(src)
 	require.NotEmpty(t, res.Findings)
+	assert.Equal(t, res.Findings, res.Refused)
+	rules := map[string]bool{}
 	for _, f := range res.Findings {
-		assert.Equal(t, scriptrun.SeverityWarning, f.Severity)
-		assert.NotEqual(t, RuleTopLevelWork, f.Rule, "a legacy script is not held to the entry point")
+		assert.Equal(t, scriptrun.SeverityError, f.Severity)
+		rules[f.Rule] = true
 	}
-
-	res = Check(edit, Save{Legacy: true, Previous: previous})
-	require.Len(t, res.Refused, 1, "%v", res.Refused)
-	assert.Equal(t, RuleMissingDocstring, res.Refused[0].Rule)
-	assert.Equal(t, 7, res.Refused[0].Line)
-
-	// A second call in the loop is a second finding of the same kind: new.
-	more := previous + "    platform.call(\"y\", {})\n"
-	res = Check(more, Save{Legacy: true, Previous: previous})
-	require.Len(t, res.Refused, 1)
-	assert.Equal(t, RuleCallInLoop, res.Refused[0].Rule)
-	assert.Equal(t, 4, res.Refused[0].Line)
+	assert.True(t, rules[RuleTopLevelWork], "%v", res.Findings)
+	assert.True(t, rules[RuleCallInLoop], "%v", res.Findings)
 }
 
 // Check stores the formatted source and lints what it stores.
 func TestCheck_FormatsBeforeLinting(t *testing.T) {
 	src := "def main():\n  '''Doc.'''\n  platform.export(name='x',rows=[1,2],format='csv')\n"
-	res := Check(src, Save{})
+	res := Check(src)
 	assert.Equal(t, "def main():\n    \"\"\"Doc.\"\"\"\n    platform.export(name = \"x\", rows = [1, 2], format = \"csv\")\n", res.Source)
 	assert.Empty(t, res.Findings)
 }
 
 func TestCheck_UnparseableSourceHasNoLintFindings(t *testing.T) {
-	assert.Empty(t, Check("def main(:\n", Save{}).Findings)
-	assert.Empty(t, Check("   ", Save{}).Findings)
+	assert.Empty(t, Check("def main(:\n").Findings)
+	assert.Empty(t, Check("   ").Findings)
 }

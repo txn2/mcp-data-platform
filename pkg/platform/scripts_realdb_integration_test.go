@@ -157,12 +157,6 @@ func TestRealDB_ManageScriptIsRegisteredAndRoundTripsThroughPostgres(t *testing.
 	assert.NotEmpty(t, author, "the version records who wrote it")
 	assert.Equal(t, "applied", status, "a save produces an applied version")
 
-	// A script created now is held to its tests on every save (#1939,
-	// migration 000166).
-	var testsOptional bool
-	require.NoError(t, c.db.QueryRow(`SELECT tests_optional FROM scripts WHERE name = $1`, "wiring-check").Scan(&testsOptional))
-	assert.False(t, testsOptional)
-
 	listed, res := callScript(t, c, map[string]any{"command": "list"})
 	require.False(t, res.IsError, listed)
 	assert.EqualValues(t, 1, listed["count"])

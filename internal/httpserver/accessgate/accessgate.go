@@ -15,13 +15,13 @@ package accessgate
 
 import (
 	"embed"
-	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -146,7 +146,7 @@ func (g *Gate) Deny(w http.ResponseWriter, r *http.Request, email string) {
 	if !isHTMLNavigation(r) {
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(problemDetail{
+		_ = wirejson.Encode(w, problemDetail{
 			Type:   "about:blank",
 			Title:  http.StatusText(http.StatusForbidden),
 			Status: http.StatusForbidden,

@@ -24,7 +24,7 @@ func (l *linter) names() {
 	for id := range binding {
 		if isPredeclared(id.Name) {
 			l.add(finding{
-				rule: RuleShadowedName, subject: id.Name, line: int(id.NamePos.Line),
+				rule: RuleShadowedName, line: int(id.NamePos.Line),
 				message: fmt.Sprintf("`%s` hides the predeclared `%s`", id.Name, id.Name),
 				hint:    fmt.Sprintf("Choose another name. While this one is in scope, `%s` no longer means what the platform provides.", id.Name),
 			})
@@ -56,14 +56,14 @@ func (l *linter) unused(fn string, function any, used map[*syntax.Ident]bool) {
 		name := b.First.Name
 		if i < params {
 			l.add(finding{
-				rule: RuleUnusedParameter, subject: fn + "." + name, line: int(b.First.NamePos.Line),
+				rule: RuleUnusedParameter, line: int(b.First.NamePos.Line),
 				message: fmt.Sprintf("parameter `%s` of `%s` is never used", name, fn),
 				hint:    "Remove it and the arguments passed for it, or name it with a leading underscore if a caller must still pass it.",
 			})
 			continue
 		}
 		l.add(finding{
-			rule: RuleUnusedVariable, subject: fn + "." + name, line: int(b.First.NamePos.Line),
+			rule: RuleUnusedVariable, line: int(b.First.NamePos.Line),
 			message: fmt.Sprintf("`%s` in `%s` is assigned and never read", name, fn),
 			hint:    "Remove the assignment, or name a loop variable you do not need `_`.",
 		})

@@ -114,7 +114,11 @@ func (s *postgresCollectionStore) Get(ctx context.Context, id string) (*portaldo
 	}
 
 	for i := range sections {
-		sections[i].Items = itemsBySection[sections[i].ID]
+		items, ok := itemsBySection[sections[i].ID]
+		if !ok {
+			items = []portaldomain.CollectionItem{}
+		}
+		sections[i].Items = items
 	}
 	coll.Sections = sections
 
@@ -176,7 +180,7 @@ func (s *postgresCollectionStore) getSections(ctx context.Context, collectionID 
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
-	var sections []portaldomain.CollectionSection
+	sections := []portaldomain.CollectionSection{}
 	for rows.Next() {
 		var sec portaldomain.CollectionSection
 		if err := rows.Scan(&sec.ID, &sec.CollectionID, &sec.Title, &sec.Description, &sec.Position, &sec.CreatedAt); err != nil {

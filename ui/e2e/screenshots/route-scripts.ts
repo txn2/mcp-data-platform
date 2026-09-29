@@ -5,7 +5,6 @@ import {
   openScriptOwner,
   openScriptRunHistory,
   openScriptRunLog,
-  openPreHarnessTab,
   openScriptChanges,
   openScriptRunsTab,
   openScriptSchedulesTab,
@@ -250,15 +249,6 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/automations",
     category: "admin",
     beforeCapture: openScriptSchedulesTab,
-  },
-  {
-    // The automations saved before tests were required that still carry lint
-    // findings or have no tests (#1943). In front of the run capture for the
-    // reason that one gives.
-    slug: "admin-script-pre-harness",
-    path: "/portal/admin/automations",
-    category: "admin",
-    beforeCapture: openPreHarnessTab,
   },
   {
     // What the platform has been running unattended (#1307): the metrics the

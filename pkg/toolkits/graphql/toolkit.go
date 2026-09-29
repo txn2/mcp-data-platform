@@ -553,7 +553,7 @@ func (t *Toolkit) lookup(name string) (*conn, RoutePolicy, bool) {
 
 // RegisterTools registers this toolkit's tools with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	mcp.AddTool(s, discoverTool(), t.handleDiscover)
-	mcp.AddTool(s, queryTool(), t.handleQuery)
+	toolkit.AddTool(s, discoverTool(), t.handleDiscover)
+	toolkit.AddTool(s, queryTool(), t.handleQuery)
 	t.registerExportTool(s)
 }

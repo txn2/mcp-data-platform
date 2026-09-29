@@ -28,7 +28,7 @@ func (l *linter) entryPoint() {
 		l.library()
 	case len(main.Params) > 0:
 		l.add(finding{
-			rule: RuleEntryPoint, subject: "params", line: line(main),
+			rule: RuleEntryPoint, line: line(main),
 			message: "main() takes parameters",
 			hint:    "The platform calls main() with no arguments. Read the script's parameters from `run.params` inside it.",
 		})
@@ -36,7 +36,7 @@ func (l *linter) entryPoint() {
 	for _, s := range l.file.Stmts {
 		if !declares(s) {
 			l.add(finding{
-				rule: RuleTopLevelWork, subject: "", line: line(s),
+				rule: RuleTopLevelWork, line: line(s),
 				message: "this statement does work at the top level",
 				hint: "Move it into main() (or a function main() calls), indented one level. " +
 					"The top level may only define functions, bind constants written as literals, and load().",
@@ -57,7 +57,7 @@ func (l *linter) library() {
 		}
 		seen[id.Name] = true
 		l.add(finding{
-			rule: RuleLibraryEffect, subject: id.Name, line: line(id),
+			rule: RuleLibraryEffect, line: line(id),
 			message: "the source defines no main(), so it is a library, and a library may not name " + id.Name,
 			hint: "A library is pure code another script loads by version, as load(\"lib:<name>@<version>\", \"fn\"); " +
 				"the script that loads it makes the calls. Pass what the function needs as arguments. " +

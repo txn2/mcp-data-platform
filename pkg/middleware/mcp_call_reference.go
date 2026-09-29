@@ -2,9 +2,10 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // CallReferenceScheme is the reference form a data call's identifier is handed
@@ -108,7 +109,7 @@ func appendCallReference(result *mcp.CallToolResult, eventID string) {
 	block := map[string]CallReference{
 		CallReferenceKey: {CallID: eventID, Reference: CallReferenceScheme + eventID},
 	}
-	payload, err := json.Marshal(block)
+	payload, err := wirejson.Marshal(block)
 	if err != nil {
 		return
 	}

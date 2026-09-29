@@ -45,7 +45,7 @@ func (l *linter) outsideTests(n syntax.Node) {
 	case *syntax.CallExpr:
 		if id, ok := n.Fn.(*syntax.Ident); ok && strings.HasPrefix(id.Name, scriptdialect.TestPrefix) {
 			l.add(finding{
-				rule: RuleTestCalled, subject: id.Name, line: int(id.NamePos.Line),
+				rule: RuleTestCalled, line: int(id.NamePos.Line),
 				message: fmt.Sprintf("`%s` is a test, and the script calls it", id.Name),
 				hint:    "A test_* function is run by manage_script command=test and on save, never by the script. Rename the function if it is not a test.",
 			})
@@ -61,7 +61,7 @@ func (l *linter) testModuleOutsideTest(id *syntax.Ident) {
 		return
 	}
 	l.add(finding{
-		rule: RuleTestModuleOutsideTest, subject: id.Name, line: int(id.NamePos.Line),
+		rule: RuleTestModuleOutsideTest, line: int(id.NamePos.Line),
 		message: fmt.Sprintf("`%s` is used outside a test", id.Name),
 		hint:    fmt.Sprintf("`%s` exists only inside a %s* function; a run fails where it is used.", id.Name, scriptdialect.TestPrefix),
 	})
@@ -92,7 +92,7 @@ func (l *linter) constantAssertions(test syntax.Stmt) {
 			}
 		}
 		l.add(finding{
-			rule: RuleConstantAssertion, subject: "assert." + dot.Name.Name, line: line(call),
+			rule: RuleConstantAssertion, line: line(call),
 			message: fmt.Sprintf("assert.%s compares only values written into the test, so it holds whatever the script does", dot.Name.Name),
 			hint:    "Assert on what the script produced: testing.outputs().exports, .state, .notifies, .calls or .result.",
 		})

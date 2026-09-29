@@ -36,7 +36,7 @@ type showScriptsInput struct {
 // even where nothing will run one. RegisterTool has already established that
 // there is a store, so this carries no guard of its own.
 func (h *Handle) registerShowScripts(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	toolkit.AddTool(server, &mcp.Tool{
 		Name:  ToolNameShowScripts,
 		Title: "Show Scripts",
 		Description: "Open the user's managed scripts in the portal: what they own, what each one is " +

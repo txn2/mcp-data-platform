@@ -699,8 +699,7 @@ platform.export(name="daily-sales", rows=res["rows"], format="csv")
 // script to run: the version the store wrote is the version a run executes.
 // It is written to the store rather than through the tool because what these
 // tests exercise is the run, not the save gate, which gates_test.go and the
-// acceptance tests hold to its tests; with no tests, it is a script saved
-// before they were required.
+// acceptance tests hold to its tests.
 func authorScript(t *testing.T, h execHarness, source string) {
 	t.Helper()
 	if !strings.Contains(source, "def main(") {
@@ -709,7 +708,7 @@ func authorScript(t *testing.T, h execHarness, source string) {
 	sc := &script.Script{
 		Name: "daily", DisplayName: "Daily", Source: source, OwnerEmail: "jane@example.com",
 		Params:  []script.Param{{Name: "day", Type: script.ParamTypeString, Required: true}},
-		Enabled: true, Status: script.StatusActive, Tags: []string{}, TestsOptional: true,
+		Enabled: true, Status: script.StatusActive, Tags: []string{},
 	}
 	require.NoError(t, sc.Validate())
 	require.NoError(t, h.store.Create(context.Background(), sc, callerAuthor(authorCtx())))
@@ -808,7 +807,14 @@ func TestIntegration_RunExecutesTheLatestSavedVersion(t *testing.T) {
 
 	edited := strings.Replace(reportSource,
 		`print("rows: %d" % res["row_count"])`,
-		`print("v2 rows: %d" % res["row_count"])`, 1)
+		`print("v2 rows: %d" % res["row_count"])`, 1) + `
+def test_daily():
+    """The day's sales are exported."""
+    testing.set_run(params = {"day": "2026-08-12"})
+    testing.answer("trino_query", {"connection": "warehouse"}, {"columns": ["region", "total"], "rows": [{"region": "east", "total": 1}], "row_count": 1})
+    main()
+    assert.eq(testing.outputs().exports[0].rows, [{"region": "east", "total": 1}])
+`
 	res := call(t, h.handle, authorCtx(), manageScriptInput{
 		Command: cmdUpdate, Name: "daily", Source: edited,
 	})

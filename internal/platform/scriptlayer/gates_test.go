@@ -9,7 +9,6 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/pkg/script"
-	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
 // untidy is a valid new-shape script in a layout nobody would store.
@@ -94,44 +93,28 @@ func TestGates_ValidateReportsWithoutSaving(t *testing.T) {
 	assert.Equal(t, tidy, fields["formatted_source"])
 }
 
-// seedLegacy stores a script as one saved before the gates.
-func seedLegacy(t *testing.T, store *memStore, source string) {
-	t.Helper()
-	sc := &script.Script{
-		Name: "old", DisplayName: "Old", Source: source, OwnerEmail: "jane@example.com",
-		Enabled: true, Status: script.StatusActive, Legacy: true, TestsOptional: true,
-	}
-	require.NoError(t, store.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
-}
-
-// A script saved before the gates saves a version that adds no finding, is
-// refused for one that adds a finding naming only that one, and a patch is
-// held to the same rule (#1938). Its top level may still work (#1944).
-func TestGates_LegacyScriptRefusedOnlyForWhatAnEditAdds(t *testing.T) {
+// A script saved before the gates, written to the store as it was then, is
+// refused on its next save for the findings it already carried: every script
+// is held to the same rules (#1965).
+func TestGates_AScriptSavedBeforeTheGatesIsHeldToThemOnItsNextSave(t *testing.T) {
 	h, store := newHandle()
 	const old = "for r in run.params[\"ids\"]:\n    platform.call(\"x\", {\"id\": r})\n"
-	seedLegacy(t, store, old)
+	sc := &script.Script{
+		Name: "old", DisplayName: "Old", Source: old, OwnerEmail: "jane@example.com",
+		Enabled: true, Status: script.StatusActive,
+	}
+	require.NoError(t, store.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "old", Source: "# still loops\n" + old})
 	fields := resultFields(t, res)
-	require.Equal(t, "updated", fields[fieldStatus], resultText(res))
-	assert.NotEmpty(t, fields["findings"], "the finding it carried is reported")
-
-	res = call(t, h, authorCtx(), manageScriptInput{Command: cmdUpdate, Name: "old", Source: old + "json = 1\n"})
-	fields = resultFields(t, res)
 	require.Equal(t, "invalid", fields[fieldStatus], resultText(res))
-	var refused []any
+	rules := map[any]bool{}
 	list, _ := fields["findings"].([]any)
 	for _, f := range list {
 		if m, _ := f.(map[string]any); m["severity"] == "error" {
-			refused = append(refused, m["rule"])
+			rules[m["rule"]] = true
 		}
 	}
-	assert.Equal(t, []any{scriptlint.RuleShadowedName}, refused)
-
-	res = call(t, h, authorCtx(), manageScriptInput{
-		Command: cmdPatch, Name: "old",
-		Edits: []textpatch.Edit{{Op: "append", Text: "def helper():\n    return 1\n"}},
-	})
-	assert.Equal(t, "invalid", resultFields(t, res)[fieldStatus], resultText(res))
+	assert.True(t, rules[scriptlint.RuleTopLevelWork], "%v", list)
+	assert.True(t, rules[scriptlint.RuleCallInLoop], "%v", list)
 }

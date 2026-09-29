@@ -160,12 +160,19 @@ linters:
         # It must stay a dependency ROOT: importing any first-party package
         # would drag implementation detail into the base contract. When it
         # needs behaviour from a higher layer, accept an interface instead.
+        # internal/wirejson is allowed explicitly: it is the encoder every
+        # response is written with (#1832), which is how a tool result's text
+        # reaches the client with an empty list as [], and it is pinned as a
+        # leaf below (zero first-party imports), so it cannot become a route
+        # up from the root.
         base-types-are-a-root:
           list-mode: lax
           files:
             - "**/pkg/toolkit/**"
             - "!**/pkg/toolkits/**"
             - "!**/*_test.go"
+          allow:
+            - github.com/txn2/mcp-data-platform/internal/wirejson
           deny:
             - pkg: github.com/txn2/mcp-data-platform
               desc: "pkg/toolkit is a dependency root for shared toolkit types; it must import nothing first-party (invert the dependency behind an interface). See CONTRIBUTING.md."
@@ -240,6 +247,7 @@ linters:
             - "**/pkg/ratelimit/**"
             - "**/pkg/oidcdiscovery/**"
             - "**/pkg/platform/fieldcrypt/**"
+            - "**/internal/wirejson/**"
             - "!**/*_test.go"
           deny:
             - pkg: github.com/txn2/mcp-data-platform

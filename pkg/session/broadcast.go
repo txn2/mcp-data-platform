@@ -16,9 +16,13 @@ import (
 // Params is the JSON-RPC params object — usually a small map with no
 // payload (the method name itself is the signal). Pass nil when the
 // notification carries no payload; the SSE writer will emit "{}".
+//
+// SessionID, when set, addresses the event to one session: only that
+// session's streams deliver it (#1946). Empty is every session.
 type Event struct {
-	Method string         `json:"method"`
-	Params map[string]any `json:"params,omitempty"`
+	Method    string         `json:"method"`
+	Params    map[string]any `json:"params,omitempty"`
+	SessionID string         `json:"session_id,omitempty"`
 }
 
 // Subscription is a per-subscriber stream of Events. Subscribers MUST
@@ -43,13 +47,10 @@ type Subscription interface {
 // event pipeline for everyone else.
 type Broadcaster interface {
 	// Subscribe registers a new subscriber and returns the subscription.
-	// ctx cancellation closes the subscription automatically. The
-	// sessionID is recorded for log attribution only — events are
-	// fan-out broadcast to every subscriber regardless of sessionID.
-	// (tools/list_changed today is a server-wide signal, so per-
-	// session targeting is intentionally not implemented; if a future
-	// notification needs per-session delivery, add an Event.SessionID
-	// filter at Publish time and document the contract change here.)
+	// ctx cancellation closes the subscription automatically. Every
+	// event reaches every subscriber; the session's stream delivers an
+	// event addressed to one session (Event.SessionID) only when it is
+	// its own (#1946), so sessionID here is for log attribution.
 	Subscribe(ctx context.Context, sessionID string) Subscription
 	// Publish delivers ev to every active subscription. Best-effort:
 	// returns nil even when individual subscribers are dropped due to

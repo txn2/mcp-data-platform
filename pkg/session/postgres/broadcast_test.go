@@ -288,3 +288,27 @@ func TestBroadcaster_Run_NilNotificationIsReconnect(t *testing.T) {
 		}
 	}
 }
+
+// An event addressed to one session carries its address through NOTIFY to
+// every replica's subscribers, which is what lets the session's own stream
+// alone deliver it (#1946).
+func TestBroadcaster_CarriesTheSessionAddress(t *testing.T) {
+	b, mock, cleanup := newTestBroadcaster(t)
+	defer cleanup()
+
+	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify($1, $2)")).
+		WithArgs(DefaultNotifyChannel, `{"method":"notifications/tools/list_changed","session_id":"sess-a"}`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	require.NoError(t, b.Publish(context.Background(), session.Event{Method: "notifications/tools/list_changed", SessionID: "sess-a"}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+
+	sub := b.Subscribe(context.Background(), "sess-a")
+	defer sub.Close()
+	b.dispatchPayload(`{"method":"notifications/tools/list_changed","session_id":"sess-a"}`)
+	select {
+	case ev := <-sub.Events():
+		assert.Equal(t, "sess-a", ev.SessionID)
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not receive event")
+	}
+}

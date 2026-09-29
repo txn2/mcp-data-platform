@@ -131,31 +131,30 @@ func TestIssue1938_EachRuleIsRefusedAndTheCorrectionSaves(t *testing.T) {
 	}
 }
 
-// TestIssue1938_AnOlderScriptIsRefusedOnlyForWhatAnEditAdds: a script saved
-// before the gates, carrying a finding, saves an edit that adds none and is
-// refused for an edit that adds one, naming only that one.
-func TestIssue1938_AnOlderScriptIsRefusedOnlyForWhatAnEditAdds(t *testing.T) {
+// TestIssue1938_AnOlderScriptIsHeldToEveryRuleOnItsNextSave: a script saved
+// before the gates, carrying findings, is refused on its next save for every
+// finding it carries, not only for one the edit adds (#1965).
+func TestIssue1938_AnOlderScriptIsHeldToEveryRuleOnItsNextSave(t *testing.T) {
 	c := connect(t)
 	db := issue1904DB(t)
-	name := fmt.Sprintf("acc-1938-legacy-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("acc-1938-older-%d", time.Now().UnixNano())
 	t.Cleanup(func() { _, _, _ = c.callRaw("manage_script", map[string]any{"command": "delete", "name": name}) })
 	const old = "def show(a, b):\n    print(a)\n\nshow(1, 2)\n"
 	c.saveScript(map[string]any{
 		"command": "create", "name": name, "source": "def main():\n    \"\"\"Doc.\"\"\"\n    print(1)\n",
 		"description": "Acceptance #1938: a script saved before the gates.",
 	}, nil)
-	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, outputs_read_optional = TRUE, source_code = $2 WHERE name = $1`, name, old)
+	issue1904Exec(t, db, `UPDATE scripts SET source_code = $2 WHERE name = $1`, name, old)
 
-	// A script saved before the gates saves without tests (#1939).
 	kept := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": "# a comment\n" + old})
-	if kept["status"] != "updated" || len(findings1944(kept)) == 0 {
-		t.Fatalf("an edit adding no finding: %v", kept)
+	got := refusedRules1938(kept)
+	if kept["status"] != "invalid" {
+		t.Fatalf("an edit carrying the older findings must be refused: %v", kept)
 	}
-	added := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": old + "run = 1\nprint(run)\n"})
-	got := refusedRules1938(added)
-	line := float64(strings.Count(strings.Split(fmt.Sprint(added["formatted_source"]), "run = 1")[0], "\n") + 1)
-	if added["status"] != "invalid" || len(got) != 1 || got["shadowed-name"] != line {
-		t.Errorf("an edit adding a shadowed name: want only shadowed-name on line %v, got %v: %v", line, got, added)
+	for _, rule := range []string{"top-level-work", "missing-docstring", "unused-parameter"} {
+		if _, ok := got[rule]; !ok {
+			t.Errorf("the refusal must name %s: got %v: %v", rule, got, kept)
+		}
 	}
 }
 

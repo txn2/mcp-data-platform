@@ -2,10 +2,11 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // defaultKnowledgePageEnrichmentLimit bounds how many referencing pages are appended
@@ -55,7 +56,7 @@ func enrichWithKnowledgePages(ctx context.Context, kp KnowledgePageProvider, res
 		return result
 	}
 
-	data, err := json.Marshal(map[string]any{"knowledge_pages": pages})
+	data, err := wirejson.Marshal(map[string]any{"knowledge_pages": pages})
 	if err != nil {
 		slog.Debug("failed to marshal knowledge pages", "error", err)
 		return result

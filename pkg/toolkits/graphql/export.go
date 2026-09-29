@@ -237,7 +237,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 	if deps == nil {
 		return
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  ToolExport,
 		Title: "Export a GraphQL Result",
 		Description: "Run a GraphQL document and write its result into a portal asset INSTEAD of returning it " +

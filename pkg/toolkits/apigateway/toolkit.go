@@ -518,7 +518,7 @@ func (t *Toolkit) Connection() string { return t.defaultName }
 
 // RegisterTools registers the api gateway's MCP tools.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  ToolInvokeEndpoint,
 		Title: "Invoke API Endpoint",
 		Description: "Make an authenticated HTTP request against a registered API connection. " +
@@ -544,7 +544,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleInvoke)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  ToolDiscover,
 		Title: "Discover API Operations",
 		Description: "Discover what a registered API connection exposes, at the depth you ask for, " +

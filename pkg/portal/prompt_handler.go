@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
-
-	"github.com/txn2/mcp-data-platform/internal/portal/access"
 )
 
 // SharedPrompt is a prompt shared with the current user, with share metadata,
@@ -578,7 +578,7 @@ func (h *Handler) resolveUserPersona(user *User) *PersonaInfo {
 func writePortalJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }
 
 // writePortalError writes a JSON error response.

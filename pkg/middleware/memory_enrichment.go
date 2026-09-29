@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
@@ -175,7 +176,7 @@ func appendMemoryContextBlock(
 				"fetch any by its reference in memory_context_omitted for full detail.", len(omitted))
 	}
 
-	data, err := json.Marshal(block)
+	data, err := wirejson.Marshal(block)
 	if err != nil {
 		slog.Debug("failed to marshal memory context", "error", err)
 		return result

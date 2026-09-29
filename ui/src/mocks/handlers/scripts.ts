@@ -16,7 +16,6 @@ import {
   mockScriptSchedules,
   mockScriptStates,
   mockScriptVersionDetails,
-  mockPreHarnessScripts,
   mockScriptVersions,
   mockScripts,
 } from "../data/scripts";
@@ -188,7 +187,6 @@ export const scriptHandlers = [
   }),
 
   // The automations saved before tests that still need bringing up (#1943).
-  http.get(`${ADMIN_BASE}/scripts/legacy`, () => HttpResponse.json(mockPreHarnessScripts)),
 
   http.get(`${ADMIN_BASE}/scripts/:id/versions`, ({ params }) => {
     const list = versions[String(params.id)] ?? [];

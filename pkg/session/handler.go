@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 )
 
@@ -83,6 +83,11 @@ type HandlerConfig struct {
 	// inner handler unchanged — useful for tests or for transport
 	// modes that don't need server push.
 	Broadcaster Broadcaster
+	// Build names the running build (internal/buildinfo.Version). A
+	// session records the build whose tool list it was last told about,
+	// and a session arriving on another build is sent
+	// notifications/tools/list_changed once (#1946). Empty turns that off.
+	Build string
 }
 
 // AwareHandler wraps an HTTP handler to manage MCP sessions against
@@ -98,6 +103,7 @@ type AwareHandler struct {
 	store       Store
 	ttl         time.Duration
 	broadcaster Broadcaster
+	build       string
 }
 
 // NewAwareHandler creates a handler that manages sessions externally.
@@ -107,6 +113,7 @@ func NewAwareHandler(inner http.Handler, cfg HandlerConfig) *AwareHandler {
 		store:       cfg.Store,
 		ttl:         cfg.TTL,
 		broadcaster: cfg.Broadcaster,
+		build:       cfg.Build,
 	}
 }
 
@@ -159,7 +166,7 @@ func (h *AwareHandler) handleInitialize(w http.ResponseWriter, r *http.Request) 
 		CreatedAt:    now,
 		LastActiveAt: now,
 		ExpiresAt:    now.Add(h.ttl),
-		State:        make(map[string]any),
+		State:        h.newState(),
 	}
 
 	if err := h.store.Create(r.Context(), sess); err != nil {
@@ -205,6 +212,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 				http.Error(w, httpErrInternal, http.StatusInternalServerError)
 				return
 			}
+			h.announceToolsChanged(r.Context(), &Session{ID: sessionID}, false)
 			r = r.WithContext(WithAwareSessionID(r.Context(), sessionID))
 			h.inner.ServeHTTP(w, r)
 			return
@@ -228,6 +236,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		}
 	}()
 
+	h.announceToolsChanged(r.Context(), sess, false)
 	r = r.WithContext(WithAwareSessionID(r.Context(), sessionID))
 	h.inner.ServeHTTP(w, r)
 }
@@ -291,6 +300,7 @@ func (h *AwareHandler) handleSSE(w http.ResponseWriter, r *http.Request, session
 	}
 	flusher.Flush()
 
+	h.announceOnStream(ctx, sessionID)
 	h.streamSSEEvents(ctx, w, flusher, sub, sessionID)
 }
 
@@ -338,18 +348,27 @@ func (h *AwareHandler) streamSSEEvents(ctx context.Context, w http.ResponseWrite
 			}
 			cancel()
 		case ev, ok := <-sub.Events():
-			if !ok {
+			if !ok || !deliver(w, flusher, ev, sessionID) {
 				return
 			}
-			if err := writeSSEEvent(w, ev); err != nil {
-				slog.Debug("session: SSE write failed",
-					sessionIDKey, logsan.SanitizeForLog(sessionID),
-					slogKeyError, err)
-				return
-			}
-			flusher.Flush()
 		}
 	}
+}
+
+// deliver writes ev on the stream of sessionID when the stream carries it,
+// and reports whether the stream is still writable.
+func deliver(w http.ResponseWriter, flusher http.Flusher, ev Event, sessionID string) bool {
+	if !deliverable(ev, sessionID) {
+		return true
+	}
+	if err := writeSSEEvent(w, ev); err != nil {
+		slog.Debug("session: SSE write failed",
+			sessionIDKey, logsan.SanitizeForLog(sessionID),
+			slogKeyError, err)
+		return false
+	}
+	flusher.Flush()
+	return true
 }
 
 // validateSSESession checks the session exists, is unexpired (or can
@@ -421,7 +440,7 @@ func writeSSEEvent(w http.ResponseWriter, ev Event) error {
 	} else {
 		payload["params"] = map[string]any{}
 	}
-	body, err := json.Marshal(payload)
+	body, err := wirejson.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal sse event: %w", err)
 	}

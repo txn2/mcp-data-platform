@@ -59,9 +59,8 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
     constant-assertion             an assertion comparing only values written
                                    into the test, which holds whatever the
                                    script does
-  A script saved before these rules keeps running as it is: its top level
-  may still do work, and a new version of it is refused only for a finding
-  the version before it did not have.
+  A script saved before these rules keeps running as it is, and its next
+  version is held to every rule, like any other script's.
 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
@@ -581,9 +580,8 @@ TESTS, AND WHAT A SAVE RUNS
   platform.result. One test may read what another produced. A save naming
   one no test reads is refused, as output "weekly" column "region" is never
   asserted on; command=test lists them under "unread". A script saved before
-  tests were required saves without them; once it has tests, they must keep
-  passing and may not reach less of it, and a script saved before its tests
-  had to read every output is not held to that.
+  tests were required runs as it is; its next version is saved with tests,
+  like any other script's.
   A new version of a script that has run also replays the script's recent
   recorded runs through both versions and compares what they produced (rows,
   columns and their types, the state saved, notifications, platform.result,

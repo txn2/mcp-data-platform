@@ -2,9 +2,10 @@
 package health
 
 import (
-	"encoding/json"
 	"net/http"
 	"sync/atomic"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // State constants for the readiness state machine.
@@ -81,5 +82,5 @@ func (c *Checker) ReadinessHandler() http.HandlerFunc {
 func writeJSON(w http.ResponseWriter, code int, v healthResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }

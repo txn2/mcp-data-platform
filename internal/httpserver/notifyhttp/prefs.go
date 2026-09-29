@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
@@ -170,11 +171,11 @@ func prefsResponse(p notification.Prefs, deliveryAvailable bool) PrefsResponse {
 
 func writePrefsJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }
 
 func writePrefsError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = wirejson.Encode(w, map[string]string{"error": msg})
 }

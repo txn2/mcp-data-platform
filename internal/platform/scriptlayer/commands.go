@@ -442,16 +442,12 @@ func addTestNotes(out map[string]any, res scriptsave.Result) {
 }
 
 // addGateNotes tells the author of a saved version what the gates did: that
-// the stored source is the formatted one, and the findings a script saved
-// before the gates still carries, which did not refuse this save.
+// the stored source is the formatted one.
 func addGateNotes(out map[string]any, sent string, gated scriptsave.Result) {
 	res := gated.Lint
 	if res.Source != sent {
 		out["source_formatted"] = true
 		out["formatted_note"] = "The source was stored in the canonical format; read it back with get before patching it."
-	}
-	if len(res.Findings) > 0 {
-		out["findings"] = res.Findings
 	}
 	addTestNotes(out, gated)
 }

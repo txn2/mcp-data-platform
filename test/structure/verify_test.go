@@ -1103,8 +1103,9 @@ func TestUntypedToolRegistrationInventory(t *testing.T) {
 		"pkg/toolkits/gateway/toolkit.go": "proxies an upstream server's tool; the result shape is the upstream's",
 	}
 
-	// A receiver other than the mcp package calling AddTool: s.AddTool(...),
-	// t.server.AddTool(...). The generic path is mcp.AddTool(s, ...).
+	// A receiver other than the mcp or toolkit package calling AddTool:
+	// s.AddTool(...), t.server.AddTool(...). The generic path is
+	// toolkit.AddTool(s, ...), over mcp.AddTool.
 	untyped := regexp.MustCompile(`(^|[^.\w])([\w.]+)\.AddTool\(`)
 
 	found := map[string][]int{}
@@ -1127,7 +1128,9 @@ func TestUntypedToolRegistrationInventory(t *testing.T) {
 					continue
 				}
 				m := untyped.FindStringSubmatch(line)
-				if len(m) < 3 || m[2] == "mcp" {
+				// mcp.AddTool is the SDK's generic path and toolkit.AddTool the
+				// platform's wrapper over it (#1832); both are typed.
+				if len(m) < 3 || m[2] == "mcp" || m[2] == "toolkit" {
 					continue
 				}
 				rel, relErr := filepath.Rel(repoRoot, path)

@@ -22,6 +22,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -602,7 +603,7 @@ func isTransportSignature(lower string) bool {
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_ = wirejson.Encode(w, payload)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

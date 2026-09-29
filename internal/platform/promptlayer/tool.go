@@ -2,7 +2,6 @@ package promptlayer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -109,7 +109,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		return
 	}
 
-	mcp.AddTool(server, &mcp.Tool{
+	toolkit.AddTool(server, &mcp.Tool{
 		Name:  ToolNameManagePrompt,
 		Title: "Manage Prompts",
 		Description: "Create, update, delete, list, get, or use prompts. " +
@@ -998,7 +998,7 @@ func promptErrorResult(msg string) *mcp.CallToolResult {
 
 // promptJSONResult creates a JSON tool result.
 func promptJSONResult(v any) (*mcp.CallToolResult, any, error) {
-	data, err := json.Marshal(v)
+	data, err := wirejson.Marshal(v)
 	if err != nil {
 		return promptErrorResult(fmt.Sprintf("failed to marshal result: %v", err)), nil, nil
 	}

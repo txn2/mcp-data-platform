@@ -26,7 +26,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/legacyhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
@@ -237,7 +236,6 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 	flowhttp.ForAdmin(scripts, deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 	// The scripts saved before the harness that it has not caught up with
 	// (#1943).
-	legacyhttp.New(deps.Scripts).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }
 
 // mountScriptPortalAPI registers the portal script routes: the scripts a caller

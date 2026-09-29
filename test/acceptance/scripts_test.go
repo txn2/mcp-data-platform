@@ -290,9 +290,9 @@ func listItem(items any) any {
 // that exists to fail, reacts to state and events a draft cannot set up, or
 // is drawn and never run -- for a criterion that is not about saving it. A
 // stand-in source is saved through the tool with the save's other fields,
-// and the fixture's source is then set on the script and its version as a
-// script saved before tests were required, which is what it stands for. It
-// returns the create's answer.
+// and the fixture's source is then set on the script and its version, as a
+// script saved before tests were required carries it. It returns the create's
+// answer.
 func (c *client) seedPreGate(t *testing.T, create map[string]any) map[string]any {
 	t.Helper()
 	standIn := maps.Clone(create)
@@ -303,7 +303,7 @@ func (c *client) seedPreGate(t *testing.T, create map[string]any) map[string]any
 		t.Fatalf("seedPreGate: the stand-in was not saved: %v", out)
 	}
 	db := issue1904DB(t)
-	issue1904Exec(t, db, `UPDATE scripts SET source_code = $2, tests_optional = TRUE, outputs_read_optional = TRUE WHERE id = $1`, id, create["source"])
+	issue1904Exec(t, db, `UPDATE scripts SET source_code = $2 WHERE id = $1`, id, create["source"])
 	issue1904Exec(t, db, `UPDATE script_versions SET source_code = $2 WHERE script_id = $1`, id, create["source"])
 	return out
 }

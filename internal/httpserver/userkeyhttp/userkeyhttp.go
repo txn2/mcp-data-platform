@@ -32,6 +32,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/apikeyissue"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -491,7 +492,7 @@ func decodeCreate(w http.ResponseWriter, r *http.Request) (createRequest, bool) 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v) //nolint:errcheck // the response is already committed
+	_ = wirejson.Encode(w, v) //nolint:errcheck // the response is already committed
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

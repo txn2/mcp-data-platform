@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 const (
@@ -320,5 +321,5 @@ func redactedURL(u *url.URL) string {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set(contentTypeHeader, "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck // in-process writer
+	_ = wirejson.Encode(w, map[string]string{"error": msg}) //nolint:errcheck // in-process writer
 }
