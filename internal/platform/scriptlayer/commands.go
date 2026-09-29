@@ -42,7 +42,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	if gated.Refused() {
 		return jsonResult(saveRefusal(gated))
 	}
-	sc.Source = gated.Lint.Source
+	gated.Apply(sc)
 	author := callerAuthor(ctx)
 	if err := h.store.Create(ctx, sc, author); err != nil {
 		slog.Error("failed to create script", fieldName, input.Name, logKeyError, err)

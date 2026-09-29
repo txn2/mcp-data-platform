@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/txn2/mcp-data-platform/internal/libraryuse"
+	"github.com/txn2/mcp-data-platform/internal/testreport"
 
 	"github.com/lib/pq"
 
@@ -18,7 +20,7 @@ import (
 // mirrored by scanVersion so the scan order cannot drift from the query.
 const versionColumns = `id, script_id, version, display_name, description,
 	category, source_code, params, tags, author, author_roles, status,
-	created_at, change_summary, change_agreed_by, change_agreed_at`
+	created_at, change_summary, change_agreed_by, change_agreed_at, tests`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -26,13 +28,18 @@ const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
 // scanVersion reads one row in versionColumns order into a Version.
 func scanVersion(sc rowScanner) (*script.Version, error) {
 	v := &script.Version{}
-	var paramsJSON []byte
+	var paramsJSON, testsJSON []byte
 	err := sc.Scan(&v.ID, &v.ScriptID, &v.Version, &v.DisplayName, &v.Description,
 		&v.Category, &v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author,
 		pq.Array(&v.AuthorRoles), &v.Status, &v.CreatedAt,
-		&v.ChangeSummary, &v.ChangeAgreedBy, &v.ChangeAgreedAt)
+		&v.ChangeSummary, &v.ChangeAgreedBy, &v.ChangeAgreedAt, &testsJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
+	}
+	if len(testsJSON) > 0 {
+		if err := json.Unmarshal(testsJSON, &v.Tests); err != nil {
+			return nil, fmt.Errorf("unmarshal version tests: %w", err)
+		}
 	}
 	if err := json.Unmarshal(paramsJSON, &v.Params); err != nil {
 		return nil, fmt.Errorf("unmarshal version params: %w", err)
@@ -77,22 +84,47 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 	if roles == nil {
 		roles = []string{}
 	}
+	testsJSON, err := testsColumn(ins.Snapshot.Tests)
+	if err != nil {
+		return err
+	}
 	// change_agreed_at is the time of the save, and only for a save that
-	// carried a change.
+	// carried a change. A version written without running the tests (an
+	// owner transfer, a description edit) keeps the report of the latest
+	// version with the same source: the tests are part of the source, so
+	// they found the same thing.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO script_versions (script_id, version, display_name, description,
 		                             category, source_code, params, tags, author,
 		                             author_roles, status, change_summary,
-		                             change_agreed_by, change_agreed_at)
+		                             change_agreed_by, change_agreed_at, tests)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text, $13::text,
-		        CASE WHEN $12::text = '' THEN NULL ELSE NOW() END)`,
+		        CASE WHEN $12::text = '' THEN NULL ELSE NOW() END,
+		        COALESCE($14::jsonb, (SELECT prior.tests FROM script_versions prior
+		                               WHERE prior.script_id = $1 AND prior.source_code = $6
+		                                 AND prior.tests IS NOT NULL
+		                               ORDER BY prior.version DESC LIMIT 1)))`,
 		ins.ScriptID, ins.Version, ins.Snapshot.DisplayName, ins.Snapshot.Description,
 		ins.Snapshot.Category, ins.Snapshot.Source, paramsJSON, pq.Array(tags),
-		ins.Author.Email, pq.Array(roles), ins.Status, ins.Snapshot.ChangeSummary, ins.Snapshot.ChangeAgreedBy)
+		ins.Author.Email, pq.Array(roles), ins.Status, ins.Snapshot.ChangeSummary, ins.Snapshot.ChangeAgreedBy,
+		testsJSON)
 	if err != nil {
 		return fmt.Errorf("insert script version: %w", err)
 	}
 	return nil
+}
+
+// testsColumn is a version's test report as the tests column stores it: NULL
+// when the save carried none.
+func testsColumn(r *testreport.Report) (sql.NullString, error) {
+	if r == nil {
+		return sql.NullString{}, nil
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("marshal version tests: %w", err)
+	}
+	return sql.NullString{String: string(b), Valid: true}, nil
 }
 
 // lockScript locks and returns the full script row for the transaction, or an

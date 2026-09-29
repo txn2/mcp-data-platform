@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CARD_WIDTH,
+  callGroupText,
+  groupCalls,
   FONT_MONO,
   cardHeight,
   cardText,
@@ -114,5 +116,26 @@ describe("flowModel: what a selection lights up", () => {
     const src = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
     expect(excerpt(src, 10, 1, 4)).toBe(" 9  line 9\n10  line 10\n11  line 11\n12  line 12");
     expect(excerpt("", 3, 1, 1)).toBe("");
+  });
+});
+
+describe("groupCalls (#1972)", () => {
+  it("counts each tool's calls, failures first, with each failure's message", () => {
+    const groups = groupCalls([
+      { tool: "s3_list", duration_ms: 4, success: true },
+      { tool: "api_invoke_endpoint", duration_ms: 80, success: true },
+      { tool: "api_invoke_endpoint", duration_ms: 70, success: false, error: "Not Found" },
+      { tool: "api_invoke_endpoint", duration_ms: 90, success: false, error: "Forbidden" },
+      { tool: "api_invoke_endpoint", duration_ms: 75, success: false, error: "Not Found" },
+      { tool: "trino_query", duration_ms: 5, success: false },
+    ]);
+    expect(groups.map((g) => g.tool)).toEqual(["api_invoke_endpoint", "trino_query", "s3_list"]);
+    expect(callGroupText(groups[0]!)).toBe(
+      "api_invoke_endpoint: 1 succeeded, 3 failed (Not Found 2, Forbidden 1), median 75 ms",
+    );
+    expect(groups[0]!.totalMS).toBe(315);
+    expect(callGroupText(groups[1]!)).toBe("trino_query: 0 succeeded, 1 failed (no message 1), median 5 ms");
+    expect(callGroupText(groups[2]!)).toBe("s3_list: 1 succeeded, median 4 ms");
+    expect(groupCalls([])).toEqual([]);
   });
 });

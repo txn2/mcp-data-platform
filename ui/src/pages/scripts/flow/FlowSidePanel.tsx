@@ -8,7 +8,9 @@ import type {
   ScriptRunFlow,
 } from "@/api/portal/hooks/scriptFlow";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import type { FlowView } from "./flowView";
+import { Excerpt, Lines, Row, Rows, Swatch } from "./panelParts";
+import { BoxDetail, HowToReadStructure, OtherCalls, StructDetail } from "./StructurePanel";
 import {
   CHANGE_COLOR,
   CHANGE_LABEL,
@@ -24,7 +26,7 @@ import {
 // FlowSidePanel is the reading beside the diagram (#1906): how to read it when
 // nothing is selected, and what a selected card, box or parameter is.
 
-interface Props {
+export interface PanelProps {
   graph: ScriptFlow;
   source: string;
   selection: Selection;
@@ -32,10 +34,13 @@ interface Props {
   onShowLines?: (lines: number[]) => void;
   /** run is the run drawn on the diagram (#1907), when one is. */
   run?: ScriptRunFlow;
+  /** view is the picture the diagram draws (#1972), which the explainer
+   * describes. */
+  view?: FlowView;
 }
 
-export function FlowSidePanel({ graph, source, selection, onSelect, onShowLines, run }: Props) {
-  const body = panelBody({ graph, source, selection, onSelect, onShowLines, run });
+export function FlowSidePanel({ graph, source, selection, onSelect, onShowLines, run, view }: PanelProps) {
+  const body = panelBody({ graph, source, selection, onSelect, onShowLines, run, view });
   return (
     <aside className="min-w-0 space-y-4 text-sm" data-testid="flow-side-panel">
       {body}
@@ -46,21 +51,35 @@ export function FlowSidePanel({ graph, source, selection, onSelect, onShowLines,
 
 // panelBody is what the panel reads with nothing, a card, a box or a parameter
 // selected.
-function panelBody(props: Props): ReactNode {
+function panelBody(props: PanelProps): ReactNode {
   const { selection } = props;
-  if (selection?.kind === "node") return nodeBody(props, selection.id);
-  if (selection?.kind === "group") {
-    const g = props.graph.groups.find((x) => x.id === selection.id);
-    return g ? <GroupDetail group={g} source={props.source} onShowLines={props.onShowLines} /> : null;
-  }
-  if (selection?.kind === "param") return <ParamDetail graph={props.graph} name={selection.name} />;
+  if (selection) return selectedBody(props, selection);
   if (props.graph.compared_with) return <CompareSummary graph={props.graph} />;
   if (props.run) return <RunSummary run={props.run} />;
+  if (props.view === "structure") return <HowToReadStructure />;
   return <HowToRead graph={props.graph} />;
 }
 
+// selectedBody is the panel for whatever the reader selected.
+function selectedBody(props: PanelProps, selection: NonNullable<Selection>): ReactNode {
+  switch (selection.kind) {
+    case "node":
+      return nodeBody(props, selection.id);
+    case "group": {
+      const g = props.graph.groups.find((x) => x.id === selection.id);
+      return g ? <GroupDetail group={g} source={props.source} onShowLines={props.onShowLines} /> : null;
+    }
+    case "param":
+      return <ParamDetail graph={props.graph} name={selection.name} />;
+    case "struct":
+      return <StructDetail {...props} id={selection.id} />;
+    case "sbox":
+      return <BoxDetail {...props} id={selection.id} />;
+  }
+}
+
 // nodeBody is a selected card, with what the drawn run did there.
-function nodeBody({ graph, source, onShowLines, run }: Props, id: string): ReactNode {
+function nodeBody({ graph, source, onShowLines, run }: PanelProps, id: string): ReactNode {
   const n = graph.nodes.find((x) => x.id === id);
   if (!n) return null;
   return (
@@ -71,15 +90,6 @@ function nodeBody({ graph, source, onShowLines, run }: Props, id: string): React
       onShowLines={onShowLines}
       stat={run?.nodes[n.id]}
       inRun={run !== undefined}
-    />
-  );
-}
-
-function Swatch({ role }: { role: keyof typeof ROLE_COLOR }) {
-  return (
-    <i
-      className="mr-1 inline-block size-2.5 rounded-sm align-[-1px]"
-      style={{ background: ROLE_COLOR[role] }}
     />
   );
 }
@@ -174,24 +184,12 @@ function RunSummary({ run }: { run: ScriptRunFlow }) {
         <Row label="On cards">{onCards}</Row>
         <Row label="Other">{run.other_calls.length}</Row>
       </Rows>
-      {run.other_calls.length > 0 && (
-        <div className="space-y-1 text-xs">
-          <p className="text-muted-foreground">
-            Calls no card made: a tool the source computes, or a call recorded before call sites were.
-          </p>
-          <ul className="space-y-0.5 font-mono">
-            {run.other_calls.map((c, i) => (
-              <li key={i}>
-                {c.tool} · {formatDuration(c.duration_ms)}
-                {c.success ? "" : " · failed"}
-              </li>
-            ))}
-          </ul>
-        </div>
+      {run.other_calls.length > 0 && <OtherCalls run={run} />}
+      {!run.unplaced && (
+        <p className="text-xs text-muted-foreground">
+          Cards this run never reached are lighter; where it failed is in the error color.
+        </p>
       )}
-      <p className="text-xs text-muted-foreground">
-        Cards this run never reached are dimmed; the card it failed at is in the error color.
-      </p>
     </div>
   );
 }
@@ -268,38 +266,6 @@ function CompareSummary({ graph }: { graph: ScriptFlow }) {
         a change. A changed card says what it was; a removed card is the older version's, dashed.
       </p>
     </div>
-  );
-}
-
-function Rows({ children }: { children: ReactNode }) {
-  return <dl className="grid grid-cols-[5rem_1fr] gap-x-2 gap-y-1.5 text-xs">{children}</dl>;
-}
-
-function Row({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn("min-w-0 break-words", mono && "font-mono")}>{children}</dd>
-    </>
-  );
-}
-
-function Lines({ items }: { items: string[] }) {
-  return (
-    <>
-      {items.map((t, i) => (
-        <div key={i}>{t}</div>
-      ))}
-    </>
-  );
-}
-
-function Excerpt({ text }: { text: string }) {
-  if (!text) return null;
-  return (
-    <pre className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-2 font-mono text-[11px] leading-relaxed whitespace-pre">
-      {text}
-    </pre>
   );
 }
 

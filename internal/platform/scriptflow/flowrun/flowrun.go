@@ -8,6 +8,7 @@ package flowrun
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
@@ -22,6 +23,8 @@ type Call struct {
 	Success       bool
 	Error         string
 	ResponseChars int
+	// At is when the call started.
+	At time.Time
 }
 
 // RunFacts is what the run record says about how the run went.
@@ -34,6 +37,10 @@ type RunFacts struct {
 	Outputs    []script.RunOutput
 	StateSaved bool
 	HasResult  bool
+	// StartedAt and FinishedAt bound the run in time; zero when it has not
+	// started or not finished.
+	StartedAt  time.Time
+	FinishedAt time.Time
 }
 
 // NodeRun is what one card did in one run.
@@ -80,6 +87,31 @@ type Overlay struct {
 	// FailedNode is the card the run failed at, empty when it did not fail at
 	// a platform call (or did not fail).
 	FailedNode string `json:"failed_node,omitempty"`
+	// StructureFailed is the Structure view's node or box the run failed at
+	// (#1972): the fail() or the call its backtrace ends in, or else the
+	// innermost helper expansion the failing line is in.
+	StructureFailed string `json:"structure_failed,omitempty"`
+	// Unplaced is true when the run made calls and none of them recorded
+	// where in the script it was made (a run made before call sites were
+	// recorded), so no call can be drawn on a card.
+	Unplaced bool `json:"unplaced"`
+	// Timeline is every audited call in the order it was made, for the
+	// Timeline view (#1972), and RunMS the run's length.
+	Timeline []TimedCall `json:"timeline"`
+	RunMS    int64       `json:"run_ms"`
+}
+
+// TimedCall is one call placed in time: StartMS after the run started.
+type TimedCall struct {
+	StartMS       int64    `json:"start_ms"`
+	DurationMS    int64    `json:"duration_ms"`
+	Tool          string   `json:"tool"`
+	Success       bool     `json:"success"`
+	Error         string   `json:"error,omitempty"`
+	ResponseChars int      `json:"response_chars"`
+	CallSite      []string `json:"call_site,omitempty"`
+	// Node is the card the call was attributed to, empty for an other call.
+	Node string `json:"node,omitempty"`
 }
 
 // siteKey is a call site as a map key.
@@ -88,7 +120,7 @@ func siteKey(site []string) string { return strings.Join(site, ">") }
 // Draw attributes a run's audited calls, outputs and failure to the cards
 // of its version's graph.
 func Draw(g scriptflow.Graph, calls []Call, facts RunFacts) Overlay {
-	o := Overlay{Nodes: map[string]NodeRun{}, Other: []OtherCall{}, Calls: len(calls)}
+	o := Overlay{Nodes: map[string]NodeRun{}, Other: []OtherCall{}, Calls: len(calls), Timeline: []TimedCall{}}
 	bySite := map[string][]scriptflow.Node{}
 	for _, n := range g.Nodes {
 		if len(n.CallSite) > 0 {
@@ -96,8 +128,12 @@ func Draw(g scriptflow.Graph, calls []Call, facts RunFacts) Overlay {
 		}
 	}
 	var failedCalls []failedCall
+	placed := false
+	start := runStart(calls, facts)
 	for _, c := range calls {
+		placed = placed || len(c.CallSite) > 0
 		id, ok := cardFor(bySite[siteKey(c.CallSite)], c.Tool)
+		o.Timeline = append(o.Timeline, timed(c, start, id, ok && len(c.CallSite) > 0))
 		if !ok || len(c.CallSite) == 0 {
 			o.Other = append(o.Other, OtherCall{
 				Tool: c.Tool, DurationMS: c.DurationMS, Success: c.Success, Error: c.Error, CallSite: c.CallSite,
@@ -116,7 +152,94 @@ func Draw(g scriptflow.Graph, calls []Call, facts RunFacts) Overlay {
 	}
 	o.markTerminal(g, facts)
 	o.markFailure(bySite, failedCalls, facts)
+	o.StructureFailed = structureFailure(g.Structure, o.FailedNode, facts)
+	o.Unplaced = len(calls) > 0 && !placed
+	if !facts.FinishedAt.IsZero() && !start.IsZero() {
+		o.RunMS = facts.FinishedAt.Sub(start).Milliseconds()
+	}
 	return o
+}
+
+// runStart is when the run started, or its first call when the record has no
+// start.
+func runStart(calls []Call, facts RunFacts) time.Time {
+	if !facts.StartedAt.IsZero() || len(calls) == 0 {
+		return facts.StartedAt
+	}
+	return calls[0].At
+}
+
+// timed places one call on the run's timeline.
+func timed(c Call, start time.Time, id string, onCard bool) TimedCall {
+	t := TimedCall{
+		DurationMS: c.DurationMS, Tool: c.Tool, Success: c.Success, Error: c.Error,
+		ResponseChars: c.ResponseChars, CallSite: c.CallSite,
+	}
+	if !start.IsZero() && !c.At.IsZero() {
+		t.StartMS = max(0, c.At.Sub(start).Milliseconds())
+	}
+	if onCard {
+		t.Node = id
+	}
+	return t
+}
+
+// structureFailure is the Structure view's node or box a failed run failed at:
+// the node at the backtrace's call site (a fail() or a platform call), the
+// step of the card the value graph named, or the innermost helper box whose
+// expansion the failing line is inside.
+func structureFailure(s scriptflow.Structure, failedCard string, facts RunFacts) string {
+	if facts.Status != script.RunStatusFailed {
+		return ""
+	}
+	site := scriptcallsite.FromBacktrace(facts.Error)
+	if id := nodeAtSite(s, site); id != "" {
+		return id
+	}
+	if id := stepOfCard(s, failedCard); id != "" {
+		return id
+	}
+	return innermostBox(s, site)
+}
+
+// nodeAtSite is the node whose call site is site: a fail() or a platform call.
+func nodeAtSite(s scriptflow.Structure, site []string) string {
+	if len(site) == 0 {
+		return ""
+	}
+	key := siteKey(site)
+	for _, n := range s.Nodes {
+		if len(n.CallSite) > 0 && siteKey(n.CallSite) == key {
+			return n.ID
+		}
+	}
+	return ""
+}
+
+// stepOfCard is the node that draws the value graph's card.
+func stepOfCard(s scriptflow.Structure, card string) string {
+	if card == "" {
+		return ""
+	}
+	for _, n := range s.Nodes {
+		if n.Step == card {
+			return n.ID
+		}
+	}
+	return ""
+}
+
+// innermostBox is the deepest helper expansion whose call site the failing
+// site passes through: the helper whose own code failed.
+func innermostBox(s scriptflow.Structure, site []string) string {
+	best, depth := "", 0
+	for _, b := range s.Boxes {
+		if b.Kind == scriptflow.BoxFunction && len(b.CallSite) > depth && len(b.CallSite) < len(site) &&
+			slices.Equal(b.CallSite, site[:len(b.CallSite)]) {
+			best, depth = b.ID, len(b.CallSite)
+		}
+	}
+	return best
 }
 
 // failedCall is a card's audited call that did not succeed, in call order.

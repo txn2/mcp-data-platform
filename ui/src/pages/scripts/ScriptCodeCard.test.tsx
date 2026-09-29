@@ -58,3 +58,31 @@ describe("ScriptCodeCard", () => {
     expect(screen.getByLabelText("draft")).toHaveValue("edited");
   });
 });
+
+describe("ScriptCodeCard: the Tests tab (#1972)", () => {
+  it("offers Tests only when it is given, draws it only while open, and passes Show lines through", () => {
+    let drawn = 0;
+    render(
+      <ScriptCodeCard
+        flow={() => <div />}
+        source={(link) => <span data-testid="marked">{link.markedLines.join(",")}</span>}
+        tests={(link) => {
+          drawn++;
+          return (
+            <button type="button" onClick={() => link.showLines([12])}>
+              line 12
+            </button>
+          );
+        }}
+      />,
+    );
+    expect(drawn).toBe(0);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Tests" }));
+    fireEvent.click(screen.getByRole("button", { name: "line 12" }));
+    expect(screen.getByRole("tab", { name: "Source" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("marked")).toHaveTextContent("12");
+    cleanup();
+    renderCard();
+    expect(screen.queryByRole("tab", { name: "Tests" })).toBeNull();
+  });
+});

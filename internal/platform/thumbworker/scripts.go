@@ -21,6 +21,13 @@ import (
 // if it were a document.
 const FlowTileType = "application/vnd.mcp-data-platform.flow-graph"
 
+// ScriptRenderer is the generation of a script's flow tile, apart from
+// Renderer so that redrawing every script tile does not redraw every asset's.
+// It starts where Renderer stood when scripts were first drawn.
+//
+// 3 draws the Structure view, the order the script runs in (#1972).
+const ScriptRenderer = 3
+
 // orphanBatch is how many deleted scripts' tiles one pass removes.
 const orphanBatch = 50
 
@@ -40,7 +47,7 @@ func (w *Worker) claimScripts(ctx context.Context) []job {
 		return nil
 	}
 	w.sweepScripts(ctx)
-	work, err := w.deps.Scripts.Claim(ctx, Renderer, w.cfg.Lease, w.cfg.Batch)
+	work, err := w.deps.Scripts.Claim(ctx, ScriptRenderer, w.cfg.Lease, w.cfg.Batch)
 	logClaim("scripts", err)
 	jobs := make([]job, 0, len(work))
 	for _, s := range work {
@@ -94,7 +101,7 @@ func (w *Worker) drawScript(ctx context.Context, s scripttiles.Work) error {
 		return nil
 	}
 	key := scripttiles.Key(w.deps.CollectionPrefix, s.ScriptID, scripttiles.VariantLight)
-	if err := w.deps.Scripts.Record(ctx, s.ScriptID, s.Version, key, Renderer); err != nil {
+	if err := w.deps.Scripts.Record(ctx, s.ScriptID, s.Version, key, ScriptRenderer); err != nil {
 		slog.Error("thumbnails: recording a script's tile failed", logKeyScript, logsan.SanitizeForLog(s.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 	return nil

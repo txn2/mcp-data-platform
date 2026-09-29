@@ -52,7 +52,7 @@ func TestTransfer_WritesTheVersionThatCarriesTheNewAuthority(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
 		WithArgs("script_1", 4, "Daily", "A daily report", "", "print(1)", sqlmock.AnyArg(),
 			pq.Array([]string{}), "admin@example.com", pq.Array([]string{"admin"}),
-			script.VersionStatusApplied, "", "").
+			script.VersionStatusApplied, "", "", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	expectLiveRowUpdate(mock, false)
 	mock.ExpectCommit()

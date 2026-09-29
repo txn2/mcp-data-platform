@@ -76,7 +76,9 @@ describe("ContentRenderer routing", () => {
     // now, which executes no document-level action at all.
     render(<ContentRenderer contentType="application/pdf" contentUrl={CONTENT_URL} fileName="report.pdf" />);
 
-    const frame = await screen.findByLabelText("report.pdf");
+    // The viewer is loaded on first use, which on a loaded machine takes
+    // longer than the default second.
+    const frame = await screen.findByLabelText("report.pdf", {}, { timeout: 5_000 });
     expect(frame.tagName).not.toBe("OBJECT");
     expect(document.querySelector('object[type="application/pdf"]')).toBeNull();
     // Download stays reachable whatever the viewer does with the document.

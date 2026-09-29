@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/testreport"
 )
 
 // ErrVersionConflict marks a version write rejected because the script or
@@ -71,6 +73,10 @@ type Version struct {
 	ChangeSummary  string     `json:"change_summary,omitempty" example:"Adds a column with the order's region"`
 	ChangeAgreedBy string     `json:"change_agreed_by,omitempty" example:"jane@example.com"`
 	ChangeAgreedAt *time.Time `json:"change_agreed_at,omitempty" example:"2026-08-13T14:30:00Z"`
+	// Tests is what the version's tests found when it was saved (#1972): each
+	// test and the statements they reach. Nil for a version saved before
+	// reports were kept.
+	Tests *testreport.Report `json:"tests,omitempty"`
 }
 
 // VersionStore is the versioning capability of a script store. The PostgreSQL

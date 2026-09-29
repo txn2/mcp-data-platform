@@ -51,7 +51,13 @@ func SQLSamples() map[string]string {
 		"buildRunListQuery": func() string {
 			q, _ := buildRunListQuery(script.RunFilter{
 				ScriptID: "3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b", ScriptIDs: []string{},
-				Status: "succeeded", RequestedBy: "owner@example.com", Limit: 10,
+				Status: "succeeded", RequestedBy: "owner@example.com", Limit: 10, Offset: 20,
+			})
+			return q
+		}(),
+		"buildRunCountQuery": func() string {
+			q, _ := buildRunCountQuery(script.RunFilter{
+				ScriptID: "3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b", Status: "failed", Live: true,
 			})
 			return q
 		}(),

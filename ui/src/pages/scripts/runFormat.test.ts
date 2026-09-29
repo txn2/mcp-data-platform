@@ -4,6 +4,8 @@ import {
   attemptOutcomeLabel,
   causeNote,
   dryRunOutputPhrase,
+  runPickerLabel,
+  runTrigger,
   formatBytes,
   livenessNote,
   runBadge,
@@ -284,5 +286,24 @@ describe("formatBytes", () => {
     expect(formatBytes(4 * 1024)).toBe("4 KiB");
     expect(formatBytes(128 * 1024 * 1024)).toBe("128 MiB");
     expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe("3.0 GiB");
+  });
+});
+
+describe("runPickerLabel (#1972)", () => {
+  it("leads with when and how a run happened, then how it ended and its version", () => {
+    const run = {
+      finished_at: "2026-09-29T05:57:38Z",
+      fire_time: "2026-09-29T05:57:38Z",
+      trigger: "tool",
+      status: "failed",
+      version: 10,
+    };
+    const label = runPickerLabel(run, "en-US");
+    expect(label).toMatch(/^Sep 2[89], \d{1,2}:57 [AP]M · manual · failed · v10$/);
+    expect(runPickerLabel({ ...run, trigger: "schedule", status: "skipped_overlap" }, "en-US")).toMatch(
+      / · scheduled · Skipped \(overlap\) · v10$/,
+    );
+    expect(runPickerLabel({ ...run, finished_at: undefined, fire_time: "bad" }, "en-US")).toBe("— · manual · failed · v10");
+    expect(runTrigger("portal")).toBe("manual");
   });
 });

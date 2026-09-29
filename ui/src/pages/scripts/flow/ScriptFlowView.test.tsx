@@ -6,12 +6,15 @@ import { sampleGraph } from "./testGraph";
 import { layoutFlow } from "./flowLayout";
 
 vi.mock("@/api/portal/hooks/scriptFlow", () => ({ useScriptFlow: vi.fn(), useScriptRunFlow: vi.fn() }));
-vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useScriptRuns: vi.fn() }));
+vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useScriptRunPage: vi.fn(), RUN_PAGE_SIZE: 25 }));
+vi.mock("@/api/portal/hooks/scripts", () => ({ usePortalScriptVersions: vi.fn() }));
 import { useScriptFlow, useScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
-import { useScriptRuns } from "@/api/portal/hooks/scriptRuns";
+import { useScriptRunPage } from "@/api/portal/hooks/scriptRuns";
+import { usePortalScriptVersions } from "@/api/portal/hooks/scripts";
 const mockFlow = vi.mocked(useScriptFlow);
 const mockRunFlow = vi.mocked(useScriptRunFlow);
-const mockRuns = vi.mocked(useScriptRuns);
+const mockRuns = vi.mocked(useScriptRunPage);
+const mockVersions = vi.mocked(usePortalScriptVersions);
 
 function answer(data: ScriptFlow | undefined, extra: Record<string, unknown> = {}) {
   mockFlow.mockReturnValue({ data, isLoading: false, error: null, ...extra } as unknown as ReturnType<
@@ -54,7 +57,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useScriptRuns>);
+  // These describe the Calls view (#1906); the Structure view, the default
+  // since #1972, is described in ScriptFlowView.structure.test.tsx.
+  window.history.replaceState(null, "", "/?view=calls");
+  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useScriptRunPage>);
+  mockVersions.mockReturnValue({ data: undefined } as ReturnType<typeof usePortalScriptVersions>);
   mockRunFlow.mockReturnValue({ isLoading: false } as ReturnType<typeof useScriptRunFlow>);
 });
 afterEach(cleanup);
@@ -89,7 +96,23 @@ describe("ScriptFlowView: the states before a diagram", () => {
   });
 
   it("says a script with no platform calls has nothing to draw", () => {
-    answer({ ...sampleGraph(), nodes: [], edges: [], groups: [], params: [] });
+    answer({
+      ...sampleGraph(),
+      nodes: [],
+      edges: [],
+      groups: [],
+      params: [],
+      structure: {
+        nodes: [
+          { id: "s:1", kind: "start", line: 0 },
+          { id: "s:2", kind: "end", line: 0 },
+        ],
+        edges: [{ from: "s:1", to: "s:2" }],
+        boxes: [],
+        functions: [],
+        truncated: false,
+      },
+    });
     renderView();
     expect(screen.getByTestId("flow-empty")).toHaveTextContent("makes no platform calls");
   });
@@ -265,8 +288,8 @@ describe("ScriptFlowView: a compared graph (#1908)", () => {
     // A disabled query still answers from the cache, which is what the
     // owner's Flow tab above the comparison has filled.
     mockRuns.mockReturnValue({
-      data: { data: [{ id: "run-001", version: 2, status: "succeeded" }] },
-    } as unknown as ReturnType<typeof useScriptRuns>);
+      data: { data: [{ id: "run-001", version: 2, status: "succeeded" }], total: 1 },
+    } as unknown as ReturnType<typeof useScriptRunPage>);
     answer(compared());
     render(
       <ScriptFlowView scriptId="script-001" version={2} compareWith={1} owned source={source} sourceSelection={null} />,
@@ -304,6 +327,10 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
     other_calls: [{ tool: "s3_list", duration_ms: 4, success: true }],
     calls: 4,
     failed_node: "op:3",
+    structure_failed: "s:5",
+    unplaced: false,
+    timeline: [],
+    run_ms: 2000,
     calls_truncated: false,
   });
 
@@ -314,8 +341,9 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
           { id: "run-2", status: "failed", version: 2, trigger: "schedule", fire_time: "2026-09-01T07:00:00Z", duration_ms: 1, output_count: 0 },
           { id: "run-1", status: "succeeded", version: 1, trigger: "schedule", fire_time: "2026-08-31T07:00:00Z", duration_ms: 1, output_count: 0 },
         ],
+        total: 2,
       } : undefined,
-    }) as unknown as ReturnType<typeof useScriptRuns>);
+    }) as unknown as ReturnType<typeof useScriptRunPage>);
     mockRunFlow.mockImplementation(
       (_id, runId) =>
         (runId ? { data: runFlow(), isLoading: false, error: null } : { isLoading: false }) as unknown as ReturnType<
@@ -353,7 +381,7 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
   it("offers no run picker to a reader, and draws the saved version", async () => {
     withRuns();
     render(<ScriptFlowView scriptId="script-001" version={2} source={source} sourceSelection={null} />);
-    expect(mockRuns).toHaveBeenCalledWith("script-001", false);
+    expect(mockRuns).toHaveBeenCalledWith("script-001", false, 1, "");
     await card("op:1");
     expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("How to read this");
   });

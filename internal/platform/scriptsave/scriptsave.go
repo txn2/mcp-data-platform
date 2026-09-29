@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
+	"github.com/txn2/mcp-data-platform/internal/testreport"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -101,9 +102,30 @@ type Result struct {
 	ChangeAgreedBy string `json:"-"`
 }
 
-// Apply sets the formatted source and the change the save carries on sc.
+// Apply sets the formatted source, the change the save carries and its test
+// report on sc, all of which the version the save creates keeps.
 func (r Result) Apply(sc *script.Script) {
 	sc.Source, sc.ChangeSummary, sc.ChangeAgreedBy = r.Lint.Source, r.ChangeSummary, r.ChangeAgreedBy
+	sc.Tests = TestReport(r.Tests)
+}
+
+// TestReport is the part of the tests' report a saved version keeps (#1972):
+// each test's outcome and the statements they reach. Nil in, nil out.
+func TestReport(r *scripttest.Report) *testreport.Report {
+	if r == nil {
+		return nil
+	}
+	out := &testreport.Report{
+		Tests: make([]testreport.Outcome, 0, len(r.Tests)), Passed: r.Passed, Failed: r.Failed,
+		Coverage: testreport.Coverage{
+			Statements: r.Coverage.Statements, Covered: r.Coverage.Covered, Percent: r.Coverage.Percent,
+			MissedLines: append([]int{}, r.Coverage.MissedLines...),
+		},
+	}
+	for _, t := range r.Tests {
+		out.Tests = append(out.Tests, testreport.Outcome{Name: t.Name, Passed: t.Passed, Line: t.Line, Failure: t.Failure})
+	}
+	return out
 }
 
 // Refused reports whether the save is refused.

@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/testreport"
 )
 
 // Bounds on the free-text fields of a script record, matched to the equivalent
@@ -176,6 +178,9 @@ type Script struct {
 	// read back onto a script: a version's own record is where they live.
 	ChangeSummary  string `json:"-"`
 	ChangeAgreedBy string `json:"-"`
+	// Tests is the test report the save in progress produced (#1972),
+	// written onto the version it creates like the change summary.
+	Tests *testreport.Report `json:"-"`
 }
 
 // OwnedBy reports whether the named caller owns this script, which is the

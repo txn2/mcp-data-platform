@@ -83,7 +83,7 @@ async function openSourceTab(page: Page): Promise<void> {
  * the side panel reading that card.
  */
 export async function openScriptFlow(page: Page): Promise<void> {
-  const canvas = page.getByTestId("flow-canvas");
+  const canvas = page.getByTestId("structure-canvas");
   await canvas.waitFor({ timeout: 5_000 });
   await page.getByTestId("script-code").scrollIntoViewIfNeeded();
   await page.evaluate(() => window.scrollBy(0, -72));
@@ -97,7 +97,7 @@ export async function openScriptFlow(page: Page): Promise<void> {
  * dimmed as never reached, and the panel naming the cause.
  */
 export async function openScriptRunFlow(page: Page): Promise<void> {
-  await page.getByTestId("flow-canvas").waitFor({ timeout: 5_000 });
+  await page.getByTestId("structure-canvas").waitFor({ timeout: 5_000 });
   await page.getByRole("combobox", { name: "Run drawn on the diagram" }).click({ timeout: 3_000 });
   await page.getByRole("option", { name: /failed/ }).first().click({ timeout: 3_000 });
   await page.locator('[data-failed="true"]').waitFor({ timeout: 5_000 });

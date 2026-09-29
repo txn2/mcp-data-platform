@@ -30,6 +30,9 @@ type fakeScripts struct {
 	forgotten []string
 	// storeErr fails every write and the orphan listing.
 	storeErr error
+	// claimedAs and recordedAs are the renderer generations the worker
+	// claimed and recorded with.
+	claimedAs, recordedAs int
 }
 
 func newFakeScripts(work ...scripttiles.Work) *fakeScripts {
@@ -39,17 +42,19 @@ func newFakeScripts(work ...scripttiles.Work) *fakeScripts {
 	}
 }
 
-func (f *fakeScripts) Claim(context.Context, int, time.Duration, int) ([]scripttiles.Work, error) {
+func (f *fakeScripts) Claim(_ context.Context, renderer int, _ time.Duration, _ int) ([]scripttiles.Work, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.claimedAs = renderer
 	w := f.work
 	f.work = nil
 	return w, f.claimErr
 }
 
-func (f *fakeScripts) Record(_ context.Context, id string, version int, key string, _ int) error {
+func (f *fakeScripts) Record(_ context.Context, id string, version int, key string, renderer int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.recordedAs = renderer
 	f.recorded[id], f.versions[id] = key, version
 	return f.storeErr
 }
@@ -95,7 +100,10 @@ func TestDrawScript_TheFlowGraphLightAndDark(t *testing.T) {
 	data := payload(t, d.pages[0])
 	assert.Equal(t, FlowTileType, data["contentType"])
 	var g struct {
-		Nodes []struct{ Title string } `json:"nodes"`
+		Nodes     []struct{ Title string } `json:"nodes"`
+		Structure struct {
+			Nodes []struct{ Kind string } `json:"nodes"`
+		} `json:"structure"`
 	}
 	content, ok := data["content"].(string)
 	require.True(t, ok, "the tile page is handed the graph as text")
@@ -110,6 +118,13 @@ func TestDrawScript_TheFlowGraphLightAndDark(t *testing.T) {
 	}
 	assert.Equal(t, "p/scripts/s1/tile.png", scripts.recorded["s1"])
 	assert.Equal(t, 3, scripts.versions["s1"])
+	// The tile draws the Structure view, and a tile drawn before it existed is
+	// owed a new one: script tiles have their own generation (#1972).
+	require.NotEmpty(t, g.Structure.Nodes)
+	assert.Equal(t, "start", g.Structure.Nodes[0].Kind)
+	assert.Equal(t, ScriptRenderer, scripts.claimedAs)
+	assert.Equal(t, ScriptRenderer, scripts.recordedAs)
+	assert.Greater(t, ScriptRenderer, Renderer)
 }
 
 // A version that does not parse is recorded as not drawable, with the parse

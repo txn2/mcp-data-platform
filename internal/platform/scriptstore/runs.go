@@ -280,8 +280,8 @@ func (s *Store) LatestRuns(ctx context.Context, scriptIDs []string) (map[string]
 	return out, nil
 }
 
-// buildRunListQuery assembles the run listing query and its arguments.
-func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
+// runWhere is the filter's predicate, shared by the listing and its count.
+func runWhere(filter script.RunFilter) *listQuery {
 	q := &listQuery{}
 	if filter.ScriptID != "" {
 		q.add("script_id = $%d", filter.ScriptID)
@@ -301,6 +301,12 @@ func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
 	if filter.Live {
 		q.where = append(q.where, "status IN ('pending', 'running')")
 	}
+	return q
+}
+
+// buildRunListQuery assembles the run listing query and its arguments.
+func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
+	q := runWhere(filter)
 	query = runSelect
 	if len(q.where) > 0 {
 		query += " WHERE " + joinAnd(q.where)
@@ -310,7 +316,35 @@ func buildRunListQuery(filter script.RunFilter) (query string, args []any) {
 		limit = defaultRunListLimit
 	}
 	q.args = append(q.args, limit)
-	return fmt.Sprintf("%s ORDER BY created_at DESC LIMIT $%d", query, len(q.args)), q.args
+	// id breaks a tie in created_at, so a page boundary never repeats or skips a run.
+	query = fmt.Sprintf("%s ORDER BY created_at DESC, id DESC LIMIT $%d", query, len(q.args))
+	if filter.Offset > 0 {
+		q.args = append(q.args, filter.Offset)
+		query = fmt.Sprintf("%s OFFSET $%d", query, len(q.args))
+	}
+	return query, q.args
+}
+
+// buildRunCountQuery counts every run the filter matches, ignoring its limit
+// and offset.
+func buildRunCountQuery(filter script.RunFilter) (query string, args []any) {
+	q := runWhere(filter)
+	query = "SELECT COUNT(*) FROM script_runs"
+	if len(q.where) > 0 {
+		query += " WHERE " + joinAnd(q.where)
+	}
+	return query, q.args
+}
+
+// CountRuns is how many runs the filter matches, without the page cap: the
+// total a paged run history reports (#1972).
+func (s *Store) CountRuns(ctx context.Context, filter script.RunFilter) (int, error) {
+	query, args := buildRunCountQuery(filter)
+	var n int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count script runs: %w", err)
+	}
+	return n, nil
 }
 
 // Claim takes the next due run for worker and holds it for lease.
