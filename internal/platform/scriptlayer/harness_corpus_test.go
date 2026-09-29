@@ -70,7 +70,7 @@ func TestScriptCorpusPassesTheGates(t *testing.T) {
 	for name, src := range corpus(t) {
 		t.Run(name, func(t *testing.T) {
 			require.True(t, scriptrun.Validate(src).OK, "%+v", scriptrun.Validate(src).Findings)
-			res := scriptlint.Check(src, scriptlint.Save{})
+			res := scriptlint.Check(src)
 			assert.Empty(t, res.Findings, "%+v", res.Findings)
 			assert.Equal(t, src, res.Source, "the published script is already in the canonical format")
 			assertFormatKeepsTheProgram(t, src)

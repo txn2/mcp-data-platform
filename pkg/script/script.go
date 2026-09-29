@@ -161,23 +161,6 @@ type Script struct {
 	CreatedAt time.Time `json:"created_at" example:"2026-08-13T14:30:00Z"`
 	UpdatedAt time.Time `json:"updated_at" example:"2026-08-13T14:30:00Z"`
 
-	// Legacy is true for a script that existed before the authoring gates
-	// (#1913). Its top level may do work and it need not define main(), and a
-	// new version of it is refused only for a lint finding the version before
-	// it did not have. The store sets it; nothing an author sends changes it.
-	Legacy bool `json:"-"`
-
-	// TestsOptional is true for a script that existed before tests were
-	// required (#1939). It saves without tests; a version of it that has tests
-	// must keep them passing and may not lower their coverage. The store sets
-	// it; nothing an author sends changes it.
-	TestsOptional bool `json:"-"`
-
-	// OutputsReadOptional is true for a script that existed before its tests
-	// were required to read every output they produce (#1952). The store sets
-	// it; nothing an author sends changes it.
-	OutputsReadOptional bool `json:"-"`
-
 	// Library is true for a library: a script with no main(), pure code
 	// another script loads by name and version (#1941). It is decided when the
 	// script is created and does not change. Loads is the library versions
@@ -299,9 +282,6 @@ type ListFilter struct {
 	Category string
 	Tags     []string
 	Search   string // free-text search on name, display_name, description
-	// PreHarness narrows to the scripts saved before the authoring harness
-	// (#1943): those still saved as legacy or without required tests.
-	PreHarness bool
 	// Library narrows to libraries when true and to the scripts that run
 	// when false (#1941); nil lists both.
 	Library *bool

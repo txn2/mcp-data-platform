@@ -94,7 +94,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	if h == nil || server == nil {
 		return
 	}
-	mcp.AddTool(server, &mcp.Tool{
+	toolkit.AddTool(server, &mcp.Tool{
 		Name:        ToolName,
 		Title:       "Notify a Channel",
 		Description: toolDescription,

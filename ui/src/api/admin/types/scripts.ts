@@ -62,28 +62,6 @@ export interface ScriptVersion {
   change_agreed_at?: string;
 }
 
-// PreHarnessScript is one automation saved before lint and tests were
-// required that still carries lint findings or has no tests (#1943).
-export interface PreHarnessScript {
-  id: string;
-  name: string;
-  display_name: string;
-  owner_email: string;
-  updated_at: string;
-  lint_findings: number;
-  tests: number;
-}
-
-// PreHarnessListing is the administrators' view of those automations.
-// examined is how many saved before the harness were read, and pre_harness how
-// many exist: when they differ, the ones past the page were not examined.
-export interface PreHarnessListing {
-  data: PreHarnessScript[];
-  total: number;
-  examined: number;
-  pre_harness: number;
-}
-
 // ReferencedCapabilities is what a static read of the source found.
 export interface ReferencedCapabilities {
   capabilities: string[];

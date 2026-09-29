@@ -720,9 +720,9 @@ above the `def` gives one, so every box of a script saved under these rules
 says in plain words what that step does.
 
 **Scripts saved before these rules** keep running exactly as they did,
-including work at their top level, and keep their schedules. A new version of
-one is refused only for a finding the version it replaces did not have; the
-findings it already carried are reported with the save and do not block it.
+including work at their top level, and keep their schedules: the rules are
+checked when a script is saved, never when it runs. A new version of one is
+held to every rule, like any other script's.
 
 ### Tests, and what a save runs
 
@@ -890,10 +890,9 @@ A save runs the tests:
   lists them under `unread`. Only outputs the tests' executions produced
   count: an output behind a branch no test takes is the coverage rule's to
   report.
-- A script saved before tests were required saves without them. Once it has
-  tests, they must keep passing, and a version may not reach less of the
-  script than the version before it. A script saved before its tests had to
-  read every output is not held to that rule.
+- A script saved before tests were required keeps running as it is. Its next
+  version is saved with tests that meet every rule above, like any other
+  script's.
 
 ### What a new version changes
 
@@ -989,17 +988,6 @@ scripts using it. In the portal, **Automations** marks a library with a
 (`GET /api/v1/portal/scripts?kind=library`), and a library's page shows how it
 is loaded and the automations that use it, under **Used by**, in place of
 running and scheduling it.
-
-### Automations saved before tests
-
-A script saved before lint and tests were required keeps running and saving
-as it did. Administrators see the ones that still have lint findings or no
-tests on the **Saved before tests** tab of **Admin > Automations**, with the
-count of each; a row opens the script. Bringing a script's findings to zero
-and giving it a test takes it off the list. The same view is
-`GET /api/v1/admin/scripts/legacy`, which reports how many such scripts it
-examined (`examined`, at most one page) and how many there are
-(`pre_harness`).
 
 ### Checking an edit before saving it
 

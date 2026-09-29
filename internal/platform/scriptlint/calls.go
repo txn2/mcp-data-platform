@@ -33,7 +33,7 @@ func (l *linter) hostCalls() {
 	}
 	for _, c := range h.saves {
 		l.add(finding{
-			rule: RuleStateWithoutRead, subject: "", line: line(c),
+			rule: RuleStateWithoutRead, line: line(c),
 			message: "platform.save_state is called but run.state is never read",
 			hint: "A saved state is what the next run starts from. Read it with run.state.get(key, default) " +
 				"and continue from it, or drop the save if no run needs it.",
@@ -75,7 +75,7 @@ func (h *hostScan) visit(n syntax.Node, inLoop bool) {
 	}
 	if inLoop && slices.Contains(loopedMembers, member) {
 		h.l.add(finding{
-			rule: RuleCallInLoop, subject: "platform." + member, line: line(c),
+			rule: RuleCallInLoop, line: line(c),
 			message: fmt.Sprintf("platform.%s is called once per element of a loop", member),
 			hint: "Make one call for the whole set: bind the list in params and filter with IN :name, or let the tool page " +
 				"(paginate=, api_export). A loop over range() that fetches one page per pass is not counted.",
@@ -157,7 +157,7 @@ func (l *linter) sqlFromValues(c *syntax.CallExpr, what string, sql syntax.Expr,
 		if builtFromValues(e) {
 			if _, known := l.consts.String(e); !known {
 				l.add(finding{
-					rule: RuleSQLFromValues, subject: "", line: line(c),
+					rule: RuleSQLFromValues, line: line(c),
 					message: "the SQL passed to " + what + " is built from values with +, % or .format()",
 					hint: "Send a read through platform.query and a write through platform.execute, with a :name placeholder in the SQL " +
 						"and the value in params={\"name\": value}; the platform binds it by type. " +

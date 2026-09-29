@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/sqltables"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
@@ -422,7 +423,7 @@ func appendMetadataReference(result *mcp.CallToolResult, tableKeys []string) *mc
 		},
 	}
 
-	refJSON, err := json.Marshal(ref)
+	refJSON, err := wirejson.Marshal(ref)
 	if err != nil {
 		return result
 	}
@@ -453,7 +454,7 @@ func (e *semanticEnricher) appendSemanticSummary(
 			fieldNote:         "Compact view. Full metadata was provided earlier in this session. Only critical warnings, quality scores, and sensitivity flags are shown.",
 		}
 
-		enrichmentJSON, marshalErr := json.Marshal(enrichment)
+		enrichmentJSON, marshalErr := wirejson.Marshal(enrichment)
 		if marshalErr != nil {
 			continue
 		}
@@ -732,7 +733,7 @@ func appendSemanticFallbackSuggestions(
 			"suggested_matches": items,
 		},
 	}
-	payloadJSON, err := json.Marshal(payload)
+	payloadJSON, err := wirejson.Marshal(payload)
 	if err != nil {
 		return result, fmt.Errorf("marshal semantic fallback: %w", err)
 	}
@@ -928,7 +929,7 @@ func appendSemanticContextWithAdditional(
 		enrichment["additional_tables"] = additionalTables
 	}
 
-	enrichmentJSON, err := json.Marshal(enrichment)
+	enrichmentJSON, err := wirejson.Marshal(enrichment)
 	if err != nil {
 		return result, fmt.Errorf("marshal semantic context with additional tables: %w", err)
 	}
@@ -1095,7 +1096,7 @@ func appendCuratedQueryContext(result *mcp.CallToolResult, contexts map[string]a
 		"curated_query_context": contexts,
 	}
 
-	enrichmentJSON, err := json.Marshal(enrichment)
+	enrichmentJSON, err := wirejson.Marshal(enrichment)
 	if err != nil {
 		return result, fmt.Errorf("marshal curated query context: %w", err)
 	}
@@ -1496,7 +1497,7 @@ func appendSemanticContextWithColumns(
 		}
 	}
 
-	enrichmentJSON, err := json.Marshal(enrichment)
+	enrichmentJSON, err := wirejson.Marshal(enrichment)
 	if err != nil {
 		return result, fmt.Errorf("marshal semantic context with columns: %w", err)
 	}
@@ -1519,7 +1520,7 @@ func appendQueryContext(result *mcp.CallToolResult, contexts map[string]*queryCo
 		"query_context": contexts,
 	}
 
-	enrichmentJSON, err := json.Marshal(enrichment)
+	enrichmentJSON, err := wirejson.Marshal(enrichment)
 	if err != nil {
 		return result, fmt.Errorf("marshal query context: %w", err)
 	}
@@ -1675,7 +1676,7 @@ func appendS3SemanticContext(result *mcp.CallToolResult, contexts []map[string]a
 		},
 	}
 
-	enrichmentJSON, err := json.Marshal(enrichment)
+	enrichmentJSON, err := wirejson.Marshal(enrichment)
 	if err != nil {
 		return result, fmt.Errorf("marshal S3 semantic context: %w", err)
 	}
@@ -1775,7 +1776,7 @@ func appendStorageContext(result *mcp.CallToolResult, contexts map[string]*stora
 		"storage_context": contexts,
 	}
 
-	enrichmentJSON, err := json.Marshal(enrichment)
+	enrichmentJSON, err := wirejson.Marshal(enrichment)
 	if err != nil {
 		return result, fmt.Errorf("marshal storage context: %w", err)
 	}

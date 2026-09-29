@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,11 +13,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/txn2/mcp-data-platform/internal/logsan"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -280,7 +279,7 @@ func (t *Toolkit) SetExportDeps(deps ExportDeps) {
 // a second text block, which is how trino_export reached a running deployment
 // before (#1589).
 func (t *Toolkit) registerExportTool(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  exportToolName,
 		Title: "Export Query Results",
 		Description: "Export query results directly to a portal asset file (CSV, JSON, Markdown, or text). " +
@@ -977,7 +976,7 @@ func exportError(msg string) *mcp.CallToolResult {
 	errObj := struct {
 		Error string `json:"error"`
 	}{Error: msg}
-	data, _ := json.Marshal(errObj) //nolint:errcheck // simple struct
+	data, _ := wirejson.Marshal(errObj) //nolint:errcheck // simple struct
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(data)},
@@ -989,7 +988,7 @@ func exportError(msg string) *mcp.CallToolResult {
 // exportSuccess returns a success result to the agent: the output as one JSON
 // text block, and the same value for the SDK to write as the structured result.
 func exportSuccess(out *exportOutput) (*mcp.CallToolResult, any, error) {
-	data, _ := json.Marshal(out) //nolint:errcheck // simple struct
+	data, _ := wirejson.Marshal(out) //nolint:errcheck // simple struct
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(data)},

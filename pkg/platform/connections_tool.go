@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // connectionEntry and listConnectionsOutput are the list_connections view types,
@@ -25,7 +25,7 @@ type listConnectionsInput struct{}
 
 // registerConnectionsTool registers the list_connections tool with the MCP server.
 func (p *Platform) registerConnectionsTool() {
-	mcp.AddTool(p.mcpServer, &mcp.Tool{
+	toolkit.AddTool(p.mcpServer, &mcp.Tool{
 		Name:         toolListConns,
 		Title:        "List Connections",
 		Description:  connview.ToolDescription,
@@ -67,22 +67,7 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 	})
 	out.Notice = knowledge.ConnectionsWithheldNotice(out.Withheld, personaName)
 
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "Error: " + err.Error()},
-			},
-			IsError: true,
-		}, nil, nil
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-		StructuredContent: out,
-	}, nil, nil
+	return marshalToolResult(out)
 }
 
 // StoredConnections is the deployment's connection inventory: the rows that

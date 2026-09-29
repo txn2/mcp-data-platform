@@ -2,7 +2,6 @@ package receiver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/webhook/whauth"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // PathPrefix is where the receiver is mounted.
@@ -232,7 +232,7 @@ func writeJSON(w http.ResponseWriter, status int, body string) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	b, err := json.Marshal(map[string]string{"error": msg})
+	b, err := wirejson.Marshal(map[string]string{"error": msg})
 	if err != nil {
 		b = []byte(`{"error":"error"}`)
 	}

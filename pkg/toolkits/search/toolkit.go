@@ -20,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -178,7 +179,7 @@ var (
 // failure falls back to an in-band error result, matching how the handlers
 // report failures.
 func structuredResult(v any) (*mcp.CallToolResult, any, error) {
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := wirejson.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return toolkit.ErrorResult("internal error marshaling response: " + err.Error()), nil, nil
 	}
@@ -275,7 +276,7 @@ func (*Toolkit) Connection() string { return "" }
 
 // RegisterTools registers the search tool with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  toolName,
 		Title: "Search",
 		Description: "The one way to discover. Call this FIRST, before any other tool, to find what is " +
@@ -308,7 +309,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations:  toolkit.ReadOnlyAnnotations(),
 	}, t.handleSearch)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  fetchToolName,
 		Title: "Fetch",
 		Description: "Read a reference in full. search returns navigational pointers with truncated " +

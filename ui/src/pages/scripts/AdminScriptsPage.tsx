@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PreHarnessTab } from "./PreHarnessTab";
 import { ScheduleTimelineTab } from "./ScheduleTimelineTab";
 import { ScriptListing } from "./ScriptListing";
 import { ScriptRunsTab } from "./ScriptRunsTab";
@@ -24,9 +23,8 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
   const [tab, setTab] = useState("scripts");
   return (
     <Tabs value={tab} onValueChange={setTab} className="gap-4">
-      {/* Four questions, four tabs: what exists, when it fires, what has been
-          running, and which of the older automations still need bringing up
-          to date (#1943). */}
+      {/* Three questions, three tabs: what exists, when it fires, and what has
+          been running. */}
       <TabsList
         variant="line"
         className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
@@ -49,12 +47,6 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
         >
           Runs
         </TabsTrigger>
-        <TabsTrigger
-          value="pre-harness"
-          className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
-        >
-          Saved before tests
-        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="schedules">
@@ -67,10 +59,6 @@ export function AdminScriptsPage({ onNavigate }: { onNavigate: (path: string) =>
 
       <TabsContent value="runs">
         <ScriptRunsTab onNavigate={onNavigate} />
-      </TabsContent>
-
-      <TabsContent value="pre-harness">
-        <PreHarnessTab basePath="/admin/automations" onNavigate={onNavigate} />
       </TabsContent>
 
       <TabsContent value="scripts">

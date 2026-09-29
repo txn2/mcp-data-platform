@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
+
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
@@ -314,6 +316,9 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 			Store:       p.SessionStore(),
 			TTL:         p.Config().Sessions.TTL,
 			Broadcaster: p.Broadcaster(),
+			// A session resumed on another build is told its tool list
+			// changed (#1946).
+			Build: buildinfo.Version,
 		})
 		// Platform.Broadcaster() is non-nil after New (the sessionsync
 		// layer wires postgres or memory). The "+ broadcaster" tag is part

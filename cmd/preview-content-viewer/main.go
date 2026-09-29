@@ -6,7 +6,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 const viewerHTML = `<!DOCTYPE html>
@@ -107,7 +107,7 @@ func newHandler() http.HandlerFunc {
 			sample = samples[sampleMarkdown]
 		}
 
-		contentJSON, _ := json.Marshal(map[string]string{ // #nosec G104 -- string map marshaling cannot fail
+		contentJSON, _ := wirejson.Marshal(map[string]string{ // #nosec G104 -- string map marshaling cannot fail
 			"contentType": sample[0],
 			"content":     sample[1],
 		})

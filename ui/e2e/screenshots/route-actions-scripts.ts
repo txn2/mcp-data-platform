@@ -188,18 +188,6 @@ export async function openScriptSchedulesTab(page: Page): Promise<void> {
 }
 
 /**
- * openPreHarnessTab switches the admin script surface to the automations saved
- * before tests were required that still need bringing up (#1943).
- */
-export async function openPreHarnessTab(page: Page): Promise<void> {
-  await page
-    .getByRole("tab", { name: "Saved before tests" })
-    .click({ timeout: 3_000 })
-    .catch(() => {});
-  await page.waitForTimeout(900);
-}
-
-/**
  * openScriptChanges brings a script's agreed change summaries into view
  * (#1943): what each version does differently, in the words the person it
  * runs for agreed to.

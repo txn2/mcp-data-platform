@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // ResultFitter is implemented by a toolkit whose tool results have a shape
@@ -34,7 +36,7 @@ type ResultFitter interface {
 // text are kept. Replacing both copies is what bounds the message a model
 // client receives, since the SDK sends a typed tool's output twice.
 func SetFittedResult(res *mcp.CallToolResult, text []byte, structured any) error {
-	raw, err := json.Marshal(structured)
+	raw, err := wirejson.Marshal(structured)
 	if err != nil {
 		return fmt.Errorf("encoding the fitted structured content: %w", err)
 	}

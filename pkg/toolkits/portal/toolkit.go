@@ -541,7 +541,7 @@ const manageResourceToolDescription = "Manages files in the managed resource lib
 // RegisterTools registers save_asset, manage_asset, manage_table,
 // manage_resource and manage_feedback with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:        SaveToolName,
 		Title:       "Save Asset",
 		Description: saveToolDescription,
@@ -551,7 +551,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations: toolkit.WriteAnnotations(false),
 	}, t.handleSaveAsset)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:        ManageToolName,
 		Title:       "Manage Asset",
 		Description: manageToolDescription,
@@ -560,7 +560,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageAsset)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:        ManageTableToolName,
 		Title:       "Manage Table",
 		Description: manageTableToolDescription,
@@ -569,7 +569,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageTable)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:        ManageResourceToolName,
 		Title:       "Manage Resource",
 		Description: manageResourceToolDescription,
@@ -578,7 +578,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageResource)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  feedbackToolName,
 		Title: "Manage Feedback",
 		Description: "Reviews and responds to human feedback on your work. " +

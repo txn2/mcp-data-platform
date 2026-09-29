@@ -10,7 +10,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -183,12 +185,19 @@ const resultTypeProtocolVersion = "2026-07-28"
 // and for an older client the field is left unset. The field is unexported in
 // the SDK and reachable only through its wire form, so the stamp is applied by
 // copying the result's exported fields onto a value decoded from that form.
+//
+// Being outermost, it is also where a tool result's structured content that a
+// layer below left as a Go value is encoded for the wire, by the platform's
+// response encoder, so an empty list in it is [] rather than null (#1832).
 func MCPResultTypeMiddleware() mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			result, err := next(ctx, method, req)
 			if err != nil || result == nil {
 				return result, err
+			}
+			if method == methodToolsCall {
+				encodeStructured(result)
 			}
 			if !clientRequiresResultType(req) {
 				return result, nil
@@ -294,4 +303,26 @@ func copyExportedFields(dst, src any) {
 			d.Field(i).Set(s.Field(i))
 		}
 	}
+}
+
+// encodeStructured replaces a tool result's structured content that is still
+// a Go value with its encoding by the platform's response encoder, so the SDK
+// sends it as encoded rather than encoding it with encoding/json, which writes
+// a nil slice as null (#1832). Content a typed tool produced is already
+// encoded (json.RawMessage) and is left as it is, and so is a value the
+// encoder cannot encode: the SDK then reports that failure as it always has.
+func encodeStructured(result mcp.Result) {
+	res, ok := result.(*mcp.CallToolResult)
+	if !ok || res == nil || res.StructuredContent == nil {
+		return
+	}
+	if _, encoded := res.StructuredContent.(json.RawMessage); encoded {
+		return
+	}
+	raw, err := wirejson.Marshal(res.StructuredContent)
+	if err != nil {
+		slog.Warn("encoding a tool result's structured content failed", "error", logsan.SanitizeForLog(err.Error()))
+		return
+	}
+	res.StructuredContent = json.RawMessage(raw)
 }

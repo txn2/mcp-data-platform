@@ -76,7 +76,7 @@ func TestPortalSetSource_ABehaviorChangeIsA409UntilAgreed(t *testing.T) {
 	store := newEditStore()
 	deps := editDeps(store, carol)
 	deps.Gate = gate
-	changed := strings.Replace(carolsSource, `rows = res["rows"]`, `rows = res["rows"][:1]`, 1)
+	changed := strings.Replace(carolsSource, `rows = res["rows"]`, `rows = res["rows"][:1]`, 1) + dailyTest
 
 	rec := servePortalRequest(t, deps, http.MethodPut, sourcePath, `{"source":`+strconv.Quote(changed)+`}`)
 	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
@@ -96,13 +96,10 @@ func TestPortalSetSource_ABehaviorChangeIsA409UntilAgreed(t *testing.T) {
 	assert.Empty(t, st.kept, "the saved source's tests name no recording")
 }
 
-// A new script's portal edit is held to its tests like the tool's save.
+// A portal edit is held to its tests like the tool's save.
 func TestPortalSetSource_RefusesAScriptWithoutTests(t *testing.T) {
 	store := newEditStore()
-	for i := range store.scripts {
-		store.scripts[i].TestsOptional = false
-	}
-	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath, editedBody)
+	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath, `{"source":`+strconv.Quote(carolsSource)+`}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "has no tests")
 }
@@ -112,7 +109,7 @@ func TestPortalValidateSource_ReportsTheTestsAndTheDifferences(t *testing.T) {
 	gate, _ := recordedCarol(t)
 	deps, _, _ := draftDeps(portalStore(), carol)
 	deps.Gate = gate
-	changed := strings.Replace(carolsSource, `rows = res["rows"]`, `rows = res["rows"][:1]`, 1)
+	changed := strings.Replace(carolsSource, `rows = res["rows"]`, `rows = res["rows"][:1]`, 1) + dailyTest
 	rec := servePortalRequest(t, deps, http.MethodPost, validatePath, draftBody(changed))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body validateResponse

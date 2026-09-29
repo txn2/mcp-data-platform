@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -189,14 +191,15 @@ func TestInsightPayloadUnchangedWithoutObservation(t *testing.T) {
 		{ID: "ins-2", InsightText: "no entities", Status: knowledge.StatusPending},
 	}
 
-	// The payload as it was before insights could carry an observation.
+	// The payload as it was before insights could carry an observation, in
+	// the platform's response encoding (an empty list is [], #1832).
 	type legacyListResponse struct {
 		Data    []knowledge.Insight `json:"data"`
 		Total   int                 `json:"total"`
 		Page    int                 `json:"page"`
 		PerPage int                 `json:"per_page"`
 	}
-	want, err := json.Marshal(legacyListResponse{Data: insights, Total: 2, Page: 1, PerPage: 20})
+	want, err := wirejson.Marshal(legacyListResponse{Data: insights, Total: 2, Page: 1, PerPage: 20})
 	require.NoError(t, err)
 
 	providers := map[string]query.Provider{

@@ -135,8 +135,8 @@ func TestIssue1944_ValidateReportsWithoutSaving(t *testing.T) {
 
 // TestIssue1944_AScriptSavedBeforeRunsAsItDid: a script that existed before
 // this release, with its work at the top level, still runs through run_script
-// and from its schedule, and a new version of it saves. The row is marked the
-// way migration 000165 marks every script that existed when it ran.
+// and from its schedule, and a new version of it is held to main() like any
+// other script's (#1965).
 func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 	c := connect(t)
 	db := issue1904DB(t)
@@ -146,7 +146,7 @@ func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 		"command": "create", "name": name, "source": inMain1944,
 		"description": "Acceptance #1944: a script saved before main().",
 	}, nil)
-	issue1904Exec(t, db, `UPDATE scripts SET legacy = TRUE, tests_optional = TRUE, outputs_read_optional = TRUE, source_code = $2 WHERE name = $1`, name, topLevel1944)
+	issue1904Exec(t, db, `UPDATE scripts SET source_code = $2 WHERE name = $1`, name, topLevel1944)
 	issue1904Exec(t, db, `UPDATE script_versions SET source_code = $2
 		WHERE script_id = (SELECT id FROM scripts WHERE name = $1)`, name, topLevel1944)
 
@@ -163,9 +163,8 @@ func TestIssue1944_AScriptSavedBeforeRunsAsItDid(t *testing.T) {
 			WHERE s.name = $1 AND r.trigger_kind = 'schedule' AND r.status = 'succeeded'`, name) > 0
 	})
 
-	// A script saved before the gates saves without tests (#1939).
 	edited := c.call("manage_script", map[string]any{"command": "update", "name": name, "source": "# still at the top level\n" + topLevel1944})
-	if edited["status"] != "updated" {
-		t.Errorf("a new version of the older script did not save: %v", edited)
+	if edited["status"] != "invalid" || !strings.Contains(fmt.Sprint(edited["findings"]), "top-level-work") {
+		t.Errorf("a new version of the older script must be held to main(): %v", edited)
 	}
 }

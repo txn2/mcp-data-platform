@@ -13,35 +13,35 @@ func (l *linter) functions() {
 		name := d.Name.Name
 		if n := cyclomatic(d.Body); n > MaxCyclomatic {
 			l.add(finding{
-				rule: RuleCyclomatic, subject: name, line: line(d),
+				rule: RuleCyclomatic, line: line(d),
 				message: fmt.Sprintf("`%s` has cyclomatic complexity %d (limit %d)", name, n, MaxCyclomatic),
 				hint:    "Every if, elif, for, conditional expression, comprehension clause, and and/or is a path. Move a branch's work into a function with a name that says what it decides.",
 			})
 		}
 		if n := cognitive(d.Body); n > MaxCognitive {
 			l.add(finding{
-				rule: RuleCognitive, subject: name, line: line(d),
+				rule: RuleCognitive, line: line(d),
 				message: fmt.Sprintf("`%s` has cognitive complexity %d (limit %d)", name, n, MaxCognitive),
 				hint:    "Nested branches cost more the deeper they sit. Return early instead of nesting, and move an inner loop's body into its own function.",
 			})
 		}
 		if n := statements(d.Body); n > MaxStatements {
 			l.add(finding{
-				rule: RuleFunctionLength, subject: name, line: line(d),
+				rule: RuleFunctionLength, line: line(d),
 				message: fmt.Sprintf("`%s` has %d statements (limit %d)", name, n, MaxStatements),
 				hint:    "Split it into steps, one function each, and have this function call them in order.",
 			})
 		}
 		if at := tooDeep(d.Body, 0); at != nil {
 			l.add(finding{
-				rule: RuleNestingDepth, subject: name, line: line(at),
+				rule: RuleNestingDepth, line: line(at),
 				message: fmt.Sprintf("`%s` nests blocks more than %d deep", name, MaxNesting),
 				hint:    "Return or continue early instead of nesting another level, or move the inner block into a function.",
 			})
 		}
 		if !hasDocstring(d) {
 			l.add(finding{
-				rule: RuleMissingDocstring, subject: name, line: line(d),
+				rule: RuleMissingDocstring, line: line(d),
 				message: fmt.Sprintf("`%s` has no docstring", name),
 				hint: "Open the body with a one-sentence \"\"\"docstring\"\"\" saying what the function does in plain words. " +
 					"The script's flow diagram shows that sentence on the function's box.",

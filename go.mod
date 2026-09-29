@@ -11,6 +11,7 @@ require (
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423
 	github.com/coder/websocket v1.8.15
 	github.com/getkin/kin-openapi v0.149.0
+	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/jsonschema-go v0.4.3

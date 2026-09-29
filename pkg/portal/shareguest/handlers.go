@@ -2,12 +2,13 @@ package shareguest
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/url"
 
 	"github.com/google/uuid"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // pathKeyToken is the mux path parameter carrying the share's viewer token,
@@ -35,7 +36,7 @@ const (
 func (s *Service) HandleRequestLink(w http.ResponseWriter, r *http.Request) {
 	s.tryIssueLink(r.Context(), r.PathValue(pathKeyToken))
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": uniformResponse})
+	_ = wirejson.Encode(w, map[string]string{"message": uniformResponse})
 }
 
 // issuableShare resolves the share behind token and reports whether it
@@ -105,7 +106,7 @@ const resubscribeResponse = "If notification emails to this share's recipient we
 func (s *Service) HandleResubscribe(w http.ResponseWriter, r *http.Request) {
 	s.tryResubscribe(r.Context(), r.PathValue(pathKeyToken))
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": resubscribeResponse})
+	_ = wirejson.Encode(w, map[string]string{"message": resubscribeResponse})
 }
 
 // tryResubscribe re-enables delivery for the recipient of a live, non-public

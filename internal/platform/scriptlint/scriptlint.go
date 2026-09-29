@@ -9,10 +9,8 @@
 // configuration: the limits are the platform's, the same for every deployment
 // and every script.
 //
-// A script saved before the gates (script.Script.Legacy) keeps running as it
-// did. Its top level may do work, and a new version of it is refused only for a
-// finding the version before it did not have, so the older set can be brought
-// up over time.
+// The gates run on a save and never on a run: a script saved before them keeps
+// running as it is, and its next version is held to every rule.
 package scriptlint
 
 import (
@@ -26,7 +24,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptfmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/scriptconst"
-	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // The rules. Each is the Rule of the findings it produces, which is what an
@@ -57,85 +54,42 @@ const (
 	MaxNesting    = 4
 )
 
-// finding is one thing a rule noticed. subject is what the finding is about (a
-// function, a variable) without its line or its measured value, so the same
-// finding in two versions of a script is recognized as the same one after the
-// lines around it moved or the number changed.
+// finding is one thing a rule noticed.
 type finding struct {
 	rule    string
-	subject string
 	line    int
 	message string
 	hint    string
-}
-
-func (f finding) key() string { return f.rule + "\x00" + f.subject }
-
-// Save is what a save knows about the script it is saving into: whether it is
-// a script saved before the gates, and the source of the version it replaces
-// ("" for a new script).
-type Save struct {
-	Legacy   bool
-	Previous string
 }
 
 // Result is what the gates made of a source.
 type Result struct {
 	// Source is the formatted source, which is what a save stores.
 	Source string
-	// Findings is every finding on Source. A refused one is an error; one a
-	// legacy script already carried is a warning, reported and not refused.
+	// Findings is every finding on Source, each an error.
 	Findings []scriptrun.Finding
-	// Refused is the findings that refuse the save. Empty means it goes
-	// through.
+	// Refused is the findings that refuse the save: every one of Findings.
+	// Empty means it goes through.
 	Refused []scriptrun.Finding
 }
 
 // Check formats source and holds it to the gates. A source that does not
 // parse or resolve yields no findings here: the validator reports that, and a
 // save is refused for it before this matters.
-func Check(source string, s Save) Result {
+func Check(source string) Result {
 	formatted := scriptfmt.Format(source)
-	found := lint(formatted, !s.Legacy)
-	refused := found
-	if s.Legacy {
-		refused = added(lint(scriptfmt.Format(s.Previous), false), found)
-	}
-	res := Result{Source: formatted, Findings: make([]scriptrun.Finding, 0, len(found)), Refused: []scriptrun.Finding{}}
+	found := lint(formatted)
+	res := Result{Source: formatted, Findings: make([]scriptrun.Finding, 0, len(found)), Refused: make([]scriptrun.Finding, 0, len(found))}
 	for _, f := range found {
-		out := scriptrun.Finding{Rule: f.rule, Severity: scriptrun.SeverityWarning, Line: f.line, Message: f.message, Hint: f.hint}
-		if slices.Contains(refused, f) {
-			out.Severity = scriptrun.SeverityError
-			res.Refused = append(res.Refused, out)
-		}
+		out := scriptrun.Finding{Rule: f.rule, Severity: scriptrun.SeverityError, Line: f.line, Message: f.message, Hint: f.hint}
 		res.Findings = append(res.Findings, out)
+		res.Refused = append(res.Refused, out)
 	}
 	return res
 }
 
-// added returns the findings in next that previous did not have: for each
-// subject, the ones past the number previous carried, latest first taken as
-// the new ones.
-func added(previous, next []finding) []finding {
-	had := map[string]int{}
-	for _, f := range previous {
-		had[f.key()]++
-	}
-	seen := map[string]int{}
-	var out []finding
-	for _, f := range next {
-		seen[f.key()]++
-		if seen[f.key()] > had[f.key()] {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// lint runs every rule over source. entry is whether the entry-point rules
-// apply, which they do to a script created since #1944 and not to one saved
-// before it.
-func lint(source string, entry bool) []finding {
+// lint runs every rule over source.
+func lint(source string) []finding {
 	if strings.TrimSpace(source) == "" {
 		return nil
 	}
@@ -144,9 +98,7 @@ func lint(source string, entry bool) []finding {
 		return nil
 	}
 	l := &linter{file: file, consts: scriptconst.Collect(file)}
-	if entry {
-		l.entryPoint()
-	}
+	l.entryPoint()
 	l.functions()
 	l.names()
 	l.hostCalls()
@@ -155,7 +107,7 @@ func lint(source string, entry bool) []finding {
 		if a.line != b.line {
 			return a.line - b.line
 		}
-		return strings.Compare(a.rule+a.subject+a.message, b.rule+b.subject+b.message)
+		return strings.Compare(a.rule+a.message, b.rule+b.message)
 	})
 	return l.found
 }
@@ -202,15 +154,6 @@ func walkBody(body []syntax.Stmt, visit func(syntax.Node) bool) {
 			return visit(n)
 		})
 	}
-}
-
-// For is the Save of new source into existing, or of a new script when
-// existing is nil.
-func For(existing *script.Script) Save {
-	if existing == nil {
-		return Save{}
-	}
-	return Save{Legacy: existing.Legacy, Previous: existing.Source}
 }
 
 // Merge folds the gates' findings into a validation report, sorted by line,

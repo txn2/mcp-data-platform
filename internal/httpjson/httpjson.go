@@ -18,8 +18,9 @@
 package httpjson
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
 // The response headers this package writes.
@@ -54,7 +55,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 		w.Header().Set(headerContentType, "application/json")
 	}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }
 
 // WriteError writes an RFC 9457 Problem Details error response. Title is

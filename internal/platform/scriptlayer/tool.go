@@ -2,12 +2,12 @@ package scriptlayer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -152,7 +152,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	}
 	h.server = server
 
-	mcp.AddTool(server, &mcp.Tool{
+	toolkit.AddTool(server, &mcp.Tool{
 		Name:        ToolNameManageScript,
 		Title:       "Manage Scripts",
 		Description: manageScriptDescription,
@@ -252,7 +252,7 @@ func errorResult(msg string) *mcp.CallToolResult {
 
 // jsonResult creates a JSON tool result.
 func jsonResult(v any) (*mcp.CallToolResult, any, error) {
-	data, err := json.Marshal(v)
+	data, err := wirejson.Marshal(v)
 	if err != nil {
 		return errorResult(fmt.Sprintf("failed to marshal result: %v", err)), nil, nil
 	}

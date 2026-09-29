@@ -8,7 +8,7 @@ import (
 
 // rulesOf is the rules of every finding a new script's source carries.
 func rulesOf(source string) []string {
-	found := lint(source, true)
+	found := lint(source)
 	out := make([]string, 0, len(found))
 	for _, f := range found {
 		out = append(out, f.rule)

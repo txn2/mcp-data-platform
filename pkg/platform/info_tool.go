@@ -3,7 +3,6 @@ package platform
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"slices"
 	"time"
@@ -13,10 +12,12 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/session"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Info contains information about the platform deployment.
@@ -153,7 +154,7 @@ const platformInfoTitle = "Platform Info"
 
 // registerInfoTool registers the platform_info tool with the MCP server.
 func (p *Platform) registerInfoTool() {
-	mcp.AddTool(p.mcpServer, &mcp.Tool{
+	toolkit.AddTool(p.mcpServer, &mcp.Tool{
 		Name:         defaultInitTool,
 		Title:        instructions.InfoToolTitle(p.config.Server.Name, defaultServerName, platformInfoTitle),
 		Description:  instructions.InfoToolDescription(p.config.Server.Name, defaultServerName, p.config.Server.Tags),
@@ -279,7 +280,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		},
 	}
 
-	data, err := json.MarshalIndent(info, "", "  ")
+	data, err := wirejson.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{

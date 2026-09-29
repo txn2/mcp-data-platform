@@ -3,6 +3,7 @@ package portalstore
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -134,6 +135,56 @@ func TestPostgresCollectionStoreGet(t *testing.T) {
 	require.Len(t, coll.Sections[1].Items, 1)
 	assert.Equal(t, "asset2", coll.Sections[1].Items[0].AssetID)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A section holding no assets reads back with an empty item list, and a
+// collection holding no sections with an empty section list: a nil slice would
+// reach a caller as null (#1832).
+func TestPostgresCollectionStoreGet_EmptyListsAreEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sections [][]driver.Value
+	}{
+		{"a section with no items", [][]driver.Value{{"sec1", "coll1", "Monthly reports", "", 0, time.Now()}}},
+		{"no sections", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck // test cleanup
+			store := NewPostgresCollectionStore(db, nil)
+			now := time.Now()
+			configJSON, _ := json.Marshal(portaldomain.CollectionConfig{})
+			mock.ExpectQuery("SELECT .+ FROM portal_collections WHERE id").WithArgs("coll1").
+				WillReturnRows(sqlmock.NewRows([]string{
+					"id", "owner_id", "owner_email", "name", "description", "thumbnail_s3_key", "config",
+					"created_at", "updated_at", "deleted_at",
+				}).AddRow("coll1", "user1", "user1@example.com", "Reports", "", "", configJSON, now, now, nil))
+			sections := sqlmock.NewRows([]string{"id", "collection_id", "title", "description", "position", "created_at"})
+			for _, r := range tc.sections {
+				sections.AddRow(r...)
+			}
+			mock.ExpectQuery("SELECT .+ FROM portal_collection_sections").WithArgs("coll1").WillReturnRows(sections)
+			if len(tc.sections) > 0 {
+				mock.ExpectQuery("SELECT .+ FROM portal_collection_items").WithArgs(sqlmock.AnyArg()).
+					WillReturnRows(sqlmock.NewRows([]string{
+						"id", "section_id", "asset_id", "position", "created_at",
+						"name", "content_type", "thumbnail_s3_key", "thumbnail_dark_s3_key",
+						"thumbnail_version", "thumbnail_dark_version", "thumbnail_renderer", "description",
+					}))
+			}
+
+			coll, err := store.Get(context.Background(), "coll1")
+			require.NoError(t, err)
+			require.NotNil(t, coll.Sections)
+			require.Len(t, coll.Sections, len(tc.sections))
+			for _, sec := range coll.Sections {
+				assert.NotNil(t, sec.Items)
+				assert.Empty(t, sec.Items)
+			}
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestPostgresCollectionStoreGetNotFound(t *testing.T) {

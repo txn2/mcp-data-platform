@@ -24,11 +24,21 @@ import (
 const sourcePath = "/api/v1/portal/scripts/script_2/source"
 
 // editedSource is the request the tests send: valid Starlark reaching for one
-// connection and one export.
+// connection and one export, with the test every saved script carries.
 const editedSource = "def main():\n" +
 	"    \"\"\"Exports the daily rows.\"\"\"\n" +
 	"    res = platform.query(connection = \"warehouse\", sql = \"SELECT 2\")\n" +
-	"    platform.export(name = \"daily\", rows = res[\"rows\"])\n"
+	"    platform.export(name = \"daily\", rows = res[\"rows\"])\n" +
+	dailyTest
+
+// dailyTest is the test a source exporting the warehouse's rows as "daily"
+// is saved with: it declares the query's answer and asserts on the rows.
+const dailyTest = "\n" +
+	"def test_daily():\n" +
+	"    \"\"\"The warehouse's rows are exported.\"\"\"\n" +
+	"    testing.answer(\"trino_query\", {\"connection\": \"warehouse\"}, {\"columns\": [\"region\"], \"rows\": [{\"region\": \"east\"}]})\n" +
+	"    main()\n" +
+	"    assert.eq(testing.outputs().exports[0].rows, [{\"region\": \"east\"}])\n"
 
 // editedBody is that source as a request body.
 var editedBody = `{"source":` + strconv.Quote(editedSource) + `}`
@@ -265,7 +275,7 @@ func TestPortalGetScript_CarriesTheLiveSourceForItsOwner(t *testing.T) {
 // and the source the editor shows after the save, is the formatted one.
 func TestPortalSetSource_StoresTheFormattedSource(t *testing.T) {
 	store := newEditStore()
-	untidy := "def main():\n  '''Exports the daily rows.'''\n  res=platform.query(connection='warehouse',sql='SELECT 2')\n  platform.export(name='daily',rows=res['rows'])\n"
+	untidy := "def main():\n  '''Exports the daily rows.'''\n  res=platform.query(connection='warehouse',sql='SELECT 2')\n  platform.export(name='daily',rows=res['rows'])\n" + dailyTest
 	rec := servePortalRequest(t, editDeps(store, carol), http.MethodPut, sourcePath,
 		`{"source":`+strconv.Quote(untidy)+`}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -284,17 +294,14 @@ func TestPortalSetSource_RefusesWhatTheGatesRefuse(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "line 1: `main` has no docstring (missing-docstring)")
 	assert.Nil(t, store.updated)
 
-	legacy := newEditStore()
-	for i := range legacy.scripts {
-		legacy.scripts[i].Legacy = true
-		legacy.scripts[i].Source = "print(1)\n"
+	// A script saved before the gates is held to them like any other (#1965).
+	old := newEditStore()
+	for i := range old.scripts {
+		old.scripts[i].Source = "print(1)\n"
 	}
-	rec = servePortalRequest(t, editDeps(legacy, carol), http.MethodPut, sourcePath, `{"source":"print(2)\n"}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	rec = servePortalRequest(t, editDeps(legacy, carol), http.MethodPut, sourcePath, `{"source":"def f():\n    return 1\n\nprint(2)\n"}`)
+	rec = servePortalRequest(t, editDeps(old, carol), http.MethodPut, sourcePath, `{"source":"print(2)\n"}`)
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), "missing-docstring")
-	assert.NotContains(t, rec.Body.String(), "entry-point")
+	assert.Contains(t, rec.Body.String(), "top-level-work")
 }
 
 // TestPortalValidateSource_ReportsTheGates: Validate in the editor shows the

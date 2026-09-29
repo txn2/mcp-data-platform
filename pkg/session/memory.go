@@ -47,7 +47,16 @@ func (s *MemoryStore) Get(_ context.Context, id string) (*Session, error) {
 	if time.Now().After(sess.ExpiresAt) {
 		return nil, nil //nolint:nilnil // Store interface specifies nil,nil for expired
 	}
-	return sess, nil
+	return snapshot(sess), nil
+}
+
+// snapshot is a copy of a stored session, its State map included, so a caller
+// reading it cannot race a later UpdateState, as a caller of the database
+// store, which decodes a fresh value per read, cannot.
+func snapshot(sess *Session) *Session {
+	out := *sess
+	out.State = maps.Clone(sess.State)
+	return &out
 }
 
 // LatestHandleForUser returns userID's most-recently-active, non-expired
@@ -69,7 +78,10 @@ func (s *MemoryStore) LatestHandleForUser(_ context.Context, userID string) (*Se
 			latest = sess
 		}
 	}
-	return latest, nil
+	if latest == nil {
+		return nil, nil //nolint:nilnil // Store interface specifies nil,nil for no match
+	}
+	return snapshot(latest), nil
 }
 
 // Touch updates LastActiveAt and extends ExpiresAt by the store's TTL.
@@ -106,7 +118,7 @@ func (s *MemoryStore) List(_ context.Context) ([]*Session, error) {
 	result := make([]*Session, 0, len(s.sessions))
 	for _, sess := range s.sessions {
 		if now.Before(sess.ExpiresAt) {
-			result = append(result, sess)
+			result = append(result, snapshot(sess))
 		}
 	}
 	return result, nil

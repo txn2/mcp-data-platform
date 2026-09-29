@@ -106,12 +106,12 @@ func draftBody(source string) string {
 
 func TestPortalValidateSource_ReportsWhatTheEditReaches(t *testing.T) {
 	deps, _, _ := draftDeps(portalStore(), carol)
-	rec := servePortalRequest(t, deps, http.MethodPost, validatePath, draftBody(draftSource))
+	rec := servePortalRequest(t, deps, http.MethodPost, validatePath, draftBody(draftSource+dailyTest))
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body validateResponse
 	decodeInto(t, rec, &body)
-	assert.True(t, body.OK)
+	assert.True(t, body.OK, rec.Body.String())
 	assert.Contains(t, body.Connections, "warehouse")
 	assert.Contains(t, body.Capabilities, scriptrun.CapabilityQuery)
 	assert.Contains(t, body.Capabilities, scriptrun.CapabilityExport)
@@ -423,7 +423,12 @@ func TestPortalDryRunSource_AnswersBusyAsRetryableRatherThanBroken(t *testing.T)
 // declares one can serve.
 const bucketExportSource = "def main():\n" +
 	"    \"\"\"Delivers the top stores to the drop bucket.\"\"\"\n" +
-	"    platform.export(\"top-stores\", [], \"csv\", destination = \"drop\", key = \"top.csv\")\n"
+	"    platform.export(\"top-stores\", [], \"csv\", destination = \"drop\", key = \"top.csv\")\n" +
+	"\n" +
+	"def test_export():\n" +
+	"    \"\"\"The top stores are delivered to the drop bucket.\"\"\"\n" +
+	"    main()\n" +
+	"    assert.eq(testing.outputs().exports[0].rows, [])\n"
 
 // TestPortalValidateSource_RefusesAnUndeclaredDestination is #1415 on the
 // editor: an author pressing Validate has to learn that this deployment cannot

@@ -2,14 +2,15 @@ package platform
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
 
@@ -45,7 +46,7 @@ type findToolsOutput struct {
 // calls it once at the start of a task to find the relevant tools by
 // intent instead of scanning every name.
 func (p *Platform) registerFindToolsTool() {
-	mcp.AddTool(p.mcpServer, &mcp.Tool{
+	toolkit.AddTool(p.mcpServer, &mcp.Tool{
 		Name:         platformFindToolsName,
 		Title:        "Find Tools",
 		Description:  "Find the most relevant platform tools for a natural-language task description, ranked by semantic similarity. Call this once at the start of a task to discover which tools to use instead of reading every tool name. Returns only tools your persona is permitted to call.",
@@ -212,7 +213,7 @@ func zeroVector(v []float32) bool {
 // JSON text block and StructuredContent, so a declared OutputSchema describes
 // what the tool actually emits.
 func marshalToolResult(out any) (*mcp.CallToolResult, any, error) {
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := wirejson.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return toolErrorResult("failed to encode result: " + err.Error()), nil, nil
 	}

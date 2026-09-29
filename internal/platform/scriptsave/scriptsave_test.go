@@ -159,31 +159,20 @@ func TestCoverageUnderTheMinimumIsRefusedNamingTheLines(t *testing.T) {
 	assert.Contains(t, res.Refusal, "add tests that reach lines 9, 10, 11, 12, 13, 14")
 }
 
-func TestAScriptSavedBeforeTestsSavesWithoutThemAndKeepsItsCoverage(t *testing.T) {
+// A script saved before tests were required is held to them on its next save,
+// like any other (#1965).
+func TestAScriptSavedBeforeTestsIsHeldToThemOnItsNextSave(t *testing.T) {
 	st := &store{}
 	record(t, st, "run_1", "", weekly)
 	g := &Gate{Recordings: st}
-	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly, TestsOptional: true}
+	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly}
 
-	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly, Caller: jane})
-	assert.Empty(t, res.Refusal, "it saves without tests")
+	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + "\n# a comment\n", Caller: jane})
+	require.True(t, res.Refused())
+	assert.Contains(t, res.Refusal, "the source has no tests")
 
-	withTests := *existing
-	withTests.Source = weekly + replays
-	lower := weekly + `
-def test_regions():
-    """Only the query."""
-    testing.replay("run_1")
-    assert.eq(len(regions()), 2)
-`
-	res = g.Check(context.Background(), Request{Existing: &withTests, Name: "weekly", Source: lower, Caller: jane})
-	assert.Contains(t, res.Refusal, "may not lower its coverage")
-
-	res = g.Check(context.Background(), Request{
-		Existing: &withTests, Name: "weekly",
-		Source: weekly + strings.Replace(replays, "row_count, 2)", "row_count, 5)", 1), Caller: jane,
-	})
-	assert.Contains(t, res.Refusal, "a test failed", "its tests must keep passing")
+	res = g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + replays, Caller: jane})
+	assert.Empty(t, res.Refusal, "with tests reading its outputs it saves")
 }
 
 func TestABehaviorChangeNeedsASummaryAndAgreement(t *testing.T) {
@@ -256,18 +245,21 @@ func TestANewCallTheRecordedRunsDoNotHoldIsADifference(t *testing.T) {
 func TestARecordedRunTheSavedVersionCannotReplayIsNotCompared(t *testing.T) {
 	st := &store{}
 	older := strings.Replace(weekly, `"select region, n from weekly"`, `"select * from old"`, 1)
+	record(t, st, "run_1", "", weekly)
 	record(t, st, "run_9", "s1", older)
 	g := &Gate{Recordings: st}
-	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly, TestsOptional: true}
-	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + "\n# a comment\n", Caller: jane})
+	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly + replays}
+	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + replays + "\n# a comment\n", Caller: jane})
 	assert.Empty(t, res.Refusal)
 	assert.Equal(t, []string{"run_9"}, res.NotCompared)
 }
 
 func TestUnreadableRecordedRunsAreADifference(t *testing.T) {
-	g := &Gate{Recordings: &store{err: errors.New("down")}}
-	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly, TestsOptional: true}
-	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + "\n# a comment\n", Caller: jane})
+	st := &store{err: errors.New("down")}
+	record(t, st, "run_1", "", weekly)
+	g := &Gate{Recordings: st}
+	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: weekly + replays}
+	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + replays + "\n# a comment\n", Caller: jane})
 	assert.True(t, res.ChangeNeeded)
 	assert.Contains(t, res.Refusal, "could not be read")
 }
@@ -332,18 +324,7 @@ func TestApplySetsTheSourceAndTheChange(t *testing.T) {
 	assert.Equal(t, "a", sc.ChangeAgreedBy)
 }
 
-// The saved version's tests that cannot be run leave the coverage rule
-// nothing to compare against.
-func TestCoverageIsKeptOnlyAgainstTestsThatRan(t *testing.T) {
-	st := &store{}
-	record(t, st, "run_1", "", weekly)
-	g := &Gate{Recordings: st}
-	existing := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: "def (", TestsOptional: true}
-	res := g.Check(context.Background(), Request{Existing: existing, Name: "weekly", Source: weekly + replays, Caller: jane})
-	assert.NotContains(t, res.Refusal, "coverage")
-}
-
-func TestANewScriptsTestsMustReadEveryOutputTheyProduce(t *testing.T) {
+func TestAScriptsTestsMustReadEveryOutputTheyProduce(t *testing.T) {
 	st := &store{}
 	record(t, st, "run_1", "", weekly)
 	g := &Gate{Recordings: st}
@@ -362,9 +343,9 @@ def test_weekly():
 	res = g.Check(context.Background(), Request{Name: "weekly", Source: weekly + replays, Caller: jane})
 	assert.Empty(t, res.Refusal, "reading both columns saves")
 
-	// A script created before tests had to read their outputs keeps saving
-	// as it did.
-	older := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: countOnly, OutputsReadOptional: true}
+	// A script created before tests had to read their outputs is held to it
+	// on its next save (#1965).
+	older := &script.Script{ID: "s1", Name: "weekly", OwnerEmail: "jane@example.com", Source: countOnly}
 	res = g.Check(context.Background(), Request{Existing: older, Name: "weekly", Source: countOnly, Caller: jane})
-	assert.Empty(t, res.Refusal)
+	assert.Contains(t, res.Refusal, "the tests leave what the script produced unread")
 }

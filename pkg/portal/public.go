@@ -3,7 +3,6 @@ package portal
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -18,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
@@ -238,7 +238,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"createdAt":    asset.CreatedAt.UTC().Format(time.RFC3339),
 		"updatedAt":    asset.UpdatedAt.UTC().Format(time.RFC3339),
 	}
-	contentJSON, _ := json.Marshal(contentData) // #nosec G104 -- simple map marshaling cannot fail
+	contentJSON, _ := wirejson.Marshal(contentData) // #nosec G104 -- simple map marshaling cannot fail
 
 	csp := publicviewer.AssetCSP()
 	w.Header().Set("Content-Security-Policy", csp)
@@ -621,7 +621,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		thumbSize = thumbSizeLarge
 	}
 
-	collJSON, _ := json.Marshal(map[string]any{ //nolint:errcheck // string map marshaling cannot fail
+	collJSON, _ := wirejson.Marshal(map[string]any{ //nolint:errcheck // string map marshaling cannot fail
 		"id":            coll.ID,
 		colName:         coll.Name,
 		colDescription:  coll.Description,

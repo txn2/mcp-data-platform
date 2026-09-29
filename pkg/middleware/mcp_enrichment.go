@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/txn2/mcp-data-platform/internal/tableavail"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -305,7 +306,7 @@ func appendDiscoveryNoteIfNeeded(ctx context.Context, result *mcp.CallToolResult
 		return
 	}
 
-	noteJSON, err := json.Marshal(map[string]string{
+	noteJSON, err := wirejson.Marshal(map[string]string{
 		"discovery_note": discoveryNoteMessage,
 	})
 	if err != nil {

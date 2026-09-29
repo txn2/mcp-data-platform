@@ -1,7 +1,6 @@
 package apigateway
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -9,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -190,7 +190,7 @@ func structuredErrorResult(code string, fields map[string]any) *mcp.CallToolResu
 	payload := make(map[string]any, len(fields))
 	payload["error"] = code
 	maps.Copy(payload, fields)
-	b, err := json.Marshal(payload)
+	b, err := wirejson.Marshal(payload)
 	if err != nil {
 		// code is a fixed literal, so this cannot realistically fail;
 		// fall back to the bare envelope rather than dropping IsError.

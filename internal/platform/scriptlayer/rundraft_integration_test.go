@@ -243,7 +243,7 @@ func seed(t *testing.T, h harness, name, source string, params ...script.Param) 
 	}
 	sc := &script.Script{
 		Name: name, Source: source, OwnerEmail: "jane@example.com", Params: params,
-		Enabled: true, Status: script.StatusActive, Tags: []string{}, TestsOptional: true,
+		Enabled: true, Status: script.StatusActive, Tags: []string{},
 	}
 	require.NoError(t, sc.Validate())
 	require.NoError(t, h.store.Create(context.Background(), sc, callerAuthor(authorCtx())))
@@ -668,7 +668,12 @@ func TestIntegration_ValidateAcceptsADeclaredDestination(t *testing.T) {
 	}})
 	session := connectAgent(ctx, t, h.server)
 
-	source := inMain(`platform.export("top-stores", [], "csv", destination = "drop", key = "top-stores.csv")` + "\n")
+	source := inMain(`platform.export("top-stores", [], "csv", destination = "drop", key = "top-stores.csv")`+"\n") + `
+def test_export():
+    """The top stores are delivered to the drop bucket."""
+    main()
+    assert.eq(testing.outputs().exports[0].rows, [])
+`
 	seed(t, h, "top-stores", source)
 
 	validated, isErr := callTool(ctx, t, session, map[string]any{
@@ -706,14 +711,21 @@ func TestIntegration_SumIsAvailableToAScript(t *testing.T) {
 
 	source := inMain(`res = platform.query(connection = "warehouse", sql = "SELECT region, total FROM sales")
 print("total %d" % sum([float(r["total"]) for r in res["rows"]]))
-`)
+platform.export(name = "totals", rows = [{"total": sum([float(r["total"]) for r in res["rows"]])}])
+`) + `
+def test_totals():
+    """The totals are summed."""
+    testing.answer("trino_query", {"connection": "warehouse"}, {"columns": ["region", "total"], "rows": [{"region": "east", "total": "1.5"}, {"region": "west", "total": "2"}]})
+    main()
+    assert.eq(testing.outputs().exports[0].rows, [{"total": 3.5}])
+`
 	seed(t, h, "totals", source)
 
 	validated, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "validate", "name": "totals",
 	})
 	require.False(t, isErr, validated)
-	assert.Equal(t, true, validated["ok"], validated["findings"])
+	assert.Equal(t, true, validated["ok"], validated)
 
 	ran, isErr := callTool(ctx, t, session, map[string]any{
 		"command": "run_draft", "name": "totals",

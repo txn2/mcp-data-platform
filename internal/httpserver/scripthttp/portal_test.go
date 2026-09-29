@@ -105,10 +105,7 @@ func portalStore() *stubStore {
 	s.scripts = append(s.scripts, script.Script{
 		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com", Enabled: true, Status: script.StatusActive,
-		// A script saved before tests were required, reaching what the edit
-		// tests' source reaches, so an edit of it is refused only for what
-		// the gate is asked about.
-		Source: carolsSource, TestsOptional: true,
+		Source: carolsSource,
 	})
 	return s
 }

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/attachserve"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -496,7 +497,7 @@ func canViewPrompt(pr *prompt.Prompt, who *Identity) bool {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = wirejson.Encode(w, v)
 }
 
 // writeError writes a JSON error response.

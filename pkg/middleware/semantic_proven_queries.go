@@ -2,11 +2,11 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
@@ -97,7 +97,7 @@ func (e *semanticEnricher) appendProvenQueries(
 	if len(queries) == 0 {
 		return result
 	}
-	payload, err := json.Marshal(map[string]any{"proven_queries": queries})
+	payload, err := wirejson.Marshal(map[string]any{"proven_queries": queries})
 	if err != nil {
 		slog.Debug("proven queries not appended", keyError, err)
 		return result

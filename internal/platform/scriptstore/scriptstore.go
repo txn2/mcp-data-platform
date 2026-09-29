@@ -57,8 +57,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 // place so the scan order in scanScript cannot drift from the query.
 const scriptColumns = `id, name, display_name, description, category, source_code, params,
 	owner_email, tags, enabled, status, superseded_by,
-	deprecated_at, version, created_at, updated_at, legacy, tests_optional, outputs_read_optional,
-	library, library_loads`
+	deprecated_at, version, created_at, updated_at, library, library_loads`
 
 // scriptSelect is the base SELECT for the script columns.
 // scriptsTable is the one place the table's name is written. Every statement
@@ -81,8 +80,7 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
 		&s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.Legacy, &s.TestsOptional, &s.OutputsReadOptional,
-		&s.Library, pq.Array(&s.Loads))
+		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads))
 	if err != nil {
 		return nil, fmt.Errorf("scanning script row: %w", err)
 	}
@@ -440,9 +438,6 @@ func (q *listQuery) addEquality(filter script.ListFilter) {
 	}
 	if filter.Category != "" {
 		q.add("category = $%d", filter.Category)
-	}
-	if filter.PreHarness {
-		q.where = append(q.where, "(legacy OR tests_optional)")
 	}
 	if len(filter.Tags) > 0 {
 		// Overlap rather than containment: naming two tags asks for the scripts

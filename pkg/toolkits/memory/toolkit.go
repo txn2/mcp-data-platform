@@ -55,7 +55,7 @@ func (*Toolkit) Connection() string { return "" }
 // RegisterTools registers memory_manage with the MCP server. Recall moved to
 // the unified search tool (#632).
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
 		Title: "Memory Manage",
 		Description: "Manage the lifecycle of EXISTING persistent memory. " +
@@ -69,7 +69,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManage)
 
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  memoryCaptureToolName,
 		Title: "Capture Knowledge",
 		Description: "Record knowledge so it is never lost or re-derived. Call this PROACTIVELY whenever you " +

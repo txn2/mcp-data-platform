@@ -243,10 +243,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	if t.s3Toolkit == nil {
 		return
 	}
-	mcp.AddTool(s, t.tool(toolList, listTitle, listDescription, listAnnotations, listOutputSchema), t.handleList)
+	toolkit.AddTool(s, t.tool(toolList, listTitle, listDescription, listAnnotations, listOutputSchema), t.handleList)
 	object := t.tool(toolObject, objectTitle, objectDescription, objectAnnotations, objectOutputSchema)
 	object.InputSchema = objectInputSchema()
-	mcp.AddTool(s, object, t.handleObject)
+	toolkit.AddTool(s, object, t.handleObject)
 }
 
 // tool builds one registration, applying the instance's title, description and

@@ -4,12 +4,10 @@
 // tests and the statements they reach (#1939, #1940), and what the new
 // version does differently from the saved one (#1942).
 //
-// A script created since tests were required is saved only with at least one
-// test, every test passing, and at least MinCoverage percent of its statements
-// reached; one created since #1952 also only while its tests read every output
-// their executions produce (script.Script.OutputsReadOptional). A script saved before (script.Script.TestsOptional) saves without
-// tests; a version of it that has tests must keep them passing and may not
-// reach fewer statements than the version before it.
+// A script is saved only with at least one test, every test passing, at least
+// MinCoverage percent of its statements reached, and its tests reading every
+// output their executions produce (#1952). A script saved before these rules
+// keeps running as it is; its next version is held to all of them (#1965).
 //
 // A new version of a saved script replays the script's recent recorded runs
 // through both versions and compares what they produced, and compares what
@@ -114,7 +112,7 @@ func (r Result) Refused() bool { return r.Refusal != "" }
 // Check puts one save through every gate, stopping at the first that refuses.
 func (g *Gate) Check(ctx context.Context, req Request) Result {
 	res := Result{Differences: []scriptbehavior.Difference{}, Replayed: []string{}}
-	res.Lint = scriptlint.Check(req.Source, scriptlint.For(req.Existing))
+	res.Lint = scriptlint.Check(req.Source)
 	if len(res.Lint.Refused) > 0 {
 		res.Refusal = scriptlint.Detail(res.Lint.Refused)
 		return res
@@ -146,40 +144,25 @@ func (g *Gate) checkTests(ctx context.Context, req Request, source string, res *
 		return "the tests could not be run, so the source was not saved: " + err.Error()
 	}
 	res.Tests = report
-	required := req.Existing == nil || !req.Existing.TestsOptional
 	switch {
-	case len(report.Tests) == 0 && required:
+	case len(report.Tests) == 0:
 		return "the source has no tests, so it was not saved: a script is saved with at least one " +
 			"test_* function that replays a recorded run (testing.replay(\"<run id>\"), the id run_draft returns) " +
 			"and asserts on what main() produced"
 	case report.Failed > 0:
 		return "a test failed, so the source was not saved: " + failures(report)
-	case required && report.Coverage.Percent < MinCoverage:
+	case report.Coverage.Percent < MinCoverage:
 		return fmt.Sprintf("the tests reach %d of %d statements (%.0f%%), under the %.0f%% a script is saved with, so it was not saved; "+
 			"add tests that reach lines %s", report.Coverage.Covered, report.Coverage.Statements,
 			report.Coverage.Percent, MinCoverage, lines(report.Coverage.MissedLines))
 	// After coverage: an output behind a branch no test takes is the
 	// coverage rule's to report (#1952).
-	case len(report.Tests) > 0 && (req.Existing == nil || !req.Existing.OutputsReadOptional) && len(report.Unread) > 0:
+	case len(report.Unread) > 0:
 		return "the tests leave what the script produced unread, so it was not saved: " + unread(report.Unread) +
 			". Assert on each: a row's column (out.exports[0].rows[0][\"region\"]) or the whole rows " +
 			"(assert.eq(out.exports[0].rows, [...])), out.state, out.notifies[i], out.result"
-	case !required && len(report.Tests) > 0:
-		return g.keepsCoverage(ctx, req, report)
 	}
 	return ""
-}
-
-// keepsCoverage refuses a version of a script saved before tests were
-// required whose tests reach a smaller share of it than the version before's.
-func (g *Gate) keepsCoverage(ctx context.Context, req Request, report *scripttest.Report) string {
-	previous, err := scripttest.Run(ctx, g.testRequest(req, req.Existing.Source))
-	if err != nil || len(previous.Tests) == 0 || previous.Coverage.Percent <= report.Coverage.Percent {
-		return ""
-	}
-	return fmt.Sprintf("the tests reach %.0f%% of the script, where the saved version's reach %.0f%%, so it was not saved; "+
-		"a version may not lower its coverage: add tests that reach lines %s",
-		report.Coverage.Percent, previous.Coverage.Percent, lines(report.Coverage.MissedLines))
 }
 
 func (g *Gate) testRequest(req Request, source string) scripttest.Request {
@@ -223,7 +206,7 @@ func (g *Gate) checkLibraries(ctx context.Context, req Request, source string) s
 // script, depend on it staying so.
 func kindChange(existing *script.Script, library bool) string {
 	switch {
-	case existing == nil || existing.Legacy || existing.Library == library:
+	case existing == nil || existing.Library == library:
 		return ""
 	case existing.Library:
 		return "this is a library, and a library defines no main(), so it was not saved; " +

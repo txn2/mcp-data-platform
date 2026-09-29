@@ -277,7 +277,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 	if deps == nil {
 		return
 	}
-	mcp.AddTool(s, &mcp.Tool{
+	toolkit.AddTool(s, &mcp.Tool{
 		Name:  exportToolName,
 		Title: "Export API Endpoint Response",
 		Description: "Invoke an upstream API endpoint and stream the response into a portal asset INSTEAD of returning it through the model context. " +

@@ -26,8 +26,8 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
-	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 )
@@ -147,7 +147,7 @@ type Config struct {
 	// broadcast.
 	Reload CatalogReloader
 	// Toolkits is the live toolkit registry used to reload this replica's
-	// api-gateway instances after a catalog mutation.
+	// api and graphql connections after a catalog mutation.
 	Toolkits ToolkitReloader
 	// Mutable reports database config mode; false registers the read
 	// routes only, matching the other admin configuration surfaces.
@@ -1437,24 +1437,18 @@ func embeddingJobResponseFromJob(j catalogindex.Job) embeddingJobResponse {
 	return resp
 }
 
-// reloadConnectionsForCatalog iterates registered api-gateway
-// toolkits and asks each to rebuild every connection pointing at
-// the given catalog. Triggered on any mutation that changes the
-// catalog's effective content so model-facing tool output reflects
-// the new specs without a process restart.
+// reloadConnectionsForCatalog rebuilds this replica's connections that mount
+// the catalog, api and graphql alike, before the mutation answers, then
+// announces the change to the other replicas. A graphql connection stores the
+// schema it re-read, so a read on another replica that follows this response
+// is brought up to it from the store without waiting for the announcement
+// (#1951).
 func (h *handler) reloadConnectionsForCatalog(catalogID string) {
-	if h.cfg.Toolkits == nil {
-		return
-	}
-	for _, tk := range h.cfg.Toolkits.All() {
-		api, ok := tk.(*apigatewaykit.Toolkit)
-		if !ok {
-			continue
-		}
-		api.ReloadConnectionsByCatalog(catalogID)
+	if h.cfg.Toolkits != nil {
+		storeresync.Catalog(h.cfg.Toolkits.All(), catalogID)
 	}
 	// Broadcast to peer replicas so they rebuild their own in-memory
-	// connections from this catalog (issue #501). The loop above only
+	// connections from this catalog (issue #501). The call above only
 	// reloads this replica.
 	if h.cfg.Reload != nil {
 		h.cfg.Reload.PublishCatalogReload(catalogID)

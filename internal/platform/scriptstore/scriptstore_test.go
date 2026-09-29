@@ -32,8 +32,7 @@ var scriptSelectColumns = []string{
 	"id", "name", "display_name", "description", "category", "source_code", "params",
 	"owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version",
-	"created_at", "updated_at", "legacy", "tests_optional", "outputs_read_optional",
-	"library", "library_loads",
+	"created_at", "updated_at", "library", "library_loads",
 }
 
 var rowTime = time.Unix(1700000000, 0).UTC()
@@ -57,7 +56,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 	return []driver.Value{
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.owner, pq.Array([]string{}), true, "active",
-		"", nil, 1, rowTime, rowTime, false, false, false,
+		"", nil, 1, rowTime, rowTime,
 		false, pq.Array([]string{}),
 	}
 }
