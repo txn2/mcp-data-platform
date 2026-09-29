@@ -1316,6 +1316,7 @@ func (p *Platform) initAudit(opts *Options) error {
 		Toolkits:            p.toolkitRegistry,
 		CallRetentionDays:   p.config.Calls.RetentionDays,
 		CallExcludePersonas: p.config.Calls.ExcludePersonas,
+		CallServiceAccounts: p.personaRegistry,
 	})
 
 	slog.Info("audit logging enabled",

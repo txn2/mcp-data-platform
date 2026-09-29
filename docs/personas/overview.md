@@ -286,6 +286,23 @@ analyst:
 
 Override fields (`description_override`, `agent_instructions_override`) take precedence over prefix/suffix fields. If both a prefix and an override are set, only the override is used.
 
+## Service Accounts
+
+An automated caller, such as an integration that signs in with an API key and calls `api_invoke_endpoint` once per upstream record, should have a persona of its own marked as a service account:
+
+```yaml
+integration:
+  display_name: "CRM integration"
+  roles: ["crm-sync"]
+  service_account: true
+```
+
+| Field | Type | Default | Effect |
+|-------|------|---------|--------|
+| `service_account` | bool | `false` | The persona's calls are audited but not added to the call catalog (Calls), and the records it wrote before it was marked are removed by the catalog's next sweep. |
+
+The portal's persona editor shows the same setting as the **Service account** checkbox on the AI Assistant Behavior tab. It changes nothing about what the persona may call: access is decided by its tool, connection and API route rules as before. See [Excluding an automated caller](../server/configuration.md#excluding-an-automated-caller).
+
 ## Connection Access Control
 
 Personas can restrict which toolkit connections a user may access. The boundary applies to both halves of using the platform: a tool call must pass the tool pattern check and the connection check, and the discovery surfaces show only the connections a persona is granted.

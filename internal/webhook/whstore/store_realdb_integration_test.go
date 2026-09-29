@@ -235,3 +235,85 @@ func TestDeleteExpiredRealDB(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM webhook_windows WHERE window_start = $1`, old).Scan(&gone))
 	assert.Zero(t, gone, "the window expired before the cutoff is the one removed")
 }
+
+// TestWebhookOverviewRealDB reads the overview of every source against a
+// migrated database (#1979): each source's counts and windows in one pass, a
+// failing window's count and error, the series whose totals over the hour are
+// the counts table's for the same bound, and the newest rejections of every
+// source with the source each came from.
+func TestWebhookOverviewRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	empty, err := st.Overview(ctx, now, time.Hour, time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, empty.Summaries)
+	assert.NotNil(t, empty.Volume)
+	assert.Empty(t, empty.Volume)
+	assert.NotNil(t, empty.Rejections)
+	assert.Empty(t, empty.Rejections)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('esp', 'scratch'), ('crm', 'scratch'), ('quiet', 'scratch')`)
+	require.NoError(t, err)
+	require.NoError(t, st.RecordCounts(ctx, []Count{
+		{Source: "esp", Minute: now, Outcome: "accepted", Count: 3},
+		{Source: "esp", Minute: now.Add(-2 * time.Minute), Outcome: "accepted", Count: 2},
+		{Source: "esp", Minute: now.Add(-5 * time.Minute), Outcome: "unauthorized", Count: 1},
+		{Source: "esp", Minute: now.Add(-3 * time.Hour), Outcome: "accepted", Count: 7},
+		{Source: "crm", Minute: now.Add(-10 * time.Minute), Outcome: "accepted", Count: 4},
+	}))
+	window := now.Truncate(time.Minute).Add(-10 * time.Minute)
+	require.NoError(t, st.MarkSegment(ctx, "esp", window, time.Minute))
+	claimed, err := st.ClaimOwed(ctx, now, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.NoError(t, st.RecordFailure(ctx, claimed[0], "segment k: not gzip", time.Hour))
+	require.NoError(t, st.RecordRejections(ctx, []Rejection{
+		{Source: "esp", At: now.Add(-time.Second), Outcome: "unauthorized", Reason: "the signature does not match"},
+		{Source: "crm", At: now, Outcome: "too_large", Reason: "the body is over the limit"},
+	}))
+
+	ov, err := st.Overview(ctx, now, time.Hour, time.Minute)
+	require.NoError(t, err)
+
+	esp := ov.Summaries["esp"]
+	assert.Equal(t, map[string]int64{"accepted": 5, "unauthorized": 1}, esp.LastHour)
+	assert.Equal(t, map[string]int64{"accepted": 12, "unauthorized": 1}, esp.LastDay)
+	require.NotNil(t, esp.LastSegmentAt)
+	assert.Equal(t, 1, esp.Pending)
+	assert.Equal(t, 1, esp.Failing)
+	assert.Equal(t, "segment k: not gzip", esp.LastError)
+
+	crm := ov.Summaries["crm"]
+	assert.Equal(t, map[string]int64{"accepted": 4}, crm.LastHour)
+	assert.Nil(t, crm.LastSegmentAt)
+	_, hasQuiet := ov.Summaries["quiet"]
+	assert.False(t, hasQuiet, "a source with neither counts nor windows has no summary")
+
+	var series, table int64
+	for _, p := range ov.Volume {
+		series += p.Count
+		assert.Equal(t, p.At, p.At.Truncate(time.Minute), "a one-minute bucket starts on a minute")
+	}
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(count), 0) FROM webhook_request_counts WHERE minute >= $1`, ov.Since).Scan(&table))
+	assert.Equal(t, int64(10), table)
+	assert.Equal(t, table, series, "the series over the hour sums to the counts table's rows for the same bound")
+
+	day, err := st.Overview(ctx, now, 24*time.Hour, 15*time.Minute)
+	require.NoError(t, err)
+	series = 0
+	for _, p := range day.Volume {
+		series += p.Count
+		assert.Zero(t, p.At.Unix()%900, "a fifteen-minute bucket starts on a multiple of fifteen minutes")
+	}
+	assert.Equal(t, int64(17), series)
+
+	require.Len(t, ov.Rejections, 2)
+	assert.Equal(t, "crm", ov.Rejections[0].Source, "newest first")
+	assert.Equal(t, "the body is over the limit", ov.Rejections[0].Reason)
+	assert.Equal(t, "esp", ov.Rejections[1].Source)
+	assert.Equal(t, "the signature does not match", ov.Rejections[1].Reason)
+}

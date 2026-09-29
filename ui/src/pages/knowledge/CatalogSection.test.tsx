@@ -61,23 +61,9 @@ const path = () => window.location.pathname + window.location.search + window.lo
 // primitive); its triggers carry role "tab" and activate on mousedown.
 const clickTab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }));
 
-// jsdom provides no localStorage, and the section's persistence is a real
-// behaviour (the selection has to outlive a refresh), so stand one in rather
-// than leave that path untested.
-const store = new Map<string, string>();
-globalThis.localStorage = {
-  getItem: (k: string) => store.get(k) ?? null,
-  setItem: (k: string, v: string) => void store.set(k, v),
-  removeItem: (k: string) => void store.delete(k),
-  clear: () => store.clear(),
-  key: (i: number) => [...store.keys()][i] ?? null,
-  get length() {
-    return store.size;
-  },
-} satisfies Storage;
-
+// Each test opens on an empty localStorage (src/test/setup.ts), so a selection
+// the section persisted in one does not open the next on it.
 beforeEach(() => {
-  store.clear();
   window.history.replaceState(null, "", "/knowledge/catalog");
 });
 

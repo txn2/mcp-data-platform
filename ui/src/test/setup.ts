@@ -1,6 +1,13 @@
 import "@testing-library/jest-dom";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { installMemoryStorage } from "./localStorage";
+
+// Every test opens on an empty localStorage and sessionStorage of its own, the
+// same under every Node the suite runs on (#1976). See ./localStorage.ts.
+beforeEach(() => {
+  installMemoryStorage();
+});
 
 // A Radix focus scope schedules its "focus moved away on unmount" event on a
 // zero-delay timer *during* unmount, and builds the event when the timer fires.

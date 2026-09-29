@@ -246,8 +246,9 @@ to match the label's absence (`persona=""`) stops matching. The case is
 rare -- it is a call rejected before authorization -- but a rule written
 against it needs `persona="unknown"` instead.
 
-A deployment that names an automated persona under `calls.exclude_personas`
-(see `docs/server/audit.md`) stops cataloging that principal's calls; its
+A deployment that marks an automated persona as a service account, or names
+it under `calls.exclude_personas` (see `docs/server/configuration.md`), stops
+cataloging that principal's calls; its
 volume stays visible here, which is the surface it is charted and alerted
 on.
 

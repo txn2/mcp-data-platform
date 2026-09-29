@@ -4,8 +4,8 @@ import { getStoredViewMode, storeViewMode } from "./listView";
 // A list that keeps its own layout passes its own key.
 const RESOURCE_VIEW_STORAGE_KEY = "another-list-view-mode";
 
-// The environment has no localStorage of its own, which is also the state a
-// private window and a browser set to block site data leave the page in — so
+// Each test stands in its own store, or none: no localStorage is also the state
+// a private window and a browser set to block site data leave the page in — so
 // the absent case below is the real one, not a contrivance.
 function withStorage(store: Map<string, string>) {
   vi.stubGlobal("localStorage", {

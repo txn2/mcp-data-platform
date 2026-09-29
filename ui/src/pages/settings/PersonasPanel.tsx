@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   usePersonas,
   usePersonaDetail,
@@ -35,6 +35,7 @@ function emptyDraft(): PersonaDraft {
     descriptionOverride: "",
     agentInstructionsSuffix: "",
     agentInstructionsOverride: "",
+    serviceAccount: false,
   };
 }
 
@@ -57,6 +58,7 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
     descriptionOverride: d.context?.description_override ?? "",
     agentInstructionsSuffix: d.context?.agent_instructions_suffix ?? "",
     agentInstructionsOverride: d.context?.agent_instructions_override ?? "",
+    serviceAccount: d.service_account ?? false,
   };
 }
 
@@ -80,6 +82,12 @@ function sourceNoteFor(
 // PersonasPanel: list (left) + always-on editor (right)
 // ---------------------------------------------------------------------------
 
+// personaFromURL is the persona a link asked to open, or null.
+function personaFromURL(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("persona");
+}
+
 export function PersonasPanel() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
@@ -87,7 +95,9 @@ export function PersonasPanel() {
   const personas = useMemo(() => personaList?.personas ?? [], [personaList]);
   const deleteMutation = useDeletePersona();
 
-  const [selected, setSelected] = useState<string | null>(null);
+  // A link can name the persona to open (`?persona=<name>`): the Indexing
+  // page's Top callers list links each persona to its editor (#1980).
+  const [selected, setSelected] = useState<string | null>(personaFromURL);
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState<PersonaDraft>(emptyDraft());
   const [dirty, setDirty] = useState(false);
@@ -102,6 +112,18 @@ export function PersonasPanel() {
       setSelected(personas[0].name);
     }
   }, [personas, selected, isCreating]);
+
+  // A persona a link named that does not exist is replaced by the first one,
+  // once, when the list arrives. Only the linked name is checked: a persona
+  // just created is selected before the refetched list carries it.
+  const linked = useRef(selected);
+  useEffect(() => {
+    if (!linked.current || personas.length === 0) return;
+    if (!personas.some((p) => p.name === linked.current)) {
+      setSelected(personas[0]?.name ?? null);
+    }
+    linked.current = null;
+  }, [personas]);
 
   // Sync draft from detail whenever a new persona is loaded and the user hasn't
   // started editing.

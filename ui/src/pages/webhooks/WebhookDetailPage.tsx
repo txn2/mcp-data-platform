@@ -12,21 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODE_LABELS, senderURL, windowLength } from "./webhookForm";
+import { OUTCOMES } from "./webhookOverview";
 
 // WebhookDetailPage is one source (#1870): the address to give the sender,
 // whether requests are arriving and being accepted, how far compaction and
 // retention have got, and why recent requests were refused.
-
-// OUTCOMES orders the request outcomes the platform counts, accepted first.
-const OUTCOMES: { key: string; label: string }[] = [
-  { key: "accepted", label: "Accepted" },
-  { key: "unauthorized", label: "Unauthorized" },
-  { key: "too_large", label: "Too large" },
-  { key: "rate_limited", label: "Rate limited" },
-  { key: "buffer_full", label: "Buffer full" },
-  { key: "write_failed", label: "Write failed" },
-  { key: "invalid_body", label: "Invalid body" },
-];
 
 export function WebhookDetailPage({
   name,

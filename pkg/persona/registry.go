@@ -132,6 +132,40 @@ func (r *Registry) Names() []string {
 	return names
 }
 
+// IsServiceAccount reports whether the persona registered under name is
+// marked as a service account. It reads the registry as it is now, so a
+// persona an administrator marks at run time is honored from that moment on
+// every replica its reload reaches. A nil registry marks nothing.
+func (r *Registry) IsServiceAccount(name string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	p, ok := r.personas[name]
+	return ok && p.ServiceAccount
+}
+
+// ServiceAccountNames returns the names of every persona marked as a service
+// account, sorted. A nil registry returns an empty slice.
+func (r *Registry) ServiceAccountNames() []string {
+	if r == nil {
+		return []string{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.personas))
+	for name, p := range r.personas {
+		if p.ServiceAccount {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
 // GetForRoles returns the highest-priority persona whose roles intersect the
 // given roles, or (nil, false) when none does.
 //

@@ -125,6 +125,11 @@ export interface PersonaDetail {
   source?: "file" | "database" | "both";
   /** Always an array, never null. */
   api_routes: APIRouteRule[];
+  /**
+   * The persona an automated caller signs in under: its calls are audited but
+   * not added to Calls, and the records it already wrote are removed.
+   */
+  service_account: boolean;
 }
 
 export interface PersonaListResponse {
@@ -148,6 +153,8 @@ export interface PersonaCreateRequest {
   agent_instructions_override?: string;
   /** Replaces the persona's route rules wholesale. Absent leaves it with none. */
   api_routes?: APIRouteRule[];
+  /** Absent is false. */
+  service_account?: boolean;
 }
 
 /** One api-kind connection and every operation its catalog declares. */

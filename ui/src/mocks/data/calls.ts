@@ -1,5 +1,6 @@
 import type { AuditEvent, CallKind, CallRecord } from "@/api/admin/types";
 import type { ProvenanceCall } from "@/api/portal/types";
+import type { CallerPersonaShare, CallerShare, TopCallers } from "@/api/admin/indexjobs";
 import { MOCK_CALLER_EMAIL, mockAuditEvents } from "./audit";
 
 // The mock call catalog is derived from the mock audit events exactly as the
@@ -274,3 +275,48 @@ export const mockCallRecords: CallRecord[] = buildRecords();
 
 /** The assets the fixture's records cite, for the conformance check. */
 export const mockCitingAssets = CITING_ASSETS;
+
+/**
+ * Who wrote the fixture's catalog, counted from its records the way the server
+ * counts call_records (#1980): the ten largest callers (a principal under one
+ * persona) and personas, largest first. The marks are read from the persona
+ * fixtures at the request, as the server reads the live persona.
+ */
+export function mockTopCallers(serviceAccount: (persona: string) => boolean): TopCallers {
+  const total = mockCallRecords.length;
+  const byCaller = new Map<string, CallerShare>();
+  const byPersona = new Map<string, CallerPersonaShare>();
+  const mark = (persona: string) => ({
+    service_account: serviceAccount(persona),
+    excluded_by_config: false,
+  });
+  for (const r of mockCallRecords) {
+    const persona = r.persona ?? "";
+    const userID = r.user_id ?? "";
+    const callerKey = `${userID}\u0000${persona}`;
+    const caller = byCaller.get(callerKey) ?? {
+      user_id: userID,
+      user_email: r.user_email,
+      persona,
+      records: 0,
+      share: 0,
+      ...mark(persona),
+    };
+    caller.records++;
+    byCaller.set(callerKey, caller);
+    const row = byPersona.get(persona) ?? { persona, records: 0, share: 0, ...mark(persona) };
+    row.records++;
+    byPersona.set(persona, row);
+  }
+  const largest = <T extends CallerPersonaShare>(rows: Iterable<T>): T[] =>
+    [...rows]
+      .map((row) => ({ ...row, share: total > 0 ? row.records / total : 0 }))
+      .sort((a, b) => b.records - a.records || a.persona.localeCompare(b.persona))
+      .slice(0, 10);
+  return {
+    total,
+    principals: largest(byCaller.values()),
+    personas: largest(byPersona.values()),
+    counted_at: new Date().toISOString(),
+  };
+}

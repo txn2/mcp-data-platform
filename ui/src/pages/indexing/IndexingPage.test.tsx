@@ -5,6 +5,7 @@ import type {
   IndexJob,
   IndexJobsFilter,
   IndexFailedUnit,
+  TopCallers,
 } from "@/api/admin/indexjobs";
 import { ApiError } from "@/api/admin/client";
 import type {
@@ -23,6 +24,8 @@ let failuresState: {
   data?: { failures: IndexFailedUnit[] };
   isError?: boolean;
 };
+let topCallersState: { data?: TopCallers; isError: boolean };
+const topCallersAsked = vi.fn();
 
 // jobsFor answers useIndexJobs the way the server does: jobsState is the whole
 // table, and a request gets its filter applied, newest first, cut at its
@@ -68,6 +71,10 @@ vi.mock("@/api/admin/indexjobs", () => ({
   useIndexJobsSummary: () => summaryState,
   useIndexJobs: (filter?: IndexJobsFilter) => jobsFor(filter),
   useIndexJobFailures: () => failuresState,
+  useTopCallers: () => {
+    topCallersAsked();
+    return topCallersState;
+  },
   useReindex: () => ({
     mutate: reindexMutate,
     isPending: false,
@@ -190,7 +197,56 @@ beforeEach(() => {
   summaryState = { data: summary, isLoading: false };
   jobsState = { data: { jobs } };
   failuresState = { data: { failures } };
+  topCallersState = { data: topCallers, isError: false };
+  topCallersAsked.mockReset();
 });
+
+const topCallers: TopCallers = {
+  total: 1000,
+  counted_at: new Date().toISOString(),
+  principals: [
+    {
+      user_id: "apikey:crm-sync",
+      persona: "integration",
+      records: 994,
+      share: 0.994,
+      service_account: false,
+      excluded_by_config: false,
+    },
+    {
+      user_id: "user-1",
+      user_email: "analyst@example.com",
+      persona: "analyst",
+      records: 6,
+      share: 0.006,
+      service_account: false,
+      excluded_by_config: false,
+    },
+  ],
+  personas: [
+    {
+      persona: "integration",
+      records: 994,
+      share: 0.994,
+      service_account: false,
+      excluded_by_config: false,
+    },
+    {
+      persona: "ingest-service",
+      records: 4,
+      share: 0.004,
+      service_account: true,
+      excluded_by_config: false,
+    },
+    {
+      persona: "etl",
+      records: 2,
+      share: 0.002,
+      service_account: false,
+      excluded_by_config: true,
+    },
+  ],
+};
 
 describe("IndexingPage", () => {
   it("renders a loading state", () => {
@@ -672,5 +728,64 @@ describe("IndexingPage coverage figure", () => {
     withCoverage(835_775, 835_775);
     render(<IndexingPage />);
     expect(screen.getByText("100%")).toHaveClass("text-emerald-500");
+  });
+});
+
+describe("IndexingPage top callers (#1980)", () => {
+  it("names the callers and personas holding the largest share of the call catalog", () => {
+    render(<IndexingPage />);
+    expect(screen.getByText("Top callers")).toBeInTheDocument();
+    expect(screen.getByText(/share of 1,000 recorded calls/)).toBeInTheDocument();
+    // The automated caller, by its principal, under its persona.
+    expect(screen.getByText("apikey:crm-sync")).toBeInTheDocument();
+    expect(screen.getAllByText("994 · 99.4%").length).toBe(2);
+    // A person is shown by email.
+    expect(screen.getByText("analyst@example.com")).toBeInTheDocument();
+  });
+
+  it("links each persona to its editor", () => {
+    render(<IndexingPage />);
+    const links = screen.getAllByRole("link", { name: "integration" });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link).toHaveAttribute("href", "/portal/admin/personas?persona=integration");
+    }
+  });
+
+  it("says which personas are already excluded, and how", () => {
+    render(<IndexingPage />);
+    const marks = screen.getAllByText("Service account");
+    expect(marks.length).toBeGreaterThanOrEqual(2);
+    expect(marks.some((m) => m.getAttribute("title")?.includes("calls.exclude_personas"))).toBe(true);
+  });
+
+  it("is not asked of a deployment that does not index calls", () => {
+    summaryState = {
+      data: { ...summary, kinds: summary.kinds.filter((k) => k.kind !== "calls") },
+      isLoading: false,
+    };
+    render(<IndexingPage />);
+    expect(topCallersAsked).not.toHaveBeenCalled();
+    expect(screen.queryByText("Top callers")).not.toBeInTheDocument();
+  });
+
+  it("says so when the count fails, and when the catalog is empty", () => {
+    topCallersState = { isError: true };
+    const { unmount } = render(<IndexingPage />);
+    expect(screen.getByText("Could not count the callers.")).toBeInTheDocument();
+    unmount();
+
+    topCallersState = {
+      data: { total: 0, principals: [], personas: [], counted_at: new Date().toISOString() },
+      isError: false,
+    };
+    render(<IndexingPage />);
+    expect(screen.getByText("No calls recorded.")).toBeInTheDocument();
+  });
+
+  it("says it is counting before the first answer", () => {
+    topCallersState = { isError: false };
+    render(<IndexingPage />);
+    expect(screen.getByText("Counting callers…")).toBeInTheDocument();
   });
 });

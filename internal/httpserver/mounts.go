@@ -953,5 +953,5 @@ func mountWebhookAdminAPI(mux *http.ServeMux, p *platform.Platform, hooks *webho
 		return
 	}
 	webhookapi.Register(mux, buildAdminAuth(p), webhookapi.Config{Service: hooks.Service, Author: adminEmail})
-	log.Println("Webhook source admin API enabled on /api/v1/admin/webhooks/sources")
+	log.Println("Webhook source admin API enabled on /api/v1/admin/webhooks/sources and /api/v1/admin/webhooks/status")
 }

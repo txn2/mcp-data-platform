@@ -1,5 +1,6 @@
 // Package webhookapi is the admin REST surface for inbound webhook sources
-// (#1870): list, create, read with status, change, and delete. Secrets are
+// (#1870): list, create, read with status, change, and delete, and the
+// status of every source in one response (#1979). Secrets are
 // write-only: a view says whether one is set and until when the previous one
 // is still accepted, and never carries either.
 package webhookapi
@@ -33,6 +34,7 @@ type Service interface {
 	Create(ctx context.Context, src whsource.Source) (whsource.Source, error)
 	Update(ctx context.Context, name string, u whadmin.Update) (whsource.Source, error)
 	Delete(ctx context.Context, name string) error
+	Overview(ctx context.Context, span, step time.Duration) (whadmin.Overview, error)
 }
 
 // Config carries the service and the parent-owned helpers.
@@ -52,6 +54,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 		return
 	}
 	h := &handler{cfg: cfg}
+	mux.Handle("GET "+statusPath, wrap(http.HandlerFunc(h.status)))
 	mux.Handle("GET "+sourcesPath, wrap(http.HandlerFunc(h.list)))
 	mux.Handle("POST "+sourcesPath, wrap(http.HandlerFunc(h.create)))
 	mux.Handle("GET "+sourcesPath+"/{name}", wrap(http.HandlerFunc(h.get)))

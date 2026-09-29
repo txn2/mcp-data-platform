@@ -44,6 +44,10 @@ type PersonaDef struct {
 	APIRoutes []APIRouteDef `yaml:"api_routes,omitempty"`
 	Context   ContextDef    `yaml:"context"`
 	Priority  int           `yaml:"priority,omitempty"`
+	// ServiceAccount marks a persona an automated caller signs in under: its
+	// calls are audited but not cataloged (#1980). The same rule as naming
+	// the persona in calls.exclude_personas, stated on the persona itself.
+	ServiceAccount bool `yaml:"service_account,omitempty"`
 }
 
 // APIRouteDef defines one per-(connection, method, path) rule for the HTTP API
@@ -107,8 +111,9 @@ func (d PersonaDef) ToPersona(name, source string) *persona.Persona {
 			AgentInstructionsSuffix:   d.Context.AgentInstructionsSuffix,
 			AgentInstructionsOverride: d.Context.AgentInstructionsOverride,
 		},
-		Priority: d.Priority,
-		Source:   source,
+		Priority:       d.Priority,
+		ServiceAccount: d.ServiceAccount,
+		Source:         source,
 	}
 }
 

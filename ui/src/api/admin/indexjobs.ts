@@ -204,3 +204,44 @@ export function useReindex() {
     },
   });
 }
+
+// CallerPersonaShare is one persona's part of the call catalog
+// (internal/platform/callrecord TopCallers, #1980).
+export interface CallerPersonaShare {
+  persona: string;
+  records: number;
+  // share is records over the catalog's total, between 0 and 1.
+  share: number;
+  // service_account: the persona is marked, so its calls are audited but no
+  // longer added to Calls.
+  service_account: boolean;
+  // excluded_by_config: calls.exclude_personas names the persona, which has
+  // the same effect and is changed in the config file.
+  excluded_by_config: boolean;
+}
+
+// CallerShare is one principal's part of the catalog, under one persona.
+export interface CallerShare extends CallerPersonaShare {
+  user_id: string;
+  user_email?: string;
+}
+
+// TopCallers is who wrote the call catalog, largest share first.
+export interface TopCallers {
+  total: number;
+  principals: CallerShare[];
+  personas: CallerPersonaShare[];
+  counted_at: string;
+}
+
+// useTopCallers reads who wrote the call catalog. The server counts it at
+// most every five minutes, since grouping a catalog of a million records is
+// not work to repeat on the page's 5s cadence; this polls once a minute so a
+// persona marked elsewhere shows as marked without a reload.
+export function useTopCallers() {
+  return useQuery({
+    queryKey: ["admin", "calls", "top-callers"],
+    queryFn: () => apiFetch<TopCallers>("/calls/top-callers"),
+    refetchInterval: 60_000,
+  });
+}

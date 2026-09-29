@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -113,6 +114,43 @@ func TestToolPinsAgree(t *testing.T) {
 	if want := golangciPin + " / " + gosecPin; parenthetical != want {
 		t.Errorf("CONTRIBUTING.md says the pins are %q, Makefile pins %q", parenthetical, want)
 	}
+}
+
+// TestNodePinAgrees asserts the frontend runs under one Node major everywhere
+// (#1976). ui/.nvmrc names it; every setup-node step in CI reads that file
+// rather than a version of its own, and ui/package.json's engines admit that
+// major alone. tools-check reads the same file. #1975 went red in CI after a
+// green local verify because CI ran Node 22 and the laptop Node 26, and the two
+// disagree about browser storage in a vitest test.
+func TestNodePinAgrees(t *testing.T) {
+	major := strings.TrimSpace(readRepoFile(t, "ui", ".nvmrc"))
+	if !regexp.MustCompile(`^\d+$`).MatchString(major) {
+		t.Fatalf("ui/.nvmrc is %q; it must be a bare major version", major)
+	}
+	ci := readRepoFile(t, ".github", "workflows", "ci.yml")
+	if pinned := allSubmatches(ci, `node-version:\s*['"]?([0-9.x]+)`); len(pinned) > 0 {
+		t.Errorf("ci.yml pins node-version %v; set node-version-file: ui/.nvmrc instead", pinned)
+	}
+	steps := len(allSubmatches(ci, `(setup-node)@`))
+	if files := len(allSubmatches(ci, `node-version-file:\s*(ui/\.nvmrc)`)); steps == 0 || files != steps {
+		t.Errorf("ci.yml has %d setup-node steps and %d read ui/.nvmrc", steps, files)
+	}
+	engines := firstSubmatch(t, readRepoFile(t, "ui", "package.json"), `"node":\s*"([^"]+)"`, "ui/package.json engines.node")
+	if want := ">=" + major + " <" + nextMajor(t, major); engines != want {
+		t.Errorf("ui/package.json engines.node is %q, want %q for ui/.nvmrc %s", engines, want, major)
+	}
+	if !strings.Contains(readRepoFile(t, "Makefile"), "$(UI_DIR)/.nvmrc") {
+		t.Error("tools-check does not read $(UI_DIR)/.nvmrc")
+	}
+}
+
+func nextMajor(t *testing.T, major string) string {
+	t.Helper()
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		t.Fatalf("ui/.nvmrc major %q: %v", major, err)
+	}
+	return strconv.Itoa(n + 1)
 }
 
 // TestGateFiguresAgree asserts the coverage floors are each one number. A change

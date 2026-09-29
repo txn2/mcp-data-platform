@@ -164,7 +164,7 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 			if p.audit.Recording() {
 				// A call the catalog declines gets no reference to cite: the
 				// id would resolve to nothing (#1614, #1624).
-				excluded := callrecord.NewExclusion(p.config.Calls.ExcludePersonas)
+				excluded := callrecord.NewExclusion(p.config.Calls.ExcludePersonas).WithServiceAccounts(p.personaRegistry)
 				p.mcpServer.AddReceivingMiddleware(
 					middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds(), excluded.Excludes))
 			}

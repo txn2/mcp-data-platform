@@ -11,6 +11,7 @@
 package callapi
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
@@ -19,6 +20,12 @@ import (
 // Store reads call records. Aliased to the catalog's own declaration rather
 // than restated so the two cannot drift.
 type Store = callrecord.Store
+
+// TopCallersReader answers who wrote the catalog. The database-backed catalog
+// implements it; the route is mounted only for a catalog that does.
+type TopCallersReader interface {
+	TopCallers(ctx context.Context) (callrecord.TopCallers, error)
+}
 
 // Config carries what the routes need.
 type Config struct {
@@ -46,6 +53,9 @@ func Register(mux *http.ServeMux, cfg Config) {
 	h := &handler{cfg: cfg}
 	mux.HandleFunc("GET /api/v1/admin/calls", h.listCalls)
 	mux.HandleFunc("GET /api/v1/admin/calls/{id}", h.getCall)
+	if top, ok := cfg.Calls.(TopCallersReader); ok {
+		mux.HandleFunc("GET /api/v1/admin/calls/top-callers", topCallers(top))
+	}
 	if cfg.Promoter == nil {
 		return
 	}

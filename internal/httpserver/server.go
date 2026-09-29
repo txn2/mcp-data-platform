@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
+	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	whreceiver "github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -280,7 +281,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	log.Println("SSE transport enabled on /sse, /message")
 
 	// Build and mount the root handler (MCP streamable HTTP + session + browser redirect).
-	rootHandler := buildRootHandler(mcpServer, p, hcfg)
+	rootHandler := buildRootHandler(ctx, mcpServer, p, hcfg)
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
 
 	// The tile worker draws from the routes assembled above, so it starts once
@@ -297,9 +298,9 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional
-// session-aware wrapping. Browser redirect is applied in mountRootHandler
-// so it wraps outside the auth gateway.
-func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConfig) http.Handler {
+// session-aware wrapping, whose listen bridge runs until ctx ends. Browser
+// redirect is applied in mountRootHandler so it wraps outside the auth gateway.
+func buildRootHandler(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, hcfg httpConfig) http.Handler {
 	streamableHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, &mcp.StreamableHTTPOptions{
@@ -307,12 +308,11 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 		Stateless:      hcfg.streamableCfg.Stateless,
 	})
 
-	// Wrap with AwareHandler when using external session store
-	// (database mode forces Stateless: true on the SDK, and sessions
-	// are managed by our handler against the external store).
+	// Wrap with AwareHandler when using external session store (database mode
+	// forces Stateless: true on the SDK; sessions are managed against the store).
 	var handler http.Handler = streamableHandler
 	if p != nil && p.SessionStore() != nil && hcfg.streamableCfg.Stateless {
-		handler = session.NewAwareHandler(streamableHandler, session.HandlerConfig{
+		aware := session.NewAwareHandler(streamableHandler, session.HandlerConfig{
 			Store:       p.SessionStore(),
 			TTL:         p.Config().Sessions.TTL,
 			Broadcaster: p.Broadcaster(),
@@ -320,10 +320,10 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 			// changed (#1946).
 			Build: buildinfo.Version,
 		})
-		// Platform.Broadcaster() is non-nil after New (the sessionsync
-		// layer wires postgres or memory). The "+ broadcaster" tag is part
-		// of the log line so operators can grep deployments where the
-		// session-aware handler is wired with the SSE long-poll path.
+		// A 2026-07-28 client (Stateless only) is told on its listen stream (#1967).
+		handler = aware
+		listenbridge.Wire(ctx, mcpServer, p.Broadcaster(), aware)
+		// Broadcaster() is non-nil after New; operators grep "+ broadcaster".
 		log.Println("Session-aware handler enabled (external session store + broadcaster)")
 	}
 

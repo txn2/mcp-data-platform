@@ -1025,6 +1025,13 @@ definitions:
         items:
           type: string
         type: array
+      service_account:
+        description: |-
+          ServiceAccount marks the persona an automated caller signs in under.
+          Saving it true removes the call records the persona already wrote on a
+          sweep started at once. Absent is false.
+        example: false
+        type: boolean
     type: object
   admin.personaDetail:
     properties:
@@ -1078,6 +1085,12 @@ definitions:
         items:
           type: string
         type: array
+      service_account:
+        description: |-
+          ServiceAccount marks the persona an automated caller signs in under:
+          its calls are audited but not added to the call catalog (#1980).
+        example: false
+        type: boolean
       source:
         description: '"file", "database", or "both"'
         example: file
@@ -2606,6 +2619,60 @@ definitions:
         example: Q3 revenue by region
         type: string
     type: object
+  callrecord.CallerShare:
+    properties:
+      excluded_by_config:
+        description: |-
+          ExcludedByConfig is whether calls.exclude_personas names the persona,
+          which has the same effect and is changed in the config file instead.
+        type: boolean
+      persona:
+        example: integration
+        type: string
+      records:
+        example: 1419066
+        type: integer
+      service_account:
+        description: |-
+          ServiceAccount is whether the persona is marked as a service account
+          now: its new calls are not cataloged, and its records go on the next
+          sweep.
+        type: boolean
+      share:
+        description: Share is Records over the catalog's total, between 0 and 1.
+        example: 0.994
+        type: number
+      user_email:
+        example: crm-sync@example.com
+        type: string
+      user_id:
+        example: apikey:crm-sync
+        type: string
+    type: object
+  callrecord.PersonaShare:
+    properties:
+      excluded_by_config:
+        description: |-
+          ExcludedByConfig is whether calls.exclude_personas names the persona,
+          which has the same effect and is changed in the config file instead.
+        type: boolean
+      persona:
+        example: integration
+        type: string
+      records:
+        example: 1419066
+        type: integer
+      service_account:
+        description: |-
+          ServiceAccount is whether the persona is marked as a service account
+          now: its new calls are not cataloged, and its records go on the next
+          sweep.
+        type: boolean
+      share:
+        description: Share is Records over the catalog's total, between 0 and 1.
+        example: 0.994
+        type: number
+    type: object
   callrecord.Record:
     properties:
       artifacts:
@@ -2729,6 +2796,29 @@ definitions:
       user_id:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
+    type: object
+  callrecord.TopCallers:
+    properties:
+      counted_at:
+        description: CountedAt is when the counts were taken.
+        type: string
+      personas:
+        description: Personas are the personas holding the most records.
+        items:
+          $ref: '#/definitions/callrecord.PersonaShare'
+        type: array
+      principals:
+        description: |-
+          Principals are the callers holding the most records. A caller is a
+          principal under one persona, since that is the unit an operator marks.
+        items:
+          $ref: '#/definitions/callrecord.CallerShare'
+        type: array
+      total:
+        description: Total is every record in the catalog, the denominator of every
+          share.
+        example: 1426996
+        type: integer
     type: object
   catalog.Example:
     properties:
@@ -10711,6 +10801,65 @@ definitions:
           $ref: '#/definitions/webhookapi.SourceView'
         type: array
     type: object
+  webhookapi.SourceRejection:
+    properties:
+      at:
+        type: string
+      outcome:
+        type: string
+      reason:
+        type: string
+      source:
+        type: string
+    type: object
+  webhookapi.SourceStatus:
+    properties:
+      auth_mode:
+        type: string
+      connection:
+        type: string
+      enabled:
+        type: boolean
+      failing:
+        type: integer
+      health:
+        description: |-
+          Health is the source's overall state. When more than one applies, the
+          first of disabled, failing, silent, receiving is reported.
+        enum:
+        - receiving
+        - silent
+        - failing
+        - disabled
+        type: string
+      last_day:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      last_error:
+        type: string
+      last_event_at:
+        description: |-
+          LastEventAt is when the source last received an event; null when it
+          never has, or not within the windows it still holds.
+        type: string
+      last_hour:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: LastHour and LastDay are request counts by outcome.
+        type: object
+      name:
+        type: string
+      pending:
+        description: |-
+          Pending counts windows owed a compaction; Failing, those whose last
+          attempt failed, with the newest one's error in LastError.
+        type: integer
+      table:
+        type: string
+    type: object
   webhookapi.SourceView:
     properties:
       auth:
@@ -10738,6 +10887,56 @@ definitions:
         example: webhook_esp_events
         type: string
       updated_at:
+        type: string
+    type: object
+  webhookapi.StatusOverview:
+    properties:
+      bucket_seconds:
+        description: BucketSeconds is the length of one bucket of the series.
+        example: 60
+        type: integer
+      from:
+        description: |-
+          From is the series' lower bound: a minute's counts are in the series
+          when the minute is at or after it.
+        type: string
+      generated_at:
+        type: string
+      range:
+        description: 'Range is the span the series covers: hour or day.'
+        enum:
+        - hour
+        - day
+        example: hour
+        type: string
+      rejections:
+        items:
+          $ref: '#/definitions/webhookapi.SourceRejection'
+        type: array
+      silent_after_seconds:
+        description: |-
+          SilentAfterSeconds is how long an enabled source may go without an
+          event before it is reported silent.
+        example: 86400
+        type: integer
+      sources:
+        items:
+          $ref: '#/definitions/webhookapi.SourceStatus'
+        type: array
+      volume:
+        items:
+          $ref: '#/definitions/webhookapi.VolumePoint'
+        type: array
+    type: object
+  webhookapi.VolumePoint:
+    properties:
+      at:
+        type: string
+      count:
+        type: integer
+      outcome:
+        type: string
+      source:
         type: string
     type: object
   whsource.Config:
@@ -12954,6 +13153,30 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Decline a recorded call
+      tags:
+      - Calls
+  /admin/calls/top-callers:
+    get:
+      description: Returns the callers and personas holding the largest share of the
+        recorded calls, largest first, each with its record count, its share of the
+        total, and whether its persona is a service account (its calls are audited
+        but not recorded) or is named in calls.exclude_personas. The counts are at
+        most five minutes old; the service-account marks are read at the request.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.TopCallers'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Who wrote the call catalog
       tags:
       - Calls
   /admin/collections:
@@ -17300,6 +17523,49 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Change a webhook source
+      tags:
+      - Webhooks
+  /admin/webhooks/status:
+    get:
+      description: Returns every source's health and counts in one response, the request
+        volume by source and outcome over the range, and the newest 50 rejected requests
+        across all sources, each with its source (never a body). Health is disabled
+        for a source turned off, failing for one with a window whose last compaction
+        failed, silent for an enabled source that received no event in the last 24
+        hours (including one that never received any), and receiving otherwise; when
+        more than one applies the first in that order is reported. The volume series
+        reads the per-minute request counts at or after `from`, the same bound as
+        each source's `last_hour` (range=hour) or `last_day` (range=day), so the series
+        sums to those counts.
+      parameters:
+      - default: hour
+        description: 'Span of the volume series: hour (one-minute buckets) or day
+          (fifteen-minute buckets)'
+        enum:
+        - hour
+        - day
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/webhookapi.StatusOverview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Status of every webhook source
       tags:
       - Webhooks
   /apis:

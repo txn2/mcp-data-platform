@@ -175,3 +175,25 @@ func writeActionError(w http.ResponseWriter, err error) bool {
 	}
 	return true
 }
+
+// topCallers handles GET /api/v1/admin/calls/top-callers.
+//
+// @Summary      Who wrote the call catalog
+// @Description  Returns the callers and personas holding the largest share of the recorded calls, largest first, each with its record count, its share of the total, and whether its persona is a service account (its calls are audited but not recorded) or is named in calls.exclude_personas. The counts are at most five minutes old; the service-account marks are read at the request.
+// @Tags         Calls
+// @Produce      json
+// @Success      200  {object}  callrecord.TopCallers
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/calls/top-callers [get]
+func topCallers(top TopCallersReader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		counted, err := top.TopCallers(r.Context())
+		if err != nil {
+			httpjson.WriteError(w, http.StatusInternalServerError, "failed to count callers")
+			return
+		}
+		httpjson.WriteJSON(w, http.StatusOK, counted)
+	}
+}

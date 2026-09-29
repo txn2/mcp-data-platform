@@ -101,3 +101,54 @@ export interface WebhookSourceInput {
   config: WebhookConfig;
   rotation_overlap_seconds?: number;
 }
+
+// The status of every source in one response (#1979), as
+// /api/v1/admin/webhooks/status returns it.
+
+/** WebhookHealth is a source's overall state. When more than one applies,
+ * the first of disabled, failing, silent, receiving is reported. */
+export type WebhookHealth = "receiving" | "silent" | "failing" | "disabled";
+
+/** WebhookStatusRange is the span the volume series covers. */
+export type WebhookStatusRange = "hour" | "day";
+
+export interface WebhookSourceStatus {
+  name: string;
+  enabled: boolean;
+  health: WebhookHealth;
+  auth_mode: WebhookAuthMode;
+  connection: string;
+  table: string;
+  /** When the source last received an event; null when it never has. */
+  last_event_at: string | null;
+  last_hour: Record<string, number>;
+  last_day: Record<string, number>;
+  pending: number;
+  failing: number;
+  last_error?: string;
+}
+
+/** WebhookVolumePoint is one source's requests with one outcome in the
+ * bucket starting at `at`. A bucket with no requests has no point. */
+export interface WebhookVolumePoint {
+  at: string;
+  source: string;
+  outcome: string;
+  count: number;
+}
+
+export interface WebhookSourceRejection extends WebhookRejection {
+  source: string;
+}
+
+export interface WebhookStatusOverview {
+  generated_at: string;
+  range: WebhookStatusRange;
+  /** The series' lower bound: a minute is counted when it is at or after it. */
+  from: string;
+  bucket_seconds: number;
+  silent_after_seconds: number;
+  sources: WebhookSourceStatus[];
+  volume: WebhookVolumePoint[];
+  rejections: WebhookSourceRejection[];
+}

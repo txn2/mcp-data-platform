@@ -54,6 +54,20 @@ api_routes:
 // A persona declaring no rules must be indistinguishable from one written
 // before the field existed: both leave the connection-level check as the only
 // gate, which nil APIRoutes is what expresses.
+func TestPersonaDef_ServiceAccountDecodesFromYAML(t *testing.T) {
+	var cfg personacfg.PersonasConfig
+	src := "ingest:\n  roles: [ingest]\n  service_account: true\nanalyst:\n  roles: [analyst]\n"
+	if err := yaml.Unmarshal([]byte(src), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !cfg.Definitions["ingest"].ToPersona("ingest", "file").ServiceAccount {
+		t.Error("service_account: true did not reach the persona")
+	}
+	if cfg.Definitions["analyst"].ToPersona("analyst", "file").ServiceAccount {
+		t.Error("a persona that does not say service_account is not one")
+	}
+}
+
 func TestPersonaDef_NoAPIRoutesIsNil(t *testing.T) {
 	p := personacfg.PersonaDef{DisplayName: "Analyst"}.ToPersona("analyst", "file")
 	if p.APIRoutes != nil {
@@ -70,6 +84,8 @@ func TestPersonaDef_ToPersonaCarriesEveryField(t *testing.T) {
 		Connections: personacfg.ConnectionRulesDef{Allow: []string{"prod-*"}, Deny: []string{"prod-write"}},
 		Context:     personacfg.ContextDef{DescriptionPrefix: "hello", AgentInstructionsSuffix: "bye"},
 		Priority:    7,
+		// #1980: a file persona can be marked as a service account too.
+		ServiceAccount: true,
 	}
 	p := def.ToPersona("analyst", "database")
 
@@ -88,6 +104,7 @@ func TestPersonaDef_ToPersonaCarriesEveryField(t *testing.T) {
 		{"description prefix", p.Context.DescriptionPrefix, "hello"},
 		{"instructions suffix", p.Context.AgentInstructionsSuffix, "bye"},
 		{"priority", p.Priority, 7},
+		{"service account", p.ServiceAccount, true},
 		{"source", p.Source, "database"},
 	}
 	for _, c := range checks {

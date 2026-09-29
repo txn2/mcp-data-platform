@@ -233,3 +233,23 @@ func TestHandler_ToolsChanged_NewAndRevivedSessions(t *testing.T) {
 	h.announceOnStream(ctx, "missing")
 	assert.Zero(t, broker.count("missing"))
 }
+
+// A session whose listen opens is told as one whose stream opens: once, and
+// recorded as told (#1967).
+func TestAnnounceOnListen_TellsASessionOnAnotherBuild(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore(handlerTestTTL)
+	t.Cleanup(func() { _ = store.Close() })
+	broker := newCountingBroadcaster(t)
+	h := NewAwareHandler(http.NotFoundHandler(), HandlerConfig{Store: store, TTL: handlerTestTTL, Broadcaster: broker, Build: "v2"})
+	sess := newTestSession("s", handlerTestTTL)
+	sess.State = map[string]any{toolsBuildKey: "v1"}
+	require.NoError(t, store.Create(ctx, sess))
+
+	h.AnnounceOnListen(ctx, "s")
+	h.AnnounceOnListen(ctx, "s")
+	assert.Equal(t, 1, broker.count("s"))
+	got, err := store.Get(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{toolsBuildKey: "v2", toolsPendingKey: false}, got.State)
+}

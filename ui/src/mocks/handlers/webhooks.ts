@@ -1,8 +1,9 @@
 import { http, HttpResponse } from "msw";
-import type { WebhookSource, WebhookSourceInput } from "@/api/admin/types";
-import { mockWebhookSources, mockWebhookStatus } from "../data/webhooks";
+import type { WebhookSource, WebhookSourceInput, WebhookStatusRange } from "@/api/admin/types";
+import { mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "../data/webhooks";
 
-// Webhook source admin routes (#1870):
+// Webhook source admin routes (#1870, #1979):
+//   GET    /webhooks/status           (every source's status, volume, rejections)
 //   GET    /webhooks/sources          (list)
 //   POST   /webhooks/sources          (create)
 //   GET    /webhooks/sources/:name    (source and status)
@@ -16,6 +17,17 @@ const notFound = () =>
   HttpResponse.json({ type: "about:blank", title: "Not Found", status: 404, detail: "webhook source not found" }, { status: 404 });
 
 export const webhookHandlers = [
+  http.get(`${ADMIN_BASE}/webhooks/status`, ({ request }) => {
+    const range = new URL(request.url).searchParams.get("range") ?? "hour";
+    if (range !== "hour" && range !== "day") {
+      return HttpResponse.json(
+        { type: "about:blank", title: "Bad Request", status: 400, detail: "range must be hour or day" },
+        { status: 400 },
+      );
+    }
+    return HttpResponse.json(mockWebhookOverview(sources, range as WebhookStatusRange));
+  }),
+
   http.get(`${ADMIN_BASE}/webhooks/sources`, () => HttpResponse.json({ sources })),
 
   http.post(`${ADMIN_BASE}/webhooks/sources`, async ({ request }) => {

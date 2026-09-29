@@ -18,8 +18,17 @@ import (
 //
 // What separates the two is not the tool but who called it, and the layer a
 // deployment already uses to say what a caller is for is the persona. So a
-// deployment names the personas that are machinery, and their calls are not
-// cataloged.
+// persona is marked as machinery, and its calls are not cataloged. It is marked
+// in one of two places: on the persona itself (service_account, editable in the
+// portal's persona editor, #1980), or by name in calls.exclude_personas, the
+// file-config form of the same rule. Either one excludes. An API key reaches a
+// persona through its roles, so marking the persona covers every key mapped to
+// it.
+//
+// The persona's own mark is read from the live registry on every call, never
+// from a snapshot taken at startup: an administrator marks a database persona
+// at run time, and the reload bus carries the change to every replica's
+// registry, so the next call on any of them is judged by it.
 //
 // Declining to catalog costs nothing else. The recorder is a decorator over
 // the audit store and writes the audit event first, so what an automated
@@ -55,6 +64,19 @@ type Exclusion struct {
 	// personas are the normalized names, sorted and deduplicated so the sweep
 	// binds the same array on every replica and a test reads a stable order.
 	personas []string
+	// accounts answers which personas are marked as service accounts now.
+	// Nil marks none.
+	accounts ServiceAccounts
+}
+
+// ServiceAccounts answers which personas are marked as service accounts, read
+// at the moment it is asked. The persona registry is the implementation.
+type ServiceAccounts interface {
+	// IsServiceAccount reports whether the persona with this exact name is
+	// marked.
+	IsServiceAccount(persona string) bool
+	// ServiceAccountNames lists every marked persona.
+	ServiceAccountNames() []string
 }
 
 // NewExclusion reads the configured persona names into the rule.
@@ -78,8 +100,17 @@ func NewExclusion(names []string) Exclusion {
 	return Exclusion{personas: normalized}
 }
 
+// WithServiceAccounts returns the rule extended with the personas marked as
+// service accounts, which it reads through accounts whenever it is asked. A nil
+// accounts adds nothing.
+func (e Exclusion) WithServiceAccounts(accounts ServiceAccounts) Exclusion {
+	e.accounts = accounts
+	return e
+}
+
 // Excludes reports whether a call is machinery: it arrived from a managed
-// script run, or it was made under a persona the deployment named.
+// script run, or it was made under a persona the deployment named in config or
+// marked as a service account.
 //
 // The source is the audit event's own `source` field, not a guess from the
 // principal: the field is set on the run's server context by the script runner
@@ -89,17 +120,46 @@ func (e Exclusion) Excludes(persona, source string) bool {
 	if source == mcpcontext.SourceScript {
 		return true
 	}
-	if len(e.personas) == 0 {
+	return e.Configured(persona) || e.ServiceAccount(persona)
+}
+
+// ServiceAccount reports whether the persona is marked as a service account
+// right now. The configured names are not consulted: this is the persona's own
+// setting, which is what the portal shows beside it. Names are compared without
+// case, as the sweep compares them, so a call the recorder keeps is never one
+// the sweep would remove.
+func (e Exclusion) ServiceAccount(persona string) bool {
+	if e.accounts == nil || persona == "" {
 		return false
 	}
+	if e.accounts.IsServiceAccount(persona) {
+		return true
+	}
+	return slices.ContainsFunc(e.accounts.ServiceAccountNames(), func(n string) bool {
+		return strings.EqualFold(n, persona)
+	})
+}
+
+// Configured reports whether the persona is named in calls.exclude_personas.
+func (e Exclusion) Configured(persona string) bool {
 	name := normalizePersona(persona)
 	return name != "" && slices.Contains(e.personas, name)
 }
 
-// Personas returns the normalized names for the sweep to bind. The slice is
-// copied: it is handed to a database driver, and the rule is not the driver's
-// to alter.
-func (e Exclusion) Personas() []string { return slices.Clone(e.personas) }
+// Personas returns the normalized names for the sweep to bind: the configured
+// ones and the ones marked as service accounts at the moment it is asked,
+// sorted and deduplicated. The slice is new on every call: it is handed to a
+// database driver, and the rule is not the driver's to alter.
+func (e Exclusion) Personas() []string {
+	names := append(make([]string, 0, len(e.personas)), e.personas...)
+	if e.accounts != nil {
+		for _, name := range e.accounts.ServiceAccountNames() {
+			names = append(names, normalizePersona(name))
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
 
 // normalizePersona is the one spelling of how a persona name is compared for
 // exclusion, used by the rule, by the startup check below, and mirrored in SQL

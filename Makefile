@@ -47,7 +47,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-check acceptance-release-check schedule-lane schedule-lane-ui realdb-lane state-readers-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-release acceptance-check acceptance-release-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -504,6 +504,13 @@ acceptance-check:
 state-readers-check:
 	@python3 scripts/state-readers-check.py
 
+## e2e-copy-check: Fail when an e2e spec asserts UI copy the diff removed from ui/src (#1977)
+## The Playwright suite runs only inside verify, after the full unit run, so a
+## string a diff changed under ui/src and a spec still asserts used to fail
+## verify fifteen minutes in. This reads both in under a second.
+e2e-copy-check:
+	@python3 scripts/e2e-copy-check.py
+
 ## schedule-lane: Run every changed Go package at -race -cpu=1,2 -count=5 (ordering-dependent tests, #1711)
 ## `test` runs each test once at this machine's CPU count, which is not the
 ## schedule a loaded CI runner chooses. TestWithRevocations_WiredLate passed
@@ -549,6 +556,14 @@ acceptance:
 	set -o pipefail; \
 	$(GOTEST) -count=1 -timeout $(ACCEPTANCE_TIMEOUT) -tags=integration ./test/acceptance/ -v -json $$run_flag \
 		| python3 scripts/acceptance-evidence.py split
+
+## acceptance-release: The acceptance suite for verify-release, against the dev stack whether or not one is up (#1969)
+## verify needs port 5173 for its MSW server and the acceptance suite needs a
+## running stack, so verify-release could not pass as one command. A stack
+## already answering is used as it is and left running; with none, one is
+## started, the suite runs, and the stack it started is stopped (data kept).
+acceptance-release:
+	@bash scripts/release-acceptance.sh
 
 ## acceptance-release-check: Refuse a release whose tickets have no passing acceptance run
 ## Every test/acceptance/issue_<n>_test.go changed since the last tag must have
@@ -642,6 +657,15 @@ tools-check:
 		fi; \
 	fi; \
 	which goreleaser > /dev/null 2>&1    || missing="$$missing  goreleaser: brew install goreleaser\n"; \
+	node_want=$$(tr -d ' \n' < $(UI_DIR)/.nvmrc); \
+	if ! which node > /dev/null 2>&1; then \
+		missing="$$missing  node: nvm install $$node_want (the major in $(UI_DIR)/.nvmrc, which CI installs)\n"; \
+	else \
+		node_have=$$(node --version | sed -E 's/^v([0-9]+).*/\1/'); \
+		if [ "$$node_have" != "$$node_want" ]; then \
+			mismatch="$$mismatch  node: have major $$node_have, want $$node_want (the major in $(UI_DIR)/.nvmrc, which CI installs) — nvm install $$node_want && nvm use $$node_want\n"; \
+		fi; \
+	fi; \
 	which swag > /dev/null 2>&1          || missing="$$missing  swag: go install github.com/swaggo/swag/cmd/swag@latest\n"; \
 	if [ -n "$$missing" ]; then \
 		echo ""; \
@@ -675,7 +699,7 @@ embed-clean:
 
 ## verify-release: Full verify PLUS CodeQL and mutation testing — run only before cutting a release
 ## Both are expensive and must NOT run per-revision; CI runs each on the PR.
-verify-release: verify codeql mutate acceptance acceptance-release-check
+verify-release: verify codeql mutate acceptance-release acceptance-release-check
 	@echo ""
 	@echo "=== Release verification complete (incl. CodeQL, mutation testing and the acceptance suite) ==="
 
@@ -815,14 +839,15 @@ verify-go:
 	@echo "[lane done  $$(date +%T)] verify-go"
 
 ## preverify-fast: the diff-scoped gates verify runs before its lanes (#1856)
-## semgrep-diff, doc-check, acceptance-check, state-readers-check and
-## dead-code read the change and the tree, not a coverage profile, so they
+## semgrep-diff, doc-check, acceptance-check, state-readers-check,
+## e2e-copy-check and dead-code read the change and the tree, not a coverage profile, so they
 ## answer in about fifteen seconds. verify runs them in its serial preamble.
 preverify-fast:
 	@$(MAKE) --no-print-directory semgrep-diff
 	@$(MAKE) --no-print-directory doc-check
 	@$(MAKE) --no-print-directory acceptance-check
 	@$(MAKE) --no-print-directory state-readers-check
+	@$(MAKE) --no-print-directory e2e-copy-check
 	@$(MAKE) --no-print-directory dead-code
 
 ## realdb-lane: Run the RealDB tests of every changed package and every package importing one (#1947)
@@ -964,30 +989,34 @@ frontend-lint:
 
 ## frontend-e2e: Run the interactive Playwright suite against the MSW-mocked dev server (mirrors CI's frontend-e2e job)
 frontend-e2e:
-	@# Refuse to run against somebody else's dev server.
+	@# The suite reuses whatever is on its port, and it cannot tell an MSW
+	@# server from any other Vite there (see e2e/interactive/playwright.config.ts).
+	@# A `make dev` left running is one WITHOUT VITE_MSW, so on :5173 the suite
+	@# would bind to the live backend and fail all 213 cases at sign-in.
 	@#
-	@# The suite reuses whatever is on :5173, and it cannot tell an MSW server
-	@# from any other Vite there (see e2e/interactive/playwright.config.ts). A
-	@# `make dev` left running is one WITHOUT VITE_MSW, so the suite binds to the
-	@# live backend, the shell 401s, and all 213 cases fail in authenticate()
-	@# with a timeout that names none of them. That is twenty minutes to
-	@# diagnose and the answer is never in the output.
+	@# So the port is checked here. The marker is the flag main.tsx reads, which
+	@# Vite inlines into the source it serves: an MSW server answers with
+	@# "VITE_MSW": "true" in /portal/src/main.tsx and a plain one does not.
+	@# mockServiceWorker.js is no use -- a static file both servers serve.
 	@#
-	@# So it is checked here, where the answer fits on one line.
-	@# The marker is the flag main.tsx reads, which Vite inlines into the source
-	@# it serves: an MSW server answers with "VITE_MSW": "true" in
-	@# /portal/src/main.tsx and a plain one does not. mockServiceWorker.js is no
-	@# use here -- it is a static file in public/ and both servers serve it.
+	@# A non-MSW server on the default port is a dev stack, and the suite runs
+	@# beside it on the next free port rather than refusing (#1969):
+	@# verify-release runs this and then the acceptance suite against that same
+	@# stack. An E2E_PORT set by hand is the caller's choice and is refused.
 	@port=$${E2E_PORT:-5173}; \
-	if curl -sf -m 3 "http://localhost:$$port/portal/src/main.tsx" 2>/dev/null | grep -q '"VITE_MSW": *"true"'; then \
-		true; \
-	elif curl -sf -m 3 "http://localhost:$$port/portal/" > /dev/null 2>&1; then \
-		echo "FAIL frontend-e2e: :$$port is serving a dev server that is NOT the MSW one (a 'make dev' is probably running)." >&2; \
-		echo "  The suite reuses whatever is on that port, so it would bind to the live backend and fail every case at sign-in." >&2; \
-		echo "  Stop it with 'make dev-stop' (keeps your data), or run beside it with: E2E_PORT=5199 make frontend-e2e" >&2; \
-		exit 1; \
-	fi
-	cd $(UI_DIR) && npx playwright install chromium && npm run test:e2e
+	is_msw() { curl -sf -m 3 "http://localhost:$$1/portal/src/main.tsx" 2>/dev/null | grep -q '"VITE_MSW": *"true"'; }; \
+	busy() { curl -s -o /dev/null -m 3 "http://localhost:$$1/" 2>/dev/null || lsof -nP -iTCP:$$1 -sTCP:LISTEN > /dev/null 2>&1; }; \
+	if ! is_msw $$port && busy $$port; then \
+		if [ -n "$$E2E_PORT" ]; then \
+			echo "FAIL frontend-e2e: :$$port (E2E_PORT) is serving something that is NOT the MSW dev server." >&2; \
+			echo "  The suite reuses whatever is on that port, so it would fail every case at sign-in. Choose a free port." >&2; \
+			exit 1; \
+		fi; \
+		next=5199; while busy $$next; do next=$$((next + 1)); done; \
+		echo "frontend-e2e: :$$port serves a dev server that is not the MSW one (a 'make dev'); running the suite on :$$next beside it."; \
+		port=$$next; \
+	fi; \
+	cd $(UI_DIR) && npx playwright install chromium && E2E_PORT=$$port npm run test:e2e
 
 ## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; not part of verify)
 frontend-e2e-public-viewer:

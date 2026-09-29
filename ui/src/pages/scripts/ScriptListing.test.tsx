@@ -341,8 +341,8 @@ describe("ScriptListing: scope", () => {
   });
 
   // Persistence is asserted in the browser (e2e/interactive/scripts-listing
-  // .spec.ts), not here: this jsdom environment provides no localStorage at
-  // all, so a test of it would pass on a component that stored nothing.
+  // .spec.ts), where the store outlives a reload; each test here opens on an
+  // empty one (src/test/setup.ts).
 
   it("shows a row the reader does not own without its run state", () => {
     const theirs = row({
