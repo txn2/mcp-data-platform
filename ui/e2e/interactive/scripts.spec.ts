@@ -424,7 +424,7 @@ test.describe("Portal script pages", () => {
       .click();
 
     // The section states who has it before it offers to move it.
-    await expect(page.getByText(/only person who sees it/)).toBeVisible();
+    await expect(page.getByText(/only person who edits it, runs it, schedules it, and reads its runs/)).toBeVisible();
 
     // The new owner is chosen from the people who have actually signed in
     // (#1407): an address nobody has authenticated with cannot open the portal,
@@ -437,7 +437,7 @@ test.describe("Portal script pages", () => {
 
     // Both ends of the move are named before it is made, because the person
     // losing the script is the part an administrator can overlook.
-    await expect(page.getByText(/will no longer see it/)).toBeVisible();
+    await expect(page.getByText(/will no longer be able to edit it, run it or read its runs/)).toBeVisible();
     await page.getByRole("button", { name: "Transfer", exact: true }).click();
 
     await expect(

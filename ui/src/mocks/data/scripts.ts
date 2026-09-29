@@ -215,7 +215,7 @@ const dateWindowsSource = `# The reporting windows the sales automations share.
 
 def trailing_days(end, days):
     """The days-long window ending on end, as (start, end) ISO dates."""
-    return (time.parse_date(end).add_days(-(days - 1)).iso(), end)
+    return (date.add_days(end, -(days - 1)), end)
 `;
 
 export const mockScriptVersions: Record<string, ScriptVersion[]> = {

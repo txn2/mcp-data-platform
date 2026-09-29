@@ -19,11 +19,11 @@ import (
 // name, are typed strings, and run_script's wait_seconds an integer, so each
 // admits one JSON form and is sent as a literal tools/call parameter of it.
 
-// issue1934Failing returns the entry platform_info's notices carry for the
-// automation named name, or nil.
+// issue1934Failing returns the entry platform_info's failing_automations
+// carries for the automation named name, or nil. The list is at the top level
+// of platform_info, beside notices (#1971).
 func issue1934Failing(info map[string]any, name string) map[string]any {
-	notices, _ := info["notices"].(map[string]any)
-	list, _ := notices["failing_automations"].([]any)
+	list, _ := info["failing_automations"].([]any)
 	for _, it := range list {
 		if n, _ := it.(map[string]any); n["name"] == name {
 			return n
@@ -34,7 +34,7 @@ func issue1934Failing(info map[string]any, name string) map[string]any {
 
 // TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds covers the
 // ticket's acceptance: an owner whose automation failed its latest run gets a
-// notices.failing_automations entry from the next platform_info, with the run
+// failing_automations entry from the next platform_info, with the run
 // to open and why it failed; it is listed again while it keeps failing, which
 // is not being announced as new; and after a successful run it is gone.
 func TestIssue1934_AFailingAutomationIsInTheBriefingUntilItSucceeds(t *testing.T) {

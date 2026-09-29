@@ -10,6 +10,7 @@ import { DARK_SCHEME, LIGHT_SCHEME } from "@/components/thumbnail/schemes";
 import { buildJsonLines, buildNdjsonRecords } from "@/components/thumbnail/JsonThumbnailBody";
 import { DomBody, type DomKind } from "@/components/thumbnail/DomThumbnailBody";
 import { FLOW_TILE_TYPE, FlowTile } from "@/components/thumbnail/FlowTile";
+import { LIBRARY_TILE_TYPE, LibraryTile } from "@/components/thumbnail/LibraryTile";
 
 /**
  * One document, as the platform hands it to the page its tile is drawn from
@@ -40,9 +41,12 @@ export type OnDrawn = (reason: string) => void;
  * nothing reimplements CSS to get from them to pixels.
  */
 export function Tile({ data, dark, onDrawn }: { data: TileData; dark: boolean; onDrawn: OnDrawn }) {
-  // A script's flow diagram (#1909) is no file's type, so it is told apart
-  // before the content-type families are.
+  // A script's flow diagram (#1909) and a library's tile (#1970) are no
+  // file's type, so they are told apart before the content-type families are.
   if (data.contentType === FLOW_TILE_TYPE) return <FlowTile content={data.content ?? ""} onDrawn={onDrawn} />;
+  if (data.contentType === LIBRARY_TILE_TYPE) {
+    return <LibraryTile name={data.name} content={data.content ?? ""} onDrawn={onDrawn} />;
+  }
   const family = captureFamily(data.contentType);
   if (family === "iframe") return <DocumentTile data={data} onDrawn={onDrawn} />;
   if (family === "image") return <ImageTile data={data} onDrawn={onDrawn} />;

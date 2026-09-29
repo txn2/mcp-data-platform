@@ -49,8 +49,8 @@ func closedObjects1945(path string, v any) []string {
 }
 
 // TestIssue1945_ANestedKeyALaterReleaseAddsValidates: the owner of a failing
-// automation gets notices.failing_automations from platform_info; that result,
-// with a further key added to notices as a later release would add one,
+// automation gets failing_automations from platform_info; that result, with a
+// further key added to notices as a later release would add one,
 // validates against the output schema tools/list advertises; and no object in
 // any advertised output schema is closed.
 func TestIssue1945_ANestedKeyALaterReleaseAddsValidates(t *testing.T) {
@@ -67,7 +67,7 @@ func TestIssue1945_ANestedKeyALaterReleaseAddsValidates(t *testing.T) {
 
 	next := connectAs(t, devOwnerAPIKey)
 	if issue1934Failing(next.info, name) == nil {
-		t.Fatalf("platform_info's notices do not carry the failing automation: %v", next.info["notices"])
+		t.Fatalf("platform_info does not carry the failing automation: %v", next.info["failing_automations"])
 	}
 	var schema map[string]any
 	for _, tool := range next.tools() {
@@ -93,7 +93,14 @@ func TestIssue1945_ANestedKeyALaterReleaseAddsValidates(t *testing.T) {
 	later := map[string]any{}
 	raw, _ := json.Marshal(next.info)
 	_ = json.Unmarshal(raw, &later)
+	// The failing automation is beside notices (#1971), so a caller with
+	// nothing else waiting has no notices block; the key is added to one as a
+	// later release would send it.
 	notices, _ := later["notices"].(map[string]any)
+	if notices == nil {
+		notices = map[string]any{"since": "2026-09-27T00:00:00Z"}
+		later["notices"] = notices
+	}
 	notices["added_by_a_later_release"] = []any{map[string]any{"name": name}}
 
 	var s jsonschema.Schema

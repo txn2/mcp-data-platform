@@ -5,10 +5,66 @@
 // (with ?compare= for the comparison) answered on the local stack for the
 // sources in ./scripts.ts, so the mocked diagram is the diagram the server
 // derives. Regenerate them when a mocked source or the derivation changes.
-// Each structure (#1972) is scriptflow.Derive's for the same source.
+// Each structure (#1972) is scriptflow.Derive's for the same source, and the
+// library's (#1970) carries scriptflow.LibraryOf's block as the route attaches it.
 import type { FlowNodeRun, ScriptFlow, ScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
 
 export const mockScriptFlows: Record<string, ScriptFlow> = {
+ "script-006:2": {
+  "edges": [],
+  "findings": [],
+  "groups": [],
+  "library": {
+   "functions": [
+    {
+     "doc": "The days-long window ending on end, as (start, end) ISO dates.",
+     "line": 3,
+     "name": "trailing_days",
+     "params": [
+      "end",
+      "days"
+     ]
+    }
+   ],
+   "load": "load(\"lib:date-windows@2\", \"trailing_days\")"
+  },
+  "lines": 6,
+  "nodes": [],
+  "ok": true,
+  "params": [],
+  "script_id": "script-006",
+  "structure": {
+   "boxes": [],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    }
+   ],
+   "functions": [
+    {
+     "end_line": 5,
+     "line": 3,
+     "name": "trailing_days"
+    }
+   ],
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "truncated": false
+  },
+  "truncated": false,
+  "version": 2
+ },
  "script-001:2": {
   "script_id": "script-001",
   "version": 2,

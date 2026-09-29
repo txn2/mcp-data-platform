@@ -34,11 +34,15 @@ func TestClaim(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("WITH owed AS")).WithArgs(2, float64(60), 5).
 		WillReturnRows(sqlmock.NewRows([]string{"script_id"}).AddRow("s1"))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT s.id, s.name")).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "version", "source_code", "s3_key", "attempts"}).
-			AddRow("s1", "daily", 3, "x = 1", "", 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "version", "source_code", "library", "s3_key", "attempts"}).
+			AddRow("s1", "daily", 3, "x = 1", false, "", 1).
+			AddRow("l1", "date-windows", 2, "def f():\n    return 1\n", true, "", 1))
 	work, err := s.Claim(context.Background(), 2, time.Minute, 5)
 	require.NoError(t, err)
-	assert.Equal(t, []Work{{ScriptID: "s1", Name: "daily", Version: 3, Source: "x = 1", Attempts: 1}}, work)
+	assert.Equal(t, []Work{
+		{ScriptID: "s1", Name: "daily", Version: 3, Source: "x = 1", Attempts: 1},
+		{ScriptID: "l1", Name: "date-windows", Version: 2, Source: "def f():\n    return 1\n", Library: true, Attempts: 1},
+	}, work)
 
 	mock.ExpectQuery(regexp.QuoteMeta("WITH owed AS")).WillReturnRows(sqlmock.NewRows([]string{"script_id"}))
 	work, err = s.Claim(context.Background(), 2, time.Minute, 5)

@@ -97,6 +97,26 @@ export interface ScriptFlow {
   structure: FlowStructure;
   // compared_with is the older version a compared graph is compared against.
   compared_with?: number;
+  // library is present when the script is a library (#1970): what it offers
+  // a load, in place of a diagram it does not have.
+  library?: FlowLibrary;
+}
+
+// FlowLibrary is what one version of a library offers a load: its functions,
+// and the statement that loads them all from that version ("" when there are
+// none to load).
+export interface FlowLibrary {
+  functions: LibraryFunction[];
+  load?: string;
+}
+
+// LibraryFunction is one function a library defines: its parameters as the
+// source writes them and its docstring's first sentence.
+export interface LibraryFunction {
+  name: string;
+  params: string[];
+  doc?: string;
+  line: number;
 }
 
 // StructKind is what a Structure node is.

@@ -34,6 +34,10 @@ type Work struct {
 	Name     string
 	Version  int
 	Source   string
+	// Library is whether the script is a library, as recorded when it was
+	// created; a library's tile names it rather than drawing a diagram
+	// (#1970).
+	Library bool
 	// Key is the tile stored now, empty when there is none.
 	Key      string
 	Attempts int
@@ -92,7 +96,7 @@ RETURNING script_id`
 
 // readSQL reads what a claimed script's tile is drawn from.
 const readSQL = `
-SELECT s.id, s.name, s.version, s.source_code, t.s3_key, t.attempts
+SELECT s.id, s.name, s.version, s.source_code, s.library, t.s3_key, t.attempts
   FROM scripts s JOIN script_tiles t ON t.script_id = s.id
  WHERE s.id = ANY($1::uuid[])`
 
@@ -115,7 +119,7 @@ func (s *Store) Claim(ctx context.Context, renderer int, lease time.Duration, li
 	out := make([]Work, 0, len(ids))
 	for rows.Next() {
 		var w Work
-		if err := rows.Scan(&w.ScriptID, &w.Name, &w.Version, &w.Source, &w.Key, &w.Attempts); err != nil {
+		if err := rows.Scan(&w.ScriptID, &w.Name, &w.Version, &w.Source, &w.Library, &w.Key, &w.Attempts); err != nil {
 			return nil, fmt.Errorf("reading a claimed script: %w", err)
 		}
 		out = append(out, w)

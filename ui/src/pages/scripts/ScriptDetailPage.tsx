@@ -1,4 +1,4 @@
-import { FileCode2 } from "lucide-react";
+import { BookOpen, FileCode2 } from "lucide-react";
 import { useScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptContract, ScriptParam } from "@/api/portal/hooks/scripts";
 import { PageHeader } from "@/components/patterns/PageHeader";
@@ -141,7 +141,7 @@ function ScriptDetail({
       <PageHeader
         backLabel={backLabel}
         onBack={onBack}
-        icon={FileCode2}
+        icon={library ? BookOpen : FileCode2}
         title={contract.display_name || contract.name}
         urn={contract.name}
         actions={<ExecutionBadge contract={contract} />}

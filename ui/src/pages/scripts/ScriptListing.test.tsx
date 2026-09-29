@@ -499,7 +499,7 @@ describe("ScriptListing: libraries", () => {
     fireEvent.click(screen.getByRole("button", { name: "Table view" }));
   });
 
-  it("offers All, Automations and Libraries, and asks for no kind until one is chosen", () => {
+  it("offers All, Scripts and Libraries, and asks for no kind until one is chosen", () => {
     mockScripts.mockReturnValue(answer([row(), library()]));
     list();
 
@@ -507,7 +507,7 @@ describe("ScriptListing: libraries", () => {
     fireEvent.keyDown(screen.getByLabelText("Filter by kind"), { key: "Enter" });
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
       "All",
-      "Automations",
+      "Scripts",
       "Libraries",
     ]);
   });
@@ -521,8 +521,8 @@ describe("ScriptListing: libraries", () => {
     // The vocabulary is read without it, so switching back stays possible.
     expect(filters()[filters().length - 1]).not.toHaveProperty("kind");
 
-    chooseKind("Automations");
-    expect(listingFilter()["kind"]).toBe("automation");
+    chooseKind("Scripts");
+    expect(listingFilter()["kind"]).toBe("script");
 
     chooseKind("All");
     expect(listingFilter()).not.toHaveProperty("kind");

@@ -37,9 +37,18 @@ type Info struct {
 	// people left on assets they own, and artifacts newly shared with them
 	// (#1278). Absent when there is nothing to report. Delivering it advances
 	// the caller's watermark, so it is shown once.
-	Notices       *Notices          `json:"notices,omitempty"`
-	Features      Features          `json:"features"`
-	ConfigVersion ConfigVersionInfo `json:"config_version"`
+	Notices *Notices `json:"notices,omitempty"`
+	// FailingAutomations is the caller's automations whose latest run
+	// failed (#1934), and FailingAutomationsTotal how many there are. They
+	// sit here rather than in Notices because releases up to v1.137.1
+	// advertised notices as a closed object (#1971): a key added to it is
+	// refused by a client still holding one of those tool lists, and the top
+	// level has been advertised open since platform_info first declared an
+	// output schema (v1.102.0).
+	FailingAutomations      []notices.AutomationNotice `json:"failing_automations,omitempty"`
+	FailingAutomationsTotal int                        `json:"failing_automations_total,omitempty"`
+	Features                Features                   `json:"features"`
+	ConfigVersion           ConfigVersionInfo          `json:"config_version"`
 }
 
 // Notices is the caller's session-start digest, aliased so a library consumer
@@ -259,20 +268,23 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	}
 
 	reg := defaultRegistry()
+	failing, failingTotal := digest.Failing()
 	info := Info{
-		Name:                p.config.Server.Name,
-		Version:             p.config.Server.Version,
-		Description:         description,
-		Tags:                p.config.Server.Tags,
-		SessionID:           sessionID,
-		SessionExpiresAt:    sessionExpiresAt,
-		AgentInstructions:   agentInstructions,
-		Toolkits:            toolkits,
-		ToolkitDescriptions: toolkitDescriptions,
-		PortalURL:           p.config.Portal.PublicBaseURL,
-		Persona:             persona,
-		Notices:             digest,
-		Features:            p.buildFeatures(ctx, accessibleTools),
+		Name:                    p.config.Server.Name,
+		Version:                 p.config.Server.Version,
+		Description:             description,
+		Tags:                    p.config.Server.Tags,
+		SessionID:               sessionID,
+		SessionExpiresAt:        sessionExpiresAt,
+		AgentInstructions:       agentInstructions,
+		Toolkits:                toolkits,
+		ToolkitDescriptions:     toolkitDescriptions,
+		PortalURL:               p.config.Portal.PublicBaseURL,
+		Persona:                 persona,
+		Notices:                 digest.Notices(),
+		FailingAutomations:      failing,
+		FailingAutomationsTotal: failingTotal,
+		Features:                p.buildFeatures(ctx, accessibleTools),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
 			SupportedVersions: reg.ListSupported(),

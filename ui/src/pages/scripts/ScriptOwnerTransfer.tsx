@@ -63,6 +63,10 @@ const DIRECTORY_PAGE = 100;
 const SEARCH_DEBOUNCE_MS = 250;
 
 export function ScriptOwnerTransfer({ scriptId, contract }: Props) {
+  // A library is loaded by other scripts and never runs (#1941), so what moves
+  // with it is the right to edit it, and the page calls it a library (#1970).
+  const library = !!contract.library;
+  const noun = library ? "library" : "script";
   const transfer = useTransferScriptOwner(scriptId);
   const { data: produced } = useScriptProduced(scriptId);
   const outputs = createdOutputs(produced?.data ?? []);
@@ -87,7 +91,7 @@ export function ScriptOwnerTransfer({ scriptId, contract }: Props) {
           setTarget("");
         },
         onError: (e: unknown) => {
-          setFailure(e instanceof Error ? e.message : "The script could not be transferred");
+          setFailure(e instanceof Error ? e.message : `The ${noun} could not be transferred`);
           setConfirming(false);
         },
       },
@@ -97,28 +101,26 @@ export function ScriptOwnerTransfer({ scriptId, contract }: Props) {
   return (
     <SectionCard title="Owner">
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          This script belongs to{" "}
-          <span className="font-medium text-foreground">
-            {contract.owner_email || "nobody"}
-          </span>
-          . Its owner is the only person who sees it, edits it, runs it, and schedules it.
-        </p>
+        <OwnerStatement noun={noun} library={library} owner={contract.owner_email} />
 
         <div className="space-y-2">
           <Label htmlFor="script-owner" className="text-xs text-muted-foreground">
             New owner
           </Label>
-          <ChooseOwner owner={contract.owner_email} value={target} onChange={setTarget} />
-          <p className="text-xs text-muted-foreground">
-            From the transfer on, a run presents the access you hold now, not the access
-            the previous owner held. Moving a script to yourself is how it comes to run
-            with an administrator's reach.
-          </p>
+          <ChooseOwner owner={contract.owner_email} value={target} noun={noun} onChange={setTarget} />
+          {!library && (
+            <p className="text-xs text-muted-foreground">
+              From the transfer on, a run presents the access you hold now, not the access
+              the previous owner held. Moving a script to yourself is how it comes to run
+              with an administrator's reach.
+            </p>
+          )}
         </div>
 
         {confirming ? (
           <ConfirmRow
+            noun={noun}
+            library={library}
             from={contract.owner_email}
             to={target}
             outputs={outputs}
@@ -215,6 +217,21 @@ function Outcome({ outcome }: { outcome: ScriptOwnerOutcome }) {
   );
 }
 
+// OwnerStatement says whose the script is and what that leaves to them alone.
+// A script's definition is readable by everyone signed in (#1866), so what is
+// the owner's is acting on it and reading its runs; a library never runs, so
+// its owner's is editing it.
+function OwnerStatement({ noun, library, owner }: { noun: string; library: boolean; owner?: string }) {
+  return (
+    <p className="text-sm text-muted-foreground">
+      This {noun} belongs to <span className="font-medium text-foreground">{owner || "nobody"}</span>.{" "}
+      {library
+        ? "Its owner is the only person who edits it."
+        : "Its owner is the only person who edits it, runs it, schedules it, and reads its runs."}
+    </p>
+  );
+}
+
 // ChooseOwner is the set the new owner is picked from: the people who have
 // signed in, read a page at a time, with the box that narrows the directory
 // when it holds more people than one page. Without that box the people past
@@ -223,10 +240,12 @@ function Outcome({ outcome }: { outcome: ScriptOwnerOutcome }) {
 function ChooseOwner({
   owner,
   value,
+  noun,
   onChange,
 }: {
   owner?: string;
   value: string;
+  noun: string;
   onChange: (email: string) => void;
 }) {
   const [typed, setTyped] = useState("");
@@ -258,6 +277,7 @@ function ChooseOwner({
         candidates={candidates}
         value={value}
         narrowed={search !== ""}
+        noun={noun}
         onChange={onChange}
       />
     </>
@@ -272,12 +292,14 @@ function OwnerSelect({
   candidates,
   value,
   narrowed,
+  noun,
   onChange,
 }: {
   candidates: DirectoryUser[];
   value: string;
   /** narrowed separates "nobody matched that" from "there is nobody". */
   narrowed: boolean;
+  noun: string;
   onChange: (email: string) => void;
 }) {
   if (candidates.length === 0) {
@@ -285,7 +307,7 @@ function OwnerSelect({
       <p className="text-sm text-muted-foreground">
         {narrowed
           ? "Nobody who has signed in matches that."
-          : "Nobody else has signed in yet, so there is no one to move this script to. A person appears here once they have signed in to the portal at least once."}
+          : `Nobody else has signed in yet, so there is no one to move this ${noun} to. A person appears here once they have signed in to the portal at least once.`}
       </p>
     );
   }
@@ -326,6 +348,8 @@ function personLabel(person: DirectoryUser): string {
 // files the script has written, because whether they go with it is the part
 // nobody used to be asked (#1588).
 function ConfirmRow({
+  noun,
+  library,
   from,
   to,
   outputs,
@@ -335,6 +359,8 @@ function ConfirmRow({
   onConfirm,
   onCancel,
 }: {
+  noun: string;
+  library: boolean;
   from?: string;
   to: string;
   outputs: ProducedItem[];
@@ -347,10 +373,12 @@ function ConfirmRow({
   return (
     <div className="space-y-3 rounded-md border p-3">
       <p className="text-sm">
-        Move this script from{" "}
+        Move this {noun} from{" "}
         <span className="font-medium">{from || "nobody"}</span> to{" "}
         <span className="font-medium">{to}</span>?{" "}
-        {from ? `${from} will no longer see it.` : "It has belonged to nobody until now."}
+        {from
+          ? `${from} will no longer be able to edit it${library ? "" : ", run it or read its runs"}.`
+          : "It has belonged to nobody until now."}
       </p>
       {outputs.length > 0 && (
         <OutputsChoice outputs={outputs} to={to} move={moveOutputs} onChange={onMoveOutputs} />

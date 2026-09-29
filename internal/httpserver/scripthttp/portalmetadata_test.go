@@ -236,3 +236,28 @@ func TestPortalListScripts_FacetsNarrowAnAdministratorToo(t *testing.T) {
 	assert.Equal(t, "reporting", store.lastFilter.Category)
 	assert.Empty(t, store.lastFilter.OwnerEmail, "an administrator carries no visibility predicate")
 }
+
+// TestPortalListScripts_NarrowsByKind: kind=script and kind=library narrow
+// the listing in the store, and kind=automation, the value the listing used
+// before the filter took the words of its Kind column (#1970), is refused
+// rather than read as no kind.
+func TestPortalListScripts_NarrowsByKind(t *testing.T) {
+	store := portalStore()
+	deps := portalDeps(store, nil, nil, carol)
+
+	rec := servePortal(t, deps, "/api/v1/portal/scripts?kind=script")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, store.lastFilter.Library)
+	assert.False(t, *store.lastFilter.Library)
+
+	rec = servePortal(t, deps, "/api/v1/portal/scripts?kind=library")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, store.lastFilter.Library)
+	assert.True(t, *store.lastFilter.Library)
+
+	store.lastFilter = script.ListFilter{}
+	rec = servePortal(t, deps, "/api/v1/portal/scripts?kind=automation")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), `unknown kind \"automation\"`)
+	assert.Nil(t, store.lastFilter.Library, "a refused listing never reaches the store")
+}

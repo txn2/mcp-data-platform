@@ -496,7 +496,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
     renderPage();
 
     expect(screen.getByRole("button", { name: "Transfer ownership" })).toBeInTheDocument();
-    expect(screen.getByText(/only person who sees it/)).toBeInTheDocument();
+    expect(screen.getByText(/only person who edits it, runs it, schedules it, and reads its runs/)).toBeInTheDocument();
     // It comes after everything the owner reads and does (#1406), and before
     // the delete, which is last on the page for every reader (#1575).
     expect(
@@ -909,6 +909,21 @@ describe("ScriptDetailPage: a library", () => {
     renderLibrary({ ...library, used_by: [] });
 
     expect(screen.getByText("No automation loads this library.")).toBeInTheDocument();
+  });
+
+  it("calls itself a library, never a script, where it has no description and when it is moved (#1970)", () => {
+    admin = true;
+    renderLibrary({ ...library, description: "" });
+
+    expect(screen.getByText(/^This library has no description\. Write what its functions do/)).toBeInTheDocument();
+    expect(screen.getByText(/This library belongs to/)).toHaveTextContent("Its owner is the only person who edits it.");
+    expect(screen.queryByText(/a run presents the access you hold now/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/This script/)).not.toBeInTheDocument();
+    admin = false;
+    cleanup();
+
+    renderLibrary({ ...library, description: "" }, false);
+    expect(screen.getByText("This library has no description.")).toBeInTheDocument();
   });
 
   it("shows a reader who does not own it who loads it, and that changing it is the owner's", () => {

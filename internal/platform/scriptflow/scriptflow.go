@@ -95,6 +95,12 @@ type Graph struct {
 	// ComparedWith is the older version this graph is compared against
 	// (#1908), zero when it is not a comparison.
 	ComparedWith int `json:"compared_with,omitempty"`
+	// Library is present when the script is a library (#1970): the functions
+	// it defines for another script to load. Derive does not set it: whether
+	// a script is a library is recorded when it is created, and a source with
+	// no main() saved before libraries existed is not one, so the caller that
+	// holds the script attaches it with LibraryOf.
+	Library *Library `json:"library,omitempty"`
 }
 
 // Node is one step, or the run.state input.

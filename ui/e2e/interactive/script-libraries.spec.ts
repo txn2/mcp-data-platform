@@ -39,7 +39,7 @@ test.describe("Portal script libraries", () => {
     await expect(libraryRow).toBeVisible();
 
     await main.getByLabel("Filter by kind").click();
-    await page.getByRole("option", { name: "Automations" }).click();
+    await page.getByRole("option", { name: "Scripts" }).click();
     await expect(page.getByRole("row").filter({ hasText: "Date Windows" })).toHaveCount(0);
     await expect(page.getByRole("row").filter({ hasText: "Daily Sales Report" })).toBeVisible();
 
@@ -66,8 +66,8 @@ test.describe("Portal script libraries", () => {
     await expect(page.getByRole("button", { name: "Dry run" })).toHaveCount(0);
 
     // Deleting a library a script still loads is refused, in the server's words.
-    await main.getByRole("button", { name: "Delete script" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Delete script" }).click();
+    await main.getByRole("button", { name: "Delete library" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete library" }).click();
     await expect(
       page.getByText(/this library is loaded by daily-sales-report, which would fail at their next run/),
     ).toBeVisible();

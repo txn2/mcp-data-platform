@@ -47,26 +47,26 @@ present, every authenticated caller gets it.
         "permission": "viewer"
       }
     ],
-    "new_shares_truncated": false,
-    "failing_automations": [
-      {
-        "name": "acme-dc-weather-watch",
-        "display_name": "DC weather",
-        "reference": "mcp:script:3f2a9c1e-0b7d-4f55-9a61-2d8e4b7c1a90",
-        "version": 6,
-        "run_id": "dpx_0de871f7ad2f350f7b63b8ffb8fe8edb",
-        "cause": "upstream",
-        "retryable": true,
-        "error": "Error in fail: fail: NWS returned 500 for Phoenix",
-        "consecutive_failures": 1,
-        "failed_at": "2026-08-15T17:00:18Z",
-        "last_succeeded_at": "2026-08-15T16:41:44Z",
-        "scheduled": true,
-        "new": true
-      }
-    ],
-    "failing_automations_total": 1
-  }
+    "new_shares_truncated": false
+  },
+  "failing_automations": [
+    {
+      "name": "acme-dc-weather-watch",
+      "display_name": "DC weather",
+      "reference": "mcp:script:3f2a9c1e-0b7d-4f55-9a61-2d8e4b7c1a90",
+      "version": 6,
+      "run_id": "dpx_0de871f7ad2f350f7b63b8ffb8fe8edb",
+      "cause": "upstream",
+      "retryable": true,
+      "error": "Error in fail: fail: NWS returned 500 for Phoenix",
+      "consecutive_failures": 1,
+      "failed_at": "2026-08-15T17:00:18Z",
+      "last_succeeded_at": "2026-08-15T16:41:44Z",
+      "scheduled": true,
+      "new": true
+    }
+  ],
+  "failing_automations_total": 1
 }
 ```
 
@@ -89,8 +89,15 @@ floor rather than as the whole set.
 
 **`failing_automations`** holds the automations the caller owns whose latest
 finished run failed (#1934), newest failure first, capped at ten with
-`failing_automations_total` the whole count. A failure followed by a successful
-run is resolved and not listed; a disabled automation is not listed. Each entry
+`failing_automations_total` the whole count. It sits at the top level of the
+`platform_info` result, beside `notices` rather than inside it: releases up to
+v1.137.1 advertised `notices` as a closed object, and an MCP client still holding
+one of those tool lists refuses a result whose `notices` carries a key it does
+not declare (#1971). A failure followed by a successful run is resolved and not
+listed. An automation taken out of service is not listed either, however its
+last run ended (#1973): disabled by its owner (`manage_script` update with
+`enabled` false), or deprecated or superseded by an administrator. Enabling it
+again, or returning it to active, lists its failed run again. Each entry
 names the failed run (`run_id`, for `manage_script` get_run), the version it
 ran, why it failed (`cause` and `retryable`, the values the run itself records),
 the last line of its error, how many finished runs in a row have failed, when a
@@ -110,8 +117,9 @@ portal's [activity feed](../portal/activity.md) and
 [Shared With Me](../portal/shared.md) remain the complete views, and
 the agent instructions say so.
 
-The block is absent entirely when there is nothing to report, and for an
-anonymous caller.
+The `notices` block is absent when it has no feedback or shares to report,
+`failing_automations` is absent when nothing is failing, and both are absent for
+an anonymous caller.
 
 ## Delivered once
 

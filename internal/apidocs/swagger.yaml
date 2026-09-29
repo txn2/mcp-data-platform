@@ -3613,6 +3613,15 @@ definitions:
         items:
           $ref: '#/definitions/scriptflow.Group'
         type: array
+      library:
+        allOf:
+        - $ref: '#/definitions/scriptflow.Library'
+        description: |-
+          Library is present when the script is a library (#1970): the functions
+          it defines for another script to load. Derive does not set it: whether
+          a script is a library is recorded when it is created, and a source with
+          no main() saved before libraries existed is not one, so the caller that
+          holds the script attaches it with LibraryOf.
       lines:
         description: Lines is the source's line count, for the reader's scale.
         example: 136
@@ -8053,6 +8062,27 @@ definitions:
       name:
         type: string
     type: object
+  scriptflow.Function:
+    properties:
+      doc:
+        description: Doc is the first sentence of the function's docstring.
+        example: The seven days before today.
+        type: string
+      line:
+        example: 12
+        type: integer
+      name:
+        example: last_week
+        type: string
+      params:
+        description: Params is each parameter as the source writes it, a default included.
+        example:
+        - today
+        - days=7
+        items:
+          type: string
+        type: array
+    type: object
   scriptflow.Graph:
     properties:
       compared_with:
@@ -8072,6 +8102,15 @@ definitions:
         items:
           $ref: '#/definitions/scriptflow.Group'
         type: array
+      library:
+        allOf:
+        - $ref: '#/definitions/scriptflow.Library'
+        description: |-
+          Library is present when the script is a library (#1970): the functions
+          it defines for another script to load. Derive does not set it: whether
+          a script is a library is recorded when it is created, and a source with
+          no main() saved before libraries existed is not one, so the caller that
+          holds the script attaches it with LibraryOf.
       lines:
         description: Lines is the source's line count, for the reader's scale.
         example: 136
@@ -8120,6 +8159,20 @@ definitions:
         type: string
       parent:
         description: Parent is the id of the enclosing box, empty at the top level.
+        type: string
+    type: object
+  scriptflow.Library:
+    properties:
+      functions:
+        description: Functions is every function a load can name, in source order.
+        items:
+          $ref: '#/definitions/scriptflow.Function'
+        type: array
+      load:
+        description: |-
+          Load is the statement that loads every one of them from this version,
+          empty when there is none to load.
+        example: load("lib:date-windows@2", "last_week")
         type: string
     type: object
   scriptflow.Node:
@@ -16400,7 +16453,8 @@ paths:
         source: every platform call as a step, the values passed between them, the
         function boxes they are drawn in, and the run parameters with the steps each
         one reaches. A source that does not parse returns ok false with its findings
-        and an empty diagram.'
+        and an empty diagram. For a library, library lists each function a load can
+        name, with its parameters as written and the first sentence of its docstring.'
       parameters:
       - description: Script ID
         in: path
@@ -23393,13 +23447,13 @@ paths:
         scope=granted lists the scripts granted to the caller's persona, roles or
         API key, each with its parameter contract, which is the catalog an application
         builds from. Administrators see every script either way. The category, tag,
-        search, owner, status, enabled and kind parameters narrow the listing; kind=library
-        lists the libraries other scripts load (#1941) and kind=automation the scripts
-        that run; tag may be repeated, and a script matching any of the named tags
-        is returned. sort and dir order it in the store, ahead of the page cap, so
-        an ordering is over every matching script rather than over the page. total
-        counts every script the predicate matches, so it exceeds the rows returned
-        when the listing was capped.
+        search, owner, status, enabled and kind parameters narrow the listing; kind=script
+        lists the scripts that run and kind=library the libraries other scripts load
+        (#1941), and any other kind is refused; tag may be repeated, and a script
+        matching any of the named tags is returned. sort and dir order it in the store,
+        ahead of the page cap, so an ordering is over every matching script rather
+        than over the page. total counts every script the predicate matches, so it
+        exceeds the rows returned when the listing was capped.
       parameters:
       - description: 'Whose scripts to list: mine (default), all, or granted'
         enum:
@@ -23437,10 +23491,11 @@ paths:
         in: query
         name: enabled
         type: boolean
-      - description: Narrow to libraries or to the scripts that run
+      - description: Narrow to the scripts that run or to the libraries they load;
+          any other value is refused
         enum:
+        - script
         - library
-        - automation
         in: query
         name: kind
         type: string
@@ -23468,6 +23523,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/scripthttp.portalScriptListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
@@ -24639,7 +24698,11 @@ paths:
         source: every platform call as a step, the values passed between them, the
         function boxes they are drawn in, and the run parameters with the steps each
         one reaches. A source that does not parse returns ok false with its findings
-        and an empty diagram. Readable by everyone signed in, as the source is.'
+        and an empty diagram. For a library, library lists each function a load can
+        name, with its parameters as written and the first sentence of its docstring.
+        For a library, library lists each function a load can name, with its parameters
+        as written and the first sentence of its docstring. Readable by everyone signed
+        in, as the source is.'
       parameters:
       - description: Script ID
         in: path

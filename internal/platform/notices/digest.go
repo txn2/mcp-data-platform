@@ -51,10 +51,16 @@ type Digest struct {
 	// finished run failed, newest failure first, capped at
 	// maxAutomationNotices (#1934). Unlike the other lists it is not bounded
 	// by the watermark: an automation that is still failing is still listed.
-	FailingAutomations []AutomationNotice `json:"failing_automations,omitempty"`
+	//
+	// It is not part of the notices block's JSON (#1971): releases up to
+	// v1.137.1 advertised that block as a closed object, and a client still
+	// holding one of those tool lists rejects a key it does not declare.
+	// platform_info carries the list at its top level, which every release
+	// since v1.102.0 has advertised open; see Failing.
+	FailingAutomations []AutomationNotice `json:"-"`
 	// FailingAutomationsTotal is how many there are, which exceeds the list
 	// when the cap cut it.
-	FailingAutomationsTotal int `json:"failing_automations_total,omitempty"`
+	FailingAutomationsTotal int `json:"-"`
 }
 
 // FeedbackNotice is one unresolved feedback thread on an asset the caller owns,
@@ -103,6 +109,25 @@ func (d *Digest) Counts() (feedback, shares, automations int) {
 		return 0, 0, 0
 	}
 	return d.FeedbackTotal, len(d.NewShares), d.FailingAutomationsTotal
+}
+
+// Notices returns the digest as the notices block of platform_info carries it:
+// nil when it holds nothing but failing automations, which are carried beside
+// it, so an empty block is never sent.
+func (d *Digest) Notices() *Digest {
+	if d == nil || (len(d.Feedback) == 0 && len(d.NewShares) == 0) {
+		return nil
+	}
+	return d
+}
+
+// Failing returns the failing automations and how many there are, and answers
+// none for a nil digest so the caller needs no nil check.
+func (d *Digest) Failing() (list []AutomationNotice, total int) {
+	if d == nil {
+		return nil, 0
+	}
+	return d.FailingAutomations, d.FailingAutomationsTotal
 }
 
 // empty reports whether the digest has nothing to say, in which case it is not

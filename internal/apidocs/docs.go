@@ -8463,7 +8463,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram.",
+                "description": "Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. For a library, library lists each function a load can name, with its parameters as written and the first sentence of its docstring.",
                 "produces": [
                     "application/json"
                 ],
@@ -19014,7 +19014,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=library lists the libraries other scripts load (#1941) and kind=automation the scripts that run; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
+                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
                 "produces": [
                     "application/json"
                 ],
@@ -19076,11 +19076,11 @@ const docTemplate = `{
                     },
                     {
                         "enum": [
-                            "library",
-                            "automation"
+                            "script",
+                            "library"
                         ],
                         "type": "string",
-                        "description": "Narrow to libraries or to the scripts that run",
+                        "description": "Narrow to the scripts that run or to the libraries they load; any other value is refused",
                         "name": "kind",
                         "in": "query"
                     },
@@ -19113,6 +19113,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.portalScriptListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -20993,7 +20999,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. Readable by everyone signed in, as the source is.",
+                "description": "Returns the diagram of one version of a script, derived from its source: every platform call as a step, the values passed between them, the function boxes they are drawn in, and the run parameters with the steps each one reaches. A source that does not parse returns ok false with its findings and an empty diagram. For a library, library lists each function a load can name, with its parameters as written and the first sentence of its docstring. For a library, library lists each function a load can name, with its parameters as written and the first sentence of its docstring. Readable by everyone signed in, as the source is.",
                 "produces": [
                     "application/json"
                 ],
@@ -28648,6 +28654,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/scriptflow.Group"
                     }
                 },
+                "library": {
+                    "description": "Library is present when the script is a library (#1970): the functions\nit defines for another script to load. Derive does not set it: whether\na script is a library is recorded when it is created, and a source with\nno main() saved before libraries existed is not one, so the caller that\nholds the script attaches it with LibraryOf.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scriptflow.Library"
+                        }
+                    ]
+                },
                 "lines": {
                     "description": "Lines is the source's line count, for the reader's scale.",
                     "type": "integer",
@@ -34133,6 +34147,35 @@ const docTemplate = `{
                 }
             }
         },
+        "scriptflow.Function": {
+            "type": "object",
+            "properties": {
+                "doc": {
+                    "description": "Doc is the first sentence of the function's docstring.",
+                    "type": "string",
+                    "example": "The seven days before today."
+                },
+                "line": {
+                    "type": "integer",
+                    "example": 12
+                },
+                "name": {
+                    "type": "string",
+                    "example": "last_week"
+                },
+                "params": {
+                    "description": "Params is each parameter as the source writes it, a default included.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "today",
+                        "days=7"
+                    ]
+                }
+            }
+        },
         "scriptflow.Graph": {
             "type": "object",
             "properties": {
@@ -34157,6 +34200,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/scriptflow.Group"
                     }
+                },
+                "library": {
+                    "description": "Library is present when the script is a library (#1970): the functions\nit defines for another script to load. Derive does not set it: whether\na script is a library is recorded when it is created, and a source with\nno main() saved before libraries existed is not one, so the caller that\nholds the script attaches it with LibraryOf.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scriptflow.Library"
+                        }
+                    ]
                 },
                 "lines": {
                     "description": "Lines is the source's line count, for the reader's scale.",
@@ -34220,6 +34271,23 @@ const docTemplate = `{
                 "parent": {
                     "description": "Parent is the id of the enclosing box, empty at the top level.",
                     "type": "string"
+                }
+            }
+        },
+        "scriptflow.Library": {
+            "type": "object",
+            "properties": {
+                "functions": {
+                    "description": "Functions is every function a load can name, in source order.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.Function"
+                    }
+                },
+                "load": {
+                    "description": "Load is the statement that loads every one of them from this version,\nempty when there is none to load.",
+                    "type": "string",
+                    "example": "load(\"lib:date-windows@2\", \"last_week\")"
                 }
             }
         },

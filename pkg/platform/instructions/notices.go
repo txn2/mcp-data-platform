@@ -24,7 +24,10 @@ import (
 //
 // Failing automations (#1934) are the exception to single-shot delivery: an
 // automation that is still failing is listed at every session start until a
-// run of it succeeds, because being told does not fix it.
+// run of it succeeds, because being told does not fix it. Its owner takes one
+// off the list by disabling it, and an administrator by deprecating or
+// superseding it (#1973). The list sits at platform_info's top
+// level, beside notices rather than in it (#1971).
 //
 // It returns the empty string when there is nothing to relay, so the caller can
 // append it unconditionally, and it names `fetch`, `manage_feedback` and
@@ -37,8 +40,8 @@ func NoticesNote(accessibleTools []string, feedback, shares, automations int) st
 
 	lines := []string{
 		"Waiting for the person you are working for:",
-		"This response carries a `notices` block. It is addressed to them, not to you. " +
-			"Relay it before you start on their request, in your own words, and let them " +
+		"This response carries " + blocksCarried(feedback+shares, automations) + ". It is addressed to them, " +
+			"not to you. Relay it before you start on their request, in your own words, and let them " +
 			"decide what to do about it.",
 	}
 	if feedback > 0 {
@@ -62,16 +65,31 @@ func NoticesNote(accessibleTools []string, feedback, shares, automations int) st
 	return strings.Join(lines, "\n")
 }
 
+// blocksCarried names the response keys the briefing is in: notices holds
+// feedback and shares, and failing_automations sits beside it.
+func blocksCarried(noticed, automations int) string {
+	switch {
+	case noticed > 0 && automations > 0:
+		return "a `notices` block and a `failing_automations` list"
+	case automations > 0:
+		return "a `failing_automations` list"
+	default:
+		return "a `notices` block"
+	}
+}
+
 // automationBullet describes the failing-automations half of the digest.
 func automationBullet(count int, hasManageScript bool) string {
-	b := fmt.Sprintf("`notices.failing_automations` — %s they own whose latest run failed. For each, say "+
+	b := fmt.Sprintf("`failing_automations` — %s they own whose latest run failed. For each, say "+
 		"what it failed on (`error`), how many runs in a row have failed, and whether it is expected to pass "+
 		"on its next run (`retryable`) or needs fixing; `new` marks a failure since they were last briefed. "+
-		"An automation stays in this list at every session start until a run of it succeeds.",
+		"An automation stays in this list at every session start until a run of it succeeds, or until they "+
+		"disable it or mark it deprecated or superseded.",
 		pluralize(count, "automation", "automations"))
 	if hasManageScript {
 		b += " Read the failed run with `manage_script` get_run on its `run_id`; if the script needs a fix, " +
-			"offer to correct it with run_draft and save it."
+			"offer to correct it with run_draft and save it. If they no longer want it, offer to disable it " +
+			"with `manage_script` update and `enabled` false, which they can undo the same way."
 	}
 	return b
 }

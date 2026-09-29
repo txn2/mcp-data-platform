@@ -2,6 +2,7 @@ package notices
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -25,9 +26,25 @@ type fakeScripts struct {
 	gotFilter script.ListFilter
 }
 
+// List applies the enabled and status predicates the store's query applies,
+// so a test of which automations are briefed exercises the filter the
+// briefing asks for rather than assuming it.
 func (f *fakeScripts) List(_ context.Context, filter script.ListFilter) ([]script.Script, error) {
 	f.gotFilter = filter
-	return f.owned, f.listErr
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	out := make([]script.Script, 0, len(f.owned))
+	for _, sc := range f.owned {
+		if filter.Enabled != nil && sc.Enabled != *filter.Enabled {
+			continue
+		}
+		if filter.Status != "" && sc.Status != filter.Status {
+			continue
+		}
+		out = append(out, sc)
+	}
+	return out, nil
 }
 
 func (f *fakeScripts) ListSchedules(context.Context, script.ScheduleFilter) ([]script.Schedule, error) {
@@ -45,9 +62,9 @@ var _ AutomationSource = (*fakeScripts)(nil)
 func weatherWatch() *fakeScripts {
 	return &fakeScripts{
 		owned: []script.Script{
-			{ID: "sc-weather", Name: "acme-dc-weather-watch", DisplayName: "DC weather"},
-			{ID: "sc-sales", Name: "daily-sales"},
-			{ID: "sc-idle", Name: "never-run"},
+			{ID: "sc-weather", Name: "acme-dc-weather-watch", DisplayName: "DC weather", Enabled: true, Status: script.StatusActive},
+			{ID: "sc-sales", Name: "daily-sales", Enabled: true, Status: script.StatusActive},
+			{ID: "sc-idle", Name: "never-run", Enabled: true, Status: script.StatusActive},
 		},
 		schedules: []script.Schedule{{ScriptID: "sc-weather", Enabled: true}},
 		streaks: map[string]runstate.FailureStreak{
@@ -83,6 +100,78 @@ func TestBuildNamesFailingAutomations(t *testing.T) {
 	assert.Equal(t, callerEmail, scripts.gotFilter.OwnerEmail, "the caller's own automations, as their email is stored")
 	require.NotNil(t, scripts.gotFilter.Enabled)
 	assert.True(t, *scripts.gotFilter.Enabled)
+	assert.Equal(t, script.StatusActive, scripts.gotFilter.Status)
+}
+
+// #1973: an automation its owner retired -- superseded, deprecated or
+// disabled -- is not briefed again, however its last run ended; the one still
+// in service is.
+func TestBuildDoesNotBriefARetiredAutomation(t *testing.T) {
+	failed := runstate.FailureStreak{
+		Failed: 1, LastFailedRunID: "dpx_old", LastFailedVersion: 3, LastCause: "script",
+		LastError: "fail: the input was not what this script expects", LastFailedAt: new(testMark.Add(time.Hour)),
+	}
+	scripts := &fakeScripts{
+		owned: []script.Script{
+			{ID: "sc-live", Name: "still-in-service", Enabled: true, Status: script.StatusActive},
+			{ID: "sc-superseded", Name: "replaced", Enabled: true, Status: script.StatusSuperseded, SupersededBy: "still-in-service"},
+			{ID: "sc-deprecated", Name: "retired", Enabled: true, Status: script.StatusDeprecated},
+			{ID: "sc-disabled", Name: "switched-off", Enabled: false, Status: script.StatusActive},
+		},
+		streaks: map[string]runstate.FailureStreak{
+			"sc-live": failed, "sc-superseded": failed, "sc-deprecated": failed, "sc-disabled": failed,
+		},
+	}
+	h := testHandle(&fakeAssets{}, &fakeShares{}, &fakeThreads{}, &fakeMarks{mark: &testMark})
+	h.scripts = scripts
+
+	digest := h.Build(context.Background(), testCaller())
+	require.NotNil(t, digest)
+	failing, total := digest.Failing()
+	require.Len(t, failing, 1)
+	assert.Equal(t, "still-in-service", failing[0].Name)
+	assert.Equal(t, 1, total, "a retired automation is not counted either")
+}
+
+// A caller whose only failing automation was retired is briefed on nothing.
+func TestBuildBriefsNothingWhenTheOnlyFailureWasRetired(t *testing.T) {
+	marks := &fakeMarks{mark: &testMark}
+	h := testHandle(&fakeAssets{}, &fakeShares{}, &fakeThreads{}, marks)
+	h.scripts = &fakeScripts{
+		owned: []script.Script{{ID: "sc-old", Name: "replaced", Enabled: true, Status: script.StatusSuperseded}},
+		streaks: map[string]runstate.FailureStreak{
+			"sc-old": {Failed: 1, LastFailedRunID: "dpx_old", LastCause: "script", LastFailedAt: new(testMark.Add(time.Hour))},
+		},
+	}
+	assert.Nil(t, h.Build(context.Background(), testCaller()))
+}
+
+// #1971: the notices block holds feedback and shares only; a digest of
+// nothing but failing automations has no block, and the automations are read
+// through Failing.
+func TestDigestNoticesLeavesFailingAutomationsBeside(t *testing.T) {
+	h := testHandle(&fakeAssets{}, &fakeShares{}, &fakeThreads{}, &fakeMarks{mark: &testMark})
+	h.scripts = weatherWatch()
+
+	digest := h.Build(context.Background(), testCaller())
+	require.NotNil(t, digest)
+	assert.Nil(t, digest.Notices(), "only failing automations: no notices block")
+	failing, total := digest.Failing()
+	assert.Len(t, failing, 1)
+	assert.Equal(t, 1, total)
+
+	raw, err := json.Marshal(&Digest{
+		Since: "2026-08-10T09:00:00Z", NewShares: []ShareNotice{{Kind: "asset", ID: "a1", Reference: "mcp:asset:a1"}},
+		FailingAutomations: failing, FailingAutomationsTotal: total,
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "failing_automations", "the notices block never carries the list")
+
+	var none *Digest
+	assert.Nil(t, none.Notices())
+	list, n := none.Failing()
+	assert.Nil(t, list)
+	assert.Zero(t, n)
 }
 
 // A failure already briefed is still listed, because the automation is still
@@ -103,7 +192,7 @@ func TestBuildCapsFailingAutomations(t *testing.T) {
 	scripts := &fakeScripts{streaks: map[string]runstate.FailureStreak{}}
 	for i := range maxAutomationNotices + 3 {
 		id := fmt.Sprintf("sc-%02d", i)
-		scripts.owned = append(scripts.owned, script.Script{ID: id, Name: id})
+		scripts.owned = append(scripts.owned, script.Script{ID: id, Name: id, Enabled: true, Status: script.StatusActive})
 		scripts.streaks[id] = runstate.FailureStreak{Failed: 1, LastFailedAt: new(testMark.Add(time.Duration(i) * time.Minute))}
 	}
 	h := testHandle(&fakeAssets{}, &fakeShares{}, &fakeThreads{}, &fakeMarks{mark: &testMark})
