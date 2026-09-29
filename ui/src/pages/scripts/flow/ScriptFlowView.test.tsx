@@ -60,6 +60,13 @@ beforeEach(() => {
   // These describe the Calls view (#1906); the Structure view, the default
   // since #1972, is described in ScriptFlowView.structure.test.tsx.
   window.history.replaceState(null, "", "/?view=calls");
+  // A view chosen in one test is kept in browser storage where the runtime
+  // has it, and would open the next test on that view.
+  try {
+    window.localStorage?.removeItem("portal.flow.view");
+  } catch {
+    // No storage to clear.
+  }
   mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useScriptRunPage>);
   mockVersions.mockReturnValue({ data: undefined } as ReturnType<typeof usePortalScriptVersions>);
   mockRunFlow.mockReturnValue({ isLoading: false } as ReturnType<typeof useScriptRunFlow>);
