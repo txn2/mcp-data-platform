@@ -25,6 +25,7 @@ import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptCodeCard } from "./ScriptCodeCard";
 import { ScriptFlowView } from "./flow/ScriptFlowView";
 import { SourceLines } from "./SourceLines";
+import { ScriptTestsView } from "./ScriptTestsView";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 import { ScriptChanges } from "./ScriptChanges";
 import { ScriptUsedBy } from "./ScriptUsedBy";
@@ -262,6 +263,15 @@ function ScriptSourceReadOnly({
           version={contract.version}
           source={source ?? ""}
           sourceSelection={link.selectedLines}
+          onShowLines={link.showLines}
+        />
+      )}
+      tests={(link) => (
+        <ScriptTestsView
+          scriptId={scriptId}
+          version={contract.version}
+          source={source ?? ""}
+          owned={false}
           onShowLines={link.showLines}
         />
       )}

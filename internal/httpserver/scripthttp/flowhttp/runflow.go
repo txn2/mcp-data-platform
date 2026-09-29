@@ -123,7 +123,7 @@ func (h *Handler) runCalls(ctx context.Context, run *script.Run) ([]flowrun.Call
 		}
 		calls = append(calls, flowrun.Call{
 			CallSite: e.CallSite, Tool: e.ToolName, DurationMS: e.DurationMS,
-			Success: e.Success, Error: e.ErrorMessage, ResponseChars: e.ResponseChars,
+			Success: e.Success, Error: e.ErrorMessage, ResponseChars: e.ResponseChars, At: e.Timestamp,
 		})
 	}
 	return calls, truncated, nil
@@ -134,5 +134,14 @@ func runFacts(run *script.Run) flowrun.RunFacts {
 	return flowrun.RunFacts{
 		Status: run.Status, Cause: run.Cause, Error: run.Error, Outputs: run.Outputs,
 		StateSaved: run.StateWritten != nil, HasResult: len(run.Result) > 0,
+		StartedAt: deref(run.StartedAt), FinishedAt: deref(run.FinishedAt),
 	}
+}
+
+// deref is a time the run record may not have yet, as the zero time.
+func deref(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }

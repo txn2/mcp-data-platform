@@ -18,17 +18,32 @@ beforeAll(async () => {
 afterEach(cleanup);
 
 describe("FlowTile", () => {
-  it("draws the diagram fit to the tile and says it is drawn", async () => {
+  it("draws the Structure view fit to the tile and says it is drawn (#1972)", async () => {
     const onDrawn = vi.fn();
     render(<FlowTile content={JSON.stringify(sampleGraph())} onDrawn={onDrawn} />);
     const tile = await screen.findByTestId("flow-tile", {}, LAYOUT_WAIT);
-    expect(tile.querySelectorAll("[data-node]")).toHaveLength(sampleGraph().nodes.length);
+    expect(tile).toHaveAttribute("data-view", "structure");
+    expect(tile.querySelectorAll("[data-struct]")).toHaveLength(sampleGraph().structure.nodes.length);
     await waitFor(() => expect(onDrawn).toHaveBeenCalledWith(""), LAYOUT_WAIT);
+  });
+
+  it("draws the value graph from a graph that carries no structure", async () => {
+    const onDrawn = vi.fn();
+    const { structure: _, ...older } = sampleGraph();
+    render(<FlowTile content={JSON.stringify(older)} onDrawn={onDrawn} />);
+    const tile = await screen.findByTestId("flow-tile", {}, LAYOUT_WAIT);
+    expect(tile.querySelectorAll("[data-node]")).toHaveLength(sampleGraph().nodes.length);
   });
 
   it("draws an empty diagram for a script with no platform calls, not an error", async () => {
     const onDrawn = vi.fn();
-    render(<FlowTile content={JSON.stringify({ ...sampleGraph(), nodes: [], edges: [], groups: [] })} onDrawn={onDrawn} />);
+    const g = sampleGraph();
+    render(
+      <FlowTile
+        content={JSON.stringify({ ...g, nodes: [], edges: [], groups: [], structure: { ...g.structure, nodes: [] } })}
+        onDrawn={onDrawn}
+      />,
+    );
     expect(screen.getByTestId("flow-tile-empty")).toHaveTextContent("No platform calls");
     await waitFor(() => expect(onDrawn).toHaveBeenCalledWith(""));
   });

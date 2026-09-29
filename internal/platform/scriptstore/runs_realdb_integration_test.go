@@ -302,3 +302,34 @@ func TestRealDB_DeletingAScriptTakesItsRunsWithIt(t *testing.T) {
 	_, err := s.GetRun(ctx, "dpx_a")
 	assert.ErrorIs(t, err, script.ErrRunNotFound)
 }
+
+// TestRealDB_RunHistoryPagesAndCounts reads a paged run history against the
+// real schema (#1972): the count is every run, and the second page holds the
+// runs the first page did not.
+func TestRealDB_RunHistoryPagesAndCounts(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+
+	sc, version := savedScript(ctx, t, s, "paged")
+	for i := range 5 {
+		require.NoError(t, s.Enqueue(ctx, &script.Run{
+			ID: "dpx_page_" + string(rune('a'+i)), ScriptID: sc.ID, VersionID: version.ID,
+			Version: version.Version, Trigger: script.TriggerTool,
+		}))
+	}
+	n, err := s.CountRuns(ctx, script.RunFilter{ScriptID: sc.ID, Limit: 2})
+	require.NoError(t, err)
+	assert.Equal(t, 5, n)
+
+	first, err := s.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID, Limit: 2})
+	require.NoError(t, err)
+	second, err := s.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID, Limit: 2, Offset: 2})
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	require.Len(t, second, 2)
+	for _, r := range second {
+		assert.NotEqual(t, first[0].ID, r.ID)
+		assert.NotEqual(t, first[1].ID, r.ID)
+	}
+}

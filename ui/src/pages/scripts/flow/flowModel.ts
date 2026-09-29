@@ -1,4 +1,12 @@
-import type { FlowChange, FlowEdge, FlowNode, FlowNodeRun, FlowRole, ScriptFlow } from "@/api/portal/hooks/scriptFlow";
+import type {
+  FlowChange,
+  FlowEdge,
+  FlowNode,
+  FlowNodeRun,
+  FlowOtherCall,
+  FlowRole,
+  ScriptFlow,
+} from "@/api/portal/hooks/scriptFlow";
 
 // The pure half of the Flow tab (#1906): how a step's card is worded and sized,
 // what a selection lights up, and which cards a range of source lines
@@ -191,11 +199,15 @@ export function roundedPath(points: Array<{ x: number; y: number }>, radius = 8)
   return d;
 }
 
-// Selection is what the reader picked: a card, a function box, or a parameter.
+// Selection is what the reader picked: a card, a function box, or a
+// parameter; in the Structure view (#1972) also a control node (a decision,
+// an exit, a folded helper) or a loop or helper box.
 export type Selection =
   | { kind: "node"; id: string }
   | { kind: "group"; id: string }
   | { kind: "param"; name: string }
+  | { kind: "struct"; id: string }
+  | { kind: "sbox"; id: string }
   | null;
 
 // LineRange is a span of source lines, both ends included.
@@ -270,4 +282,57 @@ export function excerpt(source: string, line: number, before: number, after: num
   const out: string[] = [];
   for (let i = from; i <= to; i++) out.push(`${String(i).padStart(width)}  ${lines[i - 1]}`);
   return out.join("\n");
+}
+
+// CallGroup is the calls of one tool a run made that no card made (#1972),
+// counted rather than listed one per line.
+export interface CallGroup {
+  tool: string;
+  succeeded: number;
+  failed: number;
+  // errors counts each failure message, most frequent first.
+  errors: { error: string; count: number }[];
+  medianMS: number;
+  totalMS: number;
+  calls: FlowOtherCall[];
+}
+
+// groupCalls groups calls by tool, with the tools that had failures first.
+export function groupCalls(calls: FlowOtherCall[]): CallGroup[] {
+  const byTool = new Map<string, FlowOtherCall[]>();
+  for (const c of calls) {
+    const list = byTool.get(c.tool) ?? [];
+    list.push(c);
+    byTool.set(c.tool, list);
+  }
+  const out: CallGroup[] = [];
+  for (const [tool, list] of byTool) {
+    const errors = new Map<string, number>();
+    for (const c of list) {
+      if (!c.success) errors.set(c.error || "no message", (errors.get(c.error || "no message") ?? 0) + 1);
+    }
+    const durations = list.map((c) => c.duration_ms).sort((a, b) => a - b);
+    const failed = list.filter((c) => !c.success).length;
+    out.push({
+      tool,
+      succeeded: list.length - failed,
+      failed,
+      errors: [...errors].map(([error, count]) => ({ error, count })).sort((a, b) => b.count - a.count),
+      medianMS: durations[Math.floor((durations.length - 1) / 2)] ?? 0,
+      totalMS: durations.reduce((s, d) => s + d, 0),
+      calls: list,
+    });
+  }
+  return out.sort((a, b) => b.failed - a.failed || b.calls.length - a.calls.length || a.tool.localeCompare(b.tool));
+}
+
+// callGroupText is one group as the side panel reads it:
+// "api_invoke_endpoint: 54 succeeded, 144 failed (Not Found 132, Forbidden 12), median 76 ms".
+export function callGroupText(g: CallGroup): string {
+  const parts = [`${g.succeeded} succeeded`];
+  if (g.failed > 0) {
+    const why = g.errors.map((e) => `${e.error} ${e.count}`).join(", ");
+    parts.push(`${g.failed} failed (${why})`);
+  }
+  return `${g.tool}: ${parts.join(", ")}, median ${formatDuration(g.medianMS)}`;
 }

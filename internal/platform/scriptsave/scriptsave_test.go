@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttest"
+	"github.com/txn2/mcp-data-platform/internal/testreport"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -322,6 +323,33 @@ func TestApplySetsTheSourceAndTheChange(t *testing.T) {
 	assert.Equal(t, "x", sc.Source)
 	assert.Equal(t, "s", sc.ChangeSummary)
 	assert.Equal(t, "a", sc.ChangeAgreedBy)
+	assert.Nil(t, sc.Tests, "a save whose tests did not run keeps no report")
+}
+
+// The report a save keeps is each test's outcome and the coverage (#1972);
+// the logs and notes a saver reads are not kept.
+func TestApplyKeepsTheTestReport(t *testing.T) {
+	sc := &script.Script{}
+	Result{Tests: &scripttest.Report{
+		Tests: []scripttest.Result{
+			{Name: "test_a", Passed: true, Line: 4, Log: "printed", Notes: []string{"n"}},
+			{Name: "test_b", Passed: false, Line: 9, Failure: "want 2, got 3"},
+		},
+		Passed: 1, Failed: 1,
+		Coverage: scripttest.Coverage{Statements: 20, Covered: 17, Percent: 85, MissedLines: []int{3, 8}},
+	}}.Apply(sc)
+	assert.Equal(t, &testreport.Report{
+		Tests: []testreport.Outcome{
+			{Name: "test_a", Passed: true, Line: 4},
+			{Name: "test_b", Passed: false, Line: 9, Failure: "want 2, got 3"},
+		},
+		Passed: 1, Failed: 1,
+		Coverage: testreport.Coverage{Statements: 20, Covered: 17, Percent: 85, MissedLines: []int{3, 8}},
+	}, sc.Tests)
+
+	empty := TestReport(&scripttest.Report{})
+	assert.Equal(t, []testreport.Outcome{}, empty.Tests)
+	assert.Equal(t, []int{}, empty.Coverage.MissedLines)
 }
 
 func TestAScriptsTestsMustReadEveryOutputTheyProduce(t *testing.T) {

@@ -60,6 +60,17 @@ export interface ScriptVersion {
   change_summary?: string;
   change_agreed_by?: string;
   change_agreed_at?: string;
+  // tests is what the version's tests found when it was saved (#1972),
+  // absent on a version saved before reports were kept.
+  tests?: ScriptVersionTests;
+}
+
+// ScriptVersionTests is a saved version's test report.
+export interface ScriptVersionTests {
+  tests: { name: string; passed: boolean; line?: number; failure?: string }[];
+  passed: number;
+  failed: number;
+  coverage: { statements: number; covered: number; percent: number; missed_lines: number[] };
 }
 
 // ReferencedCapabilities is what a static read of the source found.

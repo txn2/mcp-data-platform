@@ -19961,7 +19961,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the run history of a script the caller owns, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. Restricted to the script's owner and to administrators.",
+                "description": "Returns the run history of a script the caller owns, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. page reads further back one page of per_page at a time, and total counts every run the filter matches, so it exceeds the rows returned when the history is longer than a page. Restricted to the script's owner and to administrators.",
                 "produces": [
                     "application/json"
                 ],
@@ -19993,6 +19993,12 @@
                         "type": "integer",
                         "description": "Maximum rows to return",
                         "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page of per_page runs",
+                        "name": "page",
                         "in": "query"
                     }
                 ],
@@ -28661,6 +28667,14 @@
                     "type": "string",
                     "example": "script_a1b2c3"
                 },
+                "structure": {
+                    "description": "Structure is the script drawn in the order it runs (#1972), the Flow\ntab's default view.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scriptflow.Structure"
+                        }
+                    ]
+                },
                 "truncated": {
                     "description": "Truncated is true when the script expands into more steps than one\ndiagram draws; the graph holds the first ones.",
                     "type": "boolean"
@@ -28714,6 +28728,9 @@
                     "type": "string",
                     "example": "dpx_a1b2c3d4"
                 },
+                "run_ms": {
+                    "type": "integer"
+                },
                 "script_id": {
                     "type": "string",
                     "example": "script_a1b2c3"
@@ -28721,6 +28738,21 @@
                 "status": {
                     "type": "string",
                     "example": "failed"
+                },
+                "structure_failed": {
+                    "description": "StructureFailed is the Structure view's node or box the run failed at\n(#1972): the fail() or the call its backtrace ends in, or else the\ninnermost helper expansion the failing line is in.",
+                    "type": "string"
+                },
+                "timeline": {
+                    "description": "Timeline is every audited call in the order it was made, for the\nTimeline view (#1972), and RunMS the run's length.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/flowrun.TimedCall"
+                    }
+                },
+                "unplaced": {
+                    "description": "Unplaced is true when the run made calls and none of them recorded\nwhere in the script it was made (a run made before call sites were\nrecorded), so no call can be drawn on a card.",
+                    "type": "boolean"
                 },
                 "version": {
                     "description": "Version is the version the run executed, whose diagram Graph is.",
@@ -28783,6 +28815,39 @@
                 },
                 "error": {
                     "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "tool": {
+                    "type": "string"
+                }
+            }
+        },
+        "flowrun.TimedCall": {
+            "type": "object",
+            "properties": {
+                "call_site": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "node": {
+                    "description": "Node is the card the call was attributed to, empty for an other call.",
+                    "type": "string"
+                },
+                "response_chars": {
+                    "type": "integer"
+                },
+                "start_ms": {
+                    "type": "integer"
                 },
                 "success": {
                     "type": "boolean"
@@ -33989,6 +34054,14 @@
                         "reporting"
                     ]
                 },
+                "tests": {
+                    "description": "Tests is what the version's tests found when it was saved (#1972): each\ntest and the statements they reach. Nil for a version saved before\nreports were kept.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/testreport.Report"
+                        }
+                    ]
+                },
                 "version": {
                     "type": "integer",
                     "example": 3
@@ -34040,6 +34113,20 @@
                 }
             }
         },
+        "scriptflow.FuncSpan": {
+            "type": "object",
+            "properties": {
+                "end_line": {
+                    "type": "integer"
+                },
+                "line": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "scriptflow.Graph": {
             "type": "object",
             "properties": {
@@ -34085,6 +34172,14 @@
                     "items": {
                         "$ref": "#/definitions/scriptflow.Param"
                     }
+                },
+                "structure": {
+                    "description": "Structure is the script drawn in the order it runs (#1972), the Flow\ntab's default view.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scriptflow.Structure"
+                        }
+                    ]
                 },
                 "truncated": {
                     "description": "Truncated is true when the script expands into more steps than one\ndiagram draws; the graph holds the first ones.",
@@ -34223,6 +34318,127 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "scriptflow.StructBox": {
+            "type": "object",
+            "properties": {
+                "call_site": {
+                    "description": "CallSite is where this expansion of a function was called from, the\nprefix every call made inside it carries.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "caption": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "b:2"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "loop"
+                },
+                "label": {
+                    "description": "Label is a loop's header or a function's signature; Caption the\nfunction's first comment sentence.",
+                    "type": "string"
+                },
+                "line": {
+                    "type": "integer",
+                    "example": 12
+                },
+                "parent": {
+                    "type": "string"
+                }
+            }
+        },
+        "scriptflow.StructEdge": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "yes"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "scriptflow.StructNode": {
+            "type": "object",
+            "properties": {
+                "box": {
+                    "description": "Box is the loop or function box the node is drawn in.",
+                    "type": "string"
+                },
+                "call_site": {
+                    "description": "CallSite is a platform call's or a fail()'s position on the stack, as\na run records it (#1907).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string",
+                    "example": "s:3"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "if"
+                },
+                "label": {
+                    "description": "Label is the if's condition and the fail()'s message, as the source\nwrites them.",
+                    "type": "string",
+                    "example": "len(rows) < 1000"
+                },
+                "line": {
+                    "type": "integer",
+                    "example": 42
+                },
+                "step": {
+                    "description": "Step is the value graph's node for a platform call.",
+                    "type": "string",
+                    "example": "op:3"
+                }
+            }
+        },
+        "scriptflow.Structure": {
+            "type": "object",
+            "properties": {
+                "boxes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.StructBox"
+                    }
+                },
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.StructEdge"
+                    }
+                },
+                "functions": {
+                    "description": "Functions is every def with its span, so a call site's frames can be\nnamed by the function each line is in.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.FuncSpan"
+                    }
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptflow.StructNode"
+                    }
+                },
+                "truncated": {
+                    "description": "Truncated is true when the script expands into more nodes than one\ndiagram draws.",
+                    "type": "boolean"
                 }
             }
         },
@@ -36578,6 +36794,70 @@
                 },
                 "type": {
                     "type": "string"
+                }
+            }
+        },
+        "testreport.Coverage": {
+            "type": "object",
+            "properties": {
+                "covered": {
+                    "type": "integer",
+                    "example": 126
+                },
+                "missed_lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "percent": {
+                    "type": "number",
+                    "example": 90
+                },
+                "statements": {
+                    "type": "integer",
+                    "example": 140
+                }
+            }
+        },
+        "testreport.Outcome": {
+            "type": "object",
+            "properties": {
+                "failure": {
+                    "type": "string"
+                },
+                "line": {
+                    "type": "integer",
+                    "example": 120
+                },
+                "name": {
+                    "type": "string",
+                    "example": "test_empty_window"
+                },
+                "passed": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "testreport.Report": {
+            "type": "object",
+            "properties": {
+                "coverage": {
+                    "$ref": "#/definitions/testreport.Coverage"
+                },
+                "failed": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "passed": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "tests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/testreport.Outcome"
+                    }
                 }
             }
         },

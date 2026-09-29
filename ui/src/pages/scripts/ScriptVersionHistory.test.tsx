@@ -19,6 +19,7 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
 vi.mock("@/api/portal/hooks/scriptRuns", async (orig) => ({
   ...(await orig<typeof import("@/api/portal/hooks/scriptRuns")>()),
   useScriptRuns: () => ({ data: undefined }),
+  useScriptRunPage: () => ({ data: undefined }),
 }));
 vi.mock("@/api/portal/hooks/scriptFlow", () => ({
   useScriptFlow: () => ({ isLoading: true }),

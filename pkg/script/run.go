@@ -410,8 +410,10 @@ type RunFilter struct {
 	// Live scopes the listing to runs that have not ended: pending and
 	// running (#1860).
 	Live bool
-	// Limit caps the rows returned; zero means the store default.
-	Limit int
+	// Limit caps the rows returned; zero means the store default. Offset
+	// skips that many of the newest matches first, for a paged history.
+	Limit  int
+	Offset int
 }
 
 // RunStore is the queue and the history of script runs.

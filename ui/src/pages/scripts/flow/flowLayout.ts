@@ -163,7 +163,7 @@ function placeEdge(
 type Elk = { layout: (graph: ElkNode) => Promise<ElkNode> };
 let elkInstance: Promise<Elk> | null = null;
 
-function loadElk(): Promise<Elk> {
+export function loadElk(): Promise<Elk> {
   elkInstance ??= import("elkjs/lib/elk.bundled.js").then((m) => new m.default());
   return elkInstance;
 }

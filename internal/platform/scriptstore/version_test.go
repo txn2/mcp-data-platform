@@ -2,6 +2,7 @@ package scriptstore
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/testreport"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -20,7 +22,7 @@ import (
 var versionSelectColumns = []string{
 	"id", "script_id", "version", "display_name", "description", "category",
 	"source_code", "params", "tags", "author", "author_roles", "status",
-	"created_at", "change_summary", "change_agreed_by", "change_agreed_at",
+	"created_at", "change_summary", "change_agreed_by", "change_agreed_at", "tests",
 }
 
 // versionRow returns one full version row in versionColumns order.
@@ -28,7 +30,7 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 	return []driver.Value{
 		"sver_1", "script_1", version, "Daily", "A daily report", "",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
-		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil,
+		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil, nil,
 	}
 }
 
@@ -236,5 +238,52 @@ func TestGetVersionByID(t *testing.T) {
 	mock.ExpectQuery("FROM script_versions").WillReturnError(errors.New("boom"))
 	_, err = s.GetVersionByID(context.Background(), "sver_1")
 	assert.ErrorContains(t, err, "get script version by id")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A version reads back the test report its save kept (#1972); a report that
+// does not decode is an error rather than a version with no tests.
+func TestGetVersion_ReadsTheTestReport(t *testing.T) {
+	s, mock := newMock(t)
+	row := versionRow(1, "print(1)", script.VersionStatusApplied, emptyParams(t))
+	row[len(row)-1] = []byte(`{"tests":[{"name":"test_a","passed":true,"line":4}],"passed":1,"failed":0,` +
+		`"coverage":{"statements":10,"covered":9,"percent":90,"missed_lines":[7]}}`)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
+		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
+
+	got, err := s.GetVersion(context.Background(), "script_1", 1)
+	require.NoError(t, err)
+	assert.Equal(t, &testreport.Report{
+		Tests:    []testreport.Outcome{{Name: "test_a", Passed: true, Line: 4}},
+		Passed:   1,
+		Coverage: testreport.Coverage{Statements: 10, Covered: 9, Percent: 90, MissedLines: []int{7}},
+	}, got.Tests)
+
+	row[len(row)-1] = []byte(`{bad`)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
+		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
+	_, err = s.GetVersion(context.Background(), "script_1", 1)
+	assert.ErrorContains(t, err, "unmarshal version tests")
+}
+
+// A save that ran the tests writes their report onto the version it creates.
+func TestCreate_WritesTheTestReport(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO scripts")).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow("script_1", rowTime, rowTime))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sql.NullString{String: `{"tests":[],"passed":2,"failed":0,"coverage":{"statements":4,"covered":4,"percent":100,"missed_lines":[]}}`, Valid: true}).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	sc := &script.Script{Name: "daily", Source: "print(1)", Tests: &testreport.Report{
+		Tests: []testreport.Outcome{}, Passed: 2,
+		Coverage: testreport.Coverage{Statements: 4, Covered: 4, Percent: 100, MissedLines: []int{}},
+	}}
+	require.NoError(t, s.Create(context.Background(), sc, script.Author{Email: "jane@example.com"}))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

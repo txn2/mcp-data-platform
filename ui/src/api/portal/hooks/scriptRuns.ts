@@ -53,6 +53,25 @@ export function useScriptRuns(scriptID: string | null, owned: boolean) {
   });
 }
 
+// useScriptRunPage reads one page of a script's run history (#1972), newest
+// first, optionally narrowed to one status: what the Flow tab's run picker
+// pages through. total is every run the filter matches.
+export function useScriptRunPage(
+  scriptID: string | null,
+  owned: boolean,
+  page: number,
+  status: string,
+) {
+  const q = new URLSearchParams({ per_page: String(RUN_PAGE_SIZE), page: String(page) });
+  if (status) q.set("status", status);
+  return useQuery({
+    queryKey: [...scriptsKey, scriptID, "runs", "page", page, status],
+    queryFn: () => apiFetch<ListResponse<ScriptRun>>(`/scripts/${scriptID}/runs?${q.toString()}`),
+    enabled: !!scriptID && owned,
+    refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),
+  });
+}
+
 // hasRunInFlight reports whether any run in the history has yet to finish.
 // Those two statuses are the queue's, not the outcome's: everything else is a
 // run that has stopped moving.

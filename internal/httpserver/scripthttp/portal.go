@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/granthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/outputshttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/runpage"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/scriptlist"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/statehttp"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -836,13 +837,14 @@ func scriptNames(scripts []script.Script) map[string]string {
 // portalListRuns returns an owned script's run history, newest first.
 //
 // @Summary      List a script's runs
-// @Description  Returns the run history of a script the caller owns, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. Restricted to the script's owner and to administrators.
+// @Description  Returns the run history of a script the caller owns, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. page reads further back one page of per_page at a time, and total counts every run the filter matches, so it exceeds the rows returned when the history is longer than a page. Restricted to the script's owner and to administrators.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id        path   string  true   "Script ID"
 // @Param        status    query  string  false  "Filter by run status"
 // @Param        live      query  bool    false  "Only runs that have not ended: pending and running"
 // @Param        per_page  query  int     false  "Maximum rows to return"
+// @Param        page      query  int     false  "1-based page of per_page runs"
 // @Success      200  {object}  portalRunListResponse
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
@@ -855,16 +857,8 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 	if !ok {
 		return
 	}
-	limit := httpjson.ParseLimit(r.URL.Query())
-	if limit <= 0 {
-		limit = portalRunListLimit
-	}
-	runs, err := h.deps.Runs.ListRuns(r.Context(), script.RunFilter{
-		ScriptID: sc.ID,
-		Status:   r.URL.Query().Get("status"),
-		Live:     r.URL.Query().Get("live") == "true",
-		Limit:    limit,
-	})
+	filter := runpage.Filter(sc.ID, r.URL.Query(), portalRunListLimit)
+	runs, err := h.deps.Runs.ListRuns(r.Context(), filter)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list runs")
 		return
@@ -873,7 +867,8 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 	for i := range runs {
 		out = append(out, summarizeRun(&runs[i]))
 	}
-	httpjson.WriteJSON(w, http.StatusOK, portalRunListResponse{Data: out, Total: len(out)})
+	total := runpage.Total(r.Context(), h.deps.Runs, filter, len(out))
+	httpjson.WriteJSON(w, http.StatusOK, portalRunListResponse{Data: out, Total: total})
 }
 
 // portalGetRun returns one run in full, including the log it captured.

@@ -32,6 +32,7 @@ import {
   type Values,
 } from "./ScriptParameterForm";
 import { LibrarySaveNotice, RunButtons } from "./ScriptEditorRunControls";
+import { ScriptTestsView } from "./ScriptTestsView";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptSourceEditor is the code, editable by the person who owns it (#1307),
@@ -223,6 +224,15 @@ export function ScriptSourceEditor({
           owned
           source={source}
           sourceSelection={link.selectedLines}
+          onShowLines={link.showLines}
+        />
+      )}
+      tests={(link) => (
+        <ScriptTestsView
+          scriptId={scriptId}
+          version={contract.version}
+          source={source}
+          owned
           onShowLines={link.showLines}
         />
       )}

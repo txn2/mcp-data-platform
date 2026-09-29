@@ -280,3 +280,25 @@ export function successRate(summary: RunSummary): number | undefined {
   if (summary.total === 0) return undefined;
   return Math.round((summary.succeeded / summary.total) * 100);
 }
+
+// runTrigger is how a run was started, in a word (#1972): a schedule fired it,
+// or somebody asked for it, on the page or through an agent.
+export function runTrigger(trigger: string): string {
+  return trigger === "schedule" ? "scheduled" : "manual";
+}
+
+// runPickerLabel is a run as the Flow tab's picker lists it (#1972): when and
+// how it happened first, then how it ended and the version it ran, as
+// "Sep 28, 10:57 PM · manual · failed · v10".
+export function runPickerLabel(
+  run: Pick<ScriptRun, "finished_at" | "started_at" | "fire_time" | "trigger" | "status" | "version">,
+  locale?: string,
+): string {
+  const iso = run.finished_at ?? run.started_at ?? run.fire_time;
+  const at = iso ? new Date(iso) : null;
+  const when =
+    at && !Number.isNaN(at.getTime())
+      ? at.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : "—";
+  return `${when} · ${runTrigger(run.trigger)} · ${runStatusLabel(run.status)} · v${run.version}`;
+}

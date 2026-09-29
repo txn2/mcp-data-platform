@@ -5,6 +5,7 @@
 // (with ?compare= for the comparison) answered on the local stack for the
 // sources in ./scripts.ts, so the mocked diagram is the diagram the server
 // derives. Regenerate them when a mocked source or the derivation changes.
+// Each structure (#1972) is scriptflow.Derive's for the same source.
 import type { FlowNodeRun, ScriptFlow, ScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
 
 export const mockScriptFlows: Record<string, ScriptFlow> = {
@@ -96,7 +97,72 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
   "groups": [],
   "params": [],
   "lines": 19,
-  "truncated": false
+  "truncated": false,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "line": 2,
+     "call_site": [
+      "2:22"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:2",
+     "line": 14,
+     "call_site": [
+      "14:16"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "step",
+     "label": "platform.save_state",
+     "step": "op:3",
+     "line": 18,
+     "call_site": [
+      "18:20"
+     ]
+    },
+    {
+     "id": "s:5",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    },
+    {
+     "from": "s:4",
+     "to": "s:5"
+    }
+   ],
+   "boxes": [],
+   "functions": [],
+   "truncated": false
+  }
  },
  "script-001:1": {
   "script_id": "script-001",
@@ -147,7 +213,58 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
   "groups": [],
   "params": [],
   "lines": 15,
-  "truncated": false
+  "truncated": false,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "line": 2,
+     "call_site": [
+      "2:22"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:2",
+     "line": 14,
+     "call_site": [
+      "14:16"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    }
+   ],
+   "boxes": [],
+   "functions": [],
+   "truncated": false
+  }
  },
  "script-002:1": {
   "script_id": "script-002",
@@ -221,7 +338,72 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
   "groups": [],
   "params": [],
   "lines": 17,
-  "truncated": false
+  "truncated": false,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "line": 2,
+     "call_site": [
+      "2:22"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:2",
+     "line": 9,
+     "call_site": [
+      "9:16"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:3",
+     "line": 10,
+     "call_site": [
+      "10:16"
+     ]
+    },
+    {
+     "id": "s:5",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    },
+    {
+     "from": "s:4",
+     "to": "s:5"
+    }
+   ],
+   "boxes": [],
+   "functions": [],
+   "truncated": false
+  }
  },
  "script-004:1": {
   "script_id": "script-004",
@@ -272,7 +454,58 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
   "groups": [],
   "params": [],
   "lines": 3,
-  "truncated": false
+  "truncated": false,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "line": 1,
+     "call_site": [
+      "1:22"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:2",
+     "line": 2,
+     "call_site": [
+      "2:16"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    }
+   ],
+   "boxes": [],
+   "functions": [],
+   "truncated": false
+  }
  },
  "script-005:1": {
   "script_id": "script-005",
@@ -562,7 +795,218 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
    }
   ],
   "lines": 41,
-  "truncated": false
+  "truncated": false,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "box": "b:2",
+     "line": 17,
+     "call_site": [
+      "37:10",
+      "17:26"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.call",
+     "step": "op:2",
+     "box": "b:2",
+     "line": 8,
+     "call_site": [
+      "37:10",
+      "19:20",
+      "8:25"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:3",
+     "box": "b:2",
+     "line": 21,
+     "call_site": [
+      "37:10",
+      "21:20"
+     ]
+    },
+    {
+     "id": "s:5",
+     "kind": "if",
+     "label": "run.params.get(\"summary\", True)",
+     "line": 38
+    },
+    {
+     "id": "s:6",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:4",
+     "box": "b:4",
+     "line": 28,
+     "call_site": [
+      "39:14",
+      "28:28"
+     ]
+    },
+    {
+     "id": "s:7",
+     "kind": "step",
+     "label": "platform.call",
+     "step": "op:5",
+     "box": "b:4",
+     "line": 8,
+     "call_site": [
+      "39:14",
+      "30:18",
+      "8:25"
+     ]
+    },
+    {
+     "id": "s:8",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:6",
+     "box": "b:4",
+     "line": 31,
+     "call_site": [
+      "39:14",
+      "31:20"
+     ]
+    },
+    {
+     "id": "s:9",
+     "kind": "step",
+     "label": "platform.notify",
+     "step": "op:7",
+     "box": "b:4",
+     "line": 32,
+     "call_site": [
+      "39:14",
+      "32:20"
+     ]
+    },
+    {
+     "id": "s:10",
+     "kind": "step",
+     "label": "platform.save_state",
+     "step": "op:8",
+     "line": 40,
+     "call_site": [
+      "40:20"
+     ]
+    },
+    {
+     "id": "s:11",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    },
+    {
+     "from": "s:4",
+     "to": "s:5"
+    },
+    {
+     "from": "s:5",
+     "to": "s:6",
+     "label": "yes"
+    },
+    {
+     "from": "s:6",
+     "to": "s:7"
+    },
+    {
+     "from": "s:7",
+     "to": "s:8"
+    },
+    {
+     "from": "s:8",
+     "to": "s:9"
+    },
+    {
+     "from": "s:9",
+     "to": "s:10"
+    },
+    {
+     "from": "s:5",
+     "to": "s:10",
+     "label": "no"
+    },
+    {
+     "from": "s:10",
+     "to": "s:11"
+    }
+   ],
+   "boxes": [
+    {
+     "id": "b:1",
+     "kind": "loop",
+     "label": "for day in days",
+     "line": 36
+    },
+    {
+     "id": "b:2",
+     "kind": "function",
+     "label": "stage(day)",
+     "caption": "Stage one day's orders as a JSON-lines file with a table over it.",
+     "parent": "b:1",
+     "line": 37,
+     "call_site": [
+      "37:10"
+     ]
+    },
+    {
+     "id": "b:4",
+     "kind": "function",
+     "label": "summarize(days)",
+     "caption": "Summarize the staged days and refresh the dashboard.",
+     "line": 39,
+     "call_site": [
+      "39:14"
+     ]
+    }
+   ],
+   "functions": [
+    {
+     "name": "crm",
+     "line": 7,
+     "end_line": 13
+    },
+    {
+     "name": "stage",
+     "line": 16,
+     "end_line": 24
+    },
+    {
+     "name": "summarize",
+     "line": 27,
+     "end_line": 32
+    }
+   ],
+   "truncated": false
+  }
  },
  "script-003:5": {
   "script_id": "script-003",
@@ -613,7 +1057,58 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
   "groups": [],
   "params": [],
   "lines": 3,
-  "truncated": false
+  "truncated": false,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "line": 1,
+     "call_site": [
+      "1:22"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:2",
+     "line": 2,
+     "call_site": [
+      "2:16"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    }
+   ],
+   "boxes": [],
+   "functions": [],
+   "truncated": false
+  }
  },
  "script-001:2:compare:1": {
   "script_id": "script-001",
@@ -706,7 +1201,72 @@ export const mockScriptFlows: Record<string, ScriptFlow> = {
   "params": [],
   "lines": 19,
   "truncated": false,
-  "compared_with": 1
+  "compared_with": 1,
+  "structure": {
+   "nodes": [
+    {
+     "id": "s:1",
+     "kind": "start",
+     "line": 0
+    },
+    {
+     "id": "s:2",
+     "kind": "step",
+     "label": "platform.query",
+     "step": "op:1",
+     "line": 2,
+     "call_site": [
+      "2:22"
+     ]
+    },
+    {
+     "id": "s:3",
+     "kind": "step",
+     "label": "platform.export",
+     "step": "op:2",
+     "line": 14,
+     "call_site": [
+      "14:16"
+     ]
+    },
+    {
+     "id": "s:4",
+     "kind": "step",
+     "label": "platform.save_state",
+     "step": "op:3",
+     "line": 18,
+     "call_site": [
+      "18:20"
+     ]
+    },
+    {
+     "id": "s:5",
+     "kind": "end",
+     "line": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "s:1",
+     "to": "s:2"
+    },
+    {
+     "from": "s:2",
+     "to": "s:3"
+    },
+    {
+     "from": "s:3",
+     "to": "s:4"
+    },
+    {
+     "from": "s:4",
+     "to": "s:5"
+    }
+   ],
+   "boxes": [],
+   "functions": [],
+   "truncated": false
+  }
  }
 };
 
@@ -741,6 +1301,11 @@ export const mockRunFlows: Record<string, Omit<ScriptRunFlow, "graph">> = {
     },
     other_calls: [],
     calls: 1,
+    unplaced: false,
+    timeline: [
+      { start_ms: 140, duration_ms: 1_840, tool: "trino_query", success: true, response_chars: 18_240, call_site: ["2:22"], node: "op:1" },
+    ],
+    run_ms: 2_610,
     calls_truncated: false,
   },
   "run-002": {
@@ -766,6 +1331,21 @@ export const mockRunFlows: Record<string, Omit<ScriptRunFlow, "graph">> = {
     other_calls: [],
     calls: 1,
     failed_node: "op:1",
+    structure_failed: "s:2",
+    unplaced: false,
+    timeline: [
+      {
+        start_ms: 120,
+        duration_ms: 310,
+        tool: "trino_query",
+        success: false,
+        error: 'relation "sales.orders" does not exist',
+        response_chars: 0,
+        call_site: ["2:22"],
+        node: "op:1",
+      },
+    ],
+    run_ms: 520,
     calls_truncated: false,
   },
 };

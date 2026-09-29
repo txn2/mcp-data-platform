@@ -92,8 +92,60 @@ export interface ScriptFlow {
   params: FlowParam[];
   lines: number;
   truncated: boolean;
+  // structure is the script drawn in the order it runs (#1972): the
+  // Structure view.
+  structure: FlowStructure;
   // compared_with is the older version a compared graph is compared against.
   compared_with?: number;
+}
+
+// StructKind is what a Structure node is.
+export type StructKind = "start" | "end" | "stop" | "return" | "if" | "step";
+
+// StructNode is one node of the Structure view (#1972). A step names the
+// value graph's card for the same call; an if carries its condition and a
+// stop its fail() message as label.
+export interface StructNode {
+  id: string;
+  kind: StructKind;
+  label?: string;
+  step?: string;
+  box?: string;
+  line: number;
+  call_site?: string[];
+}
+
+// StructEdge is "runs next"; label is yes or no on an if's arms.
+export interface StructEdge {
+  from: string;
+  to: string;
+  label?: "yes" | "no";
+}
+
+// StructBox is a loop or a helper function around the nodes it runs.
+export interface StructBox {
+  id: string;
+  kind: "loop" | "function";
+  label: string;
+  caption?: string;
+  parent?: string;
+  line: number;
+  call_site?: string[];
+}
+
+// FuncSpan is one def and the lines it covers.
+export interface FuncSpan {
+  name: string;
+  line: number;
+  end_line: number;
+}
+
+export interface FlowStructure {
+  nodes: StructNode[];
+  edges: StructEdge[];
+  boxes: StructBox[];
+  functions: FuncSpan[];
+  truncated: boolean;
 }
 
 // useScriptFlow reads one version's graph, or, with compareWith, that graph
@@ -135,6 +187,20 @@ export interface FlowOtherCall {
   duration_ms: number;
   success: boolean;
   error?: string;
+  call_site?: string[];
+}
+
+// FlowTimedCall is one call placed in time for the Timeline view (#1972):
+// start_ms after the run started, with the card it was attributed to.
+export interface FlowTimedCall {
+  start_ms: number;
+  duration_ms: number;
+  tool: string;
+  success: boolean;
+  error?: string;
+  response_chars: number;
+  call_site?: string[];
+  node?: string;
 }
 
 // ScriptRunFlow is one run drawn on the diagram of the version it executed.
@@ -150,6 +216,13 @@ export interface ScriptRunFlow {
   other_calls: FlowOtherCall[];
   calls: number;
   failed_node?: string;
+  // structure_failed is the Structure view's node or box the run failed at
+  // (#1972); unplaced is true when none of the run's calls recorded where in
+  // the script it was made, so none can be drawn on a card.
+  structure_failed?: string;
+  unplaced: boolean;
+  timeline: FlowTimedCall[];
+  run_ms: number;
   calls_truncated: boolean;
 }
 

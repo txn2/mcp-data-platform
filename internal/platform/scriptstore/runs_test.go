@@ -147,7 +147,7 @@ func TestGetRun(t *testing.T) {
 
 func TestListRuns_FiltersAndCaps(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3")).
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND status = $2 ORDER BY created_at DESC, id DESC LIMIT $3")).
 		WithArgs("script_1", script.RunStatusFailed, 5).
 		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(runRow(script.RunStatusFailed, 1, nil)...))
 
@@ -163,7 +163,7 @@ func TestListRuns_FiltersAndCaps(t *testing.T) {
 // the runs of everything they own (#1405).
 func TestListRuns_ScopesToASetOfScripts(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = ANY($1) ORDER BY created_at DESC LIMIT $2")).
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = ANY($1) ORDER BY created_at DESC, id DESC LIMIT $2")).
 		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(runRow(script.RunStatusSucceeded, 1, nil)...))
 
 	runs, err := s.ListRuns(context.Background(), script.RunFilter{
@@ -472,4 +472,40 @@ func TestScanRun_MalformedJSONIsReported(t *testing.T) {
 func TestRunColumnsMatchTheScanOrder(t *testing.T) {
 	assert.Len(t, splitTopLevel(runColumns), len(runSelectColumns),
 		"runColumns and the scan order in scanRun must list the same columns")
+}
+
+// A paged history skips the newest pages (#1972).
+func TestListRuns_OffsetSkipsTheNewerPages(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3")).
+		WithArgs("script_1", 25, 50).
+		WillReturnRows(sqlmock.NewRows(runSelectColumns))
+
+	_, err := s.ListRuns(context.Background(), script.RunFilter{ScriptID: "script_1", Limit: 25, Offset: 50})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// The count is the filter's predicate without the page cap.
+func TestCountRuns_CountsThePredicate(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM script_runs WHERE script_id = $1 AND status = $2")).
+		WithArgs("script_1", script.RunStatusFailed).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(312))
+
+	n, err := s.CountRuns(context.Background(), script.RunFilter{
+		ScriptID: "script_1", Status: script.RunStatusFailed, Limit: 25, Offset: 25,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 312, n)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCountRuns_ReportsTheError(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM script_runs")).WillReturnError(errors.New("boom"))
+
+	_, err := s.CountRuns(context.Background(), script.RunFilter{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "count script runs")
 }

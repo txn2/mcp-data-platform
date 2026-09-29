@@ -213,6 +213,7 @@ internal/httpserver/scripthttp -> internal/httpserver/scripthttp/draftview
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/fireshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/granthttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/outputshttp
+internal/httpserver/scripthttp -> internal/httpserver/scripthttp/runpage
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/statehttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/transferwords
@@ -255,6 +256,8 @@ internal/httpserver/scripthttp/granthttp -> internal/logsan
 internal/httpserver/scripthttp/granthttp -> internal/platform/scriptgrant
 internal/httpserver/scripthttp/outputshttp -> internal/httpjson
 internal/httpserver/scripthttp/outputshttp -> pkg/script
+internal/httpserver/scripthttp/runpage -> internal/httpjson
+internal/httpserver/scripthttp/runpage -> pkg/script
 internal/httpserver/scripthttp/scriptlist -> pkg/script
 internal/httpserver/scripthttp/statehttp -> internal/httpjson
 internal/httpserver/scripthttp/statehttp -> pkg/script
@@ -711,12 +714,14 @@ internal/platform/scriptsave -> internal/platform/scriptlint
 internal/platform/scriptsave -> internal/platform/scriptrec
 internal/platform/scriptsave -> internal/platform/scriptrun
 internal/platform/scriptsave -> internal/platform/scripttest
+internal/platform/scriptsave -> internal/testreport
 internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsql -> internal/platform/starlarkconv
 internal/platform/scriptstore -> internal/libraryuse
 internal/platform/scriptstore -> internal/platform/scriptlib
 internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> internal/runstate
+internal/platform/scriptstore -> internal/testreport
 internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
 internal/platform/scripttest -> internal/platform/scriptdialect
@@ -1278,6 +1283,7 @@ pkg/resource -> pkg/contenttype
 pkg/resource -> pkg/indexjobs
 pkg/script -> internal/libraryuse
 pkg/script -> internal/runstate
+pkg/script -> internal/testreport
 pkg/script -> pkg/user
 pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic

@@ -187,78 +187,126 @@ link to.
 
 ## The flow of the work
 
-The code is one card with two tabs, **Flow** and **Source**, and Flow is the one that opens,
-for the script's owner and for everyone else who reads it (#1906). It draws the script as
-the work it does: where the data comes from, what happens to it, and where it goes, the way
-a pipeline tool draws a job.
+The code is one card with three tabs, **Flow**, **Source** and **Tests**, and Flow is the one
+that opens, for the script's owner and for everyone else who reads it (#1906). Nobody draws
+it. The platform reads the diagram off the saved version's source, so a new version has a
+new diagram and the diagram cannot disagree with the code. An edit you have not saved yet is
+drawn once you save it.
+
+Above the diagram sit the **Run** menu (on a script you own), the view switch, which draws
+the script three ways, **Structure**, **Calls** and **Timeline**, and **Full screen**, which
+gives the diagram and the panel beside it the whole window until you press it again or
+Escape (#1972). The view you pick is kept for you, and in the page's address, so a link you
+copy opens on the same view.
 
 ![Script flow](../images/screenshots/light/user-script-flow-light.webp#only-light)![Script flow](../images/screenshots/dark/user-script-flow-dark.webp#only-dark)
 
-Nobody draws it. The platform reads the diagram off the saved version's source, so a new
-version has a new diagram and the diagram cannot disagree with the code. An edit you have
-not saved yet is drawn once you save it.
+### Structure
 
-- **Left to right** is the order data moves.
-- **Each card is one thing the script does** on the platform: a query, an API call, a
-  write, an export, a table registered over an export, a notification, the state it saves.
-  The colored bar says whether it is an input, a read, a write or an output.
-- A card's first line is the action and where it goes; the next is the purpose the author
-  wrote on the call; grey lines are the tables, paths and files it touches.
-- **An arrow** means the result of one card is used by the next. Hovering it names the
-  functions that reshaped the data on the way. An arrow a longer path already implies is
-  left out.
-- **A grey box** is a function of the script; the cards inside run as part of it. A helper
-  that only makes one call is not a box: its name is a chip on the card, beside the loop
-  the card repeats in.
-- **A dashed card** names something the script only computes when it runs, written as
-  `{the code}`. The diagram never guesses a name.
-- **run.state** is what the previous run saved, and the dashed arrow back to it is this run
-  saving for the next.
+Structure is the view the tab opens on: the script in the order it runs, drawn top to
+bottom the way a flowchart or a pipeline's job graph is (#1972). It has no cycles.
+
+- **Start** is where a run begins and **End** where it finishes. An arrow means "runs next".
+- **Each card is one call** the script makes on the platform: a query, an API call, a write,
+  an export, a notification, the state it saves. The colored bar says whether it reads,
+  writes or produces an output.
+- **If** is a decision, with the condition as the source writes it. Its two arrows are its
+  **yes** and **no** arms, which meet again where the script goes on.
+- **A dashed box** repeats: its heading is the loop, `Repeats: for page in range(2, pages)`,
+  and the cards inside run once per pass.
+- **A grey box** is a function of the script, drawn where it is called, with the first
+  sentence of its comment under its name. Its arrow folds it into one card and opens it
+  again; a function holding more than eight steps opens folded. A function whose only effect
+  is one call is not a box: it is the card.
+- **Stops** is a `fail()`, with its message: the run ends there. **Returns early** is a
+  `return` from `main()` before its end.
+- **run.state** is read at the top and saved by a card at the bottom, so the picture has no
+  arrow back.
 
 Select a card to read it in full beside the diagram: what it reaches, what feeds it and
-what it feeds, and the lines it came from. Double-click it, or press **Show in Source**, to
-open those lines on the Source tab. It works the other way too: lines you select on the
-Source tab light up the cards they produce when you come back to Flow. The parameters a run
-takes are listed beside the diagram rather than drawn as wires; selecting one lights up
-exactly the steps its value reaches.
+what it feeds, and the lines it came from. Selecting a card also lights the cards it takes
+data from and the cards its result feeds. Select a decision, an exit or a box to read its
+line and open it in Source. Double-click a card, or press **Show in Source**, to open its
+lines on the Source tab; lines you select on the Source tab light up the cards they produce
+when you come back. When the saved version kept its test report, a small diamond marks each
+step the tests do not reach.
+
+### Calls
+
+Calls draws the same cards by what feeds what: an arrow means the result of one call is used
+by the next, left to right. Hovering an arrow names the functions that reshaped the data on
+the way, and an arrow a longer path already implies is left out. A dashed card names
+something the script only computes when it runs, written as `{the code}`; the diagram never
+guesses a name. The parameters a run takes are listed beside either diagram rather than
+drawn as wires; selecting one lights up exactly the steps its value reaches.
 
 A version that does not parse (one saved before a rule of the language changed) shows what
-is wrong with it in place of a diagram. The diagram is served from
-`GET /api/v1/portal/scripts/{id}/versions/{version}/graph`, readable by everyone who can
-read the source, and `GET /api/v1/admin/scripts/{id}/versions/{version}/graph` for an
-administrator. It is not part of any tool response: an agent reads the code.
+is wrong with it in place of a diagram. Both views are served from
+`GET /api/v1/portal/scripts/{id}/versions/{version}/graph` (the Structure view is its
+`structure`), readable by everyone who can read the source, and
+`GET /api/v1/admin/scripts/{id}/versions/{version}/graph` for an administrator. It is not
+part of any tool response: an agent reads the code.
 
 ### A run on the diagram
 
 On a script you own, and on every script for an administrator, the Flow tab opens on the
-latest run drawn on the diagram (#1907). The **Run** menu above it picks any run in the
-history, or **No run** for the saved version on its own. A run of an older version is drawn
-on that version's diagram.
+latest run drawn on the diagram (#1907). The **Run** menu lists the run history a page of 25
+at a time, each run by when it happened and how, then how it ended and its version
+(`Sep 28, 10:57 PM · manual · failed · v10`), with the arrows beside it reading further back
+and the menu next to it narrowing the list to failed or succeeded runs. **No run** draws the
+saved version on its own. A run of an older version is drawn on that version's diagram.
 
 ![A failed run on the diagram](../images/screenshots/light/user-script-flow-run-light.webp#only-light)![A failed run on the diagram](../images/screenshots/dark/user-script-flow-run-dark.webp#only-dark)
 
 - **Each card says what it did in this run**: how many calls it made, how many of them
   failed, and how long they took (hover the chip for the failed call's message); the rows
-  it exported; or that it ran.
-- **A card the run never reached is dimmed.**
-- **The card a failed run stopped at is in the error color**, and the panel beside the
-  diagram gives the run's cause and the error it ended with. When the run failed in the
-  script's own code just after a call failed, such as a `fail()` on the line after a call
-  whose upstream answered 500, the card that made that call from the same function is the
-  one marked.
+  it exported; or that it ran. A loop's box counts the passes its calls made, `×54`.
+- **What the run did not reach is lighter**, End included when the run did not finish.
+- **Where a failed run stopped is in the error color**: the card of the call it failed at,
+  the **Stops** of the `fail()` it ended in, or the box of the function whose own code
+  failed. The panel beside the diagram gives the run's cause and the error it ended with.
 - A call that failed in a run that carried on (one a retry answered, say) is counted on its
-  card; only the step the run stopped at is marked failed.
-- The panel counts the run's calls, how many are on cards, and any no card made, which it
-  lists.
+  card; only where the run stopped is marked failed.
+- The panel counts the run's calls, how many are on cards, and any no card made, grouped by
+  tool with the failures first and each failure's message counted:
+  `api_invoke_endpoint: 54 succeeded, 144 failed (Not Found 132, Forbidden 12), median 76 ms`.
+  Each row opens to its calls.
 
 Every call a script makes is recorded with where in the script it was made: the line and
 column of each call on the way down to it, from the top-level line to the `platform.*` call
 itself. The diagram records the same positions on each card, so a call is put on the card
 that made it rather than on the first card that looks like it: a helper called from two
-places is two cards, and each gets its own calls. The drawn run is served at
+places is two cards, and each gets its own calls. A run made before those positions were
+recorded cannot be drawn on the cards: the diagram says so, dims nothing, and the panel
+groups its calls by tool. The drawn run is served at
 `GET /api/v1/portal/scripts/{id}/runs/{runID}/flow` to the script's owner and to
 administrators, and reads at most 10,000 of the run's calls, saying so when there were
-more.
+more. The run history the menu pages is
+`GET /api/v1/portal/scripts/{id}/runs?per_page=25&page=2&status=failed`, whose `total` is
+every run the filter matches.
+
+Which arm of a decision a run took is not recorded yet: only a call inside an arm shows that
+the run went that way.
+
+### Timeline
+
+With a run drawn, **Timeline** places each of its calls in time: left to right is the time
+since the run started, `main()` is the top row, each function a call was made through is a
+row below it, and the call itself is the bar at the bottom of its stack, as long as the call
+took. The gaps between bars are the script's own work between calls, and the line above the
+chart says how much of the run was calls in flight and how much was the script. A failed
+call is outlined in the error color; hover a bar for its tool, time, the size of its answer
+and its error, and select it to read its card beside the chart. The zoom buttons stretch the
+time axis.
+
+### Tests
+
+The **Tests** tab lists the version's `test_*` functions, how each one did when the version
+was saved, and the share of its statements they reach, with the lines no test reaches (each
+opens in Source). A save runs the tests and keeps what they found on the version it creates
+(#1972), and a version written without changing the source, such as an owner transfer, keeps
+the report of the version before it. A version saved before reports were kept says so; on a
+script you own, **Run the tests** runs them against the saved version there and then.
 
 ## The code, and running it
 
