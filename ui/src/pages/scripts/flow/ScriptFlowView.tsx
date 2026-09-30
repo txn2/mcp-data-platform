@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Maximize, Minimize } from "lucide-react";
+import { Maximize, Minimize } from "lucide-react";
 import {
   useScriptFlow,
   useScriptRunFlow,
@@ -8,7 +8,7 @@ import {
   type ScriptRunFlow,
 } from "@/api/portal/hooks/scriptFlow";
 import { usePortalScriptVersions, type ScriptRun } from "@/api/portal/hooks/scripts";
-import { RUN_PAGE_SIZE, useScriptRunPage } from "@/api/portal/hooks/scriptRuns";
+import { useRecentScriptRuns } from "@/api/portal/hooks/scriptRuns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -90,33 +90,24 @@ export function ScriptFlowView(props: Props) {
   );
 }
 
-// useRunPicking is the run picker's state (#1907, #1972): the page of run
-// history it lists, its status filter, and the run drawn, which is the latest
+// useRunPicking is the run picker's state (#1907, #1972, #1990): the newest
+// runs it lists, its status filter, and the run drawn, which is the latest
 // until the reader picks one (null is the saved version with no run).
 function useRunPicking(scriptId: string, drawsRuns: boolean) {
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
-  const history = useScriptRunPage(scriptId, drawsRuns, page, status);
+  const history = useRecentScriptRuns(scriptId, drawsRuns, status);
   const [picked, setPicked] = useState<string | null | undefined>(undefined);
   const data = drawsRuns ? history.data : undefined;
   const runs = data?.data ?? [];
-  const total = data?.total ?? 0;
   const latest = runs[0]?.id ?? null;
   return {
     runs,
-    total,
-    page,
     status,
-    hasHistory: total > 0 || status !== "",
+    hasHistory: runs.length > 0 || status !== "",
     runId: picked === undefined ? latest : picked,
     onChange: setPicked,
-    onPage: (p: number) => {
-      setPage(p);
-      setPicked(undefined);
-    },
     onStatus: (s: string) => {
       setStatus(s);
-      setPage(1);
       setPicked(undefined);
     },
   };
@@ -195,30 +186,21 @@ const STATUSES = [
   { value: "succeeded", label: "Succeeded" },
 ];
 
-// RunPicker chooses the run drawn on the diagram (#1907), a page of the run
-// history at a time (#1972), or none.
+// RunPicker chooses the run drawn on the diagram (#1907) from the newest runs
+// of the chosen status (#1990), or none.
 function RunPicker({
   runs,
   value,
-  page,
-  total,
   status,
   onChange,
-  onPage,
   onStatus,
 }: {
   runs: ScriptRun[];
   value: string | null;
-  page: number;
-  total: number;
   status: string;
   onChange: (id: string | null) => void;
-  onPage: (page: number) => void;
   onStatus: (status: string) => void;
 }) {
-  const pages = Math.max(1, Math.ceil(total / RUN_PAGE_SIZE));
-  const first = total === 0 ? 0 : (page - 1) * RUN_PAGE_SIZE + 1;
-  const last = Math.min(total, page * RUN_PAGE_SIZE);
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="text-xs text-muted-foreground">Run</span>
@@ -247,29 +229,6 @@ function RunPicker({
           ))}
         </SelectContent>
       </Select>
-      <span className="text-xs text-muted-foreground" data-testid="run-page">
-        {total === 0 ? "no runs" : `${first}–${last} of ${total}`}
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon-sm"
-        aria-label="Newer runs"
-        disabled={page <= 1}
-        onClick={() => onPage(page - 1)}
-      >
-        <ChevronLeft />
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon-sm"
-        aria-label="Older runs"
-        disabled={page >= pages}
-        onClick={() => onPage(page + 1)}
-      >
-        <ChevronRight />
-      </Button>
     </div>
   );
 }

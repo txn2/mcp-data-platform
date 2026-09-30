@@ -1,6 +1,7 @@
 package fireshttp
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -23,13 +24,13 @@ type entry struct {
 // layout lays entries out, each schedule's script id derived from its name.
 func layout(entries []entry, viewer *time.Location, now time.Time) Timeline {
 	schedules := make([]script.Schedule, 0, len(entries))
-	names := make(map[string]string, len(entries))
+	scripts := make(map[string]*script.Script, len(entries))
 	for _, e := range entries {
 		id := "id-" + e.name
 		schedules = append(schedules, script.Schedule{ScriptID: id, CronSpec: e.spec, Timezone: e.tz, Enabled: e.enabled})
-		names[id] = e.name
+		scripts[id] = &script.Script{ID: id, Name: e.name}
 	}
-	return Build(schedules, names, viewer, now)
+	return Build(schedules, scripts, viewer, now)
 }
 
 func section(t *testing.T, tl Timeline, s string) window {
@@ -239,21 +240,67 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-// TestBuild_RowsOrderByRhythmThenFirstFire pins the row order: the fastest
-// rhythm first, then the earliest first fire, then the name, with a row that
-// has no fire in the window after the ones that do.
-func TestBuild_RowsOrderByRhythmThenFirstFire(t *testing.T) {
+// TestBuild_RowsOrderByName pins the row order (#1992): every section lists
+// its rows by script name, ignoring case, whatever their rhythm or first fire.
+func TestBuild_RowsOrderByName(t *testing.T) {
 	saturday := time.Date(2026, 1, 17, 12, 0, 0, 0, time.UTC)
 	tl := layout([]entry{
 		{"hourly-b", "10 * * * *", "UTC", true},
-		{"weekday-5m", "*/5 * * * 1-5", "UTC", true},
+		{"Weekday-5m", "*/5 * * * 1-5", "UTC", true},
 		{"hourly-a", "5 * * * *", "UTC", true},
 		{"every-10m", "*/10 * * * *", "UTC", true},
-		{"hourly-c", "5 * * * *", "UTC", true},
+		{"Hourly-C", "5 * * * *", "UTC", true},
+		{"nightly", "0 2 * * *", "UTC", true},
+		{"Audit", "0 7 * * *", "UTC", true},
+		{"monthly", "0 6 1 * *", "UTC", true},
+		{"Billing", "0 6 15 * *", "UTC", true},
 	}, time.UTC, saturday)
-	got := make([]string, 0, 5)
-	for _, r := range section(t, tl, SectionIntraday).Rows {
-		got = append(got, r.ScriptName)
+	names := func(s string) []string {
+		rows := section(t, tl, s).Rows
+		got := make([]string, 0, len(rows))
+		for _, r := range rows {
+			got = append(got, r.ScriptName)
+		}
+		return got
 	}
-	assert.Equal(t, []string{"every-10m", "weekday-5m", "hourly-a", "hourly-c", "hourly-b"}, got)
+	assert.Equal(t, []string{"every-10m", "hourly-a", "hourly-b", "Hourly-C", "Weekday-5m"}, names(SectionIntraday))
+	assert.Equal(t, []string{"Audit", "nightly"}, names(SectionMultiDay))
+	assert.Equal(t, []string{"Billing", "monthly"}, names(SectionLongTerm))
+}
+
+// TestCompareRows_TiesBreakOnExactNameThenID keeps the order independent of the
+// store's when two names differ only in case or not at all.
+func TestCompareRows_TiesBreakOnExactNameThenID(t *testing.T) {
+	rows := []row{
+		{ScriptID: "b", ScriptName: "report"},
+		{ScriptID: "a", ScriptName: "report"},
+		{ScriptID: "c", ScriptName: "Report"},
+	}
+	slices.SortStableFunc(rows, compareRows)
+	assert.Equal(t, []string{"c", "a", "b"}, []string{rows[0].ScriptID, rows[1].ScriptID, rows[2].ScriptID})
+}
+
+// TestBuild_RowsCarryTheScriptsFacets pins the labels a row is filtered by
+// (#1992): the script's owner, category and tags, with [] for no tags and for
+// a schedule whose script is not in the listing.
+func TestBuild_RowsCarryTheScriptsFacets(t *testing.T) {
+	schedules := []script.Schedule{
+		{ScriptID: "s1", CronSpec: "0 7 * * *", Timezone: "UTC", Enabled: true},
+		{ScriptID: "s2", CronSpec: "0 8 * * *", Timezone: "UTC", Enabled: true},
+		{ScriptID: "gone", CronSpec: "0 9 * * *", Timezone: "UTC", Enabled: true},
+	}
+	scripts := map[string]*script.Script{
+		"s1": {ID: "s1", Name: "a-tagged", OwnerEmail: "jane@example.com", Category: "reporting", Tags: []string{"sales", "weekly"}},
+		"s2": {ID: "s2", Name: "b-bare", OwnerEmail: "carol@example.com"},
+	}
+	rows := section(t, Build(schedules, scripts, time.UTC, wednesday), SectionMultiDay).Rows
+	require.Len(t, rows, 3)
+	assert.Equal(t, "", rows[0].ScriptName, "a script missing from the listing has no name")
+	assert.Equal(t, []string{}, rows[0].Tags)
+	assert.Equal(t, "jane@example.com", rows[1].OwnerEmail)
+	assert.Equal(t, "reporting", rows[1].Category)
+	assert.Equal(t, []string{"sales", "weekly"}, rows[1].Tags)
+	assert.Equal(t, "carol@example.com", rows[2].OwnerEmail)
+	assert.Equal(t, "", rows[2].Category)
+	assert.Equal(t, []string{}, rows[2].Tags)
 }

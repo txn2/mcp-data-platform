@@ -32,15 +32,14 @@ type AutoCaptureInput struct {
 
 // CaptureResult is the outcome of a server-initiated capture.
 type CaptureResult struct {
-	ID         string
-	SinkClass  string
-	Status     string
-	Superseded []string
+	ID        string
+	SinkClass string
+	Status    string
 }
 
 // AutoCapture persists a server-initiated capture, reusing the full
-// memory_capture pipeline: sink-class routing (live vs reviewed), embedding,
-// recall-first supersede, and the pending-insight overlay for reviewed classes.
+// memory_capture pipeline: sink-class routing (live vs reviewed), the queued
+// embedding and the recall-first check it triggers, and the pending-insight overlay for reviewed classes.
 // It is the single entry point for platform-minted memory (e.g. reflexive
 // capture of a query error and its later fix), so such records go through the
 // same review and dedup path as agent captures rather than a parallel writer.
@@ -88,15 +87,13 @@ func (t *Toolkit) AutoCapture(ctx context.Context, in AutoCaptureInput) (*Captur
 		Metadata:   captureMetadata(in.SinkClass, in.SessionID, nil, in.Metadata),
 	}
 
-	out, err := t.applyCapture(ctx, &rec, in.SinkClass, actor, nil)
-	if err != nil {
+	if _, err := t.applyCapture(ctx, &rec, in.SinkClass, actor, nil); err != nil {
 		return nil, err
 	}
 
 	return &CaptureResult{
-		ID:         rec.ID,
-		SinkClass:  rec.SinkClass,
-		Status:     rec.Status,
-		Superseded: out.Superseded,
+		ID:        rec.ID,
+		SinkClass: rec.SinkClass,
+		Status:    rec.Status,
 	}, nil
 }

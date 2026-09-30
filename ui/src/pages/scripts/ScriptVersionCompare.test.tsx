@@ -6,7 +6,7 @@ import { ScriptVersionCompare } from "./ScriptVersionCompare";
 vi.mock("@/api/portal/hooks/scriptRuns", async (orig) => ({
   ...(await orig<typeof import("@/api/portal/hooks/scriptRuns")>()),
   useScriptRuns: () => ({ data: undefined }),
-  useScriptRunPage: () => ({ data: undefined }),
+  useRecentScriptRuns: () => ({ data: undefined }),
 }));
 vi.mock("@/api/portal/hooks/scriptFlow", () => ({
   useScriptFlow: vi.fn(() => ({ isLoading: true })),

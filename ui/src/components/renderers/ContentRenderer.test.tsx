@@ -2,6 +2,11 @@ import { describe, it, expect } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ContentRenderer } from "./ContentRenderer";
 
+// LAZY_RENDERER_WAIT bounds a wait on a renderer ContentRenderer loads with
+// lazy(): the dynamic import resolves in milliseconds alone and past the
+// default 1s under verify's parallel lanes, which failed the JSON case there.
+const LAZY_RENDERER_WAIT = { timeout: 5_000 };
+
 const CONTENT_URL = "/api/v1/portal/assets/a1/content";
 
 describe("ContentRenderer routing", () => {
@@ -19,7 +24,7 @@ describe("ContentRenderer routing", () => {
     return waitFor(() => {
       expect(screen.getByRole("tree", { name: /json document/i })).toBeInTheDocument();
       expect(screen.getByLabelText(/search keys and values/i)).toBeInTheDocument();
-    });
+    }, LAZY_RENDERER_WAIT);
   });
 
   it("reclassifies a mislabeled asset from its content", () => {
@@ -35,7 +40,7 @@ describe("ContentRenderer routing", () => {
 
     return waitFor(() => {
       expect(screen.getByRole("tree", { name: /json document/i })).toBeInTheDocument();
-    });
+    }, LAZY_RENDERER_WAIT);
   });
 
   it("renders an image from the content URL", async () => {
@@ -48,9 +53,9 @@ describe("ContentRenderer routing", () => {
       />,
     );
 
-    const img = await screen.findByAltText("chart.png");
+    const img = await screen.findByAltText("chart.png", {}, LAZY_RENDERER_WAIT);
     expect(img).toHaveAttribute("src", CONTENT_URL);
-    expect(await screen.findByLabelText("Zoom in")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Zoom in", {}, LAZY_RENDERER_WAIT)).toBeInTheDocument();
   });
 
   it("renders audio and video players pointed at the content URL", async () => {
@@ -59,13 +64,13 @@ describe("ContentRenderer routing", () => {
     );
     await waitFor(() => {
       expect(document.querySelector("audio")).toHaveAttribute("src", CONTENT_URL);
-    });
+    }, LAZY_RENDERER_WAIT);
     unmount();
 
     render(<ContentRenderer contentType="video/mp4" contentUrl={CONTENT_URL} fileName="clip.mp4" />);
     await waitFor(() => {
       expect(document.querySelector("video")).toHaveAttribute("src", CONTENT_URL);
-    });
+    }, LAZY_RENDERER_WAIT);
   });
 
   it("renders a PDF through our own viewer, not the browser's plugin", async () => {
@@ -78,7 +83,7 @@ describe("ContentRenderer routing", () => {
 
     // The viewer is loaded on first use, which on a loaded machine takes
     // longer than the default second.
-    const frame = await screen.findByLabelText("report.pdf", {}, { timeout: 5_000 });
+    const frame = await screen.findByLabelText("report.pdf", {}, LAZY_RENDERER_WAIT);
     expect(frame.tagName).not.toBe("OBJECT");
     expect(document.querySelector('object[type="application/pdf"]')).toBeNull();
     // Download stays reachable whatever the viewer does with the document.
@@ -129,7 +134,7 @@ describe("ContentRenderer routing", () => {
   // tick after the render rather than during it.
   it("renders a CSV asset as a table", async () => {
     render(<ContentRenderer contentType="text/csv" content={"id,name\n1,acme\n"} fileName="rows.csv" />);
-    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("table", {}, LAZY_RENDERER_WAIT)).toBeInTheDocument();
     expect(screen.getByText("acme")).toBeInTheDocument();
   });
 
@@ -141,7 +146,7 @@ describe("ContentRenderer routing", () => {
         fileName="rows.tsv"
       />,
     );
-    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("table", {}, LAZY_RENDERER_WAIT)).toBeInTheDocument();
     expect(screen.getByText("acme")).toBeInTheDocument();
   });
 

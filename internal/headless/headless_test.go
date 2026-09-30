@@ -196,6 +196,35 @@ func TestRender_DarkEmulatesADarkScheme(t *testing.T) {
 	}
 }
 
+// A transparent page is captured with no default background, set before the
+// page loads, so an SVG or image's transparent areas stay transparent in the
+// PNG (#1991); every other page keeps the browser's opaque default.
+func TestRender_TransparentLeavesTheBackgroundUnpainted(t *testing.T) {
+	fb := newFakeBrowser(t, happy(nil))
+	p := tile()
+	p.Transparent = true
+	if _, err := New(fb.endpoint(), nil).Render(context.Background(), p); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	calls := fb.recorded()
+	override := indexOf(calls, "Emulation.setDefaultBackgroundColorOverride", "page1")
+	if override < 0 || override > indexOf(calls, "Page.navigate", "page1") {
+		t.Fatalf("the background override was not set before the page loaded: %v", methods(calls))
+	}
+	color, _ := calls[override].Params["color"].(map[string]any)
+	if color["a"] != float64(0) {
+		t.Errorf("background override = %v, want fully transparent", color)
+	}
+
+	opaque := newFakeBrowser(t, happy(nil))
+	if _, err := New(opaque.endpoint(), nil).Render(context.Background(), tile()); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if has(opaque.recorded(), "Emulation.setDefaultBackgroundColorOverride") {
+		t.Error("an opaque page must keep the default background")
+	}
+}
+
 func TestRender_LayerSwitchesTurnOffOnlyTheirLayer(t *testing.T) {
 	fb := newFakeBrowser(t, happy(nil))
 	r := New(fb.endpoint(), nil)

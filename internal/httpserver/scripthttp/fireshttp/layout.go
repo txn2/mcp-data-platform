@@ -3,6 +3,7 @@ package fireshttp
 import (
 	"cmp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -43,8 +44,14 @@ const (
 type row struct {
 	ScriptID   string `json:"script_id"`
 	ScriptName string `json:"script_name"`
-	CronSpec   string `json:"cron_spec" example:"*/15 * * * *"`
-	Timezone   string `json:"timezone" example:"America/New_York"`
+	// OwnerEmail, Category and Tags are the script's, so the page narrows its
+	// rows by the facets the Automations list narrows by (#1992). Tags is []
+	// for a script with none.
+	OwnerEmail string   `json:"owner_email" example:"jane@example.com"`
+	Category   string   `json:"category" example:"reporting"`
+	Tags       []string `json:"tags" example:"sales,reporting"`
+	CronSpec   string   `json:"cron_spec" example:"*/15 * * * *"`
+	Timezone   string   `json:"timezone" example:"America/New_York"`
 	// Enabled is false for a paused schedule. Its fires are still listed: they
 	// are the ones it makes when it is resumed, and a paused job is still one
 	// the reader has to account for.
@@ -110,19 +117,20 @@ const (
 )
 
 // Build lays every schedule out for a viewer in viewer at now, each row named
-// by names[ScriptID]. The three windows are cut in the viewer's zone and each
+// and labeled by scripts[ScriptID]. The three windows are cut in the viewer's zone and each
 // schedule is expanded in its own, so a 7 AM New York job and a 7 AM Los
 // Angeles job land three hours apart.
-func Build(schedules []script.Schedule, names map[string]string, viewer *time.Location, now time.Time) Timeline {
+func Build(schedules []script.Schedule, scripts map[string]*script.Script, viewer *time.Location, now time.Time) Timeline {
 	windows := windowsAt(now.In(viewer))
 	bySection := make(map[string][]row, len(windows))
 	refused := make([]unreadable, 0)
 
 	for i := range schedules {
 		s := &schedules[i]
+		sc := scripts[s.ScriptID]
 		c, err := script.ParseCron(s.CronSpec, s.Timezone)
 		if err != nil {
-			refused = append(refused, unreadable{ScriptID: s.ScriptID, ScriptName: names[s.ScriptID], Reason: err.Error()})
+			refused = append(refused, unreadable{ScriptID: s.ScriptID, ScriptName: displayName(sc), Reason: err.Error()})
 			continue
 		}
 		week := windows[1]
@@ -130,13 +138,19 @@ func Build(schedules []script.Schedule, names map[string]string, viewer *time.Lo
 		w := windows[sectionIndex(section)]
 		fires, count, last := c.FireSpan(w.From, w.To, MaxFiresPerRow)
 		r := row{
-			ScriptID: s.ScriptID, ScriptName: names[s.ScriptID],
+			ScriptID: s.ScriptID, ScriptName: displayName(sc), Tags: []string{},
 			CronSpec: s.CronSpec, Timezone: s.Timezone, Enabled: s.Enabled,
 			Rhythm:    rhythmOf(c, week.From),
 			FireCount: count, Truncated: count > len(fires), Fires: fires,
 		}
 		if r.Truncated {
 			r.LastFire = &last
+		}
+		if sc != nil {
+			r.OwnerEmail, r.Category = sc.OwnerEmail, sc.Category
+			if sc.Tags != nil {
+				r.Tags = sc.Tags
+			}
 		}
 		bySection[section] = append(bySection[section], r)
 	}
@@ -233,34 +247,28 @@ func rhythmOf(c script.Cron, from time.Time) string {
 	}
 }
 
-// rhythmRank orders rhythms fastest first.
-var rhythmRank = map[string]int{
-	RhythmMinutes: 0, RhythmHours: 1, RhythmDays: 2, RhythmWeeks: 3, RhythmMonths: 4,
-}
-
-// compareRows orders a section's rows by rhythm, fastest first, so rows of one
-// color sit together; then by first fire, so the reader's eye moves forward
-// through the day; then by name. A row with no fire in the window sorts after
-// the rows of its rhythm that have one.
+// compareRows orders a section's rows by script name, ignoring case, so a
+// reader finds a script where the alphabet puts it (#1992); the exact name and
+// then the id break ties, so the order does not depend on the store's.
 func compareRows(a, b row) int {
-	if c := cmp.Compare(rhythmRank[a.Rhythm], rhythmRank[b.Rhythm]); c != 0 {
+	if c := cmp.Compare(strings.ToLower(a.ScriptName), strings.ToLower(b.ScriptName)); c != 0 {
 		return c
 	}
-	if c := compareFirstFire(a.Fires, b.Fires); c != 0 {
+	if c := cmp.Compare(a.ScriptName, b.ScriptName); c != 0 {
 		return c
 	}
-	return cmp.Compare(a.ScriptName, b.ScriptName)
+	return cmp.Compare(a.ScriptID, b.ScriptID)
 }
 
-func compareFirstFire(a, b []time.Time) int {
-	switch {
-	case len(a) == 0 && len(b) == 0:
-		return 0
-	case len(a) == 0:
-		return 1
-	case len(b) == 0:
-		return -1
-	default:
-		return a[0].Compare(b[0])
+// displayName is what a person calls a script: its display name, else its
+// name. A schedule whose script is not in the listing reads as empty, and the
+// page falls back to the id.
+func displayName(sc *script.Script) string {
+	if sc == nil {
+		return ""
 	}
+	if sc.DisplayName != "" {
+		return sc.DisplayName
+	}
+	return sc.Name
 }

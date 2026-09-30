@@ -30,7 +30,10 @@ describe("buildMockScheduleTimeline", () => {
         sched("c", "0 7 * * 1-5"),
         sched("d", "0 6 1 * *"),
       ],
-      new Map([["a", "five"]]),
+      new Map([
+        ["a", { name: "five", owner_email: "jane@example.com", category: "ingest", tags: ["sales"] }],
+        ["b", { name: "Thirty-five", owner_email: "carol@example.com", category: "", tags: [] }],
+      ]),
       "UTC",
       wednesday,
     );
@@ -41,7 +44,10 @@ describe("buildMockScheduleTimeline", () => {
         ["b", 24, "hours"],
       ],
     );
+    // Rows are in name order, ignoring case (#1992), and carry the script's labels.
     expect(day!.rows[0]!.script_name).toBe("five");
+    expect(day!.rows[0]!.tags).toEqual(["sales"]);
+    expect(day!.rows[1]!.owner_email).toBe("carol@example.com");
     expect(
       week!.rows.map((r) => [r.script_id, r.fire_count, r.rhythm]),
     ).toEqual([["c", 5, "days"]]);

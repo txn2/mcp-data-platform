@@ -120,11 +120,20 @@ function rhythm(sample: number[]): ScheduleRhythm {
   return "months";
 }
 
+/** MockScriptLabel is what a row carries of its script (#1992). */
+export interface MockScriptLabel {
+  name: string;
+  owner_email: string;
+  category: string;
+  tags: string[];
+}
+
 /** buildMockScheduleTimeline lays the fixture schedules out for a viewer at
- * now, cutting the windows as the server does. */
+ * now, cutting the windows as the server does and ordering each section's
+ * rows by name, ignoring case. */
 export function buildMockScheduleTimeline(
   schedules: ScriptSchedule[],
-  names: Map<string, string>,
+  labels: Map<string, MockScriptLabel>,
   viewerZone: string,
   now: Date,
 ): ScheduleTimeline {
@@ -180,7 +189,8 @@ export function buildMockScheduleTimeline(
   const weekStart = windows[1]!.from;
 
   for (const sched of schedules) {
-    const name = names.get(sched.script_id) ?? "";
+    const label = labels.get(sched.script_id);
+    const name = label?.name ?? "";
     const spec = parse(sched.cron_spec);
     if (!spec) {
       unreadable.push({
@@ -203,6 +213,9 @@ export function buildMockScheduleTimeline(
     rows[section].push({
       script_id: sched.script_id,
       script_name: name,
+      owner_email: label?.owner_email ?? "",
+      category: label?.category ?? "",
+      tags: label?.tags ?? [],
       cron_spec: sched.cron_spec,
       timezone: sched.timezone,
       enabled: sched.enabled,
@@ -220,7 +233,11 @@ export function buildMockScheduleTimeline(
     section: x.section,
     from: new Date(x.from).toISOString(),
     to: new Date(x.to).toISOString(),
-    rows: rows[x.section],
+    rows: rows[x.section].sort(
+      (a, b) =>
+        a.script_name.toLowerCase().localeCompare(b.script_name.toLowerCase()) ||
+        a.script_id.localeCompare(b.script_id),
+    ),
   }));
   return { timezone: viewerZone, sections, unreadable };
 }

@@ -53,19 +53,15 @@ export function useScriptRuns(scriptID: string | null, owned: boolean) {
   });
 }
 
-// useScriptRunPage reads one page of a script's run history (#1972), newest
-// first, optionally narrowed to one status: what the Flow tab's run picker
-// pages through. total is every run the filter matches.
-export function useScriptRunPage(
-  scriptID: string | null,
-  owned: boolean,
-  page: number,
-  status: string,
-) {
-  const q = new URLSearchParams({ per_page: String(RUN_PAGE_SIZE), page: String(page) });
+// useRecentScriptRuns reads a script's newest runs (#1972, #1990), newest
+// first, optionally narrowed to one status by the server: what the Flow tab's
+// run picker lists. It asks for the first page only; paging through run history
+// is the Runs tab's.
+export function useRecentScriptRuns(scriptID: string | null, owned: boolean, status: string) {
+  const q = new URLSearchParams({ per_page: String(RUN_PAGE_SIZE) });
   if (status) q.set("status", status);
   return useQuery({
-    queryKey: [...scriptsKey, scriptID, "runs", "page", page, status],
+    queryKey: [...scriptsKey, scriptID, "runs", "recent", status],
     queryFn: () => apiFetch<ListResponse<ScriptRun>>(`/scripts/${scriptID}/runs?${q.toString()}`),
     enabled: !!scriptID && owned,
     refetchInterval: (query) => (hasRunInFlight(query.state.data) ? RUN_POLL_MS : false),

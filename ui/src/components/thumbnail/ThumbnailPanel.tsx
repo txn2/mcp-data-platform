@@ -4,7 +4,7 @@ import { ImageOff, RefreshCw, TriangleAlert } from "lucide-react";
 import { authedFetch } from "@/api/authed";
 import { useClearAssetThumbnail } from "@/api/portal/hooks/assets";
 import { useClearResourceThumbnail } from "@/api/resources/hooks";
-import { AuthImg } from "@/components/AuthImg";
+import { TileImg } from "@/components/thumbnail/TileImg";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Button } from "@/components/ui/button";
 import { useResolvedDark } from "@/stores/theme";
@@ -129,10 +129,10 @@ function PanelBody({
   return (
     <div className="space-y-2">
       {shown ? (
-        // AuthImg rather than a bare <img>: an <img src> carries no X-API-Key,
+        // TileImg (an AuthImg) rather than a bare <img>: an <img src> carries no X-API-Key,
         // so on an API-key session the tile 401s and the panel would report no
         // thumbnail for an image that exists.
-        <AuthImg
+        <TileImg
           src={shown}
           alt={`Thumbnail for ${name}`}
           className="w-full rounded border bg-muted object-cover"

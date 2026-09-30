@@ -127,6 +127,11 @@ type Config struct {
 	// caller can pass the accessors of subsystems that are not wired.
 	Producers []*indexjobs.Producer
 
+	// MemoryEmbedded is told each memory record the memory consumer embeds,
+	// with its vector: the memory toolkit's recall-first check for a capture,
+	// which is stored before it is embedded (#1987). Nil skips it.
+	MemoryEmbedded memoryindex.Embedded
+
 	// CatalogLister enumerates the semantic catalog for the catalog-dataset
 	// consumer, and CatalogIndex carries that consumer's operator tuning (sweep
 	// interval, entry cap). Both are used only when Consumers.CatalogDatasets is
@@ -320,7 +325,7 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 		memStore := memoryindex.NewStore(cfg.DB)
 		return h.registry.Register(
 			memoryindex.NewSource(memStore),
-			memoryindex.NewSink(memStore, cfg.ModelName),
+			memoryindex.NewSink(memStore, cfg.ModelName, cfg.MemoryEmbedded),
 		)
 	})
 	// Calls consumer: embeds recorded queries and API invocations off the

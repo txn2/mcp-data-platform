@@ -389,6 +389,7 @@ internal/platform/datasetindex -> pkg/indexjobs
 internal/platform/datasetindex -> pkg/knowledge
 internal/platform/datasetindex -> pkg/semantic
 internal/platform/dedup -> pkg/middleware
+internal/platform/embedyield -> pkg/embedding
 internal/platform/exportadapters -> internal/platform/provenance
 internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
@@ -451,7 +452,10 @@ internal/platform/listchanged -> pkg/session
 internal/platform/listenbridge -> internal/logsan
 internal/platform/listenbridge -> pkg/session
 internal/platform/memoryindex -> pkg/indexjobs
+internal/platform/memorylayer -> internal/platform/embedyield
+internal/platform/memorylayer -> internal/platform/memoryindex
 internal/platform/memorylayer -> pkg/embedding
+internal/platform/memorylayer -> pkg/indexjobs
 internal/platform/memorylayer -> pkg/memory
 internal/platform/memorylayer -> pkg/middleware
 internal/platform/memorylayer -> pkg/portal/knowledgepage

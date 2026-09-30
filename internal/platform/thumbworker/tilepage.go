@@ -102,21 +102,24 @@ func (w *Worker) tilePage(src tileSource) headless.Page {
 	if thumbtypes.DrawnAsDocument(src.contentType) {
 		width, height, scale = pageWidth, pageHeight, pageScale
 	}
+	transparent := thumbtypes.IsTransparent(src.contentType)
 	return headless.Page{
-		Document: tileDocument(data, src.dark, w.deps.TileEntryURL, w.deps.TileCSS),
-		Files:    w.files(extra),
-		Ready:    tileReady,
-		Width:    width,
-		Height:   height,
-		Scale:    scale,
-		Dark:     src.dark,
+		Document:    tileDocument(data, src.dark, transparent, w.deps.TileEntryURL, w.deps.TileCSS),
+		Files:       w.files(extra),
+		Ready:       tileReady,
+		Width:       width,
+		Height:      height,
+		Scale:       scale,
+		Dark:        src.dark,
+		Transparent: transparent,
 	}
 }
 
 // tileDocument is the tile page's HTML. The payload is JSON inside a script
 // element; encoding/json escapes <, > and &, so no document content can close
-// the element early.
-func tileDocument(data map[string]any, dark bool, entryURL, css string) []byte {
+// the element early. A transparent page paints no background of its own, so
+// the capture keeps the document's transparent areas (#1991).
+func tileDocument(data map[string]any, dark, transparent bool, entryURL, css string) []byte {
 	payload, err := json.Marshal(data)
 	if err != nil {
 		payload = []byte("{}")
@@ -125,10 +128,14 @@ func tileDocument(data map[string]any, dark bool, entryURL, css string) []byte {
 	if dark {
 		theme = ` class="dark" data-theme="dark"`
 	}
+	page := `html,body{margin:0;overflow:hidden}`
+	if transparent {
+		page = `html,body{margin:0;overflow:hidden;background:transparent}`
+	}
 	return []byte(strings.Join([]string{
 		`<!DOCTYPE html><html lang="en"`, theme, `><head><meta charset="utf-8">`,
 		`<style>`, strings.ReplaceAll(css, "</style", `<\/style`), `</style>`,
-		`<style>html,body{margin:0;overflow:hidden}</style></head><body>`,
+		`<style>`, page, `</style></head><body>`,
 		`<script type="application/json" id="tile-data">`, string(payload), `</script><div id="tile-root"></div>`,
 		`<script type="module" src="`, html.EscapeString(entryURL),
 		`" onerror="window.__tileReady=Promise.resolve('the tile renderer did not load')"></script>`,

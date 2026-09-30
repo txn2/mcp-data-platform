@@ -130,6 +130,9 @@ type Page struct {
 	Scale float64
 	// Dark emulates a reader who prefers a dark color scheme.
 	Dark bool
+	// Transparent captures the page with no default background, so whatever
+	// the document leaves unpainted is transparent in the PNG (#1991).
+	Transparent bool
 }
 
 // Renderer draws pages in the headless Chrome at endpoint.
@@ -275,6 +278,11 @@ func (rs *render) openPage(ctx context.Context, browserContext string) (string, 
 		// in the picture, the frame's and the page's alike.
 		{"Emulation.setScrollbarsHidden", map[string]any{"hidden": true}},
 		pauseChildren,
+	}
+	if rs.page.Transparent {
+		steps = append(steps, step{"Emulation.setDefaultBackgroundColorOverride", map[string]any{
+			"color": map[string]int{"r": 0, "g": 0, "b": 0, "a": 0},
+		}})
 	}
 	for _, s := range steps {
 		if err := rs.c.call(ctx, att.SessionID, s.method, s.params, nil); err != nil {

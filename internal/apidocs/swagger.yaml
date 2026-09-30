@@ -3623,6 +3623,9 @@ definitions:
     type: object
   fireshttp.row:
     properties:
+      category:
+        example: reporting
+        type: string
       cron_spec:
         example: '*/15 * * * *'
         type: string
@@ -3648,6 +3651,13 @@ definitions:
           at the cap, the schedule does not, and a drawing that stops where the
           list does reads as a schedule that stops mid-day (#1933).
         type: string
+      owner_email:
+        description: |-
+          OwnerEmail, Category and Tags are the script's, so the page narrows its
+          rows by the facets the Automations list narrows by (#1992). Tags is []
+          for a script with none.
+        example: jane@example.com
+        type: string
       rhythm:
         example: minutes
         type: string
@@ -3655,6 +3665,13 @@ definitions:
         type: string
       script_name:
         type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
       timezone:
         example: America/New_York
         type: string
@@ -25024,10 +25041,11 @@ paths:
         of the viewer''s month). Each row lists its fires in the window, expanded
         in the schedule''s own timezone with the same parse the scheduler uses, capped
         at 500 per row; fire_count is every fire in the window and truncated says
-        when fires holds fewer. rhythm classifies the typical gap between fires. A
-        paused schedule is listed with enabled false. A schedule that cannot be parsed
-        is named under unreadable. Owners see their own schedules; administrators
-        see every schedule.'
+        when fires holds fewer. rhythm classifies the typical gap between fires. Each
+        row carries its script''s owner_email, category and tags ([] for none), and
+        a section''s rows are in case-insensitive script-name order. A paused schedule
+        is listed with enabled false. A schedule that cannot be parsed is named under
+        unreadable. Owners see their own schedules; administrators see every schedule.'
       parameters:
       - description: IANA zone the windows are cut in, the viewer's own; empty means
           UTC

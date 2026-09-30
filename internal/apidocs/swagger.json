@@ -19227,7 +19227,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every schedule the caller may see, each placed on one of three axes by how often it fires: intraday (the viewer's day, for schedules firing more than once a day), multi_day (the viewer's Monday-to-Monday week, for at least once a week) and long_term (three calendar months from the first of the viewer's month). Each row lists its fires in the window, expanded in the schedule's own timezone with the same parse the scheduler uses, capped at 500 per row; fire_count is every fire in the window and truncated says when fires holds fewer. rhythm classifies the typical gap between fires. A paused schedule is listed with enabled false. A schedule that cannot be parsed is named under unreadable. Owners see their own schedules; administrators see every schedule.",
+                "description": "Returns every schedule the caller may see, each placed on one of three axes by how often it fires: intraday (the viewer's day, for schedules firing more than once a day), multi_day (the viewer's Monday-to-Monday week, for at least once a week) and long_term (three calendar months from the first of the viewer's month). Each row lists its fires in the window, expanded in the schedule's own timezone with the same parse the scheduler uses, capped at 500 per row; fire_count is every fire in the window and truncated says when fires holds fewer. rhythm classifies the typical gap between fires. Each row carries its script's owner_email, category and tags ([] for none), and a section's rows are in case-insensitive script-name order. A paused schedule is listed with enabled false. A schedule that cannot be parsed is named under unreadable. Owners see their own schedules; administrators see every schedule.",
                 "produces": [
                     "application/json"
                 ],
@@ -28731,6 +28731,10 @@
         "fireshttp.row": {
             "type": "object",
             "properties": {
+                "category": {
+                    "type": "string",
+                    "example": "reporting"
+                },
                 "cron_spec": {
                     "type": "string",
                     "example": "*/15 * * * *"
@@ -28754,6 +28758,11 @@
                     "description": "LastFire is the window's last fire, set on a truncated row: Fires stops\nat the cap, the schedule does not, and a drawing that stops where the\nlist does reads as a schedule that stops mid-day (#1933).",
                     "type": "string"
                 },
+                "owner_email": {
+                    "description": "OwnerEmail, Category and Tags are the script's, so the page narrows its\nrows by the facets the Automations list narrows by (#1992). Tags is []\nfor a script with none.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
                 "rhythm": {
                     "type": "string",
                     "example": "minutes"
@@ -28763,6 +28772,16 @@
                 },
                 "script_name": {
                     "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
                 },
                 "timezone": {
                     "type": "string",

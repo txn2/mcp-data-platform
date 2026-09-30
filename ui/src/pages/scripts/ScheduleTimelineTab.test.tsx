@@ -44,6 +44,9 @@ function timeline(): ScheduleTimeline {
           {
             script_id: "s-5m",
             script_name: "orders-ingest",
+            owner_email: "jane@example.com",
+            category: "ingest",
+            tags: ["sales"],
             cron_spec: "*/5 * * * *",
             timezone: "UTC",
             enabled: true,
@@ -55,6 +58,9 @@ function timeline(): ScheduleTimeline {
           {
             script_id: "s-35",
             script_name: "hourly-rollup",
+            owner_email: "carol@example.com",
+            category: "reporting",
+            tags: [],
             cron_spec: "35 * * * *",
             timezone: "UTC",
             enabled: false,
@@ -73,6 +79,9 @@ function timeline(): ScheduleTimeline {
           {
             script_id: "s-wd",
             script_name: "morning-report",
+            owner_email: "jane@example.com",
+            category: "reporting",
+            tags: ["sales", "daily"],
             cron_spec: "0 7 * * 1-5",
             timezone: "America/New_York",
             enabled: true,
@@ -146,6 +155,9 @@ describe("ScheduleTimelineTab", () => {
     data.sections[0]!.rows.push({
       script_id: "s-1m",
       script_name: "revenue-pulse",
+      owner_email: "carol@example.com",
+      category: "",
+      tags: [],
       cron_spec: "* * * * *",
       timezone: "UTC",
       enabled: false,
@@ -250,6 +262,9 @@ describe("ScheduleTimelineTab", () => {
       {
         script_id: "s-m",
         script_name: "quarter-close",
+        owner_email: "carol@example.com",
+        category: "",
+        tags: [],
         cron_spec: "0 6 1 * *",
         timezone: "UTC",
         enabled: true,
@@ -304,5 +319,54 @@ describe("ScheduleTimelineTab", () => {
     expect(
       screen.getByText("The schedules could not be loaded."),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ScheduleTimelineTab: filters (#1992)", () => {
+  const rowsShown = () =>
+    screen.queryAllByTestId(/^schedule-row-s-/).map((r) => r.getAttribute("data-testid"));
+
+  async function choose(filter: string, option: RegExp | string) {
+    fireEvent.click(screen.getByRole("combobox", { name: filter }));
+    fireEvent.click(await screen.findByRole("option", { name: option }));
+  }
+
+  it("offers the Automations list's author, category and tag filters, counted per script", async () => {
+    renderTab();
+    fireEvent.click(screen.getByRole("combobox", { name: "Filter by author" }));
+    const authors = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(authors).toEqual(["All authors", "jane@example.com (2)", "carol@example.com (1)"]);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(screen.getByRole("combobox", { name: "Filter by category" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Filter by tag" })).toBeInTheDocument();
+  });
+
+  it("narrows every section to one author, and a section left empty says so", async () => {
+    renderTab();
+    await choose("Filter by author", /^carol@example.com/);
+    expect(rowsShown()).toEqual(["schedule-row-s-35"]);
+    expect(screen.getByText("Multi-day")).toBeInTheDocument();
+    expect(screen.getByTestId("schedule-section-unmatched-multi_day")).toHaveTextContent(
+      "No schedule in this section matches the filters.",
+    );
+    // A section with no schedule at all is still not drawn.
+    expect(screen.queryByText("Long-term")).not.toBeInTheDocument();
+  });
+
+  it("combines author, category and tag, and choosing All again shows every schedule", async () => {
+    renderTab();
+    await choose("Filter by author", /^jane@example.com/);
+    expect(rowsShown()).toEqual(["schedule-row-s-5m", "schedule-row-s-wd"]);
+    await choose("Filter by category", /^reporting/);
+    expect(rowsShown()).toEqual(["schedule-row-s-wd"]);
+    await choose("Filter by tag", /^daily/);
+    expect(rowsShown()).toEqual(["schedule-row-s-wd"]);
+    await choose("Filter by category", "All categories");
+    await choose("Filter by tag", /^sales/);
+    expect(rowsShown()).toEqual(["schedule-row-s-5m", "schedule-row-s-wd"]);
+
+    await choose("Filter by author", "All authors");
+    await choose("Filter by tag", "All tags");
+    expect(rowsShown()).toEqual(["schedule-row-s-5m", "schedule-row-s-35", "schedule-row-s-wd"]);
   });
 });

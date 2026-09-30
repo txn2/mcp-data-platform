@@ -97,10 +97,16 @@ func TestAutoCapture_Validation(t *testing.T) {
 	}
 }
 
-func TestAutoCapture_RecallFirstSupersedes(t *testing.T) {
+// TestAutoCapture_StoresFirstAndQueuesTheEmbed pins that a server-initiated
+// capture goes through the same pipeline as the tool (#1987): stored without
+// waiting on the embedder, marked for the recall check, and queued.
+func TestAutoCapture_StoresFirstAndQueuesTheEmbed(t *testing.T) {
 	store := &mockStore{}
-	tk := newTestToolkit(store, nil)
+	emb := &mockEmbedder{embedResult: []float32{0.1, 0.2, 0.3}}
+	tk := newTestToolkit(store, emb)
 	tk.SetRecallChecker(&fakeRecallChecker{matches: []RecallMatch{{ID: "old-mem", Score: 0.95}}})
+	notifier := &countingNotifier{}
+	tk.SetIndexNotifier(notifier)
 
 	res, err := tk.AutoCapture(context.Background(), AutoCaptureInput{
 		SinkClass: memstore.SinkSchemaEntity,
@@ -110,11 +116,14 @@ func TestAutoCapture_RecallFirstSupersedes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AutoCapture: %v", err)
 	}
-	if len(res.Superseded) != 1 || res.Superseded[0] != "old-mem" {
-		t.Errorf("Superseded = %v, want [old-mem] (recall-first supersede)", res.Superseded)
+	if emb.calls != 0 || len(store.supersedeCalls) != 0 {
+		t.Errorf("embed calls = %d, supersedes = %v; want neither in the request", emb.calls, store.supersedeCalls)
 	}
-	if len(store.supersedeCalls) != 1 || store.supersedeCalls[0] != [2]string{"old-mem", res.ID} {
-		t.Errorf("supersede calls = %v, want [(old-mem,%s)]", store.supersedeCalls, res.ID)
+	if got := store.insertedRecords[0].Metadata[memstore.MetaKeyRecallCheck]; got != memstore.RecallCheckPending {
+		t.Errorf("recall_check = %v, want pending", got)
+	}
+	if len(notifier.ids) != 1 || notifier.ids[0] != res.ID {
+		t.Errorf("queued = %v, want [%s]", notifier.ids, res.ID)
 	}
 }
 

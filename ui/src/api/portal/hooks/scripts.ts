@@ -319,7 +319,7 @@ export {
   useScriptLiveRuns,
   useScriptRun,
   useScriptRuns,
-  useScriptRunPage,
+  useRecentScriptRuns,
   type ScriptRunCancelled,
 } from "./scriptRuns";
 

@@ -6,14 +6,14 @@ import { sampleGraph } from "./testGraph";
 import { layoutFlow } from "./flowLayout";
 
 vi.mock("@/api/portal/hooks/scriptFlow", () => ({ useScriptFlow: vi.fn(), useScriptRunFlow: vi.fn() }));
-vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useScriptRunPage: vi.fn(), RUN_PAGE_SIZE: 25 }));
+vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useRecentScriptRuns: vi.fn() }));
 vi.mock("@/api/portal/hooks/scripts", () => ({ usePortalScriptVersions: vi.fn() }));
 import { useScriptFlow, useScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
-import { useScriptRunPage } from "@/api/portal/hooks/scriptRuns";
+import { useRecentScriptRuns } from "@/api/portal/hooks/scriptRuns";
 import { usePortalScriptVersions } from "@/api/portal/hooks/scripts";
 const mockFlow = vi.mocked(useScriptFlow);
 const mockRunFlow = vi.mocked(useScriptRunFlow);
-const mockRuns = vi.mocked(useScriptRunPage);
+const mockRuns = vi.mocked(useRecentScriptRuns);
 const mockVersions = vi.mocked(usePortalScriptVersions);
 
 function answer(data: ScriptFlow | undefined, extra: Record<string, unknown> = {}) {
@@ -67,7 +67,7 @@ beforeEach(() => {
   } catch {
     // No storage to clear.
   }
-  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useScriptRunPage>);
+  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useRecentScriptRuns>);
   mockVersions.mockReturnValue({ data: undefined } as ReturnType<typeof usePortalScriptVersions>);
   mockRunFlow.mockReturnValue({ isLoading: false } as ReturnType<typeof useScriptRunFlow>);
 });
@@ -296,7 +296,7 @@ describe("ScriptFlowView: a compared graph (#1908)", () => {
     // owner's Flow tab above the comparison has filled.
     mockRuns.mockReturnValue({
       data: { data: [{ id: "run-001", version: 2, status: "succeeded" }], total: 1 },
-    } as unknown as ReturnType<typeof useScriptRunPage>);
+    } as unknown as ReturnType<typeof useRecentScriptRuns>);
     answer(compared());
     render(
       <ScriptFlowView scriptId="script-001" version={2} compareWith={1} owned source={source} sourceSelection={null} />,
@@ -350,7 +350,7 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
         ],
         total: 2,
       } : undefined,
-    }) as unknown as ReturnType<typeof useScriptRunPage>);
+    }) as unknown as ReturnType<typeof useRecentScriptRuns>);
     mockRunFlow.mockImplementation(
       (_id, runId) =>
         (runId ? { data: runFlow(), isLoading: false, error: null } : { isLoading: false }) as unknown as ReturnType<
@@ -388,7 +388,7 @@ describe("ScriptFlowView: a run drawn on the diagram (#1907)", () => {
   it("offers no run picker to a reader, and draws the saved version", async () => {
     withRuns();
     render(<ScriptFlowView scriptId="script-001" version={2} source={source} sourceSelection={null} />);
-    expect(mockRuns).toHaveBeenCalledWith("script-001", false, 1, "");
+    expect(mockRuns).toHaveBeenCalledWith("script-001", false, "");
     await card("op:1");
     expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("How to read this");
   });

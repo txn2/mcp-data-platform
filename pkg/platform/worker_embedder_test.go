@@ -1,11 +1,19 @@
 package platform
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
 
@@ -93,6 +101,80 @@ func TestWorkerEmbedder_NoopReturnsShared(t *testing.T) {
 	}
 	if got := p.workerEmbedder(); reflect.ValueOf(got).Pointer() != reflect.ValueOf(shared).Pointer() {
 		t.Errorf("non-Ollama provider should be reused by the worker; got a different instance")
+	}
+}
+
+// TestWorkerEmbedder_YieldsToInteractiveEmbeds pins the wiring of #1988 end
+// to end through the memory layer the platform assembles: the platform's
+// embedder is the interactive side of the layer's gate, the worker's Ollama
+// provider its background side, and the gate is published over the database.
+// While a search's embed is held at the embedding server, a worker call waits
+// instead of reaching it; the canceled context makes the wait observable
+// without a sleep, since the gate refuses before any request.
+func TestWorkerEmbedder_YieldsToInteractiveEmbeds(t *testing.T) {
+	t.Parallel()
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	var batches atomic.Int64
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/embed" {
+			batches.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		close(entered)
+		<-release
+		_, _ = w.Write([]byte(`{"embedding":[0.1,0.2]}`))
+	}))
+	defer ollama.Close()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	// The mark is published as the search starts; its clear follows the
+	// gate's linger and is pinned by the gate's own tests.
+	mock.ExpectExec("INSERT INTO embed_interactive").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	ollamaCfg := OllamaEmbedConfig{URL: ollama.URL, Model: "nomic-embed-text"}
+	handle, err := memorylayer.New(db, nil, memorylayer.Config{
+		ToolkitName: "memory", EmbeddingProvider: "ollama",
+		Ollama: embedding.OllamaConfig{URL: ollamaCfg.URL, Model: ollamaCfg.Model},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Platform{
+		memory:        handle,
+		embeddingProv: handle.EmbeddingProvider(),
+		config:        &Config{Memory: MemoryConfig{Embedding: EmbeddingConfig{Provider: "ollama", Ollama: ollamaCfg}}},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = p.embeddingProv.Embed(context.Background(), "a search")
+	}()
+	<-entered
+
+	worker := p.workerEmbedder()
+	if embedding.ModelName(worker) != "nomic-embed-text" {
+		t.Errorf("worker model = %q", embedding.ModelName(worker))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = worker.EmbedBatch(ctx, []string{"row"})
+	if !errors.Is(err, context.Canceled) || !strings.HasPrefix(err.Error(), "embedding gate:") {
+		t.Fatalf("worker call returned %v; want the gate's own refusal, before any request", err)
+	}
+	if n := batches.Load(); n != 0 {
+		t.Fatalf("worker reached Ollama %d times while an interactive embed was in flight", n)
+	}
+	close(release)
+	<-done
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("the interactive embed was not published to the other replicas: %v", err)
 	}
 }
 
