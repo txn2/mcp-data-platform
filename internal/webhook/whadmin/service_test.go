@@ -158,8 +158,16 @@ func (m *memRegs) Delete(_ context.Context, id string) error {
 }
 
 type fakeWindows struct {
-	ids []string
-	err map[string]error
+	ids      []string
+	err      map[string]error
+	overview whstore.Overview
+	span     time.Duration
+	step     time.Duration
+}
+
+func (f *fakeWindows) Overview(_ context.Context, _ time.Time, span, step time.Duration) (whstore.Overview, error) {
+	f.span, f.step = span, step
+	return f.overview, f.err["overview"]
 }
 
 func (f *fakeWindows) Status(context.Context, string, time.Time) (whstore.Status, error) {

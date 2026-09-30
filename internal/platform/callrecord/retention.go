@@ -28,7 +28,21 @@ import (
 // declared that persona, or before this platform declined a run's calls, are
 // noise it has already said it does not want — with the same evidence clauses
 // standing, since a record something was built from is evidence whoever
-// produced it.
+// produced it. A persona marked as a service account is an excluded persona
+// like one named in config, and is swept the same way (#1980).
+//
+// That backlog can be large: one deployment held 1.4 million records from a
+// single automated caller before it was marked. So the sweep deletes in bounded
+// batches, each its own statement and so its own transaction, rather than one
+// DELETE holding a transaction and its locks across the whole table. A batch
+// that commits stays committed if a later one fails or the process stops; the
+// next sweep resumes from what is left.
+//
+// A record's vector is on its own row, so it goes with the row. Its indexing
+// units do not: index_jobs keys a unit by source kind and id with no foreign
+// key to the record, so each batch deletes the units of the records it removed
+// in the same statement. Otherwise a pending unit would outlive its record,
+// and the calls index would go on counting work for a record that is gone.
 //
 // This is the same shape the audit store's retention takes, including the
 // advisory lock: several replicas share one database and only one of them
@@ -49,7 +63,18 @@ const (
 	// unlockTimeout bounds the advisory unlock after a sweep, so a shutdown
 	// cannot hang on releasing it.
 	unlockTimeout = 5 * time.Second
+
+	// sweepBatchSize bounds how many records one statement of the sweep
+	// removes. It is the same bound the index queue's own retention purges
+	// by: large enough that a steady-state sweep is one statement, small
+	// enough that one statement never holds a long transaction.
+	sweepBatchSize = 5000
 )
+
+// IndexSourceKind is the index_jobs source kind a call record is indexed
+// under. The calls index consumer serves this kind, and the sweep removes the
+// units of this kind that belong to the records it deletes.
+const IndexSourceKind = "calls"
 
 // RetentionDays resolves the configured retention, applying the default when
 // unset. Zero or negative takes the default, matching every other retention
@@ -79,31 +104,72 @@ func RetentionDays(configured int) int {
 // (`script:<name>`, the only user id a run's calls are audited under), since
 // the catalog stores no source column of its own.
 //
+// One execution removes at most $5 records, with the index units of kind $6
+// that belong to them, and answers how many records it removed; Cleanup runs it
+// until a batch comes back short.
+//
 // #nosec G202 -- the only thing concatenated is this package's own satisfaction
 // rule; every value the statement compares is bound as a parameter.
 var sweepQuery = `
-	DELETE FROM call_records r
-	WHERE (r.created_at < $2 OR lower(r.persona) = ANY($3) OR r.user_id LIKE $4)
-	  AND r.promoted_urn = ''
-	  AND r.rejected_at IS NULL
-	  AND NOT EXISTS (SELECT 1 FROM call_record_reuse u WHERE u.call_record_id = r.id)
-	  AND (` + satisfiedByCase("$1") + `) IS NULL`
+	WITH doomed AS (
+		SELECT r.id FROM call_records r
+		WHERE (r.created_at < $2 OR lower(r.persona) = ANY($3) OR r.user_id LIKE $4)
+		  AND r.promoted_urn = ''
+		  AND r.rejected_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM call_record_reuse u WHERE u.call_record_id = r.id)
+		  AND (` + satisfiedByCase("$1") + `) IS NULL
+		LIMIT $5
+	), gone AS (
+		DELETE FROM call_records c USING doomed d WHERE c.id = d.id RETURNING c.id
+	), units AS (
+		DELETE FROM index_jobs j USING gone g
+		WHERE j.source_kind = $6 AND j.source_id = g.id::text
+	)
+	SELECT COUNT(*) FROM gone`
 
 // Cleanup removes the records nothing came of: those past the retention window,
 // those an excluded persona made whenever it made them, and those a managed
 // script run made. It reports how many it removed.
+//
+// The personas are read once, when the sweep starts, so every batch of one
+// sweep applies the same rule. A cancellation between or during batches ends
+// the sweep without an error: the batches already committed stand, and the
+// next sweep resumes.
 func (s *PostgresStore) Cleanup(ctx context.Context) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays)
-	res, err := s.db.ExecContext(ctx, sweepQuery,
-		callReferencePrefix(), cutoff, pq.Array(s.excluded.Personas()), script.PrincipalPrefix+"%")
-	if err != nil {
-		return 0, fmt.Errorf("sweeping expired call records: %w", err)
+	personas := pq.Array(s.excluded.Personas())
+	var total int64
+	for ctx.Err() == nil {
+		var removed int64
+		err := s.db.QueryRowContext(ctx, sweepQuery, callReferencePrefix(), cutoff, personas,
+			script.PrincipalPrefix+"%", sweepBatchSize, IndexSourceKind).Scan(&removed)
+		if err != nil && ctx.Err() == nil {
+			return total, fmt.Errorf("sweeping expired call records: %w", err)
+		}
+		total += removed
+		if err != nil || removed < sweepBatchSize {
+			break
+		}
 	}
-	removed, err := res.RowsAffected()
-	if err != nil {
-		return 0, nil //nolint:nilerr // a driver that cannot count still swept
+	if total > 0 {
+		s.top.forget()
 	}
-	return removed, nil
+	return total, nil
+}
+
+// RequestSweep asks the running sweeper for a sweep now rather than at its
+// next tick. The admin API calls it when a persona is saved as a service
+// account, so the records that persona already wrote go promptly rather than
+// up to a day later. It never blocks: a request made while one is already
+// waiting is the same sweep.
+func (s *PostgresStore) RequestSweep() {
+	if s == nil || s.kick == nil {
+		return
+	}
+	select {
+	case s.kick <- struct{}{}:
+	default:
+	}
 }
 
 // StartCleanupRoutine sweeps expired records on an interval until Close. It is
@@ -129,12 +195,26 @@ func (s *PostgresStore) StartCleanupRoutine(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
+		// An asked-for sweep that finds another replica holding the lock is
+		// asked again until it gets it: the sweep in progress read its
+		// personas when it started, so it may not remove the ones just marked.
+		var retry <-chan time.Time
+		asked := func() {
+			retry = nil
+			if !s.sweepTick(ctx) {
+				retry = time.After(s.kickRetry)
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				s.sweepTick(ctx)
+			case <-s.kick:
+				asked()
+			case <-retry:
+				asked()
 			}
 		}
 	}()
@@ -153,12 +233,13 @@ func (s *PostgresStore) Close() error {
 }
 
 // sweepTick runs one sweep, under an advisory lock so that only one replica
-// deletes per tick.
-func (s *PostgresStore) sweepTick(ctx context.Context) {
+// deletes per tick. It reports false when another replica held the lock, and
+// true otherwise, a sweep that failed included.
+func (s *PostgresStore) sweepTick(ctx context.Context) bool {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		slog.Warn("call catalog: acquire connection for the retention lock", "error", err)
-		return
+		return true
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -166,11 +247,11 @@ func (s *PostgresStore) sweepTick(ctx context.Context) {
 	if err := conn.QueryRowContext(ctx,
 		"SELECT pg_try_advisory_lock($1)", sweepLockKey).Scan(&acquired); err != nil {
 		slog.Warn("call catalog: try retention lock", "error", err)
-		return
+		return true
 	}
 	if !acquired {
 		// Another replica is sweeping; this tick has nothing to do.
-		return
+		return false
 	}
 	defer func() {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
@@ -183,11 +264,12 @@ func (s *PostgresStore) sweepTick(ctx context.Context) {
 	removed, err := s.Cleanup(ctx)
 	if err != nil {
 		slog.Warn("call catalog: sweep expired records", "error", err)
-		return
+		return true
 	}
 	if removed > 0 {
 		slog.Info("call catalog: swept records that came to nothing",
 			"removed", removed, "retention_days", s.retentionDays,
-			"excluded_personas", len(s.excluded.personas))
+			"excluded_personas", len(s.excluded.Personas()))
 	}
+	return true
 }

@@ -12,5 +12,10 @@
 // one item.
 package callindex
 
-// SourceKind is the indexjobs source_kind this package serves.
-const SourceKind = "calls"
+import "github.com/txn2/mcp-data-platform/internal/platform/callrecord"
+
+// SourceKind is the indexjobs source_kind this package serves. It is the
+// catalog's own declaration, because the catalog's sweep deletes the units of
+// this kind that belong to the records it removes: two spellings would let the
+// sweep leave a removed record's units behind.
+const SourceKind = callrecord.IndexSourceKind

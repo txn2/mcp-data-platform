@@ -74,6 +74,14 @@ func (h *AwareHandler) announceOnStream(ctx context.Context, sessionID string) {
 	h.announceToolsChanged(ctx, sess, true)
 }
 
+// AnnounceOnListen is announceOnStream for a session whose subscriptions/listen
+// stream was just acknowledged. A client on protocol revision 2026-07-28 opens
+// no GET stream; its listen is the stream that carries a notification addressed
+// to its session, delivered there by internal/platform/listenbridge (#1967).
+func (h *AwareHandler) AnnounceOnListen(ctx context.Context, sessionID string) {
+	h.announceOnStream(ctx, sessionID)
+}
+
 // deliverable reports whether the stream of sessionID carries ev: an event
 // addressed to a session reaches that session's streams alone.
 func deliverable(ev Event, sessionID string) bool {

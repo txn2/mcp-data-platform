@@ -295,9 +295,75 @@ pass. A bucket lifecycle rule is not the mechanism: it would delete objects the
 metastore still lists. An operator may add one as a backstop, set longer than
 `compacted_retention_days`.
 
+## The Webhooks page
+
+**Admin > Webhooks** is the status of every source, read in one request
+(#1979):
+
+- **Requests**: request volume by outcome, stacked, for all sources or one,
+  over the last hour (one bar a minute) or the last 24 hours (one bar every
+  fifteen minutes), with the total of each outcome beneath.
+- **Sources**: one row per source with its health, when it last received an
+  event, the requests accepted and rejected in the last hour and the last day,
+  the windows owed a compaction (Pending), and the windows whose last
+  compaction failed (Failing) with the newest one's error. Clicking a row opens
+  the source's page.
+- **Recent rejections**: the last 50 rejected requests across every source,
+  each with its source, time, outcome and reason. Never the body.
+
+A source's health is one of:
+
+| Health | When |
+|--------|------|
+| Disabled | An administrator turned the source off. |
+| Failing | One or more of its windows failed their last compaction. |
+| Silent | Enabled, and no event received in the last 24 hours, including a source that never received one. |
+| Receiving | Enabled, an event received in the last 24 hours, and no window failing. |
+
+When more than one applies, the first in that order is reported: a disabled
+source receives nothing by choice, and a failing one is losing what it did
+receive, which outranks silence. A sender that stops produces no error on the
+receiving side, so Silent is how a stopped sender shows.
+
+The page reads `GET /api/v1/admin/webhooks/status?range=hour|day`:
+
+```json
+{
+  "generated_at": "2026-09-29T12:00:00Z",
+  "range": "hour",
+  "from": "2026-09-29T11:00:00Z",
+  "bucket_seconds": 60,
+  "silent_after_seconds": 86400,
+  "sources": [
+    {
+      "name": "esp-events", "enabled": true, "health": "failing",
+      "auth_mode": "hmac", "connection": "acme-scratch-resources",
+      "table": "webhook_esp_events", "last_event_at": "2026-09-29T11:59:58Z",
+      "last_hour": {"accepted": 1832, "unauthorized": 3},
+      "last_day": {"accepted": 40211, "unauthorized": 12},
+      "pending": 2, "failing": 1,
+      "last_error": "segment webhooks/esp-events/...: gzip: invalid header"
+    }
+  ],
+  "volume": [
+    {"at": "2026-09-29T11:59:00Z", "source": "esp-events", "outcome": "accepted", "count": 31}
+  ],
+  "rejections": [
+    {"source": "esp-events", "at": "2026-09-29T11:58:12Z", "outcome": "unauthorized", "reason": "the signature does not match"}
+  ]
+}
+```
+
+`volume` is read from the per-minute request counts at or after `from`, the
+bound each source's `last_hour` (range `hour`) or `last_day` (range `day`) is
+read with, so the series sums to those counts. A bucket starts at a multiple of
+`bucket_seconds` since the Unix epoch, and one with no requests has no point.
+Per-minute counts are kept for 48 hours, which is why the longest range is a
+day. With no sources, every list is `[]`.
+
 ## The source's page
 
-**Admin > Webhooks** lists every source. A source's page shows:
+A source's page shows:
 
 - the URL to give the sender, and the table readers query;
 - request counts by outcome for the last hour and the last day;

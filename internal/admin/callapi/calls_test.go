@@ -183,3 +183,60 @@ func TestPromoteAMissingRecordIsNotFound(t *testing.T) {
 		"/api/v1/admin/calls/gone/promote", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// countingStore is a catalog that can also answer who wrote it.
+type countingStore struct {
+	fakeStore
+	top callrecord.TopCallers
+	err error
+}
+
+func (c *countingStore) TopCallers(context.Context) (callrecord.TopCallers, error) {
+	return c.top, c.err
+}
+
+func TestTopCallersServesTheCatalogsCount(t *testing.T) {
+	store := &countingStore{top: callrecord.TopCallers{
+		Total:      1000,
+		Principals: []callrecord.CallerShare{},
+		Personas: []callrecord.PersonaShare{
+			{Persona: "integration", Records: 990, Share: 0.99, ServiceAccount: true},
+		},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, Config{Calls: store})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/calls/top-callers", http.NoBody))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.InDelta(t, 1000, got["total"], 0)
+	assert.Equal(t, []any{}, got["principals"], "an empty list is [], never null")
+	personas, _ := got["personas"].([]any)
+	require.Len(t, personas, 1)
+	first, _ := personas[0].(map[string]any)
+	assert.Equal(t, "integration", first["persona"])
+	assert.Equal(t, true, first["service_account"])
+}
+
+func TestTopCallersReportsAFailedCount(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, Config{Calls: &countingStore{err: errors.New("db down")}})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/calls/top-callers", http.NoBody))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestTopCallersIsAbsentForACatalogThatCannotCount(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, Config{Calls: &fakeStore{missing: true}})
+
+	// Without the route, the path falls to the one-record route, which is the
+	// catalog's answer for an id it does not hold.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/calls/top-callers", http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

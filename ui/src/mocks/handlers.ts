@@ -2180,6 +2180,7 @@ export const handlers = [
       deny_tools?: string[];
       api_routes?: APIRouteRule[];
       priority?: number;
+      service_account?: boolean;
     };
 
     if (!body.name || !body.display_name) {
@@ -2205,6 +2206,7 @@ export const handlers = [
       allow_tools: body.allow_tools ?? [],
       deny_tools: body.deny_tools ?? [],
       api_routes: body.api_routes ?? [],
+      service_account: body.service_account ?? false,
       tools: [] as string[],
     };
 
@@ -2232,6 +2234,7 @@ export const handlers = [
       deny_tools?: string[];
       api_routes?: APIRouteRule[];
       priority?: number;
+      service_account?: boolean;
     };
 
     if (!body.display_name) {
@@ -2250,6 +2253,8 @@ export const handlers = [
     // none, which is exactly what a save that cleared every rule sends.
     existing.api_routes = body.api_routes ?? [];
     if (body.priority !== undefined) existing.priority = body.priority;
+    // Absent is false, as on the server: the editor sends it only when set.
+    existing.service_account = body.service_account ?? false;
 
     const idx = mockPersonas.findIndex((p) => p.name === name);
     if (idx !== -1) {

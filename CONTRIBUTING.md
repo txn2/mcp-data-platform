@@ -41,6 +41,14 @@ By participating in this project, you agree to maintain a respectful and inclusi
    go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
    ```
 
+   The portal under `ui/` runs on the Node major in `ui/.nvmrc`, which CI's
+   setup-node steps read too; `tools-check` refuses any other major, since two
+   Node majors disagree about browser storage in the vitest suite (#1976):
+
+   ```bash
+   cd ui && nvm install && nvm use && npm ci
+   ```
+
    Run `make tools-check` to verify your installed versions match the pins; it
    prints the exact install command for anything missing or mismatched. Treat
    the Makefile as the source of truth if the versions above have since moved.

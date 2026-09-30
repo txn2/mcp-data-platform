@@ -175,7 +175,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22'
+          node-version-file: ui/.nvmrc
           cache: 'npm'
           cache-dependency-path: ui/package-lock.json
 
@@ -203,6 +203,10 @@ jobs:
   frontend-e2e:
     name: Frontend E2E
     runs-on: ubuntu-latest
+    # The suite takes about ten minutes. A step that hangs (a browser install
+    # that never finishes unpacking, #1976) fails here instead of holding the
+    # runner for the six-hour default.
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -212,7 +216,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22'
+          node-version-file: ui/.nvmrc
           cache: 'npm'
           cache-dependency-path: ui/package-lock.json
 

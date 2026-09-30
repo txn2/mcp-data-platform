@@ -39,8 +39,10 @@ type Registrations interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// Windows reads a source's status and the resources its windows were written as.
+// Windows reads a source's status, the overview of every source, and the
+// resources a source's windows were written as.
 type Windows interface {
 	Status(ctx context.Context, source string, now time.Time) (whstore.Status, error)
+	Overview(ctx context.Context, now time.Time, span, step time.Duration) (whstore.Overview, error)
 	ResourceIDs(ctx context.Context, source string) ([]string, error)
 }

@@ -15,6 +15,7 @@ import { InFlightPanel, RetryBackoffPanel, Section } from "./components/panels";
 import { QueueMetricPanels } from "./components/metricpanels";
 import { FailureTriage } from "./components/triage";
 import { JobsSection } from "./components/JobsSection";
+import { TopCallersSection } from "./components/topcallers";
 
 // IndexingPage is the admin-only cross-kind Indexing dashboard. It leads
 // with a plain health verdict per kind (Healthy / Indexing… / Degraded /
@@ -120,6 +121,9 @@ export function IndexingPage() {
               />
             ))}
           </div>
+
+          {/* Asked only of a deployment that indexes the call catalog. */}
+          {kinds.some((k) => k.kind === "calls") && <TopCallersSection />}
 
           <QueueMetricPanels />
 

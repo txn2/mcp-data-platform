@@ -21,10 +21,18 @@ import (
 )
 
 type fakeService struct {
-	sources map[string]whsource.Source
-	err     error
-	created whsource.Source
-	updated whadmin.Update
+	sources  map[string]whsource.Source
+	err      error
+	created  whsource.Source
+	updated  whadmin.Update
+	overview whadmin.Overview
+	span     time.Duration
+	step     time.Duration
+}
+
+func (f *fakeService) Overview(_ context.Context, span, step time.Duration) (whadmin.Overview, error) {
+	f.span, f.step = span, step
+	return f.overview, f.err
 }
 
 func (f *fakeService) List(context.Context) ([]whsource.Source, error) {

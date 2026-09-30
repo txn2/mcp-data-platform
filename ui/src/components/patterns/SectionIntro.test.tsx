@@ -102,7 +102,7 @@ describe("sectionIntroPath", () => {
   });
 });
 
-// The test environment has no localStorage of its own, which is also the state
+// Each test stands in its own store, or none: no localStorage is also the state
 // a private window and a browser set to block site data leave the page in.
 function withStorage(store: Map<string, string>) {
   vi.stubGlobal("localStorage", {

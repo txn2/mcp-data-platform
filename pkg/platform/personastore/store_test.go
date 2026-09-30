@@ -20,7 +20,7 @@ const (
 
 var personaColumns = []string{
 	"name", "display_name", "description", "roles", "tools_allow", "tools_deny",
-	"connections_allow", "connections_deny", "api_routes", "context", "priority", "created_by", "updated_at",
+	"connections_allow", "connections_deny", "api_routes", "context", "priority", "service_account", "created_by", "updated_at",
 }
 
 func newTestPersonaStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
@@ -321,7 +321,8 @@ func TestDefinitionRoundTrip(t *testing.T) {
 		APIRoutes: []persona.APIRouteRule{
 			{Connection: "crm-*", Methods: []string{"GET"}, Paths: []string{"/v1/orders/{id}"}},
 		},
-		Priority: 42,
+		Priority:       42,
+		ServiceAccount: true,
 	}
 
 	def := DefinitionFromPersona(original, "tester@example.com")
@@ -336,6 +337,7 @@ func TestDefinitionRoundTrip(t *testing.T) {
 	assert.Equal(t, original.APIRoutes, converted.APIRoutes)
 	assert.Equal(t, original.Context, converted.Context)
 	assert.Equal(t, original.Priority, converted.Priority)
+	assert.True(t, converted.ServiceAccount, "the service-account mark survives the round trip")
 }
 
 // --- PostgresStore sqlmock tests ---
@@ -350,11 +352,11 @@ func TestPostgresStoreList(t *testing.T) {
 			[]byte(`["prod_*"]`), []byte(`["staging_*"]`),
 			[]byte(`[{"connection":"crm-*","methods":["DELETE"],"action":"deny"}]`),
 			[]byte(`{"description_prefix":"Hello"}`),
-			10, "admin@example.com", now).
+			10, true, "admin@example.com", now).
 		AddRow("engineer", "Data Engineer", "Builds pipelines",
 			[]byte(`["engineer"]`), []byte(`["*"]`), []byte(`[]`),
 			[]byte(`[]`), []byte(`[]`), []byte(`[]`), []byte(`{}`),
-			5, "creator@example.com", now)
+			5, false, "creator@example.com", now)
 
 	mock.ExpectQuery("SELECT name, display_name, description, roles, tools_allow, tools_deny").
 		WillReturnRows(rows)
@@ -377,6 +379,9 @@ func TestPostgresStoreList(t *testing.T) {
 	assert.Empty(t, defs[1].APIRoutes)
 	assert.Equal(t, "Hello", defs[0].Context.DescriptionPrefix)
 	assert.Equal(t, 10, defs[0].Priority)
+	assert.True(t, defs[0].ServiceAccount, "the stored service-account mark is read back")
+	assert.True(t, defs[0].ToPersona().ServiceAccount, "and reaches the persona the registry holds")
+	assert.False(t, defs[1].ServiceAccount)
 	assert.Equal(t, "admin@example.com", defs[0].CreatedBy)
 	assert.Equal(t, now, defs[0].UpdatedAt)
 
@@ -419,7 +424,7 @@ func TestPostgresStoreGet(t *testing.T) {
 			[]byte(`["prod_*"]`), []byte(`["staging_*"]`),
 			[]byte(`[{"connection":"crm-*","paths":["/v1/orders/{id}"],"action":"deny"}]`),
 			[]byte(`{"description_prefix":"ctx"}`),
-			10, "admin@example.com", now)
+			10, false, "admin@example.com", now)
 
 	mock.ExpectQuery("SELECT name, display_name, description, roles, tools_allow, tools_deny").
 		WithArgs("analyst").
@@ -483,10 +488,11 @@ func TestPostgresStoreSet(t *testing.T) {
 		APIRoutes: []persona.APIRouteRule{
 			{Connection: "crm-*", Methods: []string{"DELETE"}, Action: persona.ActionDeny},
 		},
-		Context:   persona.ContextOverrides{DescriptionPrefix: "Hello"},
-		Priority:  10,
-		CreatedBy: "admin@example.com",
-		UpdatedAt: now,
+		Context:        persona.ContextOverrides{DescriptionPrefix: "Hello"},
+		Priority:       10,
+		ServiceAccount: true,
+		CreatedBy:      "admin@example.com",
+		UpdatedAt:      now,
 	}
 
 	mock.ExpectExec("INSERT INTO persona_definitions").
@@ -495,7 +501,7 @@ func TestPostgresStoreSet(t *testing.T) {
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), // roles, tools_allow, tools_deny
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // conns_allow, conns_deny
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // api_routes, context
-			def.Priority, def.CreatedBy,
+			def.Priority, def.CreatedBy, true,
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -558,7 +564,7 @@ func TestPostgresStoreList_ScanError(t *testing.T) {
 
 	// Return a row with invalid data types to trigger scan error
 	rows := sqlmock.NewRows(personaColumns).
-		AddRow("bad", "Bad", "desc", "not-json", "[]", "[]", "[]", "[]", "[]", "{}", 0, "admin", time.Now())
+		AddRow("bad", "Bad", "desc", "not-json", "[]", "[]", "[]", "[]", "[]", "{}", 0, false, "admin", time.Now())
 
 	mock.ExpectQuery("SELECT .+ FROM persona_definitions").WillReturnRows(rows)
 

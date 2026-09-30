@@ -1141,7 +1141,7 @@ func TestBuildAdminHandler(t *testing.T) {
 
 func TestBuildRootHandler_NilPlatform(t *testing.T) {
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
-	handler := buildRootHandler(mcpServer, nil, httpConfig{})
+	handler := buildRootHandler(context.Background(), mcpServer, nil, httpConfig{})
 	if handler == nil {
 		t.Fatal("expected non-nil handler")
 	}
@@ -1165,7 +1165,7 @@ func TestBuildRootHandler_WithSessionStore(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	hcfg := extractHTTPConfig(p)
-	handler := buildRootHandler(mcpServer, p, hcfg)
+	handler := buildRootHandler(context.Background(), mcpServer, p, hcfg)
 	if handler == nil {
 		t.Fatal("expected non-nil handler")
 	}

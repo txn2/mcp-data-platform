@@ -2808,6 +2808,40 @@
                 }
             }
         },
+        "/admin/calls/top-callers": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the callers and personas holding the largest share of the recorded calls, largest first, each with its record count, its share of the total, and whether its persona is a service account (its calls are audited but not recorded) or is named in calls.exclude_personas. The counts are at most five minutes old; the service-account marks are read at the request.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Who wrote the call catalog",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.TopCallers"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/calls/{id}": {
             "get": {
                 "security": [
@@ -9687,6 +9721,59 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/webhooks/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every source's health and counts in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests across all sources, each with its source (never a body). Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Webhooks"
+                ],
+                "summary": "Status of every webhook source",
+                "parameters": [
+                    {
+                        "enum": [
+                            "hour",
+                            "day"
+                        ],
+                        "type": "string",
+                        "default": "hour",
+                        "description": "Span of the volume series: hour (one-minute buckets) or day (fifteen-minute buckets)",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/webhookapi.StatusOverview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -25387,6 +25474,11 @@
                     "example": [
                         "viewer"
                     ]
+                },
+                "service_account": {
+                    "description": "ServiceAccount marks the persona an automated caller signs in under.\nSaving it true removes the call records the persona already wrote on a\nsweep started at once. Absent is false.",
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -25459,6 +25551,11 @@
                     "example": [
                         "data_engineer"
                     ]
+                },
+                "service_account": {
+                    "description": "ServiceAccount marks the persona an automated caller signs in under:\nits calls are audited but not added to the call catalog (#1980).",
+                    "type": "boolean",
+                    "example": false
                 },
                 "source": {
                     "description": "\"file\", \"database\", or \"both\"",
@@ -27369,6 +27466,66 @@
                 }
             }
         },
+        "callrecord.CallerShare": {
+            "type": "object",
+            "properties": {
+                "excluded_by_config": {
+                    "description": "ExcludedByConfig is whether calls.exclude_personas names the persona,\nwhich has the same effect and is changed in the config file instead.",
+                    "type": "boolean"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "integration"
+                },
+                "records": {
+                    "type": "integer",
+                    "example": 1419066
+                },
+                "service_account": {
+                    "description": "ServiceAccount is whether the persona is marked as a service account\nnow: its new calls are not cataloged, and its records go on the next\nsweep.",
+                    "type": "boolean"
+                },
+                "share": {
+                    "description": "Share is Records over the catalog's total, between 0 and 1.",
+                    "type": "number",
+                    "example": 0.994
+                },
+                "user_email": {
+                    "type": "string",
+                    "example": "crm-sync@example.com"
+                },
+                "user_id": {
+                    "type": "string",
+                    "example": "apikey:crm-sync"
+                }
+            }
+        },
+        "callrecord.PersonaShare": {
+            "type": "object",
+            "properties": {
+                "excluded_by_config": {
+                    "description": "ExcludedByConfig is whether calls.exclude_personas names the persona,\nwhich has the same effect and is changed in the config file instead.",
+                    "type": "boolean"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "integration"
+                },
+                "records": {
+                    "type": "integer",
+                    "example": 1419066
+                },
+                "service_account": {
+                    "description": "ServiceAccount is whether the persona is marked as a service account\nnow: its new calls are not cataloged, and its records go on the next\nsweep.",
+                    "type": "boolean"
+                },
+                "share": {
+                    "description": "Share is Records over the catalog's total, between 0 and 1.",
+                    "type": "number",
+                    "example": 0.994
+                }
+            }
+        },
         "callrecord.Record": {
             "type": "object",
             "properties": {
@@ -27504,6 +27661,34 @@
                 "user_id": {
                     "type": "string",
                     "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "callrecord.TopCallers": {
+            "type": "object",
+            "properties": {
+                "counted_at": {
+                    "description": "CountedAt is when the counts were taken.",
+                    "type": "string"
+                },
+                "personas": {
+                    "description": "Personas are the personas holding the most records.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callrecord.PersonaShare"
+                    }
+                },
+                "principals": {
+                    "description": "Principals are the callers holding the most records. A caller is a\nprincipal under one persona, since that is the unit an operator marks.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callrecord.CallerShare"
+                    }
+                },
+                "total": {
+                    "description": "Total is every record in the catalog, the denominator of every share.",
+                    "type": "integer",
+                    "example": 1426996
                 }
             }
         },
@@ -37336,6 +37521,82 @@
                 }
             }
         },
+        "webhookapi.SourceRejection": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "webhookapi.SourceStatus": {
+            "type": "object",
+            "properties": {
+                "auth_mode": {
+                    "type": "string"
+                },
+                "connection": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "failing": {
+                    "type": "integer"
+                },
+                "health": {
+                    "description": "Health is the source's overall state. When more than one applies, the\nfirst of disabled, failing, silent, receiving is reported.",
+                    "type": "string",
+                    "enum": [
+                        "receiving",
+                        "silent",
+                        "failing",
+                        "disabled"
+                    ]
+                },
+                "last_day": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_event_at": {
+                    "description": "LastEventAt is when the source last received an event; null when it\nnever has, or not within the windows it still holds.",
+                    "type": "string"
+                },
+                "last_hour": {
+                    "description": "LastHour and LastDay are request counts by outcome.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pending": {
+                    "description": "Pending counts windows owed a compaction; Failing, those whose last\nattempt failed, with the newest one's error in LastError.",
+                    "type": "integer"
+                },
+                "table": {
+                    "type": "string"
+                }
+            }
+        },
         "webhookapi.SourceView": {
             "type": "object",
             "properties": {
@@ -37371,6 +37632,72 @@
                     "example": "webhook_esp_events"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "webhookapi.StatusOverview": {
+            "type": "object",
+            "properties": {
+                "bucket_seconds": {
+                    "description": "BucketSeconds is the length of one bucket of the series.",
+                    "type": "integer",
+                    "example": 60
+                },
+                "from": {
+                    "description": "From is the series' lower bound: a minute's counts are in the series\nwhen the minute is at or after it.",
+                    "type": "string"
+                },
+                "generated_at": {
+                    "type": "string"
+                },
+                "range": {
+                    "description": "Range is the span the series covers: hour or day.",
+                    "type": "string",
+                    "enum": [
+                        "hour",
+                        "day"
+                    ],
+                    "example": "hour"
+                },
+                "rejections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/webhookapi.SourceRejection"
+                    }
+                },
+                "silent_after_seconds": {
+                    "description": "SilentAfterSeconds is how long an enabled source may go without an\nevent before it is reported silent.",
+                    "type": "integer",
+                    "example": 86400
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/webhookapi.SourceStatus"
+                    }
+                },
+                "volume": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/webhookapi.VolumePoint"
+                    }
+                }
+            }
+        },
+        "webhookapi.VolumePoint": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "source": {
                     "type": "string"
                 }
             }

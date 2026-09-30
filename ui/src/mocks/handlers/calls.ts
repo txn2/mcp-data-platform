@@ -1,7 +1,8 @@
 import { http, HttpResponse } from "msw";
 import type { CallRecord } from "@/api/admin/types";
 import { MOCK_CALLER_EMAIL } from "../data/audit";
-import { mockCallRecords } from "../data/calls";
+import { mockCallRecords, mockTopCallers } from "../data/calls";
+import { mockPersonaDetails } from "../data/personas";
 
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
@@ -115,6 +116,13 @@ const ADMIN_ACTOR = "admin@example.com";
 export const callHandlers = [
   http.get(`${ADMIN_BASE}/calls`, ({ request }) =>
     listPage(new URL(request.url), mockCallRecords),
+  ),
+  // Declared before the one-record route so the literal path wins, as the
+  // server's mux does.
+  http.get(`${ADMIN_BASE}/calls/top-callers`, () =>
+    HttpResponse.json(
+      mockTopCallers((persona) => mockPersonaDetails[persona]?.service_account ?? false),
+    ),
   ),
   http.get(`${ADMIN_BASE}/calls/:id`, ({ params }) =>
     detailOrNotFound(String(params.id)),

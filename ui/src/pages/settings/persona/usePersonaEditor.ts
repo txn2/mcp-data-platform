@@ -38,6 +38,9 @@ function toPayload(draft: PersonaDraft) {
     description_override: draft.descriptionOverride || undefined,
     agent_instructions_suffix: draft.agentInstructionsSuffix || undefined,
     agent_instructions_override: draft.agentInstructionsOverride || undefined,
+    // Sent only when set: absent is false, and a persona that is not a service
+    // account is saved the way it was before the setting existed.
+    service_account: draft.serviceAccount || undefined,
   };
 }
 

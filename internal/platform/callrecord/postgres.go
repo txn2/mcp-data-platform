@@ -31,6 +31,10 @@ type Config struct {
 	// deployment declared the persona; the recorder reads the same rule to
 	// never write one (see exclusion.go).
 	ExcludePersonas []string
+
+	// ServiceAccounts answers which personas are marked as service accounts,
+	// read live on every call and every sweep (#1980). Nil marks none.
+	ServiceAccounts ServiceAccounts
 }
 
 // PostgresStore is the call catalog over PostgreSQL. It also owns the sweep
@@ -43,6 +47,17 @@ type PostgresStore struct {
 	// cancel and done are the sweeper's lifecycle, nil until it is started.
 	cancel context.CancelFunc
 	done   chan struct{}
+	// kick asks the sweeper for a sweep now rather than at the next tick. It
+	// holds at most one request: several asks before the sweeper wakes are
+	// one sweep, which removes everything any of them asked for.
+	kick chan struct{}
+	// kickRetry is how long an asked-for sweep that found the lock held waits
+	// before asking again.
+	kickRetry time.Duration
+
+	// top holds the latest count of who wrote the catalog, so the admin page
+	// can show it on every refresh without grouping the whole table each time.
+	top topCache
 }
 
 // NewPostgresStore returns a call catalog over db.
@@ -50,9 +65,15 @@ func NewPostgresStore(db *sql.DB, cfg Config) *PostgresStore {
 	return &PostgresStore{
 		db:            db,
 		retentionDays: RetentionDays(cfg.RetentionDays),
-		excluded:      NewExclusion(cfg.ExcludePersonas),
+		excluded:      NewExclusion(cfg.ExcludePersonas).WithServiceAccounts(cfg.ServiceAccounts),
+		kick:          make(chan struct{}, 1),
+		kickRetry:     time.Minute,
 	}
 }
+
+// Exclusion is the rule this catalog applies, for the recorder and the call
+// reference to share rather than each building its own copy of it.
+func (s *PostgresStore) Exclusion() Exclusion { return s.excluded }
 
 // callReferencePrefix is the mcp:call: prefix the satisfaction rule matches a
 // capture's sources against. It is bound as a parameter rather than spelled in

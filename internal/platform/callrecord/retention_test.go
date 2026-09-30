@@ -59,6 +59,11 @@ func TestSweepMatchesAnExcludedPersonaTheWayTheRuleDoes(t *testing.T) {
 		NewExclusion([]string{" Ingest-Service "}).Personas())
 }
 
+// sweepRows is one batch's answer: how many records it removed.
+func sweepRows(removed int) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"count"}).AddRow(removed)
+}
+
 func TestCleanupBindsTheExcludedPersonas(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -66,14 +71,19 @@ func TestCleanupBindsTheExcludedPersonas(t *testing.T) {
 		_ = db.Close()
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
-	store := NewPostgresStore(db, Config{ExcludePersonas: []string{"Ingest-Service", "etl"}})
+	store := NewPostgresStore(db, Config{
+		ExcludePersonas: []string{"Ingest-Service", "etl"},
+		ServiceAccounts: fakeAccounts{"crm-sync": true, "etl": true},
+	})
 
-	// The names reach the statement normalized and sorted, which is what makes
-	// the delete the same on every replica.
-	mock.ExpectExec("DELETE FROM call_records").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{"etl", "ingest-service"}),
-			script.PrincipalPrefix+"%").
-		WillReturnResult(sqlmock.NewResult(0, 9))
+	// The configured names and the personas marked as service accounts reach
+	// the statement as one list, normalized, sorted and without repeats, which
+	// is what makes the delete the same on every replica. The batch bound and
+	// the index kind whose units go with the records are bound too.
+	mock.ExpectQuery("WITH doomed AS").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{"crm-sync", "etl", "ingest-service"}),
+			script.PrincipalPrefix+"%", sweepBatchSize, IndexSourceKind).
+		WillReturnRows(sweepRows(9))
 
 	removed, err := store.Cleanup(context.Background())
 	require.NoError(t, err)
@@ -86,9 +96,10 @@ func TestCleanupBindsAnEmptyArrayWhenNothingIsExcluded(t *testing.T) {
 	// A deployment that declared nothing binds an empty array rather than a
 	// NULL: `= ANY('{}')` is false for every row, so the age half of the sweep
 	// is the whole rule and the catalog behaves exactly as it did before.
-	mock.ExpectExec("DELETE FROM call_records").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{}), script.PrincipalPrefix+"%").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("WITH doomed AS").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), pq.Array([]string{}), script.PrincipalPrefix+"%",
+			sweepBatchSize, IndexSourceKind).
+		WillReturnRows(sweepRows(1))
 
 	_, err := store.Cleanup(context.Background())
 	require.NoError(t, err)
@@ -98,18 +109,64 @@ func TestCleanupReportsWhatItRemoved(t *testing.T) {
 	store, mock := newMock(t)
 	store.retentionDays = 30
 
-	mock.ExpectExec("DELETE FROM call_records").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 4))
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(4))
 
 	removed, err := store.Cleanup(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(4), removed)
 }
 
+func TestCleanupDeletesInBoundedBatchesUntilOneComesBackShort(t *testing.T) {
+	store, mock := newMock(t)
+
+	// A backlog larger than one batch is removed by several statements, each
+	// its own transaction, and the sweep stops at the first batch that removed
+	// fewer than the bound: there is nothing left for another.
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(sweepBatchSize))
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(sweepBatchSize))
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(12))
+
+	removed, err := store.Cleanup(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(2*sweepBatchSize+12), removed)
+}
+
+func TestCleanupKeepsWhatCommittedWhenALaterBatchFails(t *testing.T) {
+	store, mock := newMock(t)
+
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(sweepBatchSize))
+	mock.ExpectQuery("WITH doomed AS").WillReturnError(errors.New("db down"))
+
+	removed, err := store.Cleanup(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, int64(sweepBatchSize), removed, "the committed batch is reported with the failure")
+}
+
+func TestCleanupStopsQuietlyWhenCanceled(t *testing.T) {
+	store, _ := newMock(t)
+
+	// A sweep canceled before its next batch is a clean partial pass, not a
+	// failure: what committed stands and the next sweep resumes.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	removed, err := store.Cleanup(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, removed)
+}
+
+func TestSweepRemovesTheIndexUnitsOfTheRecordsItDeletes(t *testing.T) {
+	t.Parallel()
+
+	// index_jobs has no foreign key to call_records, so a unit outlives its
+	// record unless the sweep deletes it in the same statement.
+	assert.Contains(t, sweepQuery, "DELETE FROM index_jobs j USING gone g")
+	assert.Contains(t, sweepQuery, "j.source_kind = $6 AND j.source_id = g.id::text")
+	assert.Contains(t, sweepQuery, "LIMIT $5", "one statement removes at most one batch")
+}
+
 func TestCleanupReportsAFailure(t *testing.T) {
 	store, mock := newMock(t)
-	mock.ExpectExec("DELETE FROM call_records").WillReturnError(errors.New("db down"))
+	mock.ExpectQuery("WITH doomed AS").WillReturnError(errors.New("db down"))
 
 	_, err := store.Cleanup(context.Background())
 	require.Error(t, err)
@@ -124,8 +181,7 @@ func TestSweeperSweepsOnceAtStartup(t *testing.T) {
 	// persona wrote go at that restart.
 	mock.ExpectQuery("pg_try_advisory_lock").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
-	mock.ExpectExec("DELETE FROM call_records").
-		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(3))
 	mock.ExpectExec("pg_advisory_unlock").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -169,4 +225,63 @@ func TestNewPostgresStoreResolvesRetention(t *testing.T) {
 	store, _ := newMock(t)
 	assert.Equal(t, DefaultRetentionDays, store.retentionDays,
 		"a store built with no retention stated takes the default")
+}
+
+func TestSweeperSweepsWhenAsked(t *testing.T) {
+	store, mock := newMock(t)
+
+	// The startup sweep finds nothing. The asked-for sweep is the second one,
+	// and it happens without the hour-long interval passing: that is what lets
+	// a persona saved as a service account lose its records promptly.
+	for _, removed := range []int{0, 7} {
+		mock.ExpectQuery("pg_try_advisory_lock").
+			WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+		mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(removed))
+		mock.ExpectExec("pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+
+	store.StartCleanupRoutine(time.Hour)
+	t.Cleanup(func() { _ = store.Close() })
+	store.RequestSweep()
+	require.Eventually(t, func() bool { return mock.ExpectationsWereMet() == nil },
+		5*time.Second, 5*time.Millisecond, "the asked-for sweep did not run")
+}
+
+func TestRequestSweepNeverBlocks(t *testing.T) {
+	t.Parallel()
+
+	// Nothing is draining the request, so a second ask must fold into the
+	// first rather than wait; a nil catalog asks nothing.
+	store := NewPostgresStore(nil, Config{})
+	store.RequestSweep()
+	store.RequestSweep()
+	assert.Len(t, store.kick, 1)
+
+	var none *PostgresStore
+	none.RequestSweep()
+}
+
+// An asked-for sweep that finds another replica holding the lock asks again
+// until it gets it, so the persona just marked is swept by a sweep that read it.
+func TestSweeperRetriesAnAskedForSweepThatLostTheLock(t *testing.T) {
+	store, mock := newMock(t)
+	store.kickRetry = time.Millisecond
+
+	// The startup sweep and the asked-for one lose the race; the retry wins.
+	for range 2 {
+		mock.ExpectQuery("pg_try_advisory_lock").
+			WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false))
+	}
+	mock.ExpectQuery("pg_try_advisory_lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+	mock.ExpectQuery("WITH doomed AS").WillReturnRows(sweepRows(4))
+	mock.ExpectExec("pg_advisory_unlock").WillReturnResult(sqlmock.NewResult(0, 1))
+
+	store.StartCleanupRoutine(time.Hour)
+	t.Cleanup(func() { _ = store.Close() })
+	// The sweeper takes the startup sweep and the request in that order,
+	// whenever the request arrives.
+	store.RequestSweep()
+	require.Eventually(t, func() bool { return mock.ExpectationsWereMet() == nil },
+		5*time.Second, 5*time.Millisecond, "the asked-for sweep was not retried")
 }

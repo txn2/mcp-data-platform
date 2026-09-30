@@ -156,3 +156,88 @@ func TestWarnUnknownExcludedSanitizesTheNameItLogs(t *testing.T) {
 
 	assert.NotContains(t, buf.String(), "\nlevel=ERROR")
 }
+
+// fakeAccounts marks the personas it holds true, read on every call the way
+// the persona registry is.
+type fakeAccounts map[string]bool
+
+func (f fakeAccounts) IsServiceAccount(name string) bool { return f[name] }
+
+func (f fakeAccounts) ServiceAccountNames() []string {
+	names := make([]string, 0, len(f))
+	for name, marked := range f {
+		if marked {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func TestExclusionExcludesAServiceAccountPersona(t *testing.T) {
+	t.Parallel()
+
+	accounts := fakeAccounts{"integration": true}
+	e := NewExclusion(nil).WithServiceAccounts(accounts)
+
+	cases := []struct {
+		persona string
+		want    bool
+	}{
+		{"integration", true},
+		// The sweep folds case, so the recorder does too: a call it kept is
+		// never one the sweep would later remove.
+		{"Integration", true},
+		// A person's own persona is not marked, and is cataloged as before.
+		{"analyst", false},
+		// No persona at all is never a service account.
+		{"", false},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, e.Excludes(c.persona, middleware.SourceMCP), "persona %q", c.persona)
+	}
+
+	// The mark is read when asked, not when the rule was built: an
+	// administrator marking a persona at run time is honored on the next call.
+	accounts["analyst"] = true
+	assert.True(t, e.Excludes("analyst", middleware.SourceMCP))
+	delete(accounts, "integration")
+	assert.False(t, e.Excludes("integration", middleware.SourceMCP))
+}
+
+func TestExclusionTellsTheTwoWaysOfExcludingApart(t *testing.T) {
+	t.Parallel()
+
+	e := NewExclusion([]string{"Ingest-Service"}).WithServiceAccounts(fakeAccounts{"integration": true})
+	assert.True(t, e.ServiceAccount("integration"))
+	assert.False(t, e.Configured("integration"))
+	assert.True(t, e.Configured("ingest-service"))
+	assert.False(t, e.ServiceAccount("ingest-service"))
+}
+
+func TestExclusionHandsTheSweepBothKindsOfPersona(t *testing.T) {
+	t.Parallel()
+
+	e := NewExclusion([]string{"etl", "Ingest-Service"}).
+		WithServiceAccounts(fakeAccounts{"Integration": true, "etl": true, "analyst": false})
+	assert.Equal(t, []string{"etl", "ingest-service", "integration"}, e.Personas(),
+		"configured and marked names, folded, sorted and without repeats")
+
+	assert.Equal(t, []string{}, Exclusion{}.Personas(),
+		"the zero rule binds an empty array, never NULL")
+	assert.Equal(t, []string{"etl"}, NewExclusion([]string{"etl"}).WithServiceAccounts(nil).Personas(),
+		"a nil account source adds nothing")
+}
+
+func TestStoreHandsOutTheRuleItSweepsBy(t *testing.T) {
+	t.Parallel()
+
+	// The recorder and the call reference take the store's rule rather than
+	// building their own, so what is not written and what is swept agree.
+	accounts := fakeAccounts{}
+	store := NewPostgresStore(nil, Config{ExcludePersonas: []string{"etl"}, ServiceAccounts: accounts})
+	rule := store.Exclusion()
+	assert.True(t, rule.Excludes("etl", middleware.SourceMCP))
+	assert.False(t, rule.Excludes("integration", middleware.SourceMCP))
+	accounts["integration"] = true
+	assert.True(t, rule.Excludes("integration", middleware.SourceMCP), "the handed-out rule reads the live mark")
+}

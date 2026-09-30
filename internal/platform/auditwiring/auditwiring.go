@@ -62,6 +62,12 @@ type Config struct {
 	// which is what a deployment that configures nothing gets.
 	CallExcludePersonas []string
 
+	// CallServiceAccounts answers which personas are marked as service
+	// accounts, read live on every call and every sweep: their calls are
+	// audited and not cataloged, like a persona CallExcludePersonas names
+	// (#1980). Nil marks none.
+	CallServiceAccounts callrecord.ServiceAccounts
+
 	// Toolkits is the live toolkit registry, which a capture asks what request
 	// an api call addressed by an operation id made: the id and the values the
 	// caller passed are in the audit row, the path template they went into is
@@ -186,14 +192,14 @@ func Assemble(cfg Config) *Layer {
 	calls := callrecord.NewPostgresStore(cfg.DB, callrecord.Config{
 		RetentionDays:   cfg.CallRetentionDays,
 		ExcludePersonas: cfg.CallExcludePersonas,
+		ServiceAccounts: cfg.CallServiceAccounts,
 	})
 	calls.StartCleanupRoutine(cleanupInterval)
 	// One rule, read in three places: the recorder never writes the record, the
 	// call reference hands back no citation to a record that will not exist,
 	// and the store's sweep removes the ones written before the deployment
 	// declared the persona or before a run's calls were declined.
-	excluded := callrecord.NewExclusion(cfg.CallExcludePersonas)
-	logger := NewLogger(callrecord.NewRecorder(store, calls, cfg.BuildURN, excluded), cfg.SyncDelivery, cfg.Metrics)
+	logger := NewLogger(callrecord.NewRecorder(store, calls, cfg.BuildURN, calls.Exclusion()), cfg.SyncDelivery, cfg.Metrics)
 
 	return &Layer{
 		store:    store,

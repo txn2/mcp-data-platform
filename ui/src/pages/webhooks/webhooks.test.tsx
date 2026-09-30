@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { mockWebhookSources, mockWebhookStatus } from "@/mocks/data/webhooks";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { WebhookStatusOverview } from "@/api/admin/types";
+import { mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "@/mocks/data/webhooks";
 
 const h = vi.hoisted(() => ({
-  list: { data: undefined as unknown, isLoading: false, isError: false },
+  status: { data: undefined as unknown, isLoading: false, isError: false },
+  ranges: [] as string[],
   detail: { data: undefined as unknown, isLoading: false, error: null as unknown },
   create: vi.fn(),
   update: vi.fn(),
@@ -14,7 +16,10 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/admin/hooks")>();
   return {
     ...actual,
-    useWebhookSources: () => h.list,
+    useWebhookStatus: (range: string) => {
+      h.ranges.push(range);
+      return h.status;
+    },
     useWebhookSource: () => h.detail,
     useCreateWebhookSource: () => ({ mutate: h.create, isPending: false, error: null }),
     useUpdateWebhookSource: () => ({ mutate: h.update, isPending: false, error: null }),
@@ -43,42 +48,143 @@ const busy = mockWebhookSources[0]!;
 const quiet = mockWebhookSources[1]!;
 
 beforeEach(() => {
-  h.list = { data: { sources: mockWebhookSources }, isLoading: false, isError: false };
+  h.status = { data: mockWebhookOverview(mockWebhookSources, "hour"), isLoading: false, isError: false };
+  h.ranges = [];
   h.detail = { data: { source: busy, status: mockWebhookStatus[busy.name] }, isLoading: false, error: null };
   h.create.mockReset();
   h.update.mockReset();
   h.remove.mockReset();
 });
 
+// overview is the status response with every list emptied, for the tests
+// that fill in only what they need.
+function overview(patch: Partial<WebhookStatusOverview>): WebhookStatusOverview {
+  return { ...mockWebhookOverview([], "hour"), ...patch };
+}
+
+// row is the table row holding text.
+function row(text: string): HTMLElement {
+  return screen.getByText(text, { selector: "div.font-medium" }).closest("tr")!;
+}
+
 describe("WebhooksPage", () => {
-  it("lists every source and opens one on row click", () => {
+  it("shows every source's health and counts from one request, and opens one on row click", () => {
     const onNavigate = vi.fn();
     render(<WebhooksPage onNavigate={onNavigate} />);
+    expect(h.ranges.every((r) => r === "hour")).toBe(true);
+    expect(within(row("email-events")).getByText("Receiving")).toBeInTheDocument();
+    expect(within(row("email-events")).getByText("18,342 accepted")).toBeInTheDocument();
+    expect(within(row("email-events")).getByText("3 rejected")).toBeInTheDocument();
+    expect(within(row("email-events")).getByText("402,113 accepted")).toBeInTheDocument();
+    expect(within(row("email-events")).getByText("52 rejected")).toBeInTheDocument();
+    expect(within(row("crm-contacts")).getByText("Disabled")).toBeInTheDocument();
     expect(screen.getByText("webhook_email_events")).toBeInTheDocument();
-    expect(screen.getByText("Disabled")).toBeInTheDocument();
-    expect(screen.getByText("Token in a header")).toBeInTheDocument();
     fireEvent.click(screen.getByText("crm-contacts"));
     expect(onNavigate).toHaveBeenCalledWith("/admin/webhooks/crm-contacts");
     fireEvent.click(screen.getByRole("button", { name: /New source/ }));
     expect(onNavigate).toHaveBeenCalledWith("/admin/webhooks/new");
   });
 
+  it("marks a source with no event in the last day silent, and one that never received any", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const billing = row("billing-events");
+    expect(within(billing).getByText("Silent")).toBeInTheDocument();
+    expect(within(billing).getByText("Silent")).toHaveAttribute("title", expect.stringMatching(/no event received in the last 24 hours/));
+    expect(within(billing).getByText("1d ago")).toBeInTheDocument();
+
+    h.status = {
+      data: overview({
+        sources: [
+          {
+            name: "new-source", enabled: true, health: "silent", auth_mode: "hmac", connection: "c", table: "webhook_new_source",
+            last_event_at: null, last_hour: {}, last_day: {}, pending: 0, failing: 0,
+          },
+        ],
+      }),
+      isLoading: false,
+      isError: false,
+    };
+    cleanup();
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(within(row("new-source")).getByText("Silent")).toBeInTheDocument();
+    expect(within(row("new-source")).getByText("Never")).toBeInTheDocument();
+    expect(within(row("new-source")).getAllByText("0 accepted")).toHaveLength(2);
+  });
+
+  it("shows a failing source's failing windows and last error", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const orders = row("order-updates");
+    expect(within(orders).getByText("Failing")).toBeInTheDocument();
+    expect(within(orders).getByText("2")).toBeInTheDocument();
+    expect(within(orders).getByText("4")).toBeInTheDocument();
+    expect(within(orders).getByText(/gzip: invalid header/)).toBeInTheDocument();
+  });
+
+  it("lists recent rejections across sources with source and reason, and opens the source", () => {
+    const onNavigate = vi.fn();
+    render(<WebhooksPage onNavigate={onNavigate} />);
+    const section = screen.getByText("Recent rejections").closest("[data-slot=card]") as HTMLElement;
+    const reason = within(section).getByText("the credentials do not match");
+    const tr = reason.closest("tr")!;
+    expect(within(tr).getByText("billing-events")).toBeInTheDocument();
+    expect(within(tr).getByText("Unauthorized")).toBeInTheDocument();
+    expect(within(section).getByText("the body is not JSON")).toBeInTheDocument();
+    expect(within(section).getByText("Invalid body")).toBeInTheDocument();
+    fireEvent.click(reason);
+    expect(onNavigate).toHaveBeenCalledWith("/admin/webhooks/billing-events");
+  });
+
+  it("says when no request was rejected", () => {
+    h.status = { data: { ...mockWebhookOverview(mockWebhookSources, "hour"), rejections: [] }, isLoading: false, isError: false };
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(screen.getByText("No request has been rejected.")).toBeInTheDocument();
+  });
+
+  it("totals the volume by outcome for every source and for one", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const totals = screen.getByRole("list", { name: "Totals by outcome" });
+    // email-events 18342 + order-updates 420 accepted in the last hour.
+    expect(within(totals).getByText("18,762")).toBeInTheDocument();
+    expect(within(totals).getByText("Invalid body")).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Source" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "order-updates" }));
+    const one = screen.getByRole("list", { name: "Totals by outcome" });
+    expect(within(one).getByText("420")).toBeInTheDocument();
+    expect(within(one).queryByText("Unauthorized")).not.toBeInTheDocument();
+  });
+
+  it("asks for the last 24 hours when that range is chosen", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Last 24 hours" }));
+    expect(h.ranges[h.ranges.length - 1]).toBe("day");
+    expect(screen.getByRole("button", { name: "Last 24 hours" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("says there were no requests in the range", () => {
+    h.status = { data: { ...mockWebhookOverview(mockWebhookSources, "hour"), volume: [] }, isLoading: false, isError: false };
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(screen.getByText("No requests in this range.")).toBeInTheDocument();
+  });
+
   it("explains what a source is when there is none", () => {
-    h.list = { data: { sources: [] }, isLoading: false, isError: false };
+    h.status = { data: overview({}), isLoading: false, isError: false };
     render(<WebhooksPage onNavigate={vi.fn()} />);
     expect(screen.getByText("No webhook source yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Recent rejections")).not.toBeInTheDocument();
   });
 
   it("says a failed read is not an empty list", () => {
-    h.list = { data: undefined, isLoading: false, isError: true };
+    h.status = { data: undefined, isLoading: false, isError: true };
     render(<WebhooksPage onNavigate={vi.fn()} />);
     expect(screen.getByText(/could not be read/)).toBeInTheDocument();
   });
 
   it("shows loading in the table", () => {
-    h.list = { data: undefined, isLoading: true, isError: false };
+    h.status = { data: undefined, isLoading: true, isError: false };
     render(<WebhooksPage onNavigate={vi.fn()} />);
     expect(screen.getByText("Loading...")).toBeInTheDocument();
+    expect(screen.queryByText("Recent rejections")).not.toBeInTheDocument();
   });
 });
 

@@ -288,3 +288,55 @@ func TestRegistryNamesListsEveryRegisteredPersona(t *testing.T) {
 		t.Errorf("Names() = %v, want %v", names, want)
 	}
 }
+
+func TestRegistryAnswersWhichPersonasAreServiceAccounts(t *testing.T) {
+	r := NewRegistry()
+	for _, p := range []*Persona{
+		{Name: "ingest-service", ServiceAccount: true},
+		{Name: "analyst"},
+		{Name: "etl", ServiceAccount: true},
+	} {
+		if err := r.Register(p); err != nil {
+			t.Fatalf("Register(%s): %v", p.Name, err)
+		}
+	}
+
+	checks := []struct {
+		name string
+		want bool
+	}{
+		{"ingest-service", true},
+		{"etl", true},
+		{"analyst", false},
+		{"unknown", false},
+		// The registry matches a name exactly, as it does for every lookup.
+		{"Ingest-Service", false},
+	}
+	for _, c := range checks {
+		if got := r.IsServiceAccount(c.name); got != c.want {
+			t.Errorf("IsServiceAccount(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if got, want := r.ServiceAccountNames(), []string{"etl", "ingest-service"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ServiceAccountNames() = %v, want %v", got, want)
+	}
+
+	// Re-registering the persona unmarked is how an administrator clears the
+	// mark, and the registry answers from that moment.
+	if err := r.Register(&Persona{Name: "etl"}); err != nil {
+		t.Fatalf("Register(etl): %v", err)
+	}
+	if r.IsServiceAccount("etl") {
+		t.Error("an unmarked persona is still reported as a service account")
+	}
+}
+
+func TestNilRegistryMarksNoServiceAccount(t *testing.T) {
+	var r *Registry
+	if r.IsServiceAccount("anything") {
+		t.Error("a nil registry reported a service account")
+	}
+	if got := r.ServiceAccountNames(); got == nil || len(got) != 0 {
+		t.Errorf("ServiceAccountNames() on nil = %#v, want an empty slice", got)
+	}
+}

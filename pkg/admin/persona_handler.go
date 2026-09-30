@@ -70,6 +70,9 @@ type personaDetail struct {
 	// api-kind connections. Ships as a JSON array, NEVER null: the persona
 	// editor's API-endpoint scope maps over it directly.
 	APIRoutes []persona.APIRouteRule `json:"api_routes"`
+	// ServiceAccount marks the persona an automated caller signs in under:
+	// its calls are audited but not added to the call catalog (#1980).
+	ServiceAccount bool `json:"service_account" example:"false"`
 }
 
 // MarshalJSON enforces the non-nil wire invariant for the required arrays.
@@ -113,6 +116,10 @@ type personaCreateRequest struct {
 	// leaves the persona with none, which is the same "no rule touches this
 	// connection" state a persona that never had any is in.
 	APIRoutes []persona.APIRouteRule `json:"api_routes,omitempty"`
+	// ServiceAccount marks the persona an automated caller signs in under.
+	// Saving it true removes the call records the persona already wrote on a
+	// sweep started at once. Absent is false.
+	ServiceAccount bool `json:"service_account,omitempty" example:"false"`
 }
 
 // personaListResponse wraps a list of personas.
@@ -238,6 +245,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
+	h.sweepServiceAccountCalls(p)
 
 	writeJSON(w, http.StatusCreated, toPersonaDetail(p, h.resolveTools(p)))
 }
@@ -303,6 +311,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
+	h.sweepServiceAccountCalls(p)
 
 	writeJSON(w, http.StatusOK, toPersonaDetail(p, h.resolveTools(p)))
 }
@@ -438,6 +447,25 @@ func (h *Handler) warnIncoherentPersona(p *persona.Persona) {
 	}
 }
 
+// callSweeper is the part of the call catalog that starts a sweep on request.
+// The catalog the admin handler is given implements it when it is the
+// database-backed one; a catalog that cannot sweep is simply not asked.
+type callSweeper interface{ RequestSweep() }
+
+// sweepServiceAccountCalls asks the call catalog to sweep now when a persona
+// was saved as a service account (#1980). The persona is already registered,
+// so the sweep reads it as marked and removes the records it wrote before,
+// rather than leaving them for the next daily sweep. Saving an unmarked
+// persona asks for nothing.
+func (h *Handler) sweepServiceAccountCalls(p *persona.Persona) {
+	if !p.ServiceAccount {
+		return
+	}
+	if sweeper, ok := h.deps.CallCatalog.(callSweeper); ok {
+		sweeper.RequestSweep()
+	}
+}
+
 // allowedTools returns, in registration order, the tools this deployment
 // registered that the persona's rules allow. It is the one evaluation of a
 // persona against the live tool set, shared by the tool count on the list
@@ -504,6 +532,7 @@ func toPersonaDetail(p *persona.Persona, tools []string) personaDetail {
 		Context:          ctx,
 		Source:           p.Source,
 		APIRoutes:        p.APIRoutes,
+		ServiceAccount:   p.ServiceAccount,
 	}
 }
 
@@ -547,7 +576,8 @@ func buildPersonaFromRequest(req personaCreateRequest) *persona.Persona {
 			AgentInstructionsSuffix:   req.AgentInstructionsSuffix,
 			AgentInstructionsOverride: req.AgentInstructionsOverride,
 		},
-		Priority: req.Priority,
+		Priority:       req.Priority,
+		ServiceAccount: req.ServiceAccount,
 	}
 }
 

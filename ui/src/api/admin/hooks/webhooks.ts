@@ -1,16 +1,28 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
-import type { WebhookSource, WebhookSourceDetail, WebhookSourceInput } from "../types";
+import type {
+  WebhookSource,
+  WebhookSourceDetail,
+  WebhookSourceInput,
+  WebhookStatusOverview,
+  WebhookStatusRange,
+} from "../types";
 import { REFETCH_INTERVAL } from "./shared";
 
 // Inbound webhook sources (#1870).
 
 const KEY = ["webhook-sources"] as const;
 
-export function useWebhookSources() {
+/** useWebhookStatus reads the status of every source in one request (#1979),
+ * refreshed so a source that goes quiet or starts failing shows without a
+ * reload. */
+export function useWebhookStatus(range: WebhookStatusRange) {
   return useQuery({
-    queryKey: KEY,
-    queryFn: () => apiFetch<{ sources: WebhookSource[] }>("/webhooks/sources"),
+    queryKey: [...KEY, "status", range],
+    queryFn: () => apiFetch<WebhookStatusOverview>(`/webhooks/status?range=${range}`),
+    refetchInterval: REFETCH_INTERVAL,
+    // Switching the range keeps the table on screen while the series loads.
+    placeholderData: keepPreviousData,
   });
 }
 

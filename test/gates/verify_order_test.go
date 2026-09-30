@@ -82,7 +82,7 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 		}
 	}
 
-	for _, gate := range []string{"semgrep-diff", "doc-check", "acceptance-check", "state-readers-check", "dead-code"} {
+	for _, gate := range []string{"semgrep-diff", "doc-check", "acceptance-check", "state-readers-check", "e2e-copy-check", "dead-code"} {
 		if indexOf(recipe(t, makefile, "preverify-fast"), gate) < 0 {
 			t.Errorf("preverify-fast does not run %s", gate)
 		}
@@ -111,5 +111,33 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 	goLane := recipe(t, makefile, "verify-go")
 	if s, u := indexOf(goLane, "schedule-lane"), indexOf(goLane, "test"); s < 0 || u < 0 || s > u {
 		t.Errorf("verify-go runs schedule-lane at %d and test at %d; the changed packages must come first", s, u)
+	}
+}
+
+// TestVerifyReleaseRunsInOneInvocation pins #1969: verify-release runs verify,
+// whose frontend-e2e wants port 5173, and the acceptance suite, which wants a
+// running dev stack. It passes as one command only because frontend-e2e moves
+// beside a dev server it finds there instead of refusing, and the acceptance
+// step starts a stack when none answers.
+func TestVerifyReleaseRunsInOneInvocation(t *testing.T) {
+	raw, err := os.ReadFile("../../Makefile")
+	require(t, err)
+	makefile := string(raw)
+
+	var prereqs string
+	for line := range strings.SplitSeq(makefile, "\n") {
+		if rest, ok := strings.CutPrefix(line, "verify-release:"); ok {
+			prereqs = " " + rest + " "
+		}
+	}
+	if !strings.Contains(prereqs, " acceptance-release ") || strings.Contains(prereqs, " acceptance ") {
+		t.Errorf("verify-release prerequisites are %q; it must run acceptance-release, not acceptance", strings.TrimSpace(prereqs))
+	}
+	if !strings.Contains(strings.Join(recipe(t, makefile, "acceptance-release"), "\n"), "scripts/release-acceptance.sh") {
+		t.Error("acceptance-release does not run scripts/release-acceptance.sh")
+	}
+	e2e := strings.Join(recipe(t, makefile, "frontend-e2e"), "\n")
+	if !strings.Contains(e2e, "E2E_PORT=$$port npm run test:e2e") || !strings.Contains(e2e, "next=5199") {
+		t.Error("frontend-e2e no longer runs on a free port beside a dev server it finds on :5173")
 	}
 }

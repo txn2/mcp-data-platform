@@ -190,6 +190,24 @@ personas:
       allow:
         - "*"
 
+  # An automated caller: an integration that signs in with an API key holding
+  # the crm_sync role and calls the same tools people use, once per upstream
+  # record. service_account keeps those calls in the audit log and out of the
+  # call catalog (Calls). The same setting is the "Service account" checkbox in
+  # the portal persona editor; calls.exclude_personas is its file-config form.
+  integration:
+    display_name: "CRM Integration"
+    roles:
+      - crm_sync
+    service_account: true
+    tools:
+      allow:
+        - "*"
+      deny: []
+    connections:
+      allow:
+        - "billing-api"
+
   role_mapping:
     oidc_to_persona:
       "dp_admin": "admin"

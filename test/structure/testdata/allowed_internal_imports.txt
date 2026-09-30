@@ -100,6 +100,7 @@ internal/httpserver -> internal/platform/callrecord
 internal/httpserver -> internal/platform/connreach
 internal/httpserver -> internal/platform/connscope
 internal/httpserver -> internal/platform/knowledgebuiltin
+internal/httpserver -> internal/platform/listenbridge
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/notifylayer
 internal/httpserver -> internal/platform/resourceaudit
@@ -447,6 +448,8 @@ internal/platform/knowledgelayer -> pkg/toolkits/knowledge
 internal/platform/knowledgepageindex -> pkg/indexjobs
 internal/platform/knowledgepageindex -> pkg/portal/knowledgepage
 internal/platform/listchanged -> pkg/session
+internal/platform/listenbridge -> internal/logsan
+internal/platform/listenbridge -> pkg/session
 internal/platform/memoryindex -> pkg/indexjobs
 internal/platform/memorylayer -> pkg/embedding
 internal/platform/memorylayer -> pkg/memory

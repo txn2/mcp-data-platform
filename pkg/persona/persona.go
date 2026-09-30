@@ -61,6 +61,13 @@ type Persona struct {
 	// admin persona uses 100.
 	Priority int `json:"priority,omitempty" yaml:"priority,omitempty"`
 
+	// ServiceAccount marks the persona an automated caller signs in under,
+	// such as an integration holding an API key: its calls are audited but not
+	// added to the call catalog, and the records it wrote before it was marked
+	// are removed by the catalog's next sweep (#1980). A person's own persona
+	// leaves it false, and its calls are cataloged.
+	ServiceAccount bool `json:"service_account,omitempty" yaml:"service_account,omitempty"`
+
 	// Source indicates where this persona was loaded from at runtime.
 	// Values: "file" (YAML config), "database" (DB-managed), "both" (file
 	// with DB override). This is runtime metadata — not persisted.

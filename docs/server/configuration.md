@@ -724,7 +724,7 @@ calls:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `retention_days` | int | `90` | How long a recorded call is kept **when nothing came of it**. Zero or negative takes the default. |
-| `exclude_personas` | list | `[]` | Personas whose calls are machinery: audited, not cataloged. Empty catalogs every call. |
+| `exclude_personas` | list | `[]` | Personas whose calls are machinery: audited, not cataloged. The file-config form of a persona's own `service_account` setting; either one excludes. Empty catalogs every call not made under a service-account persona. |
 
 **What retention does not touch.** The sweep is by what a record came to, not by its age alone. A record an asset, an export, or a capture cites; a record someone promoted; a record someone declined; and a record another session found and re-ran are all evidence, and none of them is ever swept, whatever their age. What ages out is the draft nobody used: a query that ran, answered nothing anybody kept, and was never run again.
 
@@ -734,7 +734,25 @@ The sweep runs once when the platform starts and then once a day per deployment,
 
 The catalog exists to answer one question about a recorded call: is this worth running again. An automated system driving ingestion through the same tools people use never produces that answer. Each of its calls fetches a distinct upstream resource once, and each is recorded, embedded, and ranked in search against the handful of records that did answer something. On one deployment a single service principal wrote 472,156 of 476,749 records in ten days, against 43 records that had been used for anything.
 
-Name the personas that are machinery:
+Mark the persona the automated caller signs in under as a **service account**. In the portal, open the persona under Admin, then Personas, and on the AI Assistant Behavior tab check **Service account** ("Its calls are audited but not added to Calls."). A persona defined in the config file takes the same setting:
+
+```yaml
+personas:
+  integration:
+    display_name: "CRM integration"
+    roles: ["crm-sync"]
+    service_account: true
+    tools:
+      allow: ["*"]
+    connections:
+      allow: ["crm"]
+```
+
+A call made under a service-account persona is audited exactly as before and no call record is written. Persona is the discriminator because it is the layer you already assign per API key to say what a caller is for: an API key reaches a persona through its roles, so give the integration its own persona and every key that holds it is covered, with no list to maintain. A person's own persona is left unmarked, and their calls are cataloged as before.
+
+The setting is read from the live persona on every call. Saving a persona in the portal takes effect on the next call, on every replica, with no restart.
+
+`calls.exclude_personas` is the file-config form of the same rule, and both apply: a persona named there is treated as a service account whether or not its own setting is on.
 
 ```yaml
 calls:
@@ -742,13 +760,15 @@ calls:
     - ingest-service
 ```
 
-A call made under one of those personas is audited exactly as before and no call record is written. Persona is the discriminator because it is the layer you already assign per API key to say what a caller is for: give the service account its own persona and every key that holds it is covered, with no list to maintain.
+**Finding the caller.** The admin Indexing page lists the **Top callers** of the call catalog under the `calls` card: the callers and personas holding the largest share of its records, each with its count and share, whether the persona is already a service account (or named in `calls.exclude_personas`), and a link to that persona's editor. An automated caller shows as one principal under one persona holding most of the catalog. The counts are taken at most every five minutes, since grouping a catalog of a million records on every refresh would be wasted work; the service-account marks are read on each request (`GET /api/v1/admin/calls/top-callers`).
 
 **What this does not change.** The audit row, its retention, and the [API gateway metrics](observability.md) are untouched, so what an automated system did stays fully visible in the Activity view and in the gateway charts. The one dimension the gateway charts lack is the principal, and the audit log carries it.
 
 **What else it withholds.** A data call normally comes back with its own `mcp:call:<id>` reference, which an agent is told to cite when it saves an asset or captures an insight. A call the catalog declines is handed none: that id would resolve to nothing, so citing it would store a citation that can never be satisfied.
 
-**Records already written.** Naming a persona here also removes the records it wrote before you named it. They are swept on the next sweep — the one at startup, so the restart that applies the setting is the restart that clears the backlog — with the same evidence clauses standing: a record something was built from, or that was promoted, declined, or re-run, is kept whoever produced it.
+**Records already written.** Marking a persona also removes the records it wrote before it was marked. They are swept on the next sweep, with the same evidence clauses standing: a record something was built from, or that was promoted, declined, or re-run, is kept whoever produced it. Saving a persona as a service account through the portal or the admin API starts that sweep at once; for a name added to `calls.exclude_personas` it is the sweep at startup, so the restart that applies the setting is the restart that clears the backlog. A record's vector is on its row and goes with it, and the sweep deletes the record's indexing units (pending, running or finished) in the same statement, so the `calls` index total on the Indexing page falls by the number of records removed.
+
+**A large backlog.** The sweep deletes in batches of 5,000 records, each its own statement and transaction, until a batch comes back short. A backlog of a million records is removed by a couple of hundred short statements rather than one long transaction; a batch that committed stays committed if the process stops, and the next sweep resumes from what is left.
 
 **A name that matches nothing.** An entry naming no persona the deployment knows excludes nothing, and the platform logs a warning at startup naming it. Personas come from both this file and the database, so a name added to the database later is matched at the next start.
 

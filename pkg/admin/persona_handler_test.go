@@ -1156,3 +1156,82 @@ func TestPersonaWriteReturnsResolvedTools(t *testing.T) {
 		assert.Empty(t, getTools(t, h, "locked"))
 	})
 }
+
+// sweepingCatalog is a call catalog that counts the sweeps it is asked for.
+type sweepingCatalog struct {
+	CallCatalog
+	sweeps int
+}
+
+func (s *sweepingCatalog) RequestSweep() { s.sweeps++ }
+
+func TestPersonaSavedAsServiceAccountSweepsItsCalls(t *testing.T) {
+	cases := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		wantMarked bool
+		wantSweeps int
+	}{
+		{
+			name: "create marked", method: http.MethodPost, path: "/api/v1/admin/personas",
+			body:       `{"name":"integration","display_name":"Integration","roles":["crm-sync"],"service_account":true}`,
+			wantStatus: http.StatusCreated, wantMarked: true, wantSweeps: 1,
+		},
+		{
+			name: "update marked", method: http.MethodPut, path: "/api/v1/admin/personas/analyst",
+			body:       `{"display_name":"Analyst","roles":["analyst"],"service_account":true}`,
+			wantStatus: http.StatusOK, wantMarked: true, wantSweeps: 1,
+		},
+		{
+			// A person's persona saved unmarked asks for no sweep: its calls
+			// are cataloged as before.
+			name: "update unmarked", method: http.MethodPut, path: "/api/v1/admin/personas/analyst",
+			body:       `{"display_name":"Analyst","roles":["analyst"]}`,
+			wantStatus: http.StatusOK, wantMarked: false, wantSweeps: 0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ps := &mockPersonaStore{}
+			catalog := &sweepingCatalog{}
+			h := NewHandler(Deps{
+				PersonaRegistry: &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")},
+				Config:          testConfig(),
+				ConfigStore:     &mockConfigStore{mode: "database"},
+				PersonaStore:    ps,
+				CallCatalog:     catalog,
+			}, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), c.method, c.path, strings.NewReader(c.body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, c.wantStatus, w.Code, w.Body.String())
+			require.Len(t, ps.setCalls, 1)
+			assert.Equal(t, c.wantMarked, ps.setCalls[0].ServiceAccount, "the mark is stored")
+			var detail map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &detail))
+			assert.Equal(t, c.wantMarked, detail["service_account"], "the mark is in the response")
+			assert.Equal(t, c.wantSweeps, catalog.sweeps)
+		})
+	}
+}
+
+func TestPersonaSavedAsServiceAccountWithoutASweepingCatalog(t *testing.T) {
+	// A deployment whose catalog cannot sweep, or that keeps none, still saves
+	// the mark; there is simply nothing to ask.
+	h := NewHandler(Deps{
+		PersonaRegistry: &mockPersonaRegistry{allResult: testPersonas("admin")},
+		Config:          testConfig(),
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		PersonaStore:    &mockPersonaStore{},
+	}, nil)
+	body := `{"name":"integration","display_name":"Integration","roles":["crm-sync"],"service_account":true}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+}

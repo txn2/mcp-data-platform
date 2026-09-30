@@ -53,5 +53,5 @@ The catalog is written from the audit pipeline, so it exists exactly where audit
 
 Records are swept by what they came to rather than by age alone. A record that answered something, was promoted, was declined, or was re-run by another session is kept for as long as the deployment runs; a query that ran and came to nothing ages out after `calls.retention_days` (90 by default).
 
-A deployment can also declare that a persona is machinery, with `calls.exclude_personas`: an automated system driving ingestion through the same tools people use writes a record per fetch that nobody re-runs, and those calls are then audited exactly as before and never cataloged, so they appear on no call page. See [Call Catalog Configuration](../server/configuration.md#call-catalog-configuration).
+A deployment can also declare that a persona is machinery, by checking **Service account** on the persona (or naming it in `calls.exclude_personas`): an automated system driving ingestion through the same tools people use writes a record per fetch that nobody re-runs, and those calls are then audited exactly as before and never cataloged, so they appear on no call page. The Indexing page's **Top callers** list shows which caller and persona hold most of the catalog. See [Call Catalog Configuration](../server/configuration.md#call-catalog-configuration).
 

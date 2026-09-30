@@ -307,6 +307,27 @@ reachability tracking omit the field.
 
 Cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (`pkg/indexjobs`). These back the admin portal's **Indexing** dashboard. They degrade gracefully when no queue is wired (no database or no configured embedding provider): the read endpoints return the provider status with an empty `kinds` list rather than an error.
 
+### Top Callers
+
+```
+GET /api/v1/admin/calls/top-callers
+```
+
+Who wrote the call catalog: up to ten callers (a principal under one persona) and ten personas, largest share first. Each carries its record count, its `share` of `total` (0 to 1), `service_account` (the persona is marked, so its new calls are not recorded) and `excluded_by_config` (the persona is named in `calls.exclude_personas`). The counts are at most five minutes old and are taken again after a sweep removes records; the two flags are read at the request. Registered only when the deployment keeps a database-backed call catalog.
+
+```json
+{
+  "total": 1426996,
+  "principals": [
+    { "user_id": "apikey:crm-sync", "persona": "integration", "records": 1419066, "share": 0.994, "service_account": false, "excluded_by_config": false }
+  ],
+  "personas": [
+    { "persona": "integration", "records": 1419066, "share": 0.994, "service_account": false, "excluded_by_config": false }
+  ],
+  "counted_at": "2026-09-29T12:00:00Z"
+}
+```
+
 ### Index Jobs Summary
 
 ```
@@ -753,6 +774,7 @@ Creates a new persona. Only available in `database` config mode.
 | `allow_tools` | array | no | Tool allow patterns |
 | `deny_tools` | array | no | Tool deny patterns |
 | `priority` | int | no | Resolution priority (higher wins) |
+| `service_account` | bool | no | Mark the persona an automated caller signs in under: its calls are audited but not recorded in the call catalog. Saving it `true` starts a sweep that removes the records the persona already wrote. See [Excluding an automated caller](configuration.md#excluding-an-automated-caller). |
 
 Some tools must be granted together — `search` with `fetch`, and `memory_capture`
 or `apply_knowledge` with `search`. A write that breaks a pair still succeeds
@@ -772,7 +794,8 @@ persona, the missing tool, and the fix. See
   "allow_tools": ["platform_info", "search", "fetch", "datahub_*"],
   "deny_tools": [],
   "tools": ["datahub_browse", "datahub_get_lineage", "fetch", "search"],
-  "source": "database"
+  "source": "database",
+  "service_account": false
 }
 ```
 
