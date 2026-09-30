@@ -29,6 +29,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDebounced } from "@/lib/useDebounced";
+import { facetOptions } from "./facetOptions";
 import { ScriptRow } from "./ScriptRow";
 import { ScriptGrid } from "./ScriptGrid";
 import { LayoutGrid, List } from "lucide-react";
@@ -383,10 +384,10 @@ function ScriptFilterBar({
 }) {
   const options = useMemo(
     () => ({
-      owner: facetOptions(corpus, (s) => (s.owner_email ? [s.owner_email] : []), "All authors"),
-      category: facetOptions(corpus, (s) => (s.category ? [s.category] : []), "All categories"),
-      tag: facetOptions(corpus, (s) => s.tags ?? [], "All tags"),
-      status: facetOptions(corpus, (s) => (s.status ? [s.status] : []), "Any status"),
+      owner: facetOptions(corpus, ({ script: s }) => (s.owner_email ? [s.owner_email] : []), "All authors"),
+      category: facetOptions(corpus, ({ script: s }) => (s.category ? [s.category] : []), "All categories"),
+      tag: facetOptions(corpus, ({ script: s }) => s.tags ?? [], "All tags"),
+      status: facetOptions(corpus, ({ script: s }) => (s.status ? [s.status] : []), "Any status"),
     }),
     [corpus],
   );
@@ -444,26 +445,6 @@ function ScriptFilterBar({
       />
     </div>
   );
-}
-
-// facetOptions is a facet's vocabulary, ordered by how many scripts carry each
-// value and then alphabetically — the order the chips were in, so a reader
-// finds the same values in the same places.
-function facetOptions(
-  rows: PortalScriptRow[],
-  values: (script: PortalScriptRow["script"]) => string[],
-  allLabel: string,
-): FilterOption[] {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    for (const value of values(row.script)) {
-      counts.set(value, (counts.get(value) ?? 0) + 1);
-    }
-  }
-  const options = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([value, count]) => ({ value, label: `${value} (${count})` }));
-  return [{ value: "", label: allLabel }, ...options];
 }
 
 function ScriptsSection({

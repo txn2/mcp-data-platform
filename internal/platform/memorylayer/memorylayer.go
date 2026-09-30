@@ -8,6 +8,7 @@
 // (nil disables the staleness watcher), and the resolved memory / embedding /
 // staleness config values — so the subsystem is constructible and testable
 // without a Platform. It imports pkg/memory, pkg/toolkits/memory, pkg/embedding,
+// pkg/indexjobs, internal/platform/memoryindex, internal/platform/embedyield
 // and pkg/middleware, never pkg/platform. The *sql.DB and the embedding provider
 // back many other subsystems, so they stay owned by Platform: the *sql.DB is
 // passed in, and the embedding provider is built here and handed back via
@@ -31,7 +32,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/embedyield"
+	"github.com/txn2/mcp-data-platform/internal/platform/memoryindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -78,9 +82,14 @@ type Config struct {
 // wires into stopBackgroundTrackers (the watcher must stop before Platform
 // closes its *sql.DB).
 type Handle struct {
-	store            memory.Store
-	embedder         embedding.Provider
-	toolkit          *memorykit.Toolkit
+	store    memory.Store
+	embedder embedding.Provider
+	toolkit  *memorykit.Toolkit
+	producer *indexjobs.Producer
+	// gate puts interactive embeds ahead of the index worker's, across every
+	// replica sharing the database (#1988): EmbeddingProvider is its
+	// interactive side, Background its background side.
+	gate             *embedding.Gate
 	adapter          middleware.MemoryProvider
 	stalenessWatcher *memory.StalenessWatcher
 }
@@ -112,11 +121,18 @@ func New(db *sql.DB, semanticProvider semantic.Provider, cfg Config) (*Handle, e
 	// not thresholdable). Nil-safe: with no real embedder the check yields no
 	// match and capture simply appends.
 	tk.SetRecallChecker(&recallChecker{store: store})
+	// A capture is stored first and embedded by the index queue (#1987); the
+	// producer is bound when the queue assembles, and until then (or with no
+	// queue) the reconciler finds the record's NULL embedding on its sweep.
+	producer := indexjobs.NewProducer(memoryindex.SourceKind)
+	tk.SetIndexNotifier(producer)
 
 	h := &Handle{
 		store:    store,
 		embedder: embedder,
 		toolkit:  tk,
+		producer: producer,
+		gate:     sharedGate(db),
 		// Middleware adapter for cross-enrichment.
 		adapter: &middlewareBridge{store: store},
 	}
@@ -157,6 +173,13 @@ func buildEmbedder(cfg Config) embedding.Provider {
 	return embedding.NewNoopProvider(embedding.DefaultDimension)
 }
 
+// sharedGate is the embed gate, deployment-wide over db (#1988).
+func sharedGate(db *sql.DB) *embedding.Gate {
+	gate := embedding.NewGate(embedding.DefaultMaxYield)
+	gate.Share(embedyield.New(db, embedyield.DefaultHold), embedding.DefaultSharedPoll)
+	return gate
+}
+
 // MemoryStore returns the memory store, or nil on a nil Handle (memory disabled
 // or no database).
 func (h *Handle) MemoryStore() memory.Store {
@@ -166,15 +189,25 @@ func (h *Handle) MemoryStore() memory.Store {
 	return h.store
 }
 
-// EmbeddingProvider returns the embedding provider the layer built, or nil on a
-// nil Handle. Platform stores this as its own field and passes it to the other
-// subsystems (portalstore, indexqueue, api-gateway, search/knowledge) that share
-// the embedder.
+// EmbeddingProvider returns the embedding provider the layer built, as the
+// interactive side of the embed gate, or nil on a nil Handle. Platform stores
+// this as its own field and passes it to the other subsystems (portalstore,
+// api-gateway, search/knowledge) whose embeds a caller waits on.
 func (h *Handle) EmbeddingProvider() embedding.Provider {
 	if h == nil {
 		return nil
 	}
-	return h.embedder
+	return h.gate.Interactive(h.embedder)
+}
+
+// Background wraps an index worker's provider in the background side of the
+// embed gate, so it yields to interactive embeds on every replica (#1988). On
+// a nil Handle it returns p unchanged.
+func (h *Handle) Background(p embedding.Provider) embedding.Provider {
+	if h == nil {
+		return p
+	}
+	return h.gate.Background(p)
 }
 
 // Toolkit returns the memory toolkit for Platform to register into the shared
@@ -185,6 +218,25 @@ func (h *Handle) Toolkit() *memorykit.Toolkit {
 		return nil
 	}
 	return h.toolkit
+}
+
+// IndexProducer returns the write-path enqueue for memory records, for the
+// index queue to bind, or nil on a nil Handle.
+func (h *Handle) IndexProducer() *indexjobs.Producer {
+	if h == nil {
+		return nil
+	}
+	return h.producer
+}
+
+// RecallOnEmbed returns the hook the memory index consumer calls after it
+// writes a record's vector, which runs a capture's recall-first check
+// (#1987), or nil on a nil Handle.
+func (h *Handle) RecallOnEmbed() memoryindex.Embedded {
+	if h == nil {
+		return nil
+	}
+	return h.toolkit.SettleRecall
 }
 
 // MemoryProvider returns the memory↔enrichment adapter for Platform to inject

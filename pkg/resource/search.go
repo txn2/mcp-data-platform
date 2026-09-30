@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/pgvector/pgvector-go"
+
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
 // Search result limits, mirroring the asset/prompt/memory ranked surfaces so
@@ -59,6 +61,26 @@ func IndexText(r Resource, contentText string) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// EmbedsContent reports whether a resource's extracted content goes into its
+// embedding, or only its metadata does (#1988).
+//
+// A table of values -- CSV, TSV, newline-delimited JSON -- is what a pipeline
+// writes in bulk, it says little a sentence-level vector can use, and it is
+// the densest text for the tokenizer, so embedding its prefix costs the most
+// of anything the index embeds. One script archiving a backfill of reports
+// kept a CPU-only embedder saturated for minutes, and every interactive embed
+// queued behind it. Its content is still extracted into content_text, so the
+// lexical arm of search matches the values in it; only the vector is built
+// from the name, description, folder, filename and tags.
+func EmbedsContent(mimeType string) bool {
+	switch contenttype.Normalize(mimeType) {
+	case contenttype.CSV, contenttype.TSV, contenttype.NDJSON:
+		return false
+	default:
+		return true
+	}
 }
 
 // SearchQuery describes a relevance ranking request over managed resources.

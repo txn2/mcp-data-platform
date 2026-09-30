@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -42,11 +43,11 @@ const maxSuggestedActions = 5
 // logKeyError is the slog attribute key for errors in this file.
 const logKeyError = "error"
 
-// RecallQuery is the recall-first lookup: the precomputed embedding of the
-// candidate content, the entities it concerns, and the caller's email, plus the
-// cosine threshold above which a prior record counts as similar. Embedding
-// is empty when no embedder is configured; in that case recall is skipped (no
-// reliable similarity, so the capture simply appends).
+// RecallQuery is the recall-first lookup: the embedding of the candidate
+// content, the entities it concerns, and the caller's email, plus the
+// cosine threshold above which a prior record counts as similar. The check
+// runs when the capture's embedding is written (SettleRecall), so it never
+// runs without one.
 type RecallQuery struct {
 	Embedding   []float32
 	EntityURNs  []string
@@ -61,6 +62,9 @@ type RecallQuery struct {
 type RecallMatch struct {
 	ID    string  `json:"id"`
 	Score float64 `json:"score"`
+	// CreatedAt orders a restating pair: the newer record supersedes the
+	// older, whichever of the two is embedded first (#1987).
+	CreatedAt time.Time `json:"-"`
 }
 
 // RecallChecker finds the caller's active records a new capture restates, so
@@ -83,8 +87,19 @@ type ThreadLinker interface {
 	LinkInsight(ctx context.Context, threadIDs []string, insightID, actorID, actorEmail string) ([]string, error)
 }
 
+// IndexNotifier asks for a stored record to be embedded now rather than on the
+// next reconciler sweep. Satisfied by *indexjobs.Producer; declared here so the
+// toolkit does not import the queue.
+type IndexNotifier interface {
+	NotifyWrite(ctx context.Context, sourceID string)
+}
+
 // SetRecallChecker wires the recall-first checker.
 func (t *Toolkit) SetRecallChecker(rc RecallChecker) { t.recallChecker = rc }
+
+// SetIndexNotifier wires the write-path enqueue that embeds a stored capture
+// or an updated record off the request (#1987).
+func (t *Toolkit) SetIndexNotifier(n IndexNotifier) { t.indexNotifier = n }
 
 // SetThreadLinker wires the feedback-thread bridge.
 func (t *Toolkit) SetThreadLinker(tl ThreadLinker) { t.threadLinker = tl }
@@ -130,31 +145,35 @@ type memoryCaptureInput struct {
 	Metadata         map[string]any           `json:"metadata,omitempty"`
 }
 
-// memoryCaptureOutput is the memory_capture success response.
+// The recall_check values a capture response reports.
+const (
+	// recallCheckPending: the record is stored and queued for embedding, and
+	// the recall-first check runs when the embedding is written.
+	recallCheckPending = memstore.RecallCheckPending
+	// recallCheckUnavailable: no embedding provider or no recall checker, so
+	// no check will run and the capture simply appends.
+	recallCheckUnavailable = "unavailable"
+)
+
+// memoryCaptureOutput is the memory_capture success response. The capture is
+// stored before it is embedded (#1987), so the response cannot say what it
+// superseded: RecallCheck says whether and when that check runs.
 type memoryCaptureOutput struct {
-	ID        string `json:"id"`
-	SinkClass string `json:"sink_class"`
-	Status    string `json:"status"`
-	// Superseded keeps the original wire shape (a single id, the best match)
-	// so existing consumers of the field keep parsing; SupersededIDs carries
-	// the complete list now that one capture can consolidate several
-	// restatements (#762).
-	Superseded    string   `json:"superseded,omitempty"`
-	SupersededIDs []string `json:"superseded_ids,omitempty"`
-	// SimilarExisting lists active records similar to this capture but below
-	// the auto-supersede threshold, so the agent can decide whether the new
-	// capture restates one of them and consolidate (memory_manage update /
-	// consolidate) instead of leaving a near-duplicate behind (#762).
-	SimilarExisting   []RecallMatch `json:"similar_existing,omitempty"`
-	Message           string        `json:"message"`
-	LinkedThreadCount int           `json:"linked_thread_count,omitempty"`
-	UnlinkedThreadIDs []string      `json:"unlinked_thread_ids,omitempty"`
+	ID          string `json:"id"`
+	SinkClass   string `json:"sink_class"`
+	Status      string `json:"status"`
+	RecallCheck string `json:"recall_check"`
+	Message     string `json:"message"`
+	// LinkedThreadCount and UnlinkedThreadIDs report the feedback threads a
+	// reviewed capture was linked to (#602).
+	LinkedThreadCount int      `json:"linked_thread_count,omitempty"`
+	UnlinkedThreadIDs []string `json:"unlinked_thread_ids,omitempty"`
 }
 
-// handleMemoryCapture is the unified write verb. It validates the input, finds
-// any prior record this capture restates (recall-first, BEFORE the insert so the
-// new row cannot match itself), inserts, then supersedes the prior record. It
-// routes by sink-class: live classes (personal_preference, episodic_event) are
+// handleMemoryCapture is the unified write verb. It validates the input, stores
+// the record and queues its embedding, and returns without waiting on the
+// embedder (#1987); the recall-first check runs when the embedding is written.
+// It routes by sink-class: live classes (personal_preference, episodic_event) are
 // active immediately; reviewed classes carry the pending insight overlay so
 // apply_knowledge can later promote them.
 func (t *Toolkit) handleMemoryCapture(ctx context.Context, _ *mcp.CallToolRequest, input memoryCaptureInput) (*mcp.CallToolResult, any, error) {
@@ -186,10 +205,9 @@ func (t *Toolkit) handleMemoryCapture(ctx context.Context, _ *mcp.CallToolReques
 
 // captureOutcome carries the side results of the shared write pipeline.
 type captureOutcome struct {
-	Superseded []string
-	Similar    []RecallMatch
-	Linked     int
-	Unlinked   []string
+	RecallCheck string
+	Linked      int
+	Unlinked    []string
 }
 
 // captureActor carries the identity a capture is attributed to. The
@@ -204,31 +222,47 @@ type captureActor struct {
 }
 
 // applyCapture runs the shared write pipeline for an already-assembled record:
-// embed, recall-first supersede check (BEFORE the insert so the new row cannot
-// match itself), insert, supersede, then thread-link. Both the memory_capture
-// tool and AutoCapture funnel through here so server-initiated captures get
-// identical semantics. The record is mutated in place to carry its embedding.
+// insert, queue the embedding, then thread-link. It never calls the embedder: a
+// slow embedder used to hold a committed write open past the client's timeout,
+// and the caller retried a capture that had been stored (#1987). The record is
+// marked for the recall-first check, which SettleRecall runs when the index job
+// writes the embedding. Both the memory_capture tool and AutoCapture funnel
+// through here so server-initiated captures get identical semantics.
 func (t *Toolkit) applyCapture(ctx context.Context, rec *memstore.Record, sinkClass string, actor captureActor, threadIDs []string) (captureOutcome, error) {
 	// Both write paths converge here, so this is where the record is made
 	// equal to what it means: a record is about an entity once, and a repeat
 	// would silently drop out of every list that keys on the URN.
 	rec.EntityURNs = memstore.NormalizeEntityURNs(rec.EntityURNs)
-	t.embedCaptureRecord(ctx, rec, rec.Content)
-
-	// Recall-first reuses the embedding just computed (no second embed call).
-	restated, similar := t.findPriorMatches(ctx, *rec)
+	recall := recallCheckUnavailable
+	if t.recallChecker != nil && embedding.IsConfigured(t.embedder) {
+		recall = recallCheckPending
+		rec.Metadata = withRecallPending(rec.Metadata)
+	}
 
 	if err := t.store.Insert(ctx, *rec); err != nil {
 		return captureOutcome{}, fmt.Errorf("insert capture: %w", err)
 	}
+	t.notifyIndex(ctx, rec.ID)
 
 	linked, unlinked := t.linkCaptureThreads(ctx, actor, rec.ID, sinkClass, threadIDs)
-	return captureOutcome{
-		Superseded: t.applySupersedes(ctx, restated, rec.ID),
-		Similar:    similar,
-		Linked:     linked,
-		Unlinked:   unlinked,
-	}, nil
+	return captureOutcome{RecallCheck: recall, Linked: linked, Unlinked: unlinked}, nil
+}
+
+// withRecallPending returns meta with the capture marked for the recall-first
+// check, copying rather than mutating a map the caller may still hold.
+func withRecallPending(meta map[string]any) map[string]any {
+	out := make(map[string]any, len(meta))
+	maps.Copy(out, meta)
+	out[memstore.MetaKeyRecallCheck] = memstore.RecallCheckPending
+	return out
+}
+
+// notifyIndex queues the record's embedding. Best-effort: with no notifier
+// wired the reconciler still finds the NULL embedding on its next sweep.
+func (t *Toolkit) notifyIndex(ctx context.Context, id string) {
+	if t.indexNotifier != nil {
+		t.indexNotifier.NotifyWrite(ctx, id)
+	}
 }
 
 // validateCaptureInput returns the first validation failure message, or "" when
@@ -365,75 +399,6 @@ func normalizeSources(extra map[string]any) []string {
 	return sources
 }
 
-// embedCaptureRecord stamps an embedding when a real embedder is configured
-// (best-effort; an embed failure leaves the row lexical-only and disables
-// recall-first dedup for this capture).
-func (t *Toolkit) embedCaptureRecord(ctx context.Context, rec *memstore.Record, content string) {
-	if !embedding.IsConfigured(t.embedder) {
-		return
-	}
-	emb, err := t.embedder.Embed(ctx, content)
-	if err != nil {
-		slog.Warn("memory_capture: embedding failed, storing without", logKeyError, err)
-		return
-	}
-	rec.Embedding = emb
-	rec.EmbeddingModel, rec.EmbeddingTextHash = t.embeddingBreadcrumbs(emb, content)
-}
-
-// findPriorMatches returns the existing records this capture restates
-// (similarity at or above the supersede threshold, all of them — so a capture
-// arriving over an already-duplicated pair consolidates the whole set; the
-// blast radius is bounded by the recall candidate limit and by the threshold,
-// which at 0.9 raw cosine means near-identical text, and every superseded id
-// is reported in the response) and the records similar enough to surface as
-// candidates but not to auto-supersede.
-// Both are empty when recall is unavailable (no checker, no embedding) or
-// nothing clears the suggest threshold. Best-effort: a recall error never
-// fails the capture.
-func (t *Toolkit) findPriorMatches(ctx context.Context, rec memstore.Record) (restated, similar []RecallMatch) {
-	if t.recallChecker == nil || len(rec.Embedding) == 0 {
-		return nil, nil
-	}
-	matches, err := t.recallChecker.Matches(ctx, RecallQuery{
-		Embedding:   rec.Embedding,
-		EntityURNs:  rec.EntityURNs,
-		CallerEmail: rec.CreatedBy,
-		MinScore:    recallSuggestThreshold,
-	})
-	if err != nil {
-		slog.Debug("memory_capture: recall-first check failed", logKeyError, err)
-		return nil, nil
-	}
-	for _, m := range matches {
-		if m.Score >= recallSupersedeThreshold {
-			restated = append(restated, m)
-		} else {
-			similar = append(similar, m)
-		}
-	}
-	return restated, similar
-}
-
-// applySupersedes marks every restated record superseded by the new capture.
-// Best-effort per record: a failure is logged and the capture still succeeds
-// (the new row is already stored); only records actually superseded are
-// returned so the caller never falsely claims a supersede.
-func (t *Toolkit) applySupersedes(ctx context.Context, restated []RecallMatch, newID string) []string {
-	var superseded []string
-	for _, m := range restated {
-		if m.ID == "" || m.ID == newID {
-			continue
-		}
-		if err := t.store.Supersede(ctx, m.ID, newID); err != nil {
-			slog.Warn("memory_capture: failed to supersede prior record", "old", m.ID, "new", newID, logKeyError, err)
-			continue
-		}
-		superseded = append(superseded, m.ID)
-	}
-	return superseded
-}
-
 // linkCaptureThreads bridges a reviewed capture to feedback threads (#602).
 // Thread linking is a review-loop concept, so live captures (and captures with
 // no linker wired) surface the thread_ids as unlinked rather than silently
@@ -461,26 +426,16 @@ func captureSuccess(rec memstore.Record, out captureOutcome) (*mcp.CallToolResul
 	} else {
 		msg += "It will be reviewed before promotion to a shared catalog."
 	}
-	if n := len(out.Superseded); n > 0 {
-		msg += fmt.Sprintf(" %d prior record(s) superseded.", n)
-	}
-	if len(out.Similar) > 0 {
-		msg += " Similar existing records found (similar_existing): if this restates one," +
-			" consolidate with memory_manage (update the existing record, or consolidate the duplicate)."
-	}
-	// Matches arrive best-first, so the first superseded id is the best match
-	// (the singular field's original meaning).
-	var best string
-	if len(out.Superseded) > 0 {
-		best = out.Superseded[0]
+	if out.RecallCheck == recallCheckPending {
+		msg += " The recall check runs once the record is embedded, shortly after this call:" +
+			" a record this one restates is then marked superseded by it, and records similar to it" +
+			" are listed in its metadata as similar_existing, for you to consolidate with memory_manage."
 	}
 	return toolkit.JSONResult(memoryCaptureOutput{
 		ID:                rec.ID,
 		SinkClass:         rec.SinkClass,
 		Status:            rec.Status,
-		Superseded:        best,
-		SupersededIDs:     out.Superseded,
-		SimilarExisting:   out.Similar,
+		RecallCheck:       out.RecallCheck,
 		Message:           msg,
 		LinkedThreadCount: out.Linked,
 		UnlinkedThreadIDs: out.Unlinked,

@@ -264,3 +264,18 @@ func TestIsObjectNotFound(t *testing.T) {
 		})
 	}
 }
+
+// TestEmbedsContent names the tables of values whose content stays out of the
+// embedding (#1988), in every spelling a writer may declare them with.
+func TestEmbedsContent(t *testing.T) {
+	for mime, want := range map[string]bool{
+		"text/csv": false, "text/csv; charset=utf-8": false, "TEXT/CSV": false,
+		"text/tab-separated-values": false,
+		"application/x-ndjson":      false, "application/jsonl": false, "application/ndjson": false,
+		"text/markdown": true, "application/pdf": true, "application/json": true, "text/plain": true, "": true,
+	} {
+		if got := EmbedsContent(mime); got != want {
+			t.Errorf("EmbedsContent(%q) = %v, want %v", mime, got, want)
+		}
+	}
+}

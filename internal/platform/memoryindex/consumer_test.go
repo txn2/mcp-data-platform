@@ -66,7 +66,7 @@ func TestSink_KindAndCoverage(t *testing.T) {
 	t.Parallel()
 	st, mock, done := newMockStore(t)
 	defer done()
-	sink := NewSink(st, "nomic-embed-text")
+	sink := NewSink(st, "nomic-embed-text", nil)
 
 	if sink.Kind() != SourceKind {
 		t.Errorf("Kind() = %q; want %q", sink.Kind(), SourceKind)
@@ -88,7 +88,7 @@ func TestSink_CoverageError(t *testing.T) {
 	st, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectQuery("FROM memory_records").WillReturnError(errors.New("boom"))
-	if _, err := NewSink(st, "m").Coverage(context.Background()); err == nil {
+	if _, err := NewSink(st, "m", nil).Coverage(context.Background()); err == nil {
 		t.Error("Sink.Coverage should surface store error")
 	}
 }
@@ -97,7 +97,7 @@ func TestSink_StampExpectedAndFindGaps(t *testing.T) {
 	t.Parallel()
 	st, mock, done := newMockStore(t)
 	defer done()
-	sink := NewSink(st, "nomic-embed-text")
+	sink := NewSink(st, "nomic-embed-text", nil)
 	ctx := context.Background()
 
 	// StampExpected is a no-op (no DB).
@@ -134,7 +134,7 @@ func TestConsumerRoundTrip(t *testing.T) {
 	const model = "nomic-embed-text"
 
 	src := NewSource(st)
-	sink := NewSink(st, model)
+	sink := NewSink(st, model, nil)
 	key := indexjobs.Key{SourceKind: SourceKind, SourceID: id}
 
 	// 1. Worker loads the unit's items.
@@ -196,5 +196,49 @@ func TestConsumerRoundTrip(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestSink_TellsOnEmbeddedAfterTheWrite pins the order the recall-first check
+// depends on (#1987): the hook hears the record and the vector only once the
+// vector is on the row, and not at all when the write fails or writes nothing.
+func TestSink_TellsOnEmbeddedAfterTheWrite(t *testing.T) {
+	t.Parallel()
+	st, mock, done := newMockStore(t)
+	defer done()
+	ctx := context.Background()
+
+	var heard []string
+	var vec []float32
+	sink := NewSink(st, "m", func(_ context.Context, id string, emb []float32) {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("hook ran before the vector was written: %v", err)
+		}
+		heard = append(heard, id)
+		vec = emb
+	})
+	row := indexjobs.Vector{ItemID: "mem-1", Embedding: []float32{1, 0}, Model: "m", TextHash: []byte{1}}
+
+	mock.ExpectExec("UPDATE memory_records").WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := sink.Upsert(ctx, indexjobs.Key{SourceKind: SourceKind, SourceID: "mem-1"}, []indexjobs.Vector{row}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	mock.ExpectExec("UPDATE memory_records").WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := sink.UpsertBatch(ctx, indexjobs.Key{SourceKind: SourceKind, SourceID: "mem-2"}, []indexjobs.Vector{row}); err != nil {
+		t.Fatalf("UpsertBatch: %v", err)
+	}
+	mock.ExpectExec("UPDATE memory_records").WillReturnError(errors.New("boom"))
+	if err := sink.Upsert(ctx, indexjobs.Key{SourceKind: SourceKind, SourceID: "mem-3"}, []indexjobs.Vector{row}); err == nil {
+		t.Fatal("a failed write must surface")
+	}
+	if err := sink.Upsert(ctx, indexjobs.Key{SourceKind: SourceKind, SourceID: "mem-4"}, nil); err != nil {
+		t.Fatalf("empty Upsert: %v", err)
+	}
+
+	if len(heard) != 2 || heard[0] != "mem-1" || heard[1] != "mem-2" {
+		t.Errorf("heard = %v; want [mem-1 mem-2]", heard)
+	}
+	if len(vec) != 2 || vec[0] != 1 {
+		t.Errorf("hook got vector %v; want the written one", vec)
 	}
 }

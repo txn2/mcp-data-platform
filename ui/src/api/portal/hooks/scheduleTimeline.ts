@@ -17,6 +17,11 @@ export type ScheduleRhythm = "minutes" | "hours" | "days" | "weeks" | "months";
 export interface ScheduleFireRow {
   script_id: string;
   script_name: string;
+  // The script's owner, category and tags (#1992), which the tab's filters
+  // narrow on; tags is [] for none.
+  owner_email: string;
+  category: string;
+  tags: string[];
   cron_spec: string;
   timezone: string;
   enabled: boolean;

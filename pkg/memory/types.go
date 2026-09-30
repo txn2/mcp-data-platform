@@ -123,13 +123,25 @@ const (
 	// makes the query worth reusing. Not a review-state key, but stored beside
 	// them for the same reason — the two toolkits agree on the convention
 	// without importing each other.
-	MetaKeySources       = "sources"
-	InsightStatusPending = "pending"
+	MetaKeySources = "sources"
+	// MetaKeyRecallCheck records where a capture's recall-first check stands
+	// (#1987). A capture is stored before it is embedded, so the check that
+	// finds the records it restates runs when the index job writes its vector:
+	// RecallCheckPending until then, RecallCheckDone after.
+	MetaKeyRecallCheck = "recall_check"
+	// MetaKeySimilarExisting holds the records the recall-first check found
+	// similar to a capture but not close enough to supersede, as {id, score}
+	// pairs, so the owner can decide whether to consolidate them.
+	MetaKeySimilarExisting = "similar_existing"
+	InsightStatusPending   = "pending"
 	// InsightStatusSuperseded mirrors knowledgekit.StatusSuperseded. It is the
 	// review-status counterpart of the StatusSuperseded lifecycle column: when a
 	// record is superseded, its insight review status must follow, or the insights
 	// read path (which filters on insight_status) keeps surfacing the stale record.
 	InsightStatusSuperseded = "superseded"
+	// RecallCheckPending and RecallCheckDone are the MetaKeyRecallCheck values.
+	RecallCheckPending = "pending"
+	RecallCheckDone    = "done"
 )
 
 // Status values for memory records.

@@ -233,7 +233,10 @@ function DomTile({
         height: THUMB_HEIGHT,
         overflow: "hidden",
         boxSizing: "border-box",
-        background: scheme.tokens.bg,
+        // An SVG is drawn as stored: what it leaves transparent stays
+        // transparent in the tile, and the surface that shows the tile puts a
+        // checkerboard behind it (#1991).
+        background: kind === "svg" ? "transparent" : scheme.tokens.bg,
         color: scheme.tokens.fg,
         fontSize: 12,
         padding: 16,

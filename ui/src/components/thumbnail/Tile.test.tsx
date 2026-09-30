@@ -75,6 +75,19 @@ describe("Tile", () => {
     expect(lightBg).not.toBe(darkBg);
   });
 
+  // An SVG is drawn as stored: the tile page leaves what it does not cover
+  // transparent, and the surface showing the tile puts a checkerboard behind
+  // it, so a white logo is not stored as a white rectangle (#1991).
+  it("leaves an SVG's background transparent", () => {
+    const svg = render(
+      <Tile data={data({ contentType: "image/svg+xml", content: "<svg/>" })} dark={false} onDrawn={() => {}} />,
+    );
+    expect((svg.container.firstChild as HTMLElement).style.background).toBe("transparent");
+    svg.unmount();
+    const md = render(<Tile data={data({ content: "x" })} dark={false} onDrawn={() => {}} />);
+    expect((md.container.firstChild as HTMLElement).style.background).not.toBe("transparent");
+  });
+
   it("lays out a CSV as its table, split by the delimiter the viewer uses", async () => {
     const d = drawn();
     const { container } = render(

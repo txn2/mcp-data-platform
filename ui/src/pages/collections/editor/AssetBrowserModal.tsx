@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Eye, FileText, X } from "lucide-react";
 import type { Asset } from "@/api/portal/types";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
-import { AuthImg } from "@/components/AuthImg";
+import { TileImg } from "@/components/thumbnail/TileImg";
 import { ModalShell } from "@/components/ModalShell";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { assetThumbnailSrc } from "@/lib/thumbnailSupport";
@@ -101,7 +101,7 @@ export function AssetBrowserModal({
               <TableRow key={a.id}>
                 <TableCell>
                   {a.thumbnail_s3_key ? (
-                    <AuthImg
+                    <TileImg
                       src={assetThumbnailSrc(a, isDark)}
                       alt=""
                       className="h-6 w-8 rounded object-cover"

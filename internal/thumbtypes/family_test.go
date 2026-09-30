@@ -276,3 +276,18 @@ func TestSQLAndGoClassifyAlike(t *testing.T) {
 		}
 	}
 }
+
+// TestIsTransparent names the families captured transparent (#1991): an SVG
+// and every raster image, and nothing drawn on the tile page's background.
+func TestIsTransparent(t *testing.T) {
+	for ct, want := range map[string]bool{
+		"image/svg+xml": true, "IMAGE/SVG+XML; charset=utf-8": true,
+		"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true, "image/x-icon": true,
+		"application/atom+xml": false, "text/markdown": false, "application/pdf": false,
+		"text/html": false, "image/tiff": false, "": false,
+	} {
+		if got := IsTransparent(ct); got != want {
+			t.Errorf("IsTransparent(%q) = %v, want %v", ct, got, want)
+		}
+	}
+}

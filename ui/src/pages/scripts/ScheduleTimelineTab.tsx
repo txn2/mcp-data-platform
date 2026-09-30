@@ -7,13 +7,18 @@ import {
   type ScheduleFireRow,
   type ScheduleFireWindow,
   type ScheduleRhythm,
-  type ScheduleTimeline,
 } from "@/api/portal/hooks/scheduleTimeline";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { scheduleLine } from "./cadence";
+import {
+  NO_FACETS,
+  ScheduleFilterBar,
+  matchesFacets,
+  type ScheduleFacets,
+} from "./ScheduleFilters";
 import {
   AXIS_HEIGHT,
   DOT_RADIUS,
@@ -64,6 +69,7 @@ export function ScheduleTimelineTab({
   onShowScripts,
 }: Props) {
   const { data, isLoading, error } = useScheduleTimeline();
+  const [facets, setFacets] = useState<ScheduleFacets>(NO_FACETS);
   if (isLoading) {
     return (
       <p className="text-sm text-muted-foreground">Loading schedules...</p>
@@ -76,6 +82,8 @@ export function ScheduleTimelineTab({
       </p>
     );
   }
+  // A section is drawn when it has a schedule at all; the filters then narrow
+  // its rows, and a section they empty says so rather than disappearing.
   const drawn = data.sections.filter((s) => s.rows.length > 0);
   if (drawn.length === 0 && data.unreadable.length === 0) {
     return (
@@ -93,10 +101,21 @@ export function ScheduleTimelineTab({
       </EmptyState>
     );
   }
+  const shown = drawn.map((section) => ({
+    ...section,
+    rows: section.rows.filter((row) => matchesFacets(row, facets)),
+  }));
   return (
     <div className="space-y-4">
-      <Legend timeline={data} />
-      {drawn.map((section) => (
+      {drawn.length > 0 && (
+        <ScheduleFilterBar
+          rows={drawn.flatMap((s) => s.rows)}
+          facets={facets}
+          onFacets={setFacets}
+        />
+      )}
+      <Legend timezone={data.timezone} rows={shown.flatMap((s) => s.rows)} />
+      {shown.map((section) => (
         <SectionCard
           key={section.section}
           title={SECTION_TITLE[section.section]}
@@ -106,11 +125,20 @@ export function ScheduleTimelineTab({
             </span>
           }
         >
-          <TimelinePlot
-            section={section}
-            viewerZone={data.timezone || viewerTimezone()}
-            onOpen={(id) => onNavigate(`${basePath}/${id}`)}
-          />
+          {section.rows.length === 0 ? (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid={`schedule-section-unmatched-${section.section}`}
+            >
+              No schedule in this section matches the filters.
+            </p>
+          ) : (
+            <TimelinePlot
+              section={section}
+              viewerZone={data.timezone || viewerTimezone()}
+              onOpen={(id) => onNavigate(`${basePath}/${id}`)}
+            />
+          )}
         </SectionCard>
       ))}
       {data.unreadable.length > 0 && (
@@ -132,8 +160,7 @@ export function ScheduleTimelineTab({
 // Legend names the colors this page uses: the rhythms present, and paused
 // when any row is. Identity is never color alone, because every row states its
 // schedule in words as well.
-function Legend({ timeline }: { timeline: ScheduleTimeline }) {
-  const rows = timeline.sections.flatMap((s) => s.rows);
+function Legend({ timezone, rows }: { timezone: string; rows: ScheduleFireRow[] }) {
   const present = new Set<ScheduleRhythm>(
     rows.filter((r) => r.enabled).map((r) => r.rhythm),
   );
@@ -141,7 +168,7 @@ function Legend({ timeline }: { timeline: ScheduleTimeline }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <span>
-        Times are your own ({timeline.timezone}). Hover or focus a row for the
+        Times are your own ({timezone}). Hover or focus a row for the
         exact time of a fire.
       </span>
       {RHYTHM_ORDER.filter((r) => present.has(r)).map((r) => (

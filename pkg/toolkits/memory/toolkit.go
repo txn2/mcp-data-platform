@@ -25,6 +25,8 @@ type Toolkit struct {
 	// threadLinker and recallChecker power memory_capture (#633); both optional.
 	threadLinker  ThreadLinker
 	recallChecker RecallChecker
+	// indexNotifier queues a stored record's embedding (#1987); optional.
+	indexNotifier IndexNotifier
 }
 
 // New creates a new memory toolkit.
@@ -77,9 +79,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"personal_preference and episodic_event are live for you immediately; business_knowledge, " +
 			"schema_entity (with entity_urns), and operational_rule are reviewed before promotion to a shared " +
 			"catalog. Examples: 'stores close at 9pm' -> business_knowledge; 'the amount column excludes returns' " +
-			"-> schema_entity. Capture is recall-first: a restatement of something already known supersedes it " +
-			"instead of duplicating, and near-matches below the supersede bar are returned as similar_existing " +
-			"so you can consolidate instead of creating a duplicate.",
+			"-> schema_entity. The record is stored at once and embedded in the background; once it is, a " +
+			"restatement of something already known supersedes it instead of duplicating, and near-matches " +
+			"below the supersede bar are listed in the record's metadata as similar_existing so you can " +
+			"consolidate instead of keeping a duplicate.",
 		InputSchema: memoryCaptureSchema,
 		// Capture is recall-first: a restatement supersedes the record
 		// it restates rather than landing beside it, so a capture can

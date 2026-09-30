@@ -231,6 +231,16 @@ func IsThemeable(contentType string) bool {
 	return isThemeableFamily(family(contentType))
 }
 
+// IsTransparent reports whether a content type's tile is captured with its
+// transparent areas left transparent (#1991): an SVG and a raster image are
+// drawn as stored, and a logo meant for a dark background is white on nothing.
+// Drawn onto the tile page's background, a white one stored as a blank white
+// rectangle. Every surface that shows the tile puts a checkerboard behind it.
+func IsTransparent(contentType string) bool {
+	f := family(contentType)
+	return slices.Contains(svgTypes, f) || slices.Contains(rasterTypes, f)
+}
+
 // ThemeableShadows are the entries that are not themeable and come before
 // the themeable ones in Capturable's order. A content type is themeable
 // exactly when it matches a themeable entry and none of these, which is the

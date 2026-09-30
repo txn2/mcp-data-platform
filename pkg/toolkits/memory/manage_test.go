@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -154,6 +153,9 @@ type mockEmbedder struct {
 	embedErr    error
 	dim         int
 	model       string
+	// calls counts Embed and EmbedBatch, so a test can pin that a write path
+	// never waits on the embedder (#1987).
+	calls int
 }
 
 // Model lets ModelName(t.embedder) return a non-empty identifier so the
@@ -161,6 +163,7 @@ type mockEmbedder struct {
 func (m *mockEmbedder) Model() string { return m.model }
 
 func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	m.calls++
 	if m.embedErr != nil {
 		return nil, m.embedErr
 	}
@@ -168,6 +171,7 @@ func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 }
 
 func (m *mockEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	m.calls++
 	results := make([][]float32, len(texts))
 	for i := range texts {
 		results[i] = m.embedResult
@@ -289,7 +293,10 @@ func TestHandleManage_RoutesToCorrectHandler(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-func TestHandleUpdate_StampsEmbeddingBreadcrumbs(t *testing.T) {
+// TestHandleUpdate_QueuesTheReEmbed pins the update half of #1987: changed
+// content is written without calling the embedder and queued for embedding,
+// and a metadata-only update queues nothing.
+func TestHandleUpdate_QueuesTheReEmbed(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStore{
@@ -297,20 +304,25 @@ func TestHandleUpdate_StampsEmbeddingBreadcrumbs(t *testing.T) {
 	}
 	embedder := &mockEmbedder{embedResult: []float32{0.3, 0.4}, model: "nomic-embed-text"}
 	tk := newTestToolkit(store, embedder)
+	notifier := &countingNotifier{}
+	tk.SetIndexNotifier(notifier)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
-	const content = "updated: error_code 42 means a retryable timeout"
 	result, _, err := tk.handleManage(ctx, nil, manageInput{
 		Command: "update",
 		ID:      "mem-1",
-		Content: content,
+		Content: "updated: error_code 42 means a retryable timeout",
 	})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
+	assert.Zero(t, embedder.calls, "an update must not wait on the embedder")
+	assert.Empty(t, store.updatedFields.Embedding)
+	assert.Equal(t, []string{"mem-1"}, notifier.ids)
 
-	assert.Equal(t, "nomic-embed-text", store.updatedFields.EmbeddingModel)
-	want := sha256.Sum256([]byte(content))
-	assert.Equal(t, want[:], store.updatedFields.EmbeddingTextHash)
+	result, _, err = tk.handleManage(ctx, nil, manageInput{Command: "update", ID: "mem-1", Category: memstore.CategoryDataQuality})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	assert.Equal(t, []string{"mem-1"}, notifier.ids, "unchanged content needs no re-embed")
 }
 
 // TestHandleRemember_NoopEmbedderSkipsEmbed proves the write-path
@@ -344,7 +356,6 @@ func TestHandleUpdate_Valid(t *testing.T) {
 	assert.Equal(t, "abc123", data["id"])
 	assert.Equal(t, "abc123", store.updatedID)
 	assert.Equal(t, "Updated content that is long enough for tests", store.updatedFields.Content)
-	assert.Equal(t, []float32{0.5, 0.6}, store.updatedFields.Embedding)
 }
 
 // TestHandleUpdate_NoopEmbedderSkipsEmbed is the symmetric guard test

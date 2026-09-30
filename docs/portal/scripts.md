@@ -92,6 +92,9 @@ The **Schedules** tab draws when every scheduled script fires: one row per
 script, a mark at each fire, on the viewer's own clock. Schedules that fire
 more than once a day are drawn across today, daily-to-weekly ones across this
 week, and rarer ones across three months. A paused schedule is drawn muted.
+Rows in every section are in script-name order, ignoring case. The author,
+category and tag filters are the ones the Automations list has, and they
+combine; a section the filters leave empty says so rather than disappearing.
 Hovering a row gives the exact time of a fire, and clicking it opens the script.
 [Seeing every schedule at once](../scripts/running.md#seeing-every-schedule-at-once)
 covers how a schedule's section and color are chosen.
@@ -250,11 +253,11 @@ part of any tool response: an agent reads the code.
 ### A run on the diagram
 
 On a script you own, and on every script for an administrator, the Flow tab opens on the
-latest run drawn on the diagram (#1907). The **Run** menu lists the run history a page of 25
-at a time, each run by when it happened and how, then how it ended and its version
-(`Sep 28, 10:57 PM · manual · failed · v10`), with the arrows beside it reading further back
-and the menu next to it narrowing the list to failed or succeeded runs. **No run** draws the
-saved version on its own. A run of an older version is drawn on that version's diagram.
+latest run drawn on the diagram (#1907). The **Run** menu lists the newest 25 runs, each by
+when it happened and how, then how it ended and its version
+(`Sep 28, 10:57 PM · manual · failed · v10`), and the menu next to it narrows the list to the
+newest 25 failed or succeeded runs (#1990). The **Runs** tab pages through the whole history.
+**No run** draws the saved version on its own. A run of an older version is drawn on that version's diagram.
 
 ![A failed run on the diagram](../images/screenshots/light/user-script-flow-run-light.webp#only-light)![A failed run on the diagram](../images/screenshots/dark/user-script-flow-run-dark.webp#only-dark)
 

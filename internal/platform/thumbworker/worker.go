@@ -29,7 +29,10 @@ import (
 // redraws every tile in the library.
 //
 // 2 draws at twice the density and gives HTML and JSX a dark tile (#1789).
-const Renderer = 2
+// 3 captures SVG and raster images with their transparent areas transparent
+// (#1991); migration 000172 stamped every other tile with 3, so only those
+// families were drawn again.
+const Renderer = 3
 
 const (
 	defaultPoll          = 5 * time.Second

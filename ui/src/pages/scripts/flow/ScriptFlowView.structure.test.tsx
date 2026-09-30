@@ -7,14 +7,14 @@ import { layoutStructure } from "./structureLayout";
 import { fold } from "./structureModel";
 
 vi.mock("@/api/portal/hooks/scriptFlow", () => ({ useScriptFlow: vi.fn(), useScriptRunFlow: vi.fn() }));
-vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useScriptRunPage: vi.fn(), RUN_PAGE_SIZE: 25 }));
+vi.mock("@/api/portal/hooks/scriptRuns", () => ({ useRecentScriptRuns: vi.fn() }));
 vi.mock("@/api/portal/hooks/scripts", () => ({ usePortalScriptVersions: vi.fn() }));
 import { useScriptFlow, useScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
-import { useScriptRunPage } from "@/api/portal/hooks/scriptRuns";
+import { useRecentScriptRuns } from "@/api/portal/hooks/scriptRuns";
 import { usePortalScriptVersions } from "@/api/portal/hooks/scripts";
 const mockFlow = vi.mocked(useScriptFlow);
 const mockRunFlow = vi.mocked(useScriptRunFlow);
-const mockRuns = vi.mocked(useScriptRunPage);
+const mockRuns = vi.mocked(useRecentScriptRuns);
 const mockVersions = vi.mocked(usePortalScriptVersions);
 
 // The Structure view (#1972): the script in the order it runs, the view the
@@ -60,21 +60,26 @@ function runFlow(over: Partial<ScriptRunFlow> = {}): ScriptRunFlow {
   };
 }
 
+// runsListed is what the server answers the picker: the newest 25 of a
+// script with 60 runs, or its one failed run.
+function runsListed(status: string) {
+  const newest = [
+    { id: "run-2", status: "failed", version: 2, trigger: "portal", fire_time: "2026-09-28T22:57:38Z", duration_ms: 1, output_count: 0 },
+    { id: "run-1", status: "succeeded", version: 2, trigger: "schedule", fire_time: "2026-09-28T12:00:00Z", duration_ms: 1, output_count: 0 },
+  ];
+  if (status === "failed") return { data: newest.slice(0, 1), total: 1, page: 1 };
+  const older = Array.from({ length: 23 }, (_, i) => ({
+    ...newest[1],
+    id: `run-old-${i}`,
+    fire_time: `2026-09-${String(27 - i).padStart(2, "0")}T12:00:00Z`,
+  }));
+  return { data: [...newest, ...older], total: 60, page: 1 };
+}
+
 function withRuns(flow: ScriptRunFlow | null) {
   mockRuns.mockImplementation(
-    (_id, owned, page, status) =>
-      ({
-        data: owned
-          ? {
-              data: [
-                { id: "run-2", status: "failed", version: 2, trigger: "portal", fire_time: "2026-09-28T22:57:38Z", duration_ms: 1, output_count: 0 },
-                { id: "run-1", status: "succeeded", version: 2, trigger: "schedule", fire_time: "2026-09-28T12:00:00Z", duration_ms: 1, output_count: 0 },
-              ],
-              total: status === "failed" ? 1 : 60,
-              page,
-            }
-          : undefined,
-      }) as unknown as ReturnType<typeof useScriptRunPage>,
+    (_id, owned, status) =>
+      ({ data: owned ? runsListed(status) : undefined }) as unknown as ReturnType<typeof useRecentScriptRuns>,
   );
   mockRunFlow.mockImplementation(
     (_id, runId) =>
@@ -125,7 +130,7 @@ beforeEach(() => {
   } catch {
     // No storage to clear.
   }
-  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useScriptRunPage>);
+  mockRuns.mockReturnValue({ data: undefined } as ReturnType<typeof useRecentScriptRuns>);
   mockVersions.mockReturnValue({ data: undefined } as ReturnType<typeof usePortalScriptVersions>);
   mockRunFlow.mockReturnValue({ isLoading: false } as ReturnType<typeof useScriptRunFlow>);
 });
@@ -248,25 +253,43 @@ describe("ScriptFlowView: a run on the Structure view", () => {
 });
 
 describe("ScriptFlowView: the toolbar", () => {
-  it("lists runs by when and how they ran, a page at a time, and narrows them to one status", async () => {
+  it("lists the newest runs by when and how they ran, with no paging, and narrows them to one status", async () => {
     withRuns(runFlow());
     renderView(true);
     await structure();
-    expect(mockRuns).toHaveBeenLastCalledWith("script-001", true, 1, "");
-    expect(screen.getByTestId("run-page")).toHaveTextContent("1–25 of 60");
+    expect(mockRuns).toHaveBeenLastCalledWith("script-001", true, "");
     fireEvent.click(screen.getByRole("combobox", { name: "Run drawn on the diagram" }));
-    expect(await screen.findByRole("option", { name: /· manual · failed · v2$/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /· scheduled · succeeded · v2$/ })).toBeInTheDocument();
+    const listed = await screen.findAllByRole("option");
+    // The saved version, then the newest 25 of the script's 60 runs, newest first.
+    expect(listed).toHaveLength(26);
+    expect(listed[1]).toHaveAccessibleName(/· manual · failed · v2$/);
+    expect(listed[2]).toHaveAccessibleName(/· scheduled · succeeded · v2$/);
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
-    expect(screen.getByRole("button", { name: "Newer runs" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Older runs" }));
-    expect(mockRuns).toHaveBeenLastCalledWith("script-001", true, 2, "");
+    expect(screen.queryByTestId("run-page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Newer runs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Older runs" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("combobox", { name: "Runs listed" }));
     fireEvent.click(await screen.findByRole("option", { name: "Failed" }));
-    expect(mockRuns).toHaveBeenLastCalledWith("script-001", true, 1, "failed");
-    expect(screen.getByTestId("run-page")).toHaveTextContent("1–1 of 1");
+    expect(mockRuns).toHaveBeenLastCalledWith("script-001", true, "failed");
+    fireEvent.click(screen.getByRole("combobox", { name: "Run drawn on the diagram" }));
+    expect(await screen.findAllByRole("option")).toHaveLength(2);
+  });
+
+  it("lists a script's few runs with no paging", async () => {
+    withRuns(runFlow());
+    const three = runsListed("").data.slice(0, 3);
+    mockRuns.mockReturnValue({ data: { data: three, total: 3, page: 1 } } as unknown as ReturnType<
+      typeof useRecentScriptRuns
+    >);
+    renderView(true);
+    await structure();
+    fireEvent.click(screen.getByRole("combobox", { name: "Run drawn on the diagram" }));
+    expect(await screen.findAllByRole("option")).toHaveLength(4);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(screen.queryByTestId("run-page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /runs$/ })).not.toBeInTheDocument();
   });
 
   it("switches to Calls and keeps the choice in the address", async () => {

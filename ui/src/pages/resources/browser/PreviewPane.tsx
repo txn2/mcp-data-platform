@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Folder } from "lucide-react";
-import { AuthImg } from "@/components/AuthImg";
+import { TileImg } from "@/components/thumbnail/TileImg";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
@@ -80,7 +80,7 @@ function Preview({ r }: { r: Resource }) {
   return (
     <div className="m-3 grid aspect-[4/3] place-items-center overflow-hidden rounded-lg border bg-muted">
       {src && !broken ? (
-        <AuthImg
+        <TileImg
           key={src}
           src={src}
           alt=""

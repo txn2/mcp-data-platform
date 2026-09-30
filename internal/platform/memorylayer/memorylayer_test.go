@@ -42,6 +42,10 @@ func TestNew_NilDBIsNoop(t *testing.T) {
 	assert.Nil(t, h.EmbeddingProvider())
 	assert.Nil(t, h.Toolkit())
 	assert.Nil(t, h.MemoryProvider())
+	assert.Nil(t, h.IndexProducer())
+	assert.Nil(t, h.RecallOnEmbed())
+	raw := embedding.NewNoopProvider(4)
+	assert.Same(t, raw, h.Background(raw), "with no layer there is no gate to wrap in")
 	h.Start() // no panic
 	h.Stop()  // no panic
 }
@@ -112,4 +116,29 @@ func TestNew_StalenessWatcherGating(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, h.stalenessWatcher, "no semantic provider → no watcher")
 	})
+}
+
+// TestNew_WiresTheCaptureEmbedPath pins the #1987/#1988 wiring the platform
+// reads off the handle: the memory write-path producer for the index queue to
+// bind, the recall hook the memory consumer calls after it writes a vector,
+// and both sides of the embed gate around the layer's embedder.
+func TestNew_WiresTheCaptureEmbedPath(t *testing.T) {
+	h, err := New(dummyDB(t), nil, Config{
+		ToolkitName:       "default",
+		EmbeddingProvider: providerOllama,
+		Ollama:            embedding.OllamaConfig{URL: "http://localhost:11434", Model: "nomic-embed-text"},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, h.IndexProducer())
+	assert.Equal(t, "memory", h.IndexProducer().Kind())
+	assert.NotNil(t, h.RecallOnEmbed())
+
+	interactive := h.EmbeddingProvider()
+	assert.True(t, embedding.IsConfigured(interactive))
+	assert.Equal(t, "nomic-embed-text", embedding.ModelName(interactive), "the gate forwards the model")
+	worker := embedding.NewOllamaProvider(embedding.OllamaConfig{Model: "nomic-embed-text"})
+	background := h.Background(worker)
+	assert.NotSame(t, worker, background, "the worker's provider is wrapped in the gate")
+	assert.Equal(t, "nomic-embed-text", embedding.ModelName(background))
 }

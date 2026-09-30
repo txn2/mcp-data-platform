@@ -570,14 +570,42 @@ func TestDrawAsset_AnSVGGetsOneTile(t *testing.T) {
 	}
 }
 
+// An SVG and a raster image are captured transparent, on a page that paints
+// no background of its own, so a white logo is not stored as a white
+// rectangle (#1991); a document keeps its opaque page.
+func TestDrawAsset_TransparentFamiliesAreCapturedTransparent(t *testing.T) {
+	for ct, want := range map[string]bool{
+		"image/svg+xml": true, "image/png": true, "image/webp": true, "image/gif": true,
+		"text/markdown": false, "text/csv": false, "application/pdf": false,
+	} {
+		t.Run(ct, func(t *testing.T) {
+			d, assets, blobs := &fakeDrawer{}, &fakeAssets{}, newBlobs()
+			a := asset("a1", ct, 1)
+			blobs.objects[bucket+"/"+a.S3Key] = []byte("<svg/>")
+			if err := worker(d, assets, blobs).drawAsset(context.Background(), a); err != nil {
+				t.Fatalf("drawAsset: %v", err)
+			}
+			if len(d.pages) == 0 {
+				t.Fatal("nothing was drawn")
+			}
+			for _, p := range d.pages {
+				if p.Transparent != want || strings.Contains(string(p.Document), "background:transparent") != want {
+					t.Errorf("transparent = %v, page paints its own background = %v; want transparent %v",
+						p.Transparent, !strings.Contains(string(p.Document), "background:transparent"), want)
+				}
+			}
+		})
+	}
+}
+
 // --- the page --------------------------------------------------------------
 
 func TestTileDocument_ContentCannotCloseTheScriptItIsIn(t *testing.T) {
-	doc := string(tileDocument(map[string]any{"content": `</script><script>alert(1)</script>`}, false, "/e.js", ".a{}"))
+	doc := string(tileDocument(map[string]any{"content": `</script><script>alert(1)</script>`}, false, false, "/e.js", ".a{}"))
 	if strings.Count(doc, "</script>") != 2 {
 		t.Fatalf("the payload closed its script element early:\n%s", doc)
 	}
-	if !strings.Contains(string(tileDocument(nil, false, "/e.js", "</style><b>")), `<\/style><b>`) {
+	if !strings.Contains(string(tileDocument(nil, false, false, "/e.js", "</style><b>")), `<\/style><b>`) {
 		t.Error("a stylesheet containing </style could close the style element")
 	}
 }

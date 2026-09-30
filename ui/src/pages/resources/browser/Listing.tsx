@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { Folder } from "lucide-react";
-import { AuthImg } from "@/components/AuthImg";
+import { TileImg } from "@/components/thumbnail/TileImg";
 import { contentTypeIcon } from "@/components/ContentTypeBadge";
 import type { ViewMode } from "@/components/listView";
 import { formatBytes } from "@/lib/format";
@@ -495,7 +495,7 @@ function TileThumb({ entry, isDark }: { entry: Entry; isDark: boolean }) {
   return (
     <div className={box}>
       {src && !broken ? (
-        <AuthImg
+        <TileImg
           src={src}
           alt=""
           className="h-full w-full object-cover object-top"

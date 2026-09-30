@@ -320,10 +320,18 @@ export const scriptHandlers = [
   http.get(`${PORTAL_BASE}/scripts/fires`, ({ request }) => {
     const tz = new URL(request.url).searchParams.get("tz") || "UTC";
     const visible = emptyDemoRequested("scripts") ? [] : Object.values(schedules);
-    const named = new Map(
-      scripts.map((script) => [script.id, script.display_name || script.name]),
+    const labels = new Map(
+      scripts.map((script) => [
+        script.id,
+        {
+          name: script.display_name || script.name,
+          owner_email: script.owner_email ?? "",
+          category: script.category ?? "",
+          tags: script.tags ?? [],
+        },
+      ]),
     );
-    return HttpResponse.json(buildMockScheduleTimeline(visible, named, tz, MOCK_SCRIPTS_NOW));
+    return HttpResponse.json(buildMockScheduleTimeline(visible, labels, tz, MOCK_SCRIPTS_NOW));
   }),
 
   http.get(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {

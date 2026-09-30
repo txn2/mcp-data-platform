@@ -68,6 +68,11 @@ func (s *Source) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.It
 	}
 
 	content := s.resolveContentText(ctx, sourceID, row)
+	// A table of values is embedded on its metadata alone (#1988); its content
+	// was still settled into content_text above, which the lexical arm reads.
+	if !resource.EmbedsContent(row.Resource.MIMEType) {
+		content = ""
+	}
 	return []indexjobs.Item{{ItemID: sourceID, Text: resource.IndexText(row.Resource, content)}}, nil
 }
 

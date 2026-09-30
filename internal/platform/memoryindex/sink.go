@@ -13,14 +13,21 @@ import (
 type Sink struct {
 	store        *Store
 	currentModel string
+	onEmbedded   Embedded
 }
+
+// Embedded is told each record whose vector the sink has just written, with
+// that vector. The memory toolkit runs a capture's recall-first check here,
+// because a capture is stored before it is embedded (#1987).
+type Embedded func(ctx context.Context, id string, embedding []float32)
 
 // NewSink returns a Sink backed by the given store. currentModel is the
 // embedding provider's model identifier (embedding.ModelName); pass "" on
 // a deployment whose provider does not name its model; every row then
-// matches "" and only NULL-embedding rows are treated as gaps.
-func NewSink(store *Store, currentModel string) *Sink {
-	return &Sink{store: store, currentModel: currentModel}
+// matches "" and only NULL-embedding rows are treated as gaps. onEmbedded may
+// be nil.
+func NewSink(store *Store, currentModel string, onEmbedded Embedded) *Sink {
+	return &Sink{store: store, currentModel: currentModel, onEmbedded: onEmbedded}
 }
 
 // Compile-time interface checks.
@@ -42,13 +49,26 @@ func (s *Sink) ListExisting(ctx context.Context, key indexjobs.Key) (map[string]
 // has no sibling rows, so there is nothing to delete; it delegates to the
 // shared store write.
 func (s *Sink) Upsert(ctx context.Context, key indexjobs.Key, rows []indexjobs.Vector) error {
-	return s.store.UpsertVectors(ctx, key.SourceID, rows)
+	return s.write(ctx, key.SourceID, rows)
 }
 
 // UpsertBatch is identical to Upsert for memory (single-item unit, no
 // rows outside the batch to preserve).
 func (s *Sink) UpsertBatch(ctx context.Context, key indexjobs.Key, rows []indexjobs.Vector) error {
-	return s.store.UpsertVectors(ctx, key.SourceID, rows)
+	return s.write(ctx, key.SourceID, rows)
+}
+
+// write stores the vector and then tells onEmbedded, only once the vector is
+// on the row: the recall check searches the stored vectors, and a record
+// whose own vector is not yet written would miss the pair it forms.
+func (s *Sink) write(ctx context.Context, id string, rows []indexjobs.Vector) error {
+	if err := s.store.UpsertVectors(ctx, id, rows); err != nil {
+		return err
+	}
+	if s.onEmbedded != nil && len(rows) > 0 {
+		s.onEmbedded(ctx, id, rows[0].Embedding)
+	}
+	return nil
 }
 
 // StampExpected is a no-op for memory. Gap detection is condition-based

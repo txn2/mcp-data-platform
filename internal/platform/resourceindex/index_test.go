@@ -90,13 +90,13 @@ func TestConsumerRegistersAsOnePair(t *testing.T) {
 // lexical index.
 func TestLoadItems_ExtractsAndPersistsContent(t *testing.T) {
 	store, mock := newDB(t)
-	expectLoad(mock, "res_1", "text/csv", "resources/global/res_1/sales.csv", "")
+	expectLoad(mock, "res_1", "text/markdown", "resources/global/res_1/sales.md", "")
 	mock.ExpectExec("UPDATE resources SET content_text").
-		WithArgs("res_1", "column,description\ngross_margin_pct,margin\n").
+		WithArgs("res_1", "# Sales\n\ngross_margin_pct is the margin.\n").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	blobs := &fakeBlobs{objects: map[string][]byte{
-		"resources/global/res_1/sales.csv": []byte("column,description\ngross_margin_pct,margin\n"),
+		"resources/global/res_1/sales.md": []byte("# Sales\n\ngross_margin_pct is the margin.\n"),
 	}}
 	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
 	if err != nil {
@@ -113,6 +113,41 @@ func TestLoadItems_ExtractsAndPersistsContent(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// TestLoadItems_TableOfValuesEmbedsMetadataOnly is #1988's type rule: a CSV,
+// TSV or newline-delimited JSON file still has its content extracted into
+// content_text, which lexical search reads, but its vector is built from the
+// metadata alone.
+func TestLoadItems_TableOfValuesEmbedsMetadataOnly(t *testing.T) {
+	for _, mime := range []string{"text/csv", "text/tab-separated-values", "application/x-ndjson", "application/jsonl"} {
+		t.Run(mime, func(t *testing.T) {
+			store, mock := newDB(t)
+			expectLoad(mock, "res_1", mime, "resources/global/res_1/daily", "")
+			mock.ExpectExec("UPDATE resources SET content_text").
+				WithArgs("res_1", sqlmock.AnyArg()).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			blobs := &fakeBlobs{objects: map[string][]byte{
+				"resources/global/res_1/daily": []byte("{\"store\":\"gross_margin_pct\",\"sold\":1}\n"),
+			}}
+			items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
+			if err != nil {
+				t.Fatalf("LoadItems: %v", err)
+			}
+			if strings.Contains(items[0].Text, "gross_margin_pct") {
+				t.Errorf("a table of values must not reach the embedding: %q", items[0].Text)
+			}
+			if !strings.Contains(items[0].Text, "Sales Dictionary") || !strings.Contains(items[0].Text, "finance") {
+				t.Errorf("the metadata must still be embedded: %q", items[0].Text)
+			}
+			if blobs.calls != 1 {
+				t.Errorf("blob reads = %d; the content is still extracted for lexical search", blobs.calls)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet expectations (content_text must still be written): %v", err)
+			}
+		})
 	}
 }
 
@@ -148,7 +183,7 @@ func TestLoadItems_BinarySkipsBlobRead(t *testing.T) {
 // with its file contents never indexed.
 func TestLoadItems_TransientBlobFailureKeepsPriorContentAndStaysOwed(t *testing.T) {
 	store, mock := newDB(t)
-	expectLoad(mock, "res_1", "text/csv", "k", "previously extracted text")
+	expectLoad(mock, "res_1", "text/markdown", "k", "previously extracted text")
 
 	blobs := &fakeBlobs{err: errors.New("connection reset by peer")}
 	items, err := NewSource(store, blobs, "bucket", nil).LoadItems(context.Background(), "res_1")
@@ -250,7 +285,7 @@ func TestLoadItems_StoreErrorIsNotGone(t *testing.T) {
 // indexed and the next sweep retries the write.
 func TestLoadItems_ContentWriteFailureDoesNotFailJob(t *testing.T) {
 	store, mock := newDB(t)
-	expectLoad(mock, "res_1", "text/csv", "k", "")
+	expectLoad(mock, "res_1", "text/markdown", "k", "")
 	mock.ExpectExec("UPDATE resources SET content_text").WillReturnError(errors.New("db down"))
 
 	blobs := &fakeBlobs{objects: map[string][]byte{"k": []byte("body text")}}

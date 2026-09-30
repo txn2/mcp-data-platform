@@ -3,15 +3,12 @@ package memory
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -57,22 +54,6 @@ func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 }
 
-// embeddingBreadcrumbs returns the model identifier and content hash
-// that travel with a freshly-computed embedding so a synchronously-
-// embedded row carries the same breadcrumbs the indexjobs memory
-// consumer writes and dedups on (model match + SHA-256 text hash). A row
-// stamped this way is not flagged as a gap by the reconciler and is not
-// re-embedded on a later sweep unless its content or the provider model
-// changes. Returns zero values for an empty vector (embedder skipped or
-// failed), leaving the columns NULL/” so the reconciler backfills them.
-func (t *Toolkit) embeddingBreadcrumbs(emb []float32, content string) (model string, hash []byte) {
-	if len(emb) == 0 {
-		return "", nil
-	}
-	sum := sha256.Sum256([]byte(content))
-	return embedding.ModelName(t.embedder), sum[:]
-}
-
 // handleUpdate modifies an existing memory record.
 func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	if input.ID == "" {
@@ -103,22 +84,14 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 		Metadata:   input.Metadata,
 	}
 
-	// Re-embed if content changed. Symmetric with the handleRemember
-	// guard: skip the noop placeholder so an update on an unconfigured
-	// deployment does not overwrite a previously-real vector with a
-	// zero vector (#429).
-	if input.Content != "" && embedding.IsConfigured(t.embedder) {
-		emb, err := t.embedder.Embed(ctx, input.Content)
-		if err != nil {
-			slog.Warn("embedding generation failed on update", "error", err)
-		} else {
-			updates.Embedding = emb
-			updates.EmbeddingModel, updates.EmbeddingTextHash = t.embeddingBreadcrumbs(emb, input.Content)
-		}
-	}
-
 	if err := t.store.Update(ctx, input.ID, updates); err != nil {
 		return toolkit.ErrorResult("failed to update memory: " + err.Error()), nil, nil
+	}
+	// Changed content is re-embedded off the request (#1987): the index job
+	// sees the stored vector's text hash no longer matches and embeds the new
+	// text, so a slow embedder never holds the update open.
+	if input.Content != "" {
+		t.notifyIndex(ctx, input.ID)
 	}
 
 	return toolkit.JSONResult(map[string]any{

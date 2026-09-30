@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { AuthImg } from "@/components/AuthImg";
+import { TileImg } from "@/components/thumbnail/TileImg";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +52,7 @@ export function ThumbCard({
         {aspect !== null && (
           <div className={cn("w-full bg-muted", aspect)}>
             {thumbnailSrc && !broken ? (
-              <AuthImg
+              <TileImg
                 src={thumbnailSrc}
                 alt=""
                 className="h-full w-full object-cover object-top"

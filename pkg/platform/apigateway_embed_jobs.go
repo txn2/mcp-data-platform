@@ -22,14 +22,12 @@ const defaultEmbedJobsTimeout = 5 * time.Minute
 // dedicated longer-timeout worker embedder (see workerEmbedder).
 const providerOllama = "ollama"
 
-// workerEmbedder returns the embedding.Provider the index-jobs
-// worker should use. When the platform's embedder is Ollama, the
-// worker gets a dedicated Provider with a longer HTTP timeout
-// (apigateway.embed_jobs.embed_timeout, default 5m) so a batched
-// call on CPU-only Ollama does not exhaust the 30s default that
-// request-path callers (memory_recall, capture_insight, etc.) share.
-// For any other provider, the shared platform Provider is returned
-// unchanged.
+// workerEmbedder returns the index-jobs worker's embedding.Provider. For
+// Ollama it is a dedicated provider with the longer embed_timeout (default
+// 5m), so a batched call on a CPU-only Ollama does not exhaust the 30s
+// request-path default, behind the memory layer's embed gate so it yields to
+// interactive embeds on every replica (#1988). Any other provider -- today the
+// noop, which never starts the queue -- is the shared one, unchanged.
 func (p *Platform) workerEmbedder() embedding.Provider {
 	if p.config.Memory.Embedding.Provider != providerOllama {
 		return p.embeddingProv
@@ -38,12 +36,12 @@ func (p *Platform) workerEmbedder() embedding.Provider {
 	if timeout <= 0 {
 		timeout = defaultEmbedJobsTimeout
 	}
-	return embedding.NewOllamaProvider(embedding.OllamaConfig{
+	return p.memory.Background(embedding.NewOllamaProvider(embedding.OllamaConfig{
 		URL:           p.config.Memory.Embedding.Ollama.URL,
 		Model:         p.config.Memory.Embedding.Ollama.Model,
 		Timeout:       timeout,
 		MaxInputBytes: p.config.Memory.Embedding.Ollama.MaxInputBytes,
-	})
+	}))
 }
 
 // WireAPIGatewayEmbedJobsFromDB initializes the shared index-jobs
@@ -97,7 +95,9 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		},
 		GraphQLToolkits: p.GraphQLToolkits,
 		Producers: append(p.portalStore.IndexProducers(), p.knowledge.PageIndexProducer(),
-			p.prompts.IndexProducer(), p.resources.IndexProducer(), p.scripts.IndexProducer()),
+			p.prompts.IndexProducer(), p.resources.IndexProducer(), p.scripts.IndexProducer(),
+			p.memory.IndexProducer()),
+		MemoryEmbedded:     p.memory.RecallOnEmbed(),
 		CatalogLister:      p.semanticProvider,
 		CatalogIndexConfig: p.config.Knowledge.CatalogIndex,
 		ResourceBlobs:      p.resources.S3Client(),
