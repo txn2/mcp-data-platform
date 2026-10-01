@@ -62,6 +62,9 @@ type ChannelInput struct {
 	// platform default.
 	RepeatAfter string `json:"repeat_after,omitempty" example:"1h"`
 	MaxPerHour  int    `json:"max_per_hour,omitempty" example:"60"`
+	// Format is a webhook channel's payload: "text" (the default) posts
+	// {"text": ...}; "json" posts an envelope for a system to receive.
+	Format string `json:"format,omitempty" example:"json"`
 }
 
 // ChannelView is the read shape. It carries no credential because a channel
@@ -78,8 +81,11 @@ type ChannelView struct {
 	Mode        string   `json:"mode"`
 	RepeatAfter string   `json:"repeat_after"`
 	MaxPerHour  int      `json:"max_per_hour"`
-	CreatedBy   string   `json:"created_by,omitempty"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
+	// Format is a webhook channel's payload format, "text" or "json";
+	// absent for the other kinds.
+	Format    string `json:"format,omitempty"`
+	CreatedBy string `json:"created_by,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 	// Warnings report a channel that saves cleanly but cannot deliver -- a
 	// connection no live toolkit serves. They are warnings rather than
 	// refusals so an operator can create the channel and the connection in
@@ -273,6 +279,7 @@ func channelFrom(name string, in ChannelInput) (notification.Channel, error) {
 		Recipients:  trimAll(in.Recipients),
 		Mode:        strings.TrimSpace(in.Mode),
 		MaxPerHour:  in.MaxPerHour,
+		Format:      strings.TrimSpace(in.Format),
 	}
 	if ch.Mode == "" {
 		ch.Mode = notification.ChannelModeImmediate
@@ -318,6 +325,9 @@ func (h *handler) channelView(ctx context.Context, ch notification.Channel) Chan
 		MaxPerHour:  ch.HourlyCap(),
 		CreatedBy:   ch.CreatedBy,
 		Warnings:    h.channelWarnings(ctx, ch),
+	}
+	if ch.Kind == notification.ChannelKindWebhook {
+		view.Format = ch.PayloadFormat()
 	}
 	if !ch.UpdatedAt.IsZero() {
 		view.UpdatedAt = ch.UpdatedAt.UTC().Format(time.RFC3339)

@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -230,5 +231,45 @@ func TestValidateDocument(t *testing.T) {
 	}
 	if err := ValidateDocument(Document{Title: "Report", Body: "# heading", Link: "https://example.com"}); err != nil {
 		t.Errorf("a well-formed document was refused: %v", err)
+	}
+}
+
+// TestChannelFormat holds the webhook kind's payload format (#1997): text by
+// default, json on request, and refused on a kind that posts its own shape.
+func TestChannelFormat(t *testing.T) {
+	hook := Channel{Name: "hook", Kind: ChannelKindWebhook, Connection: "c", Mode: ChannelModeImmediate}
+	if hook.PayloadFormat() != ChannelFormatText {
+		t.Errorf("an unset format reads as %q, want text", hook.PayloadFormat())
+	}
+	for _, f := range []string{"", ChannelFormatText, ChannelFormatJSON} {
+		hook.Format = f
+		if err := ValidateChannel(hook); err != nil {
+			t.Errorf("format %q: %v", f, err)
+		}
+	}
+	hook.Format = "xml"
+	if err := ValidateChannel(hook); err == nil {
+		t.Error("an unknown format was accepted")
+	}
+	chat := Channel{
+		Name: "ops", Kind: ChannelKindMattermost, Connection: "c", Target: "C1",
+		Mode: ChannelModeImmediate, Format: ChannelFormatJSON,
+	}
+	if err := ValidateChannel(chat); err == nil || !strings.Contains(err.Error(), "webhook") {
+		t.Errorf("json on a mattermost channel: %v", err)
+	}
+}
+
+func TestValidateDocumentData(t *testing.T) {
+	ok := Document{Title: "t", Data: json.RawMessage(`{"a":[1,2]}`)}
+	if err := ValidateDocument(ok); err != nil {
+		t.Errorf("JSON data refused: %v", err)
+	}
+	if err := ValidateDocument(Document{Title: "t", Data: json.RawMessage(`{"a":`)}); err == nil {
+		t.Error("data that is not JSON was accepted")
+	}
+	big := Document{Title: "t", Data: json.RawMessage(`"` + strings.Repeat("x", MaxDocumentDataBytes) + `"`)}
+	if err := ValidateDocument(big); err == nil {
+		t.Error("data over the cap was accepted")
 	}
 }

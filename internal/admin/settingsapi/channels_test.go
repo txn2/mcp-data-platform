@@ -400,3 +400,28 @@ func TestTrimAll_DropsBlankRecipientLines(t *testing.T) {
 		t.Errorf("trimAll of blanks = %v, want nil", got)
 	}
 }
+
+// TestPutChannel_WebhookFormat holds a webhook channel's format through the
+// API (#1997): text when none is sent, json when asked for, and refused on a
+// kind that posts its own shape.
+func TestPutChannel_WebhookFormat(t *testing.T) {
+	store := newFakeChannels()
+	mux := testMux(Config{Channels: store, Mutable: true})
+	res := doJSON(t, mux, http.MethodPut, channelPath("hook"), map[string]any{"kind": "webhook", "connection": "hook"})
+	if res.Code != http.StatusOK || decodeChannel(t, res.Body.Bytes()).Format != notification.ChannelFormatText {
+		t.Fatalf("a webhook with no format: %d %s", res.Code, res.Body.String())
+	}
+	res = doJSON(t, mux, http.MethodPut, channelPath("hook"), map[string]any{"kind": "webhook", "connection": "hook", "format": "json"})
+	if res.Code != http.StatusOK || decodeChannel(t, res.Body.Bytes()).Format != notification.ChannelFormatJSON ||
+		store.lastSet.Format != notification.ChannelFormatJSON {
+		t.Fatalf("a json webhook: %d %s", res.Code, res.Body.String())
+	}
+	res = doJSON(t, mux, http.MethodPut, channelPath("ops"), map[string]any{"kind": "mattermost", "connection": "mm", "target": "c", "format": "json"})
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("json on a mattermost channel: %d %s", res.Code, res.Body.String())
+	}
+	res = doJSON(t, mux, http.MethodPut, channelPath("ops"), map[string]any{"kind": "mattermost", "connection": "mm", "target": "c"})
+	if decodeChannel(t, res.Body.Bytes()).Format != "" {
+		t.Error("a mattermost channel reports a format")
+	}
+}

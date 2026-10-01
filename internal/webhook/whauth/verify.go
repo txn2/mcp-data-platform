@@ -8,15 +8,8 @@
 package whauth
 
 import (
-	"crypto/hmac"
-	"crypto/sha1" // #nosec G505 -- sha1 is an HMAC a sender chooses, not a digest relied on for collision resistance
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"hash"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,6 +25,7 @@ var (
 	ErrMissingSignature = errors.New("the signature header is missing")
 	ErrBadSignature     = errors.New("the signature does not match")
 	ErrMissingTimestamp = errors.New("the timestamp header is missing")
+	ErrMissingID        = errors.New("the delivery id header is missing")
 	ErrBadTimestamp     = errors.New("the timestamp is not a Unix time in seconds or milliseconds")
 	ErrStaleTimestamp   = errors.New("the timestamp is outside the tolerance window")
 	ErrMissingToken     = errors.New("the token is missing")
@@ -93,42 +87,38 @@ func verifyBasic(a whsource.Auth, secrets []string, h http.Header) error {
 }
 
 // verifyHMAC checks the timestamp window first, then the signature over the
-// body or over timestamp + "." + body.
+// bytes the source's scheme signs. The scheme is hmacsig's, the one the
+// platform's outbound hmac connections sign with.
 func verifyHMAC(a whsource.Auth, secrets []string, req Request, now time.Time) error {
 	sent := strings.TrimSpace(req.Header.Get(a.SignatureHeader))
 	if sent == "" {
 		return ErrMissingSignature
 	}
-	if a.Prefix != "" {
-		trimmed, ok := strings.CutPrefix(sent, a.Prefix)
-		if !ok {
-			return ErrBadSignature
-		}
-		sent = trimmed
-	}
-	got, err := decode(a.Encoding, sent)
+	scheme := a.Scheme()
+	sig, err := scheme.Parse(sent)
 	if err != nil {
 		return ErrBadSignature
 	}
-
-	signed := req.Body
+	ts := sig.Timestamp
 	if a.TimestampHeader != "" {
-		ts := strings.TrimSpace(req.Header.Get(a.TimestampHeader))
+		ts = strings.TrimSpace(req.Header.Get(a.TimestampHeader))
+	}
+	if a.TimestampHeader != "" || a.HeaderFormat == whsource.HeaderFormatStripe {
 		if err := checkTimestamp(ts, a.Tolerance(), now); err != nil {
 			return err
 		}
-		if a.Signed == whsource.SignedTimestampBody {
-			signed = append([]byte(ts+"."), req.Body...)
+	}
+	var id string
+	if scheme.UsesID() {
+		id = strings.TrimSpace(req.Header.Get(a.IDHeader))
+		if id == "" {
+			return ErrMissingID
 		}
 	}
-	for _, s := range secrets {
-		mac := hmac.New(hashFor(a.Algorithm), []byte(s))
-		_, _ = mac.Write(signed)
-		if hmac.Equal(mac.Sum(nil), got) {
-			return nil
-		}
+	if !scheme.Matches(sig, secrets, id, ts, req.Body) {
+		return ErrBadSignature
 	}
-	return ErrBadSignature
+	return nil
 }
 
 // millisecondsFrom is the value above which a Unix timestamp is read as
@@ -156,31 +146,4 @@ func checkTimestamp(ts string, tolerance time.Duration, now time.Time) error {
 		return ErrStaleTimestamp
 	}
 	return nil
-}
-
-// hashFor returns the hash an HMAC algorithm names.
-func hashFor(algorithm string) func() hash.Hash {
-	if algorithm == whsource.AlgorithmSHA1 {
-		return sha1.New
-	}
-	return sha256.New
-}
-
-// decode reads a signature in the source's encoding.
-func decode(encoding, s string) ([]byte, error) {
-	if encoding == whsource.EncodingBase64 {
-		if b, err := base64.StdEncoding.DecodeString(s); err == nil {
-			return b, nil
-		}
-		b, err := base64.URLEncoding.DecodeString(s)
-		if err != nil {
-			return nil, fmt.Errorf("decoding a base64 signature: %w", err)
-		}
-		return b, nil
-	}
-	b, err := hex.DecodeString(strings.ToLower(s))
-	if err != nil {
-		return nil, fmt.Errorf("decoding a hex signature: %w", err)
-	}
-	return b, nil
 }

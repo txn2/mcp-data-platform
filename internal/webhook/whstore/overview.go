@@ -10,8 +10,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// maxOverviewRejections is how many rejected requests the overview of every
-// source returns, newest first, across all sources.
+// maxOverviewRejections is how many rows of rejected requests the overview of
+// every source returns for each outcome, newest first, across all sources.
 const maxOverviewRejections = 50
 
 // Summary is one source's line on the overview of every source: the counts
@@ -208,11 +208,16 @@ func (s *Store) volume(ctx context.Context, since time.Time, step time.Duration)
 	return out, nil
 }
 
-// recentRejections reads the newest rejected requests of every source.
+// recentRejections reads the newest rejected requests of every source, the
+// newest maxOverviewRejections rows of each outcome, so one outcome's volume
+// never hides another's (#2001).
 func (s *Store) recentRejections(ctx context.Context) ([]Rejection, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT source, rejected_at, outcome, reason FROM webhook_rejections
-		  ORDER BY id DESC LIMIT $1`, maxOverviewRejections)
+		`SELECT source, first_at, rejected_at, count, outcome, reason FROM (
+		     SELECT w.*, ROW_NUMBER() OVER (PARTITION BY outcome ORDER BY rejected_at DESC, id DESC) AS n
+		       FROM webhook_rejections w) ranked
+		  WHERE n <= $1
+		  ORDER BY rejected_at DESC, id DESC`, maxOverviewRejections)
 	if err != nil {
 		return nil, fmt.Errorf("reading webhook rejections: %w", err)
 	}
@@ -220,10 +225,10 @@ func (s *Store) recentRejections(ctx context.Context) ([]Rejection, error) {
 	out := make([]Rejection, 0)
 	for rows.Next() {
 		var r Rejection
-		if err := rows.Scan(&r.Source, &r.At, &r.Outcome, &r.Reason); err != nil {
+		if err := rows.Scan(&r.Source, &r.FirstAt, &r.At, &r.Count, &r.Outcome, &r.Reason); err != nil {
 			return nil, fmt.Errorf("scanning webhook rejection: %w", err)
 		}
-		r.At = r.At.UTC()
+		r.FirstAt, r.At = r.FirstAt.UTC(), r.At.UTC()
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {

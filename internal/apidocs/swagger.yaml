@@ -10025,6 +10025,12 @@ definitions:
       enabled:
         example: true
         type: boolean
+      format:
+        description: |-
+          Format is a webhook channel's payload: "text" (the default) posts
+          {"text": ...}; "json" posts an envelope for a system to receive.
+        example: json
+        type: string
       kind:
         example: mattermost
         type: string
@@ -10079,6 +10085,11 @@ definitions:
         type: string
       enabled:
         type: boolean
+      format:
+        description: |-
+          Format is a webhook channel's payload format, "text" or "json";
+          absent for the other kinds.
+        type: string
       kind:
         type: string
       max_per_hour:
@@ -10730,6 +10741,12 @@ definitions:
       header:
         example: X-Webhook-Token
         type: string
+      header_format:
+        example: stripe
+        type: string
+      id_header:
+        example: webhook-id
+        type: string
       mode:
         example: hmac
         type: string
@@ -10762,6 +10779,10 @@ definitions:
       encoding:
         type: string
       header:
+        type: string
+      header_format:
+        type: string
+      id_header:
         type: string
       mode:
         type: string
@@ -10821,6 +10842,10 @@ definitions:
   webhookapi.SourceRejection:
     properties:
       at:
+        type: string
+      count:
+        type: integer
+      first_at:
         type: string
       outcome:
         type: string
@@ -11017,6 +11042,13 @@ definitions:
   whstore.Rejection:
     properties:
       at:
+        description: At is the latest rejection of the run.
+        type: string
+      count:
+        description: Count is how many rejections the row stands for, at least one.
+        type: integer
+      first_at:
+        description: FirstAt is the earliest. Equal to At for a single rejection.
         type: string
       outcome:
         type: string

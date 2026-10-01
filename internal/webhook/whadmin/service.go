@@ -239,9 +239,11 @@ func (s *Service) Update(ctx context.Context, name string, u Update) (whsource.S
 	if err := whsource.Validate(next); err != nil {
 		return whsource.Source{}, err //nolint:wrapcheck // ErrInvalid is what a surface renders
 	}
-	if err := s.deps.Sources.Update(ctx, next); err != nil {
+	updatedAt, err := s.deps.Sources.Update(ctx, next)
+	if err != nil {
 		return whsource.Source{}, err //nolint:wrapcheck // ErrNotFound is what a surface renders
 	}
+	next.UpdatedAt = updatedAt
 	s.deps.Changed()
 	return next, nil
 }

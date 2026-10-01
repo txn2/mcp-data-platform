@@ -76,7 +76,7 @@ func TestMattermostSender_PostsToV4Posts(t *testing.T) {
 		Connection: "mattermost-dev", Target: "ch_abc", Enabled: true,
 	}
 	if err := NewMattermostSender(up).Send(context.Background(), ch,
-		notification.Document{Title: "Weekly report", Body: "| a | b |"}); err != nil {
+		notification.Delivery{Document: notification.Document{Title: "Weekly report", Body: "| a | b |"}}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if got.path != "/api/v4/posts" {
@@ -96,8 +96,8 @@ func TestWebhookSender_PostsTextToTheBase(t *testing.T) {
 		Name: "hook", Kind: notification.ChannelKindWebhook,
 		Connection: "hook-conn", Enabled: true,
 	}
-	if err := NewWebhookSender(up).Send(context.Background(), ch,
-		notification.Document{Title: "Done", Link: "https://example.com/x"}); err != nil {
+	if err := NewWebhookSender(up, "").Send(context.Background(), ch,
+		notification.Delivery{Document: notification.Document{Title: "Done", Link: "https://example.com/x"}}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	// The whole address is the connection's base_url, including the secret
@@ -135,7 +135,7 @@ func TestStatusClassification(t *testing.T) {
 			err := NewMattermostSender(up).Send(context.Background(), notification.Channel{
 				Name: "ops", Kind: notification.ChannelKindMattermost,
 				Connection: "c", Target: "t", Enabled: true,
-			}, notification.Document{Title: "t"})
+			}, notification.Delivery{Document: notification.Document{Title: "t"}})
 			if tc.delivers {
 				if err != nil {
 					t.Fatalf("Send: %v", err)
@@ -160,7 +160,7 @@ func TestSend_UnreachableConnectionIsTerminal(t *testing.T) {
 	})
 	err := NewMattermostSender(up).Send(context.Background(), notification.Channel{
 		Name: "ops", Kind: notification.ChannelKindMattermost, Connection: "ghost", Target: "C1",
-	}, notification.Document{Title: "t"})
+	}, notification.Delivery{Document: notification.Document{Title: "t"}})
 	if !errors.Is(err, ErrTerminal) {
 		t.Errorf("err = %v, want terminal", err)
 	}
@@ -174,9 +174,9 @@ func TestSend_TransportFailureRetries(t *testing.T) {
 	up := UpstreamFunc(func(string) (Upstream, error) {
 		return testUpstream{base: "http://127.0.0.1:1", err: errors.New("connection refused")}, nil
 	})
-	err := NewWebhookSender(up).Send(context.Background(), notification.Channel{
+	err := NewWebhookSender(up, "").Send(context.Background(), notification.Channel{
 		Name: "h", Kind: notification.ChannelKindWebhook, Connection: "c",
-	}, notification.Document{Title: "t"})
+	}, notification.Delivery{Document: notification.Document{Title: "t"}})
 	if err == nil {
 		t.Fatal("Send succeeded against an unreachable upstream")
 	}
@@ -187,7 +187,7 @@ func TestSend_TransportFailureRetries(t *testing.T) {
 
 func TestSenders_DispatchesByKind(t *testing.T) {
 	up, got := upstreamFor(t, http.StatusOK, `{"ok":true}`)
-	senders := NewSenders(up)
+	senders := NewSenders(up, "")
 	for _, kind := range []string{
 		notification.ChannelKindMattermost,
 		notification.ChannelKindWebhook,
@@ -203,7 +203,7 @@ func TestSenders_DispatchesByKind(t *testing.T) {
 	}
 	err := senders.Send(context.Background(), notification.Channel{
 		Name: "x", Kind: notification.ChannelKindEmail,
-	}, notification.Document{Title: "t"})
+	}, notification.Delivery{Document: notification.Document{Title: "t"}})
 	if !errors.Is(err, ErrTerminal) {
 		t.Errorf("err = %v, want a terminal refusal for a kind with no transport", err)
 	}

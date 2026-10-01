@@ -78,7 +78,7 @@ The sender is then given `https://platform.example.com/hooks/email-events`.
 | `config.flush_max_interval_ms` | Default 1,000. |
 | `config.flush_max_bytes` | Default 8 MiB. |
 | `config.buffer_limit` | Events one replica holds in memory for the source before it answers `503`. Default 50,000. |
-| `config.rate_limit_per_minute`, `config.rate_limit_burst` | Optional. The limit is on the source, not on a client address. |
+| `config.rate_limit_per_minute`, `config.rate_limit_burst` | Optional. The limit is on the source, not on a client address, and each replica holds it for itself: with N replicas behind a load balancer, a sender can be admitted up to N times the rate and the burst. Size it as what one replica should take for this source, as `buffer_limit` is. |
 | `config.raw_retention_days` | How long a compacted window's raw segments are kept. Default 7. |
 | `config.compacted_retention_days` | How long a compacted window is kept. Default 400; `0` keeps it forever. |
 
@@ -93,15 +93,19 @@ written are in that persona's library.
 
 | `auth.mode` | What a request carries | Settings |
 |---|---|---|
-| `hmac` | A signature of the body in a header | `algorithm` (`sha256` default, `sha1`), `signature_header`, `encoding` (`hex` default, `base64`), `prefix` (such as `sha256=`), `timestamp_header` with `tolerance_seconds` (default 300), `signed` (`body` default, or `timestamp.body`, which signs the timestamp, a `.`, and the body). |
+| `hmac` | A signature of the body in a header | `algorithm` (`sha256` default, `sha1`, `sha512`), `signature_header`, `encoding` (`hex` default, `base64`), `prefix` (such as `sha256=`), `timestamp_header` with `tolerance_seconds` (default 300), `signed` (`body` default; `timestamp.body`, which signs the timestamp, a `.`, and the body; or `id.timestamp.body`, the Standard Webhooks form, which signs the `id_header` value, a `.`, the timestamp, a `.`, and the body), `header_format` (empty, or `stripe` for `t=<timestamp>,v1=<signature>` with the timestamp inside the signature header). |
 | `header_token` | The secret itself in a header | `header` |
 | `basic` | HTTP Basic credentials, the secret as the password | `username` |
 | `path_token` | The secret as a further path segment, `/hooks/{name}/{secret}`, for a sender that can set nothing but a URL | none |
 
-With `timestamp_header` set, a request whose timestamp is further than the
-tolerance from the platform's clock is refused even when its signature is
-right, which is what makes a replayed request fail. A timestamp above 10^12 is
-read as milliseconds.
+With `timestamp_header` set, or `header_format: stripe`, a request whose
+timestamp is further than the tolerance from the platform's clock is refused
+even when its signature is right, which is what makes a replayed request fail.
+A timestamp above 10^12 is read as milliseconds. A signature header may carry
+several signatures separated by spaces, as a sender rotating its secret sends
+them; the request verifies when one matches. A Standard Webhooks secret
+(`whsec_` and base64) is used as that standard reads it when `signed` is
+`id.timestamp.body`.
 
 The secret is encrypted at rest and never returned. A view of the source says
 whether one is set. Every comparison of a secret is constant-time.
@@ -120,6 +124,30 @@ delivers anything, and delivers nothing until it is answered. With
 `handshake: cloudevents` the source answers `200` with `WebHook-Allowed-Origin`
 echoing the origin, and `WebHook-Allowed-Rate` when the source has a rate
 limit. A source without the handshake answers `OPTIONS` with `405`.
+
+### Sending to a webhook
+
+The platform signs outbound requests too. An `api` connection with
+[`auth_mode: hmac`](api-gateway.md#hmac-signing) signs every request with the
+same settings, under `hmac_` names, and the two are built on one
+implementation, so a script can deliver to Standard Webhooks, GitHub, Stripe
+and other HMAC receivers, and to another deployment's sources. To deliver to a
+source configured as in [Creating a source](#creating-a-source), give the
+connection `hmac_preset: platform` and the source's secret:
+
+```json
+{
+  "base_url": "https://other-platform.example.com",
+  "auth_mode": "hmac",
+  "credential": "whsec_example",
+  "hmac_preset": "platform"
+}
+```
+
+A script then posts with
+`platform.call("api_invoke_endpoint", {"connection": "...", "method": "POST", "path": "/hooks/email-events", "body": {...}})`
+and is answered `202`. A [notification channel](notifications.md) of the
+webhook kind with `format: json` delivers through such a connection, signed.
 
 ## What a sender is answered
 
@@ -142,6 +170,11 @@ A `202` means the events are in object storage. A replica that stops while it
 holds events it has not written answered nobody for them, so their senders send
 them again. Backpressure is the sender's own retry queue, told to wait: the
 platform keeps no backlog beyond each source's buffer limit.
+
+The rate limit, the buffer and the `503` they answer are each replica's own.
+They protect the replica holding the source's buffer, not the sender's quota,
+so they take no shared state on the path a request takes. A sender spread over
+N replicas can be admitted up to N times the configured rate and burst.
 
 Delivery is at least once, because a sender retries anything it did not see
 acknowledged. Duplicates are removed at compaction.
@@ -241,6 +274,11 @@ The receiving side knows nothing of its readers. A [managed
 script](../scripts/running.md) reads the view like any other table, on
 whatever schedule it has.
 
+The examples name the view without its catalog and schema. That resolves
+through the connection's `catalog` and `schema` settings, which are the Trino
+session's defaults for every query on it; on a connection without them, write
+the full name, `<catalog>.<schema>.webhook_email_events`.
+
 **Once a day.** Read yesterday's events:
 
 ```python
@@ -308,8 +346,17 @@ metastore still lists. An operator may add one as a backstop, set longer than
   the windows owed a compaction (Pending), and the windows whose last
   compaction failed (Failing) with the newest one's error. Clicking a row opens
   the source's page.
-- **Recent rejections**: the last 50 rejected requests across every source,
-  each with its source, time, outcome and reason. Never the body.
+- **Recent rejections**: the rejected requests across every source, the newest
+  50 rows of each outcome, each with its source, time, outcome, reason and how
+  many requests it stands for. Never the body. An outcome filter narrows the
+  list.
+
+Rejections are kept per outcome, so a burst of `rate_limited` refusals never
+pushes out the `unauthorized` rows that show someone sending forged requests.
+A rejection with the same outcome and reason as that outcome's newest row,
+within a minute of it, is added to the row rather than written as a new one:
+the row's `count` says how many requests it stands for, `first_at` the first
+of them and `at` the latest. A burst is one row.
 
 A source's health is one of:
 
@@ -349,7 +396,8 @@ The page reads `GET /api/v1/admin/webhooks/status?range=hour|day`:
     {"at": "2026-09-29T11:59:00Z", "source": "esp-events", "outcome": "accepted", "count": 31}
   ],
   "rejections": [
-    {"source": "esp-events", "at": "2026-09-29T11:58:12Z", "outcome": "unauthorized", "reason": "the signature does not match"}
+    {"source": "esp-events", "first_at": "2026-09-29T11:58:12Z", "at": "2026-09-29T11:58:12Z", "count": 1, "outcome": "unauthorized", "reason": "the signature does not match"},
+    {"source": "esp-events", "first_at": "2026-09-29T11:57:01Z", "at": "2026-09-29T11:57:03Z", "count": 42, "outcome": "rate_limited", "reason": "the source's rate limit was reached"}
   ]
 }
 ```
@@ -372,7 +420,8 @@ A source's page shows:
 - the window length, the last compacted window, the windows owed a compaction,
   and the last failure;
 - the oldest window held, beside the retention settings;
-- the last 50 rejected requests: when, the outcome, and why. Never the body.
+- the rejected requests, the newest 50 rows of each outcome: when, the
+  outcome, why, and how many requests a row stands for. Never the body.
 
 ## Deployment
 
@@ -395,6 +444,42 @@ webhooks:
 Every source is served on one port and routed by path, so a deployment needs one
 Ingress rule for all of them. A sender whose configured URL cannot change is
 moved with an Ingress path rewrite from its old path to `/hooks/{source}`.
+
+**Serve `/hooks/` from an Ingress without CORS.** An Ingress with CORS enabled
+(ingress-nginx's `nginx.ingress.kubernetes.io/enable-cors: "true"`, which a
+platform serving browser MCP clients often has) answers every `OPTIONS`
+request itself with `204`, and the request never reaches the platform. A
+`cloudevents` source then never answers the handshake, and a sender that
+requires it never delivers; a source without the handshake never answers its
+`405`. Annotations apply per Ingress and the longest path prefix wins, so a
+second Ingress for `/hooks/` on the same host, with no CORS annotations and the
+same TLS secret, takes those requests while the rest of the host keeps its
+CORS. Senders are servers, so `/hooks/` never needs CORS:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-data-platform-hooks
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: platform.example.com
+      http:
+        paths:
+          - path: /hooks/
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-data-platform
+                port:
+                  number: 8080
+  tls:
+    - hosts: [platform.example.com]
+      secretName: platform-tls   # the main Ingress's certificate; no cert-manager annotation here
+```
 
 A deployment that wants bursts kept off the replicas serving MCP and the portal
 turns `webhooks.receiver.enabled` off there and runs a receiver-only

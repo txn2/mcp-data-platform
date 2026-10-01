@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfigField, ConfigToggle } from "./connections/fields";
+import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
 import { RecipientsEditor } from "./RecipientsEditor";
 import {
   type ChannelFormState,
@@ -158,6 +158,12 @@ function KindPicker({
   );
 }
 
+// FORMATS are a webhook channel's payload formats.
+const FORMATS = [
+  { value: "text", label: "Text" },
+  { value: "json", label: "JSON" },
+];
+
 // KindFields renders only the fields the chosen kind can use. A field a kind
 // cannot use is absent rather than disabled: the API refuses it, so offering
 // it would invite a save that cannot succeed.
@@ -179,6 +185,15 @@ function KindFields({
           placeholder="slack-bot"
           mono
           required
+        />
+      )}
+      {form.kind === "webhook" && (
+        <ConfigSelect
+          label="Format"
+          help={'Text posts {"text": …} for a chat client. JSON posts an envelope for a system to receive: an id that is the same on every retry, a type, the source, and the sender\'s data.'}
+          value={form.format}
+          onChange={(v) => onChange({ format: v })}
+          options={FORMATS}
         />
       )}
       {usesTarget(form.kind) && (

@@ -89,4 +89,28 @@ describe("webhook form", () => {
       "https://platform.example.com/hooks/email-events/<token>",
     );
   });
+
+  it("sends the Stripe header format without the settings it fixes itself", () => {
+    const body = toInput(
+      { ...EMPTY_FORM, mode: "hmac", signatureHeader: "Stripe-Signature", headerFormat: "stripe", prefix: "x", timestampHeader: "X-T" },
+      false,
+    );
+    expect(body.auth).toMatchObject({ mode: "hmac", header_format: "stripe", signature_header: "Stripe-Signature" });
+    expect(body.auth.prefix).toBeUndefined();
+    expect(body.auth.timestamp_header).toBeUndefined();
+    expect(body.auth.signed).toBeUndefined();
+  });
+
+  it("sends the id header only when the id is signed, and asks for it then", () => {
+    const form = {
+      ...EMPTY_FORM, mode: "hmac" as const, signatureHeader: "webhook-signature",
+      timestampHeader: "webhook-timestamp", signed: "id.timestamp.body", idHeader: "",
+    };
+    expect(problems(form, false)).toContain("Name the header the delivery id is sent in.");
+    const body = toInput({ ...form, idHeader: "webhook-id" }, false);
+    expect(body.auth).toMatchObject({ signed: "id.timestamp.body", id_header: "webhook-id" });
+    expect(toInput({ ...form, signed: "timestamp.body", idHeader: "webhook-id" }, false).auth.id_header).toBeUndefined();
+    expect(fromSource({ ...hmac, auth: { ...hmac.auth, id_header: "X-Id", header_format: "" } }).idHeader).toBe("X-Id");
+  });
 });
+

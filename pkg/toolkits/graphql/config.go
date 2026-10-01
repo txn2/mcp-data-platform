@@ -85,6 +85,7 @@ const (
 	AuthModeOAuth2ClientCredentials = upstreamauth.AuthModeOAuth2ClientCredentials
 	AuthModeOAuth2AuthorizationCode = upstreamauth.AuthModeOAuth2AuthorizationCode
 	AuthModeSignedJWT               = upstreamauth.AuthModeSignedJWT
+	AuthModeHMAC                    = upstreamauth.AuthModeHMAC
 	AuthModeMTLS                    = upstreamauth.AuthModeMTLS
 
 	CredentialPlacementHeader = upstreamauth.CredentialPlacementHeader
@@ -149,6 +150,9 @@ type Config struct {
 	// straight from the shared seam rather than mirrored, because
 	// nothing in it is this kind's to define.
 	SignedJWT SignedJWTConfig
+	// HMAC carries the signing convention used when AuthMode is
+	// AuthModeHMAC (#1996). Empty otherwise.
+	HMAC HMACConfig
 
 	// ConnectTimeout caps the dial step on each call.
 	ConnectTimeout time.Duration
@@ -175,6 +179,10 @@ type Config struct {
 	// token as the outbound Authorization header instead of applying
 	// this connection's shared credential.
 	IdentityPassthrough bool
+
+	// PathSecret is appended to every request's path as it is sent, for an
+	// upstream that authenticates by a secret in the URL. Encrypted at rest.
+	PathSecret string
 
 	// CatalogID names the API catalog this connection takes its schema
 	// from, instead of reading the endpoint (#1745). The catalog holds
@@ -208,6 +216,11 @@ type Config struct {
 // which owns the mode for every HTTP-based connection kind; aliased
 // here because it is part of this toolkit's public API.
 type SignedJWTConfig = upstreamauth.SignedJWTConfig
+
+// HMACConfig describes how the connection signs a request when AuthMode is
+// AuthModeHMAC. Defined by internal/upstreamauth, which every HTTP-based kind
+// shares.
+type HMACConfig = upstreamauth.HMACConfig
 
 // The signing algorithms auth_mode=signed_jwt supports, and the
 // defaults an unset lifetime and skew take. Aliased from the shared
@@ -321,6 +334,7 @@ func (c Config) Validate() error {
 		c.validateLimits,
 		up.ValidateStaticHeaders,
 		up.ValidateIdentityPassthrough,
+		up.ValidatePathSecret,
 		up.ValidateTLSMaterial,
 	)
 }

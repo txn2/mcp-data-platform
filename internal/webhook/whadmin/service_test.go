@@ -65,12 +65,19 @@ func (m *memSources) Create(_ context.Context, s whsource.Source) error {
 	return nil
 }
 
-func (m *memSources) Update(_ context.Context, s whsource.Source) error {
+// Update stamps updated_at the way the database does, one second after
+// whatever the row held, so a test can tell the stamped time from the old one.
+func (m *memSources) Update(_ context.Context, s whsource.Source) (time.Time, error) {
 	if err := m.err["update"]; err != nil {
-		return err
+		return time.Time{}, err
 	}
+	prev, ok := m.rows[s.Name]
+	if !ok {
+		return time.Time{}, whsource.ErrNotFound
+	}
+	s.UpdatedAt = prev.UpdatedAt.Add(time.Second)
 	m.rows[s.Name] = s
-	return nil
+	return s.UpdatedAt, nil
 }
 
 func (m *memSources) Delete(_ context.Context, name string) error {
@@ -353,6 +360,10 @@ func TestUpdateRotatesAndKeepsSecret(t *testing.T) {
 	assert.Equal(t, "k", src.Auth.Secret, "an empty secret keeps the stored one")
 	assert.Equal(t, "X-Other", src.Auth.SignatureHeader)
 	assert.Equal(t, 100, src.Config.BufferLimit)
+	stored, _, err := r.svc.Get(ctx, "esp")
+	require.NoError(t, err)
+	assert.True(t, src.UpdatedAt.After(src.CreatedAt), "the answer carries the time the update stamped")
+	assert.Equal(t, stored.UpdatedAt, src.UpdatedAt, "and it is the time a following read returns")
 
 	src, err = r.svc.Update(ctx, "esp", Update{
 		Auth:            whsource.Auth{Mode: whsource.AuthHMAC, Secret: "k2", SignatureHeader: "X-Other"},

@@ -611,6 +611,7 @@ const (
 	sensKeyMTLSClientKeyPEM   = "mtls_client_key_pem"  // #nosec G101 -- field name, not a credential
 	sensKeyJWTClientSecret    = "jwt_client_secret"    // #nosec G101 -- field name, not a credential
 	sensKeyJWTPrivateKeyPEM   = "jwt_private_key_pem"  // #nosec G101 -- field name, not a credential
+	sensKeyPathSecret         = "path_secret"          // #nosec G101 -- field name, not a credential
 )
 
 // connectionSensitiveKeys lists config keys that contain secrets and must be
@@ -622,6 +623,7 @@ var connectionSensitiveKeys = []string{
 	sensKeyClientSecret, sensKeyOAuthClientSecret, sensKeyOAuth2ClientSecret,
 	sensKeyMTLSClientKeyPEM,
 	sensKeyJWTClientSecret, sensKeyJWTPrivateKeyPEM,
+	sensKeyPathSecret,
 }
 
 // nestedMapSensitiveKeys lists config keys whose value is itself a

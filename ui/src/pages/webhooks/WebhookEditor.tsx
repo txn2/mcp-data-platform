@@ -279,6 +279,7 @@ function AuthGroup({ form, creating, set }: { form: WebhookForm; creating: boole
 }
 
 function HMACFields({ form, set }: { form: WebhookForm; set: Setter }) {
+  const stripe = form.headerFormat === "stripe";
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <ConfigField
@@ -287,9 +288,17 @@ function HMACFields({ form, set }: { form: WebhookForm; set: Setter }) {
         mono
         value={form.signatureHeader}
         onChange={set("signatureHeader")}
-        placeholder="X-Signature"
+        placeholder={stripe ? "Stripe-Signature" : "X-Signature"}
       />
-      <ConfigField label="Signature prefix" mono value={form.prefix} onChange={set("prefix")} placeholder="sha256=" />
+      <ConfigSelect
+        label="Header format"
+        value={form.headerFormat}
+        onChange={set("headerFormat")}
+        options={[
+          { value: "", label: "Prefix and signature" },
+          { value: "stripe", label: "Stripe" },
+        ]}
+      />
       <ConfigSelect
         label="Algorithm"
         value={form.algorithm}
@@ -297,6 +306,7 @@ function HMACFields({ form, set }: { form: WebhookForm; set: Setter }) {
         options={[
           { value: "sha256", label: "SHA-256" },
           { value: "sha1", label: "SHA-1" },
+          { value: "sha512", label: "SHA-512" },
         ]}
       />
       <ConfigSelect
@@ -308,36 +318,56 @@ function HMACFields({ form, set }: { form: WebhookForm; set: Setter }) {
           { value: "base64", label: "Base64" },
         ]}
       />
-      <ConfigField
-        label="Timestamp header"
-        mono
-        value={form.timestampHeader}
-        onChange={set("timestampHeader")}
-        help="Refuses a request whose timestamp is outside the tolerance, even with a valid signature."
-      />
-      {form.timestampHeader.trim() !== "" && (
+      {!stripe && (
         <>
+          <ConfigField label="Prefix" mono value={form.prefix} onChange={set("prefix")} placeholder="sha256=" />
           <ConfigField
-            label="Tolerance (seconds)"
-            type="number"
-            value={form.toleranceSeconds}
-            onChange={set("toleranceSeconds")}
-            placeholder="300"
-          />
-          <ConfigSelect
-            label="What is signed"
-            value={form.signed}
-            onChange={set("signed")}
-            options={[
-              { value: "body", label: "The body" },
-              { value: "timestamp.body", label: "The timestamp, a dot, then the body" },
-            ]}
+            label="Timestamp header"
+            mono
+            value={form.timestampHeader}
+            onChange={set("timestampHeader")}
+            help="Refuses a request whose timestamp is outside the tolerance, even with a valid signature."
           />
         </>
+      )}
+      {(stripe || form.timestampHeader.trim() !== "") && (
+        <ConfigField
+          label="Tolerance (seconds)"
+          type="number"
+          value={form.toleranceSeconds}
+          onChange={set("toleranceSeconds")}
+          placeholder="300"
+        />
+      )}
+      {!stripe && form.timestampHeader.trim() !== "" && (
+        <ConfigSelect
+          label="Signed content"
+          value={form.signed}
+          onChange={set("signed")}
+          options={SIGNED_CONTENT}
+        />
+      )}
+      {!stripe && form.timestampHeader.trim() !== "" && form.signed === "id.timestamp.body" && (
+        <ConfigField
+          label="ID header"
+          required
+          mono
+          value={form.idHeader}
+          onChange={set("idHeader")}
+          placeholder="webhook-id"
+        />
       )}
     </div>
   );
 }
+
+/** SIGNED_CONTENT are the bytes a signature can cover, named as the
+ * connection editor names them. */
+const SIGNED_CONTENT = [
+  { value: "body", label: "Body" },
+  { value: "timestamp.body", label: "Timestamp and body" },
+  { value: "id.timestamp.body", label: "ID, timestamp and body" },
+];
 
 function EventsGroup({ form, set }: { form: WebhookForm; set: Setter }) {
   return (

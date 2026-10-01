@@ -26,6 +26,8 @@ export interface WebhookForm {
   timestampHeader: string;
   toleranceSeconds: string;
   signed: string;
+  idHeader: string;
+  headerFormat: string;
   header: string;
   username: string;
   handshake: string;
@@ -59,6 +61,8 @@ export const EMPTY_FORM: WebhookForm = {
   timestampHeader: "",
   toleranceSeconds: "",
   signed: "body",
+  idHeader: "",
+  headerFormat: "",
   header: "",
   username: "",
   handshake: "none",
@@ -108,6 +112,15 @@ export function fromSource(s: WebhookSource): WebhookForm {
 function authFields(a: WebhookSource["auth"]): Partial<WebhookForm> {
   return {
     mode: a.mode,
+    ...hmacFields(a),
+    header: a.header ?? "",
+    username: a.username ?? "",
+  };
+}
+
+/** hmacFields are the HMAC settings of a stored source. */
+function hmacFields(a: WebhookSource["auth"]): Partial<WebhookForm> {
+  return {
     algorithm: a.algorithm ?? EMPTY_FORM.algorithm,
     signatureHeader: a.signature_header ?? "",
     encoding: a.encoding ?? EMPTY_FORM.encoding,
@@ -115,8 +128,8 @@ function authFields(a: WebhookSource["auth"]): Partial<WebhookForm> {
     timestampHeader: a.timestamp_header ?? "",
     toleranceSeconds: text(a.tolerance_seconds),
     signed: a.signed ?? EMPTY_FORM.signed,
-    header: a.header ?? "",
-    username: a.username ?? "",
+    idHeader: a.id_header ?? "",
+    headerFormat: a.header_format ?? "",
   };
 }
 
@@ -193,17 +206,7 @@ function authOf(f: WebhookForm): WebhookSourceInput["auth"] {
   const secret = f.secret === "" ? undefined : f.secret;
   switch (f.mode) {
     case "hmac":
-      return {
-        mode: "hmac",
-        secret,
-        algorithm: f.algorithm,
-        signature_header: str(f.signatureHeader),
-        encoding: f.encoding,
-        prefix: str(f.prefix),
-        timestamp_header: str(f.timestampHeader),
-        tolerance_seconds: num(f.toleranceSeconds),
-        signed: f.timestampHeader.trim() === "" ? "body" : f.signed,
-      };
+      return hmacAuthOf(f, secret);
     case "header_token":
       return { mode: "header_token", secret, header: str(f.header) };
     case "basic":
@@ -211,6 +214,31 @@ function authOf(f: WebhookForm): WebhookSourceInput["auth"] {
     default:
       return { mode: "path_token", secret };
   }
+}
+
+/** hmacAuthOf sends the HMAC settings the header format reads: a Stripe
+ * header carries its own timestamp, so it sends no prefix, timestamp header,
+ * signed content or id header. */
+function hmacAuthOf(f: WebhookForm, secret: string | undefined): WebhookSourceInput["auth"] {
+  const common = {
+    mode: "hmac" as const,
+    secret,
+    algorithm: f.algorithm,
+    signature_header: str(f.signatureHeader),
+    encoding: f.encoding,
+    tolerance_seconds: num(f.toleranceSeconds),
+  };
+  if (f.headerFormat === "stripe") {
+    return { ...common, header_format: "stripe" };
+  }
+  const signed = f.timestampHeader.trim() === "" ? "body" : f.signed;
+  return {
+    ...common,
+    prefix: str(f.prefix),
+    timestamp_header: str(f.timestampHeader),
+    signed,
+    id_header: signed === "id.timestamp.body" ? str(f.idHeader) : undefined,
+  };
 }
 
 /** problems lists what stops the form being sent, in the words the reader
@@ -242,7 +270,12 @@ function modeProblems(f: WebhookForm): string[] {
     basic: [f.username, "Enter the username."],
   };
   const need = needs[f.mode];
-  return need && need[0].trim() === "" ? [need[1]] : [];
+  const out = need && need[0].trim() === "" ? [need[1]] : [];
+  if (f.mode === "hmac" && f.headerFormat !== "stripe" && f.timestampHeader.trim() !== "" &&
+    f.signed === "id.timestamp.body" && f.idHeader.trim() === "") {
+    out.push("Name the header the delivery id is sent in.");
+  }
+  return out;
 }
 
 export const MODE_LABELS: Record<WebhookAuthMode, string> = {

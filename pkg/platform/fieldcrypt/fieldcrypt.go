@@ -53,6 +53,7 @@ var sensitiveConfigKeys = map[string]bool{
 	"mtls_client_key_pem":  true, // api gateway mTLS private key
 	"jwt_client_secret":    true, // signed_jwt HMAC shared secret
 	"jwt_private_key_pem":  true, // signed_jwt RS256/ES256 signing key
+	"path_secret":          true, // a secret the receiver reads from the request path
 }
 
 // CfgKeyStaticHeaders is the connection-config key whose value is a

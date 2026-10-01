@@ -182,7 +182,7 @@ func decodeXMLBody(body []byte) (decoded, *xmltree.Node) {
 	if err != nil {
 		return decoded{body: string(body), note: xmlDecodeNote(err)}, nil
 	}
-	return decoded{body: xmlValue(root)}, root
+	return decoded{body: root.Value()}, root
 }
 
 // xmlDecodeNote is the hint on a response that could not be read as XML. It
@@ -194,28 +194,6 @@ func xmlDecodeNote(err error) string {
 		action = "The body is returned as text instead; use api_export to stream a document this large."
 	}
 	return "Could not read the response as XML: " + err.Error() + ". " + action
-}
-
-// xmlValue renders a decoded element as the nested maps the tool returns.
-// The five fields are the ones a managed script sees on an element, so the
-// same document has one shape whether it was read in a script or through a
-// tool call.
-func xmlValue(n *xmltree.Node) map[string]any {
-	children := make([]any, 0, len(n.Children))
-	for _, c := range n.Children {
-		children = append(children, xmlValue(c))
-	}
-	attrs := make(map[string]any, len(n.Attrs))
-	for k, v := range n.Attrs {
-		attrs[k] = v
-	}
-	return map[string]any{
-		"tag":      n.Tag,
-		"ns":       n.NS,
-		"attrs":    attrs,
-		"text":     n.Text,
-		"children": children,
-	}
 }
 
 // parseMediaType returns the lowercase media type of a Content-Type header,

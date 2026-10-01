@@ -13,6 +13,7 @@ import {
 } from "./fields";
 import { OAuthFields } from "./OAuthFields";
 import { AUTH_MODE_OAUTH } from "./oauthVocabulary";
+import { HMACAuthFields } from "./HMACAuthFields";
 import { SignedJWTAuthFields } from "./SignedJWTAuthFields";
 
 // The auth half of an HTTP-based connection editor: the mode picker and the
@@ -27,6 +28,7 @@ const AUTH_MODES = [
   { value: "api_key", label: "API key" },
   { value: "basic", label: "Basic (RFC 7617)" },
   { value: "signed_jwt", label: "Signed JWT (the platform mints the token)" },
+  { value: "hmac", label: "HMAC signature" },
   { value: AUTH_MODE_OAUTH, label: "OAuth 2.1" },
   { value: "mtls", label: "mTLS (client certificate is the credential)" },
 ];
@@ -225,6 +227,7 @@ export function ApiGatewayAuthFields({
       {mode === "signed_jwt" && (
         <SignedJWTAuthFields config={config} onChange={onChange} />
       )}
+      {mode === "hmac" && <HMACAuthFields config={config} onChange={onChange} />}
       {mode === AUTH_MODE_OAUTH && (
         <OAuthFields
           config={config}
@@ -240,6 +243,13 @@ export function ApiGatewayAuthFields({
           }
         />
       )}
+      <ConfigField
+        label="Path secret"
+        help="Appended to every request's path, for a receiver that authenticates by a secret in the URL, such as an incoming webhook's token. Unlike the base URL it is encrypted at rest and never shown in a call or an error. Use [REDACTED] to keep the existing value when re-saving."
+        value={String(config.path_secret ?? "")}
+        onChange={(v) => onChange(update(config, "path_secret", v))}
+        sensitive
+      />
     </>
   );
 }

@@ -348,7 +348,7 @@ WHAT IS AVAILABLE
       latest report is shown on the running run within a few seconds, beside
       the log printed so far; call it as often as you like, since only the
       latest is written, every few seconds.
-  platform.notify(channel, title, body="", link="")  Post a message to a
+  platform.notify(channel, title, body="", link="", data=None)  Post a message to a
       notification channel an administrator configured: a Mattermost channel,
       an incoming webhook, or a named email list. Call
       platform.call("notify", {"action": "list"}) to see which channels this
@@ -356,8 +356,11 @@ WHAT IS AVAILABLE
       the api connection behind it, and an email channel is reachable by any
       script. body is markdown, shown as far as the destination can show it.
       link defaults to this run's own page, so a post leads back to the run
-      that produced it. Delivery is queued: the call returns when the message
-      is accepted, not when it appears.
+      that produced it. data is a dict or list a webhook channel whose format
+      is json delivers verbatim beside the message, for a system that
+      branches on fields rather than text (at most 64 KiB); every other
+      channel ignores it. Delivery is queued: the call returns when the
+      message is accepted, not when it appears.
   platform.publish(channel, name, message="")  Post a portal asset to a
       channel: the asset's name, an excerpt of its content and a link to it.
       name is the name platform.export saved the asset under, so a script

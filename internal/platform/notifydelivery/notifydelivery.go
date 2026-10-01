@@ -118,7 +118,7 @@ func New(cfg Config) (*Handle, error) {
 	}
 	h.channels = notifychannel.NewPostgresStore(cfg.DB)
 	if cfg.ChannelUpstream != nil {
-		h.channelSenders = notifypost.NewSenders(cfg.ChannelUpstream)
+		h.channelSenders = notifypost.NewSenders(cfg.ChannelUpstream, cfg.Branding.Name)
 	}
 	h.enqueuer = notification.NewEnqueuer(h.prefs, h.queue, cfg.DigestHourUTC)
 	h.worker = notifyworker.New(notifyworker.Config{

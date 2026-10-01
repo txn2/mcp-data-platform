@@ -22,7 +22,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -65,9 +67,30 @@ type UpstreamFunc func(connection string) (Upstream, error)
 
 // Sender delivers one document to one channel of its kind.
 type Sender interface {
-	// Send posts doc to ch, returning ErrTerminal for a refusal that
+	// Send posts d to ch, returning ErrTerminal for a refusal that
 	// retrying cannot fix.
-	Send(ctx context.Context, ch notification.Channel, doc notification.Document) error
+	Send(ctx context.Context, ch notification.Channel, d notification.Delivery) error
+}
+
+// RetryAfterError is a send the upstream asked to have retried after a delay: a
+// 429 or a 503 carrying Retry-After. The worker waits that long, within its
+// own longest backoff, rather than its own schedule.
+type RetryAfterError struct {
+	After time.Duration
+	Err   error
+}
+
+// Error is the upstream's answer.
+func (r *RetryAfterError) Error() string { return r.Err.Error() }
+
+// Unwrap returns the upstream's answer.
+func (r *RetryAfterError) Unwrap() error { return r.Err }
+
+// DeliveryIDCarrier is an Upstream that names a header a delivery's id is
+// sent in: an hmac connection's hmac_id_header, which its signature covers.
+// *upstreamcall.Upstream implements it.
+type DeliveryIDCarrier interface {
+	DeliveryIDHeader() string
 }
 
 // Senders dispatches a document to the sender for its channel's kind.
@@ -82,10 +105,13 @@ type Senders struct {
 }
 
 // NewSenders builds the dispatcher for the HTTP kinds over upstream.
-func NewSenders(upstream UpstreamFunc) *Senders {
+//
+// deployment names this deployment in a JSON webhook envelope, so a receiver
+// fed by several can tell them apart.
+func NewSenders(upstream UpstreamFunc, deployment string) *Senders {
 	return &Senders{byKind: map[string]Sender{
 		notification.ChannelKindMattermost: &MattermostSender{upstream: upstream},
-		notification.ChannelKindWebhook:    &WebhookSender{upstream: upstream},
+		notification.ChannelKindWebhook:    &WebhookSender{upstream: upstream, deployment: deployment},
 	}}
 }
 
@@ -98,13 +124,13 @@ func (s *Senders) For(kind string) (Sender, bool) {
 	return snd, ok
 }
 
-// Send delivers doc through the sender for ch's kind.
-func (s *Senders) Send(ctx context.Context, ch notification.Channel, doc notification.Document) error {
+// Send delivers d through the sender for ch's kind.
+func (s *Senders) Send(ctx context.Context, ch notification.Channel, d notification.Delivery) error {
 	snd, ok := s.For(ch.Kind)
 	if !ok {
 		return fmt.Errorf("channel kind %q has no transport: %w", ch.Kind, ErrTerminal)
 	}
-	return snd.Send(ctx, ch, doc) //nolint:wrapcheck // the kind's own message is what the operator reads
+	return snd.Send(ctx, ch, d) //nolint:wrapcheck // the kind's own message is what the operator reads
 }
 
 // resolve obtains the channel's transport. A channel naming a connection this
@@ -131,6 +157,11 @@ func resolve(up UpstreamFunc, ch notification.Channel) (Upstream, error) {
 // quote it in that refusal -- no kind here reads a field out of it, so none is
 // returned.
 func postJSON(ctx context.Context, u Upstream, path string, body any) error {
+	return postJSONWith(ctx, u, path, body, nil)
+}
+
+// postJSONWith is postJSON with headers of the sender's own on the request.
+func postJSONWith(ctx context.Context, u Upstream, path string, body any, headers map[string]string) error {
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("encoding the message failed (%s): %w", err.Error(), ErrTerminal)
@@ -140,6 +171,9 @@ func postJSON(ctx context.Context, u Upstream, path string, body any) error {
 		return fmt.Errorf("building the request failed (%s): %w", err.Error(), ErrTerminal)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 	return do(u, req)
 }
 
@@ -158,7 +192,7 @@ func do(u Upstream, req *http.Request) error {
 	// operator what to fix.
 	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err := classify(resp.StatusCode, payload); err != nil {
-		return err
+		return withRetryAfter(err, resp, time.Now())
 	}
 	if readErr != nil {
 		return fmt.Errorf("reading the upstream's answer: %w", readErr)
@@ -179,15 +213,34 @@ const (
 
 // classify turns an HTTP status into the error a status of that class
 // deserves, or nil for a success.
+//
+// A 410 Gone is terminal like any other refusal, and says so in the words an
+// operator acts on: the receiver has asked for no more deliveries.
 func classify(status int, payload []byte) error {
 	switch {
 	case status >= statusOKFloor && status < statusOKCeil:
 		return nil
 	case status == http.StatusTooManyRequests || status >= statusServerErrorFloor:
 		return fmt.Errorf("upstream answered HTTP %d: %s", status, excerpt(payload))
+	case status == http.StatusGone:
+		return fmt.Errorf("upstream answered HTTP 410 Gone, asking for no more deliveries; "+
+			"disable the channel or point its connection elsewhere: %s: %w", excerpt(payload), ErrTerminal)
 	default:
 		return fmt.Errorf("upstream answered HTTP %d: %s: %w", status, excerpt(payload), ErrTerminal)
 	}
+}
+
+// withRetryAfter attaches the delay a 429 or a 503 asked for, read the way
+// the api gateway reads it.
+func withRetryAfter(err error, resp *http.Response, now time.Time) error {
+	if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable {
+		return err
+	}
+	after, ok := upstreamretry.After(resp.Header.Get("Retry-After"), now)
+	if !ok {
+		return err
+	}
+	return &RetryAfterError{After: after, Err: err}
 }
 
 // excerptBytes bounds how much of an upstream's answer reaches an error

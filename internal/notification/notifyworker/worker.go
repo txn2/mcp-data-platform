@@ -80,7 +80,7 @@ type Config struct {
 // ChannelSender posts one document to one channel, dispatching on its kind.
 // notifypost.Senders implements it.
 type ChannelSender interface {
-	Send(ctx context.Context, ch notification.Channel, doc notification.Document) error
+	Send(ctx context.Context, ch notification.Channel, d notification.Delivery) error
 }
 
 // Worker drains the notification queue: it claims due rows, renders them, and
@@ -316,7 +316,8 @@ func (w *Worker) deliverToChannel(ctx context.Context, name string, batch []noti
 		if n.Payload.Document == nil {
 			return true, fmt.Errorf("notification %d carries no document to post to channel %q", n.ID, name)
 		}
-		if err := w.cfg.ChannelSenders.Send(ctx, *ch, *n.Payload.Document); err != nil {
+		d := notification.Delivery{ID: DeliveryID(n.ID), OccurredAt: n.CreatedAt, Document: *n.Payload.Document}
+		if err := w.cfg.ChannelSenders.Send(ctx, *ch, d); err != nil {
 			return errors.Is(err, notifypost.ErrTerminal), err
 		}
 	}
@@ -335,6 +336,12 @@ func (w *Worker) resolve(ctx context.Context, batch []notification.Notification,
 		return
 	}
 	backoff := computeBackoff(attempts)
+	var asked *notifypost.RetryAfterError
+	if errors.As(sendErr, &asked) && asked.After > 0 {
+		// The upstream said when to come back; it is honored up to the
+		// longest wait this queue's own schedule would make.
+		backoff = min(asked.After, maxBackoff)
+	}
 	slog.Warn("notification: delivery failed; will retry",
 		"recipient", batch[0].Recipient, "attempts", attempts, "backoff", backoff, logKeyError, sendErr)
 	if err := w.cfg.Queue.Retry(ctx, ids(batch), sendErr.Error(), backoff); err != nil {
@@ -361,6 +368,15 @@ func maxAttempts(batch []notification.Notification) int {
 		}
 	}
 	return most
+}
+
+// maxBackoff is the longest wait between attempts the queue makes.
+const maxBackoff = retryBackoffBase * (1 << maxBackoffShift)
+
+// DeliveryID is the id a channel delivery of queue row id carries: the same on
+// every attempt of that row, so a receiver recognizes a retry (#1997).
+func DeliveryID(id int64) string {
+	return fmt.Sprintf("ntf_%d", id)
 }
 
 // computeBackoff returns retryBackoffBase * 2^(attempts-1), capped.

@@ -36562,6 +36562,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "format": {
+                    "description": "Format is a webhook channel's payload: \"text\" (the default) posts\n{\"text\": ...}; \"json\" posts an envelope for a system to receive.",
+                    "type": "string",
+                    "example": "json"
+                },
                 "kind": {
                     "type": "string",
                     "example": "mattermost"
@@ -36634,6 +36639,10 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                },
+                "format": {
+                    "description": "Format is a webhook channel's payload format, \"text\" or \"json\";\nabsent for the other kinds.",
+                    "type": "string"
                 },
                 "kind": {
                     "type": "string"
@@ -37421,6 +37430,14 @@ const docTemplate = `{
                     "type": "string",
                     "example": "X-Webhook-Token"
                 },
+                "header_format": {
+                    "type": "string",
+                    "example": "stripe"
+                },
+                "id_header": {
+                    "type": "string",
+                    "example": "webhook-id"
+                },
                 "mode": {
                     "type": "string",
                     "example": "hmac"
@@ -37465,6 +37482,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "header": {
+                    "type": "string"
+                },
+                "header_format": {
+                    "type": "string"
+                },
+                "id_header": {
                     "type": "string"
                 },
                 "mode": {
@@ -37550,6 +37573,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "at": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "first_at": {
                     "type": "string"
                 },
                 "outcome": {
@@ -37789,6 +37818,15 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "at": {
+                    "description": "At is the latest rejection of the run.",
+                    "type": "string"
+                },
+                "count": {
+                    "description": "Count is how many rejections the row stands for, at least one.",
+                    "type": "integer"
+                },
+                "first_at": {
+                    "description": "FirstAt is the earliest. Equal to At for a single rejection.",
                     "type": "string"
                 },
                 "outcome": {

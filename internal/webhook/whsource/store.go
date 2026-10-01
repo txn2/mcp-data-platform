@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -90,21 +91,26 @@ func (s *Store) Create(ctx context.Context, src Source) error {
 	return nil
 }
 
-// Update replaces a source's settings. The name, the connection and the
-// creator are not changed: the table was created on that connection under a
-// name derived from the source's.
-func (s *Store) Update(ctx context.Context, src Source) error {
+// Update replaces a source's settings and returns the time it stamped on the
+// row. The name, the connection and the creator are not changed: the table was
+// created on that connection under a name derived from the source's.
+func (s *Store) Update(ctx context.Context, src Source) (time.Time, error) {
 	auth, cfg, err := s.encode(src)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE webhook_sources SET enabled = $2, auth = $3, config = $4, updated_at = NOW() WHERE name = $1`,
-		src.Name, src.Enabled, auth, cfg)
+	var updatedAt time.Time
+	err = s.db.QueryRowContext(ctx,
+		`UPDATE webhook_sources SET enabled = $2, auth = $3, config = $4, updated_at = NOW() WHERE name = $1
+		 RETURNING updated_at`,
+		src.Name, src.Enabled, auth, cfg).Scan(&updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("updating webhook source: %w", err)
+		return time.Time{}, fmt.Errorf("updating webhook source: %w", err)
 	}
-	return oneRow(res)
+	return updatedAt, nil
 }
 
 // Delete removes a source. Its windows, counts and rejections go with it.

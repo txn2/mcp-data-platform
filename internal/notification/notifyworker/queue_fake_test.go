@@ -20,6 +20,7 @@ type fakeQueueStore struct {
 
 	sent    [][]int64
 	retried [][]int64
+	backoff []time.Duration
 	failed  [][]int64
 	purges  int
 	opErr   error
@@ -96,10 +97,11 @@ func (f *fakeQueueStore) MarkSent(_ context.Context, ids []int64) error {
 	return f.opErr
 }
 
-func (f *fakeQueueStore) Retry(_ context.Context, ids []int64, sendErr string, _ time.Duration) error {
+func (f *fakeQueueStore) Retry(_ context.Context, ids []int64, sendErr string, backoff time.Duration) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.retried = append(f.retried, ids)
+	f.backoff = append(f.backoff, backoff)
 	f.lastError = sendErr
 	return f.opErr
 }

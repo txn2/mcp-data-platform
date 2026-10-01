@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/net/http/httpguts"
 
+	"github.com/txn2/mcp-data-platform/internal/hmacsig"
 	"github.com/txn2/mcp-data-platform/internal/webhook/jsonpath"
 )
 
@@ -101,22 +102,39 @@ var modeChecks = map[string]func(Auth) error{
 
 // validateHMAC checks the settings an HMAC source signs with.
 func validateHMAC(a Auth) error {
-	if a.Algorithm != AlgorithmSHA256 && a.Algorithm != AlgorithmSHA1 {
-		return invalid("auth.algorithm must be sha256 or sha1")
+	if !hmacsig.ValidAlgorithm(a.Algorithm) {
+		return invalid("auth.algorithm must be sha256, sha1 or sha512")
 	}
 	if !validHeaderName(a.SignatureHeader) {
 		return invalid("auth.signature_header must name the header the signature is sent in")
 	}
-	if a.Encoding != EncodingHex && a.Encoding != EncodingBase64 {
+	if !hmacsig.ValidEncoding(a.Encoding) {
 		return invalid("auth.encoding must be hex or base64")
+	}
+	if !hmacsig.ValidFormat(a.HeaderFormat) {
+		return invalid("auth.header_format must be empty or stripe")
 	}
 	return validateTimestamp(a)
 }
 
-// validateTimestamp checks the replay window an HMAC source may declare.
+// validateTimestamp checks the replay window and the signed bytes an HMAC
+// source may declare.
 func validateTimestamp(a Auth) error {
 	if a.TimestampHeader != "" && !validHeaderName(a.TimestampHeader) {
 		return invalid("auth.timestamp_header is not a valid header name")
+	}
+	if a.IDHeader != "" && !validHeaderName(a.IDHeader) {
+		return invalid("auth.id_header is not a valid header name")
+	}
+	if a.ToleranceSeconds < 0 {
+		return invalid("auth.tolerance_seconds cannot be negative")
+	}
+	if a.HeaderFormat == HeaderFormatStripe {
+		if a.TimestampHeader != "" || a.IDHeader != "" {
+			return invalid("auth.header_format stripe carries the timestamp in the signature header; " +
+				"leave auth.timestamp_header and auth.id_header empty")
+		}
+		return nil
 	}
 	switch a.Signed {
 	case SignedBody:
@@ -124,11 +142,12 @@ func validateTimestamp(a Auth) error {
 		if a.TimestampHeader == "" {
 			return invalid("auth.signed timestamp.body needs auth.timestamp_header")
 		}
+	case SignedIDTimestampBody:
+		if a.TimestampHeader == "" || a.IDHeader == "" {
+			return invalid("auth.signed id.timestamp.body needs auth.timestamp_header and auth.id_header")
+		}
 	default:
-		return invalid("auth.signed must be body or timestamp.body")
-	}
-	if a.ToleranceSeconds < 0 {
-		return invalid("auth.tolerance_seconds cannot be negative")
+		return invalid("auth.signed must be body, timestamp.body or id.timestamp.body")
 	}
 	return nil
 }

@@ -34,5 +34,6 @@ func (t *Toolkit) Upstream(name string) (*upstreamcall.Upstream, error) {
 		Auth:          c.auth,
 		StaticHeaders: c.cfg.StaticHeaders,
 		CallTimeout:   c.cfg.CallTimeout,
+		IDHeader:      c.cfg.HMAC.IDHeader,
 	}), nil
 }

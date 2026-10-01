@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { RejectionsTable } from "./RejectionsTable";
 import { VolumeChart } from "./VolumeChart";
 import {
   HEALTH_HINTS,
@@ -246,30 +247,10 @@ function RejectionsSection({
       ) : (
         <>
           <p className="mb-2 text-xs text-muted-foreground">
-            The last 50 across every source. A request body is never kept.
+            The newest 50 of each outcome across every source. A row counts the requests rejected for the same
+            reason within a minute of each other. A request body is never kept.
           </p>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>When</TableHead>
-                  <TableHead>Outcome</TableHead>
-                  <TableHead>Reason</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rejections.map((r, i) => (
-                  <TableRow key={`${r.source}-${r.at}-${i}`} className="cursor-pointer" onClick={() => onOpen(r.source)}>
-                    <TableCell className="text-xs font-medium">{r.source}</TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">{new Date(r.at).toLocaleString()}</TableCell>
-                    <TableCell className="text-xs">{outcomeLabel(r.outcome)}</TableCell>
-                    <TableCell className="text-xs">{r.reason}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <RejectionsTable rows={rejections} showSource onOpen={(r) => onOpen(r.source)} />
         </>
       )}
     </SectionCard>

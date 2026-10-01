@@ -17,7 +17,8 @@ type Sources interface {
 	List(ctx context.Context) ([]whsource.Source, error)
 	Get(ctx context.Context, name string) (whsource.Source, error)
 	Create(ctx context.Context, src whsource.Source) error
-	Update(ctx context.Context, src whsource.Source) error
+	// Update writes src and returns the updated_at it stamped.
+	Update(ctx context.Context, src whsource.Source) (time.Time, error)
 	Delete(ctx context.Context, name string) error
 }
 

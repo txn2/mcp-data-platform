@@ -83,7 +83,9 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 		out.Volume = append(out.Volume, VolumePoint{At: p.At, Source: p.Source, Outcome: p.Outcome, Count: p.Count})
 	}
 	for _, r := range ov.Rejections {
-		out.Rejections = append(out.Rejections, SourceRejection{Source: r.Source, At: r.At, Outcome: r.Outcome, Reason: r.Reason})
+		out.Rejections = append(out.Rejections, SourceRejection{
+			Source: r.Source, At: r.At, FirstAt: r.FirstAt, Count: r.Count, Outcome: r.Outcome, Reason: r.Reason,
+		})
 	}
 	return out
 }

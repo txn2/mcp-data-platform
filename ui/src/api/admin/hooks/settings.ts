@@ -204,6 +204,9 @@ export interface NotificationChannel {
   mode: string;
   repeat_after: string;
   max_per_hour: number;
+  // format is a webhook channel's payload, "text" or "json"; absent for the
+  // other kinds.
+  format?: string;
   created_by?: string;
   updated_at?: string;
   // Warnings report a channel that saves cleanly but cannot deliver, such as
@@ -223,6 +226,7 @@ export interface NotificationChannelInput {
   mode?: string;
   repeat_after?: string;
   max_per_hour?: number;
+  format?: string;
 }
 
 // NotificationChannelList is the collection response: the channels, and the

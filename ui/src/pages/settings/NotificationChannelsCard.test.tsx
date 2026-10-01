@@ -104,10 +104,14 @@ describe("NotificationChannelsCard", () => {
     expect(screen.getByText("Connection")).toBeInTheDocument();
     expect(screen.queryByText("Recipients")).not.toBeInTheDocument();
 
-    // A webhook posts where its URL points, so it has no target.
+    expect(screen.queryByText("Format")).not.toBeInTheDocument();
+
+    // A webhook posts where its URL points, so it has no target, and it
+    // alone has a payload format (#1997).
     fireEvent.click(screen.getByTestId("channel-kind-webhook"));
     expect(screen.queryByText("Target channel id")).not.toBeInTheDocument();
     expect(screen.getByText("Connection")).toBeInTheDocument();
+    expect(screen.getByText("Format")).toBeInTheDocument();
 
     // An email list names no connection.
     fireEvent.click(screen.getByTestId("channel-kind-email"));
@@ -209,4 +213,20 @@ describe("NotificationChannelsCard", () => {
 
     expect(screen.getByTestId("channel-save-error")).toHaveTextContent("target channel id");
   });
+
+  it("saves a webhook channel's format and no format for another kind", async () => {
+    render(<NotificationChannelsCard isReadOnly={false} />);
+    fireEvent.click(screen.getByTestId("channel-new"));
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "events" } });
+    fireEvent.click(screen.getByTestId("channel-kind-webhook"));
+    fireEvent.click(screen.getByRole("combobox", { name: "Format" }));
+    fireEvent.click(await screen.findByRole("option", { name: "JSON" }));
+    fireEvent.click(screen.getByRole("button", { name: /Save channel/ }));
+    expect(saveMutate.mock.calls[saveMutate.mock.calls.length - 1]![0].input.format).toBe("json");
+
+    fireEvent.click(screen.getByTestId("channel-kind-mattermost"));
+    fireEvent.click(screen.getByRole("button", { name: /Save channel/ }));
+    expect(saveMutate.mock.calls[saveMutate.mock.calls.length - 1]![0].input.format).toBeUndefined();
+  });
 });
+

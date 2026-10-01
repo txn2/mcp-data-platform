@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -37,6 +38,42 @@ const (
 	// ChannelModeDaily collects a day's documents into one bulletin
 	// delivered in the deployment's digest window.
 	ChannelModeDaily = "daily"
+)
+
+// Webhook channel payload formats (#1997). Only the webhook kind has a
+// choice: the chat kinds post in their API's shape and email renders a
+// message.
+const (
+	// ChannelFormatText posts {"text": ...}, the incoming-webhook shape Slack
+	// and Mattermost accept. The default, so a channel configured before
+	// formats existed delivers as it did.
+	ChannelFormatText = "text"
+	// ChannelFormatJSON posts one envelope per notification for a system
+	// to receive: an id stable across retries, a type to route on, the
+	// source, and the sender's structured data.
+	ChannelFormatJSON = "json"
+)
+
+// Document types: what a channel document is, which a JSON envelope carries
+// as its type for a receiver to route on (#1997).
+const (
+	// DocumentScriptFinding is a managed script's platform.notify.
+	DocumentScriptFinding = "script.finding"
+	// DocumentScriptPublished is a managed script's platform.publish.
+	DocumentScriptPublished = "script.published"
+	// DocumentNotifySent is a person's notify action=send.
+	DocumentNotifySent = "notify.sent"
+	// DocumentNotifyPublished is a person's notify action=publish.
+	DocumentNotifyPublished = "notify.published"
+	// DocumentTest is an administrator's test send.
+	DocumentTest = "test"
+)
+
+// Document source kinds.
+const (
+	DocumentSourceScript = "script"
+	DocumentSourceUser   = "user"
+	DocumentSourceAdmin  = "admin"
 )
 
 // Channel bounds. They keep a typo from turning a channel into an outbound
@@ -98,6 +135,9 @@ type Channel struct {
 	// MaxPerHour bounds the channel's outbound rate across replicas. Zero
 	// means DefaultChannelMaxPerHour.
 	MaxPerHour int `json:"max_per_hour,omitempty"`
+	// Format is the webhook kind's payload: ChannelFormatText (the default
+	// when empty) or ChannelFormatJSON. Empty for every other kind.
+	Format string `json:"format,omitempty"`
 	// CreatedBy is the administrator who created the channel.
 	CreatedBy string `json:"created_by,omitempty"`
 	// UpdatedAt is when the record was last written.
@@ -128,6 +168,15 @@ func (c Channel) RepeatWindow() time.Duration {
 	return c.RepeatAfter
 }
 
+// PayloadFormat returns the webhook payload format, applying the default for
+// an unset one.
+func (c Channel) PayloadFormat() string {
+	if c.Format == "" {
+		return ChannelFormatText
+	}
+	return c.Format
+}
+
 // HourlyCap returns the channel's hourly send cap, applying the default for
 // an unset one.
 func (c Channel) HourlyCap() int {
@@ -150,6 +199,36 @@ type Document struct {
 	// Link is the absolute URL a reader follows to the asset, the run, or
 	// whatever else produced the message.
 	Link string `json:"link,omitempty"`
+	// Type is one of the Document* types: what produced the document.
+	// Empty on a document queued before types existed.
+	Type string `json:"type,omitempty"`
+	// Source is who produced it.
+	Source *DocumentSource `json:"source,omitempty"`
+	// Data is the sender's structured payload, JSON, delivered verbatim by a
+	// JSON webhook channel and ignored by every other kind.
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+// DocumentSource is who produced a document: a managed script's run, or a
+// person.
+type DocumentSource struct {
+	// Kind is DocumentSourceScript, DocumentSourceUser or DocumentSourceAdmin.
+	Kind string `json:"kind"`
+	// Script is the producing script's reference, mcp:script:<id>.
+	Script string `json:"script,omitempty"`
+	// RunID is the producing run.
+	RunID string `json:"run_id,omitempty"`
+}
+
+// Delivery is one document as a channel transport sends it: the document, and
+// the identity of the queue row it came from, which is the same on every
+// attempt so a receiver can recognize a retry.
+type Delivery struct {
+	// ID is the delivery's stable id: "ntf_<row id>" for a queued row.
+	ID string
+	// OccurredAt is when the document was queued.
+	OccurredAt time.Time
+	Document
 }
 
 // ChannelStore persists the operator's channel records.
@@ -188,6 +267,9 @@ func ValidateChannel(c Channel) error {
 	if c.MaxPerHour < 0 {
 		return errors.New("channel max_per_hour must not be negative")
 	}
+	if err := validateChannelFormat(c); err != nil {
+		return err
+	}
 	switch c.Kind {
 	case ChannelKindMattermost:
 		return validateChatChannel(c)
@@ -198,6 +280,21 @@ func ValidateChannel(c Channel) error {
 	default:
 		return fmt.Errorf("channel kind %q must be one of %s, %s, %s",
 			c.Kind, ChannelKindMattermost, ChannelKindWebhook, ChannelKindEmail)
+	}
+}
+
+// validateChannelFormat refuses a format the channel's kind does not have.
+func validateChannelFormat(c Channel) error {
+	switch c.Format {
+	case "", ChannelFormatText:
+		return nil
+	case ChannelFormatJSON:
+		if c.Kind != ChannelKindWebhook {
+			return fmt.Errorf("format %q is for a %s channel; a %s channel posts in its own shape", c.Format, ChannelKindWebhook, c.Kind)
+		}
+		return nil
+	default:
+		return fmt.Errorf("channel format %q must be %q or %q", c.Format, ChannelFormatText, ChannelFormatJSON)
 	}
 }
 
@@ -290,6 +387,12 @@ func ValidateDocument(d Document) error {
 	if len(d.Link) > MaxDocumentLinkBytes {
 		return fmt.Errorf("a notification link is at most %d bytes, not %d", MaxDocumentLinkBytes, len(d.Link))
 	}
+	if len(d.Data) > MaxDocumentDataBytes {
+		return fmt.Errorf("notification data is at most %d bytes of JSON, not %d; link to an asset for more", MaxDocumentDataBytes, len(d.Data))
+	}
+	if len(d.Data) > 0 && !json.Valid(d.Data) {
+		return errors.New("notification data must be JSON")
+	}
 	return nil
 }
 
@@ -302,4 +405,7 @@ const (
 	MaxDocumentBytes = 256 * 1024
 	// MaxDocumentLinkBytes bounds the link.
 	MaxDocumentLinkBytes = 2048
+	// MaxDocumentDataBytes bounds the structured data a document carries
+	// to a JSON webhook channel.
+	MaxDocumentDataBytes = 64 * 1024
 )

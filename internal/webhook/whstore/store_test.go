@@ -128,7 +128,15 @@ func TestStats(t *testing.T) {
 
 	rej := []Rejection{{Source: "esp", At: start, Outcome: "unauthorized"}}
 	require.NoError(t, st.RecordRejections(ctx, nil))
+	// A run that continues the newest row updates it and writes nothing new.
 	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	require.NoError(t, st.RecordRejections(ctx, rej))
+	// One that does not is inserted.
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`INSERT INTO webhook_rejections`).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(`DELETE FROM webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
@@ -137,16 +145,25 @@ func TestStats(t *testing.T) {
 	mock.ExpectBegin().WillReturnError(errDown)
 	assert.Error(t, st.RecordRejections(ctx, rej))
 	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnError(errDown)
+	mock.ExpectRollback()
+	assert.Error(t, st.RecordRejections(ctx, rej))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnResult(sqlmock.NewErrorResult(errDown))
+	mock.ExpectRollback()
+	assert.Error(t, st.RecordRejections(ctx, rej))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`INSERT INTO webhook_rejections`).WillReturnError(errDown)
 	mock.ExpectRollback()
 	assert.Error(t, st.RecordRejections(ctx, rej))
 	mock.ExpectBegin()
-	mock.ExpectExec(`INSERT INTO webhook_rejections`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`DELETE FROM webhook_rejections`).WillReturnError(errDown)
 	mock.ExpectRollback()
 	assert.Error(t, st.RecordRejections(ctx, rej))
 	mock.ExpectBegin()
-	mock.ExpectExec(`INSERT INTO webhook_rejections`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`DELETE FROM webhook_rejections`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit().WillReturnError(errDown)
 	assert.Error(t, st.RecordRejections(ctx, rej))
@@ -171,7 +188,8 @@ func TestStatus(t *testing.T) {
 	mock.ExpectQuery(`FROM webhook_request_counts`).WillReturnRows(countRows().AddRow("accepted", 2, 5).AddRow("unauthorized", 0, 1))
 	mock.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(start, start, 1, 0, start, nil))
 	mock.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(
-		sqlmock.NewRows([]string{"at", "outcome", "reason"}).AddRow(start, "unauthorized", "the token does not match"))
+		sqlmock.NewRows([]string{"first_at", "at", "count", "outcome", "reason"}).
+			AddRow(start, start, 1, "unauthorized", "the token does not match"))
 	s, err := st.Status(ctx, "esp", start)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int64{"accepted": 2}, s.LastHour)
@@ -273,4 +291,29 @@ func TestDeleteExpired(t *testing.T) {
 	mock.ExpectExec(`DELETE FROM webhook_windows`).WillReturnError(errDown)
 	_, err = st.DeleteExpired(ctx, before)
 	assert.Error(t, err)
+}
+
+func TestCollapseRejections(t *testing.T) {
+	at := func(sec int) time.Time { return start.Add(time.Duration(sec) * time.Second) }
+	limited := func(sec int) Rejection {
+		return Rejection{Source: "esp", At: at(sec), Outcome: "rate_limited", Reason: "the rate limit was reached"}
+	}
+	forged := Rejection{Source: "esp", At: at(1), Outcome: "unauthorized", Reason: "the signature does not match"}
+	stale := Rejection{Source: "esp", At: at(2), Outcome: "unauthorized", Reason: "the timestamp is outside the tolerance window"}
+
+	got := collapseRejections([]Rejection{limited(0), forged, limited(1), stale, limited(2), limited(200)})
+	require.Len(t, got, 4)
+	assert.Equal(t, Rejection{
+		Source: "esp", FirstAt: at(0), At: at(2), Count: 3,
+		Outcome: "rate_limited", Reason: "the rate limit was reached",
+	}, got[0], "a run of one outcome and reason is one row, whatever is interleaved from other outcomes")
+	assert.Equal(t, int64(1), got[1].Count)
+	assert.Equal(t, at(1), got[1].FirstAt, "a single rejection's first is its own time")
+	assert.Equal(t, stale.Reason, got[2].Reason, "a different reason starts its own row")
+	assert.Equal(t, at(200), got[3].FirstAt, "a rejection more than a minute after the run starts a new one")
+
+	assert.Empty(t, collapseRejections(nil))
+	pre := collapseRejections([]Rejection{{Source: "esp", At: at(5), FirstAt: at(9), Count: 4, Outcome: "x"}})
+	assert.Equal(t, at(5), pre[0].FirstAt, "a first after the latest is read as the latest")
+	assert.Equal(t, int64(4), pre[0].Count, "a run handed in keeps its count")
 }

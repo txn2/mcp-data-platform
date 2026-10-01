@@ -220,3 +220,21 @@ func TestEncode_RefusesBeforeAssemblingTheWholeDocument(t *testing.T) {
 	_, err := xmltree.Encode(root, xmltree.Limits{MaxBytes: 8192, MaxDepth: 10, MaxNodes: 1000})
 	require.ErrorIs(t, err, xmltree.ErrTooLarge)
 }
+
+func TestValueRendersTheTreeAsMaps(t *testing.T) {
+	root, err := xmltree.Decode(`<a xmlns="urn:x" id="1"><b>hi</b><c/></a>`, xmltree.DefaultLimits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := root.Value()
+	attrs, _ := v["attrs"].(map[string]any)
+	assert.Equal(t, "a", v["tag"])
+	assert.Equal(t, "urn:x", v["ns"])
+	assert.Equal(t, "1", attrs["id"])
+	children, _ := v["children"].([]any)
+	require.Len(t, children, 2)
+	first, _ := children[0].(map[string]any)
+	assert.Equal(t, "hi", first["text"])
+	second, _ := children[1].(map[string]any)
+	assert.Equal(t, []any{}, second["children"], "an element with no children has an empty list, not nil")
+}

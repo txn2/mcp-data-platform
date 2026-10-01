@@ -240,6 +240,9 @@ type Config struct {
 	// AuthModeSignedJWT, or AuthModeOAuth with the jwt_bearer grant.
 	// Empty otherwise.
 	SignedJWT SignedJWTConfig
+	// HMAC carries the signing convention used when AuthMode is
+	// AuthModeHMAC. Empty otherwise.
+	HMAC HMACConfig
 
 	// ConnectTimeout caps the dial step (TCP + TLS handshake) on each
 	// invocation.
@@ -284,6 +287,11 @@ type Config struct {
 	// token off the request context is the kind's job, not this
 	// package's — only the invariant lives here.
 	IdentityPassthrough bool
+
+	// PathSecret is appended to every request's path as it is sent, for a
+	// receiver that authenticates by a secret in the URL. Encrypted at rest;
+	// it never appears in base_url, a call's path or an error.
+	PathSecret string
 }
 
 // OAuth2Config describes the OAuth 2.1 grant parameters. For
@@ -385,12 +393,15 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		c.SignedJWT = parseSignedJWT(SignedJWTAlgHS256, endpointURL, cfg)
 	case c.AuthMode == AuthModeOAuth && c.OAuth2.Grant == connoauth.GrantJWTBearer:
 		c.SignedJWT = parseSignedJWT(SignedJWTAlgRS256, c.OAuth2.TokenURL, cfg)
+	case c.AuthMode == AuthModeHMAC:
+		c.HMAC = parseHMAC(cfg)
 	}
 	c.StaticHeaders = cfgmap.StringMap(cfg, cfgKeyStaticHeaders)
 	c.MTLSClientCertPEM = cfgmap.String(cfg, cfgKeyMTLSClientCertPEM)
 	c.MTLSClientKeyPEM = cfgmap.String(cfg, cfgKeyMTLSClientKeyPEM)
 	c.TLSCABundlePEM = cfgmap.String(cfg, cfgKeyTLSCABundlePEM)
 	c.IdentityPassthrough = cfgmap.Bool(cfg, cfgKeyIdentityPassthrough)
+	c.PathSecret = cfgmap.String(cfg, cfgKeyPathSecret)
 	return c, nil
 }
 
@@ -408,6 +419,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.ValidateIdentityPassthrough(); err != nil {
+		return err
+	}
+	if err := c.ValidatePathSecret(); err != nil {
 		return err
 	}
 	return c.ValidateTLSMaterial()
@@ -447,6 +461,8 @@ func (c Config) ValidateAuth() error {
 		return c.validateOAuthAuth()
 	case AuthModeSignedJWT:
 		return c.validateSignedJWTAuth()
+	case AuthModeHMAC:
+		return c.validateHMACAuth()
 	case AuthModeMTLS:
 		// The mTLS material is validated centrally by
 		// ValidateTLSMaterial so the same rules apply whether mTLS is
@@ -456,7 +472,7 @@ func (c Config) ValidateAuth() error {
 		// Config.AuthMode inspection.
 		return nil
 	default:
-		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, oauth, or mtls; an oauth connection carries its flow in %s)",
+		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, hmac, oauth, or mtls; an oauth connection carries its flow in %s)",
 			c.AuthMode, connoauth.ConfigKeyGrant)
 	}
 }

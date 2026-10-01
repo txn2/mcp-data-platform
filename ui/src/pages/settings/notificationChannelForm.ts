@@ -25,7 +25,7 @@ export const kindHelp: Record<string, string> = {
   mattermost:
     "Posts through the Mattermost REST API. The api connection holds the bot token and the site URL; the target is the channel id.",
   webhook:
-    'Posts one {"text": …} body to an incoming-webhook URL, which Slack and Mattermost both accept. The whole URL is the api connection\'s base URL, since a webhook URL is a credential written as an address.',
+    'Posts to a webhook URL: one {"text": …} body, which Slack and Mattermost incoming webhooks accept, or with format JSON one envelope a system routes on and deduplicates by id. The URL is the api connection\'s base URL, with any secret part held as its path secret; an HMAC connection signs every delivery.',
   email:
     "Delivers to the addresses below through the deployment's mail server. It names no connection, so anyone who can send at all can send to it.",
 };
@@ -43,6 +43,7 @@ export interface ChannelFormState {
   mode: string;
   repeat_after: string;
   max_per_hour: string;
+  format: string;
 }
 
 export const blankChannelForm: ChannelFormState = {
@@ -56,6 +57,7 @@ export const blankChannelForm: ChannelFormState = {
   mode: "immediate",
   repeat_after: "",
   max_per_hour: "",
+  format: "text",
 };
 
 // usesConnection and usesTarget are the two rules a kind's fields follow. An
@@ -82,6 +84,7 @@ export function channelFormFrom(ch: NotificationChannel): ChannelFormState {
     mode: ch.mode,
     repeat_after: ch.repeat_after ?? "",
     max_per_hour: String(ch.max_per_hour ?? ""),
+    format: ch.format ?? "text",
   };
 }
 
@@ -100,5 +103,6 @@ export function channelInputFrom(form: ChannelFormState): NotificationChannelInp
     mode: form.mode,
     repeat_after: form.repeat_after || undefined,
     max_per_hour: form.max_per_hour ? Number(form.max_per_hour) : undefined,
+    format: form.kind === "webhook" ? form.format : undefined,
   };
 }

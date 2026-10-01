@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/hmacsig"
 )
 
 // Auth modes a source authenticates a request with.
@@ -28,20 +30,30 @@ const (
 	AuthPathToken = "path_token"
 )
 
-// HMAC settings a source chooses between.
+// HMAC settings a source chooses between. They are hmacsig's, which the
+// platform's outbound hmac connections sign with too, so a source and a
+// connection configured with the same values agree (#1996).
 const (
-	AlgorithmSHA256 = "sha256"
-	AlgorithmSHA1   = "sha1"
+	AlgorithmSHA256 = hmacsig.AlgorithmSHA256
+	AlgorithmSHA1   = hmacsig.AlgorithmSHA1
+	AlgorithmSHA512 = hmacsig.AlgorithmSHA512
 
-	EncodingHex    = "hex"
-	EncodingBase64 = "base64"
+	EncodingHex    = hmacsig.EncodingHex
+	EncodingBase64 = hmacsig.EncodingBase64
 
 	// SignedBody signs the raw body.
-	SignedBody = "body"
+	SignedBody = hmacsig.SignedBody
 	// SignedTimestampBody signs the timestamp header's value, a ".", and
 	// the raw body, which is what makes a replayed request with an old
 	// timestamp fail even though its signature once verified.
-	SignedTimestampBody = "timestamp.body"
+	SignedTimestampBody = hmacsig.SignedTimestampBody
+	// SignedIDTimestampBody signs the id header's value, a ".", the
+	// timestamp, a ".", and the body: the Standard Webhooks form.
+	SignedIDTimestampBody = hmacsig.SignedIDTimestampBody
+
+	// HeaderFormatStripe reads the signature header as Stripe writes it,
+	// "t=<timestamp>,v1=<signature>", with the timestamp inside it.
+	HeaderFormatStripe = hmacsig.FormatStripe
 )
 
 // Handshakes a source can answer.
@@ -120,6 +132,10 @@ type Auth struct {
 	TimestampHeader  string `json:"timestamp_header,omitempty"`
 	ToleranceSeconds int    `json:"tolerance_seconds,omitempty"`
 	Signed           string `json:"signed,omitempty"`
+	// IDHeader carries the delivery id id.timestamp.body signs.
+	IDHeader string `json:"id_header,omitempty"`
+	// HeaderFormat is empty for a prefix and a signature, or "stripe".
+	HeaderFormat string `json:"header_format,omitempty"`
 
 	// HeaderToken.
 	Header string `json:"header,omitempty"`
@@ -239,10 +255,13 @@ func (a Auth) withDefaults() Auth {
 	if a.Encoding == "" {
 		a.Encoding = EncodingHex
 	}
+	if a.HeaderFormat == HeaderFormatStripe {
+		a.Signed = SignedTimestampBody
+	}
 	if a.Signed == "" {
 		a.Signed = SignedBody
 	}
-	if a.TimestampHeader != "" && a.ToleranceSeconds == 0 {
+	if (a.TimestampHeader != "" || a.HeaderFormat == HeaderFormatStripe) && a.ToleranceSeconds == 0 {
 		a.ToleranceSeconds = int(DefaultTolerance / time.Second)
 	}
 	return a
@@ -275,6 +294,13 @@ func (c Config) CompactedRetention() time.Duration {
 		return time.Duration(DefaultCompactedDays) * day
 	}
 	return time.Duration(*c.CompactedRetentionDays) * day
+}
+
+// Scheme is the signing convention an hmac source verifies.
+func (a Auth) Scheme() hmacsig.Scheme {
+	return hmacsig.Scheme{
+		Algorithm: a.Algorithm, Encoding: a.Encoding, Prefix: a.Prefix, Signed: a.Signed, Format: a.HeaderFormat,
+	}
 }
 
 // Tolerance is how far a signed timestamp may be from the receiver's clock.

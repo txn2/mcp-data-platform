@@ -139,9 +139,10 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     failing: 0,
     oldest_window: hourStart(24 * 30),
     rejections: [
-      { at: hoursAgo(0.2), outcome: "unauthorized", reason: "the timestamp is outside the tolerance window" },
-      { at: hoursAgo(3), outcome: "buffer_full", reason: "the source's buffer is full" },
-      { at: hoursAgo(5), outcome: "unauthorized", reason: "the signature does not match" },
+      { at: hoursAgo(0.1), first_at: hoursAgo(0.11), count: 42, outcome: "rate_limited", reason: "the source's rate limit was reached" },
+      { at: hoursAgo(0.2), first_at: hoursAgo(0.2), count: 1, outcome: "unauthorized", reason: "the timestamp is outside the tolerance window" },
+      { at: hoursAgo(3), first_at: hoursAgo(3), count: 1, outcome: "buffer_full", reason: "the source's buffer is full" },
+      { at: hoursAgo(5), first_at: hoursAgo(5), count: 1, outcome: "unauthorized", reason: "the signature does not match" },
     ],
   },
   "crm-contacts": {
@@ -162,7 +163,7 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     pending: 0,
     failing: 0,
     oldest_window: hourStart(24 * 20),
-    rejections: [{ at: hoursAgo(2), outcome: "unauthorized", reason: "the credentials do not match" }],
+    rejections: [{ at: hoursAgo(2), first_at: hoursAgo(2), count: 1, outcome: "unauthorized", reason: "the credentials do not match" }],
   },
   "order-updates": {
     last_hour: { accepted: 420, invalid_body: 5 },
@@ -173,7 +174,7 @@ export const mockWebhookStatus: Record<string, WebhookStatus> = {
     failing: 2,
     last_error: "segment webhooks/order-updates/dt=2026-09-29/hour=09/minute=05/r1-1.jsonl.gz: gzip: invalid header",
     oldest_window: hourStart(24 * 3),
-    rejections: [{ at: hoursAgo(0.5), outcome: "invalid_body", reason: "the body is not JSON" }],
+    rejections: [{ at: hoursAgo(0.5), first_at: hoursAgo(0.6), count: 5, outcome: "invalid_body", reason: "the body is not JSON" }],
   },
 };
 

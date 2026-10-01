@@ -38,6 +38,7 @@ type Upstream struct {
 	auth          upstreamauth.Authenticator
 	staticHeaders map[string]string
 	callTimeout   time.Duration
+	idHeader      string
 }
 
 // Config is what a connection kind hands over to make its upstream callable.
@@ -56,6 +57,9 @@ type Config struct {
 	StaticHeaders map[string]string
 	// CallTimeout bounds a request that carries no deadline of its own.
 	CallTimeout time.Duration
+	// IDHeader is the header an hmac connection carries a delivery id in,
+	// which its signature covers; empty for every other connection.
+	IDHeader string
 }
 
 // New builds the transport for a connection.
@@ -67,8 +71,14 @@ func New(cfg Config) *Upstream {
 		auth:          cfg.Auth,
 		staticHeaders: cfg.StaticHeaders,
 		callTimeout:   cfg.CallTimeout,
+		idHeader:      cfg.IDHeader,
 	}
 }
+
+// DeliveryIDHeader is the header a delivery's id is sent in, so the receiver
+// reads it beside the signature that covers it; empty when the connection
+// names none.
+func (u *Upstream) DeliveryIDHeader() string { return u.idHeader }
 
 // Connection returns the name of the connection this transport belongs to,
 // for an error message that has to say which connection refused.
