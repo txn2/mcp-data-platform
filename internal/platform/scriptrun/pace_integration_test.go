@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -60,7 +61,7 @@ func limitedServer(t *testing.T, authType string, rpm, burst int) (caller Caller
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(limitedAuthn{authType}, limitedAuthz{}, limitedLookup{},
 		middleware.ToolCallConfig{Transport: "stdio", AdminPersona: "admin"}))
 
-	caller, cleanup, err := Connect(context.Background(), server, "script-run")
+	caller, cleanup, err := scriptsession.Connect(context.Background(), server, "script-run")
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 	return caller, served

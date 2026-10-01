@@ -15,9 +15,17 @@ The platform supports two session store backends:
 | `memory` (default) | Development, single instance | No | No |
 | `database` | Production, zero-downtime deploys | Yes | Yes |
 
+Both stores serve every MCP protocol revision a client asks for over HTTP,
+2026-07-28 (the sessionless revision) and 2025-11-25 and earlier alike (#2008).
+Each runs the SDK's streamable HTTP handler stateless, behind the platform's
+session-aware handler, which keeps the session in the chosen store. `platform_info`
+reports the revision the calling session speaks as `protocol_version`. The
+stdio transport negotiates in the SDK as it always has.
+
 ### Memory Store (Default)
 
-No configuration needed. The SDK manages sessions internally. Identical behavior to previous versions.
+No configuration needed. Sessions live in the process, under the same
+session-aware handler the database store uses, so they end with the process.
 
 ### Database Store
 

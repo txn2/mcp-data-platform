@@ -86,6 +86,9 @@ func (s *State) WrittenBy() string {
 // which may be empty: saving {} is a write, and is distinct from not saving.
 type StateWrite struct {
 	Value map[string]any `json:"value"`
+	// Checkpoint marks a write staged with platform.checkpoint, which is
+	// committed however the run ends (#2003), not with save_state.
+	Checkpoint bool `json:"checkpoint,omitempty"`
 }
 
 // ValidateState checks that an object can be held as state: every value is

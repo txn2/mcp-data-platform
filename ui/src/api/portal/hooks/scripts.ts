@@ -186,6 +186,10 @@ export interface ScriptRunDetail extends ScriptRun {
   state_read?: Record<string, unknown>;
   state_written?: Record<string, unknown>;
   state_revision_written?: number;
+  // state_checkpoint is true when state_written is the run's last
+  // platform.checkpoint (#2003): what it got through before it failed, was
+  // halted, or finished without a save_state.
+  state_checkpoint?: boolean;
   // result is the JSON value the run handed back with platform.result
   // (#1845), absent when it set none.
   result?: unknown;

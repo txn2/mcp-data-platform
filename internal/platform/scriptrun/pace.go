@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 )
@@ -18,50 +17,6 @@ import (
 // so this floor is reached only by a refusal from some other producer of the
 // code; it exists so a refusal can never turn into an immediate re-issue.
 const minPace = time.Second
-
-// RefusalError is a tool call that failed with the platform's structured error
-// envelope ({code, category, message, hint, retry_after_seconds}), returned by
-// a Caller as the error so the engine can read the refusal as data. Its Error
-// text is what the script would have been handed before the envelope was read:
-// the result's own text, so a failure the engine does not absorb reaches the
-// author in the tool's words.
-//
-// The engine acts on exactly one code, toolratelimit.CodeRateLimited, and passes
-// every other refusal through unchanged.
-type RefusalError struct {
-	Code       string
-	RetryAfter time.Duration
-	text       string
-}
-
-// Error returns the refusal's text as the tool wrote it.
-func (r *RefusalError) Error() string { return r.text }
-
-// refusalError turns a failed tool result into the error a Caller returns: a
-// *RefusalError when the result carries the structured envelope, and a plain
-// error carrying the result's text when it does not (a tool that predates the
-// contract, or an upstream whose refusal was proxied verbatim).
-func refusalError(res *mcp.CallToolResult) error {
-	text := firstText(res)
-	sc, ok := res.StructuredContent.(map[string]any)
-	if !ok {
-		return errors.New(text)
-	}
-	env, ok := sc["error"].(map[string]any)
-	if !ok {
-		return errors.New(text)
-	}
-	code, _ := env["code"].(string)
-	if code == "" {
-		return errors.New(text)
-	}
-	refusal := &RefusalError{Code: code, text: text}
-	// The envelope arrives decoded from JSON, so the integer is a float64.
-	if secs, ok := env["retry_after_seconds"].(float64); ok && secs > 0 {
-		refusal.RetryAfter = time.Duration(secs * float64(time.Second))
-	}
-	return refusal
-}
 
 // callTool is the one funnel every host binding's tool call goes through. It
 // issues the call and, when the call was refused for timing alone, waits the
@@ -129,7 +84,7 @@ func (h *hostState) pacedCall(tool string, args map[string]any) (map[string]any,
 // refused for timing alone and the wait it named has been made, and
 // otherwise the error the binding is handed.
 func (h *hostState) onRefusal(tool string, err error) (bool, error) {
-	var refusal *RefusalError
+	var refusal *scriptsession.RefusalError
 	if errors.As(err, &refusal) && refusal.Code == upstreamretry.CodeUnavailable {
 		// The upstream did not answer; the run it ends is not the script's.
 		return false, scriptguard.NewUpstreamError(tool, err)

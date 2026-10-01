@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -95,13 +96,13 @@ func TestRun_AStopDuringAnUpstreamWaitIsAnUpstreamFailure(t *testing.T) {
 // refused with upstream_unavailable ends the run as an upstream failure, in
 // the tool's own words, and any other refusal stays the script's.
 func TestRun_AnUnreachableUpstreamIsRetryable(t *testing.T) {
-	unreachable := &RefusalError{Code: upstreamretry.CodeUnavailable, text: "upstream request: i/o timeout"}
+	unreachable := &scriptsession.RefusalError{Code: upstreamretry.CodeUnavailable, Text: "upstream request: i/o timeout"}
 	_, err := execute(t, exportSource, &refusingCaller{refuse: map[int]error{1: unreachable}}, nil)
 	require.Error(t, err)
 	assert.Equal(t, runstate.CauseUpstream, scriptguard.Cause(err))
 	assert.Contains(t, err.Error(), "upstream request: i/o timeout")
 
-	notFound := &RefusalError{Code: middleware.CodeNotFound, text: "no such connection"}
+	notFound := &scriptsession.RefusalError{Code: middleware.CodeNotFound, Text: "no such connection"}
 	_, err = execute(t, exportSource, &refusingCaller{refuse: map[int]error{1: notFound}}, nil)
 	require.Error(t, err)
 	assert.Equal(t, runstate.CauseScript, scriptguard.Cause(err))

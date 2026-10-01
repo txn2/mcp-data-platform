@@ -652,6 +652,9 @@ type portalRunDetail struct {
 	StateRead            map[string]any `json:"state_read"`
 	StateWritten         map[string]any `json:"state_written,omitempty"`
 	StateRevisionWritten int64          `json:"state_revision_written,omitempty"`
+	// StateCheckpoint marks state_written as the run's last checkpoint
+	// rather than a save_state (#2003).
+	StateCheckpoint bool `json:"state_checkpoint,omitempty"`
 	// Result is the value the run handed back with platform.result (#1845),
 	// absent when it set none.
 	Result json.RawMessage `json:"result,omitempty" swaggertype:"object"`
@@ -686,6 +689,7 @@ func detailRun(r *script.Run) portalRunDetail {
 		StateRead:            orEmptyObject(r.StateRead),
 		StateWritten:         r.StateWritten,
 		StateRevisionWritten: r.StateRevisionWritten,
+		StateCheckpoint:      r.StateCheckpoint,
 		Result:               r.Result,
 		CancelRequestedBy:    r.CancelRequestedBy,
 		CreatedAt:            r.CreatedAt,

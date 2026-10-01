@@ -116,3 +116,27 @@ func ResultBudget(ctx context.Context) int {
 	budget, _ := ctx.Value(resultBudgetKey).(int)
 	return budget
 }
+
+// protocolVersionHeader is the header a 2026-07-28 client sends on every HTTP
+// request, naming the revision it speaks.
+const protocolVersionHeader = "Mcp-Protocol-Version"
+
+// ProtocolVersion is the MCP revision the calling session speaks (#2008): the
+// Mcp-Protocol-Version header an HTTP request carries, or the revision a
+// session initialized with. Empty when neither is known.
+func ProtocolVersion(req *mcp.CallToolRequest) string {
+	if req == nil {
+		return ""
+	}
+	if req.Extra != nil && req.Extra.Header != nil {
+		if v := req.Extra.Header.Get(protocolVersionHeader); v != "" {
+			return v
+		}
+	}
+	if req.Session != nil {
+		if ip := req.Session.InitializeParams(); ip != nil {
+			return ip.ProtocolVersion
+		}
+	}
+	return ""
+}

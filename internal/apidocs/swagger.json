@@ -19606,7 +19606,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/scripthttp.dryRunResponse"
+                            "$ref": "#/definitions/draftview.Response"
                         }
                     },
                     "400": {
@@ -27883,6 +27883,10 @@
                     "description": "Content is what the operator supplied, in the format spec_format\nnames. For a wsdl spec it is the WSDL, not the OpenAPI document the\ngateway serves, so the editor round-trips what was written.",
                     "type": "string"
                 },
+                "converted_from": {
+                    "description": "ConvertedFrom is \"swagger 2.0\" when an openapi spec's Content is a\nSwagger 2.0 document the platform converts to OpenAPI 3 on every save\nand refresh (#2005). Absent otherwise.",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -28415,6 +28419,75 @@
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "draftview.Response": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "log": {
+                    "description": "Log is what the run printed, bounded when it was captured.",
+                    "type": "string"
+                },
+                "log_truncated": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "description": "Message states what did and did not happen, because \"succeeded\" on a run\nthat deliberately wrote nothing is the sentence most likely to be\nmisread.",
+                    "type": "string"
+                },
+                "metrics": {
+                    "$ref": "#/definitions/script.RunMetrics"
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.DryRunOutput"
+                    }
+                },
+                "recording": {
+                    "description": "Recording is the run id a test replays this draft's recorded host\ncalls by, testing.replay(\"<recording>\"), absent when none was kept\n(#1939).",
+                    "type": "string"
+                },
+                "refused_write": {
+                    "description": "RefusedWrite is the call the write barrier stopped, absent when it\nstopped none. At most one: the refusal ends the run.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scriptrun.WriteRecord"
+                        }
+                    ]
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "state": {
+                    "description": "State is the object the source would have saved with\nplatform.save_state, absent when it saved none (#1537). The draft\npersists it no more than it persists an output.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "state_checkpoint": {
+                    "description": "StateCheckpoint is true when State is the run's last\nplatform.checkpoint rather than a save_state (#2003).",
+                    "type": "boolean"
+                },
+                "state_discarded": {
+                    "description": "StateDiscarded is the save_state of a draft that failed, which a\nplatform run would discard (#2002); absent otherwise.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "status": {
+                    "type": "string",
+                    "example": "succeeded"
+                },
+                "writes": {
+                    "description": "Writes lists the persisting platform.call calls the run made, empty\nunless it was run with allow_writes (#1664). Those calls landed, and this\nis the only place the response says so.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptrun.WriteRecord"
+                    }
                 }
             }
         },
@@ -34975,66 +35048,6 @@
                 }
             }
         },
-        "scripthttp.dryRunResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "log": {
-                    "description": "Log is what the run printed, bounded when it was captured.",
-                    "type": "string"
-                },
-                "log_truncated": {
-                    "type": "boolean"
-                },
-                "message": {
-                    "description": "Message states what did and did not happen, because \"succeeded\" on a run\nthat deliberately wrote nothing is the sentence most likely to be\nmisread.",
-                    "type": "string"
-                },
-                "metrics": {
-                    "$ref": "#/definitions/script.RunMetrics"
-                },
-                "outputs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/script.DryRunOutput"
-                    }
-                },
-                "recording": {
-                    "description": "Recording is the run id a test replays this draft's recorded host\ncalls by, testing.replay(\"<recording>\"), absent when none was kept\n(#1939).",
-                    "type": "string"
-                },
-                "refused_write": {
-                    "description": "RefusedWrite is the call the write barrier stopped, absent when it\nstopped none. At most one: the refusal ends the run.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/scriptrun.WriteRecord"
-                        }
-                    ]
-                },
-                "run_id": {
-                    "type": "string",
-                    "example": "run_a1b2c3d4"
-                },
-                "state": {
-                    "description": "State is the object the source would have saved with\nplatform.save_state, absent when it saved none (#1537). The draft\npersists it no more than it persists an output.",
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "status": {
-                    "type": "string",
-                    "example": "succeeded"
-                },
-                "writes": {
-                    "description": "Writes lists the persisting platform.call calls the run made, empty\nunless it was run with allow_writes (#1664). Those calls landed, and this\nis the only place the response says so.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/scriptrun.WriteRecord"
-                    }
-                }
-            }
-        },
         "scripthttp.metadataRequest": {
             "type": "object",
             "properties": {
@@ -35389,6 +35402,10 @@
                 },
                 "started_at": {
                     "type": "string"
+                },
+                "state_checkpoint": {
+                    "description": "StateCheckpoint marks state_written as the run's last checkpoint\nrather than a save_state (#2003).",
+                    "type": "boolean"
                 },
                 "state_read": {
                     "type": "object",

@@ -65,8 +65,8 @@ func TestNew_MemoryStore(t *testing.T) {
 	if h.Broadcaster() == nil {
 		t.Error("broadcaster must be non-nil after New")
 	}
-	if h.StatelessForced() {
-		t.Error("memory store must not force stateless mode")
+	if !h.StatelessForced() {
+		t.Error("the memory store runs the SDK stateless, so a 2026-07-28 client is served it (#2008)")
 	}
 	if h.SessionCache() != nil {
 		t.Error("cache must be nil until StartCache is called")

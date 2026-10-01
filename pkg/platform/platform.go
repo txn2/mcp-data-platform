@@ -392,7 +392,14 @@ func (p *Platform) initializeComponents(opts *Options) error {
 }
 
 // initDataInfra initializes the database and config store.
+//
+// The toolkit configuration is checked first: a connection the new release's
+// client refuses must fail startup before the migrations run, so the database
+// is left at a version the previous release can still start against (#2014).
 func (p *Platform) initDataInfra(opts *Options) error {
+	if err := registry.PreflightToolkits(p.config.Toolkits); err != nil {
+		return fmt.Errorf("toolkit configuration refused before any database migration ran: %w", err)
+	}
 	if err := p.initDatabase(); err != nil {
 		return err
 	}
@@ -1341,6 +1348,10 @@ func (p *Platform) initSessions(opts *Options) error {
 	ttl := p.config.Sessions.TTL
 	if ttl == 0 {
 		ttl = defaultSessionTimeout
+		// The session-aware HTTP handler reads the TTL from the config, so
+		// the default is written back: a session must not expire as it is
+		// made on a Config built without one (#2008).
+		p.config.Sessions.TTL = ttl
 	}
 	cleanupInterval := p.config.Sessions.CleanupInterval
 	if cleanupInterval == 0 {
@@ -3137,7 +3148,7 @@ func (p *Platform) mergeDBConnectionsIntoConfig() {
 	for _, inst := range instances {
 		stored = append(stored, toolkitcfg.StoredInstance{Kind: inst.Kind, Name: inst.Name, Config: inst.Config})
 	}
-	toolkitcfg.MergeStored(p.config.Toolkits, stored)
+	toolkitcfg.MergeStored(p.config.Toolkits, stored, registry.RefusedConnections)
 }
 
 // FileDefaults returns the original file-based config values for whitelisted keys.

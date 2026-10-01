@@ -13,6 +13,9 @@ type TestInputs struct {
 	Params map[string]any
 	State  map[string]any
 	Set    bool
+	// RemainingMS is what platform.remaining_ms returns for the rest of the
+	// test, nil to read the recording's values (#2004).
+	RemainingMS *int64
 }
 
 // runBinding is what "run" is bound to: the frozen record, or in a test whose

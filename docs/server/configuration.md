@@ -884,7 +884,7 @@ toolkits:
 | `host` | string | **required** | Trino coordinator hostname |
 | `port` | int | 8080 (443 if SSL) | Trino coordinator port |
 | `user` | string | **required** | Trino username |
-| `password` | string | - | Trino password (if auth enabled) |
+| `password` | string | - | Trino password (if auth enabled). A password is sent only over TLS: a connection with a password needs `ssl: true`, and startup refuses one without it before any database migration runs (`password authentication requires SSL`). A connection other than the default that sets no password inherits the default's, so it needs TLS too. The admin API refuses to save such a connection, and one already saved in the database is not loaded at startup: the platform logs it by name and serves the rest, and the connection is fixed or deleted in the admin API |
 | `catalog` | string | - | The Trino session catalog every query on this connection runs with, so a table named without a catalog resolves in it |
 | `schema` | string | - | The Trino session schema, used with `catalog`, so a table named without a schema resolves in it. A `CREATE TABLE t` on the connection creates `<catalog>.<schema>.t`. A connection other than the default that sets neither takes the default connection's, as it does every key it leaves unset; a fully qualified name is unaffected |
 | `ssl` | bool | `false` on the default connection, auto-detected on the others | Enable SSL/TLS. Omitting it on a non-default connection leaves the choice to the host: any host that is not `localhost` or `127.0.0.1` is assumed to be HTTPS on port 443. Write `ssl: false` to say plain HTTP explicitly |

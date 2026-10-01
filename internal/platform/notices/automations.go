@@ -44,6 +44,10 @@ type AutomationNotice struct {
 	Retryable bool   `json:"retryable"`
 	// Error is the failure's last line, which names what went wrong.
 	Error string `json:"error,omitempty"`
+	// Checkpoint is the state the failed run committed from its last
+	// platform.checkpoint, absent when it committed none (#2003): it failed
+	// after checkpointing through this.
+	Checkpoint map[string]any `json:"checkpoint,omitempty"`
 	// ConsecutiveFailures is how many finished runs in a row have failed.
 	ConsecutiveFailures int `json:"consecutive_failures"`
 	// FailedAt is when the failed run finished, RFC3339.
@@ -142,7 +146,7 @@ func automationNotice(sc script.Script, st runstate.FailureStreak, scheduled boo
 		Name: sc.Name, DisplayName: sc.DisplayName, Reference: reference("script", sc.ID),
 		Version: st.LastFailedVersion, RunID: st.LastFailedRunID,
 		Cause: st.LastCause, Retryable: runstate.CauseRetryable(st.LastCause),
-		Error: st.LastError, ConsecutiveFailures: st.Failed, Scheduled: scheduled,
+		Error: st.LastError, Checkpoint: st.LastCheckpoint, ConsecutiveFailures: st.Failed, Scheduled: scheduled,
 	}
 	if st.LastFailedAt != nil {
 		n.FailedAt = stamp(*st.LastFailedAt)

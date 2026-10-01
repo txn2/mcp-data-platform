@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -269,6 +270,9 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 		// where it was and a watermark never moves past work that did not
 		// happen.
 		out.result.State = result.State
+		// The checkpoint travels too: the store applies it however the run
+		// ends, unless a successful run's save_state replaces it (#2003).
+		out.result.Checkpoint = result.Checkpoint
 		out.result.Result = result.Return
 		out.result.Progress = result.Progress
 	}
@@ -329,7 +333,7 @@ func (r *runner) connect(
 		// (#1677). Empty until the platform has seen the author authenticate.
 		OnBehalfOfSub: subject,
 	})
-	caller, cleanup, err := scriptrun.Connect(serverCtx, r.server, "script-run")
+	caller, cleanup, err := scriptsession.Connect(serverCtx, r.server, "script-run")
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening the run's session: %w", err)
 	}

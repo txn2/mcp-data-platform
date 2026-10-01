@@ -116,6 +116,11 @@ describe("FormatBadge", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("marks an OpenAPI spec the platform converts from Swagger 2.0 (#2005)", () => {
+    render(<FormatBadge format="openapi" convertedFrom="swagger 2.0" />);
+    expect(screen.getByText("Swagger 2.0")).toBeInTheDocument();
+  });
+
   it("marks a WSDL spec so the one row that differs is findable", () => {
     render(<FormatBadge format="wsdl" />);
     expect(screen.getByText("WSDL")).toBeInTheDocument();

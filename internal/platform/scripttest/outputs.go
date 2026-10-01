@@ -25,9 +25,11 @@ type produced struct {
 	exports   []scriptrun.ExportRequest
 	publishes []scriptrun.PublishRequest
 	state     *script.StateWrite
-	replay    *scriptrec.Replay
-	live      *scriptlive.Live
-	declared  *declared
+	// checkpoint is the last platform.checkpoint the execution made (#2003).
+	checkpoint *script.StateWrite
+	replay     *scriptrec.Replay
+	live       *scriptlive.Live
+	declared   *declared
 	// reads records what the test reads of testing.outputs(); nil for an
 	// execution whose reads count for nothing.
 	reads *reads
@@ -45,7 +47,11 @@ func (p *produced) observe(v any) {
 	case scriptrun.PublishRequest:
 		p.publishes = append(p.publishes, v)
 	case *script.StateWrite:
-		p.state = v
+		if v.Checkpoint {
+			p.checkpoint = v
+		} else {
+			p.state = v
+		}
 	}
 }
 
@@ -111,7 +117,11 @@ func (p *produced) value() (starlark.Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	state, err := p.stateValue()
+	state, discarded, err := p.stateValues()
+	if err != nil {
+		return nil, err
+	}
+	checkpoint, err := writeValue(p.checkpoint, "checkpoint")
 	if err != nil {
 		return nil, err
 	}
@@ -121,16 +131,18 @@ func (p *produced) value() (starlark.Value, error) {
 	}
 	logText, _ := p.live.Log()
 	return &watched{typ: "outputs", fields: starlark.StringDict{
-		"exports":   starlark.NewList(exports),
-		"publishes": starlark.NewList(publishes),
-		"notifies":  starlark.NewList(notifies),
-		"calls":     starlark.NewList(calls),
-		"state":     state,
-		"result":    result,
-		"log":       starlark.String(logText),
+		"exports":         starlark.NewList(exports),
+		"publishes":       starlark.NewList(publishes),
+		"notifies":        starlark.NewList(notifies),
+		"calls":           starlark.NewList(calls),
+		"state":           state,
+		"state_discarded": discarded,
+		"checkpoint":      checkpoint,
+		"result":          result,
+		"log":             starlark.String(logText),
 	}, onAttr: func(name string) {
 		switch name {
-		case "state":
+		case "state", "state_discarded", "checkpoint":
 			p.reads.mark(stateID)
 		case "result":
 			p.reads.mark(resultID)
@@ -169,13 +181,30 @@ func (p *produced) calls() (calls, notifies []starlark.Value, err error) {
 	return calls, notifies, nil
 }
 
-func (p *produced) stateValue() (starlark.Value, error) {
-	if p.state == nil {
+// stateValues are what testing.outputs() reports of the save_state the
+// execution staged: as state when the run it stands for would save it, and as
+// state_discarded when the run failed, which a platform run's store discards
+// (#2002). A test asserting a failed run's state then fails unless it asserts
+// the discard, instead of passing on a state no real run ever writes.
+func (p *produced) stateValues() (state, discarded starlark.Value, err error) {
+	v, err := writeValue(p.state, "staged state")
+	if err != nil {
+		return nil, nil, err
+	}
+	if p.failures > 0 {
+		return starlark.None, v, nil
+	}
+	return v, starlark.None, nil
+}
+
+// writeValue is a staged state write as the test reads it, None for none.
+func writeValue(w *script.StateWrite, what string) (starlark.Value, error) {
+	if w == nil {
 		return starlark.None, nil
 	}
-	v, err := starlarkconv.ToStarlark(p.state.Value)
+	v, err := starlarkconv.ToStarlark(w.Value)
 	if err != nil {
-		return nil, fmt.Errorf("converting the staged state: %w", err)
+		return nil, fmt.Errorf("converting the %s: %w", what, err)
 	}
 	return v, nil
 }

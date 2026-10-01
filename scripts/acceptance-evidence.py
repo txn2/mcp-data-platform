@@ -273,11 +273,14 @@ def cmd_release(_args: argparse.Namespace) -> int:
     present are reported, because a ticket closed with an acceptance file that
     never changed is worth seeing.
     """
-    tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0"],
+    # The last RELEASE, not the last tag: a release candidate (vX.Y.Z-rcN) is
+    # a build being judged, and measuring from one would check only what
+    # changed since it (#2012).
+    tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0", "--exclude", "*-rc*"],
                          cwd=REPO_ROOT, capture_output=True, text=True)
     if tag.returncode != 0:
-        print("FAIL release acceptance gate: no tag to measure from "
-              "(git describe --tags --abbrev=0 found none).", file=sys.stderr)
+        print("FAIL release acceptance gate: no release tag to measure from "
+              "(git describe --tags --abbrev=0 --exclude '*-rc*' found none).", file=sys.stderr)
         return 1
     since = tag.stdout.strip()
 

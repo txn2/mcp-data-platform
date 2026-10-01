@@ -35,6 +35,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -388,7 +389,7 @@ func (r *Runner) connect(ctx context.Context, runID string, id Identity) (script
 		Roles:    id.Roles,
 		AuthType: id.AuthType,
 	})
-	caller, cleanup, err := scriptrun.Connect(serverCtx, r.server, clientLabel)
+	caller, cleanup, err := scriptsession.Connect(serverCtx, r.server, clientLabel)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening the draft's session: %w", err)
 	}

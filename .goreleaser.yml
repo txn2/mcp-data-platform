@@ -121,10 +121,12 @@ dockers_v2:
       - mcp-data-platform
     images:
       - ghcr.io/txn2/mcp-data-platform
+    # A release candidate (vX.Y.Z-rcN) is published under its own tag only:
+    # latest and v<major> move on a final release (#2012).
     tags:
-      - latest
+      - "{{ if not .Prerelease }}latest{{ end }}"
       - "{{ .Tag }}"
-      - "v{{ .Major }}"
+      - "{{ if not .Prerelease }}v{{ .Major }}{{ end }}"
     platforms:
       - linux/amd64
       - linux/arm64
@@ -155,6 +157,8 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
+    # The tap takes final releases only, never a release candidate (#2012).
+    skip_upload: auto
     homepage: https://github.com/txn2/mcp-data-platform
     description: Semantic data platform MCP server with bidirectional cross-enrichment
     license: Apache-2.0

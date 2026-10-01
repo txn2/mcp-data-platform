@@ -1,9 +1,14 @@
-package scriptrun
+package scriptsession
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -182,4 +187,75 @@ func TestSessionCaller_SendsTheCallSite(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, []string{"9:6", "22:20"}, scriptcallsite.FromMeta(got[0]))
 	assert.Nil(t, scriptcallsite.FromMeta(got[1]), "a call with no site sends none")
+}
+
+// TestRefusalError pins how a failed result becomes the error a Caller returns:
+// the envelope's code and interval are read as data, the text is the result's
+// own, and a result without the envelope is the plain error it always was.
+func TestRefusalError(t *testing.T) {
+	text := &mcp.TextContent{Text: "refused"}
+	cases := []struct {
+		name string
+		res  *mcp.CallToolResult
+		code string
+		wait time.Duration
+	}{
+		{"no structured content", &mcp.CallToolResult{Content: []mcp.Content{text}}, "", 0},
+		{"structured content without an envelope", &mcp.CallToolResult{
+			Content: []mcp.Content{text}, StructuredContent: map[string]any{"rows": []any{}},
+		}, "", 0},
+		{"an envelope without a code", &mcp.CallToolResult{
+			Content: []mcp.Content{text}, StructuredContent: map[string]any{"error": map[string]any{"message": "m"}},
+		}, "", 0},
+		{"an envelope naming no interval", &mcp.CallToolResult{
+			Content: []mcp.Content{text}, StructuredContent: map[string]any{"error": map[string]any{"code": "unauthorized"}},
+		}, "unauthorized", 0},
+		{"a rate-limit envelope", &mcp.CallToolResult{
+			Content: []mcp.Content{text},
+			StructuredContent: map[string]any{"error": map[string]any{
+				"code": "rate_limited", "retry_after_seconds": float64(3),
+			}},
+		}, "rate_limited", 3 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := refusalError(tc.res)
+			require.Error(t, err)
+			assert.Equal(t, "refused", err.Error(), "the text the author reads is the tool's own")
+			var refusal *RefusalError
+			if tc.code == "" {
+				assert.False(t, errors.As(err, &refusal), "no envelope, no typed refusal")
+				return
+			}
+			require.True(t, errors.As(err, &refusal))
+			assert.Equal(t, tc.code, refusal.Code)
+			assert.Equal(t, tc.wait, refusal.RetryAfter)
+		})
+	}
+}
+
+// TestSessionCaller_ReadsTheEnvelopeOverTheWire drives the production Caller
+// against a tool that refuses with BuildErrorResult, so the field the limiter
+// sets is proven to survive JSON and arrive as the refusal the engine paces on.
+func TestSessionCaller_ReadsTheEnvelopeOverTheWire(t *testing.T) {
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "refuse"},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			pe := middleware.NewToolError(toolratelimit.CodeRateLimited, "rate_limited", "too many calls", "pause")
+			pe.RetryAfterSeconds = 2
+			return middleware.BuildErrorResult(pe), nil, nil
+		})
+	caller, cleanup, err := Connect(ctx, server, "test")
+	require.NoError(t, err)
+	defer cleanup()
+
+	_, err = caller.CallTool(ctx, "refuse", nil)
+	require.Error(t, err)
+	var refusal *RefusalError
+	require.True(t, errors.As(err, &refusal))
+	assert.Equal(t, toolratelimit.CodeRateLimited, refusal.Code)
+	assert.Equal(t, 2*time.Second, refusal.RetryAfter)
+	assert.Contains(t, err.Error(), "too many calls")
+	assert.Contains(t, err.Error(), "code: rate_limited")
 }

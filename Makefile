@@ -47,7 +47,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-release acceptance-check acceptance-release-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -574,6 +574,11 @@ acceptance-release-check:
 ## posture-check: Fail when README/llms.txt engineering-posture claims go stale
 posture-check:
 	@./scripts/posture-check.sh
+
+## release-tag-check: Check a release tag against the release-candidate rules before pushing it (TAG=v1.139.0)
+release-tag-check:
+	@test -n "$(TAG)" || { echo "usage: make release-tag-check TAG=vX.Y.Z or TAG=vX.Y.Z-rcN"; exit 1; }
+	@python3 scripts/release-tag.py check "$(TAG)"
 
 ## release-check: Validate build, Docker, and release config
 release-check:

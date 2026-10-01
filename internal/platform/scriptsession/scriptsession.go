@@ -1,15 +1,27 @@
-package scriptrun
+// Package scriptsession is the production Caller a managed script's run
+// issues its platform calls through: one in-memory MCP session against the
+// fully assembled server, and the reading of a failed result as the refusal
+// the engine paces on (#1419). Extracted from internal/platform/scriptrun so
+// the engine holds the interpreter and its bindings, and the session plumbing
+// is visibly a second thing.
+package scriptsession
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 )
+
+// TextResultKey is the single field a tool result arrives under when the tool
+// returned no structured object: the text it produced, verbatim
+// (SessionCaller.CallTool).
+const TextResultKey = "text"
 
 // SessionCaller issues a script's platform calls over one in-memory MCP session
 // against the fully assembled server. It is the production Caller: every host
@@ -20,16 +32,9 @@ type SessionCaller struct {
 	session *mcp.ClientSession
 }
 
-// Connect opens an in-memory MCP session against server and returns the Caller
-// that drives it, plus the teardown for both ends.
-//
-// It returns the Caller interface rather than the concrete SessionCaller
-// because that is the whole of what a run does with it: both call sites hand
-// the result straight to Options.Caller. Naming the interface here is what
-// makes the relationship between the session plumbing and the engine legible —
-// implementing an interface is invisible in Go's reference graph, and a
-// SessionCaller nothing visibly connects to the engine reads as a second
-// package sharing an import path.
+// Connect opens an in-memory MCP session against server and returns the
+// SessionCaller that drives it, plus the teardown for both ends. Both call
+// sites hand it straight to scriptrun.Options.Caller.
 //
 // The identity the session authenticates as comes from ctx, which the caller
 // has already decorated: a draft run carries its author's own identity, a
@@ -37,7 +42,7 @@ type SessionCaller struct {
 // This function deliberately establishes no identity of its own — there is one
 // place a script's authority is decided, and it is not here. label names the
 // client in the handshake so the two run kinds are distinguishable in logs.
-func Connect(ctx context.Context, server *mcp.Server, label string) (Caller, func(), error) {
+func Connect(ctx context.Context, server *mcp.Server, label string) (*SessionCaller, func(), error) {
 	if server == nil {
 		return nil, nil, errors.New("script execution is unavailable on this deployment")
 	}
@@ -150,4 +155,49 @@ func textOf(res *mcp.CallToolResult) string {
 		}
 	}
 	return ""
+}
+
+// RefusalError is a tool call that failed with the platform's structured error
+// envelope ({code, category, message, hint, retry_after_seconds}), returned by
+// a Caller as the error so the engine can read the refusal as data. Its Error
+// text is what the script would have been handed before the envelope was read:
+// the result's own text, so a failure the engine does not absorb reaches the
+// author in the tool's words.
+//
+// The engine acts on exactly one code, toolratelimit.CodeRateLimited, and passes
+// every other refusal through unchanged.
+type RefusalError struct {
+	Code       string
+	RetryAfter time.Duration
+	// Text is the result's own text, what Error returns.
+	Text string
+}
+
+// Error returns the refusal's text as the tool wrote it.
+func (r *RefusalError) Error() string { return r.Text }
+
+// refusalError turns a failed tool result into the error a Caller returns: a
+// *RefusalError when the result carries the structured envelope, and a plain
+// error carrying the result's text when it does not (a tool that predates the
+// contract, or an upstream whose refusal was proxied verbatim).
+func refusalError(res *mcp.CallToolResult) error {
+	text := firstText(res)
+	sc, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		return errors.New(text)
+	}
+	env, ok := sc["error"].(map[string]any)
+	if !ok {
+		return errors.New(text)
+	}
+	code, _ := env["code"].(string)
+	if code == "" {
+		return errors.New(text)
+	}
+	refusal := &RefusalError{Code: code, Text: text}
+	// The envelope arrives decoded from JSON, so the integer is a float64.
+	if secs, ok := env["retry_after_seconds"].(float64); ok && secs > 0 {
+		refusal.RetryAfter = time.Duration(secs * float64(time.Second))
+	}
+	return refusal
 }

@@ -28,6 +28,10 @@ type FailureStreak struct {
 	LastFailedVersion int
 	LastFailedAt      *time.Time
 	LastCause         string
+	// LastCheckpoint is the state the newest failed run committed from its
+	// last platform.checkpoint, nil when it committed none (#2003): how far it
+	// got before it failed.
+	LastCheckpoint map[string]any
 	// LastSuccessAt is when the script's most recent successful run finished,
 	// nil when none has.
 	LastSuccessAt *time.Time

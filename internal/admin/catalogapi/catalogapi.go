@@ -598,9 +598,13 @@ type specResponse struct {
 	SourceKind string `json:"source_kind"`
 	// SpecFormat is what Content is: "openapi" or "wsdl".
 	SpecFormat string `json:"spec_format"`
-	SourceURL  string `json:"source_url,omitempty"`
-	ETag       string `json:"etag,omitempty"`
-	BasePath   string `json:"base_path,omitempty"`
+	// ConvertedFrom is "swagger 2.0" when an openapi spec's Content is a
+	// Swagger 2.0 document the platform converts to OpenAPI 3 on every save
+	// and refresh (#2005). Absent otherwise.
+	ConvertedFrom string `json:"converted_from,omitempty"`
+	SourceURL     string `json:"source_url,omitempty"`
+	ETag          string `json:"etag,omitempty"`
+	BasePath      string `json:"base_path,omitempty"`
 	// Title and Description are the operator-set per-spec summary
 	// overrides. Empty means "derive from the spec's info.title /
 	// info.description". See catalog.NormalizeSpecTitle /
@@ -1148,6 +1152,7 @@ func specToResponse(s apicatalog.SpecEntry, includeContent bool) specResponse {
 		SpecName:      s.SpecName,
 		SourceKind:    s.SourceKind,
 		SpecFormat:    s.Format(),
+		ConvertedFrom: s.ConvertedFrom(),
 		SourceURL:     s.SourceURL,
 		ETag:          s.ETag,
 		BasePath:      s.BasePath,

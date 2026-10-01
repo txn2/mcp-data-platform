@@ -20,6 +20,7 @@ internal/admin/catalogapi -> internal/httpjson
 internal/admin/catalogapi -> internal/logsan
 internal/admin/catalogapi -> internal/platform/storeresync
 internal/admin/catalogapi -> internal/soap
+internal/admin/catalogapi -> internal/swagger2
 internal/admin/catalogapi -> pkg/registry
 internal/admin/catalogapi -> pkg/toolkits/apigateway
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalog
@@ -224,7 +225,6 @@ internal/httpserver/scripthttp -> internal/platform/runcontrol
 internal/httpserver/scripthttp -> internal/platform/scriptbehavior
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
 internal/httpserver/scripthttp -> internal/platform/scriptgrant
-internal/httpserver/scripthttp -> internal/platform/scriptguard
 internal/httpserver/scripthttp -> internal/platform/scriptlib
 internal/httpserver/scripthttp -> internal/platform/scriptlint
 internal/httpserver/scripthttp -> internal/platform/scriptrun
@@ -237,6 +237,7 @@ internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/scripthttp -> pkg/session
 internal/httpserver/scripthttp/draftview -> internal/platform/exporttable
 internal/httpserver/scripthttp/draftview -> internal/platform/scriptdraft
+internal/httpserver/scripthttp/draftview -> internal/platform/scriptguard
 internal/httpserver/scripthttp/draftview -> internal/platform/scriptrun
 internal/httpserver/scripthttp/draftview -> internal/runstate
 internal/httpserver/scripthttp/draftview -> pkg/script
@@ -604,6 +605,7 @@ internal/platform/scriptcontract -> pkg/script
 internal/platform/scriptdraft -> internal/platform/scriptlib
 internal/platform/scriptdraft -> internal/platform/scriptrec
 internal/platform/scriptdraft -> internal/platform/scriptrun
+internal/platform/scriptdraft -> internal/platform/scriptsession
 internal/platform/scriptdraft -> internal/toolwrite
 internal/platform/scriptdraft -> pkg/middleware
 internal/platform/scriptdraft -> pkg/registry
@@ -619,6 +621,7 @@ internal/platform/scriptexec -> internal/platform/scriptlib
 internal/platform/scriptexec -> internal/platform/scriptlive
 internal/platform/scriptexec -> internal/platform/scriptrec
 internal/platform/scriptexec -> internal/platform/scriptrun
+internal/platform/scriptexec -> internal/platform/scriptsession
 internal/platform/scriptexec -> internal/platform/scriptstore
 internal/platform/scriptexec -> internal/portal/portaldomain
 internal/platform/scriptexec -> internal/producedby
@@ -707,6 +710,7 @@ internal/platform/scriptrun -> internal/platform/scriptlive
 internal/platform/scriptrun -> internal/platform/scriptout
 internal/platform/scriptrun -> internal/platform/scriptout/exportmeta
 internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
+internal/platform/scriptrun -> internal/platform/scriptsession
 internal/platform/scriptrun -> internal/platform/scriptsql
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/toolratelimit
@@ -730,6 +734,7 @@ internal/platform/scriptsave -> internal/platform/scriptrun
 internal/platform/scriptsave -> internal/platform/scripttest
 internal/platform/scriptsave -> internal/testreport
 internal/platform/scriptsave -> pkg/script
+internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsql -> internal/platform/starlarkconv
 internal/platform/scriptstore -> internal/libraryuse
 internal/platform/scriptstore -> internal/platform/scriptlib
@@ -819,6 +824,7 @@ internal/platform/thumbworker -> pkg/resource
 internal/platform/toolargs -> pkg/middleware
 internal/platform/toolinventory -> internal/logsan
 internal/platform/toolinventory -> pkg/registry
+internal/platform/toolkitcfg -> internal/logsan
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
 internal/platform/toolratelimit -> internal/logsan
@@ -1171,6 +1177,7 @@ pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
 pkg/platform -> internal/producedby
+pkg/platform -> internal/swagger2
 pkg/platform -> internal/toolnames
 pkg/platform -> internal/unarchive
 pkg/platform -> internal/webhook/whconfig
@@ -1187,6 +1194,7 @@ pkg/platform -> pkg/database/migrate
 pkg/platform -> pkg/embedding
 pkg/platform -> pkg/indexjobs
 pkg/platform -> pkg/knowledge
+pkg/platform -> pkg/mcpcontext
 pkg/platform -> pkg/memory
 pkg/platform -> pkg/middleware
 pkg/platform -> pkg/oauth
@@ -1343,6 +1351,7 @@ pkg/toolkits/apigateway -> pkg/query
 pkg/toolkits/apigateway -> pkg/semantic
 pkg/toolkits/apigateway -> pkg/toolkit
 pkg/toolkits/apigateway -> pkg/toolkits/apigateway/catalog
+pkg/toolkits/apigateway/catalog -> internal/swagger2
 pkg/toolkits/apigateway/catalogindex -> internal/logsan
 pkg/toolkits/apigateway/catalogindex -> pkg/indexjobs
 pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog

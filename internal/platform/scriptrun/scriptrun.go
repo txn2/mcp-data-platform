@@ -195,7 +195,7 @@ type Caller interface {
 // It is optional because it answers a question only a real session can answer,
 // and the engine works without it: a Caller that does not implement it leaves
 // every unclassified tool a write under the draft's barrier, which is the
-// barrier's own default. SessionCaller implements it.
+// barrier's own default. scriptsession.SessionCaller implements it.
 type ReadOnlyDeclarer interface {
 	// DeclaresReadOnly reports whether the tool is advertised with MCP's
 	// read-only annotation, and whether it is advertised at all.
@@ -520,6 +520,10 @@ type Result struct {
 	// and whether it is applied is the caller's decision — a platform run's
 	// store applies it when the run succeeds, a draft reports it.
 	State *script.StateWrite `json:"state,omitempty"`
+	// Checkpoint is the last platform.checkpoint, nil when the script made
+	// none (#2003). A platform run's store applies it when the run fails or
+	// is halted, and when it succeeds without a save_state.
+	Checkpoint *script.StateWrite `json:"checkpoint,omitempty"`
 	// Writes lists every platform.call the run made that the platform
 	// classifies as persisting something, in call order (#1664). It is the
 	// account a draft run with the write barrier lifted owes its author: those
@@ -619,6 +623,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		Queries:      host.queries,
 		Exports:      host.exports,
 		State:        host.state,
+		Checkpoint:   host.checkpointed,
 		Writes:       host.writes,
 		RefusedWrite: host.refused,
 		PeakMemory:   host.mem.Peak(),
@@ -708,6 +713,8 @@ func predeclared(host *hostState) starlark.StringDict {
 				"publish_data": starlark.NewBuiltin(CapabilityPublishData, host.guarded(host.publishData)),
 				"call":         starlark.NewBuiltin(CapabilityCall, host.guarded(host.call)),
 				"save_state":   starlark.NewBuiltin(CapabilitySaveState, host.guarded(host.saveState)),
+				"checkpoint":   starlark.NewBuiltin(CapabilityCheckpoint, host.guarded(host.checkpoint)),
+				"remaining_ms": starlark.NewBuiltin(CapabilityRemainingMS, host.guarded(host.remainingMS)),
 				"notify":       starlark.NewBuiltin(CapabilityNotify, host.guarded(host.notify)),
 				"publish":      starlark.NewBuiltin(CapabilityPublish, host.guarded(host.publish)),
 				"progress":     host.log.Bindings()["progress"],

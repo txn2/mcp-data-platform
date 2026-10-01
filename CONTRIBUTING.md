@@ -584,6 +584,35 @@ test is the gate.
 - Report security vulnerabilities via [SECURITY.md](SECURITY.md)
 - Follow secure coding practices
 
+## Releasing
+
+A release is cut as one or more release candidates and then a final tag on
+the same commit (#2012). A candidate is a build being judged, not a release.
+
+1. **Gate the candidate.** On the commit to release, run `make verify-release`
+   (CodeQL, mutation testing, and the acceptance suite with every ticket's
+   recorded run). The release gates measure from the last final release, never
+   from a candidate.
+2. **Tag the candidate.** `make release-tag-check TAG=v1.139.0-rc1`, then push
+   `v1.139.0-rc1`. The release workflow publishes it as a GitHub pre-release
+   and a Docker image tagged `v1.139.0-rc1` only. `latest` and `v1` do not
+   move, the Homebrew tap is not updated, and nothing is published to the MCP
+   Registry.
+3. **Run it on the staging deployment.** Upgrade staging to the candidate with
+   its real configuration and soak it. A problem is fixed on `main` and released
+   as the next candidate, `v1.139.0-rc2`, from step 1.
+4. **Tag the final release on the candidate's commit.**
+   `make release-tag-check TAG=v1.139.0` refuses a final tag on any commit other
+   than the one its latest candidate was built from, so nothing that merged after
+   the candidate reaches the release untested. Push `v1.139.0`. The workflow
+   runs the same check, publishes `latest`, `v1` and the Homebrew formula, and
+   writes the changelog against the previous final release, so it lists
+   everything since then, not only what changed since the candidate.
+5. **Write the release notes** against the final tag.
+
+An emergency release with no candidate is tagged annotated, with
+`release-without-rc` in its message; the check accepts it and nothing else.
+
 ## Getting Help
 
 - Open an issue for bugs or feature requests

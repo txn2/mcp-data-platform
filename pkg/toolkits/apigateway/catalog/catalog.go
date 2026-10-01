@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/txn2/mcp-data-platform/internal/swagger2"
 )
 
 // ErrNotFound is returned when a catalog or spec lookup misses.
@@ -183,6 +185,16 @@ func (s SpecEntry) Effective() string {
 		return s.OpenAPIContent
 	}
 	return s.Content
+}
+
+// ConvertedFrom names the format Content was converted from when the spec was
+// supplied as an OpenAPI spec in an older version (#2005): swagger2.ConvertedFrom
+// for a Swagger 2.0 document, and empty when Content is the document served.
+func (s SpecEntry) ConvertedFrom() string {
+	if s.Format() == FormatOpenAPI && s.OpenAPIContent != "" {
+		return swagger2.ConvertedFrom
+	}
+	return ""
 }
 
 // Format is the spec's format, resolving the empty value every row written

@@ -52,6 +52,10 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
                                    fetches one page per pass is not counted
     save-state-without-read        platform.save_state with no read of
                                    run.state
+    save-state-before-fail         a WARNING, never a refusal: fail() is
+                                   reached after platform.save_state, whose
+                                   state a failed run discards; record
+                                   progress with platform.checkpoint
     test-called                    the script calls one of its test_*
                                    functions, which only the test runner does
     test-module-outside-test       testing or assert used outside a test_*
@@ -335,7 +339,32 @@ WHAT IS AVAILABLE
       it, exports, and saves the new mark. After downtime the next fire reads
       where the last successful run stopped and needs no backfill.
       In a draft run this writes nothing and reports the state a platform run
-      would have saved.
+      would have saved; a draft that FAILED reports it as state_discarded,
+      because a platform run that fails discards it.
+  platform.checkpoint(state)  Record progress that is kept however the run
+      ends. Same object, 64 KiB limit and revision check as save_state, but
+      the platform commits the last checkpoint when the run FAILS or is
+      halted at its deadline too. On a successful run a save_state replaces
+      it, and a run that succeeds with no save_state commits it. Use it in an
+      incremental job that makes durable progress partway through -- rows
+      merged, files written -- so one late failure or the time limit does
+      not throw away the watermark for the work that landed:
+        for page in pages:
+            merge(page)
+            platform.checkpoint({"synced_through": page["end"]})
+      get_run reports state_checkpoint: true when the state a run saved is
+      its checkpoint, and a failing automation's notice carries the
+      checkpoint it got through.
+  platform.remaining_ms()  The milliseconds this run has before its
+      deadline, the run_timeout it is halted at. The way to budget a long
+      run: stop and checkpoint before the deadline instead of adding up
+      duration_ms, which leaves out exports, registrations, retry waits and
+      the interpreter's own time:
+        if platform.remaining_ms() < 60000:
+            platform.checkpoint({"synced_through": mark})
+            return
+      Each value is recorded with the run, so a test replays it exactly, and
+      testing.set_run(remaining_ms=) sets it in a test.
   platform.result(value)  Hand one JSON value back to whoever ran the script:
       run_script, get_run and the portal's run route return it as "result".
       Use it for a small answer -- the numbers a tile needs, the ids that
@@ -545,15 +574,20 @@ TESTS, AND WHAT A SAVE RUNS
   field of another type, or a nested key the tool never returns fails the
   test naming the field. Where the tool declares nothing the answer is not
   checked, and the test result says so in its notes. testing.set_run(state=,
-  params=) sets what run.state and run.params read for the rest of the test,
-  which is how a test reaches a branch that runs only when saved state is
-  present. A test naming no recording answers only what it declares, and
+  params=, remaining_ms=) sets what run.state, run.params and
+  platform.remaining_ms() read for the rest of the test, which is how a test
+  reaches a branch that runs only when saved state is present, or only when
+  the run is out of time. A test naming no recording answers only what it declares, and
   its exports are previewed. testing.outputs() is what the execution produced so
   far, written nowhere: exports (each with name, format, destination, key,
   columns, rows, row_count, body), publishes (name, data), notifies (each
   notify call's arguments), calls (every tool call: tool, args, error, and
   declared, true when a declared answer answered it), state (what save_state
-  staged, or None), result (platform.result, or None) and log. A row reads as
+  staged, or None; None too when the execution failed under assert.fails,
+  because a failed run's save_state is discarded), state_discarded (that
+  discarded save_state, or None), checkpoint (the last platform.checkpoint,
+  which is kept either way, or None), result (platform.result, or None) and
+  log. A row reads as
   a dict (row["region"], row.get("n"), items, keys, values) but is its own
   type: compare rows with assert.eq, which compares their contents, not ==.
   assert.eq(got, want, msg=""), assert.ne(got, other, msg=""),

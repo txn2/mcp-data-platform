@@ -788,7 +788,7 @@ func TestRobotsTxt(t *testing.T) {
 }
 
 func TestAwareHandlerWiring(t *testing.T) {
-	t.Run("not wired when stateless is false", func(t *testing.T) {
+	t.Run("the memory store is stateless too", func(t *testing.T) {
 		p := newTestPlatform(t, &platform.Config{
 			Server: platform.ServerConfig{
 				Name: "test",
@@ -801,12 +801,14 @@ func TestAwareHandlerWiring(t *testing.T) {
 
 		hcfg := extractHTTPConfig(p)
 
-		// SessionStore is non-nil (memory), but Stateless is false.
+		// The memory store forces the SDK stateless, behind the session-aware
+		// handler, so a 2026-07-28 client is served it rather than
+		// negotiated down (#2008).
 		if p.SessionStore() == nil {
 			t.Fatal("expected non-nil session store")
 		}
-		if hcfg.streamableCfg.Stateless {
-			t.Error("expected Stateless false for memory mode")
+		if !hcfg.streamableCfg.Stateless {
+			t.Error("expected Stateless true for memory mode")
 		}
 	})
 

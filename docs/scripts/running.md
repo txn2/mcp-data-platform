@@ -2067,6 +2067,73 @@ On success the run row records the state as written and the revision that
 produced (`state_written`, `state_revision_written`), so `get_run` explains
 the run from its own row.
 
+**Progress that survives a failure: `platform.checkpoint`.** An incremental
+pipeline that makes durable progress partway through -- rows merged into a
+warehouse, files written -- loses its watermark for all of that work when one
+late upstream page will not answer, or when the run reaches its time limit,
+because `save_state` is applied only on success. `platform.checkpoint(obj)`
+stages state the platform commits **however the run ends** (#2003):
+
+- the last checkpoint is committed when the run fails or is halted at its
+  deadline;
+- on a successful run a `save_state` replaces it, and a successful run with no
+  `save_state` commits its checkpoint;
+- it is the same object, the same 64 KiB limit and the same compare-and-set as
+  `save_state`. A failed run whose checkpoint loses the compare-and-set stays
+  failed for its own reason, the refusal said beside it.
+
+```python
+def main():
+    """Mirrors invoices past the watermark, checkpointing each page."""
+    cursor = run.state.get("cursor")
+    for _ in range(200):
+        if platform.remaining_ms() < 60000:
+            break
+        page = platform.call("api_invoke_endpoint", {
+            "connection": "billing",
+            "method": "GET",
+            "path": "/v1/invoices",
+            "query_params": {"limit": 5000, "cursor": cursor},
+        })
+        if page["status"] != 200:
+            fail("invoices answered HTTP %d" % page["status"])
+        platform.export(
+            name = "Invoices",
+            rows = page["body"]["data"],
+            format = "jsonl",
+            destination = "resources",
+            key = "billing/invoices.jsonl",
+            append = True,
+        )
+        cursor = page["body"].get("next_cursor")
+        platform.checkpoint({"cursor": cursor})
+        if not cursor:
+            break
+    platform.save_state({"cursor": cursor})
+```
+
+`get_run` reports `state_checkpoint: true` when the state a run saved is its
+checkpoint, the run page labels it **Checkpoint saved**, and a failing
+automation's notice carries the checkpoint the failed run got through
+(`checkpoint`).
+
+**A failed run's `save_state` is discarded, and the tools say so** (#2002).
+`run_draft` and the portal's dry run report a failed draft's `save_state` as
+`state_discarded`, not `state`. In a test, `testing.outputs().state` is `None`
+after `assert.fails(main)`, with the staged value under `state_discarded`, so
+a test cannot assert a state no real run ever writes, and
+`testing.outputs().checkpoint` is the last checkpoint. The save gate warns,
+without refusing the save, where a function reaches `fail()` after
+`platform.save_state` (`save-state-before-fail`).
+
+**Budgeting a long run: `platform.remaining_ms()`.** A run is halted at its
+`run_timeout`. A script has no clock, and adding up `duration_ms` from tool
+answers leaves out exports, table registrations, the host's retry waits and
+interpreter time. `platform.remaining_ms()` returns the milliseconds left
+before the deadline (#2004). Each value is recorded with the run the way a tool
+answer is, so a test replays exactly what the run read, and
+`testing.set_run(remaining_ms=10)` takes a test down the out-of-time branch.
+
 **Two runs, one revision.** The schedule overlap policy already keeps two fires
 of one schedule from running at once. A `run_script` call during a scheduled
 run, or a reclaimed run whose predecessor is still winding down, can both read

@@ -208,7 +208,23 @@ const FORMAT_BADGES: Record<string, { label: string; title: string }> = {
 // OpenAPI renders nothing at all: it is the overwhelming majority and the
 // default, and a badge on every row would be noise that makes the one row that
 // differs harder to find rather than easier.
-export function FormatBadge({ format }: { format?: APICatalogSpec["spec_format"] }) {
+export function FormatBadge({
+  format,
+  convertedFrom,
+}: {
+  format?: APICatalogSpec["spec_format"];
+  convertedFrom?: string;
+}) {
+  if (convertedFrom === "swagger 2.0") {
+    return (
+      <Badge
+        variant="warning"
+        title="Stored as Swagger 2.0 and served as the OpenAPI 3 document the platform converts it to. Refresh re-converts."
+      >
+        <FileText aria-hidden /> Swagger 2.0
+      </Badge>
+    );
+  }
   if (!format || format === "openapi") return null;
   // A format the backend adds later is badged by its own name rather than by
   // whichever entry happens to be first here.

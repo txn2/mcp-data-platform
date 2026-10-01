@@ -150,7 +150,7 @@ export function SpecList({
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <SourceBadge kind={s.source_kind} url={s.source_url} />
-                    <FormatBadge format={s.spec_format} />
+                    <FormatBadge format={s.spec_format} convertedFrom={s.converted_from} />
                   </div>
                 </TableCell>
                 <TableCell>

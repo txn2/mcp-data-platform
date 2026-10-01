@@ -201,6 +201,12 @@ func runResult(sc *script.Script, run *script.Run) map[string]any {
 	if run.StateWritten != nil {
 		out["state_written"] = run.StateWritten
 		out["state_revision_written"] = run.StateRevisionWritten
+		if run.StateCheckpoint {
+			// The state saved is the run's last checkpoint (#2003): what it
+			// got through before it failed, was halted, or finished without a
+			// save_state.
+			out["state_checkpoint"] = true
+		}
 	}
 	// The value the run handed back with platform.result (#1845), which is
 	// what a caller running a script for an answer came for.

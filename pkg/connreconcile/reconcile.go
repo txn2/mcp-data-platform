@@ -138,6 +138,20 @@ func (r *Reconciler) Adopt(kind, name string, config map[string]any) []Failure {
 	return failures
 }
 
+// Validate reports the first refusal of a connection's configuration by a live
+// toolkit of kind that can judge one (toolkit.ConnectionValidator), without
+// changing anything. Nil when none refuses it.
+func (r *Reconciler) Validate(kind, name string, config map[string]any) error {
+	for _, cm := range r.managers(kind) {
+		if v, ok := cm.(toolkit.ConnectionValidator); ok {
+			if err := v.ValidateConnection(name, config); err != nil {
+				return err //nolint:wrapcheck // the toolkit's refusal names the connection and the fix
+			}
+		}
+	}
+	return nil
+}
+
 // upsertOne applies one connection change to one toolkit.
 func upsertOne(cm toolkit.ConnectionManager, name string, config map[string]any) (failure Failure, ok bool) {
 	if cm.HasConnection(name) {

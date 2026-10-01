@@ -226,11 +226,24 @@ export function DryRunReport({ result }: { result: ScriptDryRun }) {
       {result.state && (
         <div className="space-y-1 text-xs">
           <p className="text-muted-foreground">
-            Would save this state for the next run to read (a dry run saves
-            nothing):
+            {result.state_checkpoint
+              ? "Would save this checkpoint for the next run to read (a dry run saves nothing):"
+              : "Would save this state for the next run to read (a dry run saves nothing):"}
           </p>
           <pre className="max-h-40 overflow-auto rounded-md bg-muted p-2 font-mono">
             {JSON.stringify(result.state, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      {result.state_discarded && (
+        <div className="space-y-1 text-xs">
+          <p className="text-muted-foreground">
+            The run failed, so a platform run would discard this save_state; only a
+            platform.checkpoint is kept when a run fails:
+          </p>
+          <pre className="max-h-40 overflow-auto rounded-md bg-muted p-2 font-mono">
+            {JSON.stringify(result.state_discarded, null, 2)}
           </pre>
         </div>
       )}
