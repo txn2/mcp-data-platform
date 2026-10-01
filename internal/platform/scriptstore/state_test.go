@@ -144,7 +144,7 @@ func TestFinish_AppliesStagedStateInTheSuccessTransaction(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(int64(3)))
 	mock.ExpectExec(regexp.QuoteMeta("state_written = $9, state_revision_written = $10")).
 		WithArgs("dpx_1", "worker-a", 1, script.RunStatusSucceeded, "", "", false, sqlmock.AnyArg(),
-			[]byte(`{"synced_through":"2026-08-28"}`), int64(3), nil, "", nil, nil, nil, "").
+			[]byte(`{"synced_through":"2026-08-28"}`), int64(3), nil, "", nil, nil, nil, "", false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
@@ -173,7 +173,7 @@ func TestFinish_ARefusedStateWriteFailsTheRunNamingTheWriter(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(stateSelectColumns).AddRow(stateRow(3)...))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
 		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, sqlmock.AnyArg(), "", false, sqlmock.AnyArg(), nil, nil,
-			nil, "", nil, nil, nil, runstate.CauseStateConflict).
+			nil, "", nil, nil, nil, runstate.CauseStateConflict, false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -192,7 +192,7 @@ func TestFinish_AFailedRunNeverTouchesTheState(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
 		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "", false, sqlmock.AnyArg(), nil, nil,
-			nil, "", nil, nil, nil, runstate.CauseScript).
+			nil, "", nil, nil, nil, runstate.CauseScript, false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -407,4 +407,67 @@ func TestLatestDryRun_ReadsTheStateWritten(t *testing.T) {
 	_, err = s.LatestDryRun(context.Background(), "script_1", script.SourceDigest("x = 1\n"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode dry-run state")
+}
+
+// TestFinish_AFailedRunCommitsItsCheckpoint is #2003: a run that failed after
+// platform.checkpoint commits the checkpoint under the same revision check as
+// a save_state, keeps its failure, and records that the state is a checkpoint.
+func TestFinish_AFailedRunCommitsItsCheckpoint(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT script_id, state_revision FROM script_runs")).
+		WillReturnRows(sqlmock.NewRows([]string{"script_id", "state_revision"}).AddRow("script_1", int64(2)))
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_state.revision = $4")).
+		WithArgs("script_1", []byte(`{"through":"07:00"}`), "dpx_1", int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(int64(3)))
+	mock.ExpectExec(regexp.QuoteMeta("state_checkpoint = $17")).
+		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "page 9 would not answer", "", false, sqlmock.AnyArg(),
+			[]byte(`{"through":"07:00"}`), int64(3), nil, "", nil, nil, nil, runstate.CauseUpstream, true).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, s.Finish(context.Background(), testLease, script.RunResult{
+		Status: script.RunStatusFailed, Error: "page 9 would not answer", Cause: runstate.CauseUpstream,
+		State:      &script.StateWrite{Value: map[string]any{"through": "09:00"}},
+		Checkpoint: &script.StateWrite{Value: map[string]any{"through": "07:00"}, Checkpoint: true},
+	}))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestFinish_ARefusedCheckpointKeepsTheRunsOwnFailure holds that a failed
+// run whose checkpoint loses the revision check stays failed for its own
+// reason, the refusal said beside it.
+func TestFinish_ARefusedCheckpointKeepsTheRunsOwnFailure(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT script_id, state_revision FROM script_runs")).
+		WillReturnRows(sqlmock.NewRows([]string{"script_id", "state_revision"}).AddRow("script_1", int64(2)))
+	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_state.revision = $4")).
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}))
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_state WHERE script_id = $1")).
+		WillReturnRows(sqlmock.NewRows(stateSelectColumns).AddRow(stateRow(3)...))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
+		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, sqlmock.AnyArg(), "", false, sqlmock.AnyArg(), nil, nil,
+			nil, "", nil, nil, nil, runstate.CauseScript, false).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, s.Finish(context.Background(), testLease, script.RunResult{
+		Status: script.RunStatusFailed, Error: "deadline", Cause: runstate.CauseScript,
+		Checkpoint: &script.StateWrite{Value: map[string]any{"through": "07:00"}, Checkpoint: true},
+	}))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCommittedState(t *testing.T) {
+	saved := &script.StateWrite{Value: map[string]any{"a": 1}}
+	cp := &script.StateWrite{Value: map[string]any{"a": 0}, Checkpoint: true}
+	assert.Same(t, saved, committedState(script.RunResult{Status: script.RunStatusSucceeded, State: saved, Checkpoint: cp}),
+		"a successful run's save_state replaces its checkpoint")
+	assert.Same(t, cp, committedState(script.RunResult{Status: script.RunStatusSucceeded, Checkpoint: cp}))
+	assert.Same(t, cp, committedState(script.RunResult{Status: script.RunStatusFailed, State: saved, Checkpoint: cp}),
+		"a failed run's save_state is never applied")
+	assert.Nil(t, committedState(script.RunResult{Status: script.RunStatusFailed, State: saved}))
 }

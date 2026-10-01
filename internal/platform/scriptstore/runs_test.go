@@ -25,7 +25,7 @@ var runSelectColumns = []string{
 	"schedule_id", "state_revision", "state_read", "state_written", "state_revision_written",
 	"result", "progress_message", "progress_done", "progress_total", "progress_at",
 	"cancel_requested_at", "cancel_requested_by", "reclaims", "attempts", "claimed_at",
-	"heartbeat_at", "failure_cause", "created_at", "updated_at",
+	"heartbeat_at", "failure_cause", "created_at", "updated_at", "state_checkpoint",
 }
 
 // Positions in runSelectColumns the tests below set.
@@ -50,7 +50,7 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		nil, "worker-a", "", "", false, []byte(`{"steps":10}`), outputs,
 		"", int64(0), []byte("{}"), nil, nil,
 		nil, "", nil, nil, nil, nil, "", 0, []byte("[]"), nil,
-		nil, "", rowTime, rowTime,
+		nil, "", rowTime, rowTime, false,
 	}
 }
 
@@ -403,7 +403,7 @@ func TestFinish_WritesTheResultAndWakesWaiters(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs")).
 		WithArgs("dpx_1", "worker-a", 1, script.RunStatusFailed, "boom", "log line", false, sqlmock.AnyArg(), nil, nil,
-			nil, "", nil, nil, nil, runstate.CauseScript).
+			nil, "", nil, nil, nil, runstate.CauseScript, false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(regexp.QuoteMeta("SELECT pg_notify")).
 		WithArgs(NotifyChannel, "dpx_1").WillReturnResult(sqlmock.NewResult(0, 1))

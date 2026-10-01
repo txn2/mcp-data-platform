@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/draftview"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -122,6 +124,6 @@ func TestPortalValidateSource_ReportsTheTestsAndTheDifferences(t *testing.T) {
 
 // A dry run names the recording a test replays it by (#1939).
 func TestDraftOutcome_NamesTheRecording(t *testing.T) {
-	assert.Equal(t, "dpx_1", draftOutcome(&scriptdraft.Outcome{RunID: "dpx_1", Recorded: true}).Recording)
-	assert.Empty(t, draftOutcome(&scriptdraft.Outcome{RunID: "dpx_1"}).Recording)
+	assert.Equal(t, "dpx_1", draftview.Of(&scriptdraft.Outcome{RunID: "dpx_1", Recorded: true}).Recording)
+	assert.Empty(t, draftview.Of(&scriptdraft.Outcome{RunID: "dpx_1"}).Recording)
 }

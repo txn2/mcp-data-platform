@@ -3873,7 +3873,7 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 			},
 			connectionStore: &mockConnectionStoreForTest{
 				instances: []ConnectionInstance{
-					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local", "user": "svc"}},
 				},
 			},
 		}
@@ -4032,7 +4032,7 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 			},
 			connectionStore: &mockConnectionStoreForTest{
 				instances: []ConnectionInstance{
-					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local", "user": "svc"}},
 				},
 			},
 		}
@@ -4164,7 +4164,7 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 			},
 			connectionStore: &mockConnectionStoreForTest{
 				instances: []ConnectionInstance{
-					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local", "user": "svc"}},
 				},
 			},
 		}
@@ -4191,7 +4191,7 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 			config: &Config{}, // Toolkits intentionally nil
 			connectionStore: &mockConnectionStoreForTest{
 				instances: []ConnectionInstance{
-					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local", "user": "svc"}},
 				},
 			},
 		}
@@ -4224,7 +4224,7 @@ func TestMergeDBConnectionsIntoConfig(t *testing.T) {
 			connectionStore: &mockConnectionStoreForTest{
 				persistent: &falsePtr,
 				instances: []ConnectionInstance{
-					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local"}},
+					{Kind: "trino", Name: "prod", Config: map[string]any{"host": "trino.local", "user": "svc"}},
 					{Kind: kindMCP, Name: "vendor", Config: map[string]any{"endpoint": "x"}},
 				},
 			},

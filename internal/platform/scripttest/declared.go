@@ -147,13 +147,26 @@ func (d *declared) hold(tool string, args, out map[string]any) error {
 	return nil
 }
 
-// setRunBuiltin is testing.set_run(params=None, state=None): what run.params
-// and run.state read for the rest of the test, in place of the recording's.
+// setRunBuiltin is testing.set_run(params=None, state=None, remaining_ms=None):
+// what run.params and run.state read for the rest of the test, in place of the
+// recording's, and what platform.remaining_ms() returns (#2004).
 func setRunBuiltin(in *scriptrun.TestInputs) *starlark.Builtin {
 	return starlark.NewBuiltin("testing.set_run", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var params, state *starlark.Dict
-		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "params?", &params, "state?", &state); err != nil {
+		remaining := starlark.Value(starlark.None)
+		if err := starlark.UnpackArgs(b.Name(), args, kwargs, "params?", &params, "state?", &state, "remaining_ms?", &remaining); err != nil {
 			return nil, err //nolint:wrapcheck // the interpreter's message names the builtin
+		}
+		if remaining != starlark.None {
+			n, ok := remaining.(starlark.Int)
+			ms, exact := n.Int64()
+			if !ok || !exact || ms < 0 {
+				return nil, fmt.Errorf("in %s: remaining_ms is a whole number of milliseconds, 0 or more", b.Name())
+			}
+			in.RemainingMS = &ms
+			if params == nil && state == nil {
+				return starlark.None, nil
+			}
 		}
 		var err error
 		if params != nil {

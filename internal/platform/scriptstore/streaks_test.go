@@ -19,14 +19,14 @@ func TestFailureStreaks_CountsNewestFirst(t *testing.T) {
 	success := time.Date(2026, 9, 26, 16, 0, 0, 0, time.UTC)
 	failedAt := success.Add(3 * time.Hour)
 	mock.ExpectQuery(regexp.QuoteMeta(failureStreaksQuery)).WillReturnRows(
-		sqlmock.NewRows([]string{"script_id", "id", "version", "status", "failure_cause", "finished_at", "last_line", "last_success"}).
-			AddRow("a", "r6", 6, "failed", "upstream", failedAt, "E: 500", success).
-			AddRow("a", "r5", 1, "failed", "", nil, "E: 500", success).
-			AddRow("a", "r4", 1, "failed", "", nil, "E: bad row", success).
-			AddRow("a", "r3", 1, "failed", "", nil, "E: 500", success).
-			AddRow("a", "r2", 1, "succeeded", "", nil, nil, success).
-			AddRow("a", "r1", 1, "failed", "", nil, "E: older", success).
-			AddRow("b", "r7", 1, "succeeded", "", nil, nil, nil))
+		sqlmock.NewRows([]string{"script_id", "id", "version", "status", "failure_cause", "finished_at", "last_line", "last_success", "checkpoint"}).
+			AddRow("a", "r6", 6, "failed", "upstream", failedAt, "E: 500", success, []byte(`{"through":"07:00"}`)).
+			AddRow("a", "r5", 1, "failed", "", nil, "E: 500", success, nil).
+			AddRow("a", "r4", 1, "failed", "", nil, "E: bad row", success, nil).
+			AddRow("a", "r3", 1, "failed", "", nil, "E: 500", success, nil).
+			AddRow("a", "r2", 1, "succeeded", "", nil, nil, success, nil).
+			AddRow("a", "r1", 1, "failed", "", nil, "E: older", success, nil).
+			AddRow("b", "r7", 1, "succeeded", "", nil, nil, nil, nil))
 
 	got, err := New(db).FailureStreaks(context.Background(), []string{"a", "b"})
 	require.NoError(t, err)
@@ -38,6 +38,7 @@ func TestFailureStreaks_CountsNewestFirst(t *testing.T) {
 	assert.Equal(t, failedAt, *got["a"].LastFailedAt)
 	assert.Equal(t, 6, got["a"].LastFailedVersion)
 	assert.Equal(t, "upstream", got["a"].LastCause)
+	assert.Equal(t, map[string]any{"through": "07:00"}, got["a"].LastCheckpoint, "the newest failure committed a checkpoint")
 	assert.Zero(t, got["b"].Failed)
 	assert.Nil(t, got["b"].LastSuccessAt)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -57,8 +58,8 @@ func TestFailureStreaks_Failures(t *testing.T) {
 		},
 		"iterate": func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(regexp.QuoteMeta(failureStreaksQuery)).WillReturnRows(
-				sqlmock.NewRows([]string{"script_id", "id", "version", "status", "failure_cause", "finished_at", "last_line", "last_success"}).
-					AddRow("a", "r1", 1, "failed", "", nil, "x", nil).RowError(0, errors.New("broken")))
+				sqlmock.NewRows([]string{"script_id", "id", "version", "status", "failure_cause", "finished_at", "last_line", "last_success", "checkpoint"}).
+					AddRow("a", "r1", 1, "failed", "", nil, "x", nil, nil).RowError(0, errors.New("broken")))
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
@@ -28,6 +29,7 @@ type Info struct {
 	Tags                []string          `json:"tags,omitempty"`
 	SessionID           string            `json:"session_id,omitempty"`
 	SessionExpiresAt    string            `json:"session_expires_at,omitempty"`
+	ProtocolVersion     string            `json:"protocol_version,omitempty"`
 	AgentInstructions   string            `json:"agent_instructions,omitempty"`
 	Toolkits            []string          `json:"toolkits"`
 	ToolkitDescriptions map[string]string `json:"toolkit_descriptions,omitempty"`
@@ -196,7 +198,7 @@ func (p *Platform) collectToolkits() (names []string, descriptions map[string]st
 }
 
 // handleInfo handles the platform_info tool call.
-func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
+func (p *Platform) handleInfo(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
 	toolkits, toolkitDescriptions := p.collectToolkits()
 
 	// Prepend "platform" — always-present toolkit for platform_info, list_connections, etc.
@@ -276,6 +278,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		Tags:                    p.config.Server.Tags,
 		SessionID:               sessionID,
 		SessionExpiresAt:        sessionExpiresAt,
+		ProtocolVersion:         mcpcontext.ProtocolVersion(req),
 		AgentInstructions:       agentInstructions,
 		Toolkits:                toolkits,
 		ToolkitDescriptions:     toolkitDescriptions,

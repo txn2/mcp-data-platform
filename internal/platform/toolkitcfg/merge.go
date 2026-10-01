@@ -1,6 +1,10 @@
 package toolkitcfg
 
-import "log/slog"
+import (
+	"log/slog"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+)
 
 // Config schema key for the per-kind enable flag.
 const keyEnabled = "enabled"
@@ -173,7 +177,8 @@ var storedKinds = map[string]bool{"trino": true, "s3": true, "mcp": true, "api":
 //
 // A connection the file already declares under the same name is left alone by
 // MergeInstance: the file is what this process runs on.
-func MergeStored(toolkits map[string]any, instances []StoredInstance) {
+func MergeStored(toolkits map[string]any, instances []StoredInstance, refused Refusals) {
+	declared := Declared(toolkits)
 	PinDeclaredDefaults(toolkits)
 	for _, kind := range dynamicKinds {
 		AutoEnableKind(toolkits, kind)
@@ -186,5 +191,41 @@ func MergeStored(toolkits map[string]any, instances []StoredInstance) {
 		// effect: MergeInstance is a no-op on a kind that is absent or off.
 		AutoEnableKind(toolkits, inst.Kind)
 		MergeInstance(toolkits, inst.Kind, inst.Name, inst.Config)
+	}
+	dropRefused(toolkits, instances, declared, refused)
+}
+
+// Refusals reports, by kind and connection name, each connection in a toolkit
+// configuration its client would refuse to open (registry.RefusedConnections).
+type Refusals func(toolkits map[string]any) map[string]map[string]error
+
+// dropRefused takes each stored connection its client refuses back out of the
+// configuration (#2014). Left in, one would fail its whole toolkit at start,
+// after the database was migrated: every Trino connection, and the admin UI
+// that could fix the stored one, would be down. It is logged naming the
+// connection and the fix, and stays in the store, where the admin API lists,
+// fixes and deletes it. A connection the file declares is the file's, and was
+// refused before the database was touched.
+func dropRefused(toolkits map[string]any, instances []StoredInstance, declared DeclaredConnections, refused Refusals) {
+	if refused == nil {
+		return
+	}
+	byKind := refused(toolkits)
+	for _, inst := range instances {
+		err := byKind[inst.Kind][inst.Name]
+		if err == nil || declared.Has(inst.Kind, inst.Name) {
+			continue
+		}
+		kindMap, _ := toolkits[inst.Kind].(map[string]any)
+		held, _ := kindMap["instances"].(map[string]any)
+		delete(held, inst.Name)
+		if kindMap["default"] == inst.Name {
+			delete(kindMap, "default")
+		}
+		if len(held) == 0 {
+			kindMap["enabled"] = false
+		}
+		slog.Error("a stored connection its client refuses was not loaded; fix or delete it in the admin API",
+			"kind", inst.Kind, "name", logsan.SanitizeForLog(inst.Name), "error", logsan.SanitizeForLog(err.Error()))
 	}
 }

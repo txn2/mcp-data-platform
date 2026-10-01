@@ -7,7 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -51,4 +53,54 @@ func TestHandle_DraftExports(t *testing.T) {
 		exports(scriptdraft.Target{})
 	}
 	assert.True(t, called, "the writer handed out is the one the layer was given")
+}
+
+// TestDraftResult_State reports what a platform run would commit and what it
+// would discard (#2002, #2003): a failed draft's save_state is not its state.
+func TestDraftResult_State(t *testing.T) {
+	sc := &script.Script{ID: "sc_1", Name: "ingest"}
+	failed := draftResult(sc, &scriptdraft.Outcome{RunID: "r1", Err: errors.New("boom"), Result: &scriptrun.Result{
+		State:      &script.StateWrite{Value: map[string]any{"through": 9}},
+		Checkpoint: &script.StateWrite{Value: map[string]any{"through": 4}, Checkpoint: true},
+	}})
+	assert.Equal(t, map[string]any{"through": 4}, failed["state"])
+	assert.Equal(t, true, failed["state_checkpoint"])
+	assert.Equal(t, map[string]any{"through": 9}, failed["state_discarded"])
+
+	saved := draftResult(sc, &scriptdraft.Outcome{RunID: "r2", Result: &scriptrun.Result{
+		State: &script.StateWrite{Value: map[string]any{"through": 9}},
+	}})
+	assert.Equal(t, map[string]any{"through": 9}, saved["state"])
+	assert.NotContains(t, saved, "state_checkpoint")
+	assert.NotContains(t, saved, "state_discarded")
+}
+
+// TestRunResult_Checkpoint marks a run's saved state as its checkpoint.
+func TestRunResult_Checkpoint(t *testing.T) {
+	sc := &script.Script{ID: "sc_1", Name: "ingest"}
+	run := &script.Run{
+		ID: "run_1", Status: script.RunStatusFailed,
+		StateWritten: map[string]any{"through": 4}, StateRevisionWritten: 3, StateCheckpoint: true,
+	}
+	out := runResult(sc, run)
+	assert.Equal(t, true, out["state_checkpoint"])
+	assert.Equal(t, map[string]any{"through": 4}, out["state_written"])
+
+	run.StateCheckpoint = false
+	assert.NotContains(t, runResult(sc, run), "state_checkpoint")
+}
+
+// TestAddGateNotes_Warnings hands the author what the lint warned about on a
+// save it went through with.
+func TestAddGateNotes_Warnings(t *testing.T) {
+	out := map[string]any{}
+	addGateNotes(out, "src", scriptsave.Result{Lint: scriptlint.Result{
+		Source:   "src",
+		Warnings: []scriptrun.Finding{{Rule: scriptlint.RuleStateDiscardedOnFail, Line: 3}},
+	}})
+	assert.Len(t, out["warnings"], 1)
+
+	none := map[string]any{}
+	addGateNotes(none, "src", scriptsave.Result{Lint: scriptlint.Result{Source: "src"}})
+	assert.NotContains(t, none, "warnings")
 }

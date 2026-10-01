@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/swagger2"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
@@ -195,5 +196,46 @@ func TestPrepareSpecNamesTheOtherFormatWhenTheContentIsNotAWSDL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "set spec_format to openapi") {
 		t.Errorf("error = %q, want it to name the format to use instead", err)
+	}
+}
+
+// specFormatSwagger2 is a Swagger 2.0 document as swaggo/swag emits one.
+const specFormatSwagger2 = `{"swagger":"2.0","info":{"title":"Orders","version":"1"},"basePath":"/api/v1",
+"paths":{"/orders":{"get":{"operationId":"listOrders","responses":{"200":{"description":"ok"}}}}}}`
+
+// TestPrepareSpecConvertsASwagger2Document is #2005: a Swagger 2.0 document
+// saved as an openapi spec is stored as supplied and served as the OpenAPI 3
+// the platform converts it to; a refresh to an OpenAPI 3 document drops the
+// conversion; and a 2.0 document that cannot be converted is refused.
+func TestPrepareSpecConvertsASwagger2Document(t *testing.T) {
+	t.Parallel()
+	entry := apicatalog.SpecEntry{SpecName: "orders", Content: specFormatSwagger2, SourceKind: apicatalog.SourceInline}
+	if err := prepareSpec(&entry); err != nil {
+		t.Fatalf("prepareSpec: %v", err)
+	}
+	if entry.Content != specFormatSwagger2 {
+		t.Error("the supplied 2.0 document was not kept as content")
+	}
+	if !strings.Contains(entry.Effective(), `"openapi":"3.0`) || entry.ConvertedFrom() != swagger2.ConvertedFrom {
+		t.Errorf("the served document is not the conversion: %q", entry.Effective())
+	}
+	if entry.OperationCount != 1 {
+		t.Errorf("operation_count = %d, want 1", entry.OperationCount)
+	}
+	if entry.BasePath != "" {
+		t.Errorf("base_path = %q; the basePath travels in the converted servers, not the operator's override", entry.BasePath)
+	}
+	if view := specToResponse(entry, false); view.ConvertedFrom != "swagger 2.0" {
+		t.Errorf("the view reports converted_from %q", view.ConvertedFrom)
+	}
+
+	entry.Content = specFormatOpenAPI
+	if err := prepareSpec(&entry); err != nil || entry.OpenAPIContent != "" || entry.ConvertedFrom() != "" {
+		t.Errorf("a refresh to OpenAPI 3 kept the conversion: %v %q", err, entry.OpenAPIContent)
+	}
+
+	bad := apicatalog.SpecEntry{SpecName: "bad", Content: `{"swagger":"2.0","paths":"no"}`}
+	if err := prepareSpec(&bad); err == nil || !strings.Contains(err.Error(), "Swagger 2.0") {
+		t.Errorf("an unconvertible 2.0 document: %v", err)
 	}
 }

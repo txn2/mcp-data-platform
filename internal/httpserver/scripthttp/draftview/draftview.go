@@ -8,6 +8,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -95,4 +96,88 @@ func Outputs(outcome *scriptdraft.Outcome) []script.DryRunOutput {
 		out = append(out, o)
 	}
 	return out
+}
+
+// Response is one draft execution as the editor reports it. A failed run
+// answers with the same fields a successful one does: the log is the whole
+// reason to have run it.
+type Response struct {
+	RunID  string `json:"run_id" example:"run_a1b2c3d4"`
+	Status string `json:"status" example:"succeeded"`
+	Error  string `json:"error,omitempty"`
+	// Log is what the run printed, bounded when it was captured.
+	Log          string                `json:"log,omitempty"`
+	LogTruncated bool                  `json:"log_truncated,omitempty"`
+	Metrics      script.RunMetrics     `json:"metrics"`
+	Outputs      []script.DryRunOutput `json:"outputs"`
+	// State is the object the source would have saved with
+	// platform.save_state, absent when it saved none (#1537). The draft
+	// persists it no more than it persists an output.
+	State map[string]any `json:"state,omitempty"`
+	// StateCheckpoint is true when State is the run's last
+	// platform.checkpoint rather than a save_state (#2003).
+	StateCheckpoint bool `json:"state_checkpoint,omitempty"`
+	// StateDiscarded is the save_state of a draft that failed, which a
+	// platform run would discard (#2002); absent otherwise.
+	StateDiscarded map[string]any `json:"state_discarded,omitempty"`
+	// Writes lists the persisting platform.call calls the run made, empty
+	// unless it was run with allow_writes (#1664). Those calls landed, and this
+	// is the only place the response says so.
+	Writes []scriptrun.WriteRecord `json:"writes"`
+	// RefusedWrite is the call the write barrier stopped, absent when it
+	// stopped none. At most one: the refusal ends the run.
+	RefusedWrite *scriptrun.WriteRecord `json:"refused_write,omitempty"`
+	// Message states what did and did not happen, because "succeeded" on a run
+	// that deliberately wrote nothing is the sentence most likely to be
+	// misread.
+	Message string `json:"message"`
+	// Recording is the run id a test replays this draft's recorded host
+	// calls by, testing.replay("<recording>"), absent when none was kept
+	// (#1939).
+	Recording string `json:"recording,omitempty"`
+}
+
+// Of renders one executed draft.
+func Of(outcome *scriptdraft.Outcome) Response {
+	out := Response{
+		RunID: outcome.RunID, Status: script.RunStatusSucceeded,
+		Outputs: Outputs(outcome),
+		Writes:  []scriptrun.WriteRecord{},
+		Message: outcome.Persisted("dry run"),
+	}
+	if outcome.Recorded {
+		out.Recording = outcome.RunID
+	}
+	if outcome.Result != nil {
+		out.Log = outcome.Result.Log
+		out.LogTruncated = outcome.Result.LogTruncated
+		out.Metrics = Metrics(outcome.Result)
+		out.RefusedWrite = outcome.Result.RefusedWrite
+		if len(outcome.Result.Writes) > 0 {
+			out.Writes = outcome.Result.Writes
+		}
+	}
+	if st := outcome.State(); st.Committed != nil || st.Discarded != nil {
+		if st.Committed != nil {
+			out.State, out.StateCheckpoint = orEmpty(st.Committed), st.Checkpoint
+		}
+		if st.Discarded != nil {
+			out.StateDiscarded = orEmpty(st.Discarded)
+		}
+	}
+	if outcome.Failed() {
+		out.Status = script.RunStatusFailed
+		out.Error = outcome.Err.Error()
+		out.Message = FailureMessage(out.RefusedWrite, scriptguard.Cause(outcome.Err))
+	}
+	return out
+}
+
+// orEmpty is v, or an empty object when v is nil, so a saved empty state
+// reads as {} rather than null.
+func orEmpty(v map[string]any) map[string]any {
+	if v == nil {
+		return map[string]any{}
+	}
+	return v
 }

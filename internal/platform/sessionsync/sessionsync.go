@@ -98,8 +98,9 @@ type Handle struct {
 	reloadBus         *reloadBus
 	reloadCancel      context.CancelFunc
 
-	// forcedStateless records that the database store was selected, so the
-	// SDK's built-in session map must be bypassed. Platform reads this via
+	// forcedStateless records that the platform's own session store was
+	// selected (database or memory), so the SDK's built-in session map must be
+	// bypassed. Platform reads this via
 	// StatelessForced and applies it to its own Server.Streamable config.
 	forcedStateless bool
 }
@@ -155,11 +156,17 @@ func buildStore(db *sql.DB, cfg Config, injectedStore session.Store) (session.St
 			"ttl", cfg.TTL, "cleanup_interval", cfg.CleanupInterval)
 		return store, true, nil
 	case storeKindMemory, "":
+		// The memory store runs the SDK stateless too, behind the same
+		// session-aware handler the database store uses (#2008). A stateful
+		// SDK handler negotiates a client asking for MCP 2026-07-28 down to
+		// 2025-11-25, so every HTTP deployment without a database session
+		// store refused the current protocol; stateless, it serves 2026-07-28
+		// and every earlier revision, its sessions held in this process.
 		store := session.NewMemoryStore(cfg.TTL)
 		store.StartCleanupRoutine(cfg.CleanupInterval)
-		slog.Info("session store: memory",
+		slog.Info("session store: memory (stateless mode enabled)",
 			"ttl", cfg.TTL, "cleanup_interval", cfg.CleanupInterval)
-		return store, false, nil
+		return store, true, nil
 	default:
 		return nil, false, fmt.Errorf("unknown session store: %q", cfg.Store)
 	}

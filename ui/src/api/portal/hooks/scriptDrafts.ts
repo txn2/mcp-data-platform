@@ -110,6 +110,12 @@ export interface ScriptDryRun {
   // state is the object the source would have saved with platform.save_state,
   // absent when it saved none. The draft persists it no more than an output.
   state?: Record<string, unknown>;
+  // state_checkpoint is true when state is the run's last platform.checkpoint
+  // rather than a save_state (#2003).
+  state_checkpoint?: boolean;
+  // state_discarded is the save_state of a draft that failed, which a platform
+  // run discards (#2002).
+  state_discarded?: Record<string, unknown>;
   // writes are the platform.call calls that persisted for real, empty unless
   // the run was asked to write. Those calls landed, and this is the only place
   // the response says so.

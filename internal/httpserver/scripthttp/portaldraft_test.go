@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/draftview"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -183,7 +185,7 @@ func TestPortalDryRunSource_RunsAsTheCallerAndPersistsNothing(t *testing.T) {
 		"the session must present the authentication the request arrived with")
 	assert.Equal(t, draftSource, runner.got.Source)
 
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	assert.Equal(t, script.RunStatusSucceeded, body.Status)
 	assert.Equal(t, "run_draft_1", body.RunID)
@@ -207,7 +209,7 @@ func TestPortalDryRunSource_ReportsAFailedRunWithItsLog(t *testing.T) {
 	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(draftSource))
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	assert.Equal(t, script.RunStatusFailed, body.Status)
 	assert.Contains(t, body.Error, "regoin")
@@ -399,7 +401,7 @@ func serveVersionReview(t *testing.T, store *stubStore, accounts script.DryRunSt
 // for a run that produced nothing: a client rendering outputs should iterate an
 // empty list, not guard against null.
 func TestDraftOutcome_CarriesAListRatherThanNull(t *testing.T) {
-	out := draftOutcome(&scriptdraft.Outcome{RunID: "run_x"})
+	out := draftview.Of(&scriptdraft.Outcome{RunID: "run_x"})
 
 	assert.NotNil(t, out.Outputs)
 	assert.Empty(t, out.Outputs)
@@ -501,7 +503,7 @@ func TestPortalDryRunSource_DoesNotAskForWritesByDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.False(t, runner.got.AllowWrites, "a dry run is a rehearsal unless the author says otherwise")
 
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	assert.Contains(t, body.Message, "write-class platform.call would have been refused")
 	assert.Equal(t, []scriptrun.WriteRecord{}, body.Writes, "an empty answer is an empty list, not null")
@@ -526,7 +528,7 @@ func TestPortalDryRunSource_CarriesTheAuthorsAllowWrites(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.True(t, runner.got.AllowWrites)
 
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Writes, 1)
 	assert.Equal(t, "manage_resource action=create", body.Writes[0].Call)
@@ -552,7 +554,7 @@ func TestPortalDryRunSource_NamesTheCallThatEndedTheRun(t *testing.T) {
 	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(draftSource))
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	assert.Equal(t, script.RunStatusFailed, body.Status)
 	require.NotNil(t, body.RefusedWrite)
@@ -578,7 +580,7 @@ func TestPortalDryRunSource_PluralWriteMessage(t *testing.T) {
 		`{"source":`+strconv.Quote(draftSource)+`,"allow_writes":true}`)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	assert.Contains(t, body.Message, "The 2 calls listed under writes persisted for real")
 }

@@ -34,7 +34,7 @@ const runColumns = `id, script_id, script_version_id, version, trigger_kind, sta
 	COALESCE(schedule_id::text, ''), state_revision, state_read, state_written,
 	state_revision_written, result, progress_message, progress_done, progress_total,
 	progress_at, cancel_requested_at, cancel_requested_by, reclaims, attempts, claimed_at,
-	heartbeat_at, failure_cause, created_at, updated_at`
+	heartbeat_at, failure_cause, created_at, updated_at, state_checkpoint`
 
 // stateAtCreation is the VALUES fragment every run insert carries for the two
 // state columns pinned at creation (#1537): the revision the script's state
@@ -115,7 +115,7 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.StateRevision, &stateRead, &stateWritten,
 		&revisionWritten, &live.result, &live.message, &live.done, &live.total, &live.at,
 		&r.CancelRequestedAt, &r.CancelRequestedBy, &r.Reclaims, &attemptsJSON, &r.ClaimedAt,
-		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt)
+		&r.HeartbeatAt, &r.Cause, &r.CreatedAt, &r.UpdatedAt, &r.StateCheckpoint)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
@@ -499,11 +499,11 @@ func (s *Store) Finish(ctx context.Context, lease script.RunLease, result script
 	if err != nil {
 		return fmt.Errorf("marshal run metrics: %w", err)
 	}
-	if result.State == nil || result.Status != script.RunStatusSucceeded {
+	if write := committedState(result); write == nil {
 		if err := finishRow(ctx, s.db, terminalRow{lease: lease, result: result, metrics: metrics}); err != nil {
 			return err
 		}
-	} else if err := s.finishWithState(ctx, lease, result, metrics); err != nil {
+	} else if err := s.finishWithState(ctx, lease, result, write, metrics); err != nil {
 		return err
 	}
 	// Wake anything waiting on this run's completion.
@@ -511,13 +511,23 @@ func (s *Store) Finish(ctx context.Context, lease script.RunLease, result script
 	return nil
 }
 
+// committedState is the state a finished run commits, nil for none: a
+// successful run's save_state, and otherwise its last checkpoint, whatever the
+// outcome (#2003). A failed run's save_state is never applied.
+func committedState(result script.RunResult) *script.StateWrite {
+	if result.Status == script.RunStatusSucceeded && result.State != nil {
+		return result.State
+	}
+	return result.Checkpoint
+}
+
 // finishWithState applies the run's staged state and records the outcome in
 // one transaction. The script id and the revision the run read are taken from
 // the run row under the lease, not from the caller, so a stale worker's write
 // is refused before it reaches the state row.
-func (s *Store) finishWithState(ctx context.Context, lease script.RunLease, result script.RunResult, metrics []byte) error {
+func (s *Store) finishWithState(ctx context.Context, lease script.RunLease, result script.RunResult, write *script.StateWrite, metrics []byte) error {
 	return s.withTx(ctx, "finish script run", func(tx *sql.Tx) error {
-		w := runStateWrite{runID: lease.RunID, value: result.State.Value}
+		w := runStateWrite{runID: lease.RunID, value: write.Value}
 		err := tx.QueryRowContext(ctx,
 			`SELECT script_id, state_revision FROM script_runs`+leaseClause+` FOR UPDATE`,
 			lease.RunID, lease.Worker, lease.Attempt).Scan(&w.scriptID, &w.read)
@@ -531,6 +541,11 @@ func (s *Store) finishWithState(ctx context.Context, lease script.RunLease, resu
 		revision, err := writeRunState(ctx, tx, w)
 		var conflict *script.StateConflictError
 		switch {
+		case errors.As(err, &conflict) && result.Status != script.RunStatusSucceeded:
+			// A run that already failed keeps its own failure: the refused
+			// checkpoint is said beside it, not put in its place (#2003).
+			result.Error += "; its checkpoint was not saved: " + conflict.Error()
+			return finishRow(ctx, tx, terminalRow{lease: lease, result: result, metrics: metrics})
 		case errors.As(err, &conflict):
 			// The interleaving is the run's failure, recorded on its row. Its
 			// outputs are already recorded; nothing here touches them.
@@ -539,11 +554,13 @@ func (s *Store) finishWithState(ctx context.Context, lease script.RunLease, resu
 		case err != nil:
 			return err
 		}
-		written, err := json.Marshal(orEmptyParams(result.State.Value))
+		written, err := json.Marshal(orEmptyParams(write.Value))
 		if err != nil {
 			return fmt.Errorf("marshal run state written: %w", err)
 		}
-		return finishRow(ctx, tx, terminalRow{lease: lease, result: result, metrics: metrics, written: written, revision: revision})
+		return finishRow(ctx, tx, terminalRow{
+			lease: lease, result: result, metrics: metrics, written: written, revision: revision, checkpoint: write.Checkpoint,
+		})
 	})
 }
 
@@ -556,6 +573,9 @@ type terminalRow struct {
 	metrics  []byte
 	written  []byte
 	revision int64
+	// checkpoint marks written as the run's last platform.checkpoint rather
+	// than a save_state (#2003).
+	checkpoint bool
 }
 
 // execer is what finishRow writes through: the pool, or the transaction a
@@ -577,7 +597,7 @@ func finishRow(ctx context.Context, db execer, row terminalRow) error {
 	res, err := db.ExecContext(ctx, `
 		UPDATE script_runs
 		   SET status = $4, error = $5, log_text = $6, log_truncated = $7,
-		       metrics = $8, state_written = $9, state_revision_written = $10,
+		       metrics = $8, state_written = $9, state_revision_written = $10, state_checkpoint = $17,
 		       result = $11,
 		       progress_message = CASE WHEN $14::timestamptz IS NULL THEN progress_message ELSE $12 END,
 		       progress_done = CASE WHEN $14::timestamptz IS NULL THEN progress_done ELSE $13 END,
@@ -589,7 +609,7 @@ func finishRow(ctx context.Context, db execer, row terminalRow) error {
 		row.lease.RunID, row.lease.Worker, row.lease.Attempt,
 		row.result.Status, row.result.Error, row.result.Log, row.result.LogTruncated, row.metrics,
 		stateWritten, revisionWritten, nullJSON(row.result.Result),
-		p.message, p.done, p.at, p.total, failureCause(row.result))
+		p.message, p.done, p.at, p.total, failureCause(row.result), row.checkpoint)
 	if err != nil {
 		return fmt.Errorf("finish script run: %w", err)
 	}
@@ -810,8 +830,9 @@ const streakWindow = 20
 // newest success, which may lie outside the window. The last line of a failed
 // run's error is what names the failure: the lines above it are the backtrace.
 const failureStreaksQuery = `
-	SELECT script_id, id, version, status, failure_cause, finished_at, last_line, last_success
+	SELECT script_id, id, version, status, failure_cause, finished_at, last_line, last_success, checkpoint
 	  FROM (SELECT script_id, id, version, status, failure_cause, finished_at,
+	               CASE WHEN state_checkpoint THEN state_written END AS checkpoint,
 	               substring(rtrim(error, E'\n') from '[^\n]*$') AS last_line,
 	               max(finished_at) FILTER (WHERE status = 'succeeded') OVER (PARTITION BY script_id) AS last_success,
 	               row_number() OVER (PARTITION BY script_id ORDER BY created_at DESC, id DESC) AS rn
@@ -839,8 +860,9 @@ func (s *Store) FailureStreaks(ctx context.Context, scriptIDs []string) (map[str
 			id                    string
 			finished, lastSuccess sql.NullTime
 			line                  sql.NullString
+			checkpoint            []byte
 		)
-		if err := rows.Scan(&id, &r.runID, &r.version, &r.status, &r.cause, &finished, &line, &lastSuccess); err != nil {
+		if err := rows.Scan(&id, &r.runID, &r.version, &r.status, &r.cause, &finished, &line, &lastSuccess, &checkpoint); err != nil {
 			return nil, fmt.Errorf("scan script failure streak: %w", err)
 		}
 		c, seen := counting[id]
@@ -853,6 +875,11 @@ func (s *Store) FailureStreaks(ctx context.Context, scriptIDs []string) (map[str
 			}
 		}
 		r.line, r.finished = line.String, finished
+		if len(checkpoint) > 0 {
+			if err := json.Unmarshal(checkpoint, &r.checkpoint); err != nil {
+				return nil, fmt.Errorf("decode script run checkpoint: %w", err)
+			}
+		}
 		c.add(r)
 	}
 	if err := rows.Err(); err != nil {
@@ -877,6 +904,9 @@ type streakRow struct {
 	runID, status, cause, line string
 	version                    int
 	finished                   sql.NullTime
+	// checkpoint is the state a run committed from its last checkpoint,
+	// nil when it committed none (#2003).
+	checkpoint map[string]any
 }
 
 func (c *streakCount) add(r streakRow) {
@@ -890,6 +920,7 @@ func (c *streakCount) add(r streakRow) {
 	if c.streak.Failed == 0 {
 		c.streak.LastError, c.streak.LastFailedRunID = r.line, r.runID
 		c.streak.LastFailedVersion, c.streak.LastCause = r.version, failureCause(script.RunResult{Status: r.status, Cause: r.cause})
+		c.streak.LastCheckpoint = r.checkpoint
 		if r.finished.Valid {
 			at := r.finished.Time.UTC()
 			c.streak.LastFailedAt = &at

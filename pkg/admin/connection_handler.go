@@ -293,6 +293,12 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
 		return
 	}
+	// A connection its client refuses to open is refused here, not stored
+	// and then dropped at every start (#2014).
+	if err := connreconcile.New(h.deps.ToolkitRegistry).Validate(kind, name, req.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
 
 	inst := platform.ConnectionInstance{
 		Kind:        kind,

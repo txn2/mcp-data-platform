@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	apigateway "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -93,7 +94,7 @@ func TestIntegration_AScriptWalksAPaginatedAPIInOneCall(t *testing.T) {
 	server.AddReceivingMiddleware(limiter.Middleware())
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(limitedAuthn{middleware.AuthTypeScript}, limitedAuthz{}, limitedLookup{},
 		middleware.ToolCallConfig{Transport: "stdio", AdminPersona: "admin"}))
-	caller, cleanup, err := Connect(context.Background(), server, "script-run")
+	caller, cleanup, err := scriptsession.Connect(context.Background(), server, "script-run")
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 

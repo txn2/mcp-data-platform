@@ -25,7 +25,15 @@ func (o *Outcome) Persisted(noun string) string {
 		msg = allowedMessage(noun, result)
 	}
 	if result != nil && result.State != nil {
-		msg += " platform.save_state reported the state a platform run would have saved and did not save it."
+		if o.Failed() {
+			msg += " platform.save_state staged state that a platform run would discard, because the run failed; " +
+				"it is reported as state_discarded. A platform.checkpoint is what a failed run keeps."
+		} else {
+			msg += " platform.save_state reported the state a platform run would have saved and did not save it."
+		}
+	}
+	if result != nil && result.Checkpoint != nil && (result.State == nil || o.Failed()) {
+		msg += " platform.checkpoint reported the state a platform run would have saved as its checkpoint and did not save it."
 	}
 	return msg
 }
@@ -68,4 +76,40 @@ func count(n int, noun string) string {
 		return fmt.Sprintf("The 1 %s", noun)
 	}
 	return fmt.Sprintf("The %d %ss", n, noun)
+}
+
+// DraftState is the state a draft reports beside its outcome (#2002, #2003):
+// what a platform run would commit, and a save_state a platform run would
+// discard. A run that succeeds commits its save_state, or its last checkpoint
+// when it saved none; a run that fails commits only its last checkpoint and
+// discards its save_state. Both surfaces showing a draft report the same
+// split, so neither shows a failed draft's staged state as though it were
+// saved.
+type DraftState struct {
+	// Committed is the state a platform run would save, nil for none.
+	Committed map[string]any
+	// Checkpoint is true when Committed is the run's last checkpoint.
+	Checkpoint bool
+	// Discarded is a failed run's save_state, nil when the run succeeded or
+	// staged none.
+	Discarded map[string]any
+}
+
+// State reads the outcome's state the way a platform run's store commits it.
+func (o *Outcome) State() DraftState {
+	var out DraftState
+	if o == nil || o.Result == nil {
+		return out
+	}
+	r := o.Result
+	switch {
+	case !o.Failed() && r.State != nil:
+		out.Committed = r.State.Value
+	case r.Checkpoint != nil:
+		out.Committed, out.Checkpoint = r.Checkpoint.Value, true
+	}
+	if o.Failed() && r.State != nil {
+		out.Discarded = r.State.Value
+	}
+	return out
 }

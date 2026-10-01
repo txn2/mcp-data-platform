@@ -258,6 +258,10 @@ type Run struct {
 	// absent on a run that saved nothing, and on one whose write was refused.
 	StateWritten         map[string]any `json:"state_written,omitempty"`
 	StateRevisionWritten int64          `json:"state_revision_written,omitempty"`
+	// StateCheckpoint is true when StateWritten is the run's last
+	// platform.checkpoint, committed because the run failed or was halted,
+	// or succeeded without a save_state (#2003).
+	StateCheckpoint bool `json:"state_checkpoint,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -319,6 +323,10 @@ type RunResult struct {
 	// compare-and-set on the revision the run read, in the transaction that
 	// records the status.
 	State *StateWrite
+	// Checkpoint is the last platform.checkpoint, nil when it made none
+	// (#2003). The store applies it when the run fails or is halted, and when
+	// it succeeds with no State, with the same compare-and-set.
+	Checkpoint *StateWrite
 	// Result is the value the run handed back with platform.result, nil when
 	// it set none (#1845), and Progress its last platform.progress report.
 	Result   json.RawMessage

@@ -41,6 +41,9 @@ export interface APICatalogSpec {
   // format can be pasted, uploaded, or refreshed from a URL. Keep this union in
   // sync with catalog.FormatOpenAPI / FormatWSDL / FormatGraphQL.
   spec_format?: APISpecFormat;
+  // "swagger 2.0" when an openapi spec's content is a Swagger 2.0 document the
+  // platform converts to OpenAPI 3 on every save and refresh; absent otherwise.
+  converted_from?: string;
   source_url?: string;
   etag?: string;
   // Operator-set per-spec URL prefix applied at api_discover

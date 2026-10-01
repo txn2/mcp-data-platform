@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/draftview"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -116,7 +118,7 @@ func TestPortalDryRunSource_ReadsLiveStateAndReportsWhatItWouldHaveSaved(t *test
 	rec := servePortalRequest(t, deps, http.MethodPost, dryRunPath, draftBody(draftSource))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "2026-08-27", runner.got.State["synced_through"], "the draft reads the live state")
-	var body dryRunResponse
+	var body draftview.Response
 	decodeInto(t, rec, &body)
 	assert.Equal(t, "2026-08-28", body.State["synced_through"])
 	assert.Contains(t, body.Message, "did not save it")

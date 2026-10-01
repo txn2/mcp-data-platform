@@ -396,3 +396,45 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 	})
 }
+
+func TestPreflightToolkits(t *testing.T) {
+	if err := PreflightToolkits(nil); err != nil {
+		t.Errorf("no toolkits: %v", err)
+	}
+	insecure := map[string]any{"host": "trino.internal", "port": 8080, "user": "u", "password": "p", "ssl": false}
+	off := map[string]any{"trino": map[string]any{"enabled": false, "instances": map[string]any{"a": insecure}}}
+	if err := PreflightToolkits(off); err != nil {
+		t.Errorf("a disabled kind is not checked: %v", err)
+	}
+	on := map[string]any{"trino": map[string]any{
+		"enabled": true, "instances": map[string]any{"a": insecure}, "config": map[string]any{"timeout": "30s"},
+	}}
+	if err := PreflightToolkits(on); err == nil {
+		t.Error("a password over plain HTTP was accepted")
+	}
+	if err := PreflightToolkits(map[string]any{"trino": "not a map"}); err != nil {
+		t.Errorf("a malformed kind is left to the loader: %v", err)
+	}
+}
+
+// TestRefusedConnections names each refused connection by kind, so a process
+// drops the stored one its client refuses rather than failing every one
+// (#2014).
+func TestRefusedConnections(t *testing.T) {
+	if got := RefusedConnections(nil); got != nil {
+		t.Errorf("no toolkits: %v", got)
+	}
+	secure := map[string]any{"host": "trino.example.com", "user": "u", "password": "p", "ssl": true}
+	insecure := map[string]any{"host": "trino.internal", "port": 8080, "user": "u", "password": "p", "ssl": false}
+	mixed := map[string]any{"trino": map[string]any{
+		"enabled": true, "default": "main", "instances": map[string]any{"main": secure, "stored": insecure},
+	}}
+	got := RefusedConnections(mixed)
+	if len(got["trino"]) != 1 || got["trino"]["stored"] == nil {
+		t.Errorf("want the stored connection refused alone, got %v", got)
+	}
+	clean := map[string]any{"trino": map[string]any{"enabled": true, "instances": map[string]any{"main": secure}}}
+	if got := RefusedConnections(clean); got != nil {
+		t.Errorf("nothing refused: %v", got)
+	}
+}

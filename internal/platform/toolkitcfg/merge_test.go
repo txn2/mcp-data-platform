@@ -1,6 +1,7 @@
 package toolkitcfg
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -254,7 +255,7 @@ func TestMergeStored_WarmsUpTheSavedConnections(t *testing.T) {
 	MergeStored(toolkits, []StoredInstance{
 		{Kind: "trino", Name: "warehouse", Config: map[string]any{"dsn": "trino://example"}},
 		{Kind: "api", Name: "billing", Config: map[string]any{"base_url": "https://example.test"}},
-	})
+	}, nil)
 
 	if _, ok := instancesOf(t, toolkits, "trino")["warehouse"]; !ok {
 		t.Error("the saved trino connection was not merged")
@@ -271,7 +272,7 @@ func TestMergeStored_WarmsUpTheSavedConnections(t *testing.T) {
 func TestMergeStored_EnablesTheKindsWithNoInstancesToDeclare(t *testing.T) {
 	toolkits := map[string]any{}
 
-	MergeStored(toolkits, nil)
+	MergeStored(toolkits, nil, nil)
 
 	for _, kind := range []string{"mcp", "api", "graphql"} {
 		kindMap, ok := toolkits[kind].(map[string]any)
@@ -299,7 +300,7 @@ func TestMergeStored_LeavesAnOperatorsChoiceAlone(t *testing.T) {
 	MergeStored(toolkits, []StoredInstance{
 		{Kind: "api", Name: "billing", Config: map[string]any{"base_url": "https://example.test"}},
 		{Kind: "trino", Name: "warehouse", Config: map[string]any{"dsn": "trino://stored"}},
-	})
+	}, nil)
 
 	api, _ := toolkits["api"].(map[string]any)
 	if enabled, _ := api["enabled"].(bool); enabled {
@@ -327,7 +328,7 @@ func TestMergeStored_PinsWhatTheFileResolvesToFirst(t *testing.T) {
 
 	MergeStored(toolkits, []StoredInstance{
 		{Kind: "s3", Name: "aaa-added-later", Config: map[string]any{"bucket": "saved"}},
-	})
+	}, nil)
 
 	s3, _ := toolkits["s3"].(map[string]any)
 	if s3["default"] != "main" {
@@ -343,9 +344,59 @@ func TestMergeStored_SkipsAKindThatIsNotSavedThroughTheAdminAPI(t *testing.T) {
 
 	MergeStored(toolkits, []StoredInstance{
 		{Kind: "datahub", Name: "primary", Config: map[string]any{"gms_url": "https://example.test"}},
-	})
+	}, nil)
 
 	if _, present := toolkits["datahub"]; present {
 		t.Error("a datahub row was folded into the configuration")
+	}
+}
+
+// TestMergeStored_DropsAStoredConnectionItsClientRefuses is #2014's start-up
+// half: a saved connection the client would refuse is taken back out, so it
+// cannot fail its whole toolkit after the database was migrated; a connection
+// the file declares is never dropped here, and a kind left with nothing is
+// turned off rather than built empty.
+func TestMergeStored_DropsAStoredConnectionItsClientRefuses(t *testing.T) {
+	toolkits := map[string]any{"trino": map[string]any{
+		"enabled": true, "default": "main",
+		"instances": map[string]any{"main": map[string]any{"host": "trino.example.com"}},
+	}}
+	refusal := errors.New("a password is sent only over TLS")
+	refuseAll := func(tk map[string]any) map[string]map[string]error {
+		out := map[string]error{}
+		for name := range instancesOf(t, tk, "trino") {
+			out[name] = refusal
+		}
+		return map[string]map[string]error{"trino": out}
+	}
+	MergeStored(toolkits, []StoredInstance{
+		{Kind: "trino", Name: "stored", Config: map[string]any{"host": "trino.internal"}},
+	}, refuseAll)
+	held := instancesOf(t, toolkits, "trino")
+	if _, ok := held["stored"]; ok {
+		t.Error("the refused stored connection was loaded")
+	}
+	if _, ok := held["main"]; !ok {
+		t.Error("the file's connection is the file's to refuse, before any migration")
+	}
+
+	onlyStored := map[string]any{}
+	MergeStored(onlyStored, []StoredInstance{
+		{Kind: "trino", Name: "stored", Config: map[string]any{"host": "trino.internal"}},
+	}, refuseAll)
+	kindMap, _ := onlyStored["trino"].(map[string]any)
+	if enabled, _ := kindMap["enabled"].(bool); enabled {
+		t.Errorf("a kind with every connection refused is turned off, not built empty: %v", kindMap)
+	}
+
+	defaulted := map[string]any{"trino": map[string]any{"enabled": true, "default": "stored", "instances": map[string]any{}}}
+	MergeStored(defaulted, []StoredInstance{
+		{Kind: "trino", Name: "stored", Config: map[string]any{"host": "trino.internal"}},
+		{Kind: "trino", Name: "other", Config: map[string]any{"host": "trino.example.com"}},
+	}, func(map[string]any) map[string]map[string]error {
+		return map[string]map[string]error{"trino": {"stored": refusal}}
+	})
+	if kindMap, _ := defaulted["trino"].(map[string]any); kindMap["default"] != nil {
+		t.Error("a default naming a dropped connection is cleared, so the next one is the default")
 	}
 }

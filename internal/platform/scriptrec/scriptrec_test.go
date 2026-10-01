@@ -286,3 +286,23 @@ func TestADeclaredAnswerIsConsultedBeforeTheRecording(t *testing.T) {
 	_, err = r.CallTool(context.Background(), "missing", nil)
 	assert.ErrorContains(t, err, "declare the answer it gets with testing.answer")
 }
+
+// TestAReplayAnswersHostValuesInTheOrderTheRunReadThem holds #2004's replay
+// half: the time left is read back value by value, and it is not a call the
+// run made.
+func TestAReplayAnswersHostValuesInTheOrderTheRunReadThem(t *testing.T) {
+	key := ToolKey("platform.remaining_ms", map[string]any{})
+	replay := NewReplay(&Recording{Calls: []Call{
+		{Key: key, Tool: "platform.remaining_ms", Out: map[string]any{"remaining_ms": float64(900)}},
+		{Key: key, Tool: "platform.remaining_ms", Out: map[string]any{"remaining_ms": float64(10)}},
+	}})
+	first, err := replay.HostValue("platform.remaining_ms")
+	require.NoError(t, err)
+	assert.Equal(t, float64(900), first["remaining_ms"])
+	second, err := replay.HostValue("platform.remaining_ms")
+	require.NoError(t, err)
+	assert.Equal(t, float64(10), second["remaining_ms"])
+	_, err = replay.HostValue("platform.remaining_ms")
+	assert.Error(t, err, "the run read it twice")
+	assert.Empty(t, replay.Made(), "a host value is not a call the run made")
+}

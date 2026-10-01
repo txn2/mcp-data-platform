@@ -159,6 +159,18 @@ func (r *Replay) CallTool(_ context.Context, name string, args map[string]any) (
 	return cloneMap(c.Out), nil
 }
 
+// HostValue answers a value the run read from the host rather than from a tool
+// -- the time it had left (#2004) -- from the recording, in the order the run
+// read it. It is not a call the run made, so it is not among Made.
+func (r *Replay) HostValue(name string) (map[string]any, error) {
+	args := map[string]any{}
+	c, err := r.next(ToolKey(name, args), DescribeCall(name, args))
+	if err != nil {
+		return nil, err
+	}
+	return cloneMap(c.Out), nil
+}
+
 // Exporter is the writer an execution replaying the recording uses: nil when
 // the recorded run previewed its outputs, so the replay previews them too, and
 // otherwise one answering each write with what the run's writer answered.

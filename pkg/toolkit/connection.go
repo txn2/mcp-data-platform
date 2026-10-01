@@ -102,6 +102,14 @@ type ConnectionManager interface {
 	HasConnection(name string) bool
 }
 
+// ConnectionValidator is an optional interface for a ConnectionManager whose
+// client refuses some configurations before it connects. ValidateConnection
+// reports that refusal without adding the connection, so the admin API refuses
+// the save rather than storing a connection the toolkit never opens (#2014).
+type ConnectionValidator interface {
+	ValidateConnection(name string, config map[string]any) error
+}
+
 // ConnectionUpdater is an optional interface for a ConnectionManager that
 // keeps state for a connection beyond its registration (a stored schema) and
 // so has to tell a changed configuration from a deletion. A reconcile of a

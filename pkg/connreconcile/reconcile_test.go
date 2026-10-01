@@ -315,3 +315,33 @@ func TestPhaseString(t *testing.T) {
 		t.Errorf("PhaseAdd.String() = %q, want add", PhaseAdd.String())
 	}
 }
+
+// validatingToolkit refuses every configuration with refuse.
+type validatingToolkit struct {
+	recordingToolkit
+	refuse error
+}
+
+func (t *validatingToolkit) ValidateConnection(string, map[string]any) error { return t.refuse }
+
+func TestReconciler_Validate(t *testing.T) {
+	const kind, name = "trino", "c1"
+	refusal := errors.New("a password is sent only over TLS")
+	refusing := &validatingToolkit{recordingToolkit: recordingToolkit{kind: kind, name: "refusing"}, refuse: refusal}
+	accepting := &validatingToolkit{recordingToolkit: recordingToolkit{kind: kind, name: "accepting"}}
+	plain := &recordingToolkit{kind: kind, name: "plain"}
+
+	err := New(mustRegister(t, accepting, plain, refusing)).Validate(kind, name, map[string]any{})
+	if !errors.Is(err, refusal) {
+		t.Fatalf("a toolkit's refusal must be returned, got %v", err)
+	}
+	if len(refusing.events)+len(accepting.events)+len(plain.events) != 0 {
+		t.Errorf("validating must change nothing")
+	}
+	if err := New(mustRegister(t, accepting, plain)).Validate(kind, name, nil); err != nil {
+		t.Errorf("no toolkit refuses it: %v", err)
+	}
+	if err := New(nil).Validate(kind, name, nil); err != nil {
+		t.Errorf("no registry, no refusal: %v", err)
+	}
+}

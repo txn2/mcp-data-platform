@@ -311,8 +311,18 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		if result.Progress != nil {
 			out["progress"] = result.Progress
 		}
-		if result.State != nil {
-			out["state"] = orEmptyParams(result.State.Value)
+	}
+	// What a platform run would commit, and a failed run's save_state that
+	// it would discard rather than save (#2002, #2003).
+	if st := outcome.State(); st.Committed != nil || st.Discarded != nil {
+		if st.Committed != nil {
+			out["state"] = orEmptyParams(st.Committed)
+		}
+		if st.Checkpoint {
+			out["state_checkpoint"] = true
+		}
+		if st.Discarded != nil {
+			out["state_discarded"] = orEmptyParams(st.Discarded)
 		}
 	}
 	if outcome.Recorded {

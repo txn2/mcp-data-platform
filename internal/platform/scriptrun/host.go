@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsql"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
@@ -78,6 +79,13 @@ const (
 	// the platform when the run succeeds, in the write that marks it so, with
 	// a compare-and-set on the revision the run read.
 	CapabilitySaveState = "platform.save_state"
+	// CapabilityCheckpoint stages state that is committed however the run
+	// ends (#2003): a failed run, or one halted at its deadline, still saves
+	// the last checkpoint, which save_state on a successful run replaces.
+	CapabilityCheckpoint = "platform.checkpoint"
+	// CapabilityRemainingMS is the milliseconds the run has before its
+	// deadline (#2004), recorded with the run so a test replays it exactly.
+	CapabilityRemainingMS = "platform.remaining_ms"
 	// CapabilityNotify posts a message to a channel an administrator
 	// configured (#1723). It is a named helper over one notify action, kept
 	// because a monitor that posts what it found is what most scripts that
@@ -98,7 +106,7 @@ const (
 // by Validate, which reports the tool names it names.
 var Capabilities = []string{
 	CapabilityQuery, CapabilityExecute, CapabilityExport, CapabilityPublishData, CapabilityCall, CapabilitySaveState,
-	CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
+	CapabilityCheckpoint, CapabilityRemainingMS, CapabilityNotify, CapabilityPublish, scriptlive.CapabilityProgress, scriptlive.CapabilityResult,
 }
 
 // The formats platform.export accepts, split by what serializes them. A format
@@ -155,12 +163,13 @@ const callArgsPosition = 2
 const queryResultFields = 3
 
 // TextResultKey is the single field a tool result arrives under when the tool
-// returned no structured object: the text it produced, verbatim (SessionCaller.
-// CallTool). It is one key rather than a shape per tool so the rule an author
-// has to remember is one sentence, and it sits with the other result-shape
-// constants because that is what it is — the shape a host call hands back.
-// Exported because the dialect contract states it.
-const TextResultKey = "text"
+// returned no structured object: the text it produced, verbatim
+// (scriptsession.SessionCaller.CallTool). It is one key rather than a shape
+// per tool so the rule an author has to remember is one sentence, and it sits
+// with the other result-shape constants because that is what it is — the
+// shape a host call hands back. Exported because the dialect contract states
+// it.
+const TextResultKey = scriptsession.TextResultKey
 
 // PublishFormat is the one format a data-region payload has. The region is a
 // JSON data island by contract, so unlike an export there is no format axis for
@@ -195,6 +204,8 @@ type hostState struct {
 	// state is what platform.save_state staged, nil until it is called. A
 	// second call replaces the first: the run's write is one write.
 	state *script.StateWrite
+	// checkpointed is the last platform.checkpoint (#2003), nil when none.
+	checkpointed *script.StateWrite
 	// mem measures what the run holds at every host call against its
 	// memory budget, and keeps the peak (#1861).
 	mem *scriptguard.Meter
@@ -265,6 +276,88 @@ func (h *hostState) saveState(_ *starlark.Thread, b *starlark.Builtin, args star
 	h.state = &script.StateWrite{Value: object}
 	h.opts.observe(h.state)
 	return starlark.None, nil
+}
+
+// checkpoint stages state the platform commits however the run ends (#2003).
+//
+// save_state is one write applied only when the run succeeds, which is right
+// for a run that does its work atomically. An incremental pipeline makes
+// durable progress partway through -- rows merged, files written -- and a late
+// failure or the run's deadline would otherwise discard the cursor for work
+// that landed. The last checkpoint is applied when the run fails or is halted;
+// on a successful run a save_state replaces it, and without one the checkpoint
+// is applied. Same object, size limit and revision check as save_state.
+func (h *hostState) checkpoint(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var value *starlark.Dict
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "state", &value); err != nil {
+		return nil, argErr(b, err)
+	}
+	object, err := stateObject(value)
+	if err != nil {
+		return nil, argErr(b, err)
+	}
+	if err := script.ValidateState(object); err != nil {
+		return nil, argErr(b, err)
+	}
+	h.checkpointed = &script.StateWrite{Value: object, Checkpoint: true}
+	h.opts.observe(h.checkpointed)
+	return starlark.None, nil
+}
+
+// HostValuer answers a value a run read from the host, from its recording: a
+// test's Caller, the replay, implements it.
+type HostValuer interface {
+	HostValue(name string) (map[string]any, error)
+}
+
+// remainingKey is the reserved name the time left is recorded under, beside
+// the run's tool calls, so a replay answers it in the order it was read.
+const remainingKey = "platform.remaining_ms"
+
+// remainingMS reports the milliseconds the run has before its deadline
+// (#2004). A script has no clock, so a long job that budgets its time would
+// otherwise add up duration_ms from its answers, which misses everything that
+// is not a tool answer. Each value is recorded with the run, and a test reads
+// the recorded value back, or the one testing.set_run(remaining_ms=...) sets,
+// so a test reaches the "out of time" branch deterministically.
+func (h *hostState) remainingMS(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs); err != nil {
+		return nil, argErr(b, err)
+	}
+	if h.opts.Test != nil {
+		return h.testRemaining(b)
+	}
+	ms := max(h.remaining().Milliseconds(), 0)
+	if h.opts.OnCall != nil {
+		h.opts.OnCall(remainingKey, map[string]any{}, map[string]any{"remaining_ms": ms}, nil)
+	}
+	return starlark.MakeInt64(ms), nil
+}
+
+// testRemaining is remaining_ms in a test: the value testing.set_run set, or
+// the next one the recording holds.
+func (h *hostState) testRemaining(b *starlark.Builtin) (starlark.Value, error) {
+	if in := h.opts.Test.Inputs; in != nil && in.RemainingMS != nil {
+		return starlark.MakeInt64(*in.RemainingMS), nil
+	}
+	values, ok := h.opts.Caller.(HostValuer)
+	if !ok {
+		return nil, fmt.Errorf("in %s: this test has no recording to read the value from; "+
+			"set it with testing.set_run(remaining_ms=...)", b.Name())
+	}
+	out, err := values.HostValue(remainingKey)
+	if err != nil {
+		return nil, fmt.Errorf("in %s: %w; set the value a test reads with testing.set_run(remaining_ms=...)", b.Name(), err)
+	}
+	ms, ok := out["remaining_ms"].(float64)
+	if !ok {
+		n, isInt := out["remaining_ms"].(int64)
+		if !isInt {
+			return nil, fmt.Errorf("in %s: the recording holds no value", b.Name())
+		}
+		ms = float64(n)
+	}
+	return starlark.MakeInt64(int64(ms)), nil
 }
 
 // stateObject converts the dict a script passed to save_state into the plain

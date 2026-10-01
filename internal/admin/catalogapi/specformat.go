@@ -6,6 +6,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
 	"github.com/txn2/mcp-data-platform/internal/soap"
+	"github.com/txn2/mcp-data-platform/internal/swagger2"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
@@ -25,8 +26,7 @@ import (
 func renderEffective(entry *apicatalog.SpecEntry) error {
 	switch entry.Format() {
 	case apicatalog.FormatOpenAPI:
-		entry.OpenAPIContent = ""
-		return nil
+		return renderOpenAPI(entry)
 	case apicatalog.FormatWSDL:
 		_, rendered, err := soap.Import(entry.Content)
 		if errors.Is(err, soap.ErrNotWSDL) {
@@ -52,6 +52,30 @@ func renderEffective(entry *apicatalog.SpecEntry) error {
 	default:
 		return fmt.Errorf("spec_format %q is not one this platform reads: %w", entry.SpecFormat, apicatalog.ErrInvalidSpecFormat)
 	}
+}
+
+// renderOpenAPI keeps an OpenAPI 3 document as it is, and converts a Swagger
+// 2.0 one (#2005). Many internal services publish 2.0, because swaggo/swag,
+// the usual generator for Go APIs, emits it; the operator saves what the
+// service publishes and the platform converts it on every save and refresh,
+// so no converted copy has to be kept in step with it.
+//
+// The 2.0 document stays as Content, so the editor round-trips what was
+// supplied, and the conversion is OpenAPIContent, the split a WSDL has. Its
+// basePath is the converted document's server path, which is the prefix the
+// gateway uses when the spec's base_path is empty; an operator's base_path
+// still overrides it, and a refresh follows a basePath the service changed.
+func renderOpenAPI(entry *apicatalog.SpecEntry) error {
+	entry.OpenAPIContent = ""
+	if !swagger2.Is(entry.Content) {
+		return nil
+	}
+	converted, err := swagger2.Convert(entry.Content)
+	if err != nil {
+		return fmt.Errorf("the Swagger 2.0 document could not be converted to OpenAPI 3: %w", err)
+	}
+	entry.OpenAPIContent = converted
+	return nil
 }
 
 // prepareSpec renders a spec entry and stamps the operation count its

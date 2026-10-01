@@ -154,10 +154,13 @@ type PIIConsentConfig struct {
 
 // Toolkit wraps mcp-trino toolkit for the platform.
 type Toolkit struct {
-	name         string
-	config       Config
-	client       *trinoclient.Client
-	manager      *multiserver.Manager // non-nil in multi-connection mode
+	name    string
+	config  Config
+	client  *trinoclient.Client
+	manager *multiserver.Manager // non-nil in multi-connection mode
+	// primary is the default connection's client settings, which a
+	// connection added at run time inherits what it leaves unset from.
+	primary      trinoclient.Config
 	trinoToolkit *trinotools.Toolkit
 
 	semanticProvider semantic.Provider
@@ -239,16 +242,7 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		return nil, errors.New("at least one trino instance is required")
 	}
 
-	// Resolve the default connection name.
-	defaultName := cfg.DefaultConnection
-	if defaultName == "" {
-		// Pick the first instance alphabetically for determinism.
-		for name := range cfg.Instances {
-			if defaultName == "" || name < defaultName {
-				defaultName = name
-			}
-		}
-	}
+	defaultName := cfg.resolveDefault()
 
 	defaultCfg, ok := cfg.Instances[defaultName]
 	if !ok {
@@ -263,8 +257,12 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		warnInertConnectionName(name, instCfg.ConnectionName)
 	}
 
-	// Build multiserver config from instance configs.
+	// Build multiserver config from instance configs, and refuse it whole
+	// when the client would refuse any connection in it (#2014).
 	msCfg := buildMultiserverConfig(defaultName, defaultCfg, cfg.Instances)
+	if err := validateClientConfigs(msCfg); err != nil {
+		return nil, err
+	}
 
 	mgr := multiserver.NewManager(msCfg)
 
@@ -280,6 +278,7 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		name:                   defaultName,
 		config:                 defaultCfg,
 		manager:                mgr,
+		primary:                msCfg.Primary,
 		connectionDescriptions: descs,
 		readOnly:               buildReadOnlyInterceptor(defaultName, cfg.Instances),
 		scratch:                buildScratchTargets(cfg.Instances),
@@ -675,16 +674,24 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	return details
 }
 
-// AddConnection adds a named connection at runtime.
-// Requires multi-connection mode (created via NewMulti).
-func (t *Toolkit) AddConnection(name string, config map[string]any) error {
+// ValidateConnection reports whether the Trino client would refuse to open a
+// connection with this configuration, judged with what it inherits from the
+// default connection, without adding it (#2014). The admin API asks it before
+// storing a connection.
+//
+// A single-connection toolkit takes no connection at run time, which
+// AddConnection reports; there is nothing here to judge it against.
+func (t *Toolkit) ValidateConnection(name string, config map[string]any) error {
 	if t.manager == nil {
-		return errors.New("dynamic connections require multi-connection mode")
+		return nil
 	}
+	return t.validateDynamic(name, dynamicConnection(config))
+}
 
-	warnInertConnectionName(name, getString(config, "connection_name"))
-
-	conn := multiserver.ConnectionConfig{
+// dynamicConnection is a connection added at run time, as the multiserver
+// manager takes it.
+func dynamicConnection(config map[string]any) multiserver.ConnectionConfig {
+	return multiserver.ConnectionConfig{
 		Host:     getString(config, "host"),
 		Port:     getInt(config, "port", 0),
 		User:     getString(config, "user"),
@@ -697,7 +704,29 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 		SSL:       getBoolPtr(config, "ssl"),
 		SSLVerify: getBoolPtr(config, "ssl_verify"),
 	}
+}
 
+// validateDynamic runs the client's validation over a connection added at run
+// time, on the settings it inherits from the default connection.
+func (t *Toolkit) validateDynamic(name string, conn multiserver.ConnectionConfig) error {
+	return validateClientConfigs(multiserver.Config{
+		Default: t.name, Primary: t.primary, Connections: map[string]multiserver.ConnectionConfig{name: conn},
+	})
+}
+
+// AddConnection adds a named connection at runtime.
+// Requires multi-connection mode (created via NewMulti).
+func (t *Toolkit) AddConnection(name string, config map[string]any) error {
+	if t.manager == nil {
+		return errors.New("dynamic connections require multi-connection mode")
+	}
+
+	warnInertConnectionName(name, getString(config, "connection_name"))
+
+	conn := dynamicConnection(config)
+	if err := t.validateDynamic(name, conn); err != nil {
+		return err
+	}
 	if err := t.manager.AddConnection(name, conn); err != nil {
 		return fmt.Errorf("adding trino connection %s: %w", name, err)
 	}

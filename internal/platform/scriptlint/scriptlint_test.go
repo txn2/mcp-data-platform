@@ -47,6 +47,31 @@ func TestCheck_CleanScriptPasses(t *testing.T) {
 	assert.Equal(t, clean, res.Source, "already formatted source is stored byte for byte")
 }
 
+// TestCheck_SaveStateBeforeFailWarnsAndSaves is #2002's rule: a fail()
+// reached after platform.save_state is a warning, reported and never refused,
+// and a fail() before any save_state, or in another function, is nothing.
+func TestCheck_SaveStateBeforeFailWarnsAndSaves(t *testing.T) {
+	src := strings.Replace(clean, `    platform.save_state({"since": since})
+`, `    platform.save_state({"since": since})
+    if not rows:
+        fail("nothing exported")
+`, 1)
+	res := Check(src)
+	assert.Empty(t, res.Refused, "a warning never refuses a save")
+	require.Len(t, res.Warnings, 1)
+	assert.Equal(t, RuleStateDiscardedOnFail, res.Warnings[0].Rule)
+	assert.Equal(t, scriptrun.SeverityWarning, res.Warnings[0].Severity)
+	assert.Contains(t, res.Warnings[0].Hint, "platform.checkpoint")
+	assert.Equal(t, res.Warnings, res.Findings)
+
+	before := strings.Replace(clean, `    rows = fetch(since)
+`, `    rows = fetch(since)
+    if not rows:
+        fail("nothing to export")
+`, 1)
+	assert.Empty(t, Check(before).Findings, "fail() before the save loses nothing")
+}
+
 // Each rule, one script that breaks it: refused with the rule, a line and a
 // hint, on a script created since the gates.
 func TestCheck_EachRuleRefusesANewScript(t *testing.T) {

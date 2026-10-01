@@ -42,7 +42,11 @@ const (
 	RuleSQLFromValues    = "sql-built-from-values"
 	RuleCallInLoop       = "call-in-loop"
 	RuleStateWithoutRead = "save-state-without-read"
-	RuleLibraryEffect    = "library-effect"
+	// RuleStateDiscardedOnFail warns, without refusing the save, that a path
+	// reaches fail() after platform.save_state, whose state the platform then
+	// discards (#2002).
+	RuleStateDiscardedOnFail = "save-state-before-fail"
+	RuleLibraryEffect        = "library-effect"
 )
 
 // The limits, the ones this repository holds its own Go to where the two have
@@ -60,17 +64,22 @@ type finding struct {
 	line    int
 	message string
 	hint    string
+	// warn makes the finding a warning: reported with the save, never a
+	// reason to refuse it.
+	warn bool
 }
 
 // Result is what the gates made of a source.
 type Result struct {
 	// Source is the formatted source, which is what a save stores.
 	Source string
-	// Findings is every finding on Source, each an error.
+	// Findings is every finding on Source: the errors, and the warnings.
 	Findings []scriptrun.Finding
-	// Refused is the findings that refuse the save: every one of Findings.
-	// Empty means it goes through.
+	// Refused is the findings that refuse the save: every error. Empty means
+	// it goes through.
 	Refused []scriptrun.Finding
+	// Warnings is the findings a save reports and goes through with.
+	Warnings []scriptrun.Finding
 }
 
 // Check formats source and holds it to the gates. A source that does not
@@ -80,8 +89,15 @@ func Check(source string) Result {
 	formatted := scriptfmt.Format(source)
 	found := lint(formatted)
 	res := Result{Source: formatted, Findings: make([]scriptrun.Finding, 0, len(found)), Refused: make([]scriptrun.Finding, 0, len(found))}
+	res.Warnings = make([]scriptrun.Finding, 0)
 	for _, f := range found {
 		out := scriptrun.Finding{Rule: f.rule, Severity: scriptrun.SeverityError, Line: f.line, Message: f.message, Hint: f.hint}
+		if f.warn {
+			out.Severity = scriptrun.SeverityWarning
+			res.Findings = append(res.Findings, out)
+			res.Warnings = append(res.Warnings, out)
+			continue
+		}
 		res.Findings = append(res.Findings, out)
 		res.Refused = append(res.Refused, out)
 	}
@@ -102,6 +118,7 @@ func lint(source string) []finding {
 	l.functions()
 	l.names()
 	l.hostCalls()
+	l.stateBeforeFail()
 	l.tests()
 	slices.SortFunc(l.found, func(a, b finding) int {
 		if a.line != b.line {

@@ -2,16 +2,13 @@ package platform
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 
-	"github.com/getkin/kin-openapi/openapi2"
-	"github.com/getkin/kin-openapi/openapi2conv"
-
 	"github.com/txn2/mcp-data-platform/internal/apidocs"
+	"github.com/txn2/mcp-data-platform/internal/swagger2"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
@@ -232,24 +229,15 @@ func adminSelfSpecContent() (string, error) {
 	return convertSwaggerToV3(apidocs.SwaggerJSON())
 }
 
-// convertSwaggerToV3 converts an OpenAPI 2.0 (Swagger) JSON document to
-// OpenAPI 3.0 JSON. Extracted from adminSelfSpecContent so the error
-// paths are testable with malformed input independent of the embedded
-// (always-valid) document.
+// convertSwaggerToV3 converts the admin API's embedded Swagger 2.0 document to
+// OpenAPI 3, through the one conversion a catalog spec saved as 2.0 goes
+// through too (#2005).
 func convertSwaggerToV3(raw string) (string, error) {
-	var v2 openapi2.T
-	if err := json.Unmarshal([]byte(raw), &v2); err != nil {
-		return "", fmt.Errorf("decoding embedded swagger 2.0: %w", err)
-	}
-	v3, err := openapi2conv.ToV3(&v2)
+	out, err := swagger2.Convert(raw)
 	if err != nil {
-		return "", fmt.Errorf("converting swagger 2.0 to openapi 3.0: %w", err)
+		return "", fmt.Errorf("converting the embedded swagger 2.0: %w", err)
 	}
-	out, err := v3.MarshalJSON()
-	if err != nil {
-		return "", fmt.Errorf("encoding openapi 3.0: %w", err)
-	}
-	return string(out), nil
+	return out, nil
 }
 
 // loopbackBaseURL derives the loopback base URL for the admin API from

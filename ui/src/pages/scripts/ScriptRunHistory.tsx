@@ -398,6 +398,17 @@ function RunFacts({ run }: { run: ScriptRunDetail }) {
   );
 }
 
+// StateSavedLabel names what the run saved: its last checkpoint, or its
+// save_state (#2003).
+function StateSavedLabel({ run }: { run: ScriptRunDetail }) {
+  const revision = run.state_revision_written ?? "?";
+  return run.state_checkpoint ? (
+    <>Checkpoint saved (revision {revision})</>
+  ) : (
+    <>State saved (revision {revision})</>
+  );
+}
+
 // RunStateFacts is the state half of a run's own account (#1537): what it
 // read, which is an input of the run beside its parameters, and what it saved.
 // A run that read nothing and saved nothing says nothing here, because most
@@ -415,7 +426,7 @@ function RunStateFacts({ run }: { run: ScriptRunDetail }) {
       {run.state_written && (
         <div className="sm:col-span-3">
           <dt className="text-muted-foreground">
-            State saved (revision {run.state_revision_written ?? "?"})
+            <StateSavedLabel run={run} />
           </dt>
           <dd className="font-mono break-words">{JSON.stringify(run.state_written)}</dd>
         </div>

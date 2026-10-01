@@ -14,7 +14,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/draftview"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlint"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -162,39 +161,6 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 	})
 }
 
-// dryRunResponse is one draft execution as the editor reports it. A failed run
-// answers with the same fields a successful one does: the log is the whole
-// reason to have run it.
-type dryRunResponse struct {
-	RunID  string `json:"run_id" example:"run_a1b2c3d4"`
-	Status string `json:"status" example:"succeeded"`
-	Error  string `json:"error,omitempty"`
-	// Log is what the run printed, bounded when it was captured.
-	Log          string                `json:"log,omitempty"`
-	LogTruncated bool                  `json:"log_truncated,omitempty"`
-	Metrics      script.RunMetrics     `json:"metrics"`
-	Outputs      []script.DryRunOutput `json:"outputs"`
-	// State is the object the source would have saved with
-	// platform.save_state, absent when it saved none (#1537). The draft
-	// persists it no more than it persists an output.
-	State map[string]any `json:"state,omitempty"`
-	// Writes lists the persisting platform.call calls the run made, empty
-	// unless it was run with allow_writes (#1664). Those calls landed, and this
-	// is the only place the response says so.
-	Writes []scriptrun.WriteRecord `json:"writes"`
-	// RefusedWrite is the call the write barrier stopped, absent when it
-	// stopped none. At most one: the refusal ends the run.
-	RefusedWrite *scriptrun.WriteRecord `json:"refused_write,omitempty"`
-	// Message states what did and did not happen, because "succeeded" on a run
-	// that deliberately wrote nothing is the sentence most likely to be
-	// misread.
-	Message string `json:"message"`
-	// Recording is the run id a test replays this draft's recorded host
-	// calls by, testing.replay("<recording>"), absent when none was kept
-	// (#1939).
-	Recording string `json:"recording,omitempty"`
-}
-
 // portalDryRunSource executes an edit as the caller and reports what it did.
 //
 // @Summary      Dry-run a script's source
@@ -204,7 +170,7 @@ type dryRunResponse struct {
 // @Produce      json
 // @Param        id     path  string        true   "Script ID"
 // @Param        draft  body  draftRequest  false  "Source and parameter values"
-// @Success      200  {object}  dryRunResponse
+// @Success      200  {object}  draftview.Response
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
 // @Failure      404  {object}  httpjson.ProblemDetail
@@ -259,7 +225,7 @@ func (h *Handler) portalDryRunSource(w http.ResponseWriter, r *http.Request, use
 		httpjson.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	rendered := draftOutcome(outcome)
+	rendered := draftview.Of(outcome)
 	h.recordDryRun(r.Context(), executedDraft{
 		script: sc, source: source, user: user, runID: outcome.RunID, result: rendered,
 	})
@@ -279,37 +245,6 @@ func decodeDraftRequest(w http.ResponseWriter, r *http.Request) (draftRequest, b
 		return req, false
 	}
 	return req, true
-}
-
-// draftOutcome renders one executed draft.
-func draftOutcome(outcome *scriptdraft.Outcome) dryRunResponse {
-	out := dryRunResponse{
-		RunID: outcome.RunID, Status: script.RunStatusSucceeded,
-		Outputs: draftview.Outputs(outcome),
-		Writes:  []scriptrun.WriteRecord{},
-		Message: outcome.Persisted("dry run"),
-	}
-	if outcome.Recorded {
-		out.Recording = outcome.RunID
-	}
-	if outcome.Result != nil {
-		out.Log = outcome.Result.Log
-		out.LogTruncated = outcome.Result.LogTruncated
-		out.Metrics = draftview.Metrics(outcome.Result)
-		out.RefusedWrite = outcome.Result.RefusedWrite
-		if len(outcome.Result.Writes) > 0 {
-			out.Writes = outcome.Result.Writes
-		}
-		if outcome.Result.State != nil {
-			out.State = orEmptyObject(outcome.Result.State.Value)
-		}
-	}
-	if outcome.Failed() {
-		out.Status = script.RunStatusFailed
-		out.Error = outcome.Err.Error()
-		out.Message = draftview.FailureMessage(out.RefusedWrite, scriptguard.Cause(outcome.Err))
-	}
-	return out
 }
 
 // recordDryRun keeps the account of what the author ran, so the reviewer of the
@@ -341,5 +276,5 @@ type executedDraft struct {
 	source string
 	user   *PortalIdentity
 	runID  string
-	result dryRunResponse
+	result draftview.Response
 }

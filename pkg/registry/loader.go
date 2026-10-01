@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+
+	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
 // LoaderConfig holds configuration for loading toolkits.
@@ -165,4 +167,55 @@ func mergeInstanceConfigs(instances map[string]map[string]any, kindConfig map[st
 		merged[name] = mergedCfg
 	}
 	return merged
+}
+
+// PreflightToolkits reports every toolkit connection in a configuration that
+// its client would refuse to open, without opening any of them (#2014).
+//
+// A process runs it before it migrates the database: a configuration a new
+// release refuses then fails startup with the database unchanged, so the
+// release before it can still start. Today it checks the trino kind, whose
+// client refuses a password over plain HTTP.
+func PreflightToolkits(toolkits map[string]any) error {
+	multiCfg, ok, err := trinoMultiConfig(toolkits)
+	if !ok || err != nil {
+		return err
+	}
+	return multiCfg.Validate() //nolint:wrapcheck // each error already names its connection
+}
+
+// RefusedConnections reports, by kind and connection name, each connection in
+// a toolkit configuration its client would refuse to open (#2014). A process
+// drops a refused connection it read from the connection store rather than
+// failing its whole toolkit after the database was migrated.
+func RefusedConnections(toolkits map[string]any) map[string]map[string]error {
+	multiCfg, ok, err := trinoMultiConfig(toolkits)
+	if !ok || err != nil {
+		return nil
+	}
+	refused := multiCfg.Refused()
+	if len(refused) == 0 {
+		return nil
+	}
+	return map[string]map[string]error{"trino": refused}
+}
+
+// trinoMultiConfig is the enabled trino kind of a toolkit configuration as the
+// trino factory reads it; ok is false when the kind is absent or off.
+func trinoMultiConfig(toolkits map[string]any) (multiCfg trinokit.MultiConfig, ok bool, err error) {
+	kindMap, isMap := toolkits["trino"].(map[string]any)
+	if !isMap {
+		return trinokit.MultiConfig{}, false, nil
+	}
+	if enabled, _ := kindMap["enabled"].(bool); !enabled {
+		return trinokit.MultiConfig{}, false, nil
+	}
+	instances, _ := kindMap["instances"].(map[string]any)
+	defaultName, _ := kindMap["default"].(string)
+	kindConfig, _ := kindMap["config"].(map[string]any)
+	multiCfg, err = trinokit.ParseMultiConfig(defaultName, mergeMapInstances(instances, kindConfig))
+	if err != nil {
+		return trinokit.MultiConfig{}, false, fmt.Errorf("parsing trino multi config: %w", err)
+	}
+	return multiCfg, true, nil
 }

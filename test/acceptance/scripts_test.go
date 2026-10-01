@@ -129,7 +129,13 @@ func (c *client) producedDigest(name, base, recording string, ran map[string]any
 	if len(tests) == 0 {
 		c.t.Fatalf("the probe of %v's outputs ran no test: %v", name, tested)
 	}
-	first, _ := tests[0].(map[string]any)
+	// The probe is the recorded-draft test; the source may carry its own.
+	var first map[string]any
+	for _, it := range tests {
+		if m, _ := it.(map[string]any); m["name"] == "test_recorded_draft" {
+			first = m
+		}
+	}
 	log, _ := first["log"].(string)
 	_, digest, found := strings.Cut(log, "digest:")
 	n, err := strconv.Atoi(strings.TrimSpace(digest))
@@ -217,6 +223,10 @@ func draftArgs(params any) map[string]any {
 func recordedTest(recording string, ran map[string]any, digest int) string {
 	asserts := []string{fmt.Sprintf("assert.eq(len(json.encode(%s)), %d)", producedExpr, digest)}
 	if ran["status"] != "succeeded" {
+		if discarded, ok := ran["state_discarded"]; ok && discarded != nil {
+			// A failed draft's save_state, which a run discards (#2002).
+			asserts = append(asserts, "assert.eq(out.state_discarded, json.decode("+jsonLiteral(discarded)+"))")
+		}
 		return testHead(recording) + "    " + entryCall(ran) + "\n    " + strings.Join(asserts, "\n    ") + "\n"
 	}
 	if exports, _ := ran["exports"].([]any); len(exports) > 0 {
@@ -231,7 +241,13 @@ func recordedTest(recording string, ran map[string]any, digest int) string {
 		asserts = append(asserts, "assert.eq(out.result, json.decode("+jsonLiteral(result)+"))")
 	}
 	if state, ok := ran["state"]; ok && state != nil {
-		asserts = append(asserts, "assert.eq(out.state, json.decode("+jsonLiteral(state)+"))")
+		// A draft's state is what a run would commit: its save_state, or its
+		// checkpoint when it saved none (#2003), which a test reads as such.
+		field := "state"
+		if ran["state_checkpoint"] == true {
+			field = "checkpoint"
+		}
+		asserts = append(asserts, "assert.eq(out."+field+", json.decode("+jsonLiteral(state)+"))")
 	}
 	if len(asserts) == 1 {
 		log, _ := ran["log"].(string)
