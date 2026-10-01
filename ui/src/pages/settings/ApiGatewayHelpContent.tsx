@@ -81,6 +81,19 @@ export function ApiGatewayAuthHelp() {
             was wrong.
           </Row>
           <Row
+            label="HMAC signature"
+            mode="hmac"
+            sends="<signature header>: an HMAC of the body (and timestamp, id)"
+          >
+            Webhook receivers that verify the sender by an HMAC of the request:
+            Standard Webhooks, GitHub, Stripe, and this platform's own inbound
+            webhook sources. The credential is the signing secret. A preset
+            fills the receiver's whole convention; a field set beside it
+            overrides the preset's value. The signature covers the exact bytes
+            sent, the timestamp is taken as each request is sent, and the
+            delivery id is the caller's when a call sets that header.
+          </Row>
+          <Row
             label="OAuth 2.1, client credentials"
             mode="oauth2_client_credentials"
             sends="Authorization: Bearer <token>"

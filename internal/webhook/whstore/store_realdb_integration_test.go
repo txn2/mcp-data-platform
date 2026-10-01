@@ -186,9 +186,11 @@ func TestWebhookStatsRealDB(t *testing.T) {
 	}))
 	require.NoError(t, st.RecordCounts(ctx, nil))
 
-	rej := make([]Rejection, 0, 60)
+	// Sixty rejections two minutes apart: too far apart to be one run, so
+	// each is a row and the trim keeps the outcome's newest 50.
+	rej := make([]Rejection, 0, 61)
 	for i := range 60 {
-		rej = append(rej, Rejection{Source: "esp", At: now.Add(time.Duration(i) * time.Second), Outcome: "unauthorized", Reason: "the signature does not match"})
+		rej = append(rej, Rejection{Source: "esp", At: now.Add(time.Duration(i-60) * 2 * time.Minute), Outcome: "unauthorized", Reason: "the signature does not match"})
 	}
 	rej = append(rej, Rejection{Source: "gone", At: now, Outcome: "unauthorized"})
 	require.NoError(t, st.RecordRejections(ctx, rej))
@@ -198,7 +200,7 @@ func TestWebhookStatsRealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]int64{"accepted": 5}, status.LastHour)
 	assert.Equal(t, map[string]int64{"accepted": 5, "unauthorized": 4}, status.LastDay)
-	assert.Len(t, status.Rejections, maxRejections, "a source keeps its newest 50 rejections")
+	assert.Len(t, status.Rejections, maxRejections, "a source keeps its newest 50 rejections of an outcome")
 	assert.Nil(t, status.LastSegmentAt)
 	assert.Equal(t, 0, status.Pending)
 
@@ -316,4 +318,66 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 	assert.Equal(t, "the body is over the limit", ov.Rejections[0].Reason)
 	assert.Equal(t, "esp", ov.Rejections[1].Source)
 	assert.Equal(t, "the signature does not match", ov.Rejections[1].Reason)
+}
+
+// TestRejectionsSurviveABurstRealDB is #2001's acceptance against a migrated
+// database: five unauthorized rejections, then five hundred rate_limited ones
+// in batches the way the receiver flushes them. The source's page and the
+// overview still list all five unauthorized rows with their reasons, and the
+// burst is one row that counts it.
+func TestRejectionsSurviveABurstRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('esp', 'scratch')`)
+	require.NoError(t, err)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	reasons := []string{
+		"the signature header is missing",
+		"the signature does not match",
+		"the timestamp is outside the tolerance window",
+		"the timestamp header is missing",
+		"the signature does not match",
+	}
+	for i, reason := range reasons {
+		// A minute and more apart, so each attempt is a row of its own.
+		require.NoError(t, st.RecordRejections(ctx, []Rejection{{
+			Source: "esp", At: now.Add(time.Duration(i-10) * 2 * time.Minute), Outcome: "unauthorized", Reason: reason,
+		}}))
+	}
+	for batch := range 10 {
+		burst := make([]Rejection, 0, 50)
+		for i := range 50 {
+			burst = append(burst, Rejection{
+				Source: "esp", At: now.Add(time.Duration(batch*50+i) * time.Millisecond),
+				Outcome: "rate_limited", Reason: "the source's rate limit was reached",
+			})
+		}
+		require.NoError(t, st.RecordRejections(ctx, burst))
+	}
+
+	unauthorized := func(rs []Rejection) []string {
+		out := make([]string, 0, len(rs))
+		for _, r := range rs {
+			if r.Outcome == "unauthorized" {
+				out = append(out, r.Reason)
+			}
+		}
+		return out
+	}
+	want := []string{reasons[4], reasons[3], reasons[2], reasons[1], reasons[0]}
+
+	status, err := st.Status(ctx, "esp", now)
+	require.NoError(t, err)
+	require.Len(t, status.Rejections, 6, "five unauthorized rows and one for the burst")
+	assert.Equal(t, "rate_limited", status.Rejections[0].Outcome, "newest first")
+	assert.Equal(t, int64(500), status.Rejections[0].Count)
+	assert.Equal(t, now, status.Rejections[0].FirstAt)
+	assert.Equal(t, now.Add(499*time.Millisecond), status.Rejections[0].At)
+	assert.Equal(t, want, unauthorized(status.Rejections))
+
+	ov, err := st.Overview(ctx, now, time.Hour, time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, want, unauthorized(ov.Rejections))
 }

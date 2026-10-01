@@ -16,6 +16,8 @@ type AuthInput struct {
 	TimestampHeader  string `json:"timestamp_header,omitempty" example:"X-Timestamp"`
 	ToleranceSeconds int    `json:"tolerance_seconds,omitempty" example:"300"`
 	Signed           string `json:"signed,omitempty" example:"body"`
+	IDHeader         string `json:"id_header,omitempty" example:"webhook-id"`
+	HeaderFormat     string `json:"header_format,omitempty" example:"stripe"`
 	Header           string `json:"header,omitempty" example:"X-Webhook-Token"`
 	Username         string `json:"username,omitempty" example:"sender"`
 }

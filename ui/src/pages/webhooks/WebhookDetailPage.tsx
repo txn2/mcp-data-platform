@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODE_LABELS, senderURL, windowLength } from "./webhookForm";
+import { RejectionsTable } from "./RejectionsTable";
 import { OUTCOMES } from "./webhookOverview";
 
 // WebhookDetailPage is one source (#1870): the address to give the sender,
@@ -124,17 +125,23 @@ function SenderSection({ source }: { source: WebhookSource }) {
   );
 }
 
+/** HMACFacts are the signing settings an HMAC sender has to match. */
+function HMACFacts({ auth: a }: { auth: WebhookSource["auth"] }) {
+  return (
+    <>
+      <Fact label="Signature header" value={`${a.signature_header ?? ""}${a.prefix ? ` (prefix ${a.prefix})` : ""}`} mono />
+      <Fact label="Signature" value={`HMAC-${(a.algorithm ?? "sha256").toUpperCase()}, ${a.encoding ?? "hex"}`} />
+      <Fact label="Signed content" value={signedText(a)} />
+      {a.id_header && <Fact label="ID header" value={a.id_header} mono />}
+    </>
+  );
+}
+
 /** ModeFacts are the settings the sender has to match for its mode. */
 function ModeFacts({ auth: a }: { auth: WebhookSource["auth"] }) {
   switch (a.mode) {
     case "hmac":
-      return (
-        <>
-          <Fact label="Signature header" value={`${a.signature_header ?? ""}${a.prefix ? ` (prefix ${a.prefix})` : ""}`} mono />
-          <Fact label="Signature" value={`HMAC-${(a.algorithm ?? "sha256").toUpperCase()}, ${a.encoding ?? "hex"}`} />
-          <Fact label="Signed" value={signedText(a)} />
-        </>
-      );
+      return <HMACFacts auth={a} />;
     case "header_token":
       return <Fact label="Token header" value={a.header ?? ""} mono />;
     case "basic":
@@ -144,11 +151,21 @@ function ModeFacts({ auth: a }: { auth: WebhookSource["auth"] }) {
   }
 }
 
+/** SIGNED_LABELS name what a signature covers, as the editor names it. */
+const SIGNED_BODY = "Body";
+const SIGNED_LABELS: Record<string, string> = {
+  body: SIGNED_BODY,
+  "timestamp.body": "Timestamp and body",
+  "id.timestamp.body": "ID, timestamp and body",
+};
+
 /** signedText says what an HMAC signature is computed over. */
-function signedText(a: WebhookSource["auth"]): string {
-  if (!a.timestamp_header) return "the body";
-  const what = a.signed === "timestamp.body" ? "timestamp.body" : "body";
-  return `${what}; timestamp in ${a.timestamp_header}, ${a.tolerance_seconds ?? 300}s tolerance`;
+export function signedText(a: WebhookSource["auth"]): string {
+  const tolerance = `${a.tolerance_seconds ?? 300}s tolerance`;
+  if (a.header_format === "stripe") return `Timestamp and body; Stripe header format, ${tolerance}`;
+  if (!a.timestamp_header) return SIGNED_BODY;
+  const what = SIGNED_LABELS[a.signed ?? "body"] ?? SIGNED_BODY;
+  return `${what}; timestamp in ${a.timestamp_header}, ${tolerance}`;
 }
 
 function ActivitySection({ status }: { status: WebhookStatus }) {
@@ -226,27 +243,11 @@ function RejectionsSection({ status }: { status: WebhookStatus }) {
         <p className="text-xs text-muted-foreground">No request has been rejected.</p>
       ) : (
         <>
-          <p className="mb-2 text-xs text-muted-foreground">The last 50. A request body is never kept.</p>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>When</TableHead>
-                  <TableHead>Outcome</TableHead>
-                  <TableHead>Reason</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {status.rejections.map((r, i) => (
-                  <TableRow key={`${r.at}-${i}`}>
-                    <TableCell className="whitespace-nowrap text-xs">{new Date(r.at).toLocaleString()}</TableCell>
-                    <TableCell className="text-xs">{OUTCOMES.find((o) => o.key === r.outcome)?.label ?? r.outcome}</TableCell>
-                    <TableCell className="text-xs">{r.reason}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            The newest 50 of each outcome. A row counts the requests rejected for the same reason within a
+            minute of each other. A request body is never kept.
+          </p>
+          <RejectionsTable rows={status.rejections} />
         </>
       )}
     </SectionCard>

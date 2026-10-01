@@ -54,7 +54,7 @@ func TestGet_DecodesTheConfigBackIntoTheChannel(t *testing.T) {
 	defer done()
 
 	cfg := `{"description":"ops alerts","connection":"chat-bot","target":"C1",` +
-		`"mode":"immediate","repeat_after_seconds":1800,"max_per_hour":5}`
+		`"mode":"immediate","repeat_after_seconds":1800,"max_per_hour":5,"format":"json"}`
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT name, kind, config, enabled, created_by, updated_at`)).
 		WithArgs("ops").
 		WillReturnRows(sqlmock.NewRows(channelColumns).
@@ -72,6 +72,9 @@ func TestGet_DecodesTheConfigBackIntoTheChannel(t *testing.T) {
 	}
 	if ch.MaxPerHour != 5 {
 		t.Errorf("MaxPerHour = %d, want 5", ch.MaxPerHour)
+	}
+	if ch.Format != notification.ChannelFormatJSON {
+		t.Errorf("Format = %q, want json read back from the config", ch.Format)
 	}
 }
 

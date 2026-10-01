@@ -77,7 +77,8 @@ func TestStoreCreateDuplicate(t *testing.T) {
 func TestStoreEncryptFailure(t *testing.T) {
 	st, _ := mockStore(t, prefixEncryptor{fail: true})
 	assert.Error(t, st.Create(context.Background(), validHMAC()))
-	assert.Error(t, st.Update(context.Background(), validHMAC()))
+	_, err := st.Update(context.Background(), validHMAC())
+	assert.Error(t, err)
 }
 
 func TestStoreGetDecrypts(t *testing.T) {
@@ -160,12 +161,18 @@ func TestStoreList(t *testing.T) {
 
 func TestStoreUpdateDelete(t *testing.T) {
 	st, mock := mockStore(t, nil)
-	mock.ExpectExec(`UPDATE webhook_sources`).WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, st.Update(context.Background(), validHMAC()))
-	mock.ExpectExec(`UPDATE webhook_sources`).WillReturnResult(sqlmock.NewResult(0, 0))
-	assert.ErrorIs(t, st.Update(context.Background(), validHMAC()), ErrNotFound)
-	mock.ExpectExec(`UPDATE webhook_sources`).WillReturnError(errors.New("down"))
-	assert.Error(t, st.Update(context.Background(), validHMAC()))
+	stamped := time.Date(2026, 10, 1, 1, 16, 37, 0, time.UTC)
+	mock.ExpectQuery(`UPDATE webhook_sources .* RETURNING updated_at`).
+		WillReturnRows(sqlmock.NewRows([]string{"updated_at"}).AddRow(stamped))
+	got, err := st.Update(context.Background(), validHMAC())
+	require.NoError(t, err)
+	assert.Equal(t, stamped, got, "Update returns the time the row was stamped with")
+	mock.ExpectQuery(`UPDATE webhook_sources`).WillReturnRows(sqlmock.NewRows([]string{"updated_at"}))
+	_, err = st.Update(context.Background(), validHMAC())
+	assert.ErrorIs(t, err, ErrNotFound)
+	mock.ExpectQuery(`UPDATE webhook_sources`).WillReturnError(errors.New("down"))
+	_, err = st.Update(context.Background(), validHMAC())
+	assert.Error(t, err)
 
 	mock.ExpectExec(`DELETE FROM webhook_sources`).WithArgs("a").WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, st.Delete(context.Background(), "a"))

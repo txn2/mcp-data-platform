@@ -425,6 +425,9 @@ func TestPublish_BuildsTheDocumentFromTheAsset(t *testing.T) {
 	if doc.Link != "https://portal.example.com/portal/assets/asset_1" {
 		t.Errorf("link = %q, want the asset's portal page", doc.Link)
 	}
+	if doc.Type != notification.DocumentNotifyPublished {
+		t.Errorf("type = %q, want a person's publish", doc.Type)
+	}
 }
 
 func TestPublish_RefusesAnAssetTheCallerCannotRead(t *testing.T) {

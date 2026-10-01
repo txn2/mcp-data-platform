@@ -325,7 +325,7 @@ YAML.
 | Kind | Delivers through | Needs | Carries |
 | --- | --- | --- | --- |
 | `mattermost` | `POST /api/v4/posts` | an api connection holding the bot token, and the target channel id | a title, a markdown body and a link |
-| `webhook` | one `{"text": ...}` POST to the connection's base URL | an api connection whose base URL is the incoming-webhook URL | a title and a text body; the link is appended |
+| `webhook` | one POST to the connection's base URL: `{"text": ...}` (`format: text`, the default), or a JSON envelope (`format: json`) | an api connection whose base URL is the webhook URL, with any secret part as its `path_secret` | `text`: a title and a text body, the link appended. `json`: every field, the body whole, and the sender's `data` |
 | `email` | the deployment's mail server | one to 20 recipient addresses | a subject, a body and a link button, in the branded template |
 
 ### A channel holds no credential
@@ -368,12 +368,83 @@ A failure that retrying cannot fix - a deleted channel, a revoked bot token, a
 chat channel the bot was never invited to - fails the row at once rather than
 five times, and the upstream's own words are recorded on it.
 
+### A webhook for a system: `format: json`
+
+A `webhook` channel with `format: json` posts one envelope per notification,
+for a system that routes on fields rather than a person reading a chat client:
+
+```json
+{
+  "id": "ntf_48213",
+  "type": "script.finding",
+  "occurred_at": "2026-09-30T14:02:11Z",
+  "deployment": "ACME Data Platform",
+  "channel": "ops-events",
+  "title": "Restock delayed for 12 stores at reorder point",
+  "body": "markdown body as sent",
+  "link": "https://platform.example.com/portal/automations/.../runs/...",
+  "source": {"kind": "script", "script": "mcp:script:...", "run_id": "..."},
+  "data": {"stores": [3, 7, 12]}
+}
+```
+
+- `id` is the queue row's, the same on every retry of that row, so a receiver
+  deduplicates on it. A test send has an id of its own each time.
+- `type` is what produced it: `script.finding` (a script's
+  `platform.notify`), `script.published` (`platform.publish`),
+  `notify.sent` and `notify.published` (a person's `notify` call), or `test`
+  (**Send test**). A receiver routes on it.
+- `source` is a script's reference and run, or `{"kind": "user"}`.
+- `data` is the sender's structured payload, verbatim: `notify action=send
+  data=...` or `platform.notify(..., data=...)`, JSON of at most 64 KiB. A
+  `text` channel, a Mattermost channel and an email channel ignore it.
+- `deployment` is the portal's brand name.
+
+**Signing comes from the connection.** The channel holds no secret: with
+[`auth_mode: hmac`](api-gateway.md#hmac-signing) on its connection, every
+delivery is signed, and with `hmac_id_header` set the envelope's `id` is sent
+in that header too, covered by the signature. **Send test** delivers a `test`
+envelope through the same path, so a receiver's signature check is proved from
+the editor.
+
+A receiver verifies the signature over the raw body, drops an `id` it has seen,
+and routes on `type`. For a connection with `hmac_preset: platform`:
+
+```python
+import hashlib, hmac, json, time
+
+def receive(headers, raw_body, secret, seen):
+    ts = headers["X-Timestamp"]
+    if abs(time.time() - int(ts)) > 300:
+        return 401
+    want = "sha256=" + hmac.new(secret.encode(), f"{ts}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, headers["X-Signature"]):
+        return 401
+    event = json.loads(raw_body)
+    if event["id"] in seen:
+        return 200
+    seen.add(event["id"])
+    if event["type"] == "script.finding":
+        open_ticket(event["title"], event["data"])
+    return 202
+```
+
+Another deployment's [inbound webhook source](webhooks.md) receives the
+envelope as a table when it is configured with `event_id_path: $.id` and
+`event_type_path: $.type`: a retried delivery is one event after compaction.
+
+**What the upstream answers.** Any 2xx is delivered. A `429` or a `503` is
+retried, after the `Retry-After` it sends when it sends one, up to the queue's
+longest wait (32 minutes). A `410 Gone` fails the row at once, recording that
+the receiver asked for no more deliveries. Any other 4xx fails at once with an
+excerpt of the upstream's answer.
+
 ### Sending
 
 | Surface | How |
 | --- | --- |
-| A person in a session | the `notify` tool: `action=list`, then `action=send` or `action=publish` |
-| A managed script | `platform.notify(channel, title, body)` and `platform.publish(channel, name)` |
+| A person in a session | the `notify` tool: `action=list`, then `action=send` (with optional `data`) or `action=publish` |
+| A managed script | `platform.notify(channel, title, body, data=None)` and `platform.publish(channel, name)` |
 | An administrator | **Send test** on the channel's editor, which delivers immediately and reports what the upstream said |
 
 `notify` is an ordinary tool, so persona allow lists, the per-session rate

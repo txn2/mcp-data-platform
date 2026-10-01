@@ -53,9 +53,13 @@ const maxIdleConnections = 10
 // fail loudly with the underlying tls error, which is the same surface
 // a misconfigured transport would produce on any other auth mode.
 func NewHTTPClient(cfg Config) *http.Client {
+	var rt http.RoundTripper = NewHTTPTransport(cfg)
+	if cfg.PathSecret != "" {
+		rt = pathSecretTransport{next: rt, secret: cfg.PathSecret}
+	}
 	return &http.Client{
 		Timeout:   cfg.CallTimeout,
-		Transport: useragent.Transport(NewHTTPTransport(cfg)),
+		Transport: useragent.Transport(rt),
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -102,8 +106,29 @@ func (c Config) AuthHeader() string {
 		if c.CredentialPlacement == CredentialPlacementHeader {
 			return c.APIKeyHeader
 		}
+	case AuthModeHMAC:
+		return c.HMAC.SignatureHeader
 	}
 	return ""
+}
+
+// signingHeaders are the headers an hmac connection writes besides the
+// signature: the timestamp, which a caller may not set because the signature
+// covers the value the platform chose, and, for static_headers only, the
+// delivery id, which a caller may set per call but which an operator fixing
+// it would make every delivery the same one.
+func (c Config) signingHeaders(includeID bool) []string {
+	if c.AuthMode != AuthModeHMAC {
+		return nil
+	}
+	out := make([]string, 0, 2)
+	if c.HMAC.TimestampHeader != "" {
+		out = append(out, c.HMAC.TimestampHeader)
+	}
+	if includeID && c.HMAC.IDHeader != "" {
+		out = append(out, c.HMAC.IDHeader)
+	}
+	return out
 }
 
 // ValidateCustomHeaders refuses model-supplied headers that would
@@ -121,6 +146,11 @@ func (c Config) ValidateCustomHeaders(headers map[string]string) error {
 		}
 		if authHeader != "" && strings.EqualFold(name, authHeader) {
 			return c.errf("%s header is reserved by this connection's auth_mode", authHeader)
+		}
+		for _, signing := range c.signingHeaders(false) {
+			if strings.EqualFold(name, signing) {
+				return c.errf("%s header is reserved by this connection's auth_mode", signing)
+			}
 		}
 		for staticName := range c.StaticHeaders {
 			if strings.EqualFold(name, staticName) {
@@ -167,6 +197,11 @@ func (c Config) checkStaticHeader(name, value, authHeader string) error {
 	}
 	if authHeader != "" && strings.EqualFold(name, authHeader) {
 		return c.errf("static_headers must not set %q — already managed by auth_mode", name)
+	}
+	for _, signing := range c.signingHeaders(true) {
+		if strings.EqualFold(name, signing) {
+			return c.errf("static_headers must not set %q — already managed by auth_mode", name)
+		}
 	}
 	if isReservedHopHeader(name) {
 		return c.errf("static_headers must not set hop-by-hop or net/http-managed header %q", name)

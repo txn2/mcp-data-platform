@@ -39,6 +39,8 @@ type channelConfig struct {
 	// anything that opens the database.
 	RepeatAfterSeconds int64 `json:"repeat_after_seconds,omitempty"`
 	MaxPerHour         int   `json:"max_per_hour,omitempty"`
+	// Format is the webhook kind's payload format (#1997).
+	Format string `json:"format,omitempty"`
 }
 
 // PostgresStore implements notification.ChannelStore over the
@@ -105,6 +107,7 @@ func (s *PostgresStore) Set(ctx context.Context, ch notification.Channel) error 
 		Mode:               ch.Mode,
 		RepeatAfterSeconds: int64(ch.RepeatAfter / time.Second),
 		MaxPerHour:         ch.MaxPerHour,
+		Format:             ch.Format,
 	})
 	if err != nil {
 		return fmt.Errorf("encoding notification channel config: %w", err)
@@ -152,6 +155,7 @@ func scanChannel(row interface{ Scan(dest ...any) error }) (*notification.Channe
 	ch.Mode = cfg.Mode
 	ch.RepeatAfter = time.Duration(cfg.RepeatAfterSeconds) * time.Second
 	ch.MaxPerHour = cfg.MaxPerHour
+	ch.Format = cfg.Format
 	return &ch, nil
 }
 

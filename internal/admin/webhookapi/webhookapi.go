@@ -227,6 +227,7 @@ func authOf(a AuthInput) whsource.Auth {
 		Mode: a.Mode, Secret: a.Secret, Algorithm: a.Algorithm, SignatureHeader: a.SignatureHeader,
 		Encoding: a.Encoding, Prefix: a.Prefix, TimestampHeader: a.TimestampHeader,
 		ToleranceSeconds: a.ToleranceSeconds, Signed: a.Signed, Header: a.Header, Username: a.Username,
+		IDHeader: a.IDHeader, HeaderFormat: a.HeaderFormat,
 	}
 }
 
@@ -237,6 +238,7 @@ func viewOf(s whsource.Source) SourceView {
 		Mode: a.Mode, SecretSet: a.Secret != "", Algorithm: a.Algorithm, SignatureHeader: a.SignatureHeader,
 		Encoding: a.Encoding, Prefix: a.Prefix, TimestampHeader: a.TimestampHeader,
 		ToleranceSeconds: a.ToleranceSeconds, Signed: a.Signed, Header: a.Header, Username: a.Username,
+		IDHeader: a.IDHeader, HeaderFormat: a.HeaderFormat,
 	}
 	if a.PreviousSecret != "" && !a.PreviousUntil.IsZero() {
 		until := a.PreviousUntil.UTC()

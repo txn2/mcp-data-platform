@@ -21,6 +21,8 @@ type AuthView struct {
 	TimestampHeader  string     `json:"timestamp_header,omitempty"`
 	ToleranceSeconds int        `json:"tolerance_seconds,omitempty"`
 	Signed           string     `json:"signed,omitempty"`
+	IDHeader         string     `json:"id_header,omitempty"`
+	HeaderFormat     string     `json:"header_format,omitempty"`
 	Header           string     `json:"header,omitempty"`
 	Username         string     `json:"username,omitempty"`
 }

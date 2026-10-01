@@ -9,8 +9,12 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -49,6 +53,9 @@ type notifyInput struct {
 	Body  string `json:"body,omitempty" jsonschema:"the message body as markdown"`
 	// Link is the absolute URL a reader follows from the message.
 	Link string `json:"link,omitempty" jsonschema:"an absolute URL the reader can follow"`
+	// Data is structured JSON a webhook channel with format json delivers
+	// verbatim; every other channel ignores it.
+	Data any `json:"data,omitempty" jsonschema:"optional structured JSON for action=send, delivered verbatim to a webhook channel whose format is json (at most 64 KiB) and ignored by every other channel"`
 
 	// Asset is the portal asset id for action=publish.
 	Asset string `json:"asset,omitempty" jsonschema:"the portal asset id to publish, for action=publish"`
@@ -221,10 +228,35 @@ func (h *Handle) handleSend(ctx context.Context, input notifyInput) (*mcp.CallTo
 		Body:  input.Body,
 		Link:  strings.TrimSpace(input.Link),
 	}
+	if input.Data != nil {
+		data, err := wirejson.Marshal(input.Data)
+		if err != nil {
+			return toolkit.ErrorResult("notify: data must be JSON: " + err.Error()), nil, nil
+		}
+		doc.Data = data
+	}
+	stamp(ctx, &doc, notification.DocumentScriptFinding, notification.DocumentNotifySent)
 	if err := notification.ValidateDocument(doc); err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
 	return h.enqueue(ctx, *ch, c, doc)
+}
+
+// stamp records what produced a document: a managed script's run, read off
+// the context its calls carry, or the person calling. A JSON webhook channel
+// delivers both as the envelope's type and source, so a receiver can route a
+// script's finding apart from a person's message (#1997).
+func stamp(ctx context.Context, doc *notification.Document, scriptType, personType string) {
+	pc := middleware.GetPlatformContext(ctx)
+	if pc != nil && pc.Source == middleware.SourceScript {
+		src := &notification.DocumentSource{Kind: notification.DocumentSourceScript, RunID: pkgsession.AwareSessionID(ctx)}
+		if p, ok := producedby.From(ctx); ok && p.Kind == producedby.KindScript {
+			src.Script = knowledgepage.ScriptRef(p.ID)
+		}
+		doc.Type, doc.Source = scriptType, src
+		return
+	}
+	doc.Type, doc.Source = personType, &notification.DocumentSource{Kind: notification.DocumentSourceUser}
 }
 
 // handleList answers with the channels this session can reach.

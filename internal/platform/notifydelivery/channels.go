@@ -25,6 +25,18 @@ func testDocument(name string) notification.Document {
 		Title: "Test message from the data platform",
 		Body: fmt.Sprintf("This is a test of the %q notification channel. "+
 			"Receiving it confirms the channel's connection, credential and target are correct.", name),
+		Type:   notification.DocumentTest,
+		Source: &notification.DocumentSource{Kind: notification.DocumentSourceAdmin},
+	}
+}
+
+// testDelivery wraps the test document as a delivery with an id of its own,
+// so a receiver deduplicating on ids does not discard a second test.
+func testDelivery(name string, now time.Time) notification.Delivery {
+	return notification.Delivery{
+		ID:         fmt.Sprintf("ntf_test_%d", now.UnixNano()),
+		OccurredAt: now,
+		Document:   testDocument(name),
 	}
 }
 
@@ -56,7 +68,7 @@ func (h *Handle) SendChannelTest(ctx context.Context, name string) error {
 	}
 	sendCtx, cancel := context.WithTimeout(ctx, channelTestTimeout)
 	defer cancel()
-	if err := h.channelSenders.Send(sendCtx, *ch, testDocument(name)); err != nil {
+	if err := h.channelSenders.Send(sendCtx, *ch, testDelivery(name, time.Now().UTC())); err != nil {
 		return fmt.Errorf("channel %q: %w", name, err)
 	}
 	return nil

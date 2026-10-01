@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
@@ -43,16 +44,18 @@ func (*fakeChannelStore) Delete(context.Context, string) error            { retu
 type recordingSender struct {
 	mu    sync.Mutex
 	posts []notification.Document
+	ids   []string
 	err   error
 }
 
-func (s *recordingSender) Send(_ context.Context, _ notification.Channel, doc notification.Document) error {
+func (s *recordingSender) Send(_ context.Context, _ notification.Channel, d notification.Delivery) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
 		return s.err
 	}
-	s.posts = append(s.posts, doc)
+	s.posts = append(s.posts, d.Document)
+	s.ids = append(s.ids, d.ID)
 	return nil
 }
 
@@ -259,5 +262,45 @@ func assertResolved(t *testing.T, queue *fakeQueueStore, terminal bool) {
 	}
 	if len(queue.retried) != wantRetried {
 		t.Errorf("retried batches = %d, want %d", len(queue.retried), wantRetried)
+	}
+}
+
+// TestWorker_ChannelDeliveryCarriesTheRowsID holds that a channel transport is
+// handed the row's id, the one a JSON webhook envelope carries and a receiver
+// deduplicates on: the same on every attempt of that row (#1997).
+func TestWorker_ChannelDeliveryCarriesTheRowsID(t *testing.T) {
+	row := chatRow("ops", "t")
+	row.ID = 4242
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{{row}, nil}}
+	snd := &recordingSender{}
+	w := channelWorker(t, queue, &fakeSettingsStore{err: smtp.ErrNotFound},
+		&fakeChannelStore{channels: map[string]notification.Channel{
+			"ops": {Name: "ops", Kind: notification.ChannelKindWebhook, Enabled: true, Connection: "c"},
+		}}, snd)
+	w.drain()
+	if len(snd.ids) != 1 || snd.ids[0] != "ntf_4242" {
+		t.Fatalf("delivery ids = %v, want [ntf_4242]", snd.ids)
+	}
+}
+
+// TestWorker_RetryAfterIsHonoredWithinTheLongestBackoff holds that an
+// upstream's Retry-After decides the wait, capped by the queue's own longest.
+func TestWorker_RetryAfterIsHonoredWithinTheLongestBackoff(t *testing.T) {
+	for _, tc := range []struct {
+		asked, want time.Duration
+	}{
+		{asked: 90 * time.Second, want: 90 * time.Second},
+		{asked: 24 * time.Hour, want: maxBackoff},
+	} {
+		queue := &fakeQueueStore{immediate: [][]notification.Notification{{chatRow("ops", "t")}, nil}}
+		sendErr := &notifypost.RetryAfterError{After: tc.asked, Err: errors.New("upstream answered HTTP 429: slow down")}
+		w := channelWorker(t, queue, &fakeSettingsStore{err: smtp.ErrNotFound},
+			&fakeChannelStore{channels: map[string]notification.Channel{
+				"ops": {Name: "ops", Kind: notification.ChannelKindWebhook, Enabled: true, Connection: "c"},
+			}}, &recordingSender{err: sendErr})
+		w.drain()
+		if len(queue.backoff) != 1 || queue.backoff[0] != tc.want {
+			t.Errorf("asked %s: backoff = %v, want %s", tc.asked, queue.backoff, tc.want)
+		}
 	}
 }

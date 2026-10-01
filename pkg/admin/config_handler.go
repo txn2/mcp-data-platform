@@ -163,6 +163,7 @@ var sensitiveKeys = []string{
 	sensKeyMTLSClientKeyPEM,
 	sensKeyJWTClientSecret,
 	sensKeyJWTPrivateKeyPEM,
+	sensKeyPathSecret,
 }
 
 // configToMap converts a config struct to map[string]any via YAML round-trip.

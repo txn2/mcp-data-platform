@@ -64,6 +64,7 @@ func (c Config) upstream() upstreamauth.Config {
 			Prompt:            c.OAuth2.Prompt,
 		},
 		SignedJWT:           c.SignedJWT,
+		HMAC:                c.HMAC,
 		ConnectTimeout:      c.ConnectTimeout,
 		CallTimeout:         c.CallTimeout,
 		MaxResponseBytes:    c.MaxResponseBytes,
@@ -72,6 +73,7 @@ func (c Config) upstream() upstreamauth.Config {
 		MTLSClientKeyPEM:    c.MTLSClientKeyPEM,
 		TLSCABundlePEM:      c.TLSCABundlePEM,
 		IdentityPassthrough: c.IdentityPassthrough,
+		PathSecret:          c.PathSecret,
 	}
 }
 
@@ -99,6 +101,7 @@ func configFromUpstream(up upstreamauth.Config) Config {
 			Prompt:            up.OAuth2.Prompt,
 		},
 		SignedJWT:           up.SignedJWT,
+		HMAC:                up.HMAC,
 		ConnectTimeout:      up.ConnectTimeout,
 		CallTimeout:         up.CallTimeout,
 		MaxResponseBytes:    up.MaxResponseBytes,
@@ -107,6 +110,7 @@ func configFromUpstream(up upstreamauth.Config) Config {
 		MTLSClientKeyPEM:    up.MTLSClientKeyPEM,
 		TLSCABundlePEM:      up.TLSCABundlePEM,
 		IdentityPassthrough: up.IdentityPassthrough,
+		PathSecret:          up.PathSecret,
 	}
 }
 

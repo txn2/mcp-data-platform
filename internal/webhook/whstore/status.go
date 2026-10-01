@@ -60,18 +60,18 @@ func (s *Store) Status(ctx context.Context, source string, now time.Time) (Statu
 	st.LastError = lastError.String
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT rejected_at, outcome, reason FROM webhook_rejections
-		  WHERE source = $1 ORDER BY id DESC LIMIT $2`, source, maxRejections)
+		`SELECT first_at, rejected_at, count, outcome, reason FROM webhook_rejections
+		  WHERE source = $1 ORDER BY rejected_at DESC, id DESC`, source)
 	if err != nil {
 		return Status{}, fmt.Errorf("reading webhook rejections: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var r Rejection
-		if err := rows.Scan(&r.At, &r.Outcome, &r.Reason); err != nil {
+		if err := rows.Scan(&r.FirstAt, &r.At, &r.Count, &r.Outcome, &r.Reason); err != nil {
 			return Status{}, fmt.Errorf("scanning webhook rejection: %w", err)
 		}
-		r.At = r.At.UTC()
+		r.FirstAt, r.At = r.FirstAt.UTC(), r.At.UTC()
 		st.Rejections = append(st.Rejections, r)
 	}
 	if err := rows.Err(); err != nil {

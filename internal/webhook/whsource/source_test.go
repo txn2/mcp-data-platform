@@ -96,6 +96,24 @@ func TestValidateAccepts(t *testing.T) {
 	}
 }
 
+// TestHMACSchemeSettings holds the settings #1996 added to an hmac source:
+// sha512, id.timestamp.body with its id header, and the stripe format, which
+// signs the timestamp and the body and holds a tolerance by default.
+func TestHMACSchemeSettings(t *testing.T) {
+	s := validHMAC()
+	s.Auth.Algorithm = AlgorithmSHA512
+	s.Auth.Signed, s.Auth.TimestampHeader, s.Auth.IDHeader = SignedIDTimestampBody, "webhook-timestamp", "webhook-id"
+	require.NoError(t, Validate(s.WithDefaults()))
+	assert.True(t, s.Auth.Scheme().UsesID())
+
+	stripe := Source{Name: "a", Connection: "c", Auth: Auth{
+		Mode: AuthHMAC, Secret: "k", SignatureHeader: "Stripe-Signature", HeaderFormat: HeaderFormatStripe,
+	}}.WithDefaults()
+	require.NoError(t, Validate(stripe))
+	assert.Equal(t, SignedTimestampBody, stripe.Auth.Signed)
+	assert.Equal(t, DefaultTolerance, stripe.Auth.Tolerance())
+}
+
 func TestValidateRefuses(t *testing.T) {
 	mutate := func(f func(*Source)) Source {
 		s := validHMAC()
@@ -118,7 +136,18 @@ func TestValidateRefuses(t *testing.T) {
 		"signed ts without header": mutate(func(s *Source) {
 			s.Auth.Signed = SignedTimestampBody
 		}),
-		"bad signed":         mutate(func(s *Source) { s.Auth.Signed = "headers" }),
+		"bad signed":        mutate(func(s *Source) { s.Auth.Signed = "headers" }),
+		"bad id header":     mutate(func(s *Source) { s.Auth.IDHeader = "X Id" }),
+		"bad header format": mutate(func(s *Source) { s.Auth.HeaderFormat = "svix" }),
+		"id signed without id header": mutate(func(s *Source) {
+			s.Auth.Signed, s.Auth.TimestampHeader = SignedIDTimestampBody, "X-Ts"
+		}),
+		"id signed without timestamp header": mutate(func(s *Source) {
+			s.Auth.Signed, s.Auth.IDHeader = SignedIDTimestampBody, "X-Id"
+		}),
+		"stripe with a timestamp header": mutate(func(s *Source) {
+			s.Auth.HeaderFormat, s.Auth.TimestampHeader = HeaderFormatStripe, "X-Ts"
+		}),
 		"negative tolerance": mutate(func(s *Source) { s.Auth.ToleranceSeconds = -1 }),
 		"token without header": {
 			Name: "a", Connection: "c",

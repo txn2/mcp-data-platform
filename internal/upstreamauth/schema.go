@@ -13,12 +13,12 @@ package upstreamauth
 const ConfigSchemaPropertiesJSON = `{
   "auth_mode": {
     "type": "string",
-    "enum": ["none", "bearer", "api_key", "basic", "oauth", "mtls", "signed_jwt"],
+    "enum": ["none", "bearer", "api_key", "basic", "oauth", "mtls", "signed_jwt", "hmac"],
     "description": "How the platform authenticates to the upstream. Defaults to none."
   },
   "credential": {
     "type": "string",
-    "description": "The bearer token (auth_mode=bearer) or the API key (auth_mode=api_key). Encrypted at rest; read back as \"[REDACTED]\", and sending that placeholder keeps the stored value."
+    "description": "The bearer token (auth_mode=bearer), the API key (auth_mode=api_key), or the signing secret (auth_mode=hmac). Encrypted at rest; read back as \"[REDACTED]\", and sending that placeholder keeps the stored value."
   },
   "api_key_header": {
     "type": "string",
@@ -94,6 +94,32 @@ const ConfigSchemaPropertiesJSON = `{
     "type": ["string", "integer"],
     "description": "How long a minted JWT is valid, as a duration string or seconds."
   },
+  "path_secret": {
+    "type": "string",
+    "description": "Appended to every request's path as it is sent, for a receiver that authenticates by a secret in the URL (a chat incoming webhook's token, an inbound webhook source's path_token). Encrypted at rest and read back as \"[REDACTED]\"; unlike base_url it never appears in a connection read, a call's path or an error."
+  },
+  "hmac_preset": {
+    "type": "string",
+    "enum": ["standard_webhooks", "github", "stripe", "platform"],
+    "description": "A receiver's whole signing convention in one setting (auth_mode=hmac). A key set on the connection overrides the preset's value for it."
+  },
+  "hmac_algorithm": {"type": "string", "enum": ["sha256", "sha1", "sha512"], "description": "HMAC algorithm (auth_mode=hmac). Defaults to sha256."},
+  "hmac_encoding": {"type": "string", "enum": ["hex", "base64"], "description": "How the signature is written (auth_mode=hmac). Defaults to hex."},
+  "hmac_signature_header": {"type": "string", "description": "Header the signature is written to (auth_mode=hmac). Defaults to X-Signature."},
+  "hmac_prefix": {"type": "string", "description": "Written before the signature, such as sha256= or v1, (auth_mode=hmac)."},
+  "hmac_signed": {
+    "type": "string",
+    "enum": ["body", "timestamp.body", "id.timestamp.body"],
+    "description": "What is signed (auth_mode=hmac): the body; the timestamp, a dot and the body; or the delivery id, a dot, the timestamp, a dot and the body (Standard Webhooks). Defaults to body."
+  },
+  "hmac_header_format": {
+    "type": "string",
+    "enum": ["", "stripe"],
+    "description": "stripe writes the signature header as t=<timestamp>,v1=<signature> and signs the timestamp and the body (auth_mode=hmac)."
+  },
+  "hmac_timestamp_header": {"type": "string", "description": "Header the timestamp is written to; required when hmac_signed includes the timestamp (auth_mode=hmac)."},
+  "hmac_timestamp_unit": {"type": "string", "enum": ["seconds", "milliseconds"], "description": "Unit of the Unix timestamp (auth_mode=hmac). Defaults to seconds."},
+  "hmac_id_header": {"type": "string", "description": "Header carrying the delivery id; required for id.timestamp.body. A call that sets this header chooses the id, otherwise one is generated per request (auth_mode=hmac)."},
   "jwt_issued_at_skew": {
     "type": ["string", "integer"],
     "description": "How far back to date the iat claim, for an upstream with a fast clock."

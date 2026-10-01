@@ -885,8 +885,8 @@ toolkits:
 | `port` | int | 8080 (443 if SSL) | Trino coordinator port |
 | `user` | string | **required** | Trino username |
 | `password` | string | - | Trino password (if auth enabled) |
-| `catalog` | string | - | Default catalog |
-| `schema` | string | - | Default schema |
+| `catalog` | string | - | The Trino session catalog every query on this connection runs with, so a table named without a catalog resolves in it |
+| `schema` | string | - | The Trino session schema, used with `catalog`, so a table named without a schema resolves in it. A `CREATE TABLE t` on the connection creates `<catalog>.<schema>.t`. A connection other than the default that sets neither takes the default connection's, as it does every key it leaves unset; a fully qualified name is unaffected |
 | `ssl` | bool | `false` on the default connection, auto-detected on the others | Enable SSL/TLS. Omitting it on a non-default connection leaves the choice to the host: any host that is not `localhost` or `127.0.0.1` is assumed to be HTTPS on port 443. Write `ssl: false` to say plain HTTP explicitly |
 | `ssl_verify` | bool | `true` on the default connection, inherited on the others | Verify SSL certificates. A non-default connection that omits it takes the default connection's setting |
 | `timeout` | duration | `120s` | Query timeout |

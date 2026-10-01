@@ -40,7 +40,8 @@ type mattermostPostRequest struct {
 // Mattermost answers an application-level refusal with the matching HTTP
 // status rather than with a 200 and a flag, so the shared status
 // classification is the whole verdict and there is no envelope to read.
-func (s *MattermostSender) Send(ctx context.Context, ch notification.Channel, doc notification.Document) error {
+func (s *MattermostSender) Send(ctx context.Context, ch notification.Channel, d notification.Delivery) error {
+	doc := d.Document
 	u, err := resolve(s.upstream, ch)
 	if err != nil {
 		return err

@@ -56,10 +56,13 @@ type VolumePoint struct {
 	Count   int64     `json:"count"`
 }
 
-// SourceRejection is one refused request and the source it was sent to.
+// SourceRejection is a run of refused requests of one source with one outcome
+// and reason (#2001): the latest at At, the first at FirstAt, Count in all.
 type SourceRejection struct {
 	Source  string    `json:"source"`
 	At      time.Time `json:"at"`
+	FirstAt time.Time `json:"first_at"`
+	Count   int64     `json:"count"`
 	Outcome string    `json:"outcome"`
 	Reason  string    `json:"reason"`
 }

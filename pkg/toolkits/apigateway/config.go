@@ -63,6 +63,7 @@ const (
 	AuthModeOAuth2ClientCredentials = upstreamauth.AuthModeOAuth2ClientCredentials
 	AuthModeOAuth2AuthorizationCode = upstreamauth.AuthModeOAuth2AuthorizationCode
 	AuthModeSignedJWT               = upstreamauth.AuthModeSignedJWT
+	AuthModeHMAC                    = upstreamauth.AuthModeHMAC
 	AuthModeMTLS                    = upstreamauth.AuthModeMTLS
 
 	CredentialPlacementHeader = upstreamauth.CredentialPlacementHeader
@@ -194,6 +195,9 @@ type Config struct {
 	// straight from the shared seam rather than mirrored, because
 	// nothing in it is this toolkit's to define.
 	SignedJWT SignedJWTConfig
+	// HMAC carries the signing convention used when AuthMode is
+	// AuthModeHMAC (#1996). Empty otherwise.
+	HMAC HMACConfig
 	// StaticHeaders are operator-configured headers attached to every
 	// outbound request, in addition to whatever AuthMode contributes.
 	// Required for upstreams that demand a non-Authorization header on
@@ -240,6 +244,10 @@ type Config struct {
 	// (the shared-credential Authenticator is skipped) and an empty
 	// inbound token is a hard error rather than an anonymous call.
 	IdentityPassthrough bool
+
+	// PathSecret is appended to every request's path as it is sent, for an
+	// upstream that authenticates by a secret in the URL. Encrypted at rest.
+	PathSecret string
 	// RequiredPathPrefix is the path every raw method+path call on the
 	// connection must start with; a path outside it is refused before it
 	// is sent, naming the prefixed path and the operation_id the catalog
@@ -314,6 +322,11 @@ const (
 // which owns the mode for every HTTP-based connection kind; aliased
 // here because it is part of this toolkit's public API.
 type SignedJWTConfig = upstreamauth.SignedJWTConfig
+
+// HMACConfig describes how the connection signs a request when AuthMode is
+// AuthModeHMAC. Defined by internal/upstreamauth, which every HTTP-based kind
+// shares.
+type HMACConfig = upstreamauth.HMACConfig
 
 // The signing algorithms auth_mode=signed_jwt supports, and the
 // defaults an unset lifetime and skew take. Aliased from the shared
@@ -411,6 +424,7 @@ func (c Config) Validate() error {
 	return firstConfigError(
 		up.ValidateStaticHeaders,
 		up.ValidateIdentityPassthrough,
+		up.ValidatePathSecret,
 		c.validateHandler,
 		up.ValidateTLSMaterial,
 		c.validateRequiredPathPrefix,

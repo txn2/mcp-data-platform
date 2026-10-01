@@ -33,8 +33,9 @@ const (
 // without saying where the number came from is the thing people mute.
 func (h *hostState) notify(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var channel, title, body, link string
+	var data starlark.Value = starlark.None
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		"channel", &channel, "title", &title, "body?", &body, "link?", &link); err != nil {
+		"channel", &channel, "title", &title, "body?", &body, "link?", &link, "data?", &data); err != nil {
 		return nil, argErr(b, err)
 	}
 	if channel == "" {
@@ -46,13 +47,21 @@ func (h *hostState) notify(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if link == "" {
 		link = h.runLink()
 	}
-	return h.issueNotify(b, map[string]any{
+	payload := map[string]any{
 		"action":  notifyActionSend,
 		"channel": channel,
 		"title":   title,
 		"body":    body,
 		"link":    link,
-	})
+	}
+	if data != starlark.None {
+		goData, err := starlarkconv.FromStarlark(data)
+		if err != nil {
+			return nil, fmt.Errorf("in %s: data must be JSON-shaped (dicts, lists, strings, numbers, booleans, None): %w", b.Name(), err)
+		}
+		payload["data"] = goData
+	}
+	return h.issueNotify(b, payload)
 }
 
 // publish posts a portal asset this script wrote to a channel.

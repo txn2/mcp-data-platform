@@ -71,7 +71,7 @@ func TestSendChannelTest_PostsThroughTheKindsTransport(t *testing.T) {
 		channelSenders: notifypost.NewSenders(func(string) (notifypost.Upstream, error) {
 			posted++
 			return nil, errors.New("upstream unreachable in this test")
-		}),
+		}, ""),
 	}
 	err := h.SendChannelTest(context.Background(), "ops")
 	if err == nil {
@@ -99,7 +99,7 @@ func TestSendChannelTest_DisabledChannelIsStillTested(t *testing.T) {
 		channelSenders: notifypost.NewSenders(func(string) (notifypost.Upstream, error) {
 			reached = true
 			return nil, errors.New("unreachable")
-		}),
+		}, ""),
 	}
 	_ = h.SendChannelTest(context.Background(), "ops")
 	if !reached {

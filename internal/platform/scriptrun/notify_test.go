@@ -82,6 +82,37 @@ platform.notify(channel="ops", title="t", body="b", link="https://example.com/da
 	}
 }
 
+// TestPlatformNotify_PassesDataThrough holds data= (#1997): the dict a script
+// hands it reaches the notify tool as its data argument, and a call without it
+// sends none.
+func TestPlatformNotify_PassesDataThrough(t *testing.T) {
+	caller := &notifyCaller{}
+	if _, err := ranWith(t, `
+platform.notify(channel="ops", title="t", data={"stores": [3, 7], "late": True})
+`, caller); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	data, ok := onlyNotifyCall(t, caller).args["data"].(map[string]any)
+	stores, _ := data["stores"].([]any)
+	late, _ := data["late"].(bool)
+	if !ok || !late || len(stores) != 2 {
+		t.Errorf("data = %#v", onlyNotifyCall(t, caller).args["data"])
+	}
+
+	without := &notifyCaller{}
+	if _, err := ranWith(t, `platform.notify(channel="ops", title="t")`, without); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, ok := onlyNotifyCall(t, without).args["data"]; ok {
+		t.Error("a call without data sent some")
+	}
+
+	if _, err := ranWith(t, `platform.notify(channel="ops", title="t", data=lambda: 1)`, &notifyCaller{}); err == nil ||
+		!strings.Contains(err.Error(), "data must be JSON-shaped") {
+		t.Errorf("a function as data: %v", err)
+	}
+}
+
 func TestPlatformNotify_ReturnsTheToolsAnswerToTheScript(t *testing.T) {
 	caller := &notifyCaller{result: map[string]any{"queued": float64(3), "detail": "ok"}}
 	res, err := ranWith(t, `

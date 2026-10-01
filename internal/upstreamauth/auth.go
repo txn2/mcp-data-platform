@@ -69,6 +69,8 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		return newOAuth2AuthorizationCodeAuth(c), nil
 	case AuthModeSignedJWT:
 		return newSignedJWTAuth(c)
+	case AuthModeHMAC:
+		return newHMACAuth(c, time.Now)
 	case AuthModeMTLS:
 		// The client certificate IS the credential. No header is
 		// added; the TLS handshake at transport setup

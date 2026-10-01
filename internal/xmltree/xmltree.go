@@ -245,3 +245,25 @@ func newElement(t xml.StartElement) *Node {
 func isDoctype(d xml.Directive) bool {
 	return strings.HasPrefix(strings.TrimSpace(string(d)), "DOCTYPE")
 }
+
+// Value renders the element as the nested maps a tool returns for a decoded
+// XML response. The five fields are the ones a managed script sees on an
+// element, so one document has one shape whether it was read in a script or
+// through a tool call.
+func (n *Node) Value() map[string]any {
+	children := make([]any, 0, len(n.Children))
+	for _, c := range n.Children {
+		children = append(children, c.Value())
+	}
+	attrs := make(map[string]any, len(n.Attrs))
+	for k, v := range n.Attrs {
+		attrs[k] = v
+	}
+	return map[string]any{
+		"tag":      n.Tag,
+		"ns":       n.NS,
+		"attrs":    attrs,
+		"text":     n.Text,
+		"children": children,
+	}
+}

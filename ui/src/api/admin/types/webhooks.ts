@@ -16,6 +16,8 @@ export interface WebhookAuthView {
   timestamp_header?: string;
   tolerance_seconds?: number;
   signed?: string;
+  id_header?: string;
+  header_format?: string;
   header?: string;
   username?: string;
 }
@@ -55,8 +57,12 @@ export interface WebhookSource {
   updated_at: string;
 }
 
+/** WebhookRejection is a run of refused requests with one outcome and
+ * reason: `count` of them, the first at `first_at`, the latest at `at`. */
 export interface WebhookRejection {
   at: string;
+  first_at: string;
+  count: number;
   outcome: string;
   reason: string;
 }
@@ -89,6 +95,8 @@ export interface WebhookAuthInput {
   timestamp_header?: string;
   tolerance_seconds?: number;
   signed?: string;
+  id_header?: string;
+  header_format?: string;
   header?: string;
   username?: string;
 }

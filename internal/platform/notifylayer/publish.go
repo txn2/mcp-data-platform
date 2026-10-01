@@ -42,6 +42,7 @@ func (h *Handle) handlePublish(ctx context.Context, input notifyInput) (*mcp.Cal
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
+	stamp(ctx, &doc, notification.DocumentScriptPublished, notification.DocumentNotifyPublished)
 	return h.enqueue(ctx, *ch, c, doc)
 }
 

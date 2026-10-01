@@ -16,7 +16,7 @@ const (
 	qCounts     = `SELECT source, outcome`
 	qWindows    = `FROM webhook_windows\s+WHERE expired_at IS NULL\s+GROUP BY source`
 	qVolume     = `AS bucket`
-	qRejections = `SELECT source, rejected_at, outcome, reason FROM webhook_rejections`
+	qRejections = `SELECT source, first_at, rejected_at, count, outcome, reason FROM`
 )
 
 func newUnorderedMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
@@ -30,8 +30,10 @@ func countCols() []string { return []string{"source", "outcome", "hour", "day"} 
 func windowCols() []string {
 	return []string{"source", "last_segment_at", "pending", "failing", "last_error"}
 }
-func volumeCols() []string    { return []string{"source", "bucket", "outcome", "count"} }
-func rejectionCols() []string { return []string{"source", "rejected_at", "outcome", "reason"} }
+func volumeCols() []string { return []string{"source", "bucket", "outcome", "count"} }
+func rejectionCols() []string {
+	return []string{"source", "first_at", "rejected_at", "count", "outcome", "reason"}
+}
 
 func TestOverview(t *testing.T) {
 	st, mock := newUnorderedMock(t)
@@ -48,7 +50,7 @@ func TestOverview(t *testing.T) {
 	mock.ExpectQuery(qVolume).WithArgs(start.Add(-time.Hour), 60).WillReturnRows(
 		sqlmock.NewRows(volumeCols()).AddRow("esp", start.Add(-time.Minute), "accepted", 5))
 	mock.ExpectQuery(qRejections).WithArgs(maxOverviewRejections).WillReturnRows(
-		sqlmock.NewRows(rejectionCols()).AddRow("esp", start, "unauthorized", "the signature does not match"))
+		sqlmock.NewRows(rejectionCols()).AddRow("esp", start.Add(-time.Second), start, 3, "unauthorized", "the signature does not match"))
 
 	ov, err := st.Overview(ctx, start, time.Hour, time.Minute)
 	require.NoError(t, err)
@@ -73,7 +75,10 @@ func TestOverview(t *testing.T) {
 	assert.Nil(t, quiet.LastSegmentAt)
 
 	assert.Equal(t, []VolumePoint{{Source: "esp", At: start.Add(-time.Minute), Outcome: "accepted", Count: 5}}, ov.Volume)
-	assert.Equal(t, []Rejection{{Source: "esp", At: start, Outcome: "unauthorized", Reason: "the signature does not match"}}, ov.Rejections)
+	assert.Equal(t, []Rejection{{
+		Source: "esp", FirstAt: start.Add(-time.Second), At: start, Count: 3,
+		Outcome: "unauthorized", Reason: "the signature does not match",
+	}}, ov.Rejections)
 }
 
 func TestOverviewEmpty(t *testing.T) {
@@ -129,9 +134,9 @@ func TestOverviewFailures(t *testing.T) {
 		"rejections": {
 			query: qRejections,
 			good:  func() *sqlmock.Rows { return sqlmock.NewRows(rejectionCols()) },
-			bad:   func() *sqlmock.Rows { return sqlmock.NewRows(rejectionCols()).AddRow("esp", "x", "u", "r") },
+			bad:   func() *sqlmock.Rows { return sqlmock.NewRows(rejectionCols()).AddRow("esp", "x", "x", 1, "u", "r") },
 			rows: func() *sqlmock.Rows {
-				return sqlmock.NewRows(rejectionCols()).AddRow("esp", start, "u", "r").RowError(0, errDown)
+				return sqlmock.NewRows(rejectionCols()).AddRow("esp", start, start, 1, "u", "r").RowError(0, errDown)
 			},
 		},
 	}

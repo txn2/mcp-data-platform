@@ -311,6 +311,7 @@ internal/httpserver/webhookwire -> pkg/resource
 internal/inlinefit -> pkg/toolkit
 internal/listcut -> internal/pagenext
 internal/notification/notifychannel -> pkg/notification
+internal/notification/notifypost -> internal/upstreamretry
 internal/notification/notifypost -> pkg/notification
 internal/notification/notifyprefs -> pkg/notification
 internal/notification/notifyqueue -> internal/pglisten
@@ -482,8 +483,12 @@ internal/platform/notifydelivery -> pkg/portal
 internal/platform/notifydelivery -> pkg/portal/knowledgepage
 internal/platform/notifylayer -> internal/platform/connscope
 internal/platform/notifylayer -> internal/portal/portaldomain
+internal/platform/notifylayer -> internal/producedby
+internal/platform/notifylayer -> internal/wirejson
 internal/platform/notifylayer -> pkg/middleware
 internal/platform/notifylayer -> pkg/notification
+internal/platform/notifylayer -> pkg/portal/knowledgepage
+internal/platform/notifylayer -> pkg/session
 internal/platform/notifylayer -> pkg/toolkit
 internal/platform/notifywiring -> internal/notification/notifychannel
 internal/platform/notifywiring -> internal/notification/notifyprefs
@@ -912,6 +917,7 @@ internal/toolanswer -> pkg/toolkit
 internal/toolwrite -> internal/gqlschema
 internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
+internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
 internal/upstreamauth -> internal/useragent
 internal/upstreamauth -> pkg/authevents
@@ -946,6 +952,7 @@ internal/webhook/whconfig -> internal/webhook/compactor
 internal/webhook/whconfig -> internal/webhook/receiver
 internal/webhook/whevent -> internal/webhook/jsonpath
 internal/webhook/whevent -> internal/webhook/whsource
+internal/webhook/whsource -> internal/hmacsig
 internal/webhook/whsource -> internal/webhook/jsonpath
 internal/webhook/whtable -> internal/scratchcatalog
 internal/webhook/whtable -> internal/webhook/whevent

@@ -365,6 +365,7 @@ Nothing about a connection is derived per replica, so there is nothing to reconc
 | `basic` | `Authorization: Basic base64(username:password)` per RFC 7617. For legacy APIs (Jenkins, on-prem Jira / Confluence Server / DC, internal apps) that never moved to bearer or OAuth. `password` may be empty for the `token:` pattern some APIs use. |
 | `oauth` | OAuth 2.1. The grant is set separately in `oauth_grant` (`client_credentials`, `authorization_code` or `jwt_bearer`). `client_credentials` fetches a token at `oauth_token_url` and applies `Authorization: Bearer ...`; `authorization_code` adds a one-time browser sign-in with a persisted (encrypted) refresh token and silent refresh; `jwt_bearer` signs a short-lived assertion with a registered key and exchanges it at `oauth_token_url` (RFC 7523), described [below](#oauth-jwt-bearer-grant-rfc-7523). |
 | `signed_jwt` | `Authorization: Bearer <jwt the platform minted>`. For upstreams that issue an identifier and a signing key and expect the client to mint its own short-lived assertion — Sage X3 connected applications, Snowflake key-pair authentication, Apple App Store Connect and APNs, and internal services built the same way. There is no token endpoint and nothing is exchanged. See [Signed JWT upstreams](signed-jwt-auth.md). |
+| `hmac` | `<hmac_signature_header>: <prefix><HMAC of the request>`, with the timestamp and delivery id headers the scheme signs. For webhook receivers that verify the sender by an HMAC of the body: Standard Webhooks, GitHub, Stripe, and the platform's own [inbound webhook sources](webhooks.md). The credential is the signing secret. Described [below](#hmac-signing). |
 | `mtls` | No header. Authentication happens at the TLS handshake (RFC 5246 / 8446) via the configured client certificate. Used by upstreams that map the cert's subject DN to an internal user identity (service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, etc.). |
 
 The OAuth config keys (`oauth_grant`, `oauth_token_url`, `oauth_authorization_url`, `oauth_client_id`, `oauth_client_secret`, `oauth_scope`, `oauth_prompt`, `oauth_endpoint_auth_style`) are shared with every other toolkit kind, so an OAuth connection is configured the same way regardless of kind. `oauth_scope` is a single space-delimited string (the OAuth 2.0 wire form).
@@ -374,6 +375,47 @@ The OAuth 2.1 authorization-code grant completes via the platform's shared `/api
 An access token from `client_credentials` or `jwt_bearer` is cached in memory per replica and obtained again when it expires. `expires_in` is RECOMMENDED rather than required by RFC 6749 section 5.1, and a token with no expiry would otherwise be presented for the life of the process, so a response that omits it is treated as valid for 15 minutes: an upstream that ends the session behind the token costs at most that long, and a connection nobody calls costs no token requests at all. An `expires_in` the upstream does send is always honored, however long or short.
 
 The `signed_jwt` config keys (`jwt_algorithm`, `jwt_client_secret`, `jwt_private_key_pem`, `jwt_key_id`, `jwt_issuer`, `jwt_subject`, `jwt_audience`, `jwt_token_lifetime`, `jwt_issued_at_skew`) are likewise shared with every HTTP-based kind. The secret and the private key are encrypted at rest and returned as `[REDACTED]`. [Signed JWT upstreams](signed-jwt-auth.md) documents them with worked examples.
+
+### HMAC signing
+
+`auth_mode: hmac` signs every request the way a webhook receiver verifies its sender, so a [managed script](../scripts/running.md) can deliver to any webhook receiver through `platform.call("api_invoke_endpoint", ...)`. A script cannot sign a request itself: the dialect has no hash builtin, and the secret would sit in its source and in every recording of its runs. The connection holds the secret, encrypted at rest under `credential` and never returned.
+
+| Key | Meaning | Default |
+|---|---|---|
+| `hmac_preset` | `standard_webhooks`, `github`, `stripe` or `platform`: a receiver's whole convention in one setting. A key set beside it overrides the preset's value for that key. | none |
+| `hmac_algorithm` | `sha256`, `sha1`, `sha512` | `sha256` |
+| `hmac_encoding` | `hex`, `base64` | `hex` |
+| `hmac_signature_header` | The header the signature is written to | `X-Signature` |
+| `hmac_prefix` | Written before the signature, such as `sha256=` or `v1,` | empty |
+| `hmac_signed` | `body`; `timestamp.body` (the timestamp, a `.`, the body); or `id.timestamp.body` (the delivery id, a `.`, the timestamp, a `.`, the body, the Standard Webhooks form) | `body` |
+| `hmac_header_format` | Empty, or `stripe`, which writes `t=<timestamp>,v1=<signature>` into the signature header and signs the timestamp and the body | empty |
+| `hmac_timestamp_header` | The header the timestamp is written to; required when `hmac_signed` includes the timestamp, and refused with `stripe` | empty |
+| `hmac_timestamp_unit` | `seconds`, `milliseconds` | `seconds` |
+| `hmac_id_header` | The header carrying the delivery id; required for `id.timestamp.body` | empty |
+
+The presets set:
+
+| Preset | Signature header | Prefix | Encoding | Signs | Timestamp header | ID header |
+|---|---|---|---|---|---|---|
+| `standard_webhooks` | `webhook-signature` | `v1,` | base64 | `id.timestamp.body` | `webhook-timestamp` | `webhook-id` |
+| `github` | `X-Hub-Signature-256` | `sha256=` | hex | `body` | | |
+| `stripe` | `Stripe-Signature`, format `stripe` | | hex | `timestamp.body` | (in the signature header) | |
+| `platform` | `X-Signature` | `sha256=` | hex | `timestamp.body` | `X-Timestamp` | |
+
+The keys mirror an [inbound webhook source's](webhooks.md#authentication) `auth` settings, and both are built on one implementation of the signing string, so a connection and a source given the same values agree. `platform` is the configuration the inbound webhook documentation creates a source with.
+
+- The signature covers the exact bytes sent, after the body is encoded.
+- The timestamp is taken as each request is sent, so a call made again is signed afresh rather than refused as stale.
+- The delivery id is the caller's when the call sets the `hmac_id_header` header, and a random `msg_...` otherwise. A script that wants one id across runs sets it from data it controls, such as `run.run_id` and an index, or the source row's key. The signature and timestamp headers are reserved: a call cannot set them, and neither can `static_headers`, which cannot fix the id header either.
+- A Standard Webhooks secret (`whsec_` and base64) is used as that standard reads it, the bytes the base64 decodes to, when the scheme signs `id.timestamp.body`; any other secret is used as written.
+- A `GET` or `HEAD` with no body is refused when only the body is signed. Signing an empty body is allowed when the timestamp is signed too.
+- Rotating the secret is the connection's credential update. The sending side holds no overlap; the receiver does, as an inbound source does with `rotation_overlap_seconds`.
+
+Schemes that sign headers, the URL or the query string (AWS SigV4, HTTP Message Signatures, RFC 9421) are a different shape and are not covered by this mode.
+
+### A secret in the URL
+
+`path_secret` is appended to every request's path as it is sent, for a receiver that authenticates by a secret in the URL: a chat incoming webhook's token, or an inbound source's `path_token`. Unlike `base_url`, which a connection read returns as written, it is encrypted at rest, read back as `[REDACTED]`, and never appears in a call's path, the audit log or an error: the request a call builds carries the path without it, and the copy that is sent carries it. It works with every `auth_mode`.
 
 ### OAuth JWT bearer grant (RFC 7523)
 
