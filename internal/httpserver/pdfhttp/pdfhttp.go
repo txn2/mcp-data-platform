@@ -197,7 +197,7 @@ func contentPath(template string, r *http.Request) *url.URL {
 // serve prints the document the request's content route serves.
 //
 // @Summary      Export an HTML document as PDF
-// @Description  Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+// @Description  Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.
 // @Tags         Portal
 // @Produce      application/pdf
 // @Param        id       path  string  true  "Asset or resource ID"
@@ -276,13 +276,7 @@ func (h *Handler) readDocument(w http.ResponseWriter, r *http.Request, content *
 	h.deps.Routes.ServeHTTP(rec, fwd)
 	switch {
 	case rec.code() != http.StatusOK:
-		for name, values := range rec.header {
-			if name != "Content-Length" {
-				w.Header()[name] = values
-			}
-		}
-		w.WriteHeader(rec.code())
-		_, _ = w.Write(rec.body.Bytes())
+		refuse(w, rec)
 	case !rec.html:
 		http.Error(w, "Only an HTML document is exported to PDF.", http.StatusUnsupportedMediaType)
 	case rec.tooLarge:
@@ -293,10 +287,28 @@ func (h *Handler) readDocument(w http.ResponseWriter, r *http.Request, content *
 	return document{}, false
 }
 
+// relayedHeaders are the headers of a content route's refusal that tell the
+// caller what to do next: when to try again, how to authenticate, where the
+// document moved.
+var relayedHeaders = []string{"Retry-After", "WWW-Authenticate", "Location"}
+
+// refuse answers with the content route's refusal: its status and the headers
+// that say what to do about it, under a fixed text of the platform's own. The
+// refusal's body is not relayed: it is bytes another route wrote, and a PDF
+// route answers in plain text whatever it read.
+func refuse(w http.ResponseWriter, rec *documentRecorder) {
+	for _, name := range relayedHeaders {
+		if v := rec.header.Get(name); v != "" {
+			w.Header().Set(name, v)
+		}
+	}
+	code := rec.code()
+	http.Error(w, "The document could not be read: "+http.StatusText(code)+".", code)
+}
+
 // documentRecorder is the content route's answer, read in-process. It keeps
-// a refusal's body, and an HTML document's up to MaxDocumentBytes; anything
-// else it is written is not kept, so refusing a large file holds no copy of
-// it.
+// an HTML document's body up to MaxDocumentBytes; anything else it is written
+// is not kept, so refusing a large file holds no copy of it.
 type documentRecorder struct {
 	header   http.Header
 	status   int
@@ -322,8 +334,8 @@ func (r *documentRecorder) Write(p []byte) (int, error) {
 	if r.status == 0 {
 		r.WriteHeader(http.StatusOK)
 	}
-	keep := r.status != http.StatusOK || (r.html && !r.tooLarge)
-	if keep && r.status == http.StatusOK && r.body.Len()+len(p) > MaxDocumentBytes {
+	keep := r.status == http.StatusOK && r.html && !r.tooLarge
+	if keep && r.body.Len()+len(p) > MaxDocumentBytes {
 		r.tooLarge, keep = true, false
 		r.body.Reset()
 	}

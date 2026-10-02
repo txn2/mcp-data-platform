@@ -1589,7 +1589,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.",
+                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.",
                 "produces": [
                     "application/pdf"
                 ],
@@ -1923,7 +1923,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.",
+                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.",
                 "produces": [
                     "application/pdf"
                 ],
@@ -11433,7 +11433,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.",
+                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.",
                 "produces": [
                     "application/pdf"
                 ],
@@ -12650,7 +12650,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.",
+                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.",
                 "produces": [
                     "application/pdf"
                 ],
@@ -23755,7 +23755,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.",
+                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.",
                 "produces": [
                     "application/pdf"
                 ],
@@ -24278,7 +24278,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal is returned as it is. 415 for a document that is not HTML; 503 when no renderer answers.",
+                "description": "Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.",
                 "produces": [
                     "application/pdf"
                 ],

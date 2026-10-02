@@ -130,11 +130,16 @@ func TestPDFRouteAnswersWithTheContentRoutesRefusal(t *testing.T) {
 	mux := routes(t)
 	p := &fakePrinter{pdf: []byte("%PDF")}
 	rec := serve(t, New(Deps{Routes: mux, Printer: p}), mux, "/api/v1/portal/assets/a1/pdf", false)
-	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "authentication required") {
-		t.Fatalf("HTTP %d %q, want the content route's 401", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "could not be read: Unauthorized") {
+		t.Fatalf("HTTP %d %q, want the content route's 401 in the route's own words", rec.Code, rec.Body.String())
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
-		t.Errorf("Content-Type = %q", ct)
+	// The content route's body is not relayed: the answer is plain text the
+	// PDF route wrote, whatever the refusal carried.
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("Content-Type = %q, nosniff = %q", ct, rec.Header().Get("X-Content-Type-Options"))
+	}
+	if strings.Contains(rec.Body.String(), "authentication required") {
+		t.Error("the content route's body was relayed")
 	}
 	if len(p.pages) != 0 {
 		t.Error("a document the caller may not read was printed")
@@ -286,11 +291,18 @@ func TestPDFRouteKeepsTheRefusalsHeaders(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /portal/view/{token}/content", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Retry-After", "7")
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Set-Cookie", "x=1")
 		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("<script>alert(1)</script>"))
 	})
 	rec := serve(t, New(Deps{Routes: mux, Printer: &fakePrinter{}}), mux, "/portal/view/tok/pdf", false)
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "7" {
 		t.Fatalf("HTTP %d, Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if strings.Contains(rec.Body.String(), "<script>") || rec.Header().Get("Set-Cookie") != "" ||
+		!strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Errorf("the refusal relayed more than its status and Retry-After: %q %v", rec.Body.String(), rec.Header())
 	}
 }
 

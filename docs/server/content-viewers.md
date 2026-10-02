@@ -371,7 +371,8 @@ serves its content (#1983):
 
 The route reads the document through its content route with the caller's own
 request, so it answers exactly who may read the document, and returns that
-route's refusal with its status, headers and body. Then it prints the document
+route's refusal status with its `Retry-After`, `WWW-Authenticate` and
+`Location` headers, under a plain-text body of its own. Then it prints the document
 in the headless renderer that draws thumbnails, with the document's
 backgrounds and at the page size the document's `@page` rule declares. A deck on
 the served slide runtime is printed in the runtime's print view with every
