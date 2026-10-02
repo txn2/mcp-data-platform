@@ -84,6 +84,7 @@ internal/httpserver -> internal/httpserver/httpauth
 internal/httpserver -> internal/httpserver/instanceheader
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
+internal/httpserver -> internal/httpserver/pdfhttp
 internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/scripthttp/flowhttp
 internal/httpserver -> internal/httpserver/sources
@@ -210,6 +211,14 @@ internal/httpserver/notifywire -> pkg/portal
 internal/httpserver/notifywire -> pkg/portal/mention
 internal/httpserver/notifywire -> pkg/registry
 internal/httpserver/notifywire -> pkg/toolkits/apigateway
+internal/httpserver/pdfhttp -> internal/headless
+internal/httpserver/pdfhttp -> internal/httpserver/thumbwire
+internal/httpserver/pdfhttp -> internal/inproc
+internal/httpserver/pdfhttp -> internal/logsan
+internal/httpserver/pdfhttp -> pkg/blobserve
+internal/httpserver/pdfhttp -> pkg/contenttype
+internal/httpserver/pdfhttp -> pkg/platform
+internal/httpserver/pdfhttp -> pkg/ratelimit
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/draftview
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/fireshttp
@@ -310,6 +319,7 @@ internal/httpserver/webhookwire -> pkg/platform
 internal/httpserver/webhookwire -> pkg/platform/fieldcrypt
 internal/httpserver/webhookwire -> pkg/resource
 internal/inlinefit -> pkg/toolkit
+internal/inproc -> internal/portal/viewerlimit
 internal/listcut -> internal/pagenext
 internal/notification/notifychannel -> pkg/notification
 internal/notification/notifypost -> internal/upstreamretry
@@ -813,12 +823,12 @@ internal/platform/tableregister -> pkg/toolkits/portal
 internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/tableregister/regstore -> internal/platform/tableregister
 internal/platform/thumbworker -> internal/headless
+internal/platform/thumbworker -> internal/inproc
 internal/platform/thumbworker -> internal/logsan
 internal/platform/thumbworker -> internal/platform/scriptflow
 internal/platform/thumbworker -> internal/platform/scripttiles
 internal/platform/thumbworker -> internal/portal/assetrefs
 internal/platform/thumbworker -> internal/portal/portaldomain
-internal/platform/thumbworker -> internal/portal/viewerlimit
 internal/platform/thumbworker -> internal/thumbtypes
 internal/platform/thumbworker -> pkg/resource
 internal/platform/toolargs -> pkg/middleware
@@ -925,9 +935,12 @@ internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
+internal/upstreamauth -> internal/upstreamauth/sessionlogin
 internal/upstreamauth -> internal/useragent
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
+internal/upstreamauth/sessionlogin -> internal/cfgmap
+internal/upstreamauth/sessionlogin -> internal/useragent
 internal/upstreamcall -> internal/upstreamauth
 internal/useragent -> internal/buildinfo
 internal/webhook/compactor -> internal/logsan

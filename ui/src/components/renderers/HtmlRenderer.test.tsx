@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { HtmlRenderer } from "./HtmlRenderer";
-import { PRINT_STEP, PRINTED_MESSAGE } from "@/lib/deck";
 
 const DECK = `<!DOCTYPE html><html><head><script src="/portal/vendor/reveal/reveal.js"></script></head><body><div class="reveal"><div class="slides"><section>One</section></div></div></body></html>`;
 const DASHBOARD = `<!DOCTYPE html><html><head><title>Revenue</title></head><body><h1>Revenue</h1></body></html>`;
@@ -18,11 +17,6 @@ function enableFullscreen(): void {
 /** The presented frame: the one without the modals grant. */
 function presentedFrame(container: HTMLElement): HTMLIFrameElement {
   return container.querySelector('iframe[sandbox="allow-scripts"]')!;
-}
-
-/** The print frame, on the body rather than in the renderer, or null. */
-function printFrame(): HTMLIFrameElement | null {
-  return document.body.querySelector('iframe[sandbox="allow-scripts allow-modals"]');
 }
 
 describe("HtmlRenderer", () => {
@@ -81,7 +75,7 @@ describe("HtmlRenderer", () => {
     unmount();
     slot.remove();
 
-    const inline = render(<HtmlRenderer content={DECK} />);
+    const inline = render(<HtmlRenderer content={DECK} pdfUrl="/api/v1/portal/assets/a1/pdf" />);
     const buttons = inline.container.querySelectorAll("button");
     expect(buttons.length).toBe(3);
     // The controls come before the frame in the document, so a reader tabbing
@@ -106,41 +100,47 @@ describe("HtmlRenderer", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("Export PDF frames the print document with the modals grant, and takes it down when it reports printed", () => {
-    render(<HtmlRenderer content={DECK} />);
-    expect(printFrame()).toBeNull();
+  it("Export PDF downloads the document's PDF from the route beside its content (#1983)", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Blob(["%PDF-1.7"]), {
+        status: 200,
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": 'inline; filename="Q3 review.pdf"' },
+      }),
+    );
+    const createURL = vi.fn(() => "blob:pdf");
+    URL.createObjectURL = createURL;
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
 
-    fireEvent.click(screen.getByRole("button", { name: /export pdf/i }));
-
-    const frame = printFrame();
-    expect(frame).not.toBeNull();
-    expect(frame!.getAttribute("srcdoc")).toContain(PRINT_STEP);
-    expect(frame!.getAttribute("srcdoc")).toContain('<script src="/portal/vendor/reveal/reveal.js">');
-    expect(frame).toHaveAttribute("aria-hidden", "true");
-    expect(screen.getByRole("button", { name: /export pdf/i })).toBeDisabled();
-
-    // A message from anywhere else is not the print frame's report.
-    act(() => {
-      window.dispatchEvent(new MessageEvent("message", { data: PRINTED_MESSAGE, source: window }));
+    render(<HtmlRenderer content={DECK} pdfUrl="/api/v1/portal/assets/a1/pdf" />);
+    const button = screen.getByRole("button", { name: /export pdf/i });
+    expect(button).toHaveAttribute("title", expect.stringMatching(/one page per slide/));
+    await act(async () => {
+      fireEvent.click(button);
     });
-    expect(printFrame()).not.toBeNull();
 
-    act(() => {
-      window.dispatchEvent(new MessageEvent("message", { data: PRINTED_MESSAGE, source: frame!.contentWindow }));
-    });
-    expect(printFrame()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/portal/assets/a1/pdf", { credentials: "same-origin" });
+    expect(createURL).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+    const anchor = click.mock.contexts[0] as HTMLAnchorElement;
+    expect(anchor.download).toBe("Q3 review.pdf");
+    expect(document.querySelector("iframe[sandbox*='allow-modals']")).toBeNull();
     expect(screen.getByRole("button", { name: /export pdf/i })).toBeEnabled();
   });
 
-  it("offers Export PDF on a document without the runtime too", () => {
-    render(<HtmlRenderer content={DASHBOARD} />);
-    fireEvent.click(screen.getByRole("button", { name: /export pdf/i }));
-    const frame = printFrame();
-    expect(frame).not.toBeNull();
-    expect(frame!.getAttribute("srcdoc")).toContain("<h1>Revenue</h1>");
-    act(() => {
-      window.dispatchEvent(new MessageEvent("message", { data: PRINTED_MESSAGE, source: frame!.contentWindow }));
+  it("says why when the PDF could not be made", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("The PDF renderer is not available. Try again shortly.", { status: 503 }),
+    );
+    render(<HtmlRenderer content={DASHBOARD} pdfUrl="/portal/view/tok/pdf" />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /export pdf/i }));
     });
-    expect(printFrame()).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("The PDF renderer is not available");
+  });
+
+  it("offers no Export PDF without a PDF route", () => {
+    render(<HtmlRenderer content={DECK} />);
+    expect(screen.queryByRole("button", { name: /export pdf/i })).toBeNull();
   });
 });

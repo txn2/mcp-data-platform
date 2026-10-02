@@ -39,6 +39,9 @@ type fakeBrowser struct {
 type answer struct {
 	result any
 	err    *protocolError
+	// silent leaves the command unanswered, as a browser does a page that
+	// never settles.
+	silent bool
 }
 
 // ok answers a command with result.
@@ -94,6 +97,9 @@ func (fb *fakeBrowser) serve(w http.ResponseWriter, r *http.Request) {
 		var perr *protocolError
 		if fb.reply != nil {
 			a := fb.reply(c)
+			if a.silent {
+				continue
+			}
 			if a.err != nil {
 				perr = a.err
 			} else if a.result != nil {

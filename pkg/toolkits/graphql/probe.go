@@ -6,6 +6,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/connprobe"
 	"github.com/txn2/mcp-data-platform/internal/gqlschema"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 )
 
 // ProbeConnection sends the named connection's endpoint an introspection
@@ -28,8 +29,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	}
 	res, err := t.execute(ctx, c, graphQLRequest{Query: gqlschema.IntrospectionQuery})
 	if err != nil {
-		return connprobe.Failure(
-			fmt.Sprintf("connection %q could not reach %s", name, c.cfg.EndpointURL), err)
+		return connprobe.Failure(upstreamauth.UnreachedSubject(name, c.cfg.EndpointURL, err), err)
 	}
 	detail := fmt.Sprintf("%s answered with HTTP %d", c.cfg.EndpointURL, res.status)
 	if err := introspectionFailure(res); err != nil {

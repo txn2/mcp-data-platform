@@ -459,3 +459,22 @@ func TestBuild_AnswersAnAutomationRequestWithManageScript(t *testing.T) {
 		}
 	}
 }
+
+// TestBuild_MapsTheUsersWordForOutputToAnAsset pins #1995: a request for a
+// PowerPoint, a markdown report or a spreadsheet is answered with an asset,
+// not a local file or a bucket listing, and a format the platform does not
+// produce is named rather than pursued.
+func TestBuild_MapsTheUsersWordForOutputToAnAsset(t *testing.T) {
+	baseline := Build([]string{toolSaveAsset})
+	for _, want := range []string{
+		"PowerPoint", "presentation", "report", "spreadsheet CSV", "`save_asset`",
+		"never a local file", "an install", "name what you make when it differs",
+	} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("baseline is missing %q:\n%s", want, baseline)
+		}
+	}
+	if strings.Contains(Build([]string{toolSearch}), "PowerPoint") {
+		t.Error("the output line is offered without save_asset to act on it")
+	}
+}

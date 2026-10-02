@@ -94,6 +94,21 @@ export function ApiGatewayAuthHelp() {
             delivery id is the caller's when a call sets that header.
           </Row>
           <Row
+            label="Session sign-in"
+            mode="session_login"
+            sends="<token header>: <session token from the sign-in>"
+          >
+            Upstreams that sign in with a stored credential and answer a
+            short-lived session token: Tableau (personal access token,
+            X-Tableau-Auth), MicroStrategy, Veeva Vault. The platform signs in
+            on first use, shares one session across every call, and on a 401
+            signs in once more and retries the call. Values the sign-in returns,
+            such as Tableau&apos;s site id, can be captured and written into a
+            call&apos;s path as {"{session.<name>}"}. Some of these upstreams
+            allow one live session per credential, so give each connection its
+            own.
+          </Row>
+          <Row
             label="OAuth 2.1, client credentials"
             mode="oauth2_client_credentials"
             sends="Authorization: Bearer <token>"

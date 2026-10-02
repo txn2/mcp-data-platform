@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/txn2/mcp-data-platform/internal/apigwtls"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -71,6 +73,12 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		return newSignedJWTAuth(c)
 	case AuthModeHMAC:
 		return newHMACAuth(c, time.Now)
+	case AuthModeSessionLogin:
+		// The session is carried by the connection's client, which
+		// NewHTTPClient builds with a sessionTransport: a rejected
+		// session has to be signed in again and the request replayed,
+		// which only the transport sees.
+		return sessionAuth{}, nil
 	case AuthModeMTLS:
 		// The client certificate IS the credential. No header is
 		// added; the TLS handshake at transport setup
@@ -93,6 +101,41 @@ type mtlsAuth struct{}
 
 // Apply is a no-op; auth_mode=mtls authenticates at the TLS layer.
 func (mtlsAuth) Apply(_ *http.Request) error { return nil }
+
+// AuthModeSessionLogin signs in with a stored credential and carries the
+// session token the sign-in returns (#2015); see internal/upstreamauth/
+// sessionlogin.
+const AuthModeSessionLogin = sessionlogin.AuthMode
+
+// SessionLoginConfig is how a session_login connection signs in and carries
+// its session.
+type SessionLoginConfig = sessionlogin.Config
+
+// IsSessionFailure reports whether err is a session_login connection failing
+// to sign in or having a fresh session rejected.
+func IsSessionFailure(err error) bool { return sessionlogin.IsSessionFailure(err) }
+
+// IsSessionMessage reports whether an error's text is a session_login
+// connection's own refusal; see sessionlogin.IsSessionMessage.
+func IsSessionMessage(msg string) bool { return sessionlogin.IsSessionMessage(msg) }
+
+// UnreachedSubject is what a connection test says of a request that got no
+// answer: that a session_login connection could not sign in, or that the
+// connection could not reach target.
+func UnreachedSubject(name, target string, err error) string {
+	if IsSessionFailure(err) {
+		return fmt.Sprintf("connection %q could not sign in", name)
+	}
+	return fmt.Sprintf("connection %q could not reach %s", name, target)
+}
+
+// sessionAuth is the Authenticator of a session_login connection. Its
+// session is applied by the connection's client (see sessionTransport), so
+// Apply has nothing to add.
+type sessionAuth struct{}
+
+// Apply is a no-op; auth_mode=session_login authenticates in the transport.
+func (sessionAuth) Apply(_ *http.Request) error { return nil }
 
 // noneAuth applies no credential. Distinct from a nil Authenticator so
 // the invocation path can call Apply unconditionally.

@@ -11,6 +11,7 @@ package thumbwire
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -71,6 +72,25 @@ func tileReader(p source) TileReader {
 	return scripttiles.NewReader(scripttiles.NewPostgres(p.DB()), p.PortalS3Client(), p.Config().Portal.S3Bucket)
 }
 
+// NewRenderer is the headless renderer the platform draws tiles and prints
+// PDFs in (#1983), at the renderer address the thumbnails section names.
+//
+// A document may name an image or a font on a public host. The platform
+// fetches it through the same guard the util connection uses, so a document
+// cannot make the platform reach an address inside the deployment. Redirects
+// go back to the page, which asks again and is checked again.
+func NewRenderer(cfg *platform.Config) (*headless.Renderer, error) {
+	guard, err := egressguard.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("building the renderer's egress guard: %w", err)
+	}
+	public := &http.Client{
+		Transport:     guard.Transport(),
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	return headless.New(cfg.Thumbnails.EffectiveRendererURL(), public), nil
+}
+
 // assemble is Build over the part of the platform it reads.
 func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Worker {
 	if !p.Config().Thumbnails.IsEnabled() {
@@ -87,22 +107,14 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	if !ok || blobs == nil {
 		return nil
 	}
-	// A document may name an image on a public host. The platform fetches it
-	// through the same guard the util connection uses, so a document cannot
-	// make the platform reach an address inside the deployment. Redirects go
-	// back to the page, which asks again and is checked again.
-	guard, err := egressguard.New(nil)
+	renderer, err := NewRenderer(p.Config())
 	if err != nil {
 		log.Printf("Thumbnails disabled: %v", err)
 		return nil
 	}
-	public := &http.Client{
-		Transport:     guard.Transport(),
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
 	cfg := p.Config()
 	deps := thumbworker.Deps{
-		Drawer:           headless.New(cfg.Thumbnails.EffectiveRendererURL(), public),
+		Drawer:           renderer,
 		Assets:           assets,
 		Refs:             p.PortalContentRefStore(),
 		AssetBlobs:       blobs,

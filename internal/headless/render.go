@@ -187,6 +187,20 @@ type render struct {
 // unavailable, so a caller does not draw the next page in a browser still
 // busy with this one (#1868).
 func (r *Renderer) Render(ctx context.Context, p Page) (png []byte, err error) {
+	return r.draw(ctx, p, (*render).screenshot)
+}
+
+// PrintPDF loads p as Render does and prints it to PDF, with its backgrounds
+// and at the page size its own @page rule declares (#1983). The page is
+// printed as it stands once it reports itself ready, so a document that lays
+// itself out for print -- a slide deck in its print view -- decides what each
+// page holds.
+func (r *Renderer) PrintPDF(ctx context.Context, p Page) (pdf []byte, err error) {
+	return r.draw(ctx, p, (*render).printPDF)
+}
+
+// draw is one render from dial to teardown, ending in capture.
+func (r *Renderer) draw(ctx context.Context, p Page, capture func(*render, context.Context, string) ([]byte, error)) (out []byte, err error) {
 	rs := &render{r: r, page: p, host: originHost(), sessions: map[string]bool{}}
 	c, err := dial(ctx, r.endpoint, rs.onEvent)
 	if err != nil {
@@ -205,7 +219,7 @@ func (r *Renderer) Render(ctx context.Context, p Page) (png []byte, err error) {
 	if err := c.call(ctx, "", "Target.createBrowserContext", contextParams, &bc); err != nil {
 		return nil, err
 	}
-	defer func() { png, err = afterTeardown(png, err, rs.dispose(ctx, bc.BrowserContextID)) }()
+	defer func() { out, err = afterTeardown(out, err, rs.dispose(ctx, bc.BrowserContextID)) }()
 
 	session, err := rs.openPage(ctx, bc.BrowserContextID)
 	if err != nil {
@@ -221,7 +235,7 @@ func (r *Renderer) Render(ctx context.Context, p Page) (png []byte, err error) {
 		return nil, err
 	}
 	rs.snap(ctx)
-	return rs.screenshot(ctx, session)
+	return capture(rs, ctx, session)
 }
 
 // originHost is a fresh, unguessable host for one render's page, so no two

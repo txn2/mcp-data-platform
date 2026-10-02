@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { LayoutGrid, Presentation, Printer } from "lucide-react";
-import { isSlideDeck, overviewMessage, PRINTED_MESSAGE, printableDocument } from "@/lib/deck";
+import { FileDown, LayoutGrid, Presentation } from "lucide-react";
+import { isSlideDeck, overviewMessage } from "@/lib/deck";
+import { downloadPdf } from "@/lib/pdfExport";
 
 /**
  * Whether this browser lets a page fullscreen an element it holds. Read once
@@ -22,6 +23,12 @@ interface Props {
    * one they render above the frame.
    */
   controlsSlot?: HTMLElement | null;
+  /**
+   * The document's PDF route (#1983), beside the content route it was read
+   * from. Without one there is nothing to export from, and Export PDF is not
+   * offered.
+   */
+  pdfUrl?: string;
 }
 
 /**
@@ -49,36 +56,22 @@ interface Props {
  *
  * Overview asks the runtime for its grid of every slide, through the message
  * API the runtime listens on by default; it is offered only where the document
- * names the served runtime, since nothing else answers. Export PDF frames a
- * second copy of the document with a print step at its head and the modals
- * grant a sandboxed `print()` needs; the copy lays the slides out one per page
- * and opens the browser's print dialog, and tells this page when the dialog
- * has closed so the frame is taken down. Nothing leaves the browser.
+ * names the served runtime, since nothing else answers. Export PDF downloads
+ * the document printed by the platform's renderer (#1983): its own colors and
+ * backgrounds, and for a deck one page per slide at its last build step. A
+ * browser's own print would drop the backgrounds unless the reader asked for
+ * them, and would give every build step a page.
  */
-export function HtmlRenderer({ content, controlsSlot }: Props) {
+export function HtmlRenderer({ content, controlsSlot, pdfUrl }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const printRef = useRef<HTMLIFrameElement>(null);
   const [canPresent, setCanPresent] = useState(false);
-  const [printing, setPrinting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const deck = isSlideDeck(content);
 
   useEffect(() => {
     setCanPresent(fullscreenAvailable());
   }, []);
-
-  // The print document reports once print() has returned. Only a message from
-  // that frame counts: the presented document is free to post whatever it
-  // likes to its parent.
-  useEffect(() => {
-    if (!printing) return;
-    const onMessage = (event: MessageEvent) => {
-      if (event.data === PRINTED_MESSAGE && event.source === printRef.current?.contentWindow) {
-        setPrinting(false);
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [printing]);
 
   const present = useCallback(() => {
     const frame = iframeRef.current;
@@ -100,7 +93,14 @@ export function HtmlRenderer({ content, controlsSlot }: Props) {
     frame.focus();
   }, []);
 
-  const exportPdf = useCallback(() => setPrinting(true), []);
+  const exportPdf = useCallback(() => {
+    if (!pdfUrl) return;
+    setExporting(true);
+    setExportError(null);
+    downloadPdf(pdfUrl)
+      .catch((err: unknown) => setExportError(err instanceof Error ? err.message : "The PDF could not be made."))
+      .finally(() => setExporting(false));
+  }, [pdfUrl]);
 
   const controls = (
     <>
@@ -126,20 +126,27 @@ export function HtmlRenderer({ content, controlsSlot }: Props) {
           Overview
         </button>
       )}
-      <button
-        type="button"
-        onClick={exportPdf}
-        disabled={printing}
-        className={CONTROL}
-        title={
-          deck
-            ? "Open the print dialog with one slide per page; choose Save as PDF"
-            : "Open the print dialog for this document; choose Save as PDF"
-        }
-      >
-        <Printer className="size-4" aria-hidden="true" />
-        Export PDF
-      </button>
+      {pdfUrl && (
+        <button
+          type="button"
+          onClick={exportPdf}
+          disabled={exporting}
+          className={CONTROL}
+          title={
+            deck
+              ? "Download a PDF with one page per slide, in the deck's own colors"
+              : "Download this document as a PDF, as it looks on screen"
+          }
+        >
+          <FileDown className="size-4" aria-hidden="true" />
+          {exporting ? "Exporting…" : "Export PDF"}
+        </button>
+      )}
+      {exportError && (
+        <span role="alert" className="text-sm text-destructive">
+          {exportError}
+        </span>
+      )}
     </>
   );
 
@@ -154,25 +161,6 @@ export function HtmlRenderer({ content, controlsSlot }: Props) {
         className="min-h-[60vh] w-full min-w-0 flex-1 rounded-lg border border-border"
         title="HTML Preview"
       />
-      {printing &&
-        // On the page's body rather than in the content column, which sizes
-        // every frame it holds to the column: the print view measures the
-        // window it is in to lay out its pages, so this frame keeps a real
-        // size of its own, invisible and out of the way.
-        createPortal(
-          <iframe
-            ref={printRef}
-            sandbox="allow-scripts allow-modals"
-            srcDoc={printableDocument(content)}
-            title="Print"
-            aria-hidden="true"
-            tabIndex={-1}
-            // Paper is light whatever the reader's theme, so the copy starts
-            // from the document's own light styles.
-            style={{ position: "fixed", left: 0, top: 0, width: 1280, height: 720, opacity: 0, pointerEvents: "none", zIndex: -1, colorScheme: "light" }}
-          />,
-          document.body,
-        )}
     </div>
   );
 }

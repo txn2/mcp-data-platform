@@ -285,8 +285,5 @@ func (e *transportError) Error() string { return e.msg }
 
 // outcome is the audit outcome the failure is classified as.
 func (e *transportError) outcome() string {
-	if isTimeoutErrorMessage(e.msg) {
-		return observability.OutcomeUpstreamTimeout
-	}
-	return observability.OutcomeTransportErr
+	return ClassifyInvokeOutcome(InvokeOutput{Error: e.msg})
 }

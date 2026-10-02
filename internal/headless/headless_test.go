@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -294,20 +295,48 @@ func TestRender_EachFailureIsReported(t *testing.T) {
 }
 
 func TestRender_APageThatNeverSettlesIsAbandonedAtTheDeadline(t *testing.T) {
+	// The deadline passes exactly when the page is asked whether it is ready,
+	// so the test does not race a timer against the setup before it: under
+	// -race at -cpu=1 the setup alone outran a 150ms deadline (#1983).
+	ctx := newExpiringContext()
 	fb := newFakeBrowser(t, happy(map[string]func(call) answer{
 		"Runtime.evaluate": func(call) answer {
-			time.Sleep(400 * time.Millisecond)
-			return ok(map[string]any{"result": map[string]any{"value": ""}})
+			ctx.expire()
+			return answer{silent: true}
 		},
 	}))
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-	defer cancel()
 	_, err := New(fb.endpoint(), nil).Render(ctx, tile())
 	if err == nil || !contains(err.Error(), "did not finish drawing") {
 		t.Fatalf("Render = %v, want the deadline named", err)
 	}
 	fb.waitFor(func(c []call) bool { return has(c, "Target.disposeBrowserContext") })
 }
+
+// expiringContext is a context whose deadline passes when expire is called.
+type expiringContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newExpiringContext() *expiringContext {
+	return &expiringContext{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *expiringContext) expire() { c.once.Do(func() { close(c.done) }) }
+
+func (c *expiringContext) Done() <-chan struct{} { return c.done }
+
+func (c *expiringContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (*expiringContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 func TestRender_NoRendererAnswers(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())

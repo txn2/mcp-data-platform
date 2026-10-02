@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo, type ReactNode } from "react";
 import { BinaryRenderer } from "./BinaryRenderer";
 import { resolveRenderer, type Resolution } from "./registry";
+import { pdfURLFor } from "@/lib/pdfExport";
 
 // Every family's viewer loads on demand. Only the registry, which decides
 // which family a piece of content belongs to, and the metadata card that
@@ -68,7 +69,7 @@ export function ContentRenderer({ contentType, content, fileName, contentUrl, si
   if (entry.source === "url") {
     return renderFromURL(entry, { fileName, contentUrl, sizeBytes });
   }
-  return renderFromText(entry, content ?? "", fileName, controlsSlot);
+  return renderFromText(entry, content ?? "", fileName, controlsSlot, pdfURLFor(contentUrl));
 }
 
 interface URLProps {
@@ -111,6 +112,7 @@ function renderFromText(
   text: string,
   fileName?: string,
   controlsSlot?: HTMLElement | null,
+  pdfUrl?: string,
 ): ReactNode {
   switch (entry.kind) {
     case "json":
@@ -158,7 +160,7 @@ function renderFromText(
     case "html":
       return (
         <Suspense fallback={<Loading />}>
-          <HtmlRenderer content={text} controlsSlot={controlsSlot} />
+          <HtmlRenderer content={text} controlsSlot={controlsSlot} pdfUrl={pdfUrl} />
         </Suspense>
       );
     default:

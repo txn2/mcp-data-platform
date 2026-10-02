@@ -180,7 +180,7 @@ content type renders identically wherever it is opened.
 | Video | `video/mp4`, `video/webm`, `video/ogg` | Native player with seek | None |
 | Parquet | `application/vnd.apache.parquet` | Read by byte range from the content URL, never whole (#1833) -- and the platform answers each of those ranges by reading that range from the store, not the object: a schema panel naming each column's Parquet type, whether it is nullable and the Trino type a registration declares it as (or why a registration refuses it); the file's row count, row groups, size, compression and writer; and the rows of one row group at a time, in the table the CSV viewer draws, with the download beside it | None |
 | PDF | `application/pdf` | PDF.js viewer over the content URL — page navigation, zoom, find and text selection — with a download fallback. NOT the browser's plugin: that honoured the document's `/OpenAction`, so a file exported with "print on open" raised the print dialog at its reader (#1783) | None |
-| Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers; an HTML asset is framed as `srcdoc`, filling the page under the control row, with Present (fullscreen), Overview (a deck's grid of every slide, asked of the runtime by message) and Export PDF (a second, print-stepped copy of the document under a modals grant, printed one slide per page and always rendered light, #1772) on that row, which is how a slide deck on the served reveal.js runtime is presented (#1767, #1769) | Source editor |
+| Markup | `text/html`, `text/jsx`, `text/markdown` | Sandboxed / sanitized renderers; an HTML asset is framed as `srcdoc`, filling the page under the control row, with Present (fullscreen), Overview (a deck's grid of every slide, asked of the runtime by message) and Export PDF (a download of the document printed by the platform's renderer in its own colors, one page per slide for a deck at each slide's last build step, from `GET .../pdf` beside the content route, #1983) on that row, which is how a slide deck on the served reveal.js runtime is presented (#1767, #1769) | Source editor |
 | Structured text | `application/xml`, `application/yaml` | CodeMirror, read-only, with folding and a wrap toggle | CodeMirror |
 | Code and logs | `application/sql`, `text/x-python`, `text/javascript`, `text/plain` | CodeMirror, read-only, with line numbers and a wrap toggle | CodeMirror |
 | Excel workbook | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | Metadata card naming it an Excel workbook, with its size and a download action; there is no in-page preview of the sheets (#1849) | None |
@@ -352,6 +352,46 @@ content URL instead.
 The public viewer's Content-Security-Policy carries `media-src` and `object-src`
 for the audio, video and PDF sources. Active types keep their existing sandboxed
 iframe and DOMPurify treatment.
+
+### PDF export
+
+An HTML document exports to PDF from a `.../pdf` route beside the route that
+serves its content (#1983):
+
+| PDF route | Prints |
+|---|---|
+| `GET /api/v1/portal/assets/{id}/pdf` | the asset |
+| `GET /api/v1/portal/assets/{id}/versions/{version}/pdf` | one version of it |
+| `GET /api/v1/admin/assets/{id}/pdf` | the asset, as an administrator reads it |
+| `GET /api/v1/admin/assets/{id}/versions/{version}/pdf` | one version, as an administrator reads it |
+| `GET /api/v1/resources/{id}/pdf` | a managed resource |
+| `GET /api/v1/resources/{id}/versions/{version}/pdf` | one version of it |
+| `GET /portal/view/{token}/pdf` | a shared asset |
+| `GET /portal/view/{token}/items/{assetId}/pdf` | an asset in a shared collection |
+
+The route reads the document through its content route with the caller's own
+request, so it answers exactly who may read the document, and returns that
+route's refusal status with its `Retry-After`, `WWW-Authenticate` and
+`Location` headers, under a plain-text body of its own. Then it prints the document
+in the headless renderer that draws thumbnails, with the document's
+backgrounds and at the page size the document's `@page` rule declares. A deck on
+the served slide runtime is printed in the runtime's print view with every
+build step of a slide on one page, so the PDF has one page per slide, each at
+its last step, in the deck's own colors. A deck that sets `view` or
+`pdfSeparateFragments` in its own `Reveal.initialize` options keeps its own
+setting. The document loads only its declared references and the served
+runtime from the platform, and public URLs through the same egress guard
+thumbnails use.
+
+A document that is not HTML is answered `415`, and one larger than 32 MiB
+`413`, without the platform holding it. The route answers `503`, with the
+reason in its body, when no renderer answers, when the document does not finish
+laying itself out within 90 seconds, and when the renderer could not print it.
+A replica prints two documents at a time and queues the rest; the two share
+routes admit six prints a minute per client, burst three, attributed through
+`portal.rate_limit.trusted_proxies`, and answer `429` with `Retry-After` past
+that. The viewer offers Export PDF for the version on screen and not while the
+source has unsaved edits. Nothing is printed in the reader's browser.
 
 ### What the public share page loads
 

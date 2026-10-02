@@ -33,7 +33,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
-| Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
+| Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, Markdown, CSV, etc.): every document an agent produces, whatever the user calls it |
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
 | Portal | `manage_table` | Make a stored CSV or JSON-lines file queryable as a table and manage what is registered over it (register, list, unregister). Takes the `reference` a search hit carries, so it serves an uploaded resource and a saved asset through one action |
 | Portal | `manage_resource` | Manage a file in the managed resource library (create, replace_content, get, list, delete, extract): the files a saved asset references, and the members of a stored archive written out as files of their own. A replacement keeps the resource's id, URI and filename, so every asset referencing it serves the new bytes without being re-saved; `create` with `if_exists=replace` makes landing one rolling file idempotent, and a delete is refused while anything still points at the file |
@@ -978,6 +978,8 @@ The portal toolkit persists AI-generated assets (JSX dashboards, HTML reports, S
 ### save_asset
 
 Save AI-generated content to the asset portal as a versioned asset. Captures the calls the asset was built from: by default every data call the session made since its last save or export, or exactly the calls you name in `sources`.
+
+It is how every document is produced, in the words a user asks for it (#1995): a PowerPoint, deck or slides is an HTML presentation on the served slide runtime, which its page exports to PDF; a report, one pager, memo or "markdown report" is `text/markdown` or `text/html`; a spreadsheet is `text/csv`; a dashboard or chart is HTML, JSX or SVG. The tool's description, the `platform_info` baseline and the presentations knowledge page all say so, and that there is no local file to build, software to install, or bucket to write a document to. When the word names a format the platform does not produce, such as a `.pptx`, the agent says what it is making instead and makes it.
 
 **Parameters:**
 

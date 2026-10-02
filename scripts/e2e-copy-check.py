@@ -155,7 +155,7 @@ def rendered(text: str, held: Counter[str], patterns: list[Template]) -> bool:
     return held[text] > 0 or any(n * 2 >= len(text) and p.fullmatch(text) for p, n in patterns)
 
 
-def removed_texts(base: str, files: list[str]) -> tuple[dict[str, str], dict[str, str]]:
+def removed_texts(base: str, files: list[str]) -> tuple[dict[str, str], dict[str, str], Counter[str]]:
     """The texts changed ui/src files hold fewer times, each mapped to its file.
 
     The first map holds a text no ui/src source holds any longer; a spec that
@@ -176,7 +176,7 @@ def removed_texts(base: str, files: list[str]) -> tuple[dict[str, str], dict[str
             if after[text] >= n or (not after[text] and any(k * 2 >= len(text) and p.fullmatch(text) for p, k in after_templates)):
                 continue
             (left if rendered(text, corpus, corpus_templates) else gone).setdefault(text, rel)
-    return gone, left
+    return gone, left, corpus
 
 
 def spec_files() -> list[str]:
@@ -211,25 +211,48 @@ def matches(kind: str, literal, text: str) -> bool:
     return literal == text or (" " in literal and len(literal) >= MIN_FRAGMENT and literal in text)
 
 
-def findings(removed: dict[str, str]) -> list[str]:
-    out = []
+def asserts(kind: str, literal, text: str) -> bool:
+    """Whether a spec literal reads text as a whole: a string equal to it, or a
+    regex that matches all of it. Narrower than matches(), which finds a regex
+    anywhere in a sentence, so a short pattern that happens to occur somewhere
+    in ui/src does not excuse a spec whose copy was removed."""
+    if kind != "regex":
+        return literal == text
+    pattern, flags = literal
+    try:
+        rx = re.compile(pattern, re.IGNORECASE if "i" in flags else 0)
+    except re.error:
+        return False
+    return rx.fullmatch(text) is not None
+
+
+def findings(removed: dict[str, str], shown_now: Counter[str] | None = None) -> tuple[list[str], list[str]]:
+    """The spec lines that match a removed text. With shown_now, a spec literal
+    that still reads a whole text ui/src shows is returned second, for a look:
+    /Open/ matched a removed tooltip that began "Open the print dialog" while a
+    button labelled Open was still on the page the spec reads (#1983)."""
+    out: list[str] = []
+    still: list[str] = []
     for spec in spec_files():
         for lineno, kind, literal in spec_literals(work_text(spec)):
             for text, rel in removed.items():
                 if matches(kind, literal, text):
                     shown = f"/{literal[0]}/{literal[1]}" if kind == "regex" else f'"{literal}"'
-                    out.append(f"  {spec}:{lineno}: {shown} matches \"{text}\", which {rel} no longer has")
+                    line = f"  {spec}:{lineno}: {shown} matches \"{text}\", which {rel} no longer has"
+                    held = shown_now is not None and any(asserts(kind, literal, t) for t in shown_now)
+                    (still if held else out).append(line)
                     break
-    return out
+    return out, still
 
 
 def main() -> int:
     base = merge_base(os.environ.get("BASE_BRANCH", "main"))
-    gone, left = removed_texts(base, changed_files(base))
+    gone, left, corpus = removed_texts(base, changed_files(base))
     if not gone and not left:
         print("e2e-copy-check: no UI copy removed from ui/src against main")
         return 0
-    failed, moved = findings(gone), findings(left)
+    failed, still_matching = findings(gone, corpus)
+    moved = findings(left)[0] + still_matching
     if moved:
         print("e2e-copy-check: these specs assert copy that left a changed file but is still shown elsewhere;")
         print("check each still reads the place it means:")

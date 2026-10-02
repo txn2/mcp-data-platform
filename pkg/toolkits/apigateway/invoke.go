@@ -1068,8 +1068,11 @@ const (
 // net/http and net/url error types produce.
 func ClassifyInvokeOutcome(out InvokeOutput) string {
 	if out.Status == 0 {
-		if isTimeoutErrorMessage(out.Error) {
+		switch {
+		case isTimeoutErrorMessage(out.Error):
 			return observability.OutcomeUpstreamTimeout
+		case upstreamauth.IsSessionMessage(out.Error): // the credential or the call, not reachability (#2015)
+			return observability.OutcomeUpstream4xx
 		}
 		return observability.OutcomeTransportErr
 	}
