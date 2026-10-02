@@ -152,7 +152,8 @@ type Config struct {
 	SignedJWT SignedJWTConfig
 	// HMAC carries the signing convention used when AuthMode is
 	// AuthModeHMAC (#1996). Empty otherwise.
-	HMAC HMACConfig
+	HMAC    HMACConfig
+	Session upstreamauth.SessionLoginConfig // the sign-in of an auth_mode=session_login connection (#2015)
 
 	// ConnectTimeout caps the dial step on each call.
 	ConnectTimeout time.Duration

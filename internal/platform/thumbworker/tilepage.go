@@ -1,8 +1,6 @@
 package thumbworker
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"html"
 	"net/http"
@@ -10,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
-	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
+	"github.com/txn2/mcp-data-platform/internal/inproc"
 	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
@@ -168,58 +166,11 @@ func servedInProcess(p string) bool {
 }
 
 // serveInProcess calls routes for one GET and returns the body when it answers
-// 200. It carries no credentials, so only a route that answers anonymously can
-// answer it.
-//
-// It is marked as the platform's own request, which the public viewer's rate
-// limiter admits without counting (#1791). Counted, every request the worker
-// makes presents the one loopback address and shares one bucket, and the
-// reference route in front of a document's files ran it dry partway through a
-// document: its light tile loaded every file and its dark tile loaded none.
+// 200, through the same in-process call the PDF export makes.
 func serveInProcess(routes http.Handler, p string) (headless.File, bool) {
-	ctx, cancel := context.WithTimeout(viewerlimit.InProcess(context.Background()), storageTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p, http.NoBody)
-	if err != nil {
+	body, contentType, ok := inproc.Get(routes, p, storageTimeout)
+	if !ok {
 		return headless.File{}, false
 	}
-	req.RemoteAddr = "127.0.0.1:0"
-	rec := &recorder{header: http.Header{}}
-	routes.ServeHTTP(rec, req)
-	if rec.code() != http.StatusOK {
-		return headless.File{}, false
-	}
-	return headless.File{Body: rec.body.Bytes(), ContentType: rec.header.Get("Content-Type")}, true
-}
-
-// recorder is the in-process response a route writes into.
-type recorder struct {
-	header http.Header
-	status int
-	body   bytes.Buffer
-}
-
-// Header is the response header the route sets.
-func (r *recorder) Header() http.Header { return r.header }
-
-// WriteHeader records the first status the route writes.
-func (r *recorder) WriteHeader(status int) {
-	if r.status == 0 {
-		r.status = status
-	}
-}
-
-// Write collects the body, implying 200 when no status was written.
-func (r *recorder) Write(p []byte) (int, error) {
-	if r.status == 0 {
-		r.status = http.StatusOK
-	}
-	return r.body.Write(p) //nolint:wrapcheck // bytes.Buffer never fails
-}
-
-func (r *recorder) code() int {
-	if r.status == 0 {
-		return http.StatusOK
-	}
-	return r.status
+	return headless.File{Body: body, ContentType: contentType}, true
 }

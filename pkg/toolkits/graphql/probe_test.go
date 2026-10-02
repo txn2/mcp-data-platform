@@ -94,3 +94,22 @@ func TestProbeConnection_UnknownConnection(t *testing.T) {
 		t.Errorf("detail does not say the connection is unknown: %q", res.Detail)
 	}
 }
+
+// A session_login connection whose sign-in is refused is reported as not
+// signing in, not as an endpoint that could not be reached (#2015).
+func TestProbeConnection_SessionLoginRefused(t *testing.T) {
+	u := newUpstream(t)
+	tk := newToolkit(t, u, "", map[string]any{
+		"auth_mode":            "session_login",
+		"session_login_url":    "/signin",
+		"session_login_secret": "s",
+		"session_login_body":   `{"s":"{{secret}}"}`,
+		"session_token_source": "body:token",
+	})
+	t.Cleanup(func() { _ = tk.Close() })
+
+	res := tk.ProbeConnection(context.Background(), "gql")
+	if res.OK || !strings.Contains(res.Detail, "could not sign in") {
+		t.Fatalf("a refused sign-in was not reported as one: %+v", res)
+	}
+}

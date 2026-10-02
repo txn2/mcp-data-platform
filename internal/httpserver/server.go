@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/pdfhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
 	"github.com/txn2/mcp-data-platform/internal/ui"
@@ -266,9 +267,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// MCP middleware chain via an in-memory session.
 	mountGatewayAPI(mux, mcpServer, p, hcfg.requireAuth)
 
-	// Mount the authenticated PromQL query proxy the portal's
-	// observability views read from (#462). Always mounted; returns 503
-	// when Prometheus is not configured.
+	// Mount the authenticated PromQL query proxy the portal's observability
+	// views read from (#462); always mounted, 503 when Prometheus is not configured.
 	mountObservabilityProxy(mux, p, hcfg.requireAuth)
 
 	// Mount unified portal UI (includes both portal and admin sections)
@@ -284,8 +284,8 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	rootHandler := buildRootHandler(ctx, mcpServer, p, hcfg)
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
 
-	// The tile worker draws from the routes assembled above, so it starts once
-	// the mux is complete and stops after the server has drained.
+	// The PDF routes and the tile worker read the complete mux; the worker stops after the drain.
+	pdfhttp.MountFor(mux, p)
 	thumbs := thumbwire.Build(p, mux)
 	thumbs.Start(ctx)
 	defer thumbs.Stop()

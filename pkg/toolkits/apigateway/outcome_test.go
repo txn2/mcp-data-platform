@@ -43,6 +43,11 @@ func TestClassifyInvokeOutcome(t *testing.T) {
 		{"status 0 + EOF → transport_err", InvokeOutput{Status: 0, Error: `Get "https://api.example.com/x": EOF`}, observability.OutcomeTransportErr},
 		{"status 0 + connection reset → transport_err", InvokeOutput{Status: 0, Error: `read tcp 10.0.0.1:443: connection reset by peer`}, observability.OutcomeTransportErr},
 		{"status 0 + empty error → transport_err", InvokeOutput{Status: 0}, observability.OutcomeTransportErr},
+		// A session_login refusal is the credential's or the call's to fix,
+		// not an upstream to retry (#2015).
+		{"status 0 + session sign-in failed → upstream_4xx", InvokeOutput{Status: 0, Error: `Get "https://h/x": apigateway: session sign-in failed: https://h/signin answered HTTP 401`}, observability.OutcomeUpstream4xx},
+		{"status 0 + fresh session rejected → upstream_4xx", InvokeOutput{Status: 0, Error: `Get "https://h/x": apigateway: the upstream rejected a fresh session; check the connection's sign-in credential (HTTP 401)`}, observability.OutcomeUpstream4xx},
+		{"status 0 + uncaptured session value → upstream_4xx", InvokeOutput{Status: 0, Error: `Get "https://h/x": apigateway: the path names a session value this connection's sign-in does not capture: {session.user_id}`}, observability.OutcomeUpstream4xx},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

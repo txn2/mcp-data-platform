@@ -34,6 +34,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
@@ -243,6 +244,9 @@ type Config struct {
 	// HMAC carries the signing convention used when AuthMode is
 	// AuthModeHMAC. Empty otherwise.
 	HMAC HMACConfig
+	// Session carries the sign-in and the session it opens when AuthMode
+	// is AuthModeSessionLogin. Empty otherwise.
+	Session sessionlogin.Config
 
 	// ConnectTimeout caps the dial step (TCP + TLS handshake) on each
 	// invocation.
@@ -395,6 +399,8 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		c.SignedJWT = parseSignedJWT(SignedJWTAlgRS256, c.OAuth2.TokenURL, cfg)
 	case c.AuthMode == AuthModeHMAC:
 		c.HMAC = parseHMAC(cfg)
+	case c.AuthMode == AuthModeSessionLogin:
+		c.Session = sessionlogin.Parse(endpointURL, cfg)
 	}
 	c.StaticHeaders = cfgmap.StringMap(cfg, cfgKeyStaticHeaders)
 	c.MTLSClientCertPEM = cfgmap.String(cfg, cfgKeyMTLSClientCertPEM)
@@ -463,6 +469,8 @@ func (c Config) ValidateAuth() error {
 		return c.validateSignedJWTAuth()
 	case AuthModeHMAC:
 		return c.validateHMACAuth()
+	case AuthModeSessionLogin:
+		return c.Session.Validate(prefixOr(c.ErrPrefix)) //nolint:wrapcheck // the message already carries the kind's prefix
 	case AuthModeMTLS:
 		// The mTLS material is validated centrally by
 		// ValidateTLSMaterial so the same rules apply whether mTLS is
@@ -472,7 +480,7 @@ func (c Config) ValidateAuth() error {
 		// Config.AuthMode inspection.
 		return nil
 	default:
-		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, hmac, oauth, or mtls; an oauth connection carries its flow in %s)",
+		return c.errf("invalid auth_mode %q (want none, bearer, api_key, basic, signed_jwt, hmac, session_login, oauth, or mtls; an oauth connection carries its flow in %s)",
 			c.AuthMode, connoauth.ConfigKeyGrant)
 	}
 }

@@ -1,6 +1,9 @@
 # Presentations
 
-A presentation, a deck, a set of slides: each is an HTML asset. The platform
+A presentation, a deck, a set of slides, a PowerPoint: each is an HTML asset.
+A request for a PowerPoint is a request for this; say that you are making a
+slide presentation on the platform, which exports to PDF, rather than building
+a .pptx file or installing software to make one. The platform
 serves the slide runtime the document runs on, so a deck is written like any
 other HTML document you save, and the portal presents it. There is no slide
 file format to produce and no other tool to hand the reader; a deck is saved
@@ -14,7 +17,7 @@ flowchart LR
   A --> D["thumbnail<br/>the title slide"]
   B --> E["fullscreen, keyboard<br/>on the slides"]
   B --> F["every slide at once"]
-  B --> G["print dialog<br/>one slide per page"]
+  B --> G["PDF download<br/>one page per slide"]
   C --> E
   C --> F
   C --> G
@@ -139,15 +142,15 @@ the keyboard into it: arrow keys and space advance, Esc leaves fullscreen.
 Without Present, a click on the deck gives it the keyboard and the same keys
 work at the page's own size. **Overview** shows every slide at once, as the
 runtime's own grid; a click on a slide goes to it, and a second press returns
-to the deck. **Export PDF** opens the browser's print dialog on the deck laid
-out one slide per page, in the runtime's print view, and the reader chooses
-Save as PDF there. Nothing leaves the browser, and the deck itself is not
-changed by either.
+to the deck. **Export PDF** downloads the deck as a PDF the platform prints
+in its renderer, one page per slide, in the deck's own colors and
+backgrounds, ready to send. The deck itself is not changed by either.
 
 A slide that is right on screen is right on the page: the print view uses the
 deck's configured slide size, so a deck designed at the default 960 by 700
-prints at that shape. Content that only appears on a keypress (a `fragment`)
-is printed in its final state, on one page per slide.
+prints at that shape, and a dark theme prints dark. Content that only appears
+on a keypress (a `fragment`) is printed in its final state, on the slide's one
+page.
 
 The thumbnail on the asset card is the title slide. Write the first section as
 the slide you want on the tile.

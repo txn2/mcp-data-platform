@@ -366,6 +366,7 @@ Nothing about a connection is derived per replica, so there is nothing to reconc
 | `oauth` | OAuth 2.1. The grant is set separately in `oauth_grant` (`client_credentials`, `authorization_code` or `jwt_bearer`). `client_credentials` fetches a token at `oauth_token_url` and applies `Authorization: Bearer ...`; `authorization_code` adds a one-time browser sign-in with a persisted (encrypted) refresh token and silent refresh; `jwt_bearer` signs a short-lived assertion with a registered key and exchanges it at `oauth_token_url` (RFC 7523), described [below](#oauth-jwt-bearer-grant-rfc-7523). |
 | `signed_jwt` | `Authorization: Bearer <jwt the platform minted>`. For upstreams that issue an identifier and a signing key and expect the client to mint its own short-lived assertion — Sage X3 connected applications, Snowflake key-pair authentication, Apple App Store Connect and APNs, and internal services built the same way. There is no token endpoint and nothing is exchanged. See [Signed JWT upstreams](signed-jwt-auth.md). |
 | `hmac` | `<hmac_signature_header>: <prefix><HMAC of the request>`, with the timestamp and delivery id headers the scheme signs. For webhook receivers that verify the sender by an HMAC of the body: Standard Webhooks, GitHub, Stripe, and the platform's own [inbound webhook sources](webhooks.md). The credential is the signing secret. Described [below](#hmac-signing). |
+| `session_login` | `<session_token_header>: <session_token_prefix><token>`, where the token is the one a sign-in with a stored credential returned. For upstreams that exchange a personal access token, an API key or a password for a short-lived session: Tableau, MicroStrategy, Veeva Vault. Described [below](#session-sign-in). |
 | `mtls` | No header. Authentication happens at the TLS handshake (RFC 5246 / 8446) via the configured client certificate. Used by upstreams that map the cert's subject DN to an internal user identity (service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, etc.). |
 
 The OAuth config keys (`oauth_grant`, `oauth_token_url`, `oauth_authorization_url`, `oauth_client_id`, `oauth_client_secret`, `oauth_scope`, `oauth_prompt`, `oauth_endpoint_auth_style`) are shared with every other toolkit kind, so an OAuth connection is configured the same way regardless of kind. `oauth_scope` is a single space-delimited string (the OAuth 2.0 wire form).
@@ -412,6 +413,60 @@ The keys mirror an [inbound webhook source's](webhooks.md#authentication) `auth`
 - Rotating the secret is the connection's credential update. The sending side holds no overlap; the receiver does, as an inbound source does with `rotation_overlap_seconds`.
 
 Schemes that sign headers, the URL or the query string (AWS SigV4, HTTP Message Signatures, RFC 9421) are a different shape and are not covered by this mode.
+
+### Session sign-in
+
+`auth_mode: session_login` is for an upstream that authenticates with a sign-in exchange: the client sends a long-lived credential to a login endpoint, the answer carries a short-lived session token, and every later call sends that token in a vendor-chosen header. Tableau is the clearest case (a personal access token to `/api/{version}/auth/signin`, the token back at `credentials.token`, and `X-Tableau-Auth` on every REST and Metadata API call); MicroStrategy (`X-MSTR-AuthToken`) and Veeva Vault (`sessionId` sent back as `Authorization`) work the same way. No other mode reaches these: a pasted session token works until it expires, and the login endpoints take vendor-shaped bodies and answer the token somewhere other than an OAuth `access_token`.
+
+| Key | Meaning | Default |
+|---|---|---|
+| `session_login_url` | The sign-in endpoint: an absolute URL, or a path resolved against the connection's base URL. Required. | none |
+| `session_login_method` | The sign-in request's method | `POST` |
+| `session_login_body` | The sign-in body, with `{{secret}}` where `session_login_secret` is written. It is not secret, so it reads back as written. | empty |
+| `session_login_content_type` | The body's media type: `application/json`, `application/xml` or `application/x-www-form-urlencoded`. The secret is escaped for it. | `application/json` |
+| `session_login_secret` | The credential written into the body. Encrypted at rest and read back as `[REDACTED]`. A body or a secret is required, and each needs the other when the body names `{{secret}}`. | empty |
+| `session_login_headers` | Headers sent on the sign-in request only. The sign-in sends `Accept: application/json` unless this sets another. | none |
+| `session_token_source` | Where the token is in the sign-in answer: `body:<dotted json path>` (a numeric segment indexes a list) or `header:<name>`. Required. | none |
+| `session_token_header` | The header the token is sent in on every call | `Authorization` |
+| `session_token_prefix` | Written before the token. With this and `session_token_header` both blank the call carries `Authorization: Bearer <token>`; naming `Authorization` with no prefix sends the raw token, as Veeva Vault reads it. | empty |
+| `session_ttl` | How long a session is used before the platform signs in again without waiting to be rejected, as a duration (`2h`) or seconds | until rejected |
+| `session_logout_url` | Called with the token when the connection is removed, replaced or shut down, so the upstream does not keep orphaned sessions | none |
+| `session_logout_method` | The sign-out request's method | `POST` |
+| `session_capture` | Further values the sign-in answer carries, by name, each read from a source in `session_token_source`'s form. A call writes `{session.<name>}` in its path to have the value put there. | none |
+| `session_expired_statuses` | Statuses that mean the session is no longer accepted, as a list or comma-separated text | `[401]` |
+| `session_expired_marker` | Text in a response body that means the session is no longer accepted, for an upstream that answers an expired session with `200` or `403` and an error body | none |
+
+How a session is held:
+
+- The platform signs in on the first call (a `graphql` connection reads its schema when it is saved, so it signs in then), and every call through the connection shares the session: api tool calls, page walks and exports, a graphql connection's queries and introspection, and a notification channel's deliveries. Calls that arrive during a sign-in wait for it, each within its own call timeout, so a burst of calls produces one sign-in.
+- A response with an expiry status (or the marker) ends the session. The platform signs in once more and sends the call again, with the same body. A second rejection is not retried: the call fails with `the upstream rejected a fresh session; check the connection's sign-in credential` and a short quote of the upstream's error, with the secret and the token taken out of it. For the next 30 seconds an expiry answer is returned to the caller as the upstream sent it, without signing in again, since the credential is what it refuses.
+- A sign-in that is refused, unreachable, or answered without a token where `session_token_source` says one is fails the call with `session sign-in failed` and the status and quote. Calls in the next 30 seconds get the same failure without another sign-in, so a wrong secret is not tried at the upstream on every call, which some vendors answer by locking the account. The connection test (`POST /api/v1/admin/connection-instances/{kind}/{name}/test`) performs a real sign-in and reports such a failure as `could not sign in`.
+- The sign-in and sign-out go to their own URLs and do not carry `path_secret`. A sign-out is sent in the background, within 5 seconds, both when the connection is removed, replaced or shut down and when `session_ttl` retires a session; a process that exits first leaves that session to expire at the upstream.
+- The session is held in memory per replica. Each replica signs in for itself.
+- The token header is reserved: a call cannot set it, and neither can `static_headers`. The token, the secret and the body are never logged.
+- A call that names `{session.<name>}` the sign-in does not capture is refused, naming the values it does capture.
+
+Some of these upstreams allow one live session per credential, so a second sign-in with the same personal access token ends the first. Give each connection its own credential, and do not share one between the platform and another client. With several replicas, a credential like that is held by one replica at a time: give the connection a credential the upstream allows concurrent sessions for, or expect a call on another replica to sign in again.
+
+Tableau, with the site id captured so a REST path needs no separate lookup:
+
+```yaml
+kind: api
+name: tableau
+config:
+  base_url: https://tableau.example.com
+  auth_mode: session_login
+  session_login_url: /api/3.22/auth/signin
+  session_login_body: '{"credentials":{"personalAccessTokenName":"platform","personalAccessTokenSecret":"{{secret}}","site":{"contentUrl":"acme"}}}'
+  session_login_secret: ${TABLEAU_PAT_SECRET}
+  session_token_source: body:credentials.token
+  session_token_header: X-Tableau-Auth
+  session_capture:
+    site_id: body:credentials.site.id
+  session_logout_url: /api/3.22/auth/signout
+```
+
+A call then reads a site's workbooks with `"path": "/api/3.22/sites/{session.site_id}/workbooks"`, or `"path_params": {"site-id": "{session.site_id}"}` against a catalog operation; the platform writes the site id in as the call is sent. A `graphql` connection to Tableau's Metadata API (`/api/metadata/graphql`) takes the same keys. Name the captured values in the connection's description so a model knows they exist.
 
 ### A secret in the URL
 

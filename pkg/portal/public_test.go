@@ -1506,6 +1506,11 @@ func TestPublicCollectionItemViewSuccess(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "text/html")
+	// The item's viewer reads, downloads and exports the item, not the
+	// collection share's own content route, which answers only an asset
+	// share (#1983).
+	assert.Contains(t, w.Body.String(), `/portal/view/tok1/items/a1/content`)
+	assert.NotContains(t, w.Body.String(), `"/portal/view/tok1/content"`)
 }
 
 func TestPublicCollectionItemThumbnailNoS3(t *testing.T) {

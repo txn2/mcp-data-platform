@@ -12308,6 +12308,53 @@ paths:
       summary: Update asset content
       tags:
       - Portal Assets
+  /admin/assets/{id}/pdf:
+    get:
+      description: Prints the HTML document the route's .../content sibling serves,
+        in the platform's headless renderer, with its backgrounds and colors as shown
+        on screen. A slide deck prints one page per slide, each slide at its last
+        build step. The document is read through its content route with the caller's
+        own request, so the same access rules apply and that route's refusal is returned
+        as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+      parameters:
+      - description: Asset or resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an HTML document as PDF
+      tags:
+      - Portal
   /admin/assets/{id}/provenance:
     get:
       description: Returns one page of the asset's provenance captures, newest first,
@@ -12480,6 +12527,57 @@ paths:
       summary: Get asset version content
       tags:
       - Portal Assets
+  /admin/assets/{id}/versions/{version}/pdf:
+    get:
+      description: Prints the HTML document the route's .../content sibling serves,
+        in the platform's headless renderer, with its backgrounds and colors as shown
+        on screen. A slide deck prints one page per slide, each slide at its last
+        build step. The document is read through its content route with the caller's
+        own request, so the same access rules apply and that route's refusal is returned
+        as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+      parameters:
+      - description: Asset or resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Asset version (the versions route only)
+        in: path
+        name: version
+        type: integer
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an HTML document as PDF
+      tags:
+      - Portal
   /admin/assets/{id}/versions/{version}/revert:
     post:
       description: Creates a new asset version by reverting to a previous version's
@@ -18582,6 +18680,53 @@ paths:
       summary: Copy asset
       tags:
       - Assets
+  /portal/assets/{id}/pdf:
+    get:
+      description: Prints the HTML document the route's .../content sibling serves,
+        in the platform's headless renderer, with its backgrounds and colors as shown
+        on screen. A slide deck prints one page per slide, each slide at its last
+        build step. The document is read through its content route with the caller's
+        own request, so the same access rules apply and that route's refusal is returned
+        as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+      parameters:
+      - description: Asset or resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an HTML document as PDF
+      tags:
+      - Portal
   /portal/assets/{id}/producers:
     get:
       description: Returns the scripts, sessions and people that created or modified
@@ -19339,6 +19484,57 @@ paths:
       summary: Get version content
       tags:
       - Assets
+  /portal/assets/{id}/versions/{version}/pdf:
+    get:
+      description: Prints the HTML document the route's .../content sibling serves,
+        in the platform's headless renderer, with its backgrounds and colors as shown
+        on screen. A slide deck prints one page per slide, each slide at its last
+        build step. The document is read through its content route with the caller's
+        own request, so the same access rules apply and that route's refusal is returned
+        as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+      parameters:
+      - description: Asset or resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Asset version (the versions route only)
+        in: path
+        name: version
+        type: integer
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an HTML document as PDF
+      tags:
+      - Portal
   /portal/assets/{id}/versions/{version}/revert:
     post:
       description: Reverts the asset content to a specific version by creating a new
@@ -26518,6 +26714,53 @@ paths:
       summary: Replace resource content
       tags:
       - Resources
+  /resources/{id}/pdf:
+    get:
+      description: Prints the HTML document the route's .../content sibling serves,
+        in the platform's headless renderer, with its backgrounds and colors as shown
+        on screen. A slide deck prints one page per slide, each slide at its last
+        build step. The document is read through its content route with the caller's
+        own request, so the same access rules apply and that route's refusal is returned
+        as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+      parameters:
+      - description: Asset or resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an HTML document as PDF
+      tags:
+      - Portal
   /resources/{id}/tables:
     get:
       description: Returns the registrations built over one managed resource under
@@ -26821,6 +27064,57 @@ paths:
       summary: Download a resource version
       tags:
       - Resources
+  /resources/{id}/versions/{version}/pdf:
+    get:
+      description: Prints the HTML document the route's .../content sibling serves,
+        in the platform's headless renderer, with its backgrounds and colors as shown
+        on screen. A slide deck prints one page per slide, each slide at its last
+        build step. The document is read through its content route with the caller's
+        own request, so the same access rules apply and that route's refusal is returned
+        as it is. 415 for a document that is not HTML; 503 when no renderer answers.
+      parameters:
+      - description: Asset or resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Asset version (the versions route only)
+        in: path
+        name: version
+        type: integer
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "415":
+          description: Unsupported Media Type
+          schema:
+            type: string
+        "503":
+          description: Service Unavailable
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Export an HTML document as PDF
+      tags:
+      - Portal
   /resources/{id}/versions/{version}/restore:
     post:
       description: Re-promotes a prior revision's content as a new head revision.

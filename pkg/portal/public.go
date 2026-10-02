@@ -219,6 +219,9 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 	// Single-asset shares: /portal/view/{token}/content
 	// Collection items: /portal/view/{token}/items/{assetId}/content
 	downloadURL := fmt.Sprintf("/portal/view/%s/content", share.Token)
+	if share.AssetID != asset.ID {
+		downloadURL = fmt.Sprintf("/portal/view/%s/items/%s/content", share.Token, url.PathEscape(asset.ID))
+	}
 
 	contentData := map[string]any{
 		"contentType":  asset.ContentType,

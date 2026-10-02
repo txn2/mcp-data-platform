@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { useStartConnectionOAuth } from "@/api/admin/hooks";
@@ -14,6 +14,7 @@ import {
 import { OAuthFields } from "./OAuthFields";
 import { AUTH_MODE_OAUTH } from "./oauthVocabulary";
 import { HMACAuthFields } from "./HMACAuthFields";
+import { SessionLoginAuthFields } from "./SessionLoginAuthFields";
 import { SignedJWTAuthFields } from "./SignedJWTAuthFields";
 
 // The auth half of an HTTP-based connection editor: the mode picker and the
@@ -29,6 +30,7 @@ const AUTH_MODES = [
   { value: "basic", label: "Basic (RFC 7617)" },
   { value: "signed_jwt", label: "Signed JWT (the platform mints the token)" },
   { value: "hmac", label: "HMAC signature" },
+  { value: "session_login", label: "Session sign-in" },
   { value: AUTH_MODE_OAUTH, label: "OAuth 2.1" },
   { value: "mtls", label: "mTLS (client certificate is the credential)" },
 ];
@@ -99,6 +101,17 @@ function BasicAuthFields({ config, onChange }: ConfigFormProps) {
     </ConfigGroup>
   );
 }
+
+// MODE_FIELDS is the credential block of each mode whose fields need nothing
+// but the config; bearer, OAuth and the modes with no fields are rendered in
+// place.
+const MODE_FIELDS: Record<string, (props: ConfigFormProps) => ReactElement> = {
+  api_key: ApiKeyFields,
+  basic: BasicAuthFields,
+  signed_jwt: SignedJWTAuthFields,
+  hmac: HMACAuthFields,
+  session_login: SessionLoginAuthFields,
+};
 
 // ConnectPanel is the browser sign-in affordance for authorization_code. The
 // Connect button needs a saved connection (the IdP redirect resolves the
@@ -196,6 +209,7 @@ export function ApiGatewayAuthFields({
   onOpenHelp: () => void;
 }) {
   const mode = String(config.auth_mode ?? "none");
+  const ModeFields = MODE_FIELDS[mode];
   return (
     <>
       <ConfigSelect
@@ -218,16 +232,7 @@ export function ApiGatewayAuthFields({
           sensitive
         />
       )}
-      {mode === "api_key" && (
-        <ApiKeyFields config={config} onChange={onChange} />
-      )}
-      {mode === "basic" && (
-        <BasicAuthFields config={config} onChange={onChange} />
-      )}
-      {mode === "signed_jwt" && (
-        <SignedJWTAuthFields config={config} onChange={onChange} />
-      )}
-      {mode === "hmac" && <HMACAuthFields config={config} onChange={onChange} />}
+      {ModeFields && <ModeFields config={config} onChange={onChange} />}
       {mode === AUTH_MODE_OAUTH && (
         <OAuthFields
           config={config}

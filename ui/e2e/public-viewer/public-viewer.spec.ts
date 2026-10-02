@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 
 // The public viewer's Content-Security-Policy is enforced by the browser and by
@@ -409,39 +410,26 @@ test.describe("a slide deck share", () => {
     await expect(frame.locator(".reveal.overview")).toHaveCount(0);
   });
 
-  test("Export PDF lays the deck out one slide per page and prints it", async ({ page }) => {
-    // The print document calls print(); headless Chromium answers with no
-    // dialog and returns at once, so the print frame would be gone before it
-    // could be read. The stand-in records what the document looked like at
-    // the moment of printing, and the recording arrives on the page's console.
-    await page.addInitScript(() => {
-      window.print = () => {
-        console.log(
-          "printed:" +
-            JSON.stringify({
-              printView: document.documentElement.classList.contains("reveal-print"),
-              pages: document.querySelectorAll(".pdf-page").length,
-            }),
-        );
-      };
-    });
-    const printed: Array<{ printView: boolean; pages: number }> = [];
-    page.on("console", (m) => {
-      if (m.text().startsWith("printed:")) printed.push(JSON.parse(m.text().slice("printed:".length)));
-    });
-
+  // The platform prints the deck in its renderer and the share page downloads
+  // what it printed (#1983): one page per slide, each at its last build step,
+  // and nothing printed in the reader's browser.
+  test("Export PDF downloads the deck printed one page per slide", async ({ page }) => {
     await page.goto(`/portal/view/${DECK_TOKEN}`, { waitUntil: "networkidle" });
-    const slides = await artifactFrame(page).locator(".slides > section").count();
+    // A slide is a section that holds no other: a vertical stack is a section
+    // of sections, and each of those is a page.
+    const slides = await artifactFrame(page).locator(".slides section:not(:has(section))").count();
     expect(slides).toBeGreaterThan(1);
 
+    const download = page.waitForEvent("download", { timeout: 90_000 });
     await page.getByRole("button", { name: "Export PDF" }).click();
-    await expect.poll(() => printed.length, { timeout: 15_000 }).toBe(1);
-    expect(printed[0]!.printView).toBe(true);
-    expect(printed[0]!.pages).toBeGreaterThanOrEqual(slides);
+    const file = await download;
+    expect(file.suggestedFilename()).toMatch(/\.pdf$/);
+    const bytes = readFileSync((await file.path())!).toString("latin1");
+    expect(bytes.startsWith("%PDF-")).toBe(true);
+    const pages = bytes.match(/\/Type\s*\/Page(?![a-z])/g) ?? [];
+    expect(pages.length).toBe(slides);
 
-    // Once the document reports it printed, the print frame is taken down and
-    // the control is offered again.
-    await expect(page.locator('iframe[sandbox="allow-scripts allow-modals"]')).toHaveCount(0);
+    await expect(page.locator("iframe[sandbox*='allow-modals']")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Export PDF" })).toBeEnabled();
   });
 

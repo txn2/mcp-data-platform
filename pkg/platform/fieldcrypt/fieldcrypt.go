@@ -54,6 +54,7 @@ var sensitiveConfigKeys = map[string]bool{
 	"jwt_client_secret":    true, // signed_jwt HMAC shared secret
 	"jwt_private_key_pem":  true, // signed_jwt RS256/ES256 signing key
 	"path_secret":          true, // a secret the receiver reads from the request path
+	"session_login_secret": true, // session_login credential written into the sign-in body
 }
 
 // CfgKeyStaticHeaders is the connection-config key whose value is a

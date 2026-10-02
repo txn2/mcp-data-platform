@@ -423,6 +423,12 @@ func (*Toolkit) Connection() string { return "" }
 // save_asset tool.
 const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML report, SVG chart, etc.) " +
 	"to the asset portal as a versioned, viewable, shareable asset. " +
+	"This is how every document is produced, whatever the user calls it: a PowerPoint, deck or slides is an " +
+	"HTML presentation on the served slide runtime (see mcp:knowledge_page:platform-presentations), which " +
+	"its page exports to PDF; a report, one pager, memo or markdown report is text/markdown or text/html; a " +
+	"spreadsheet is text/csv. There is no local file system to build a file in and nothing to install, and " +
+	"object storage is not where a document goes. When the user's word names a format this does not " +
+	"produce (a .pptx, an .xlsx), say what you are making instead, then make it. " +
 	"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +
 	"rather than first outputting it to the conversation and then saving separately - " +
 	"this avoids regenerating the whole asset. " +
@@ -653,7 +659,7 @@ func (*Toolkit) PromptInfos() []registry.PromptInfo {
 
 const saveAssetPromptContent = `Save the most recent output or analysis from this conversation as a shareable asset.
 
-1. Identify the key output from our conversation (dashboard, report, chart, or analysis)
+1. Identify the key output from our conversation (dashboard, report, presentation, chart, or analysis)
 2. Package it with an appropriate name, description, and tags
 3. Save it as an asset so it can be viewed and shared
 4. Return the link to the saved asset`

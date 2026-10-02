@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
+import { versionContentURL } from "@/lib/pdfExport";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { exceedsInlineLimit, readsByRange, rendersFromURL } from "@/components/renderers/registry";
 import { useContentUrl } from "@/lib/useContentUrl";
@@ -159,9 +160,12 @@ function VersionContent({
   const version = versions?.find((v) => v.version === selectedVersion);
   const sizeBytes = version?.size_bytes ?? 0;
   const contentType = version?.content_type || asset.content_type;
+  // The version shown, not the current one: a download or an export of v2
+  // is v2 (#1983).
+  const versionUrl = versionContentURL(contentUrl, selectedVersion);
 
   if (versionContent === undefined && exceedsInlineLimit(contentType, sizeBytes, asset.name)) {
-    return <TooLarge asset={asset} sizeBytes={sizeBytes} contentUrl={contentUrl} />;
+    return <TooLarge asset={asset} sizeBytes={sizeBytes} contentUrl={versionUrl} />;
   }
 
   return (
@@ -169,7 +173,7 @@ function VersionContent({
       contentType={contentType}
       content={versionContent}
       fileName={asset.name}
-      contentUrl={contentUrl}
+      contentUrl={versionUrl}
       sizeBytes={sizeBytes}
       controlsSlot={controlsSlot}
     />
@@ -246,13 +250,20 @@ function CurrentContent({
           contentType={asset.content_type}
           content={hasChanges ? editedContent : asText(content)}
           fileName={asset.name}
-          contentUrl={media.src || contentUrl}
+          // Unsaved edits are not what the stored document's routes serve, so
+          // nothing is exported from them until they are saved (#1983).
+          contentUrl={storedContentUrl(hasChanges, media.src || contentUrl)}
           sizeBytes={asset.size_bytes}
           controlsSlot={controlsSlot}
         />
       )}
     </>
   );
+}
+
+/** The URL the stored document is read from, or none while there are unsaved edits. */
+function storedContentUrl(hasChanges: boolean, url: string): string | undefined {
+  return hasChanges ? undefined : url;
 }
 
 /** What the viewer shows in place of content it cannot render yet, or at all. */

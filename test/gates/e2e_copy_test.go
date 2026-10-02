@@ -40,6 +40,7 @@ test("owner", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Delete script" })).toBeVisible();
   const words = (await page.textContent("main"))?.split(/\s+/);
   await expect(page.getByText("Alex Morgan")).toBeVisible();
+  await page.getByRole("button", { name: /Open/ }).click();
 });
 `
 )
@@ -99,6 +100,22 @@ func TestE2ECopyCheck(t *testing.T) {
 			}},
 		},
 		{
+			name:  "a regex a removed sentence matched is listed, not failed, while it still matches copy on show",
+			files: map[string]string{"ui/src/pages/Print.tsx": "export const print = <p>Saved.</p>;\n"},
+			expect: expect{pass: true, want: []string{
+				"still shown elsewhere",
+				`ui/e2e/interactive/owner.spec.ts:9: /Open/ matches "Open the print dialog and save a PDF"`,
+			}, mustNot: []string{fail}},
+		},
+		{
+			name: "a regex that matches no copy left on show still fails",
+			files: map[string]string{
+				"ui/src/pages/Print.tsx":     "export const print = <p>Saved.</p>;\n",
+				"ui/src/pages/Inspector.tsx": "export const open = <Button label=\"Go\" />;\n",
+			},
+			expect: expect{want: []string{fail, `ui/e2e/interactive/owner.spec.ts:9: /Open/ matches`}},
+		},
+		{
 			name:   "a base branch that cannot be resolved fails rather than skipping",
 			env:    []string{"BASE_BRANCH=no-such-branch"},
 			expect: expect{want: []string{"FAIL e2e-copy-check: cannot resolve base branch 'no-such-branch'"}},
@@ -112,6 +129,8 @@ func TestE2ECopyCheck(t *testing.T) {
 				"ui/src/pages/Kind.tsx":              kindFilter,
 				"ui/src/pages/Delete.tsx":            deleteButton,
 				"ui/src/pages/Empty.tsx":             "export const empty = <p>Nothing here yet, and nothing shared.</p>;\n",
+				"ui/src/pages/Print.tsx":             "export const print = <p>Open the print dialog and save a PDF</p>;\n",
+				"ui/src/pages/Inspector.tsx":         "export const open = <Button label=\"Open\" />;\n",
 				"ui/e2e/interactive/owner.spec.ts":   ownerSpec,
 				"ui/src/mocks/data/owners.ts":        "export const owners = [{ name: \"Alex Morgan\" }];\n",
 				"ui/e2e/interactive/NOTES_x.spec.ts": ownerSpec,

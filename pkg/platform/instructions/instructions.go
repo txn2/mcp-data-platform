@@ -90,13 +90,11 @@ type capability struct {
 // made while composing rather than at a tool call.
 var capabilities = []capability{
 	{tool: toolSearch, line: func(map[string]bool) string {
-		return "Discover before you act. `search` is the one way in, and one query covers every " +
-			"source you can reach: the data catalog and its governance, context documents, " +
-			"knowledge pages, your memory, captured insights, feedback, saved assets, uploaded " +
-			"reference material, prompts, managed scripts, recorded calls and sessions, API " +
-			"endpoints, and connections. The answer may span several of them, or may not be in " +
-			"the data warehouse at all, so do not assume a backend and do not stop at the first " +
-			"result."
+		return "Discover before you act. `search` is the one way in: one query covers the data " +
+			"catalog and its governance, context documents, knowledge pages, memory, insights, " +
+			"feedback, assets, uploads, prompts, scripts, recorded calls, API endpoints and " +
+			"connections. The answer may not be in the warehouse at all, so do not assume a " +
+			"backend or stop at the first result."
 	}},
 	{tool: toolSearch, line: func(has map[string]bool) string { return reuseBullet(has[toolFetch]) }},
 	{tool: toolManagePrompt, line: func(map[string]bool) string {
@@ -125,16 +123,19 @@ var capabilities = []capability{
 			"(`mcp:<type>:<key>`). The two namespaces never mix."
 	}},
 	{tool: toolSaveAsset, line: func(map[string]bool) string {
+		return "Output is an asset, whatever the user calls it: make it with `save_asset`, " +
+			"never a local file, an install or a bucket. A PowerPoint is a presentation, a report " +
+			"Markdown or HTML, a spreadsheet CSV; name what you make when it differs."
+	}},
+	{tool: toolSaveAsset, line: func(map[string]bool) string {
 		return "Name a file, do not carry it. When a document you save needs a logo, an image, or " +
 			"a data table already in the platform, write its reference where the content loads it " +
 			"and declare it in `references` on `save_asset`. A reference is not a link."
 	}},
 	{tool: toolTrinoQuery, line: func(map[string]bool) string {
-		return "A short list of outside keys needs no table. Join a pasted list of ids inline " +
-			"through `trino_query` -- `JOIN (VALUES ('a'),('b')) AS t(id)` or " +
-			"`WHERE id IN (...)` -- rather than asking for a table to be created; above a few " +
-			"thousand rows, upload the file, register it as a table, and join the registered " +
-			"table by name."
+		return "A short list of outside keys needs no table: join it inline through " +
+			"`trino_query` (`JOIN (VALUES ('a'),('b')) AS t(id)` or `WHERE id IN (...)`). Above a " +
+			"few thousand rows, upload the file, register it as a table, and join it by name."
 	}},
 }
 
@@ -202,7 +203,7 @@ var baselinePages = []baselinePage{
 	},
 	{
 		toolSaveAsset, PagePresentations,
-		"a presentation, deck or slides: an HTML asset on the slide runtime the platform serves",
+		"a presentation, deck or PowerPoint: HTML on the served slide runtime",
 	},
 }
 

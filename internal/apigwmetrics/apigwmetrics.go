@@ -108,6 +108,15 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err //nolint:wrapcheck // see comment above
 }
 
+// CloseIdleConnections forwards to the wrapped transport, so a connection
+// whose client is instrumented still releases its idle sockets, and ends its
+// session at the upstream (#2015), when it is removed or shut down.
+func (t *transport) CloseIdleConnections() {
+	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
 // Observation is one outbound call as the recorder sees it. Status is the
 // status line (0 for a transport failure) and supplies the http_status_class
 // label; Failed decides status_category, because the two are not the same

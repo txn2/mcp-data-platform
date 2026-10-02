@@ -13,7 +13,7 @@ package upstreamauth
 const ConfigSchemaPropertiesJSON = `{
   "auth_mode": {
     "type": "string",
-    "enum": ["none", "bearer", "api_key", "basic", "oauth", "mtls", "signed_jwt", "hmac"],
+    "enum": ["none", "bearer", "api_key", "basic", "oauth", "mtls", "signed_jwt", "hmac", "session_login"],
     "description": "How the platform authenticates to the upstream. Defaults to none."
   },
   "credential": {
@@ -120,6 +120,36 @@ const ConfigSchemaPropertiesJSON = `{
   "hmac_timestamp_header": {"type": "string", "description": "Header the timestamp is written to; required when hmac_signed includes the timestamp (auth_mode=hmac)."},
   "hmac_timestamp_unit": {"type": "string", "enum": ["seconds", "milliseconds"], "description": "Unit of the Unix timestamp (auth_mode=hmac). Defaults to seconds."},
   "hmac_id_header": {"type": "string", "description": "Header carrying the delivery id; required for id.timestamp.body. A call that sets this header chooses the id, otherwise one is generated per request (auth_mode=hmac)."},
+  "session_login_url": {"type": "string", "description": "Sign-in endpoint (auth_mode=session_login): an absolute URL, or a path resolved against the connection's base URL."},
+  "session_login_method": {"type": "string", "description": "Sign-in request method (auth_mode=session_login). Defaults to POST."},
+  "session_login_body": {
+    "type": "string",
+    "description": "Sign-in request body (auth_mode=session_login), with {{secret}} where session_login_secret is written. Not secret itself, so it reads back as written; the secret is escaped for session_login_content_type."
+  },
+  "session_login_content_type": {"type": "string", "description": "Media type of the sign-in body (auth_mode=session_login): application/json (default), application/xml or application/x-www-form-urlencoded."},
+  "session_login_secret": {"type": "string", "description": "The credential written into session_login_body at {{secret}} (auth_mode=session_login): a personal access token secret, an API key or a password. Encrypted at rest and read back as \"[REDACTED]\"."},
+  "session_login_headers": {
+    "type": "object",
+    "additionalProperties": {"type": "string"},
+    "description": "Headers sent on the sign-in request only (auth_mode=session_login). The sign-in asks for JSON with Accept: application/json unless this sets another."
+  },
+  "session_token_source": {"type": "string", "description": "Where the session token is in the sign-in response (auth_mode=session_login): body:<dotted json path>, such as body:credentials.token, or header:<name>, such as header:X-MSTR-AuthToken."},
+  "session_token_header": {"type": "string", "description": "Header the session token is sent in on every call (auth_mode=session_login), such as X-Tableau-Auth. With this and session_token_prefix both blank the token is sent as Authorization: Bearer <token>."},
+  "session_token_prefix": {"type": "string", "description": "Written before the session token in session_token_header (auth_mode=session_login)."},
+  "session_ttl": {"type": ["string", "integer"], "description": "How long a session is used before the platform signs in again without waiting to be rejected (auth_mode=session_login), as a duration string or seconds. Unset uses a session until the upstream rejects it."},
+  "session_logout_url": {"type": "string", "description": "Sign-out endpoint, called with the session token when the connection is removed, replaced or shut down (auth_mode=session_login)."},
+  "session_logout_method": {"type": "string", "description": "Sign-out request method (auth_mode=session_login). Defaults to POST."},
+  "session_capture": {
+    "type": "object",
+    "additionalProperties": {"type": "string"},
+    "description": "Further values the sign-in response carries, by name, each read from a source in session_token_source's form (auth_mode=session_login). A call writes {session.<name>} in its path to have the value put there, such as site_id: body:credentials.site.id for /api/3.22/sites/{session.site_id}/workbooks."
+  },
+  "session_expired_statuses": {
+    "type": ["array", "string"],
+    "items": {"type": "integer"},
+    "description": "Statuses that mean the session is no longer accepted, answered by signing in again and replaying the call once (auth_mode=session_login). Defaults to [401]."
+  },
+  "session_expired_marker": {"type": "string", "description": "Text whose presence in a response body means the session is no longer accepted, for an upstream that answers an expired session with 200 or 403 and an error body (auth_mode=session_login)."},
   "jwt_issued_at_skew": {
     "type": ["string", "integer"],
     "description": "How far back to date the iat claim, for an upstream with a fast clock."

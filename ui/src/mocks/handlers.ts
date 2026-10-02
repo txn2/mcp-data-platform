@@ -2622,6 +2622,20 @@ export const handlers = [
     });
   }),
 
+  // The platform prints an HTML asset in its renderer (#1983); the mock answers
+  // with a stand-in PDF named after the asset, as the real route names it.
+  http.get(`${PORTAL_BASE}/assets/:id/pdf`, ({ params }) => {
+    const id = params.id as string;
+    const asset = portalAssets.find((a) => a.id === id && !a.deleted_at);
+    if (!asset) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const name = asset.name.replace(/\.[^.]+$/, "") + ".pdf";
+    return new HttpResponse("%PDF-1.7\n%mock\n", {
+      headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${name}"` },
+    });
+  }),
+
   http.put(`${PORTAL_BASE}/assets/:id/content`, async ({ params, request }) => {
     const id = params.id as string;
     const idx = portalAssets.findIndex((a) => a.id === id && !a.deleted_at);

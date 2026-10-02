@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/connprobe"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 )
 
 // probePath is the address a probe asks for: the connection's own base, with
@@ -50,7 +51,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return connprobe.Failure(fmt.Sprintf("connection %q could not reach %s", name, c.cfg.BaseURL), err)
+		return connprobe.Failure(upstreamauth.UnreachedSubject(name, c.cfg.BaseURL, err), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

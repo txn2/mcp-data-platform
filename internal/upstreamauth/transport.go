@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
@@ -53,9 +54,15 @@ const maxIdleConnections = 10
 // fail loudly with the underlying tls error, which is the same surface
 // a misconfigured transport would produce on any other auth mode.
 func NewHTTPClient(cfg Config) *http.Client {
-	var rt http.RoundTripper = NewHTTPTransport(cfg)
+	base := NewHTTPTransport(cfg)
+	var rt http.RoundTripper = base
 	if cfg.PathSecret != "" {
 		rt = pathSecretTransport{next: rt, secret: cfg.PathSecret}
+	}
+	if cfg.AuthMode == AuthModeSessionLogin {
+		// The sign-in goes to its own URL, so it takes the connection's
+		// TLS but not the path secret a call's path carries.
+		rt = sessionlogin.NewTransport(cfg.Session, prefixOr(cfg.ErrPrefix), rt, base)
 	}
 	return &http.Client{
 		Timeout:   cfg.CallTimeout,
@@ -108,6 +115,8 @@ func (c Config) AuthHeader() string {
 		}
 	case AuthModeHMAC:
 		return c.HMAC.SignatureHeader
+	case AuthModeSessionLogin:
+		return c.Session.TokenHeader
 	}
 	return ""
 }

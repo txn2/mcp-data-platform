@@ -197,7 +197,8 @@ type Config struct {
 	SignedJWT SignedJWTConfig
 	// HMAC carries the signing convention used when AuthMode is
 	// AuthModeHMAC (#1996). Empty otherwise.
-	HMAC HMACConfig
+	HMAC    HMACConfig
+	Session upstreamauth.SessionLoginConfig // the sign-in of an auth_mode=session_login connection (#2015)
 	// StaticHeaders are operator-configured headers attached to every
 	// outbound request, in addition to whatever AuthMode contributes.
 	// Required for upstreams that demand a non-Authorization header on
