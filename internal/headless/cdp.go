@@ -21,6 +21,9 @@ import (
 // renderer that is not there.
 const discoveryTimeout = 5 * time.Second
 
+// writeTimeout bounds sending one command to the renderer.
+const writeTimeout = 10 * time.Second
+
 // maxMessageBytes bounds one protocol message. A screenshot comes back as one
 // base64 message; a tile is far below this, and a message this large is a
 // renderer misbehaving rather than a picture.
@@ -227,7 +230,15 @@ func (c *conn) call(ctx context.Context, session, method string, params, out any
 		c.forget(id)
 		return fmt.Errorf("headless: encoding %s: %w", method, err)
 	}
-	if err := c.ws.Write(ctx, websocket.MessageText, frame); err != nil {
+	// The write runs under the connection's own life, bounded, not the
+	// caller's context: the websocket library closes the socket when a
+	// write's context ends mid-write, and a render whose deadline passes
+	// while a command is being sent still needs the socket to dispose of its
+	// browser context. The caller's context bounds the wait for the answer.
+	wctx, cancel := context.WithTimeout(c.life, writeTimeout)
+	err = c.ws.Write(wctx, websocket.MessageText, frame)
+	cancel()
+	if err != nil {
 		c.forget(id)
 		return fmt.Errorf("headless: sending %s: %w", method, err)
 	}
