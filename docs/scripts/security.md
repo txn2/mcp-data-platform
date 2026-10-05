@@ -796,7 +796,11 @@ property. The controls on it are the ones execution already has — the persona
 filter, the step and result limits, the worker's admission — plus two of
 scheduling's own: the one-fire-a-minute floor (`pkg/script/schedule.go`,
 `MinFireInterval`), and the overlap policy, which refuses to start a second run
-of a schedule while its previous run is still going.
+of a schedule while its previous run is still going. A script set to run one at
+a time (`exclusive`, #1986) extends that to every trigger: a partial unique
+index on `script_runs (script_id)` over open runs of exclusive scripts
+(migration `000176_script_exclusive_runs.up.sql`) refuses a second open run
+whether a schedule, `run_script` or the portal asked for it.
 
 The single-fire guarantee is a unique index on `script_runs (schedule_id,
 fire_time)`, not a lock or a leader (migration

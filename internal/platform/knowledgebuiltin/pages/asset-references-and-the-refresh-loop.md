@@ -48,8 +48,10 @@ list. Two forms go in it, and they are not interchangeable:
 
 The list is the whole declaration. Omitting it leaves the asset's references
 alone, sending a list replaces them, and sending an empty list removes them
-all. At most 20 per asset; a save above that is refused with the number you
-declared.
+all. At most 20 per asset unless the deployment sets its own cap; the
+`references` field's `maxItems` in the save_asset and manage_asset schemas
+states this deployment's number. A save above it is refused with the number
+you declared.
 
 Write the reference itself into the content, at the place the content loads
 the file, and list the same string in `references`. Only a declared reference
@@ -237,7 +239,7 @@ missing.
   `text/plain`, served under `nosniff`, and shows as a broken image on every
   surface. Declare the type when you write the file; see
   `mcp:knowledge_page:platform-content-types-for-stored-files`.
-- **More than 20**: refused, with the number you declared.
+- **More than the cap** (`references.maxItems`, 20 by default): refused, with the number you declared.
 - **No managed-resource layer, no asset store, or nowhere to record
   references**: refused with that reason. A deployment that cannot record a
   reference says so rather than reporting one the asset does not have.

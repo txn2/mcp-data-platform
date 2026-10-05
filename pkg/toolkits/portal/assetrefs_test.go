@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -253,7 +254,7 @@ func TestSaveAdmitsThePersonaThatOwnsTheResource(t *testing.T) {
 // refusal states the cap.
 func TestSaveRefusesAboveTheCap(t *testing.T) {
 	tk, _, _ := refToolkit(t)
-	uris := make([]string, assetrefs.MaxRefs+1)
+	uris := make([]string, assetrefs.DefaultMaxRefs+1)
 	for i := range uris {
 		uris[i] = refLogoURI
 	}
@@ -516,4 +517,53 @@ func (failingRefStore) ListByTarget(context.Context, assetrefs.TargetKind, strin
 
 func (failingRefStore) GetByToken(context.Context, string, string) (*assetrefs.Ref, error) {
 	return nil, nil //nolint:nilnil // interface contract: no such reference is (nil, nil)
+}
+
+// TestAssetToolsAdvertiseTheConfiguredCap is #2021's schema criterion through
+// a real tools/list: save_asset and manage_asset state the deployment's cap in
+// references.maxItems and in the field's description, and a toolkit with no
+// configured cap states the default.
+func TestAssetToolsAdvertiseTheConfiguredCap(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		max  int
+		want int
+	}{
+		{"configured", 40, 40},
+		{"default", 0, assetrefs.DefaultMaxRefs},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assets := newInMemoryAssetStore()
+			tk := New(Config{Name: "test", AssetStore: assets, S3Bucket: "bucket"})
+			tk.SetContentRefs(newDeclarer(newRefStoreStub(), assets).WithMax(tc.max))
+
+			seen := 0
+			for _, tool := range advertisedToolsOf(t, tk) {
+				if tool.Name != SaveToolName && tool.Name != ManageToolName {
+					continue
+				}
+				seen++
+				raw, err := json.Marshal(tool.InputSchema)
+				require.NoError(t, err)
+				var schema struct {
+					Properties map[string]struct {
+						MaxItems    int    `json:"maxItems"`
+						Description string `json:"description"`
+					} `json:"properties"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &schema))
+				refs := schema.Properties["references"]
+				assert.Equal(t, tc.want, refs.MaxItems, tool.Name)
+				assert.Contains(t, refs.Description, fmt.Sprintf("At most %d references per asset", tc.want), tool.Name)
+				assert.Equal(t, 20, schema.Properties["tags"].MaxItems, "%s: only the references cap moves", tool.Name)
+			}
+			assert.Equal(t, 2, seen)
+		})
+	}
+}
+
+// TestWithRefCapPanicsOnASchemaWithNoReferences pins the authoring guard.
+func TestWithRefCapPanicsOnASchemaWithNoReferences(t *testing.T) {
+	assert.Panics(t, func() { withRefCap(json.RawMessage(`{"properties":{}}`), 5) })
+	assert.Panics(t, func() { withRefCap(json.RawMessage(`not json`), 5) })
 }

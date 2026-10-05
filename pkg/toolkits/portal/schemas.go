@@ -31,6 +31,34 @@ func withPatchProperties(base json.RawMessage) json.RawMessage {
 	return merged
 }
 
+// withRefCap returns schema with its references property stating limit, in
+// maxItems and in the description, so an agent plans its document around the
+// number a save will accept (#2021). The cap is a deployment setting, which is
+// why the package-level schemas carry the default and each toolkit advertises
+// its own.
+//
+// It panics on a schema with no references array, a build-time authoring
+// error in the two schemas it is applied to.
+func withRefCap(schema json.RawMessage, limit int) json.RawMessage {
+	var parsed map[string]any
+	if err := json.Unmarshal(schema, &parsed); err != nil {
+		panic(fmt.Sprintf("portal: asset schema is not valid JSON: %v", err))
+	}
+	props, _ := parsed["properties"].(map[string]any)
+	refs, ok := props["references"].(map[string]any)
+	if !ok {
+		panic("portal: asset schema has no references property")
+	}
+	refs["maxItems"] = limit
+	desc, _ := refs["description"].(string)
+	refs["description"] = fmt.Sprintf("%s At most %d references per asset; a declaration above that is refused.", desc, limit)
+	out, err := json.Marshal(parsed)
+	if err != nil {
+		panic(fmt.Sprintf("portal: asset schema does not re-marshal: %v", err))
+	}
+	return out
+}
+
 // saveAssetSchema is the JSON Schema for the save_asset tool input.
 var saveAssetSchema = json.RawMessage(`{
   "type": "object",

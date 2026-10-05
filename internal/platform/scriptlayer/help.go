@@ -158,6 +158,13 @@ func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTo
 				"cause memory and is not retried; run_draft and a run's metrics report " +
 				"peak_memory_bytes.",
 		},
+		"overlap": "A script's runs may overlap unless it is set to run one at a time: a run_script run can " +
+			"execute beside a scheduled one, and two run_script runs beside each other. Then the state check at " +
+			"save time is the only guard, and it acts after the fact: the later run's side effects stand and it " +
+			"fails with state_conflict, so its cursor is not saved and the next run repeats its work. Set " +
+			"exclusive=true with update for a script whose runs must not overlap: while any run of it is pending " +
+			"or running, a scheduled fire is recorded as skipped_overlap naming that run, and run_script and a " +
+			"portal run are refused naming it, with nothing queued. A schedule never overlaps itself either way.",
 		"examples":        names,
 		"read_an_example": "Call get with name=" + scriptexamples.All[0].Name + " to read one.",
 		"see_also":        KnowledgePages,

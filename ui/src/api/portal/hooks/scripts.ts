@@ -247,6 +247,10 @@ export interface ScriptContract {
   tags?: string[];
   status: string;
   enabled: boolean;
+  // exclusive is the owner's setting that the script runs one at a time
+  // (#1986): no run starts while another is pending or running. Optional for
+  // a server that predates it.
+  exclusive?: boolean;
   params: ScriptParam[];
   // version is the version a run executes: the latest saved one.
   version: number;
@@ -335,6 +339,19 @@ export {
   type ScriptGrant,
   type ScriptGrantKind,
 } from "./scriptGrants";
+
+// Editing what a script says about itself (#1369) lives in scriptMetadata.ts.
+export {
+  useSaveScriptMetadata,
+  type ScriptMetadataInput,
+  type ScriptMetadataOutcome,
+} from "./scriptMetadata";
+
+// Whether a script runs one at a time (#1986) lives in scriptExclusive.ts.
+export {
+  useSetScriptExclusive,
+  type ScriptExclusiveOutcome,
+} from "./scriptExclusive";
 
 export type {
   ScriptKind,
@@ -427,39 +444,6 @@ export function useSaveScriptSource(scriptID: string) {
       apiFetch<ScriptSourceOutcome>(`/scripts/${scriptID}/source`, {
         method: "PUT",
         body: JSON.stringify(save),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
-  });
-}
-
-// ScriptMetadataInput is a change to what a script says about itself. Every
-// field is optional and an omitted one is left alone, so a form that edits one
-// field cannot blank the others.
-export interface ScriptMetadataInput {
-  display_name?: string;
-  description?: string;
-  category?: string;
-  tags?: string[];
-}
-
-// ScriptMetadataOutcome is the saved state, plus the non-blocking advisory that
-// fires when a description has grown into a document of its own (#1369).
-export interface ScriptMetadataOutcome {
-  version: number;
-  description_notice?: string;
-  message: string;
-}
-
-// useSaveScriptMetadata saves the display name, description, category and tags
-// of a script: what it SAYS about itself, not what it does. The change is
-// still captured as a version.
-export function useSaveScriptMetadata(scriptID: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ScriptMetadataInput) =>
-      apiFetch<ScriptMetadataOutcome>(`/scripts/${scriptID}/metadata`, {
-        method: "PUT",
-        body: JSON.stringify(body),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });

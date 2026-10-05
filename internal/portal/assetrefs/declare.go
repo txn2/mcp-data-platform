@@ -113,13 +113,34 @@ type Declarer struct {
 	assets    Assets
 	resources Resources
 	scheme    string
+	max       int
 }
 
 // NewDeclarer builds the declaration path over the reference store and the
 // asset store. The managed-resource layer is bound afterwards through
 // BindResources, because it is assembled after the portal layer is.
 func NewDeclarer(refs Store, assets Assets) *Declarer {
-	return &Declarer{refs: refs, assets: assets}
+	return &Declarer{refs: refs, assets: assets, max: DefaultMaxRefs}
+}
+
+// WithMax sets the per-asset reference cap the declaration path enforces, the
+// value portal.asset_refs.max resolved to (#2021). A value below 1 leaves the
+// cap where it was, so a caller passing an unresolved zero keeps the default.
+func (d *Declarer) WithMax(n int) *Declarer {
+	if d != nil && n > 0 {
+		d.max = n
+	}
+	return d
+}
+
+// Max is the per-asset reference cap this declarer enforces. The tool schemas
+// advertise it, so an agent plans its document around the number a save will
+// accept. A nil declarer reports the default.
+func (d *Declarer) Max() int {
+	if d == nil || d.max < 1 {
+		return DefaultMaxRefs
+	}
+	return d.max
 }
 
 // BindResources gives the declarer the managed-resource layer, which is what
@@ -173,9 +194,9 @@ func (d *Declarer) Resolve(
 	if !d.Available() {
 		return nil, errNoRefStore()
 	}
-	if len(uris) > MaxRefs {
+	if limit := d.Max(); len(uris) > limit {
 		return nil, fmt.Errorf("at most %d references per asset, and %d were declared: %w",
-			MaxRefs, len(uris), ErrRefused)
+			limit, len(uris), ErrRefused)
 	}
 
 	out := make([]Declared, 0, len(uris))

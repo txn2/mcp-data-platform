@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/exclusivehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/granthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/outputshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/runpage"
@@ -121,6 +122,9 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// Documenting the script is the owner's too: what a script SAYS about
 	// itself is not what it does (#1369).
 	mux.Handle("PUT /api/v1/portal/scripts/{id}/metadata", wrap(h.portalHandler(h.portalSetMetadata)))
+	// Whether its runs may overlap is the owner's as well, and it is about what
+	// the script does rather than what it says (#1986).
+	exclusivehttp.New(exclusivehttp.Deps{Edit: h.editOwned}).Register(mux, wrap)
 	// Moving it to somebody else is an administrator's, and the handler is what
 	// refuses everybody else: it is mounted here because it is the same detail
 	// page, not because every caller of that page may use it (#1404).
@@ -1073,6 +1077,23 @@ func (h *Handler) ownedByCaller(w http.ResponseWriter, r *http.Request) (scriptI
 		return "", "", false
 	}
 	return sc.ID, user.owner(), true
+}
+
+// editOwned applies mutate to the script in the path for its owner or an
+// administrator, through the edit funnel, writing every refusal itself.
+func (h *Handler) editOwned(w http.ResponseWriter, r *http.Request, mutate func(*script.Script)) (*script.Script, bool) {
+	user := h.deps.PortalUser(r)
+	if user == nil {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	sc, ok := h.ownedScript(w, r, user)
+	if !ok {
+		return nil, false
+	}
+	before, after := *sc, *sc
+	mutate(&after)
+	return &after, h.applyEdit(w, r, &before, &after, user)
 }
 
 // ownsScript reports whether the caller may read a script's runs and source:

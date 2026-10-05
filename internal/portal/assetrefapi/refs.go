@@ -216,9 +216,9 @@ func (h *handler) addRef(w http.ResponseWriter, r *http.Request) {
 	}
 	// The cap is checked against what the asset names now. It is advisory
 	// against a concurrent save, exactly as the declaration path's is, because
-	// nothing about a reference makes the twenty-first worth a lock.
-	if len(refs) >= assetrefs.MaxRefs {
-		httpjson.WriteError(w, http.StatusConflict, capReached())
+	// nothing about a reference makes the one past the cap worth a lock.
+	if limit := h.cfg.maxRefs(); len(refs) >= limit {
+		httpjson.WriteError(w, http.StatusConflict, capReached(limit))
 		return
 	}
 	token, err := portaldomain.GenerateRefToken()
@@ -326,7 +326,7 @@ func (h *handler) writeList(w http.ResponseWriter, r *http.Request, l listing) {
 		Total:          len(refs),
 		Audience:       h.audienceOf(r, asset.ID),
 		CanEdit:        l.canEdit,
-		Max:            assetrefs.MaxRefs,
+		Max:            h.cfg.maxRefs(),
 		Notice:         assetrefs.GrantNotice,
 		ContentScanned: scanned,
 	})

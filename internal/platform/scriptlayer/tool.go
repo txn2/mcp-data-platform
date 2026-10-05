@@ -78,7 +78,10 @@ type manageScriptInput struct {
 	Tags       []string       `json:"tags,omitempty"`
 	// Enabled is a pointer so "not sent" (leave it alone) is distinct from
 	// false (disable it).
-	Enabled      *bool  `json:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
+	// Exclusive is a pointer for the same reason: an update that does not
+	// send it leaves the setting alone (#1986).
+	Exclusive    *bool  `json:"exclusive,omitempty"`
 	Status       string `json:"status,omitempty"`
 	SupersededBy string `json:"superseded_by,omitempty"`
 
@@ -347,7 +350,10 @@ func manageScriptSchema() any {
 			keyType: valArray, keyItems: map[string]any{keyType: valString},
 			keyDescription: "Free-form tags. On list they narrow the result to the scripts carrying any of them.",
 		},
-		"enabled":       map[string]any{keyType: valBoolean, keyDescription: "Whether the script is available."},
+		"enabled": map[string]any{keyType: valBoolean, keyDescription: "Whether the script is available."},
+		"exclusive": map[string]any{keyType: valBoolean, keyDescription: "Set with update: true makes the script run one at a time, whatever starts the run. " +
+			"While a run is pending or running, a scheduled fire is recorded as skipped_overlap naming that run, and run_script and a portal run are refused naming it, with nothing queued. " +
+			"Without it, runs of one script may overlap (a run_script run beside a scheduled one, or two run_script runs), and the state check at save time is the only guard: the later run fails with state_conflict after its side effects have happened."},
 		fieldStatus:     map[string]any{keyType: valString, keyEnum: []string{script.StatusActive, script.StatusDeprecated, script.StatusSuperseded}, keyDescription: "Lifecycle transition to apply."},
 		"superseded_by": map[string]any{keyType: valString, keyDescription: "Name of the replacing script when superseding."},
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},

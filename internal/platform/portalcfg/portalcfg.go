@@ -10,6 +10,7 @@ package portalcfg
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // DefaultTitle is the portal title of a deployment that names no brand.
@@ -115,4 +116,15 @@ func MaxVersionsError(configured *int) string {
 		return fmt.Sprintf("portal.max_versions must be 0 (keep every version) or greater, got %d", *configured)
 	}
 	return ""
+}
+
+// Duration parses a portal duration setting such as portal.export.max_timeout,
+// returning zero for an empty or unparseable value so the consumer applies its
+// own default.
+func Duration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	return d
 }

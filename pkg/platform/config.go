@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whconfig"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -412,7 +413,8 @@ type PortalConfig struct {
 	SupportContact string                `yaml:"support_contact"` // optional help contact (email address or http(s) URL) rendered with about_text in email footers
 	ReplyTo        string                `yaml:"reply_to"`        // optional Reply-To address applied to all outgoing email; unset leaves the header off
 	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
-	Export         PortalExportConfig    `yaml:"export"` // trino_export configuration
+	Export         PortalExportConfig    `yaml:"export"`     // trino_export configuration
+	AssetRefs      assetrefs.Config      `yaml:"asset_refs"` // per-asset reference cap (#2021)
 	// DeletedRetentionDays: days a deleted asset, collection, thread or page is
 	// kept before it is purged with its objects (#1904); 0 = 30, negative = forever.
 	DeletedRetentionDays int `yaml:"deleted_retention_days"`
@@ -2074,7 +2076,7 @@ func (c *Config) Validate() error {
 	_, admission := c.Scripts.Worker.Admission()
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
-	for _, err := range []error{admission, runBudget, thumbs, c.Webhooks.Validate(), c.Tools.ResultBudget.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, c.Webhooks.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

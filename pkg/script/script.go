@@ -149,6 +149,12 @@ type Script struct {
 	Category string   `json:"category,omitempty" example:"reporting"`
 	Tags     []string `json:"tags" example:"sales,reporting"`
 	Enabled  bool     `json:"enabled" example:"true"`
+	// Exclusive is the owner's setting that the script has at most one open
+	// (pending or running) run, whatever started it (#1986): a scheduled fire
+	// while a run is open is skipped, and run_script or a portal run is
+	// refused naming the open run. Without it, runs of one script may overlap
+	// and the state check is the only guard.
+	Exclusive bool `json:"exclusive"`
 
 	// Lifecycle.
 	Status       string     `json:"status" example:"active"`

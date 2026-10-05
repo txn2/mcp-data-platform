@@ -221,6 +221,7 @@ internal/httpserver/pdfhttp -> pkg/platform
 internal/httpserver/pdfhttp -> pkg/ratelimit
 internal/httpserver/scripthttp -> internal/httpjson
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/draftview
+internal/httpserver/scripthttp -> internal/httpserver/scripthttp/exclusivehttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/fireshttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/granthttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/outputshttp
@@ -230,6 +231,7 @@ internal/httpserver/scripthttp -> internal/httpserver/scripthttp/statehttp
 internal/httpserver/scripthttp -> internal/httpserver/scripthttp/transferwords
 internal/httpserver/scripthttp -> internal/libraryuse
 internal/httpserver/scripthttp -> internal/logsan
+internal/httpserver/scripthttp -> internal/openrun
 internal/httpserver/scripthttp -> internal/platform/runcontrol
 internal/httpserver/scripthttp -> internal/platform/scriptbehavior
 internal/httpserver/scripthttp -> internal/platform/scriptdraft
@@ -250,6 +252,8 @@ internal/httpserver/scripthttp/draftview -> internal/platform/scriptguard
 internal/httpserver/scripthttp/draftview -> internal/platform/scriptrun
 internal/httpserver/scripthttp/draftview -> internal/runstate
 internal/httpserver/scripthttp/draftview -> pkg/script
+internal/httpserver/scripthttp/exclusivehttp -> internal/httpjson
+internal/httpserver/scripthttp/exclusivehttp -> pkg/script
 internal/httpserver/scripthttp/fireshttp -> internal/httpjson
 internal/httpserver/scripthttp/fireshttp -> internal/httpserver/scripthttp/scriptlist
 internal/httpserver/scripthttp/fireshttp -> pkg/script
@@ -336,6 +340,7 @@ internal/notification/notifyworker -> internal/notification/notifyrender
 internal/notification/notifyworker -> internal/notification/notifysend
 internal/notification/notifyworker -> pkg/notification
 internal/notification/notifyworker -> pkg/notification/smtp
+internal/openrun -> pkg/script
 internal/pagewalk -> internal/upstreamretry
 internal/platform/apigwwiring -> internal/logsan
 internal/platform/apigwwiring -> pkg/registry
@@ -664,6 +669,7 @@ internal/platform/scriptguard -> internal/upstreamretry
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
 internal/platform/scriptlayer -> internal/libraryuse
+internal/platform/scriptlayer -> internal/openrun
 internal/platform/scriptlayer -> internal/platform/notifylayer
 internal/platform/scriptlayer -> internal/platform/runcontrol
 internal/platform/scriptlayer -> internal/platform/scriptcontract
@@ -747,6 +753,7 @@ internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsql -> internal/platform/starlarkconv
 internal/platform/scriptstore -> internal/libraryuse
+internal/platform/scriptstore -> internal/openrun
 internal/platform/scriptstore -> internal/platform/scriptlib
 internal/platform/scriptstore -> internal/platform/scriptrun
 internal/platform/scriptstore -> internal/runstate

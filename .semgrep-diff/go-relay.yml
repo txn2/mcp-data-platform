@@ -1,0 +1,98 @@
+# #2018. A handler that answers with bytes it did not write.
+#
+# GitHub Code Scanning reported go/reflected-xss (high) on #2017 at
+# internal/httpserver/pdfhttp/pdfhttp.go: the PDF route answered a refused
+# content-route read by writing that route's recorded body and every recorded
+# header into its own response. `make verify` was green, because CodeQL runs
+# only in CI, and nothing here looked for the shape. The fix relays the status
+# alone, through http.Error and the platform's own text.
+#
+# The shape is recognizable from source, but CodeQL decides whether the bytes
+# are attacker-reachable with taint tracking Semgrep does not have, so this
+# rule is scoped to changed lines like the allocation rule beside it. Over the
+# whole tree it matches two deliberate relays today, and neither fires unless
+# its line changes: internal/platform/utilhandler/fetch.go (the util fetch,
+# served only as the API gateway's in-process handler) and
+# pkg/observability/proxy/handler.go (Prometheus JSON to an administrator).
+# A changed line in either is a moment to ask the question again.
+#
+# The platform serves foreign bytes on purpose through one path, which sets a
+# sanitized type, nosniff and a sandbox CSP: pkg/blobserve (Serve, ServeRanged,
+# Headers). The API gateway's raw passthrough writes through a RawSink with an
+# allowlist and blobserve.Headers, and matches neither rule.
+rules:
+  - id: relayed-response-body
+    patterns:
+      - pattern-either:
+          # A recorded in-process response: an httptest.ResponseRecorder's Body
+          # or a hand-rolled recorder's body buffer.
+          - pattern: '($W : http.ResponseWriter).Write($REC.$BODY.Bytes())'
+          # An upstream *http.Response streamed straight through.
+          - pattern: 'io.Copy(($W : http.ResponseWriter), $RESP.$BODY)'
+          # The same upstream body, read whole first.
+          - patterns:
+              - pattern-inside: |
+                  $DATA, $ERR := io.ReadAll($RESP.$BODY)
+                  ...
+              - pattern: '($W : http.ResponseWriter).Write($DATA)'
+      - metavariable-regex:
+          metavariable: $BODY
+          regex: ^(?i)body$
+    message: >-
+      This handler answers with a body it did not write: a recorded in-process
+      response or an upstream response's body. CodeQL refuses it as
+      go/reflected-xss when the bytes can carry a caller's input, and the
+      browser renders them under the platform's origin with whatever type they
+      arrived with. Serve foreign bytes through blobserve.Serve (sanitized type,
+      nosniff, sandbox CSP). To pass on a refusal, relay its status with
+      http.Error and the platform's own text, as pdfhttp's refuse does.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: MEDIUM
+      impact: HIGH
+      references:
+        - https://codeql.github.com/codeql-query-help/go/go-reflected-xss/
+      technology:
+        - go
+
+  - id: relayed-response-headers
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      for $K, $VS := range $SRC.$HDR { ... }
+                  - pattern-inside: |
+                      for $K, $VS := range $SRC.$HDR() { ... }
+              - pattern-either:
+                  - pattern: '($W : http.ResponseWriter).Header()[$K] = $VS'
+                  - pattern: '($W : http.ResponseWriter).Header()[$K] = append(..., $VS...)'
+                  - pattern: '($W : http.ResponseWriter).Header().$SET($K, ...)'
+          - pattern: 'maps.Copy(($W : http.ResponseWriter).Header(), $SRC.$HDR)'
+          - pattern: 'maps.Copy(($W : http.ResponseWriter).Header(), $SRC.$HDR())'
+      - metavariable-regex:
+          metavariable: $HDR
+          regex: ^(?i)header$
+    message: >-
+      This handler copies another response's header map into its own. That
+      carries the other response's Content-Type, Set-Cookie and anything else it
+      set, under the platform's origin. Name the headers worth passing on (a
+      fixed allowlist, as pdfhttp's relayedHeaders and the API gateway's
+      rawForwardedHeaders do), and take the content headers from
+      blobserve.Headers.
+    languages: [go]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: MEDIUM
+      impact: HIGH
+      references:
+        - https://codeql.github.com/codeql-query-help/go/go-reflected-xss/
+      technology:
+        - go

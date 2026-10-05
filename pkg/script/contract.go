@@ -33,6 +33,8 @@ type Contract struct {
 	Tags        []string `json:"tags,omitempty" example:"sales,reporting"`
 	Status      string   `json:"status" example:"active"`
 	Enabled     bool     `json:"enabled" example:"true"`
+	// Exclusive is whether the script runs one at a time (#1986).
+	Exclusive bool `json:"exclusive"`
 
 	// Params is the typed parameter contract a run binds against: the live
 	// record's, which is the latest saved version's.
@@ -335,6 +337,7 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Tags:        sc.Tags,
 		Status:      sc.Status,
 		Enabled:     sc.Enabled,
+		Exclusive:   sc.Exclusive,
 		Params:      sc.Params,
 		Version:     sc.Version,
 		Refusal:     refusalText(RefuseRun(sc)),

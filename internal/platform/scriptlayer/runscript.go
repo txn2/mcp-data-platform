@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
@@ -89,6 +90,9 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 		return errorResult(err.Error()), nil, nil
 	}
 	run, err := h.enqueueRun(ctx, sc, version, params)
+	if openErr := (*openrun.Error)(nil); errors.As(err, &openErr) {
+		return errorResult(openErr.Error()), nil, nil
+	}
 	if err != nil {
 		slog.Error("failed to queue a script run", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to queue the run"), nil, nil
@@ -328,6 +332,12 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 	}
 	if run.CancelRequestedAt != nil && !run.Terminal() {
 		out["cancel_requested_by"] = run.CancelRequestedBy
+	}
+	// Why a fire produced nothing (#1986): the open run it waited on, what
+	// started that run and since when. The listing carries it so a reader of
+	// the history learns it without opening each skip.
+	if run.Status == script.RunStatusSkippedOverlap && run.Error != "" {
+		out["reason"] = run.Error
 	}
 	holderFields(out, run)
 	return out

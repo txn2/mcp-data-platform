@@ -25,6 +25,9 @@ var scheduleSelectColumns = []string{
 }
 
 // scheduleRow returns one full schedule row in scheduleColumns order.
+// openRunColumns is openRunBlocking's result-set shape.
+var openRunColumns = []string{"id", "trigger_kind", "status", "started_at", "created_at"}
+
 func scheduleRow(nextRunAt any) []driver.Value {
 	return []driver.Value{
 		"sched_1", "script_1", "0 7 * * 1-5", "America/Los_Angeles",
@@ -224,6 +227,9 @@ func TestMaterializeRun(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows(materializeReturning))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		mock.ExpectQuery(regexp.QuoteMeta("FROM script_runs")).
+			WillReturnRows(sqlmock.NewRows(openRunColumns).
+				AddRow("run_open", script.TriggerTool, script.RunStatusRunning, rowTime, rowTime))
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
 			WillReturnRows(sqlmock.NewRows(materializeReturning).AddRow(int64(0), []byte("{}"), rowTime, rowTime))
 
@@ -231,6 +237,8 @@ func TestMaterializeRun(t *testing.T) {
 		outcome, err := s.MaterializeRun(context.Background(), run)
 		require.NoError(t, err)
 		assert.Equal(t, script.MaterializedSkippedOverlap, outcome)
+		assert.Contains(t, run.Error, "run run_open (started by run_script, running since",
+			"the skip names the open run and what started it (#1986)")
 		assert.Equal(t, script.RunStatusSkippedOverlap, run.Status)
 		assert.True(t, run.Terminal(), "a skip is finished on arrival; nothing will ever claim it")
 		require.NoError(t, mock.ExpectationsWereMet())
@@ -242,13 +250,31 @@ func TestMaterializeRun(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows(materializeReturning))
 		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		mock.ExpectQuery(regexp.QuoteMeta("FROM script_runs")).
+			WillReturnRows(sqlmock.NewRows(openRunColumns))
 		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
+			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+				script.RunStatusSkippedOverlap, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+				"another run of this script was still open when this fire came due, so this fire was skipped").
 			WillReturnRows(sqlmock.NewRows(materializeReturning))
 
 		outcome, err := s.MaterializeRun(context.Background(), materializing())
 		require.NoError(t, err)
 		assert.Equal(t, script.MaterializedDuplicate, outcome,
 			"a caller must not claim a skip it did not record")
+	})
+
+	t.Run("a failed read of the open run is returned", func(t *testing.T) {
+		s, mock := newMock(t)
+		mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO script_runs")).
+			WillReturnRows(sqlmock.NewRows(materializeReturning))
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT EXISTS")).
+			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		mock.ExpectQuery(regexp.QuoteMeta("FROM script_runs")).WillReturnError(errors.New("boom"))
+
+		_, err := s.MaterializeRun(context.Background(), materializing())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reading the open run")
 	})
 
 	t.Run("an insert failure is wrapped", func(t *testing.T) {

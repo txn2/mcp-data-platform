@@ -10,6 +10,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -213,6 +214,11 @@ func (s *Store) MaterializeRun(ctx context.Context, r *script.Run) (script.Mater
 	if taken {
 		return script.MaterializedDuplicate, nil
 	}
+	open, err := s.openRunBlocking(ctx, r.ScriptID, r.ScheduleID)
+	if err != nil {
+		return "", err
+	}
+	r.Error = overlapReason(open)
 	skipped, err := s.insertScheduledRun(ctx, r, script.RunStatusSkippedOverlap)
 	if err != nil {
 		return "", err
@@ -242,14 +248,14 @@ func (s *Store) insertScheduledRun(ctx context.Context, r *script.Run, status st
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
-		                         schedule_id, error, finished_at, state_revision, state_read)
+		                         schedule_id, error, finished_at, state_revision, state_read, exclusive)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11,
 		        CASE WHEN $6 = 'skipped_overlap' THEN NOW() END,
-		        `+stateAtCreation+`)
+		        `+stateAtCreation+`, `+exclusiveAtCreation+`)
 		ON CONFLICT DO NOTHING
 		RETURNING state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, script.TriggerSchedule,
-		status, params, r.RequestedBy, r.FireTime, r.ScheduleID, overlapReason(status))
+		status, params, r.RequestedBy, r.FireTime, r.ScheduleID, skipReason(status, r.Error))
 	err = row.Scan(&r.StateRevision, &stateRead, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -265,12 +271,24 @@ func (s *Store) insertScheduledRun(ctx context.Context, r *script.Run, status st
 
 // overlapReason is the explanation a skipped row carries, so a reader of the
 // run history is told why the fire produced nothing without having to correlate
-// it against the run before it.
-func overlapReason(status string) string {
+// it against the run before it. It names the open run, whatever started it
+// (#1986): for an exclusive script that can be a run_script or portal run. A
+// run that finished between the refused insert and the read is no longer there
+// to name, and the reason says what it can without claiming what started it.
+func overlapReason(open *openrun.Run) string {
+	if open == nil {
+		return "another run of this script was still open when this fire came due, so this fire was skipped"
+	}
+	return open.Describe() + " was still open when this fire came due, so this fire was skipped"
+}
+
+// skipReason is the error column for a scheduled insert: the reason on a
+// skipped row, and nothing on a pending one.
+func skipReason(status, reason string) string {
 	if status != script.RunStatusSkippedOverlap {
 		return ""
 	}
-	return "the previous run of this schedule was still going when this one came due, so this fire was skipped"
+	return reason
 }
 
 // fireTaken reports whether a run already exists for a schedule's fire time.

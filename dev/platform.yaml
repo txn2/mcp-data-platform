@@ -506,6 +506,10 @@ portal:
   public_base_url: "http://localhost:${DEV_PUBLIC_API_PORT:-8080}"
   s3_connection: dev-s3
   s3_bucket: portal-assets
+  # Raised past the default of 20 so the acceptance suite holds every reader
+  # of the cap to the configured value rather than the default (#2021).
+  asset_refs:
+    max: 30
 
 # Tiles are drawn in the renderer container dev/docker-compose.yml runs
 # (#1787). A deployment leaves this out: the default is the renderer beside

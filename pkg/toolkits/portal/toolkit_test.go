@@ -814,8 +814,13 @@ func TestRegisterTools(t *testing.T) {
 // than the constants the registration happens to pass today.
 func advertisedTools(t *testing.T) []*mcp.Tool {
 	t.Helper()
+	return advertisedToolsOf(t, New(Config{Name: "test", S3Bucket: "bucket"}))
+}
 
-	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+// advertisedToolsOf is advertisedTools over a toolkit the caller assembled.
+func advertisedToolsOf(t *testing.T, tk *Toolkit) []*mcp.Tool {
+	t.Helper()
+
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
 	tk.RegisterTools(server)
 

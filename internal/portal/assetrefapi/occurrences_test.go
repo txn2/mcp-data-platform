@@ -120,7 +120,5 @@ func TestSnippetURIWiderThanTheLimit(t *testing.T) {
 }
 
 func TestCapReachedNamesTheNumber(t *testing.T) {
-	assert.Contains(t, capReached(), "20")
-	assert.Equal(t, 20, assetrefs.MaxRefs,
-		"the refusal above is only useful while it names the real cap")
+	assert.Contains(t, capReached(40), "maximum of 40 things")
 }

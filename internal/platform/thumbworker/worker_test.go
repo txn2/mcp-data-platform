@@ -996,7 +996,7 @@ func TestServeInProcess_IsNotCountedByTheViewerLimiter(t *testing.T) {
 	routes := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("<svg/>"))
 	}))
-	for i := range 3 * assetrefs.MaxRefs {
+	for i := range 3 * assetrefs.DefaultMaxRefs {
 		if f, ok := serveInProcess(routes, "/portal/refs/a/b"); !ok || string(f.Body) != "<svg/>" {
 			t.Fatalf("in-process call %d was refused: ok=%v body=%q", i, ok, f.Body)
 		}

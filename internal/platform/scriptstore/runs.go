@@ -10,6 +10,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -155,7 +156,34 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 // The run id is supplied by the caller rather than generated here: it is also
 // the run's session id, minted before the run exists so every audit row the
 // run produces carries it.
+//
+// A run of an exclusive script while another of its runs is open is refused
+// by the one-open-run index (#1986) and returned as a *openrun.Error
+// naming that run; nothing is queued. When the open run finished between the
+// refusal and the read that names it, the insert is tried once more.
 func (s *Store) Enqueue(ctx context.Context, r *script.Run) error {
+	err := s.insertPending(ctx, r)
+	if !isExclusiveConflict(err) {
+		return err
+	}
+	open, lookupErr := s.openRunBlocking(ctx, r.ScriptID, "")
+	if lookupErr != nil {
+		return lookupErr
+	}
+	if open == nil {
+		err = s.insertPending(ctx, r)
+		if !isExclusiveConflict(err) {
+			return err
+		}
+		if open, lookupErr = s.openRunBlocking(ctx, r.ScriptID, ""); lookupErr != nil || open == nil {
+			return fmt.Errorf("enqueue script run: %w: %w", err, openrun.ErrOpen)
+		}
+	}
+	return &openrun.Error{Open: *open}
+}
+
+// insertPending is one attempt at Enqueue's insert.
+func (s *Store) insertPending(ctx context.Context, r *script.Run) error {
 	if r.ID == "" {
 		return errors.New("a script run needs an id minted by its caller")
 	}
@@ -173,9 +201,9 @@ func (s *Store) Enqueue(ctx context.Context, r *script.Run) error {
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO script_runs (id, script_id, script_version_id, version, trigger_kind,
 		                         status, params, requested_by, fire_time, scheduled_for,
-		                         state_revision, state_read)
+		                         state_revision, state_read, exclusive)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, NOW()), COALESCE($10, NOW()),
-		        `+stateAtCreation+`)
+		        `+stateAtCreation+`, `+exclusiveAtCreation+`)
 		RETURNING fire_time, scheduled_for, state_revision, state_read, created_at, updated_at`,
 		r.ID, r.ScriptID, r.VersionID, r.Version, r.Trigger, script.RunStatusPending,
 		params, r.RequestedBy, orNilTime(r.FireTime), orNilTime(r.ScheduledFor))
@@ -932,4 +960,53 @@ func (c *streakCount) add(r streakRow) {
 		return
 	}
 	c.streak.SameError++
+}
+
+// exclusiveOpenIndex is the index that holds an exclusive script to one open
+// run (000176, #1986).
+const exclusiveOpenIndex = "idx_script_runs_exclusive_open"
+
+// exclusiveAtCreation stamps a new run with its script's exclusive setting. $2
+// is the script id in both inserts that carry it, as for stateAtCreation.
+//
+// FOR SHARE is what keeps the stamp and the setting from disagreeing: a save
+// changing the setting holds the script row until it commits, so an insert
+// racing it waits and reads the new value, and a save that comes second waits
+// for the insert and re-stamps the run it wrote.
+const exclusiveAtCreation = `COALESCE((SELECT exclusive FROM scripts WHERE id = $2 FOR SHARE), FALSE)`
+
+// isExclusiveConflict reports whether err is the one-open-run index refusing
+// a second open run of an exclusive script.
+func isExclusiveConflict(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && string(pqErr.Code) == pgUniqueViolation &&
+		pqErr.Constraint == exclusiveOpenIndex
+}
+
+// openRunBlocking returns the open run a new run of the script collides with:
+// any open run of an exclusive script, or for a schedule fire the schedule's
+// own open run. Nil when none is open any longer, which happens when the run
+// finished between the refused insert and this read.
+func (s *Store) openRunBlocking(ctx context.Context, scriptID, scheduleID string) (*openrun.Run, error) {
+	var (
+		o       openrun.Run
+		started sql.NullTime
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, trigger_kind, status, started_at, created_at
+		  FROM script_runs
+		 WHERE script_id = $1 AND status IN ('pending', 'running')
+		   AND (exclusive OR ($2 <> '' AND schedule_id::text = $2))
+		 ORDER BY created_at
+		 LIMIT 1`, scriptID, scheduleID).Scan(&o.ID, &o.Trigger, &o.Status, &started, &o.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // nil, nil: nothing is open any longer
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading the open run: %w", err)
+	}
+	if started.Valid {
+		o.StartedAt = &started.Time
+	}
+	return &o, nil
 }

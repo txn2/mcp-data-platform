@@ -63,7 +63,7 @@ On `manage_asset`, `references` replaces whatever the asset referenced before:
 | `["mcp://...", "mcp:asset:..."]` | the asset now references exactly these |
 | `[]` | every reference is removed |
 
-At most **20** references per asset, of both kinds together. A save above the cap is refused and the refusal states the number.
+At most **20** references per asset by default, of both kinds together. A deployment sets its own cap, from 1 to 100, with [`portal.asset_refs.max`](configuration.md#portal-configuration), and `save_asset` and `manage_asset` advertise that number in `references.maxItems`. A save above the cap is refused and the refusal states the number.
 
 ### From a managed script
 

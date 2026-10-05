@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptbehavior"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
@@ -205,6 +206,10 @@ func editAuthor(user *PortalIdentity) script.Author {
 func writeEditError(w http.ResponseWriter, err error) {
 	if errors.Is(err, script.ErrVersionConflict) {
 		httpjson.WriteError(w, http.StatusConflict, err.Error())
+		return
+	}
+	if errors.Is(err, openrun.ErrOpen) {
+		httpjson.WriteError(w, http.StatusConflict, openrun.BlockedMessage)
 		return
 	}
 	httpjson.WriteError(w, http.StatusInternalServerError, "failed to save the source")

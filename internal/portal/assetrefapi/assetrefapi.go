@@ -89,6 +89,19 @@ type Config struct {
 	// same resource.BuildClaims every other resource surface derives them
 	// with. The parent supplies it because it owns the persona resolver.
 	Claims func(*access.User) resource.Claims
+	// MaxRefs is the per-asset reference cap, the value
+	// portal.asset_refs.max resolved to (#2021). Zero selects
+	// assetrefs.DefaultMaxRefs, so the panel's add and the declaration path
+	// refuse at the same number.
+	MaxRefs int
+}
+
+// maxRefs is the cap this surface enforces and reports.
+func (c Config) maxRefs() int {
+	if c.MaxRefs < 1 {
+		return assetrefs.DefaultMaxRefs
+	}
+	return c.MaxRefs
 }
 
 // ready reports whether cfg names everything the routes need.

@@ -324,18 +324,43 @@ func TestServeRefsIgnoresAnEmptyAssetID(t *testing.T) {
 // references, which the viewer's per-page-view bucket would answer 429 and
 // blank every image on the page.
 func TestRefRateLimitScalesWithTheCap(t *testing.T) {
-	got := refRateLimit(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 10})
-	assert.Equal(t, 60*assetrefs.MaxRefs, got.RequestsPerMinute)
-	assert.Equal(t, 10*assetrefs.MaxRefs, got.BurstSize)
+	got := refRateLimit(RateLimitConfig{RequestsPerMinute: 60, BurstSize: 10}, 0)
+	assert.Equal(t, 60*assetrefs.DefaultMaxRefs, got.RequestsPerMinute)
+	assert.Equal(t, 10*assetrefs.DefaultMaxRefs, got.BurstSize)
 
 	// A deployment with no portal.rate_limit block is scaled from the viewer's
 	// defaults, not left on them: a page declaring more than ten files had the
 	// rest refused (#1791).
-	unset := refRateLimit(RateLimitConfig{})
+	unset := refRateLimit(RateLimitConfig{}, 0)
 	defaults := viewerlimit.WithDefaults(RateLimitConfig{})
-	assert.Equal(t, defaults.RequestsPerMinute*assetrefs.MaxRefs, unset.RequestsPerMinute)
-	assert.Equal(t, defaults.BurstSize*assetrefs.MaxRefs, unset.BurstSize)
-	assert.GreaterOrEqual(t, unset.BurstSize, assetrefs.MaxRefs, "one page load must fit in one burst")
+	assert.Equal(t, defaults.RequestsPerMinute*assetrefs.DefaultMaxRefs, unset.RequestsPerMinute)
+	assert.Equal(t, defaults.BurstSize*assetrefs.DefaultMaxRefs, unset.BurstSize)
+	assert.GreaterOrEqual(t, unset.BurstSize, assetrefs.DefaultMaxRefs, "one page load must fit in one burst")
+
+	// A raised cap scales the budget with it (#2021), or every reference past
+	// the default's bucket would be refused again.
+	raised := refRateLimit(RateLimitConfig{}, 60)
+	assert.Equal(t, defaults.BurstSize*60, raised.BurstSize)
+	assert.GreaterOrEqual(t, raised.BurstSize, 60)
+}
+
+// TestRefRouteLoadsTheConfiguredCapsWorthWithoutA429 is #2021's rate-limit
+// criterion through the real limiter: one viewer IP fetching a raised cap's
+// worth of references in one burst is answered for every one of them.
+func TestRefRouteLoadsTheConfiguredCapsWorthWithoutA429(t *testing.T) {
+	const raisedCap = 60
+	rl := viewerlimit.New(refRateLimit(RateLimitConfig{}, raisedCap), nil)
+	defer rl.Close()
+	route := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for i := range raisedCap {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/portal/refs/a/b", http.NoBody)
+		req.RemoteAddr = "203.0.113.7:4000"
+		rec := httptest.NewRecorder()
+		route.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, "reference %d of %d was refused", i+1, raisedCap)
+	}
 }
 
 // TestCopyCarriesOnlyReferencesTheCopierCanRead is the acceptance criterion for
