@@ -20,6 +20,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -57,7 +58,7 @@ func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
 // place so the scan order in scanScript cannot drift from the query.
 const scriptColumns = `id, name, display_name, description, category, source_code, params,
 	owner_email, tags, enabled, status, superseded_by,
-	deprecated_at, version, created_at, updated_at, library, library_loads`
+	deprecated_at, version, created_at, updated_at, library, library_loads, exclusive`
 
 // scriptSelect is the base SELECT for the script columns.
 // scriptsTable is the one place the table's name is written. Every statement
@@ -80,7 +81,7 @@ func scanScript(sc rowScanner) (*script.Script, error) {
 	err := sc.Scan(&s.ID, &s.Name, &s.DisplayName, &s.Description, &s.Category, &s.Source, &paramsJSON,
 		&s.OwnerEmail, pq.Array(&s.Tags), &s.Enabled,
 		&s.Status, &s.SupersededBy, &s.DeprecatedAt, &s.Version,
-		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads))
+		&s.CreatedAt, &s.UpdatedAt, &s.Library, pq.Array(&s.Loads), &s.Exclusive)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script row: %w", err)
 	}
@@ -152,11 +153,11 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 	if err := s.withTx(ctx, "create script", func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `
 			INSERT INTO scripts (name, display_name, description, category, source_code, params,
-			                     owner_email, tags, enabled, status, version, library, library_loads)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12)
+			                     owner_email, tags, enabled, status, version, library, library_loads, exclusive)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13)
 			RETURNING id, created_at, updated_at`,
 			sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
-			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status, sc.Library, pq.Array(sc.Loads))
+			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status, sc.Library, pq.Array(sc.Loads), sc.Exclusive)
 		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
 			return fmt.Errorf("insert script: %w", err)
 		}
@@ -268,7 +269,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 		       source_code = $6, params = $7,
 		       owner_email = $8, tags = $9, enabled = $10, status = $11,
 		       superseded_by = $12, deprecated_at = $13, version = $14,
-		       library_loads = $16, updated_at = NOW()` +
+		       library_loads = $16, exclusive = $17, updated_at = NOW()` +
 		fmt.Sprintf(indexInvalidation, updateHashParam) +
 		"\n\t\t WHERE id = $1" +
 		fmt.Sprintf(indexTextChanged, updateHashParam)
@@ -277,14 +278,37 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 		sc.OwnerEmail, pq.Array(sc.Tags),
 		sc.Enabled, sc.Status, sc.SupersededBy, sc.DeprecatedAt, sc.Version,
-		indexjobs.TextHash(script.IndexText(sc)), pq.Array(libraryLoads(sc.Source))).Scan(&changed)
+		indexjobs.TextHash(script.IndexText(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive).Scan(&changed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("script %s not found", sc.ID)
 	}
 	if err != nil {
 		return false, fmt.Errorf("update script: %w", err)
 	}
+	if err := restampOpenRuns(ctx, tx, sc); err != nil {
+		return false, err
+	}
 	return changed, nil
+}
+
+// restampOpenRuns carries the script's exclusive setting onto its open runs in
+// the transaction that changed it (#1986). The one-open-run index reads the
+// setting off each run, so a run open when the setting was turned on has to
+// carry it, or a second run could start beside it. Turning it on while more
+// than one run is open violates that index; the save is refused with that
+// reason, and nothing changes.
+func restampOpenRuns(ctx context.Context, tx *sql.Tx, sc *script.Script) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE script_runs SET exclusive = $2, updated_at = NOW()
+		 WHERE script_id = $1 AND status IN ('pending', 'running')
+		   AND exclusive IS DISTINCT FROM $2`, sc.ID, sc.Exclusive)
+	if isUniqueViolation(err) {
+		return fmt.Errorf("stamping the script's open runs: %w: %s", openrun.ErrOpen, openrun.BlockedMessage)
+	}
+	if err != nil {
+		return fmt.Errorf("stamping the script's open runs: %w", err)
+	}
+	return nil
 }
 
 // updateHashParam is updateTx's placeholder index for the new text hash, one

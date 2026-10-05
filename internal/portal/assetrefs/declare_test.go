@@ -158,7 +158,7 @@ func TestResolveRefusals(t *testing.T) {
 // TestResolveRefusesAboveTheCap is the acceptance criterion for the bound: the
 // refusal states the cap rather than leaving the author to discover it.
 func TestResolveRefusesAboveTheCap(t *testing.T) {
-	uris := make([]string, assetrefs.MaxRefs+1)
+	uris := make([]string, assetrefs.DefaultMaxRefs+1)
 	for i := range uris {
 		uris[i] = logoURI
 	}
@@ -168,6 +168,60 @@ func TestResolveRefusesAboveTheCap(t *testing.T) {
 	require.ErrorIs(t, err, assetrefs.ErrRefused)
 	assert.Contains(t, err.Error(), "20", "the cap must be named in the refusal")
 	assert.Contains(t, err.Error(), "21", "and so must the number the author declared")
+}
+
+// TestResolveEnforcesTheConfiguredCap is #2021: a deployment that raises the
+// cap accepts a declaration past the default, refuses one past its own number,
+// and names its own number in the refusal.
+func TestResolveEnforcesTheConfiguredCap(t *testing.T) {
+	d := declarer(newFakeRefs()).WithMax(40)
+	assert.Equal(t, 40, d.Max())
+
+	at := make([]string, 40)
+	for i := range at {
+		at[i] = logoURI
+	}
+	_, err := d.Resolve(t.Context(), at, analystAuthor(), "")
+	require.NoError(t, err, "forty is within a cap of forty")
+
+	_, err = d.Resolve(t.Context(), append([]string{logoURI}, at...), analystAuthor(), "")
+	require.ErrorIs(t, err, assetrefs.ErrRefused)
+	assert.Contains(t, err.Error(), "at most 40 references")
+	assert.Contains(t, err.Error(), "41 were declared")
+}
+
+// TestWithMaxKeepsTheDefaultForAnUnsetCap pins that an unresolved zero, and a
+// nil declarer, report the default rather than a cap of nothing.
+func TestWithMaxKeepsTheDefaultForAnUnsetCap(t *testing.T) {
+	assert.Equal(t, assetrefs.DefaultMaxRefs, declarer(newFakeRefs()).WithMax(0).Max())
+	var nilDeclarer *assetrefs.Declarer
+	assert.Nil(t, nilDeclarer.WithMax(5))
+	assert.Equal(t, assetrefs.DefaultMaxRefs, nilDeclarer.Max())
+}
+
+// TestResolveMax pins the startup validation of portal.asset_refs.max.
+func TestResolveMax(t *testing.T) {
+	for _, tc := range []struct {
+		in   int
+		want int
+		err  bool
+	}{
+		{0, assetrefs.DefaultMaxRefs, false},
+		{1, 1, false},
+		{40, 40, false},
+		{assetrefs.CeilingMaxRefs, assetrefs.CeilingMaxRefs, false},
+		{assetrefs.CeilingMaxRefs + 1, 0, true},
+		{-1, 0, true},
+	} {
+		got, err := assetrefs.ResolveMax(tc.in)
+		if tc.err {
+			require.Error(t, err, "%d", tc.in)
+			assert.Contains(t, err.Error(), "portal.asset_refs.max")
+			continue
+		}
+		require.NoError(t, err, "%d", tc.in)
+		assert.Equal(t, tc.want, got)
+	}
 }
 
 // TestResolveCollapsesDuplicates proves one file cannot consume two slots of the
@@ -748,4 +802,17 @@ func TestDeclaredURIs(t *testing.T) {
 	store.byAssetErr = errors.New("connection reset")
 	_, err = d.DeclaredURIs(t.Context(), testAssetID)
 	require.ErrorContains(t, err, "connection reset")
+}
+
+// TestConfig pins the portal.asset_refs block: an unset cap resolves to the
+// default, a set one to itself, and an invalid one is refused by Validate and
+// never reaches a consumer as itself.
+func TestConfig(t *testing.T) {
+	require.NoError(t, assetrefs.Config{}.Validate())
+	assert.Equal(t, assetrefs.DefaultMaxRefs, assetrefs.Config{}.Resolved())
+	assert.Equal(t, 40, assetrefs.Config{Max: 40}.Resolved())
+
+	bad := assetrefs.Config{Max: assetrefs.CeilingMaxRefs + 1}
+	require.Error(t, bad.Validate())
+	assert.Equal(t, assetrefs.DefaultMaxRefs, bad.Resolved())
 }

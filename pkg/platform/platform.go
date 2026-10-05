@@ -47,6 +47,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
+	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenancesweep"
@@ -1741,6 +1742,7 @@ func (p *Platform) initPortal() error {
 		BaseURL:           p.config.Portal.PublicBaseURL,
 		MaxContentSize:    p.config.Portal.MaxContentSize,
 		MaxVersions:       p.config.Portal.MaxVersions,
+		MaxRefs:           p.config.Portal.AssetRefs.Resolved(),
 		CaptureProvenance: p.captureProvenance,
 		Directory:         p.UserStore(),
 	})
@@ -1889,23 +1891,15 @@ func (p *Platform) wireTrinoExport() {
 	)
 }
 
-// parseExportConfig converts the portal export config to the trino toolkit's ExportConfig.
+// parseExportConfig converts the portal export config to the trino toolkit's
+// ExportConfig. A timeout that is unset or does not parse stays zero, which
+// the toolkit reads as its default.
 func (p *Platform) parseExportConfig() trinokit.ExportConfig {
-	cfg := trinokit.ExportConfig{
-		MaxRows:  p.config.Portal.Export.MaxRows,
-		MaxBytes: p.config.Portal.Export.MaxBytes,
+	e := p.config.Portal.Export
+	return trinokit.ExportConfig{
+		MaxRows: e.MaxRows, MaxBytes: e.MaxBytes,
+		DefaultTimeout: portalcfg.Duration(e.DefaultTimeout), MaxTimeout: portalcfg.Duration(e.MaxTimeout),
 	}
-	if p.config.Portal.Export.DefaultTimeout != "" {
-		if d, err := time.ParseDuration(p.config.Portal.Export.DefaultTimeout); err == nil {
-			cfg.DefaultTimeout = d
-		}
-	}
-	if p.config.Portal.Export.MaxTimeout != "" {
-		if d, err := time.ParseDuration(p.config.Portal.Export.MaxTimeout); err == nil {
-			cfg.MaxTimeout = d
-		}
-	}
-	return cfg
 }
 
 // initManagedResources assembles the managed-resources layer via the

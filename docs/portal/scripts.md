@@ -331,6 +331,14 @@ what an agent's `run_script` queues: the platform executes it the same way a sch
 fire is executed, and it appears in the run history directly below and updates as it
 goes.
 
+**One run at a time**, the checkbox at the top of the run history, keeps a script from
+running twice at once (#1986). With it set, a run cannot start while another run of the
+script is pending or running, whoever or whatever started it: Run is refused with a
+message naming the open run, nothing is queued, and a scheduled fire that comes due is
+recorded as skipped with the same name. Set it on a script whose runs send data
+somewhere or move a cursor, where two runs from the same state would do the work twice.
+Turning it on while more than one run is open is refused until at most one is.
+
 Where a value comes from a set the platform already knows, the form offers the set
 rather than asking you to remember the spelling. A parameter naming a connection is a
 list of the connections your access reaches, each with what it is; a parameter with

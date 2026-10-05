@@ -32,7 +32,7 @@ var scriptSelectColumns = []string{
 	"id", "name", "display_name", "description", "category", "source_code", "params",
 	"owner_email", "tags", "enabled", "status",
 	"superseded_by", "deprecated_at", "version",
-	"created_at", "updated_at", "library", "library_loads",
+	"created_at", "updated_at", "library", "library_loads", "exclusive",
 }
 
 var rowTime = time.Unix(1700000000, 0).UTC()
@@ -45,6 +45,7 @@ type rowSpec struct {
 	paramsJSON []byte
 	source     string
 	category   string
+	exclusive  bool
 }
 
 // scriptRow returns one full result row in scriptColumns order.
@@ -57,7 +58,7 @@ func scriptRow(spec rowSpec) []driver.Value {
 		spec.id, spec.name, "Daily", "A daily report", spec.category, source, spec.paramsJSON,
 		spec.owner, pq.Array([]string{}), true, "active",
 		"", nil, 1, rowTime, rowTime,
-		false, pq.Array([]string{}),
+		false, pq.Array([]string{}), spec.exclusive,
 	}
 }
 
@@ -83,6 +84,14 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 func expectLiveRowUpdate(mock sqlmock.Sqlmock, indexChanged bool) {
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).
 		WillReturnRows(sqlmock.NewRows([]string{"changed"}).AddRow(indexChanged))
+	expectRestamp(mock)
+}
+
+// expectRestamp stands in for the re-stamp of the script's open runs with its
+// exclusive setting, which every write of the live row carries (#1986).
+func expectRestamp(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE script_runs SET exclusive")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
 // expectLiveRowUpdateMissing stands in for updateTx against a script id that no

@@ -47,6 +47,8 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   useScriptGrants: vi.fn(() => ({ data: null, isLoading: false, error: null })),
   useAddScriptGrant: vi.fn(),
   useRemoveScriptGrant: vi.fn(),
+  // The one-run-at-a-time checkbox (#1986); its own test covers it.
+  useSetScriptExclusive: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useSetScriptState: vi.fn(),
   useClearScriptState: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history

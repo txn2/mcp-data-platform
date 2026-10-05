@@ -39,8 +39,9 @@ import (
 // JSON form and each is sent below as a literal tools/call parameter of that
 // form. The reference route takes no parameters beyond its path.
 
-// maxRefs1791 is how many references one asset may declare
-// (assetrefs.MaxRefs), the most one page load fetches.
+// maxRefs1791 is how many references one asset may declare by default
+// (assetrefs.DefaultMaxRefs). The dev stack raises the cap (#2021), which
+// scales the reference route's budget up with it, so this many still loads.
 const maxRefs1791 = 20
 
 // swatch1791 is the color every referenced file is painted, which nothing

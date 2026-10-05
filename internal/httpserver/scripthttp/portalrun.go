@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -257,6 +258,13 @@ func (h *Handler) enqueueRun(
 		Trigger: script.TriggerPortal, Params: req.params, RequestedBy: req.user.owner(),
 	}
 	if err := h.deps.Runs.Enqueue(r.Context(), run); err != nil {
+		// An exclusive script with a run still open (#1986): nothing was
+		// queued, and the refusal names the run so the owner can wait for it
+		// or cancel it.
+		if openErr := (*openrun.Error)(nil); errors.As(err, &openErr) {
+			httpjson.WriteError(w, http.StatusConflict, openErr.Error())
+			return nil, false
+		}
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to queue the run")
 		return nil, false
 	}

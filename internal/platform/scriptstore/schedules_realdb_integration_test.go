@@ -171,7 +171,7 @@ func TestRealDB_AnOverlappingFireIsRecordedAsASkip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusSkippedOverlap, recorded.Status)
 	assert.NotNil(t, recorded.FinishedAt, "a skip is finished on arrival, so retention can sweep it")
-	assert.Contains(t, recorded.Error, "still going")
+	assert.Contains(t, recorded.Error, "run dpx_first (started by its schedule", "the skip names the run it waited on (#1986)")
 
 	// And the skipped row does not itself hold the schedule open: once the
 	// first run finishes, the fire after it materializes normally.

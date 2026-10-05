@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   RUN_PAGE_SIZE,
   isRunInFlight,
@@ -51,8 +51,12 @@ export function ScriptRunHistory({
   scriptId,
   openRunId = null,
   onNavigate,
+  setting,
 }: {
   scriptId: string;
+  /** setting is the owner's control over how runs start, drawn above the
+   * history it governs (#1986). */
+  setting?: ReactNode;
   /** openRunId is a run named by the address, opened without a click (#1405):
    * a link from the cross-script listing lands on the run it named rather than
    * on a history the reader has to find it in again. */
@@ -77,6 +81,7 @@ export function ScriptRunHistory({
       title="Run history"
       action={<RunSummaryLine runs={runs} />}
     >
+      {setting}
       <HistoryState isLoading={isLoading} failed={!!error} empty={runs.length === 0} />
       {runs.length > 0 && (
         <RunTable

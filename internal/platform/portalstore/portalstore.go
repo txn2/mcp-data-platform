@@ -63,6 +63,9 @@ type Config struct {
 	// to every asset that carries no override of its own. Nil selects the
 	// platform default (100); 0 keeps every version.
 	MaxVersions *int
+	// MaxRefs is the per-asset reference cap the declaration path enforces
+	// and the asset tools advertise (#2021). Zero selects the default.
+	MaxRefs int
 	// Directory is the known-users directory the toolkit's share action
 	// resolves a recipient's name against (#1280). Nil leaves sharing working
 	// by email address only.
@@ -197,7 +200,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 	// against, so an asset reference works on a deployment with no
 	// managed-resource layer at all; BindResources adds that layer when there
 	// is one (#1488).
-	h.declarer = assetrefs.NewDeclarer(h.contentRefs, h.assetStore)
+	h.declarer = assetrefs.NewDeclarer(h.contentRefs, h.assetStore).WithMax(cfg.MaxRefs)
 	h.toolkit = portalkit.New(portalkit.Config{
 		Name:            cfg.Name,
 		AssetStore:      h.assetStore,

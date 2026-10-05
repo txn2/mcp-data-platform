@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/libraryuse"
+	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
@@ -147,6 +148,9 @@ func (h *Handle) applyUpdates(ctx context.Context, sc *script.Script, input mana
 	if input.Enabled != nil {
 		sc.Enabled = *input.Enabled
 	}
+	if input.Exclusive != nil {
+		sc.Exclusive = *input.Exclusive
+	}
 	if errResult := h.applyStatus(ctx, sc, input); errResult != nil {
 		return nil, errResult
 	}
@@ -234,6 +238,8 @@ func editError(err error) *mcp.CallToolResult {
 	switch {
 	case errors.Is(err, script.ErrVersionConflict):
 		return errorResult(err.Error())
+	case errors.Is(err, openrun.ErrOpen):
+		return errorResult(openrun.BlockedMessage)
 	default:
 		slog.Error("failed to update script", logKeyError, err)
 		return errorResult("failed to update script")
@@ -326,6 +332,7 @@ func scriptFields(sc *script.Script) map[string]any {
 		"description": sc.Description, fieldSource: sc.Source, "params": sc.Params,
 		"owner_email": sc.OwnerEmail,
 		"category":    sc.Category, "tags": sc.Tags, "enabled": sc.Enabled, fieldStatus: sc.Status,
+		"exclusive":       sc.Exclusive,
 		fieldVersion:      sc.Version,
 		"executable_note": script.ExecutionNote(sc),
 		"created_at":      sc.CreatedAt, "updated_at": sc.UpdatedAt,

@@ -69,7 +69,8 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// Build the trusted-proxy-aware client-IP resolver for the public viewer's
 	// rate limiter (#904). A malformed CIDR is a boot-time configuration error
 	// surfaced here, the genuine startup path for the portal.
-	rlResolver, err := portalRateLimitResolver(p.Config().Portal.RateLimit)
+	rl := p.Config().Portal.RateLimit
+	rlResolver, err := portalRateLimitResolver(rl)
 	if err != nil {
 		return err
 	}
@@ -118,13 +119,11 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		ResourceMaxUploadBytes: p.Config().Resources.Managed.MaxUploadBytes,
 		// What produced an asset or a managed resource (#1569), and the lookup
 		// that says whether a script producer still exists.
-		Producers:   producedby.NewPostgres(p.DB()),
-		ScriptNames: portalScriptNames(p.DB()),
-		ScriptRefs:  portalScriptRefs(p.DB()),
-		RateLimit: portal.RateLimitConfig{
-			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
-			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
-		},
+		Producers:           producedby.NewPostgres(p.DB()),
+		ScriptNames:         portalScriptNames(p.DB()),
+		ScriptRefs:          portalScriptRefs(p.DB()),
+		RateLimit:           portal.RateLimitConfig{RequestsPerMinute: rl.RequestsPerMinute, BurstSize: rl.BurstSize},
+		MaxRefs:             p.Config().Portal.AssetRefs.Resolved(),
 		RateLimitResolver:   rlResolver,
 		OIDCEnabled:         p.BrowserSessionFlow() != nil,
 		AdminRoles:          adminRoles,

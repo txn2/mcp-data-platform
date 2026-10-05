@@ -48,7 +48,7 @@ func TestListRefsEmpty(t *testing.T) {
 	assert.Empty(t, body.Data)
 	assert.Zero(t, body.Total)
 	assert.True(t, body.CanEdit)
-	assert.Equal(t, assetrefs.MaxRefs, body.Max)
+	assert.Equal(t, assetrefs.DefaultMaxRefs, body.Max)
 	assert.Equal(t, assetrefs.GrantNotice, body.Notice,
 		"the person and the agent are told the same thing about what a reference gives away")
 }
@@ -236,20 +236,48 @@ func TestAddRefRejectsDuplicate(t *testing.T) {
 // The cap refusal names the number, so the caller learns the limit.
 func TestAddRefRejectsPastTheCap(t *testing.T) {
 	h := newHarness()
-	full := make([]assetrefs.Ref, 0, assetrefs.MaxRefs)
-	for i := range assetrefs.MaxRefs {
+	h.declare(assetID, fullRefs(assetrefs.DefaultMaxRefs)...)
+
+	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), fmt.Sprint(assetrefs.DefaultMaxRefs))
+}
+
+// TestAddRefFollowsTheConfiguredCap is #2021 on the panel's door: with the cap
+// raised, an asset holding the default's worth still accepts one more, the list
+// reports the configured number, and the refusal at the configured number
+// names it.
+func TestAddRefFollowsTheConfiguredCap(t *testing.T) {
+	h := newHarness()
+	h.cfg.MaxRefs = assetrefs.DefaultMaxRefs + 1
+	h.declare(assetID, fullRefs(assetrefs.DefaultMaxRefs)...)
+
+	list := decode[listResponse](t, h.do(t, owner(), http.MethodGet, refsPath(assetID), ""))
+	assert.Equal(t, assetrefs.DefaultMaxRefs+1, list.Max)
+
+	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	h.declare(assetID, fullRefs(assetrefs.DefaultMaxRefs+1)...)
+	rec = h.do(t, owner(), http.MethodPost, refsPath(assetID),
+		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "maximum of 21 things")
+}
+
+// fullRefs is n distinct resource references.
+func fullRefs(n int) []assetrefs.Ref {
+	full := make([]assetrefs.Ref, 0, n)
+	for i := range n {
 		full = append(full, assetrefs.Ref{
 			TargetKind: assetrefs.TargetResource, TargetID: fmt.Sprintf("res-%d", i),
 			URI:      fmt.Sprintf("mcp://global/f/%d.png", i),
 			RefToken: fmt.Sprintf("tok-%d", i),
 		})
 	}
-	h.declare(assetID, full...)
-
-	rec := h.do(t, owner(), http.MethodPost, refsPath(assetID),
-		fmt.Sprintf(`{"target_kind":"resource","target_id":%q}`, logoID))
-	require.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), fmt.Sprint(assetrefs.MaxRefs))
+	return full
 }
 
 // A viewer is refused the add, matching what the list told them.

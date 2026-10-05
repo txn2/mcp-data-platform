@@ -19922,6 +19922,85 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/scripts/{id}/exclusive": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "With exclusive true, a script has at most one pending or running run, whatever started it: a scheduled fire while a run is open is recorded as skipped_overlap, and a run_script or portal run is refused with 409 naming the open run. Turning it on while more than one run is open is refused with 409. Restricted to the script's owner and to administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Set whether a script runs one at a time",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The setting",
+                        "name": "exclusive",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exclusivehttp.exclusiveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/exclusivehttp.exclusiveResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/scripts/{id}/grants": {
             "get": {
                 "security": [
@@ -29018,6 +29097,28 @@ const docTemplate = `{
                 }
             }
         },
+        "exclusivehttp.exclusiveRequest": {
+            "type": "object",
+            "properties": {
+                "exclusive": {
+                    "description": "Exclusive true holds the script to one pending or running run, whatever\nstarted it.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "exclusivehttp.exclusiveResponse": {
+            "type": "object",
+            "properties": {
+                "exclusive": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Saved. A run cannot start while another run of this script is pending or running."
+                }
+            }
+        },
         "feedbackapi.appendEventRequest": {
             "type": "object",
             "properties": {
@@ -34050,6 +34151,10 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "exclusive": {
+                    "description": "Exclusive is whether the script runs one at a time (#1986).",
+                    "type": "boolean"
+                },
                 "id": {
                     "type": "string",
                     "example": "script_a1b2c3d4"
@@ -34630,6 +34735,10 @@ const docTemplate = `{
                 "enabled": {
                     "type": "boolean",
                     "example": true
+                },
+                "exclusive": {
+                    "description": "Exclusive is the owner's setting that the script has at most one open\n(pending or running) run, whatever started it (#1986): a scheduled fire\nwhile a run is open is skipped, and run_script or a portal run is\nrefused naming the open run. Without it, runs of one script may overlap\nand the state check is the only guard.",
+                    "type": "boolean"
                 },
                 "id": {
                     "type": "string",

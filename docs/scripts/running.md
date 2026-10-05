@@ -1212,6 +1212,30 @@ the same moment, they all try to write the run, and a unique index on
 while the schedule's previous run is still pending or running does not queue
 behind it. It is recorded as a `skipped_overlap` run — a terminal row nothing
 ever claims — so the skip appears in the run history rather than as silence.
+Its reason names the open run it waited on, what started it and since when.
+
+**One run at a time, whatever starts it.** The overlap policy above is per
+schedule. A run started with `run_script` or from the portal has no schedule,
+so by default runs of one script may overlap: a `run_script` run can execute
+beside a scheduled one, and two `run_script` runs beside each other. The state
+check at save time (below) is then the only guard, and it acts after the fact:
+the later run's side effects stand, it fails with `state_conflict`, its cursor
+is not saved, and the next run repeats its work.
+
+A script whose runs must not overlap sets `exclusive` (`manage_script update`
+with `exclusive=true`, shown by `get`; in the portal, **One run at a time** above
+the run history). While any run of it is pending or running:
+
+- a scheduled fire is recorded as `skipped_overlap`, naming the open run;
+- `run_script` and a portal run are refused before anything is queued, naming
+  the open run (id, what started it, since when) so the caller can wait for it
+  or cancel it. The portal answers `409`.
+
+It is enforced by the database, not checked first: a partial unique index holds
+an exclusive script to one open run (migration `000176`), so two replicas
+inserting at the same instant cannot both succeed. A run reclaimed after its
+worker died is the same row, so it never counts twice. Turning the setting on
+while more than one run is open is refused until at most one is.
 
 **Misfire policy: fire once, for the latest.** After a gap the platform was not
 materializing through — a stopped worker deployment, a restored database — one
@@ -2137,7 +2161,7 @@ answer is, so a test replays exactly what the run read, and
 **Two runs, one revision.** The schedule overlap policy already keeps two fires
 of one schedule from running at once. A `run_script` call during a scheduled
 run, or a reclaimed run whose predecessor is still winding down, can both read
-revision N. One of them writes N+1; the other fails at its write with a message
+revision N (a script set to run one at a time, above, never has two runs open). One of them writes N+1; the other fails at its write with a message
 naming the run that wrote, and its outputs stand, since they were produced
 from the state it read. The failure is what makes the interleaving visible
 instead of silently losing one of the two writes. It holds across replicas

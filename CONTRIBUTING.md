@@ -580,7 +580,12 @@ test is the gate.
   diff-scoped CI check rejects with reasoning Semgrep does not have -- the
   allocation-size rule matches 55 places in this tree and CodeQL flags none of
   them. Add a rule to the first when the shape is always wrong, and to the
-  second when it is wrong only where CI says so.
+  second when it is wrong only where CI says so. `make semgrep-diff` runs every
+  file in the directory: `go-alloc.yml` (CodeQL's allocation-size-overflow) and
+  `go-relay.yml` (CodeQL's reflected-xss: a handler writing a recorded or
+  upstream body, or copying another response's header map, #2018). A rule
+  added there gets a case in `test/gates/semgrep_diff_test.go` holding it to
+  the shape it was written for.
 - Report security vulnerabilities via [SECURITY.md](SECURITY.md)
 - Follow secure coding practices
 

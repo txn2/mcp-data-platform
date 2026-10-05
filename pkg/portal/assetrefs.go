@@ -42,10 +42,17 @@ const refRoutePattern = "GET " + assetrefs.PathPrefix + "{id}/{ref}"
 // scaling zero left the reference route on the viewer's unscaled default -- a
 // burst of ten -- so a page declaring more than ten files had the rest refused
 // (#1791).
-func refRateLimit(cfg RateLimitConfig) RateLimitConfig {
+//
+// maxRefs is the configured cap (#2021), zero selecting the default. Scaling
+// by the default while a deployment raised the cap would reopen #1791 for every
+// reference past the default's bucket.
+func refRateLimit(cfg RateLimitConfig, maxRefs int) RateLimitConfig {
+	if maxRefs < 1 {
+		maxRefs = assetrefs.DefaultMaxRefs
+	}
 	cfg = viewerlimit.WithDefaults(cfg)
-	cfg.RequestsPerMinute *= assetrefs.MaxRefs
-	cfg.BurstSize *= assetrefs.MaxRefs
+	cfg.RequestsPerMinute *= maxRefs
+	cfg.BurstSize *= maxRefs
 	return cfg
 }
 
@@ -106,9 +113,10 @@ func (h *Handler) registerRefAPI() {
 		// The asset's own bytes, read to find where its content still writes a
 		// reference's URI. It is the portal's blob client rather than the
 		// resource layer's: the content being scanned is the asset's.
-		Blobs:  h.deps.S3Client,
-		Access: h.access,
-		Claims: h.resourceClaims,
+		Blobs:   h.deps.S3Client,
+		Access:  h.access,
+		Claims:  h.resourceClaims,
+		MaxRefs: h.deps.MaxRefs,
 	})
 }
 

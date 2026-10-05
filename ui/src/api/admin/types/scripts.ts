@@ -25,6 +25,9 @@ export interface Script {
   // are optional here because an older server sends neither.
   library?: boolean;
   loads?: string[];
+  // exclusive is the owner's setting that the script runs one at a time
+  // (#1986). Optional for a server that predates it.
+  exclusive?: boolean;
   updated_at: string;
 }
 

@@ -164,6 +164,11 @@ type Deps struct {
 	// (#1848). Empty leaves both routes unmounted.
 	ContentURLKey []byte
 	RateLimit     RateLimitConfig
+	// MaxRefs is the per-asset reference cap, the value
+	// portal.asset_refs.max resolved to (#2021). The reference route's rate
+	// limit scales with it and the reference panel reports it; zero selects
+	// the default.
+	MaxRefs int
 	// RateLimitResolver attributes the client IP for the public viewer's
 	// rate limiter with trusted-proxy awareness (#904). nil yields the safe
 	// trust-none default (direct peer address; X-Forwarded-For ignored), so an
@@ -364,7 +369,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		access:      newAccessChecker(deps),
 	}
 	h.viewerAssets = contentviewer.Handler()
-	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit), deps.RateLimitResolver)
+	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit, deps.MaxRefs), deps.RateLimitResolver)
 	h.contentLimiter = viewerlimit.New(contentRateLimit(deps.RateLimit), deps.RateLimitResolver)
 	h.registerRoutes()
 

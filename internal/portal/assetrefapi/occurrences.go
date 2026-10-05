@@ -180,7 +180,6 @@ const maxReferencingAssets = 50
 // capReached is the refusal a caller gets for referencing one thing too many.
 // It names the number, so someone hitting it learns the limit rather than
 // guessing at it -- the same wording rule the declaration path follows.
-func capReached() string {
-	return fmt.Sprintf("this asset already references the maximum of %d things",
-		assetrefs.MaxRefs)
+func capReached(limit int) string {
+	return fmt.Sprintf("this asset already references the maximum of %d things", limit)
 }

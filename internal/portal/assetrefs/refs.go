@@ -2,6 +2,7 @@ package assetrefs
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -14,15 +15,61 @@ import (
 // only readers, and the Postgres store in internal/portal/assetrefstore is its
 // only writer.
 
-// MaxRefs bounds how many things one asset may reference. The cap exists
-// because every reference costs a row, a token, and one HTTP request per
-// render, and because an unbounded list is a way to turn a single save into an
-// arbitrary amount of serving work.
+// DefaultMaxRefs bounds how many things one asset may reference when the
+// deployment sets no portal.asset_refs.max. The cap exists because every
+// reference costs a row, a token, and one HTTP request per render, and because
+// an unbounded list is a way to turn a single save into an arbitrary amount of
+// serving work.
 //
-// The constant lives here with the rest of the reference vocabulary; it is
-// enforced at the one door a declaration comes through, which states the
+// It is enforced at the one door a declaration comes through, which states the
 // number in its refusal so an author learns it rather than guessing.
-const MaxRefs = 20
+const DefaultMaxRefs = 20
+
+// CeilingMaxRefs is the most a deployment may raise the cap to (#2021). A
+// configured cap is an operator's decision made against their own viewer load,
+// and the ceiling keeps that decision bounded: the reference route's rate limit
+// scales with the cap, so an unbounded cap would be an unbounded viewer budget.
+const CeilingMaxRefs = 100
+
+// Config is the portal.asset_refs block (#2021).
+type Config struct {
+	// Max is the most references one asset may declare: 0 selects
+	// DefaultMaxRefs, and a value outside 1..CeilingMaxRefs is refused at
+	// startup. The reference route's rate limit scales with it, so a page
+	// declaring the cap's worth still loads.
+	Max int `yaml:"max"`
+}
+
+// Validate refuses a cap outside the range ResolveMax accepts.
+func (c Config) Validate() error {
+	_, err := ResolveMax(c.Max)
+	return err
+}
+
+// Resolved returns the cap Max selects, the default when it is unset. An
+// invalid value also yields the default; Validate refuses it before a
+// platform is built.
+func (c Config) Resolved() int {
+	n, err := ResolveMax(c.Max)
+	if err != nil {
+		return DefaultMaxRefs
+	}
+	return n
+}
+
+// ResolveMax returns the per-asset reference cap a configured value selects:
+// 0 selects DefaultMaxRefs, and anything outside 1..CeilingMaxRefs is refused
+// so a deployment learns of it at startup rather than at the first save.
+func ResolveMax(configured int) (int, error) {
+	switch {
+	case configured == 0:
+		return DefaultMaxRefs, nil
+	case configured < 1 || configured > CeilingMaxRefs:
+		return 0, fmt.Errorf("portal.asset_refs.max must be between 1 and %d, got %d", CeilingMaxRefs, configured)
+	default:
+		return configured, nil
+	}
+}
 
 // TargetKind names what a reference points at. Both kinds resolve through
 // the same token, the same serving route and the same rewrite; the kind decides

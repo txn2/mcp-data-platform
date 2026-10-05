@@ -411,9 +411,11 @@ semgrep:
 ## golangci-lint's --new-from-patch, off the same merge-base. Semgrep's own
 ## --baseline-commit aborts on an unstaged change, and `make verify` is a
 ## pre-commit gate run on exactly that, so the scoping lives in the script.
+## Every rule file in the directory runs; test/gates/semgrep_diff_test.go holds
+## each rule to the shape it was written for.
 semgrep-diff:
 	@echo "Running diff-scoped Semgrep..."
-	@python3 scripts/semgrep-diff.py .semgrep-diff/go-alloc.yml
+	@python3 scripts/semgrep-diff.py .semgrep-diff/
 
 ## codeql: Run CodeQL analysis (requires codeql CLI)
 codeql:

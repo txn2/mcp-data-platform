@@ -353,6 +353,27 @@ export const scriptHandlers = [
     });
   }),
 
+  // Whether the script runs one at a time (#1986). The contract moves, which
+  // is what the page reads the checkbox from.
+  http.put(
+    `${PORTAL_BASE}/scripts/:id/exclusive`,
+    async ({ params, request }) => {
+      const id = String(params.id);
+      const body = (await request.json()) as { exclusive?: boolean };
+      const contract = contracts[id];
+      if (!contract) {
+        return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+      }
+      contract.exclusive = Boolean(body.exclusive);
+      return HttpResponse.json({
+        exclusive: contract.exclusive,
+        message: contract.exclusive
+          ? "Saved. A run cannot start while another run of this script is pending or running."
+          : "Saved. Runs of this script may overlap.",
+      });
+    },
+  ),
+
   // Documenting the script (#1369). It applies at once; the record and the
   // contract both move, because the page reads the contract and the listing
   // reads the record.

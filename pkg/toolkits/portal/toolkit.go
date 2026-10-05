@@ -551,7 +551,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name:        SaveToolName,
 		Title:       "Save Asset",
 		Description: saveToolDescription,
-		InputSchema: saveAssetSchema,
+		InputSchema: withRefCap(saveAssetSchema, t.contentRefs.Max()),
 		// A save lands a new asset, or a new version of one with the
 		// earlier versions kept, so it only adds.
 		Annotations: toolkit.WriteAnnotations(false),
@@ -561,7 +561,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name:        ManageToolName,
 		Title:       "Manage Asset",
 		Description: manageToolDescription,
-		InputSchema: manageAssetSchema,
+		InputSchema: withRefCap(manageAssetSchema, t.contentRefs.Max()),
 		// delete, delete_collection and the content verbs overwrite.
 		Annotations: toolkit.WriteAnnotations(true),
 	}, t.handleManageAsset)

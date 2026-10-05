@@ -606,6 +606,8 @@ portal:
   public_base_url: "https://portal.example.com"   # Base URL for portal links
   max_content_size: 10485760    # Max asset size in bytes (default: 10MB)
   max_versions: 100             # Versions an asset keeps by default (0 = unlimited)
+  asset_refs:
+    max: 20                     # References one asset may declare (1-100, default 20)
   deleted_retention_days: 30    # Days a deleted asset/collection/thread/page is kept before it is purged
   orphaned_producer_retention_days: 90  # Days a producer record outlives its file
   implementor:                                    # Optional implementor brand (left zone of public viewer header)
@@ -650,6 +652,7 @@ portal:
 | `deleted_retention_days` | int | `30` | How long a deleted asset, collection, feedback thread or knowledge page is kept before it is removed for good, with every version object, tile and collection mosaic it names. A delete only hides the item until then. `0` uses the default; a negative value keeps deleted items forever. A hidden built-in knowledge page is never removed. See [Data Retention](data-retention.md) |
 | `orphaned_producer_retention_days` | int | `90` | How long the record of what produced an asset or managed resource outlives the file itself. `0` uses the default; a negative value keeps them |
 | `max_versions` | int | `100` | Versions an asset keeps when it carries no override of its own. A version pushed past the cap is deleted along with its stored content and thumbnails; the current version is never pruned. `0` keeps every version, and a negative value is refused at startup. Applied at the write, so an asset already over the cap is trimmed the next time it is written, not when this setting changes. An asset's owner can override it — see [Asset version retention](../portal/assets.md#version-retention) |
+| `asset_refs.max` | int | `20` | How many files one asset may reference (managed resources and other assets together). A declaration above it is refused, and the refusal states the number. `save_asset` and `manage_asset` advertise it in `references.maxItems`, so an agent plans its document around this deployment's number. The reference route's per-IP rate limit is `rate_limit` multiplied by this value, so a page declaring the cap's worth loads in one burst. Must be between `1` and `100`; anything else is refused at startup. See [Asset references](asset-references.md) |
 | `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer, the public collection viewer, the guest share landing page, and the access-denied page. Independent of `implementor.logo`: either one alone renders the implementor block |
 | `implementor.logo` | string | - | URL to the implementor logo, in any image format. The public viewer and the share pages link it with an `<img>` element; its origin is added to the `img-src` of the pages whose policy would otherwise block it. Renders with or without `implementor.name` |
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |

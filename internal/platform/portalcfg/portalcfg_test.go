@@ -1,6 +1,9 @@
 package portalcfg
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestTitle(t *testing.T) {
 	tests := []struct {
@@ -152,5 +155,18 @@ func TestMaxVersionsError(t *testing.T) {
 				t.Fatalf("MaxVersionsError(%v) = %q, want no error", tt.configured, got)
 			}
 		})
+	}
+}
+
+// TestDuration pins the parse portal.export's timeouts go through: a valid
+// duration is itself, and an empty or malformed one is zero, the toolkit's
+// signal to use its default.
+func TestDuration(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"5m": 5 * time.Minute, "90s": 90 * time.Second, "": 0, "soon": 0,
+	} {
+		if got := Duration(in); got != want {
+			t.Errorf("Duration(%q) = %v, want %v", in, got, want)
+		}
 	}
 }

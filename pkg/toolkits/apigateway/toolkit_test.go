@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -698,25 +699,45 @@ func TestNewHTTPClient_HasTransport(t *testing.T) {
 	}
 }
 
-// TestInvoke_ConnectTimeout_FiresFast proves that a connection to an
-// address that accepts neither connections nor reset packets fails
-// within ConnectTimeout, not the larger CallTimeout. Uses a
-// closed-but-listening test server; we close the listener so connect
-// would block forever waiting for accept, and we expect ConnectTimeout
-// to fire.
+// TestInvoke_ConnectTimeout_FiresFast proves that a connection whose
+// connect step never completes fails within ConnectTimeout, not the larger
+// CallTimeout. The connect step is the TCP dial and the TLS handshake, both
+// bound by ConnectTimeout (upstreamauth.NewHTTPTransport).
 //
-// Note: this test cannot use httptest.NewServer (which would actually
-// accept). We construct a listener, immediately close it, and dial the
-// stale port — the kernel responds with RST or the dial blocks until
-// the timeout. RST is fast, but on systems where it isn't, the
-// ConnectTimeout still bounds the wait. The 200ms ConnectTimeout vs
-// 5s CallTimeout gap makes the bound observable.
+// The upstream is a local listener that accepts the TCP connection and never
+// answers the TLS handshake, so the call stalls in the connect step on every
+// machine. An unroutable address such as 192.0.2.1 does not: a network that
+// completes every outbound TCP handshake (a transparent proxy) connects to
+// it at once and leaves the call waiting out CallTimeout instead.
 func TestInvoke_ConnectTimeout_FiresFast(t *testing.T) {
-	// Use a TEST-NET-1 address (RFC 5737, guaranteed unreachable).
-	// Routing this address discards or blackholes — the dial cannot
-	// complete. ConnectTimeout must terminate it.
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	held := make(chan net.Conn, 16)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			held <- conn // accepted, never answered
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		for {
+			select {
+			case conn := <-held:
+				_ = conn.Close()
+			default:
+				return
+			}
+		}
+	})
+
 	cfg := Config{
-		BaseURL:          "http://192.0.2.1:80",
+		BaseURL:          "https://" + ln.Addr().String(),
 		AuthMode:         AuthModeNone,
 		ConnectTimeout:   200 * time.Millisecond,
 		CallTimeout:      10 * time.Second,
