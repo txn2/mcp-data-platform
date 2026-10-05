@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -458,11 +459,12 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 }
 
 // resolveRef resolves a single reference to a display label, existence, and
-// accessibility. Access-gated targets (asset, collection, prompt, script) resolve only
-// when the user may view them; otherwise they are reported inaccessible, and
-// because not-found and not-permitted both yield Accessible=false the endpoint
-// cannot enumerate names or existence across the share boundary. Knowledge pages
-// are org-shared (title resolved for any reader; a missing page is a broken
+// accessibility. Access-gated targets (asset, collection, prompt, resource)
+// resolve only when the user may view them; otherwise they are reported
+// inaccessible, and because not-found and not-permitted both yield
+// Accessible=false the endpoint cannot enumerate names or existence across the
+// share boundary. Knowledge pages and scripts are readable by every signed-in
+// reader (title resolved for any reader; a missing one is a broken
 // reference). A connection's label derives from the URN itself and is shown as
 // platform context.
 //
@@ -480,6 +482,8 @@ func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowle
 		h.resolvePromptRef(r, user, ref.PromptID, &out)
 	case knowledgepage.RefTargetScript:
 		h.resolveScriptRef(r.Context(), user, ref.ScriptID, &out)
+	case knowledgepage.RefTargetResource:
+		h.resolveResourceRef(r.Context(), user, ref.ResourceID, &out)
 	case knowledgepage.RefTargetKnowledgePage:
 		h.resolvePageRef(r.Context(), ref.RefPageID, &out)
 	case knowledgepage.RefTargetConnection:
@@ -511,11 +515,29 @@ func (h *Handler) resolveAssetRef(r *http.Request, user *User, id string, out *r
 		return
 	}
 	a, err := h.deps.AssetStore.Get(r.Context(), id)
-	if err != nil || a == nil || !h.userCanViewAsset(r, id, a, user) {
+	if err != nil || a == nil || a.DeletedAt != nil ||
+		(!h.access.IsAdmin(user) && !h.userCanViewAsset(r, id, a, user)) {
 		out.Accessible = false
 		return
 	}
 	out.Label = a.Name
+}
+
+// resolveResourceRef sets a managed resource's name when the reader may read
+// it by the resource scopes. A resource the reader may not read and one that
+// does not exist are both marked inaccessible, so its existence is not
+// revealed.
+func (h *Handler) resolveResourceRef(ctx context.Context, user *User, id string, out *resolvedRef) {
+	if h.deps.ResourceReader == nil || user == nil {
+		out.Accessible = false
+		return
+	}
+	res, err := h.deps.ResourceReader.Get(ctx, id)
+	if err != nil || res == nil || !resource.CanAccessResource(h.resourceClaims(user), res) {
+		out.Accessible = false
+		return
+	}
+	out.Label = res.DisplayName
 }
 
 // resolveCollectionRef sets the collection's name when the user may view it.
@@ -546,24 +568,27 @@ func (h *Handler) resolvePromptRef(r *http.Request, user *User, id string, out *
 	out.Label = p.Name
 }
 
-// resolveScriptRef sets a cited script's name when the reader may open the
-// script (#1855). A script is personal: its owner and administrators see it and
-// no one else, the rule every other script surface applies (script.OwnedBy). A
-// script the reader may not open and one that does not exist are both marked
-// inaccessible, so the reference is withheld from that reader rather than
-// breaking the page, and its existence is not revealed.
+// resolveScriptRef sets a cited script's name (#1855). A script's definition
+// is readable by everyone signed in (#1866, #2027), so a citation resolves for
+// every reader of the page; running it and reading its runs stay its owner's
+// and an administrator's. A script that no longer exists is a broken
+// reference, the way a deleted page is.
 func (h *Handler) resolveScriptRef(ctx context.Context, user *User, id string, out *resolvedRef) {
-	if h.deps.ScriptRefs == nil {
+	if h.deps.ScriptRefs == nil || user == nil {
 		out.Accessible = false
 		return
 	}
-	label, owner, ok := h.deps.ScriptRefs(ctx, id)
-	ownedByReader := owner != "" && user != nil && owner == user.Email
-	if !ok || (!ownedByReader && !h.access.IsAdmin(user)) {
+	label, ok, err := h.deps.ScriptRefs(ctx, id)
+	switch {
+	case err != nil:
+		// A lookup that failed says nothing about the script: withhold the
+		// citation rather than tell every reader it was deleted.
 		out.Accessible = false
-		return
+	case !ok:
+		out.Exists = false
+	default:
+		out.Label = label
 	}
-	out.Label = label
 }
 
 // resolvePageRef sets a knowledge page's title; a missing page is a broken

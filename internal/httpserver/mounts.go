@@ -920,7 +920,7 @@ func portalScriptNames(db *sql.DB) producerapi.ScriptNames {
 // portalScriptRefs looks up the managed scripts knowledge pages cite (#1855), or
 // nil on a deployment with no database, where the portal resolves every script
 // citation as unavailable.
-func portalScriptRefs(db *sql.DB) func(ctx context.Context, id string) (label, owner string, ok bool) {
+func portalScriptRefs(db *sql.DB) func(ctx context.Context, id string) (label string, ok bool, err error) {
 	if db == nil {
 		return nil
 	}
@@ -928,21 +928,21 @@ func portalScriptRefs(db *sql.DB) func(ctx context.Context, id string) (label, o
 }
 
 // citedScripts adapts a script citation lookup to the shape the portal resolves
-// a script reference through. A read failure is logged and answered as not
-// found, so the citation is withheld from that reader rather than failing the
-// page it sits on.
-func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, error)) func(ctx context.Context, id string) (label, owner string, ok bool) {
-	return func(ctx context.Context, id string) (label, owner string, ok bool) {
+// a script reference through. A read failure is logged and passed on, so the
+// portal withholds the citation rather than failing the page it sits on or
+// showing a script that may exist as deleted.
+func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, error)) func(ctx context.Context, id string) (label string, ok bool, err error) {
+	return func(ctx context.Context, id string) (string, bool, error) {
 		c, err := lookup(ctx, id)
 		if err != nil {
 			slog.Warn("resolving a cited script failed",
 				"script_id", logsan.SanitizeForLog(id), "error", logsan.SanitizeForLog(err.Error()))
-			return "", "", false
+			return "", false, err
 		}
 		if c == nil {
-			return "", "", false
+			return "", false, nil
 		}
-		return c.Label, c.Owner, true
+		return c.Label, true, nil
 	}
 }
 

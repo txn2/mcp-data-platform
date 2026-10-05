@@ -13,8 +13,10 @@ export interface TimelineBar {
   start: number;
   end: number;
   label: string;
-  /** call is the audited call a bottom bar is; frames carry none. */
+  /** call is the audited call a bottom bar is, and index its place in the
+   * run's timeline; frames carry neither. */
   call?: FlowTimedCall;
+  index?: number;
 }
 
 export interface Timeline {
@@ -74,7 +76,7 @@ export function buildTimeline(calls: FlowTimedCall[], functions: FuncSpan[], run
     for (const k of [...open.keys()]) if (k >= Math.max(1, site.length)) open.delete(k);
     const at = Math.max(1, site.length);
     depth = Math.max(depth, at);
-    bars.push({ key: `c${i}`, depth: at, start: c.start_ms, end, label: c.tool, call: c });
+    bars.push({ key: `c${i}`, depth: at, start: c.start_ms, end, label: c.tool, call: c, index: i });
   });
   return { bars, depth: depth + 1, span, upstream: busy(calls) };
 }

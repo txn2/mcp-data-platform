@@ -201,9 +201,11 @@ export function roundedPath(points: Array<{ x: number; y: number }>, radius = 8)
 
 // Selection is what the reader picked: a card, a function box, or a
 // parameter; in the Structure view (#1972) also a control node (a decision,
-// an exit, a folded helper) or a loop or helper box.
+// an exit, a folded helper) or a loop or helper box; with a run drawn, one of
+// its calls, by its place in the run's timeline (#1982).
 export type Selection =
   | { kind: "node"; id: string }
+  | { kind: "call"; index: number }
   | { kind: "group"; id: string }
   | { kind: "param"; name: string }
   | { kind: "struct"; id: string }

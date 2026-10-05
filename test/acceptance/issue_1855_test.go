@@ -17,11 +17,12 @@ import (
 // What this holds, against the running platform: an apply whose
 // page.references includes an existing script succeeds and the reference is
 // listed on the page; a script named in the page body is picked up the same
-// way; a reader who cannot open the script (a script is personal) still reads
-// the page, with the script reference withheld, and fetch answers that reader
-// found=false for it; and a script that does not exist is still refused.
+// way; a reader who does not own the script reads the page with the citation
+// resolved, and fetch returns the script to them, since a script's definition
+// is readable by everyone signed in (#2027 replaced this ticket's original
+// owner-only rule); and a script that does not exist is still refused.
 //
-// The script's owner is the dev stack's owner key, the reader who cannot open
+// The script's owner is the dev stack's owner key, the reader who does not own
 // it is the peer key (both collaborators), and the page is promoted by the
 // default administrator key, since apply_knowledge is the administrator's.
 //
@@ -131,7 +132,7 @@ func TestIssue1855_AScriptNamedInTheBodyIsPickedUp(t *testing.T) {
 	}
 }
 
-func TestIssue1855_AReaderWhoCannotOpenTheScriptStillReadsThePage(t *testing.T) {
+func TestIssue1855_AReaderWhoDoesNotOwnTheScriptReadsTheCitation(t *testing.T) {
 	admin := connect(t)
 	owner := connectAs(t, devOwnerAPIKey)
 	peer := connectAs(t, devPeerAPIKey)
@@ -142,11 +143,15 @@ func TestIssue1855_AReaderWhoCannotOpenTheScriptStillReadsThePage(t *testing.T) 
 
 	status, page := peer.rest(http.MethodGet, "/api/v1/portal/knowledge-pages/"+pageID, http.NoBody)
 	if status != http.StatusOK {
-		t.Fatalf("the page is not readable by a reader who cannot open the script: %d %v", status, page)
+		t.Fatalf("the page is not readable by a reader who does not own the script: %d %v", status, page)
 	}
 	refs := pageRefs1855(t, peer, pageID)
-	if _, listed := refs[ref]; listed {
-		t.Errorf("the script reference is listed for a reader who cannot open the script: %v", refs[ref])
+	got, listed := refs[ref]
+	if !listed {
+		t.Fatalf("the script citation is not listed for a reader who does not own the script: %v", refs)
+	}
+	if label, _ := got["label"].(string); !strings.HasPrefix(label, "acc-1855-") {
+		t.Errorf("the script citation is labeled %q; want the script's name", label)
 	}
 	if _, listed := refs[dataset]; !listed {
 		t.Errorf("the page's other reference is not listed for that reader: %v", refs)
@@ -161,16 +166,16 @@ func TestIssue1855_AReaderWhoCannotOpenTheScriptStillReadsThePage(t *testing.T) 
 	if len(list) != 1 {
 		t.Fatalf("resolve returned %v", resolved)
 	}
-	if r, _ := list[0].(map[string]any); r["accessible"] != false {
-		t.Errorf("the script resolves as accessible for a reader who cannot open it: %v", r)
+	if r, _ := list[0].(map[string]any); r["accessible"] != true {
+		t.Errorf("the script does not resolve for a reader who does not own it: %v", r)
 	}
 
 	fetched := peer.call("fetch", map[string]any{
 		"reference": ref,
-		"purpose":   "Acceptance #1855: a reader who cannot open the script follows the page's citation.",
+		"purpose":   "Acceptance #1855: a reader who does not own the script follows the page's citation.",
 	})
-	if found, _ := fetched["found"].(bool); found {
-		t.Errorf("fetch returned the script to a reader who does not own it: %v", fetched)
+	if found, _ := fetched["found"].(bool); !found {
+		t.Errorf("fetch did not return the script to a reader who does not own it: %v", fetched)
 	}
 }
 

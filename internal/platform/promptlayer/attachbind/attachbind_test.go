@@ -139,25 +139,34 @@ func TestScriptsReturnsTheBoundResolver(t *testing.T) {
 }
 
 // TestResolveScriptsUsesTheRequestIdentity proves the binder derives the
-// caller's address from the request context: without it every reference would
-// resolve for nobody and the serve payload would report every automation as out
-// of reach.
+// caller from the request context: every identified reader receives the
+// script's contract (#2027), its last run only when they own it or administer
+// the platform.
 func TestResolveScriptsUsesTheRequestIdentity(t *testing.T) {
-	b := binderWithScripts(t, janesScript())
+	c := janesScript()
+	c.LastRun = &script.ContractRun{Version: 1}
+	b := binderWithScripts(t, c)
 	pr := &prompt.Prompt{ID: "p1", Scope: prompt.ScopePersona}
 
 	got := b.ResolveScripts(ctxWith("jane@example.com", "analyst"), pr)
 	require.Len(t, got, 1)
 	assert.Equal(t, attachserve.AvailableEmbedded, got[0].Availability)
+	assert.NotNil(t, got[0].Contract.LastRun)
 
 	other := b.ResolveScripts(ctxWith("bob@example.com", "engineer"), pr)
 	require.Len(t, other, 1)
-	assert.Equal(t, attachserve.UnavailableForbidden, other[0].Availability)
+	assert.Equal(t, attachserve.AvailableEmbedded, other[0].Availability)
+	assert.Nil(t, other[0].Contract.LastRun)
+
+	admin := b.ResolveScripts(middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserEmail: "root@example.com", PersonaName: "admin", IsAdmin: true,
+	}), pr)
+	require.Len(t, admin, 1)
+	assert.NotNil(t, admin[0].Contract.LastRun, "an administrator reads it whole")
 }
 
 // TestResolveScriptsWithoutIdentityResolvesNothing proves an anonymous request
-// reaches no script: a script is its owner's, and a request the platform cannot
-// name owns none.
+// receives no contract: a definition is everyone signed in's to read.
 func TestResolveScriptsWithoutIdentityResolvesNothing(t *testing.T) {
 	pr := &prompt.Prompt{ID: "p1", Scope: prompt.ScopeGlobal}
 

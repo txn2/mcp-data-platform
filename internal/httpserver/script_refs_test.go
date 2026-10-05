@@ -24,27 +24,29 @@ func TestPortalScriptRefs(t *testing.T) {
 	assert.NotNil(t, portalScriptRefs(db))
 }
 
-// TestCitedScripts proves the adapter reports a found script's label and owner,
-// and answers a missing script and a failed read alike as not found, so a read
-// failure withholds the citation instead of failing the page.
+// TestCitedScripts proves the adapter reports a found script's label, and
+// answers a missing script as not found and a failed read as an error, so
+// the portal can withhold the citation instead of showing it as deleted.
 func TestCitedScripts(t *testing.T) {
 	found := citedScripts(func(context.Context, string) (*scriptstore.Citation, error) {
-		return &scriptstore.Citation{Label: "Orders sync", Owner: "jane@example.com"}, nil
+		return &scriptstore.Citation{Label: "Orders sync"}, nil
 	})
-	label, owner, ok := found(context.Background(), "id")
+	label, ok, err := found(context.Background(), "id")
+	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, "Orders sync", label)
-	assert.Equal(t, "jane@example.com", owner)
 
 	missing := citedScripts(func(context.Context, string) (*scriptstore.Citation, error) {
 		return nil, nil //nolint:nilnil // the lookup's not-found answer
 	})
-	_, _, ok = missing(context.Background(), "id")
+	_, ok, err = missing(context.Background(), "id")
+	require.NoError(t, err)
 	assert.False(t, ok)
 
 	failing := citedScripts(func(context.Context, string) (*scriptstore.Citation, error) {
 		return nil, errors.New("db down")
 	})
-	_, _, ok = failing(context.Background(), "id\nforged")
+	_, ok, err = failing(context.Background(), "id\nforged")
+	require.Error(t, err, "a failed read is passed on, not answered as a missing script")
 	assert.False(t, ok)
 }

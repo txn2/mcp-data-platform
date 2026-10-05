@@ -1359,7 +1359,17 @@ export const mockRunFlows: Record<string, Omit<ScriptRunFlow, "graph">> = {
     calls: 1,
     unplaced: false,
     timeline: [
-      { start_ms: 140, duration_ms: 1_840, tool: "trino_query", success: true, response_chars: 18_240, call_site: ["2:22"], node: "op:1" },
+      {
+        start_ms: 140,
+        duration_ms: 1_840,
+        tool: "trino_query",
+        success: true,
+        response_chars: 18_240,
+        call_site: ["2:22"],
+        node: "op:1",
+        arguments:
+          '{"connection":"acme-warehouse","sql":"SELECT region, sum(amount) AS revenue, count(*) AS orders FROM sales.orders WHERE order_date = DATE \'2026-08-13\' GROUP BY region ORDER BY revenue DESC"}',
+      },
     ],
     run_ms: 2_610,
     calls_truncated: false,
@@ -1399,6 +1409,8 @@ export const mockRunFlows: Record<string, Omit<ScriptRunFlow, "graph">> = {
         response_chars: 0,
         call_site: ["2:22"],
         node: "op:1",
+        arguments:
+          '{"connection":"acme-warehouse","sql":"SELECT region, sum(amount) AS revenue, count(*) AS orders FROM sales.orders WHERE order_date = DATE \'2026-08-12\' GROUP BY region ORDER BY revenue DESC"}',
       },
     ],
     run_ms: 520,

@@ -714,6 +714,8 @@ func TestPortalGetScript_ShowsAnotherPersonsCode(t *testing.T) {
 	contracts := &stubContracts{contract: &script.Contract{
 		ID: "script_2", Name: "carols-report",
 		OwnerEmail: "carol@example.com",
+		LastRun:    &script.ContractRun{Version: 1, Outputs: []script.ContractOutput{{Name: "carols-private-report"}}},
+		State:      &script.ContractState{Reads: true, Saves: true, Revision: 4},
 	}}
 
 	rec := servePortal(t, portalDeps(store, nil, contracts, stranger), "/api/v1/portal/scripts/script_2")
@@ -727,4 +729,32 @@ func TestPortalGetScript_ShowsAnotherPersonsCode(t *testing.T) {
 	assert.Equal(t, "x = 1\n", seen.Source, "the code is the definition")
 	require.Len(t, seen.DraftParams, 1)
 	assert.Equal(t, "region", seen.DraftParams[0].Name)
+	// A run's outputs name assets that may not be shared with this reader, and
+	// the state is acting-side reading (#2027).
+	assert.NotContains(t, rec.Body.String(), "carols-private-report")
+	assert.Nil(t, seen.Contract.LastRun)
+	assert.True(t, seen.Contract.RunsWithheld)
+	require.NotNil(t, seen.Contract.State)
+	assert.Zero(t, seen.Contract.State.Revision)
+	assert.True(t, seen.Contract.State.Reads, "what the source does with state is the definition")
+
+	rec = servePortal(t, portalDeps(store, nil, contracts, admin), "/api/v1/portal/scripts/script_2")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "carols-private-report", "an administrator reads it whole")
+}
+
+// TestActsOnScript is the reader of what acting on a script shows: its owner
+// and an administrator, and not another person or an unidentified caller.
+func TestActsOnScript(t *testing.T) {
+	store := portalStore()
+	id := store.scripts[0].ID
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	owner := &PortalIdentity{UserID: "u1", Email: store.scripts[0].OwnerEmail}
+	for who, want := range map[*PortalIdentity]bool{owner: true, admin: true, stranger: false} {
+		h := New(portalDeps(store, nil, nil, who))
+		assert.Equal(t, want, h.ActsOnScript(req, who, id), who.Email)
+	}
+	h := New(portalDeps(store, nil, nil, admin))
+	assert.False(t, h.ActsOnScript(req, nil, id), "an unidentified caller acts on nothing")
+	assert.False(t, h.ActsOnScript(req, admin, "missing"), "a script that cannot be read answers false")
 }

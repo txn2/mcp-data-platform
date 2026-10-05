@@ -456,3 +456,69 @@ describe("KnowledgeGraphView catalog nodes", () => {
     expect(within(pane).queryByText(/Not found in/)).not.toBeInTheDocument();
   });
 });
+
+describe("KnowledgeGraphView script outputs (#1985)", () => {
+  const SCRIPT = "mcp:script:script-001";
+
+  function scriptGraph(): KnowledgeGraphResponse {
+    return {
+      nodes: [
+        pageNode("kp1", "Net Revenue"),
+        { id: SCRIPT, type: "script", label: "Daily Sales Report", exists: true, page: false, hidden_outputs: 2 },
+        { id: "mcp:asset:ast-001", type: "asset", label: "Q4 Revenue Dashboard", exists: true, page: false },
+        { id: "mcp:resource:res-014", type: "resource", label: "Regional Sales Extract", exists: true, page: false },
+      ],
+      edges: [
+        { source: "mcp:knowledge_page:kp1", target: SCRIPT, type: "script", ref_source: "inline" },
+        { source: "mcp:knowledge_page:kp1", target: "mcp:asset:ast-001", type: "asset", ref_source: "inline" },
+        { source: SCRIPT, target: "mcp:asset:ast-001", type: "asset", ref_source: "produced" },
+        { source: SCRIPT, target: "mcp:resource:res-014", type: "resource", ref_source: "produced" },
+      ],
+      total_pages: 1,
+      truncated: false,
+    };
+  }
+
+  beforeEach(() => {
+    graphResult.current = { data: scriptGraph(), isLoading: false, isError: false };
+  });
+
+  it("lists what a script produced and counts the outputs the reader cannot open", () => {
+    renderGraph();
+    fireEvent.click(screen.getByLabelText("Script: Daily Sales Report"));
+    const inspector = within(screen.getByRole("complementary"));
+
+    expect(inspector.getByText("Produced (2)")).toBeInTheDocument();
+    expect(inspector.getByText("Q4 Revenue Dashboard")).toBeInTheDocument();
+    expect(inspector.getByText("Regional Sales Extract")).toBeInTheDocument();
+    expect(inspector.getByTestId("graph-hidden-outputs")).toHaveTextContent("2 more outputs you cannot open");
+    expect(inspector.queryByText(/^References/)).toBeNull();
+    expect(inspector.queryByTestId("graph-more-outputs")).toBeNull();
+  });
+
+  it("says when a script wrote more outputs than the graph read", () => {
+    const g = scriptGraph();
+    g.nodes[1] = { ...g.nodes[1]!, hidden_outputs: 0, more_outputs: true };
+    graphResult.current = { data: g, isLoading: false, isError: false };
+    renderGraph();
+    fireEvent.click(screen.getByLabelText("Script: Daily Sales Report"));
+    const inspector = within(screen.getByRole("complementary"));
+    expect(inspector.getByTestId("graph-more-outputs")).toHaveTextContent("50 most recent outputs");
+    expect(inspector.queryByTestId("graph-hidden-outputs")).toBeNull();
+  });
+
+  it("separates the script that produced a file from the pages that cite it", () => {
+    renderGraph();
+    fireEvent.click(screen.getByLabelText("Asset: Q4 Revenue Dashboard"));
+    const inspector = within(screen.getByRole("complementary"));
+
+    expect(inspector.getByText("Produced by (1)")).toBeInTheDocument();
+    expect(inspector.getByText("Referenced by (1)")).toBeInTheDocument();
+    expect(inspector.queryByTestId("graph-hidden-outputs")).toBeNull();
+  });
+
+  it("draws a resource with its own mark", () => {
+    renderGraph();
+    expect(screen.getByLabelText("Resource: Regional Sales Extract")).toBeInTheDocument();
+  });
+});

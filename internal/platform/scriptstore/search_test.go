@@ -36,28 +36,53 @@ func TestSearch_NoQueryTextIsNoQuery(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSearch_AppliesVisibilityAndLifecycleInSQL proves both filters are
-// predicates rather than post-processing. A script the caller cannot see must
-// cost neither a row nor a decision, and the lifecycle arm keeps dead ends
-// (deprecated, superseded) out of the ranking.
-func TestSearch_AppliesVisibilityAndLifecycleInSQL(t *testing.T) {
+// TestSearch_RanksEveryReadersScriptsWithTheLifecycleInSQL proves the
+// lexical arm matches the card and the source (#2027) and binds no owner: a
+// script's definition is readable by everyone signed in, so whose it is does
+// not enter the ranking. The lifecycle arm keeps dead ends (deprecated,
+// superseded) out as a predicate rather than post-processing.
+func TestSearch_RanksEveryReadersScriptsWithTheLifecycleInSQL(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectQuery(regexp.QuoteMeta("script_fts(display_name, name, description, category, tags, params)")).
-		WithArgs("sales report", sqlmock.AnyArg(), "jane@example.com", script.DefaultSearchLimit).
+	mock.ExpectQuery(regexp.QuoteMeta("script_fts(display_name, name, description, category, tags, params, source_code)")).
+		WithArgs("sales report", sqlmock.AnyArg(), script.DefaultSearchLimit).
 		WillReturnRows(sqlmock.NewRows(scoredSelectColumns).
 			AddRow(scoredRow(rowSpec{
-				id: "script_1", name: "daily-sales", owner: "jane@example.com", paramsJSON: emptyParams(t),
+				id: "script_1", name: "daily-sales", owner: "someone-else@example.com", paramsJSON: emptyParams(t),
 			}, 0.75)...))
 
-	got, err := s.Search(context.Background(), script.SearchQuery{
-		QueryText:  "sales report",
-		OwnerEmail: "jane@example.com",
-	})
+	got, err := s.Search(context.Background(), script.SearchQuery{QueryText: "sales report"})
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "daily-sales", got[0].Script.Name)
 	assert.InDelta(t, 0.75, got[0].Score, 0.0001)
+	require.NoError(t, mock.ExpectationsWereMet())
+	assert.NotContains(t, buildLexicalSearch(), "owner_email =", "no owner predicate")
+}
+
+// TestSearch_HybridRanksTheBestChunkPerScript proves the vector arm reads the
+// chunk table: every script in service with chunks, scored by its best chunk,
+// with the lifecycle filter applied before the limit, binding the vector, the
+// text and the statuses only.
+func TestSearch_HybridRanksTheBestChunkPerScript(t *testing.T) {
+	q := script.SearchQuery{Embedding: []float32{0.1, 0.2}, QueryText: "churn", Limit: 5}
+	stmt := buildHybridSearch(q)
+	assert.Contains(t, stmt, "EXISTS (SELECT 1 FROM script_embedding_chunks c WHERE c.script_id = scripts.id) ORDER BY vec_score DESC LIMIT 5")
+	assert.Contains(t, stmt, "MAX(1 - (c.embedding <=> $1))")
+	assert.NotContains(t, stmt, "owner_email =")
+	assert.NotContains(t, stmt, "$4")
+
+	s, mock := newMock(t)
+	hybridColumns := append(append([]string{}, scriptSelectColumns...), "vec_score", "lex_match")
+	mock.ExpectQuery(regexp.QuoteMeta("FROM script_embedding_chunks")).
+		WithArgs(sqlmock.AnyArg(), "churn", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(hybridColumns).
+			AddRow(append(scriptRow(rowSpec{id: "script_1", name: "churn", owner: "a@example.com", paramsJSON: emptyParams(t)}), 0.9, false)...).
+			AddRow(append(scriptRow(rowSpec{id: "script_1", name: "churn", owner: "a@example.com", paramsJSON: emptyParams(t)}), 0.9, true)...))
+	got, err := s.Search(context.Background(), q)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "a script both arms matched is one result")
+	assert.InDelta(t, fuseHybridScore(0.9, true), got[0].Score, 0.0001)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -220,16 +245,15 @@ func TestSearch_HybridRunsBothIndexBackedArms(t *testing.T) {
 	}
 	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
 		WithArgs(sqlmock.AnyArg(), "refresh the regional sales numbers",
-			sqlmock.AnyArg(), "jane@example.com").
+			sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
 			AddRow(hybridRow(both, 0.8, false)...).
 			AddRow(hybridRow(vectorOnly, 0.6, false)...).
 			AddRow(hybridRow(both, 0.8, true)...))
 
 	got, err := s.Search(context.Background(), script.SearchQuery{
-		Embedding:  []float32{0.1, 0.2},
-		QueryText:  "refresh the regional sales numbers",
-		OwnerEmail: "jane@example.com",
+		Embedding: []float32{0.1, 0.2},
+		QueryText: "refresh the regional sales numbers",
 	})
 
 	require.NoError(t, err)

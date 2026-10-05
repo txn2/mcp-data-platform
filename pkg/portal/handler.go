@@ -322,10 +322,10 @@ type Deps struct {
 	// as existing.
 	ScriptNames producerapi.ScriptNames
 	// ScriptRefs looks up a managed script a knowledge page cites (#1855): the
-	// name it is shown by, and the owner who, with an administrator, is the one
-	// reader it resolves for. ok is false when no such script exists. Nil
-	// resolves every script citation as unavailable.
-	ScriptRefs func(ctx context.Context, id string) (label, owner string, ok bool)
+	// name it is shown by. ok is false when no such script exists; err is a
+	// lookup that failed, which withholds the citation rather than showing it
+	// as deleted. Nil resolves every script citation as unavailable.
+	ScriptRefs func(ctx context.Context, id string) (label string, ok bool, err error)
 }
 
 // Handler provides portal REST API endpoints.

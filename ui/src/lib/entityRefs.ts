@@ -44,9 +44,8 @@ export function entityHref(type: string, id: string): string | null {
       // browser back/forward works, and the reference graph is wiki-navigable.
       return `/knowledge/pages/${id}`;
     case "script":
-      // A cited managed script (#1855) opens its script page. The server only
-      // hands a reader a script citation they may open, so the link is never
-      // offered to someone the page would refuse.
+      // A cited managed script (#1855) opens its script page, which every
+      // signed-in reader may read (#2027).
       return `/automations/${id}`;
     default:
       // Connections have no per-instance portal page. A DataHub URN does, but it

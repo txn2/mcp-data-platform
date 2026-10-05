@@ -140,8 +140,10 @@ type Script struct {
 	Source      string  `json:"source" example:"rows = platform.query(connection='primary', sql='SELECT 1')"`
 	Params      []Param `json:"params"`
 	// OwnerEmail is the one person a script belongs to: the only caller who
-	// sees, edits, runs, and schedules it, administrators aside. An
-	// administrator can move it to another owner (Transfer).
+	// edits, runs, and schedules it and reads its runs, administrators and
+	// grantees aside. Its definition is readable by everyone signed in
+	// (#1866, #2027). An administrator can move it to another owner
+	// (Transfer).
 	OwnerEmail string `json:"owner_email" example:"jane@example.com"`
 	// Category files the script under one lowercase slug, the axis a listing
 	// filters on and a reader scans. It is the same axis a resource and an
@@ -189,17 +191,16 @@ type Script struct {
 	Tests *testreport.Report `json:"-"`
 }
 
-// OwnedBy reports whether the named caller owns this script, which is the
-// whole of script visibility: a script is one person's, and only that person
-// (and an administrator, an authority the caller applies, not this method)
-// sees it, edits it, runs it, or schedules it.
+// OwnedBy reports whether the named caller owns this script: the person who,
+// with an administrator (an authority the caller applies, not this method),
+// edits it, runs it, schedules it and reads its runs. Reading its definition
+// takes no ownership (#1866, #2027).
 //
 // Both sides must be identified. A script whose owner is empty — one authored
 // by a principal carrying no email, such as an API key, or one whose owner
 // predates this rule — would otherwise belong to every caller the platform
 // cannot name either. Such a script is nobody's until an administrator
-// transfers it. The store's list and search predicates require the same, so a
-// caller can never fetch what a listing would have hidden.
+// transfers it.
 func (s *Script) OwnedBy(email string) bool {
 	return s != nil && s.OwnerEmail != "" && s.OwnerEmail == email
 }

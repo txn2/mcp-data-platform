@@ -21,6 +21,9 @@ func ForPortal(scripts *scripthttp.Handler, deps scripthttp.Deps, calls AuditQue
 		Run: func(w http.ResponseWriter, r *http.Request) (*script.Run, bool) {
 			return scripts.ReadableRun(w, r, deps.PortalUser(r))
 		},
+		ActsOn: func(r *http.Request, scriptID string) bool {
+			return deps.PortalUser != nil && scripts.ActsOnScript(r, deps.PortalUser(r), scriptID)
+		},
 	}
 	if deps.Runs == nil {
 		d.Run = nil

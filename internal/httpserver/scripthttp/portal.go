@@ -298,7 +298,7 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
+// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script's definition is readable by everyone signed in; its runs are its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
 // @Tags         Scripts
 // @Produce      json
 // @Param        scope     query  string    false  "Whose scripts to list: mine (default), all, or granted"  Enums(mine, all, granted)
@@ -338,7 +338,7 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	for i := range scripts {
 		owned := ownsScript(&scripts[i], user)
 		rows = append(rows, portalScriptRow{
-			Script: reportableScript(scripts[i], owned), Owned: owned, Granted: granted[scripts[i].ID],
+			Script: listedScript(scripts[i]), Owned: owned, Granted: granted[scripts[i].ID],
 		})
 	}
 	h.attachSchedules(r.Context(), rows)
@@ -401,21 +401,13 @@ func (h *Handler) healthCounts(
 	return scheduled, failing
 }
 
-// reportableScript is a script row as its reader may have it: complete, except
-// that a row the reader does not own carries no SOURCE. Reading the code is
-// what the version history and the editor are for, and both are the owner's and
-// the administrator's.
-//
-// The predicate already limits a non-admin to their own scripts, so the guard
-// bites only where a row could arrive unowned — an administrator's unfiltered
-// listing, where owned is true and the source is theirs to read. It is kept as
-// the listing's own answer to the question rather than as an inference from the
-// predicate: a listing that grew a second population would otherwise hand out
-// code silently. The tool listing projects its fields and never carried it.
-func reportableScript(sc script.Script, owned bool) script.Script {
-	if !owned {
-		sc.Source = ""
-	}
+// listedScript is a script row as the listing sends it: without its source,
+// for every reader. That is a payload choice, not an access rule: a source
+// runs to 256 KiB and a listing to hundreds of rows, and nothing that renders
+// a listing reads the code. The source is everyone signed in's to read (#1866,
+// #2027), on GET /portal/scripts/{id} and in the version history.
+func listedScript(sc script.Script) script.Script {
+	sc.Source = ""
 	return sc
 }
 
@@ -524,23 +516,20 @@ func rowIDs(rows []portalScriptRow, ownedOnly bool) []string {
 type portalScriptResponse struct {
 	Contract script.Contract `json:"contract"`
 	Owned    bool            `json:"owned" example:"true"`
-	// Source is the live script's code, present only for the owner and an
-	// administrator: it is what the editor on that page opens (#1307). The
-	// contract document deliberately does not carry it, because that document
-	// is what a reference to the script resolves to.
+	// Source is the live script's code, for every signed-in caller (#1866,
+	// #2027): it is what the page shows and the owner's editor opens (#1307).
 	Source string `json:"source,omitempty"`
 	// DraftParams is the LIVE record's parameter contract, which is not always
 	// the contract above only in freshness: it is read with the source, so the
 	// dry-run form binds against exactly the contract the code beside it was
-	// written against (#1364). It travels with the source for the same
-	// audience and for the same reason.
+	// written against (#1364).
 	DraftParams []script.Param `json:"draft_params,omitempty"`
 }
 
 // portalGetScript returns one script's contract.
 //
 // @Summary      Get a script's contract
-// @Description  Returns what the script is, what it takes, whether anything will execute it, on what cadence, and what it last produced. It is the same contract document a reference to the script resolves to.
+// @Description  Returns what the script is, what it takes, whether anything will execute it, on what cadence, and its current source, for every signed-in caller. Its last successful run and saved state are included for its owner and administrators only; for anyone else the contract carries runs_withheld. It is the same contract document a reference to the script resolves to.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
@@ -566,10 +555,12 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 	// knowledge pages cite scripts. `owned` gates what acting on it takes --
 	// every editor, a run, the run history, its state, grants and schedule --
 	// which the page reads from the same flag and the routes enforce.
+	// The last run and the saved state are acting-side reading too (#2027):
+	// a run's outputs name assets that may not be shared with this reader.
 	owned := user.IsAdmin || ownsEmail(contract.OwnerEmail, user.owner())
 	source, draftParams := h.liveRecord(r, contract.ID)
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptResponse{
-		Contract:    *contract,
+		Contract:    contract.ForReader(owned),
 		Owned:       owned,
 		Source:      source,
 		DraftParams: draftParams,
@@ -938,6 +929,17 @@ func (h *Handler) ReadableRun(w http.ResponseWriter, r *http.Request, user *Port
 		return nil, false
 	}
 	return run, true
+}
+
+// ActsOnScript reports whether the caller owns the script or administers the
+// platform: the readers of what acting on it shows, such as the arguments its
+// run's calls were sent (#1982). A script that cannot be read answers false.
+func (h *Handler) ActsOnScript(r *http.Request, user *PortalIdentity, id string) bool {
+	if user == nil {
+		return false
+	}
+	sc, err := h.deps.Scripts.GetByID(r.Context(), id)
+	return err == nil && sc != nil && ownsScript(sc, user)
 }
 
 // producedListResponse is everything one script has produced or modified.

@@ -5,7 +5,7 @@ import type { FlowNode, ScriptRunFlow } from "@/api/portal/hooks/scriptFlow";
 import { Button } from "@/components/ui/button";
 import { FAILED_COLOR, FlowLegend, RoleSwatches } from "./FlowCard";
 import { FONT_BODY, ROLE_COLOR, SELECT_COLOR, fitText, formatDuration, type Selection } from "./flowModel";
-import { buildTimeline, lineOf, type TimelineBar } from "./timelineModel";
+import { buildTimeline, type TimelineBar } from "./timelineModel";
 
 // TimelineView is a run as a flame chart (#1972): every audited call placed
 // when it was made and for as long as it took, under the helpers it was made
@@ -21,10 +21,9 @@ interface Props {
   selection: Selection;
   fill?: boolean;
   onSelect: (s: Selection) => void;
-  onShowLines?: (lines: number[]) => void;
 }
 
-export function TimelineView({ run, selection, fill, onSelect, onShowLines }: Props) {
+export function TimelineView({ run, selection, fill, onSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const base = useWidth(hostRef);
@@ -37,6 +36,7 @@ export function TimelineView({ run, selection, fill, onSelect, onShowLines }: Pr
   const x = scaleLinear().domain([0, timeline.span]).range([8, width - 8]);
   const height = AXIS + timeline.depth * ROW + 12;
   const selectedCard = selection?.kind === "node" ? selection.id : null;
+  const selectedCall = selection?.kind === "call" ? selection.index : null;
 
   if (run.timeline.length === 0) {
     return (
@@ -65,8 +65,8 @@ export function TimelineView({ run, selection, fill, onSelect, onShowLines }: Pr
               bar={b}
               x={x}
               card={b.call?.node ? cards.get(b.call.node) : undefined}
-              selected={!!b.call?.node && b.call.node === selectedCard}
-              onPick={() => pick(b, onSelect, onShowLines)}
+              selected={b.index === selectedCall || (!!b.call?.node && b.call.node === selectedCard)}
+              onPick={() => b.index !== undefined && onSelect({ kind: "call", index: b.index })}
             />
           ))}
         </svg>
@@ -102,17 +102,6 @@ function useWidth(ref: React.RefObject<HTMLDivElement | null>): number {
     return () => ro.disconnect();
   }, [ref]);
   return width;
-}
-
-// pick selects a call's card, or, for a call no card made, shows its line.
-function pick(b: TimelineBar, onSelect: (s: Selection) => void, onShowLines?: (lines: number[]) => void) {
-  if (!b.call) return;
-  if (b.call.node) {
-    onSelect({ kind: "node", id: b.call.node });
-    return;
-  }
-  const site = b.call.call_site;
-  if (site && site.length > 0) onShowLines?.([lineOf(site[site.length - 1]!)]);
 }
 
 function FlowLegendInline() {

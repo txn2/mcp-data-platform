@@ -2,8 +2,10 @@ package flowhttp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptflow"
@@ -15,6 +17,9 @@ import (
 // maxRunCalls bounds the audited calls one run's overlay reads. A run that made
 // more is drawn from the first ones, and says so.
 const maxRunCalls = 10000
+
+// maxArgumentBytes bounds the arguments one call carries in the overlay.
+const maxArgumentBytes = 2048
 
 // sourceScript is the audit source a managed script's own calls carry.
 const sourceScript = "script"
@@ -51,7 +56,7 @@ func (h *Handler) registerRunFlow(mux *http.ServeMux, wrap func(http.Handler) ht
 // runFlow draws one run on the diagram of the version it executed.
 //
 // @Summary      Draw a script run on its flow diagram
-// @Description  Returns the diagram of the version a run executed, with each step's part in that run: how many of the run's audited tool calls it made and how long they took, the outputs it wrote, whether the run reached it, and the step the run failed at. Calls are attributed by where in the script they were made; a call no step made (a computed tool, a call made before call sites were recorded) is listed in other_calls, so the steps' calls and other_calls always add up to calls. Readable by the script's owner, an administrator, and whoever requested the run.
+// @Description  Returns the diagram of the version a run executed, with each step's part in that run: how many of the run's audited tool calls it made and how long they took, the outputs it wrote, whether the run reached it, and the step the run failed at. Each call on the timeline carries the arguments its audit row recorded, cut at 2048 bytes, for the script's owner and administrators; whoever requested the run sees the calls without them. Calls are attributed by where in the script they were made; a call no step made (a computed tool, a call made before call sites were recorded) is listed in other_calls, so the steps' calls and other_calls always add up to calls. Readable by the script's owner, an administrator, and whoever requested the run.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id     path  string  true  "Script ID"
@@ -81,7 +86,8 @@ func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusNotFound, errVersionNotFound)
 		return
 	}
-	calls, truncated, err := h.runCalls(r.Context(), run)
+	withArgs := h.deps.ActsOn != nil && h.deps.ActsOn(r, run.ScriptID)
+	calls, truncated, err := h.runCalls(r.Context(), run, withArgs)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to read the run's calls")
 		return
@@ -95,10 +101,11 @@ func (h *Handler) runFlow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// runCalls reads the run's audited calls: a script's calls are audited under
+// runCalls reads the run's audited calls, with the arguments each was sent
+// when withArgs: a script's calls are audited under
 // the run id as their session (#1284). The window starts where the run was
 // created, which keeps the read to the partitions the run can be in.
-func (h *Handler) runCalls(ctx context.Context, run *script.Run) ([]flowrun.Call, bool, error) {
+func (h *Handler) runCalls(ctx context.Context, run *script.Run, withArgs bool) ([]flowrun.Call, bool, error) {
 	if h.deps.Audit == nil {
 		return []flowrun.Call{}, false, nil
 	}
@@ -121,12 +128,42 @@ func (h *Handler) runCalls(ctx context.Context, run *script.Run) ([]flowrun.Call
 		if e.EventKind == audit.EventTypeScriptRun {
 			continue
 		}
+		var (
+			args string
+			cut  bool
+		)
+		if withArgs {
+			args, cut = argumentsText(e.Parameters)
+		}
 		calls = append(calls, flowrun.Call{
 			CallSite: e.CallSite, Tool: e.ToolName, DurationMS: e.DurationMS,
 			Success: e.Success, Error: e.ErrorMessage, ResponseChars: e.ResponseChars, At: e.Timestamp,
+			Arguments: args, ArgumentsTruncated: cut,
 		})
 	}
 	return calls, truncated, nil
+}
+
+// argumentsText is a call's audited arguments as JSON, cut at
+// maxArgumentBytes on a character boundary, and whether it was cut. A run
+// reads up to maxRunCalls calls, so one call's arguments are bounded rather
+// than each carrying a whole document it was sent.
+func argumentsText(params map[string]any) (string, bool) {
+	if len(params) == 0 {
+		return "", false
+	}
+	b, err := json.Marshal(params)
+	if err != nil {
+		return "", false
+	}
+	if len(b) <= maxArgumentBytes {
+		return string(b), false
+	}
+	cut := maxArgumentBytes
+	for cut > 0 && !utf8.RuneStart(b[cut]) {
+		cut--
+	}
+	return string(b[:cut]), true
 }
 
 // runFacts is what the run record says the overlay needs.

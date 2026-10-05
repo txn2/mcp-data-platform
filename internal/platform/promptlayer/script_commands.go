@@ -23,41 +23,31 @@ const (
 const fieldScript = "script"
 
 // handlePromptAttachScript references a managed script from a prompt, so
-// serving the prompt hands the agent that script's contract, its latest
-// results, and the instruction to run it.
+// serving the prompt hands the agent that script's contract and the
+// instruction to run it.
 //
 // Authorization is the prompt's, not the script's: referencing is an edit to
-// the prompt, so it takes the same authority every other prompt mutation takes.
-// The script's own visibility governs one thing more — a caller may only
-// reference a script they can see — and the response carries the note saying
-// who the reference will resolve for.
+// the prompt, so it takes the same authority every other prompt mutation
+// takes. Any script may be referenced, since its definition is everyone signed
+// in's to read (#2027).
 func (h *Handle) handlePromptAttachScript(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	pr, res := h.resolveForScriptEdit(ctx, input, "attach a script to")
 	if res != nil {
 		return res, nil, nil
 	}
-	note, err := h.attach.Scripts().Attach(ctx, attachserve.ScriptAttachRequest{
+	if err := h.attach.Scripts().Attach(ctx, attachserve.ScriptAttachRequest{
 		Prompt:        pr,
 		Ref:           input.Script,
 		CallerEmail:   resolveEmail(ctx),
 		CallerIsAdmin: h.isAdminPersona(ctx),
-	})
-	if err != nil {
+	}); err != nil {
 		return h.scriptRefError(ctx, "failed to attach script", input.Script, err), nil, nil
 	}
-	out := map[string]any{
+	return promptJSONResult(map[string]any{
 		fieldStatus: "attached",
 		fieldName:   pr.Name,
 		fieldScript: input.Script,
-	}
-	// The note is present exactly when this prompt serves somebody the script
-	// does not, which is what its author needs to hear at the moment they made
-	// the reference rather than from a reader who received less than the prompt
-	// reads.
-	if note != "" {
-		out["audience_note"] = note
-	}
-	return promptJSONResult(out)
+	})
 }
 
 // handlePromptDetachScript removes one script reference from a prompt.

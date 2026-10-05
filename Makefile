@@ -605,6 +605,17 @@ swagger-check: swagger
 		exit 1; \
 	fi
 
+## apidocs-openapi3-check: Convert internal/apidocs/swagger.json to OpenAPI 3, as the UI's type generation does
+## A document swag writes can still be one swagger2openapi refuses (an optional
+## path parameter, #2022), and ui/src/api/generated is gitignored, so nothing
+## else converts it. This runs the conversion `npm run generate-api-types` runs.
+apidocs-openapi3-check:
+	@out=$$(mktemp -t openapi3.XXXXXX) && \
+	  (cd $(UI_DIR) && npx --no-install swagger2openapi ../internal/apidocs/swagger.json -o "$$out") ; \
+	  rc=$$? ; rm -f "$$out" ; \
+	  if [ $$rc -ne 0 ]; then echo "ERROR: internal/apidocs/swagger.json does not convert to OpenAPI 3 (npm run generate-api-types would fail)."; exit 1; fi ; \
+	  echo "internal/apidocs/swagger.json converts to OpenAPI 3"
+
 ## tools-check: Verify all required tools are installed AND pinned to CI versions
 ##
 ## Local-vs-CI tool version drift is the most insidious parity gap: different
@@ -724,6 +735,7 @@ verify:
 	@$(MAKE) --no-print-directory fmt
 	@$(MAKE) --no-print-directory swagger-check
 	@$(MAKE) --no-print-directory embed-clean
+	@$(MAKE) --no-print-directory apidocs-openapi3-check
 	@# Then the tagged build, before the lanes fan out. It is here rather than
 	@# inside verify-lint because the lanes start together under -j4: a failure
 	@# reported from a lane does not stop verify-docker from having already

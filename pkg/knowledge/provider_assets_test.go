@@ -410,3 +410,39 @@ func TestAssetsProvider_WithoutALookup(t *testing.T) {
 		t.Errorf("a deployment with no registration mechanism carries no reference: %+v", hits)
 	}
 }
+
+// TestAssetsProvider_FetchOpensWhatThePortalOpensForAPerson proves fetch
+// returns an asset shared with a person, and any asset to an administrator,
+// as the portal opens it (#2027); a run inherits neither.
+func TestAssetsProvider_FetchOpensWhatThePortalOpensForAPerson(t *testing.T) {
+	s := &fakeAssetSearcher{asset: &portal.Asset{ID: "a1", Name: "Jane's report", OwnerID: "u-jane", OwnerEmail: "jane@example.com"}}
+	p := NewAssetsProvider(s)
+	bob := Caller{UserID: "u-bob", Email: "bob@example.com"}
+
+	if _, _, err := p.Fetch(context.Background(), "mcp:asset:a1", bob); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("with no share graph bound, another person's asset is refused: %v", err)
+	}
+
+	var asked string
+	p.SetShareLookup(func(_ context.Context, a *portal.Asset, _, email string) bool {
+		asked = email
+		return a.ID == "a1" && email == "bob@example.com"
+	})
+	if doc, _, err := p.Fetch(context.Background(), "mcp:asset:a1", bob); err != nil || doc == nil {
+		t.Fatalf("an asset shared with the caller was refused: %v", err)
+	}
+	if asked != "bob@example.com" {
+		t.Errorf("the share graph was asked about %q", asked)
+	}
+	if _, _, err := p.Fetch(context.Background(), "mcp:asset:a1", Caller{UserID: "u-carol", Email: "carol@example.com"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an asset not shared with the caller was returned: %v", err)
+	}
+	if doc, _, err := p.Fetch(context.Background(), "mcp:asset:a1", Caller{Email: "root@example.com", IsAdmin: true}); err != nil || doc == nil {
+		t.Errorf("an administrator was refused an asset: %v", err)
+	}
+
+	run := Caller{UserID: "script:daily", Email: "bob@example.com", OnBehalfOf: "bob@example.com", IsAdmin: true}
+	if _, _, err := p.Fetch(context.Background(), "mcp:asset:a1", run); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a run reached an asset through its author's share or an administrator's reach: %v", err)
+	}
+}

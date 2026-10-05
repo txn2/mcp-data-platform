@@ -56,18 +56,18 @@ func TestContractStateOf(t *testing.T) {
 		cs := ContractStateOf(StateUse{}, EmptyState("s"))
 		assert.Zero(t, cs.Revision)
 		assert.Nil(t, cs.UpdatedAt)
-		assert.Equal(t, "State: keeps none; nothing has been saved.", cs.line())
+		assert.Equal(t, "State: keeps none; nothing has been saved.", cs.line(false))
 	})
 	t.Run("a saved state carries its revision and time", func(t *testing.T) {
 		cs := ContractStateOf(StateUse{Reads: true, Saves: true}, &State{Revision: 3, UpdatedAt: at})
 		assert.Equal(t, int64(3), cs.Revision)
 		require.NotNil(t, cs.UpdatedAt)
-		assert.Equal(t, "State: reads and saves state, so a run continues from the previous run's save; revision 3, last changed 2026-08-28 06:00 UTC.", cs.line())
+		assert.Equal(t, "State: reads and saves state, so a run continues from the previous run's save; revision 3, last changed 2026-08-28 06:00 UTC.", cs.line(false))
 	})
 	t.Run("the lopsided uses are named", func(t *testing.T) {
-		assert.Contains(t, ContractStateOf(StateUse{Saves: true}, nil).line(), "saves state and never reads it")
-		assert.Contains(t, ContractStateOf(StateUse{Reads: true}, nil).line(), "reads state and never saves it")
-		assert.Empty(t, (*ContractState)(nil).line())
+		assert.Contains(t, ContractStateOf(StateUse{Saves: true}, nil).line(false), "saves state and never reads it")
+		assert.Contains(t, ContractStateOf(StateUse{Reads: true}, nil).line(false), "reads state and never saves it")
+		assert.Empty(t, (*ContractState)(nil).line(false))
 	})
 	t.Run("the contract text carries the line", func(t *testing.T) {
 		c := BuildContract(liveScript(), nil, nil)
@@ -75,4 +75,33 @@ func TestContractStateOf(t *testing.T) {
 		c.State = ContractStateOf(StateUse{Saves: true}, &State{Revision: 1, UpdatedAt: at})
 		assert.Contains(t, c.Text(), "State: saves state and never reads it; revision 1")
 	})
+}
+
+func TestContractForReader_WithholdsRunsAndStateFromOthers(t *testing.T) {
+	finished := time.Date(2026, 8, 28, 6, 0, 0, 0, time.UTC)
+	c := BuildContract(
+		&Script{ID: "s1", Name: "daily", OwnerEmail: "o@example.com", Enabled: true, Status: StatusActive, Version: 2, Source: "def main():\n    pass\n"},
+		nil,
+		&Run{Version: 2, FinishedAt: &finished, Outputs: []RunOutput{{Name: "private-report", AssetID: "a1", AssetVersion: 1}}},
+	)
+	c.State = ContractStateOf(StateUse{Reads: true, Saves: true}, &State{Revision: 3, UpdatedAt: finished})
+	assert.Equal(t, "def main():\n    pass\n", c.Source)
+
+	owner := c.ForReader(true)
+	assert.Equal(t, c, owner, "the owner and administrators read it whole")
+	assert.Contains(t, owner.Text(), "private-report")
+
+	other := c.ForReader(false)
+	assert.True(t, other.RunsWithheld)
+	assert.Nil(t, other.LastRun)
+	require.NotNil(t, other.State)
+	assert.Zero(t, other.State.Revision)
+	assert.Nil(t, other.State.UpdatedAt)
+	assert.True(t, other.State.Reads && other.State.Saves, "what the source does with state is the definition")
+	text := other.Text()
+	assert.NotContains(t, text, "private-report")
+	assert.NotContains(t, text, "revision 3")
+	assert.Contains(t, text, "Last successful run: shown to the script's owner and administrators.")
+	assert.Contains(t, text, "what it saved is shown to the script's owner and administrators.")
+	assert.NotNil(t, c.LastRun, "ForReader leaves the contract it was given alone")
 }

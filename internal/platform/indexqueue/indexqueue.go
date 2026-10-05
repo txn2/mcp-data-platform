@@ -387,15 +387,12 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 			resourceindex.NewSink(resStore, cfg.ModelName),
 		)
 	})
-	// Scripts consumer: embeds each script's description card — never its
-	// Starlark — so a person asking for what they want done reaches the
-	// automation that does it (#1370).
+	// Scripts consumer: embeds each script's card and its source, chunked to
+	// the provider's input, so a person asking for what they want done
+	// reaches the automation that does it (#1370, #2027).
 	tryRegister(cfg.Consumers.Scripts, "scripts", func() error {
-		scStore := scriptindex.NewStore(cfg.DB)
-		return h.registry.Register(
-			scriptindex.NewSource(scStore),
-			scriptindex.NewSink(scStore, cfg.ModelName),
-		)
+		return scriptindex.RegisterConsumer(h.registry, cfg.DB, cfg.ModelName,
+			embedding.MaxInputBytes(cfg.Embedder))
 	})
 	// GraphQL consumer: embeds each graphql connection's operations so a
 	// caller asking for what they want done reaches the operation that does

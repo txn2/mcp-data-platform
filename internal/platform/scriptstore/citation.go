@@ -7,17 +7,15 @@ import (
 )
 
 // Citation is what a knowledge page's citation of a script needs when it is
-// resolved for a reader (#1855): the name the script is shown by, and the owner
-// who, with an administrator, may open it.
+// resolved for a reader (#1855): the name the script is shown by. A script's
+// definition is readable by everyone signed in (#2027), so a citation resolves
+// the same for every reader.
 type Citation struct {
 	// Label is the script's display name, or its name when it has none.
 	Label string
-	// Owner is the one person the script belongs to; empty for a script that
-	// is nobody's until an administrator transfers it.
-	Owner string
 }
 
-// Citation returns the cited script's label and owner, or nil, nil when no
+// Citation returns the cited script's label, or nil, nil when no
 // script has this id. An id that is not a UUID names no script (scripts.id
 // cannot hold one), so it is answered as not found without a query rather than
 // handed to the database to fail on.
@@ -33,7 +31,7 @@ func (s *Store) Citation(ctx context.Context, id string) (*Citation, error) {
 	if label == "" {
 		label = sc.Name
 	}
-	return &Citation{Label: label, Owner: sc.OwnerEmail}, nil
+	return &Citation{Label: label}, nil
 }
 
 // validUUID reports whether id is a UUID, the only thing scripts.id holds.

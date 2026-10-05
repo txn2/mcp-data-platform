@@ -16,6 +16,7 @@ func TestReferenceBuilders_RoundTrip(t *testing.T) {
 		wantTyp string
 	}{
 		{"asset", AssetRef("a1b2"), "mcp:asset:a1b2", RefTargetAsset},
+		{"collection", CollectionRef("c1b2"), "mcp:collection:c1b2", RefTargetCollection},
 		{"knowledge_page", PageReference("kp_36d8"), "mcp:knowledge_page:kp_36d8", RefTargetKnowledgePage},
 		{"prompt uuid", PromptRef(promptUUID), "mcp:prompt:" + promptUUID, RefTargetPrompt},
 		{"connection", ConnectionRef("api", "prometheus"), "mcp:connection:(api,prometheus)", RefTargetConnection},

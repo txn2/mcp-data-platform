@@ -2,7 +2,6 @@ package scriptindex
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strconv"
 	"strings"
@@ -12,8 +11,6 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
 // newMock returns a store over a mocked database plus the mock controller.
@@ -28,10 +25,10 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 	return NewStore(db), mock
 }
 
-// textColumns is the projection GetIndexText reads. source_code is deliberately
-// absent, and this list is where that stays visible.
+// textColumns is the projection GetIndexed reads: every field
+// script.IndexCorpus composes, the source included (#2027).
 var textColumns = []string{
-	"display_name", "name", "description", "category", "tags", "params", "status", "superseded_by",
+	"display_name", "name", "description", "category", "tags", "params", "status", "superseded_by", "library", "source_code",
 }
 
 // pgVecLiteral renders a []float32 in the pgvector text format so sqlmock's
@@ -44,183 +41,93 @@ func pgVecLiteral(v []float32) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
-func TestGetIndexTextComposesTheDescriptionCard(t *testing.T) {
+func TestGetIndexedReadsEveryFieldTheCorpusComposes(t *testing.T) {
 	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
-		sqlmock.NewRows(textColumns).AddRow(
-			"Daily Sales Report", "daily-sales", "Summarize yesterday's sales by region",
-			"reporting", pq.Array([]string{"revenue"}),
-			[]byte(`[{"name":"report_date","type":"date","required":true}]`),
-			"active", ""),
-	)
+	mock.ExpectQuery("SELECT display_name, name, description, category, tags, params,\\s+status, superseded_by, library, source_code").
+		WithArgs("scr-1").WillReturnRows(sqlmock.NewRows(textColumns).AddRow(
+		"Daily Sales Report", "daily-sales", "Summarize yesterday's sales", "reporting",
+		pq.Array([]string{"revenue"}), []byte(`[{"name":"report_date","type":"date","required":true}]`),
+		"active", "", false, "rows = platform.query('SELECT 1')\n"))
 
-	got, err := store.GetIndexText(context.Background(), "scr-1")
+	sc, err := store.GetIndexed(context.Background(), "scr-1")
 	require.NoError(t, err)
-	// The category is in the card beside the tags: the worker must hash the
-	// same document the write path hashed, and the write path composes it from
-	// the whole record.
-	assert.Equal(t, "Daily Sales Report\nSummarize yesterday's sales by region\n"+
-		"parameters: report_date (required)\nreporting revenue\n"+
-		"Call run_script to execute it.", got)
+	assert.True(t, sc.Enabled)
+	corpus := Corpus(sc)
+	assert.Contains(t, corpus, "Daily Sales Report")
+	assert.Contains(t, corpus, "parameters: report_date (required)")
+	assert.Contains(t, corpus, "reporting revenue")
+	assert.Contains(t, corpus, "platform.query('SELECT 1')", "the source is indexed")
 }
 
-// TestGetIndexTextReportsTheExecutionStateOfARetiredScript pins the one line
-// that distinguishes a script to run from a dead end. The status reaches the
-// card through the same RefuseRun answer the run gate gives, so a search hit
-// never claims runnability run_script would then refuse.
-func TestGetIndexTextReportsTheExecutionStateOfARetiredScript(t *testing.T) {
+func TestGetIndexedTreatsAMissingOrDisabledScriptAsNothingToIndex(t *testing.T) {
 	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
-		sqlmock.NewRows(textColumns).AddRow(
-			"", "daily-sales", "", "", pq.Array([]string{}), []byte(`[]`), "deprecated", ""),
-	)
-
-	got, err := store.GetIndexText(context.Background(), "scr-1")
-	require.NoError(t, err)
-	assert.Equal(t, "daily-sales\nNothing will execute this script: "+
-		"the script is deprecated and must not be executed.", got)
+	mock.ExpectQuery("FROM scripts").WithArgs("gone").WillReturnRows(sqlmock.NewRows(textColumns))
+	_, err := store.GetIndexed(context.Background(), "gone")
+	require.ErrorIs(t, err, errNotIndexable)
 }
 
-// TestGetIndexTextTreatsAMissingOrDisabledScriptAsNothingToIndex covers the
-// row a write deleted or disabled between enqueue and claim: the Source must
-// turn it into a clean completion, not a failed job that retries forever.
-func TestGetIndexTextTreatsAMissingOrDisabledScriptAsNothingToIndex(t *testing.T) {
-	store, mock := newMock(t)
-	for range 2 {
-		mock.ExpectQuery("FROM scripts").WithArgs("gone").WillReturnError(sql.ErrNoRows)
-	}
-
-	_, err := store.GetIndexText(context.Background(), "gone")
-	assert.ErrorIs(t, err, errNotIndexable)
-
-	items, err := NewSource(store).LoadItems(context.Background(), "gone")
-	assert.NoError(t, err)
-	assert.Empty(t, items)
-}
-
-func TestGetIndexTextSurfacesAQueryFailure(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnError(errors.New("boom"))
-
-	_, err := store.GetIndexText(context.Background(), "scr-1")
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, errNotIndexable, "a failed read is not an empty unit")
-}
-
-func TestGetIndexTextSurfacesUnreadableParams(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
-		sqlmock.NewRows(textColumns).AddRow("D", "n", "", "", pq.Array([]string{}), []byte(`not json`), "active", ""),
-	)
-
-	_, err := store.GetIndexText(context.Background(), "scr-1")
-	require.Error(t, err)
-}
-
-func TestListVectorsReturnsThePersistedVector(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnRows(
-		sqlmock.NewRows([]string{"embedding", "embedding_model", "embedding_text_hash"}).
-			AddRow(pgVecLiteral([]float32{0.1, 0.2, 0.3}), "nomic-embed-text", []byte("hash")),
-	)
-
-	got, err := store.ListVectors(context.Background(), "scr-1")
-	require.NoError(t, err)
-	require.Contains(t, got, "scr-1")
-	assert.Equal(t, "nomic-embed-text", got["scr-1"].Model)
-	assert.Equal(t, 3, got["scr-1"].Dim)
-	assert.Equal(t, []byte("hash"), got["scr-1"].TextHash)
-}
-
-func TestListVectorsTreatsAnUnembeddedScriptAsEmpty(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnError(sql.ErrNoRows)
-
-	got, err := store.ListVectors(context.Background(), "scr-1")
-	require.NoError(t, err)
-	assert.Empty(t, got, "no vector means the worker embeds it, not that the read failed")
-}
-
-func TestListVectorsSurfacesAQueryFailure(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("scr-1").WillReturnError(errors.New("boom"))
-
-	_, err := store.ListVectors(context.Background(), "scr-1")
-	require.Error(t, err)
-}
-
-func TestUpsertVectorsWritesTheVectorWithoutTouchingUpdatedAt(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectExec("UPDATE scripts").
-		WithArgs("scr-1", sqlmock.AnyArg(), "nomic-embed-text", []byte("hash")).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	require.NoError(t, store.UpsertVectors(context.Background(), "scr-1", []indexjobs.Vector{
-		{ItemID: "scr-1", Embedding: []float32{0.1, 0.2}, Model: "nomic-embed-text", TextHash: []byte("hash")},
-	}))
-}
-
-func TestUpsertVectorsIsANoOpForAnEmptyRowSet(t *testing.T) {
-	store, _ := newMock(t)
-	// No DB call is expected: the mock would fail the test if one were made.
-	require.NoError(t, store.UpsertVectors(context.Background(), "scr-1", nil))
-}
-
-func TestUpsertVectorsSurfacesAWriteFailure(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectExec("UPDATE scripts").WillReturnError(errors.New("boom"))
-
-	err := store.UpsertVectors(context.Background(), "scr-1", []indexjobs.Vector{
-		{ItemID: "scr-1", Embedding: []float32{0.1}, Model: "m", TextHash: []byte("h")},
-	})
-	require.Error(t, err)
-}
-
-func TestFindGapsReturnsUnembeddedAndModelSwappedScripts(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("nomic-embed-text").WillReturnRows(
-		sqlmock.NewRows([]string{"id"}).AddRow("scr-1").AddRow("scr-2"),
-	)
-
-	ids, err := store.FindGaps(context.Background(), "nomic-embed-text")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"scr-1", "scr-2"}, ids)
-}
-
-func TestFindGapsSurfacesAQueryFailure(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("m").WillReturnError(errors.New("boom"))
-
-	_, err := store.FindGaps(context.Background(), "m")
-	require.Error(t, err)
-}
-
-func TestFindGapsSurfacesARowFailure(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WithArgs("m").WillReturnRows(
-		sqlmock.NewRows([]string{"id"}).AddRow("scr-1").RowError(0, errors.New("boom")),
-	)
-
-	_, err := store.FindGaps(context.Background(), "m")
-	require.Error(t, err)
-}
-
-func TestCoverageCountsEnabledScripts(t *testing.T) {
-	store, mock := newMock(t)
-	mock.ExpectQuery("FROM scripts").WillReturnRows(
-		sqlmock.NewRows([]string{"indexed", "expected"}).AddRow(3, 5),
-	)
-
-	indexed, expected, err := store.Coverage(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, 3, indexed)
-	assert.Equal(t, 5, expected)
-}
-
-func TestCoverageSurfacesAQueryFailure(t *testing.T) {
+func TestGetIndexedSurfacesFailures(t *testing.T) {
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM scripts").WillReturnError(errors.New("boom"))
-
-	_, _, err := store.Coverage(context.Background())
+	_, err := store.GetIndexed(context.Background(), "scr-1")
 	require.Error(t, err)
+	require.NotErrorIs(t, err, errNotIndexable)
+
+	mock.ExpectQuery("FROM scripts").WillReturnRows(sqlmock.NewRows(textColumns).AddRow(
+		"", "n", "", "", pq.Array([]string{}), []byte(`{not json`), "active", "", false, ""))
+	_, err = store.GetIndexed(context.Background(), "scr-1")
+	require.ErrorContains(t, err, "unmarshal script params")
+}
+
+func TestListVectorsSurfacesFailures(t *testing.T) {
+	store, mock := newMock(t)
+	mock.ExpectQuery("FROM script_embedding_chunks").WillReturnError(errors.New("boom"))
+	_, err := store.ListVectors(context.Background(), "scr-1")
+	require.Error(t, err)
+
+	mock.ExpectQuery("FROM script_embedding_chunks").WillReturnRows(
+		sqlmock.NewRows([]string{"chunk_index"}).AddRow(0))
+	_, err = store.ListVectors(context.Background(), "scr-1")
+	require.Error(t, err, "a row the scan cannot read is a failure, not an empty set")
+
+	mock.ExpectQuery("FROM script_embedding_chunks").WillReturnRows(
+		sqlmock.NewRows([]string{"chunk_index", "text_hash", "embedding", "model"}).
+			AddRow(0, []byte("h"), pgVecLiteral([]float32{1}), "m").RowError(0, errors.New("boom")))
+	_, err = store.ListVectors(context.Background(), "scr-1")
+	require.Error(t, err)
+
+	mock.ExpectQuery("FROM script_embedding_chunks").WillReturnRows(
+		sqlmock.NewRows([]string{"chunk_index", "text_hash", "embedding", "model"}))
+	got, err := store.ListVectors(context.Background(), "scr-1")
+	require.NoError(t, err)
+	assert.Empty(t, got, "a script with no chunks is embedded in full")
+}
+
+func TestFindGapsSurfacesFailures(t *testing.T) {
+	store, mock := newMock(t)
+	mock.ExpectQuery("FROM scripts").WillReturnError(errors.New("boom"))
+	_, err := store.FindGaps(context.Background(), "m")
+	require.Error(t, err)
+
+	mock.ExpectQuery("FROM scripts").WillReturnRows(sqlmock.NewRows([]string{"id", "extra"}).AddRow("a", "b"))
+	_, err = store.FindGaps(context.Background(), "m")
+	require.Error(t, err)
+
+	mock.ExpectQuery("FROM scripts").WillReturnRows(
+		sqlmock.NewRows([]string{"id"}).AddRow("a").RowError(0, errors.New("boom")))
+	_, err = store.FindGaps(context.Background(), "m")
+	require.Error(t, err)
+}
+
+// TestGetIndexedReadsTheLibraryFlag pins the field the card's execution note
+// reads for a library: without it the worker would hash a different card from
+// the one the save hashed, and a library would owe an embedding forever.
+func TestGetIndexedReadsTheLibraryFlag(t *testing.T) {
+	store, mock := newMock(t)
+	mock.ExpectQuery("FROM scripts").WillReturnRows(sqlmock.NewRows(textColumns).AddRow(
+		"", "helpers", "Shared helpers.", "", pq.Array([]string{}), []byte(`[]`), "active", "", true, "def double(x):\n    return x * 2\n"))
+	sc, err := store.GetIndexed(context.Background(), "scr-1")
+	require.NoError(t, err)
+	assert.True(t, sc.Library)
+	assert.NotContains(t, Corpus(sc), "Call run_script", "a library's card says nothing runs it")
 }

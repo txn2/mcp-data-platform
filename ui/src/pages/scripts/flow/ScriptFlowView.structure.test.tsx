@@ -50,7 +50,16 @@ function runFlow(over: Partial<ScriptRunFlow> = {}): ScriptRunFlow {
     unplaced: false,
     timeline: [
       { start_ms: 100, duration_ms: 500, tool: "trino_query", success: true, response_chars: 10, call_site: ["8:9", "5:22"], node: "op:1" },
-      { start_ms: 700, duration_ms: 100, tool: "api_invoke_endpoint", success: true, response_chars: 10, call_site: ["9:14", "14:20"], node: "op:2" },
+      {
+        start_ms: 700,
+        duration_ms: 100,
+        tool: "api_invoke_endpoint",
+        success: true,
+        response_chars: 10,
+        call_site: ["9:14", "14:20"],
+        node: "op:2",
+        arguments: '{"connection":"crm","path":"/v1/accounts"}',
+      },
       { start_ms: 900, duration_ms: 20, tool: "manage_resource", success: false, error: "refused", response_chars: 0, call_site: ["11:16"], node: "op:3" },
       { start_ms: 950, duration_ms: 10, tool: "s3_list", success: true, response_chars: 3 },
     ],
@@ -326,7 +335,12 @@ describe("ScriptFlowView: the toolbar", () => {
     expect(screen.queryByTestId("flow-full-screen")).toBeNull();
     expect(screen.getByTestId("flow-struct-detail")).toHaveTextContent("unknown mode");
     fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Leave full screen" }));
+    const toolbar = within(screen.getByTestId("flow-toolbar"));
+    expect(toolbar.queryByRole("button", { name: "Full screen" })).toBeNull();
+    const exit = toolbar.getByRole("button", { name: /Exit full screen/ });
+    expect(exit).toHaveTextContent("Esc");
+    expect(exit.parentElement?.lastElementChild).toBe(exit);
+    fireEvent.click(exit);
     expect(screen.queryByTestId("flow-full-screen")).toBeNull();
   });
 });
@@ -351,10 +365,72 @@ describe("ScriptFlowView: the Timeline view", () => {
       "s3_list, 10 ms",
     ]);
     expect(tl.querySelector('[data-bar="c2"]')).toHaveAttribute("data-failed", "true");
-    fireEvent.click(tl.querySelector('[data-bar="c1"]')!);
-    expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("GET /v1/accounts");
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     fireEvent.click(screen.getByRole("button", { name: "Fit the whole run" }));
+  });
+
+  it("shows the call a bar is, and opens its card and its line from there", async () => {
+    withRuns(runFlow());
+    window.history.replaceState(null, "", "/?view=timeline");
+    renderView(true);
+    const tl = await screen.findByTestId("timeline");
+    fireEvent.click(tl.querySelector('[data-bar="c1"]')!);
+    const call = within(screen.getByTestId("flow-call-detail"));
+    expect(call.getByText("Call 2 of 4")).toBeInTheDocument();
+    expect(call.getByText("api_invoke_endpoint")).toBeInTheDocument();
+    expect(call.getByText("700 ms into the run")).toBeInTheDocument();
+    expect(call.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-call-detail")).toHaveTextContent('"path": "/v1/accounts"');
+    expect(tl.querySelector('[data-bar="c1"] rect')).toHaveAttribute("stroke-width", "2");
+
+    fireEvent.click(tl.querySelector('[data-bar="c2"]')!);
+    expect(screen.getByTestId("flow-call-detail")).toHaveTextContent("failed: refused");
+    expect(screen.getByTestId("flow-call-detail")).toHaveTextContent("No arguments were recorded");
+
+    fireEvent.click(tl.querySelector('[data-bar="c1"]')!);
+    fireEvent.click(call.getByRole("button", { name: "Show in Source" }));
+    expect(onShowLines).toHaveBeenLastCalledWith([14]);
+    fireEvent.click(call.getByRole("button", { name: "API crm" }));
+    expect(screen.getByTestId("flow-side-panel")).toHaveTextContent("GET /v1/accounts");
+    const cardCalls = within(screen.getByTestId("flow-card-calls"));
+    fireEvent.click(cardCalls.getByRole("button", { name: /#2 api_invoke_endpoint/ }));
+    expect(screen.getByTestId("flow-call-detail")).toHaveTextContent("Call 2 of 4");
+  });
+
+  it("clears a picked call when another run is drawn", async () => {
+    mockRuns.mockImplementation(
+      (_id, owned, status) =>
+        ({ data: owned ? runsListed(status) : undefined }) as unknown as ReturnType<typeof useRecentScriptRuns>,
+    );
+    mockRunFlow.mockImplementation(
+      (_id, runId) =>
+        (runId ? { data: runFlow({ run_id: runId }), isLoading: false, error: null } : { isLoading: false }) as unknown as ReturnType<
+          typeof useScriptRunFlow
+        >,
+    );
+    window.history.replaceState(null, "", "/?view=timeline");
+    renderView(true);
+    const tl = await screen.findByTestId("timeline");
+    fireEvent.click(tl.querySelector('[data-bar="c1"]')!);
+    expect(screen.getByTestId("flow-call-detail")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Run drawn on the diagram" }));
+    const options = await screen.findAllByRole("option");
+    fireEvent.click(options[2]!);
+    await screen.findByTestId("timeline");
+    expect(screen.queryByTestId("flow-call-detail")).toBeNull();
+  });
+
+  it("says a call made before call sites were recorded can't be placed", async () => {
+    const unplaced = runFlow().timeline.map(({ call_site: _site, node: _node, ...c }) => c);
+    withRuns(runFlow({ unplaced: true, nodes: {}, timeline: unplaced }));
+    window.history.replaceState(null, "", "/?view=timeline");
+    renderView(true);
+    const tl = await screen.findByTestId("timeline");
+    fireEvent.click(tl.querySelector('[data-bar="c0"]')!);
+    expect(screen.getByTestId("flow-call-unplaced")).toHaveTextContent("made before the platform recorded which line");
+    expect(screen.getByTestId("flow-call-detail")).toHaveTextContent("trino_query");
+    expect(within(screen.getByTestId("flow-call-detail")).queryByRole("button", { name: "Show in Source" })).toBeNull();
   });
 
   it("says a run that made no calls has nothing to place", async () => {
