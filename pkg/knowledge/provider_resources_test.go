@@ -682,14 +682,14 @@ func TestResourcesProvider_WithoutALookup(t *testing.T) {
 func TestCallerClaimsCarryAnUnattendedCallersPerson(t *testing.T) {
 	run := Caller{UserID: "script:weekly-refresh", Email: "owner@example.com", OnBehalfOf: "author@example.com"}
 
-	claims := callerClaims(run)
+	claims := ResourceClaimsOf(run)
 
 	assert.Equal(t, "author@example.com", claims.OnBehalfOf)
 	assert.True(t, resource.CanReadResource(claims, &resource.Resource{
 		Scope: resource.ScopeUser, ScopeID: "author@example.com",
 	}), "a run must find the file it wrote itself")
 
-	human := callerClaims(Caller{UserID: "sub-1", Email: "person@example.com"})
+	human := ResourceClaimsOf(Caller{UserID: "sub-1", Email: "person@example.com"})
 	assert.Empty(t, human.OnBehalfOf, "a person acts as themselves")
 }
 

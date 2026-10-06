@@ -221,6 +221,10 @@ export interface FlowTimedCall {
   response_chars: number;
   call_site?: string[];
   node?: string;
+  // arguments is what the call was sent, in JSON as its audit row recorded
+  // it (#1982); arguments_truncated is true when it was cut at its bound.
+  arguments?: string;
+  arguments_truncated?: boolean;
 }
 
 // ScriptRunFlow is one run drawn on the diagram of the version it executed.

@@ -6,8 +6,8 @@ package scriptstore
 // the exact argument list migration 000102 builds its GIN index on, and that
 // function composes an IMMUTABLE expression over a JSONB column — none of which
 // sqlmock can check. These tests run the search and contract paths against the
-// migrated schema, so the index expression, the tsquery match, the visibility
-// predicate, and the lifecycle filter all get a vote.
+// migrated schema, so the index expression, the tsquery match and the
+// lifecycle filter all get a vote.
 
 import (
 	"context"
@@ -50,23 +50,23 @@ func TestRealDB_SearchRanksOnTheIndexedDocument(t *testing.T) {
 		}})
 
 	for _, intent := range []string{"revenue by region", "daily sales report", "report_date", "business date"} {
-		got, err := s.Search(ctx, script.SearchQuery{QueryText: intent, OwnerEmail: "jane@example.com"})
+		got, err := s.Search(ctx, script.SearchQuery{QueryText: intent})
 		require.NoError(t, err, intent)
 		require.Len(t, got, 1, "intent %q should match the seeded script", intent)
 		assert.Greater(t, got[0].Score, 0.0, "a match must carry a positive relevance score")
 	}
 
 	none, err := s.Search(ctx, script.SearchQuery{
-		QueryText: "kubernetes ingress", OwnerEmail: "jane@example.com",
+		QueryText: "kubernetes ingress",
 	})
 	require.NoError(t, err)
 	assert.Empty(t, none, "an unrelated intent must match nothing")
 }
 
-// TestRealDB_SearchAppliesVisibility proves the ownership predicate runs in
-// SQL: a caller ranks their own scripts and nobody else's, and an unidentified
-// caller ranks nothing at all.
-func TestRealDB_SearchAppliesVisibility(t *testing.T) {
+// TestRealDB_SearchRanksEveryonesScripts proves the search binds no owner
+// (#2027): a script's definition is readable by everyone signed in, so a
+// caller who owns none of them ranks them all.
+func TestRealDB_SearchRanksEveryonesScripts(t *testing.T) {
 	db := testdb.New(t)
 	s := New(db)
 	ctx := context.Background()
@@ -75,25 +75,13 @@ func TestRealDB_SearchAppliesVisibility(t *testing.T) {
 	seedScript(t, s, "janes-report", "jane@example.com", nil)
 	seedScript(t, s, "bobs-report", "bob@example.com", nil)
 
-	names := func(q script.SearchQuery) []string {
-		got, err := s.Search(ctx, q)
-		require.NoError(t, err)
-		out := make([]string, 0, len(got))
-		for _, sc := range got {
-			out = append(out, sc.Script.Name)
-		}
-		return out
+	got, err := s.Search(ctx, script.SearchQuery{QueryText: "revenue by region"})
+	require.NoError(t, err)
+	names := make([]string, 0, len(got))
+	for _, sc := range got {
+		names = append(names, sc.Script.Name)
 	}
-
-	jane := names(script.SearchQuery{QueryText: "revenue by region", OwnerEmail: "jane@example.com"})
-	assert.Equal(t, []string{"janes-report"}, jane,
-		"a caller ranks their own scripts and never another person's")
-
-	anon := names(script.SearchQuery{QueryText: "revenue by region"})
-	assert.Empty(t, anon, "a caller the platform cannot name owns nothing to rank")
-
-	bob := names(script.SearchQuery{QueryText: "revenue by region", OwnerEmail: "bob@example.com"})
-	assert.Equal(t, []string{"bobs-report"}, bob)
+	assert.ElementsMatch(t, []string{"admins-report", "janes-report", "bobs-report"}, names)
 }
 
 // TestRealDB_SearchExcludesDeadEnds proves the lifecycle filter: a disabled
@@ -113,7 +101,7 @@ func TestRealDB_SearchExcludesDeadEnds(t *testing.T) {
 	require.NoError(t, s.Update(ctx, retired))
 
 	got, err := s.Search(ctx, script.SearchQuery{
-		QueryText: "revenue by region", OwnerEmail: "admin@example.com",
+		QueryText: "revenue by region",
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -173,7 +161,7 @@ func TestRealDB_SearchSurvivesAScriptWithNoParameters(t *testing.T) {
 	seedScript(t, s, "no-params", "admin@example.com", nil)
 
 	got, err := s.Search(context.Background(), script.SearchQuery{
-		QueryText: "revenue", OwnerEmail: "admin@example.com",
+		QueryText: "revenue",
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)

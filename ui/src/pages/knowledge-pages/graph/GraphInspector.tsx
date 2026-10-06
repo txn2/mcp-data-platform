@@ -81,15 +81,60 @@ export function GraphInspector(props: GraphInspectorProps) {
           )}
         </div>
 
-        <NeighbourList title="References" ids={cites} nodeByID={props.nodeByID} onSelect={props.onSelect} />
-        <NeighbourList
-          title="Referenced by"
-          ids={citedBy}
-          nodeByID={props.nodeByID}
-          onSelect={props.onSelect}
-        />
+        <Neighbours node={node} cites={cites} citedBy={citedBy} nodeByID={props.nodeByID} onSelect={props.onSelect} />
       </aside>
     </Card>
+  );
+}
+
+/**
+ * Neighbours lists the node's references each way. A script's outgoing edges
+ * are the files its runs produced (#1985), and an edge into a file from a
+ * script is that script producing it, listed apart from the pages citing it.
+ */
+function Neighbours({
+  node,
+  cites,
+  citedBy,
+  nodeByID,
+  onSelect,
+}: {
+  node: KnowledgeGraphNode;
+  cites: string[];
+  citedBy: string[];
+  nodeByID: Map<string, KnowledgeGraphNode>;
+  onSelect: (id: string) => void;
+}) {
+  const isScript = node.type === "script";
+  const fromScript = (id: string) => nodeByID.get(id)?.type === "script";
+  return (
+    <>
+      <NeighbourList title={isScript ? "Produced" : "References"} ids={cites} nodeByID={nodeByID} onSelect={onSelect} />
+      {isScript && <HiddenOutputs count={node.hidden_outputs ?? 0} more={!!node.more_outputs} />}
+      <NeighbourList title="Produced by" ids={citedBy.filter(fromScript)} nodeByID={nodeByID} onSelect={onSelect} />
+      <NeighbourList
+        title="Referenced by"
+        ids={citedBy.filter((id) => !fromScript(id))}
+        nodeByID={nodeByID}
+        onSelect={onSelect}
+      />
+    </>
+  );
+}
+
+/** HiddenOutputs counts the files a script produced that the viewer cannot
+ * open, without naming them, and says when it wrote more than were read. */
+function HiddenOutputs({ count, more }: { count: number; more: boolean }) {
+  if (count === 0 && !more) return null;
+  return (
+    <div className="space-y-0.5 text-xs text-muted-foreground">
+      {count > 0 && (
+        <p data-testid="graph-hidden-outputs">
+          {count} more output{count === 1 ? "" : "s"} you cannot open
+        </p>
+      )}
+      {more && <p data-testid="graph-more-outputs">These are its 50 most recent outputs; it wrote older ones too.</p>}
+    </div>
   );
 }
 
@@ -142,7 +187,7 @@ function InspectorStats({
   const community = analysis.communities.get(node.id);
   return (
     <dl className="space-y-1.5 text-xs">
-      <Stat label="References out" value={String(citeCount)} />
+      <Stat label={node.type === "script" ? "Produced" : "References out"} value={String(citeCount)} />
       <Stat label="Referenced by" value={String(citedByCount)} />
       <BridgeStat node={node} analysis={analysis} />
       {community !== undefined && analysis.communityCount > 1 && (

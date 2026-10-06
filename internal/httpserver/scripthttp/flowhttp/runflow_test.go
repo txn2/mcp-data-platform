@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,8 +43,9 @@ func runDeps(run *script.Run, a AuditQuerier, versionErr error) Deps {
 			}
 			return &script.Version{ScriptID: id, Version: 1, Source: runSrc}, nil
 		},
-		Run:   func(http.ResponseWriter, *http.Request) (*script.Run, bool) { return run, true },
-		Audit: a,
+		Run:    func(http.ResponseWriter, *http.Request) (*script.Run, bool) { return run, true },
+		Audit:  a,
+		ActsOn: func(*http.Request, string) bool { return true },
 	}
 }
 
@@ -53,7 +56,10 @@ func TestRunFlow_DrawsTheRunsAuditedCalls(t *testing.T) {
 		Cause: "upstream", Error: "Traceback (most recent call last):\n  script:2:16: in <toplevel>\nError in export: refused",
 	}
 	fa := &fakeAudit{events: []audit.Event{
-		{ToolName: "trino_query", CallSite: []string{"1:22"}, DurationMS: 30, Success: true},
+		{
+			ToolName: "trino_query", CallSite: []string{"1:22"}, DurationMS: 30, Success: true,
+			Parameters: map[string]any{"sql": "SELECT 1", "connection": "warehouse"},
+		},
 		{ToolName: "s3_list", DurationMS: 2, Success: true},
 	}}
 	rec := get(t, runDeps(run, fa, nil), "/api/v1/portal/scripts/s1/runs/dpx_1/flow")
@@ -74,8 +80,17 @@ func TestRunFlow_DrawsTheRunsAuditedCalls(t *testing.T) {
 		} `json:"nodes"`
 		Other     []map[string]any `json:"other_calls"`
 		Truncated bool             `json:"calls_truncated"`
+		Timeline  []struct {
+			Tool      string `json:"tool"`
+			Node      string `json:"node"`
+			Arguments string `json:"arguments"`
+		} `json:"timeline"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Timeline, 2)
+	assert.Equal(t, "op:1", body.Timeline[0].Node)
+	assert.JSONEq(t, `{"sql":"SELECT 1","connection":"warehouse"}`, body.Timeline[0].Arguments)
+	assert.Empty(t, body.Timeline[1].Arguments, "a call audited with no arguments carries none")
 	assert.Equal(t, "upstream", body.Cause)
 	assert.Equal(t, 2, body.Calls)
 	assert.Equal(t, 1, body.Nodes["op:1"].Calls)
@@ -83,6 +98,52 @@ func TestRunFlow_DrawsTheRunsAuditedCalls(t *testing.T) {
 	assert.True(t, body.Nodes["op:2"].Failed)
 	require.Len(t, body.Other, 1)
 	assert.False(t, body.Truncated)
+}
+
+// TestRunFlow_ArgumentsAreTheOwners proves whoever requested a run, who may
+// read its flow, is not shown the arguments its calls were sent with the
+// owner's roles: only the owner and administrators are.
+func TestRunFlow_ArgumentsAreTheOwners(t *testing.T) {
+	run := &script.Run{ID: "dpx_1", ScriptID: "s1", Version: 1, Status: script.RunStatusSucceeded}
+	fa := &fakeAudit{events: []audit.Event{{
+		ToolName: "trino_query", CallSite: []string{"1:22"}, Success: true,
+		Parameters: map[string]any{"sql": "SELECT secret_column"},
+	}}}
+	for name, acts := range map[string]func(*http.Request, string) bool{
+		"a requester": func(*http.Request, string) bool { return false },
+		"no rule":     nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			deps := runDeps(run, fa, nil)
+			deps.ActsOn = acts
+			rec := get(t, deps, "/api/v1/portal/scripts/s1/runs/dpx_1/flow")
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.NotContains(t, rec.Body.String(), "secret_column")
+			assert.Contains(t, rec.Body.String(), "trino_query", "the call itself is still drawn")
+		})
+	}
+}
+
+func TestArgumentsText_CutsOnACharacterBoundary(t *testing.T) {
+	short, cut := argumentsText(map[string]any{"a": 1})
+	assert.JSONEq(t, `{"a":1}`, short)
+	assert.False(t, cut)
+
+	none, cut := argumentsText(nil)
+	assert.Empty(t, none)
+	assert.False(t, cut)
+
+	// "é" is two bytes, so a cut at the bound lands inside one unless it
+	// steps back to the character's start.
+	long := strings.Repeat("é", maxArgumentBytes)
+	text, cut := argumentsText(map[string]any{"q": long})
+	assert.True(t, cut)
+	assert.LessOrEqual(t, len(text), maxArgumentBytes)
+	assert.True(t, utf8.ValidString(text), "the cut leaves whole characters")
+	assert.True(t, strings.HasPrefix(text, `{"q":"é`))
+
+	_, cut = argumentsText(map[string]any{"bad": make(chan int)})
+	assert.False(t, cut, "arguments that do not marshal are left out")
 }
 
 func TestRunFlow_CapsTheCallsItReads(t *testing.T) {

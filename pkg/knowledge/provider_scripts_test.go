@@ -56,8 +56,8 @@ func TestScriptsProvider_Metadata(t *testing.T) {
 	p := NewScriptsProvider(&fakeScriptSearcher{})
 
 	assert.Equal(t, SourceScripts, p.Name())
-	// Per-user: a script is its owner's, so a caller the platform cannot name
-	// has nothing here to find.
+	// Per-user: a definition is everyone signed in's to read, so a caller the
+	// platform cannot name has nothing here to find.
 	assert.Equal(t, ScopePerUser, p.Scope())
 }
 
@@ -74,10 +74,10 @@ func TestScriptsProvider_NoIntentSkips(t *testing.T) {
 	assert.False(t, s.searched)
 }
 
-// TestScriptsProvider_ForwardsCallerVisibility proves the caller's identity
-// reaches the store, which is where visibility is applied. A provider that
-// filtered afterwards would have already paid for rows the caller may not see.
-func TestScriptsProvider_ForwardsCallerVisibility(t *testing.T) {
+// TestScriptsProvider_ForwardsTheQuery proves the intent and the limit reach
+// the store, and no owner does: every signed-in caller ranks every script in
+// service (#2027).
+func TestScriptsProvider_ForwardsTheQuery(t *testing.T) {
 	s := &fakeScriptSearcher{}
 
 	_, err := NewScriptsProvider(s).Search(context.Background(), Query{
@@ -88,7 +88,6 @@ func TestScriptsProvider_ForwardsCallerVisibility(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "sales report", s.got.QueryText)
-	assert.Equal(t, "jane@example.com", s.got.OwnerEmail)
 	assert.Equal(t, 7, s.got.Limit)
 }
 
@@ -197,10 +196,12 @@ func TestScriptsProvider_FetchDeclinesForeignReferences(t *testing.T) {
 }
 
 // TestScriptsProvider_FetchReturnsTheContractDocument proves the fetched
-// document is the contract, carried both as prose and structured, and never the
-// script's source.
+// document is the contract, carried both as prose and structured, followed by
+// the script's source (#2027).
 func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
-	s := &fakeScriptSearcher{contract: runnableContract()}
+	c := runnableContract()
+	c.Source = "def main():\n    # churn is ninety days\n    pass"
+	s := &fakeScriptSearcher{contract: c}
 
 	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
 		Caller{Email: "jane@example.com"})
@@ -213,21 +214,119 @@ func TestScriptsProvider_FetchReturnsTheContractDocument(t *testing.T) {
 	assert.Equal(t, SourceScripts, doc.Source)
 	assert.Equal(t, "Daily Sales", doc.Title)
 	assert.Contains(t, doc.Body, "Runs: version 3, the latest saved version")
-	assert.Equal(t, runnableContract(), doc.Content)
+	assert.Contains(t, doc.Body, "Produced: nothing recorded.")
+	assert.Contains(t, doc.Body, "Source (version 3):\n```python\ndef main():\n    # churn is ninety days\n    pass\n```")
+	content, ok := doc.Content.(scriptDocument)
+	require.True(t, ok)
+	assert.Equal(t, *c, content.Contract, "the owner reads the contract whole")
+	assert.Empty(t, content.Outputs)
+	assert.NotNil(t, content.Outputs, "an empty list is [], never null")
 }
 
-// TestScriptsProvider_FetchHidesWhatSearchWouldHide proves fetch re-applies the
-// visibility rule the store predicate enforces. Without it, a reference would
-// be a way to read a script the same caller could never have searched.
-func TestScriptsProvider_FetchHidesWhatSearchWouldHide(t *testing.T) {
-	s := &fakeScriptSearcher{contract: runnableContract()}
+// TestScriptsProvider_FetchServesAnotherPersonsScript proves a script's
+// definition is everyone signed in's to read (#2027): a caller who does not
+// own it gets the contract and the source, and not its last run, whose outputs
+// name assets that may not be shared with them.
+func TestScriptsProvider_FetchServesAnotherPersonsScript(t *testing.T) {
+	c := runnableContract()
+	c.Source = "print(1)\n"
+	c.LastRun = &script.ContractRun{Version: 3, Outputs: []script.ContractOutput{{Name: "private-report"}}}
+	s := &fakeScriptSearcher{contract: c}
 
 	doc, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
 		Caller{Email: "bob@example.com"})
 
+	require.NoError(t, err)
 	assert.True(t, owned)
-	assert.Nil(t, doc)
+	require.NotNil(t, doc)
+	assert.Contains(t, doc.Body, "print(1)")
+	assert.NotContains(t, doc.Body, "private-report")
+	assert.Contains(t, doc.Body, "shown to the script's owner and administrators")
+	content, ok := doc.Content.(scriptDocument)
+	require.True(t, ok)
+	assert.Nil(t, content.LastRun)
+	assert.True(t, content.RunsWithheld)
+
+	admin, _, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1",
+		Caller{Email: "root@example.com", IsAdmin: true})
+	require.NoError(t, err)
+	assert.Contains(t, admin.Body, "private-report", "an administrator reads it whole")
+}
+
+// TestScriptsProvider_FetchRefusesAnUnidentifiedCaller keeps the definition to
+// signed-in readers.
+func TestScriptsProvider_FetchRefusesAnUnidentifiedCaller(t *testing.T) {
+	s := &fakeScriptSearcher{contract: runnableContract()}
+
+	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{})
+
+	assert.True(t, owned)
 	require.ErrorIs(t, err, ErrNotFound)
+	assert.Zero(t, s.getCounted)
+}
+
+// fakeScriptOutputs stages what a script produced for one caller.
+type fakeScriptOutputs struct {
+	open   []ScriptOutput
+	hidden int
+	more   bool
+	err    error
+	caller Caller
+}
+
+func (f *fakeScriptOutputs) Outputs(_ context.Context, _ string, c Caller) (ScriptOutputSet, error) {
+	f.caller = c
+	return ScriptOutputSet{Open: f.open, Hidden: f.hidden, More: f.more}, f.err
+}
+
+// TestScriptsProvider_FetchListsOpenableOutputsAndCountsTheRest proves the
+// produced list is the reader's: what they can open is named and referenced,
+// and the rest is a count with no name (#2027).
+func TestScriptsProvider_FetchListsOpenableOutputsAndCountsTheRest(t *testing.T) {
+	s := &fakeScriptSearcher{contract: runnableContract()}
+	outs := &fakeScriptOutputs{
+		open:   []ScriptOutput{{Kind: "asset", ID: "a1", Name: "Shared Report", Reference: "mcp:asset:a1"}},
+		hidden: 2,
+	}
+	p := NewScriptsProvider(s)
+	p.SetOutputs(outs)
+
+	doc, _, err := p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "bob@example.com", outs.caller.Email)
+	assert.Contains(t, doc.Body, "Produced: Shared Report (mcp:asset:a1); 2 more you cannot open.")
+	assert.Equal(t, []DocumentRef{{Reference: "mcp:asset:a1", Type: "asset"}}, doc.References)
+	content, ok := doc.Content.(scriptDocument)
+	require.True(t, ok)
+	assert.Equal(t, 2, content.OutputsHidden)
+
+	outs.open, outs.hidden = nil, 3
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	require.NoError(t, err)
+	assert.Contains(t, doc.Body, "Produced: 3 more you cannot open.")
+	assert.Empty(t, doc.References)
+
+	outs.more = true
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	require.NoError(t, err)
+	assert.Contains(t, doc.Body, "Produced: 3 more you cannot open; these are its most recent outputs, and it wrote older ones too.")
+	outs.more = false
+
+	outs.err = errors.New("down")
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	require.NoError(t, err, "a failed outputs read does not fail the fetch")
+	assert.Contains(t, doc.Body, "Produced: what this script produced could not be read.")
+	unavailable, ok := doc.Content.(scriptDocument)
+	require.True(t, ok)
+	assert.True(t, unavailable.OutputsUnavailable)
+
+	outs.err = nil
+	outs.open = []ScriptOutput{{Kind: "resource", ID: "r1", Reference: "mcp:resource:r1"}}
+	outs.hidden = 0
+	doc, _, err = p.Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "bob@example.com"})
+	require.NoError(t, err)
+	assert.Contains(t, doc.Body, "Produced: r1 (mcp:resource:r1).", "an output with no name is shown by its id")
 }
 
 // TestScriptsProvider_FetchMissingIsNotFound proves a stale reference is a
@@ -236,7 +335,7 @@ func TestScriptsProvider_FetchHidesWhatSearchWouldHide(t *testing.T) {
 func TestScriptsProvider_FetchMissingIsNotFound(t *testing.T) {
 	s := &fakeScriptSearcher{}
 
-	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:gone", Caller{})
+	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:gone", Caller{Email: "jane@example.com"})
 
 	assert.True(t, owned)
 	require.ErrorIs(t, err, ErrNotFound)
@@ -245,7 +344,7 @@ func TestScriptsProvider_FetchMissingIsNotFound(t *testing.T) {
 func TestScriptsProvider_FetchStoreError(t *testing.T) {
 	s := &fakeScriptSearcher{getErr: errors.New("down")}
 
-	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{})
+	_, owned, err := NewScriptsProvider(s).Fetch(context.Background(), "mcp:script:script_1", Caller{Email: "jane@example.com"})
 
 	assert.True(t, owned)
 	require.Error(t, err)

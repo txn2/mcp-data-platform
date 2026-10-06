@@ -86,7 +86,7 @@ func TestCreateThatFailedEnqueuesNothing(t *testing.T) {
 }
 
 // TestUpdateEnqueuesOnlyWhenTheIndexedTextMoved is the other half: a write that
-// left the description card alone (a source edit, a scope change) must not
+// left the card and the source alone (an owner transfer, a toggle) must not
 // re-embed a corpus that did not change. The answer comes from the write's own
 // RETURNING clause, so the two definitions of "changed" cannot drift.
 func TestUpdateEnqueuesOnlyWhenTheIndexedTextMoved(t *testing.T) {
@@ -96,7 +96,7 @@ func TestUpdateEnqueuesOnlyWhenTheIndexedTextMoved(t *testing.T) {
 		wantJobs    int
 	}{
 		{name: "a re-described script re-enters the queue", textChanged: true, wantJobs: 1},
-		{name: "a source-only edit does not", textChanged: false, wantJobs: 0},
+		{name: "a write that moved nothing indexed does not", textChanged: false, wantJobs: 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Maximize, Minimize } from "lucide-react";
+import { Maximize, X } from "lucide-react";
 import {
   useScriptFlow,
   useScriptRunFlow,
@@ -76,7 +76,7 @@ export function ScriptFlowView(props: Props) {
           rememberView(v);
         }}
       />
-      <FullScreenButton full={full} onToggle={() => setFull(!full)} />
+      <FullScreenControl full={full} onChange={setFull} />
     </div>
   );
   return (
@@ -123,12 +123,30 @@ function useEscape(active: boolean, setActive: (on: boolean) => void) {
   }, [active, setActive]);
 }
 
-// FullScreenButton enters and leaves full screen.
-function FullScreenButton({ full, onToggle }: { full: boolean; onToggle: () => void }) {
+// FullScreenControl is the way into full screen, or, in it, the way out.
+function FullScreenControl({ full, onChange }: { full: boolean; onChange: (full: boolean) => void }) {
+  return full ? <ExitFullScreen onExit={() => onChange(false)} /> : <FullScreenButton onEnter={() => onChange(true)} />;
+}
+
+// FullScreenButton enters full screen.
+function FullScreenButton({ onEnter }: { onEnter: () => void }) {
   return (
-    <Button type="button" variant="outline" size="sm" className="h-8" onClick={onToggle} aria-pressed={full}>
-      {full ? <Minimize /> : <Maximize />}
-      {full ? "Leave full screen" : "Full screen"}
+    <Button type="button" variant="outline" size="sm" className="h-8" onClick={onEnter}>
+      <Maximize />
+      Full screen
+    </Button>
+  );
+}
+
+// ExitFullScreen is the way out of full screen (#1984): set apart in the top
+// right corner, where a full-screen view's close control is looked for, and
+// naming the key that does the same.
+function ExitFullScreen({ onExit }: { onExit: () => void }) {
+  return (
+    <Button type="button" variant="secondary" size="sm" className="ml-auto h-8" onClick={onExit}>
+      <X />
+      Exit full screen
+      <kbd className="rounded border bg-background px-1.5 font-mono text-[10px] text-muted-foreground">Esc</kbd>
     </Button>
   );
 }
@@ -350,7 +368,7 @@ interface LaidOutProps {
 function LaidOutFlow(props: LaidOutProps) {
   const { graph, run, view, full, source, onShowLines } = props;
   const [folded, toggleFold] = useFolds(graph, run);
-  const [selection, setSelection] = useSelection(props.sourceSelection);
+  const [selection, setSelection] = useSelection(props.sourceSelection, run);
   const structureView = useMemo(() => fold(graph.structure, folded), [graph.structure, folded]);
   const { laid, failed } = useLayout(view, graph, run?.nodes, structureView, folded);
   const missed = useMissedLines(props.scriptId, graph.version);
@@ -419,13 +437,21 @@ function useFolds(graph: ScriptFlow, run?: ScriptRunFlow): [Set<string>, (id: st
 
 // useSelection is what the reader picked. Lines selected in Source replace
 // whatever was picked on the diagram: the newest question the reader asked is
-// which cards those lines produced.
-function useSelection(sourceSelection: SelectedLines | null): [Selection, (s: Selection) => void] {
+// which cards those lines produced. A call is picked by its place in one run
+// (#1982), so drawing another run clears a picked call rather than showing that
+// run's call at the same place.
+function useSelection(sourceSelection: SelectedLines | null, run?: ScriptRunFlow): [Selection, (s: Selection) => void] {
+  const runID = run?.run_id ?? "";
   const [selection, setSelection] = useState<Selection>(null);
   const [seenLines, setSeenLines] = useState(sourceSelection);
+  const [seenRun, setSeenRun] = useState(runID);
   if (seenLines !== sourceSelection) {
     setSeenLines(sourceSelection);
     if (sourceSelection) setSelection(null);
+  }
+  if (seenRun !== runID) {
+    setSeenRun(runID);
+    if (selection?.kind === "call") setSelection(null);
   }
   return [selection, setSelection];
 }
@@ -470,9 +496,9 @@ interface CanvasProps extends LaidOutProps {
 
 // Canvas draws the chosen view once its layout is ready.
 function Canvas(props: CanvasProps) {
-  const { graph, run, view, full, laid, folded, selection, onSelect, onShowLines } = props;
+  const { graph, run, view, full, laid, folded, selection, onSelect } = props;
   if (view === "timeline" && run) {
-    return <TimelineView run={run} selection={selection} fill={full} onSelect={onSelect} onShowLines={onShowLines} />;
+    return <TimelineView run={run} selection={selection} fill={full} onSelect={onSelect} />;
   }
   const ready = laid?.graph === graph && laid.view === view;
   if (ready && laid.view === "calls") return <CallsCanvas {...props} layout={laid.layout} />;

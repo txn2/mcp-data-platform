@@ -230,10 +230,11 @@ func (h *Handle) isAdminPersona(ctx context.Context) bool {
 
 // errNotYours refuses a command that acts on a script, or reads its runs or
 // state, when the caller named someone else's. Reading a script's definition
-// is open to everyone (#1866); acting on it is its owner's and an
-// administrator's.
+// is open to everyone signed in, here and through search and fetch (#1866,
+// #2027); acting on it is its owner's and an administrator's.
 var errNotYours = errors.New("only a script's owner or an administrator can run, schedule, change or read the runs " +
-	"and state of it; its definition is readable by everyone with command=get, versions, diff or get_content")
+	"and state of it; its definition is readable by everyone with command=get, get_content, outline, stats, locate, " +
+	"diff, versions or list, and through search and fetch")
 
 // resolveScript finds the script a command names. A name is unique only within
 // its owner, so every lookup names one: the caller, or the person the caller

@@ -476,6 +476,20 @@ describe("ScriptDetailPage: what an owner may read", () => {
     expect(mockState).toHaveBeenCalledWith("script-001", true);
   });
 
+  // A reader who does not own the script gets its definition (#2027): what the
+  // source does with state, and not the revision, which is not "nothing saved".
+  it("says only what the source does with state when the revision is withheld", () => {
+    mockContract.mockReturnValue(
+      query({
+        contract: { ...contract, runs_withheld: true, state: { reads_state: true, saves_state: true, revision: 0 } },
+        owned: false,
+      }),
+    );
+    renderPage();
+    expect(screen.getByText("carried between runs")).toBeInTheDocument();
+    expect(screen.queryByText(/nothing saved yet/)).toBeNull();
+  });
+
   it("says a script keeps no state when its source neither reads nor saves any", () => {
     mockContract.mockReturnValue(
       query({

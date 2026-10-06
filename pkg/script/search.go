@@ -26,13 +26,10 @@ const (
 // what the script IS FOR. A script in service is something to run; a disabled
 // or retired one is not, and reading a result should not leave that ambiguous.
 //
-// The source code is deliberately absent. It churns on every code edit while a
-// description changes rarely, so indexing it would re-embed the corpus for
-// changes that do not alter what the script is for.
-//
-// The indexjobs scripts consumer and the discovery source MUST agree on this
-// composition — a stored embedding has to live in the same space as the text a
-// caller is shown — so it is defined once here for both.
+// It is the card a search result shows and the first chunk a script is
+// embedded as; the source follows it in further chunks (scriptindex.Chunks), so a
+// script is found by the reasoning in its comments and the tables its SQL
+// names as well as by its description (#2027).
 func IndexText(s *Script) string {
 	parts := make([]string, 0, 5)
 	parts = append(parts, Title(s))
@@ -68,11 +65,11 @@ func ExecutionNote(s *Script) string {
 
 // SearchQuery describes a relevance ranking request over the script library.
 //
-// Visibility is applied before ranking, as a predicate rather than a filter over
-// the answer: a script the caller cannot see must cost neither a row nor a
-// decision. The rule is Script.OwnedBy expressed in SQL — the caller's own
-// scripts and nothing else. An unidentified caller therefore matches nothing,
-// which is the fail-closed answer.
+// Every signed-in caller ranks every script in service: a script's definition
+// is readable by everyone signed in (#1866, #2027), and acting on it is
+// decided where it is acted on. Who may search at all is the search
+// federation's rule; a script source is per-user, so an unidentified caller
+// never reaches this query.
 type SearchQuery struct {
 	// Embedding is the query vector. A nil Embedding selects lexical-only
 	// ranking, which is exactly the behavior a deployment with no embedding
@@ -81,9 +78,6 @@ type SearchQuery struct {
 	Embedding []float32
 	// QueryText is the raw intent text the lexical ranking matches.
 	QueryText string
-	// OwnerEmail is the caller identity, which is the whole visibility
-	// predicate. Empty matches no script at all.
-	OwnerEmail string
 	// Limit caps the candidates returned; see EffectiveLimit.
 	Limit int
 }
@@ -103,7 +97,7 @@ type ScoredScript struct {
 	Score  float64 `json:"score"`
 }
 
-// Searcher ranks scripts by relevance within the caller's visibility, and
+// Searcher ranks scripts by relevance, and
 // resolves one script's whole contract by id. The two halves are the two halves
 // of discovery: search says a script exists and what it takes, and the contract
 // read says everything a caller needs to decide whether to use it.

@@ -35,6 +35,18 @@ type AssetsProvider struct {
 	searcher AssetSearcher
 	tables   TableLookup
 	produced ScriptProducerLookup
+	shared   AssetShareLookup
+}
+
+// AssetShareLookup reports whether the asset is shared with the person,
+// directly or through a collection holding it: the share graph the portal
+// opens an asset by. A nil lookup answers false everywhere.
+type AssetShareLookup func(ctx context.Context, asset *portal.Asset, userID, email string) bool
+
+// SetShareLookup binds the share graph fetch reads, so a person fetches an
+// asset shared with them as the portal would open it (#2027).
+func (p *AssetsProvider) SetShareLookup(lookup AssetShareLookup) {
+	p.shared = lookup
 }
 
 // ScriptProducerLookup reports whether the asset was produced by the managed
@@ -130,10 +142,11 @@ func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 // Fetch dereferences an mcp:asset:<id> reference to the asset's full metadata
 // (#694), folding what manage_asset's get returns into the one fetch verb. It
 // owns only the asset reference form; any other reference is declined
-// (owned=false). Assets are per-user, so the read is scoped to the caller exactly
-// as Search is: an asset the caller does not own, a missing id, or a soft-deleted
-// asset all return ErrNotFound, so fetch never reveals another owner's asset (or
-// even its existence). The blob bytes live in S3 and are reached with s3_object (get or
+// (owned=false). The read is the caller's (mayFetch): their own assets, the
+// ones shared with them, any asset for an administrator, and for a run its
+// script's outputs. An asset outside that, a missing id, and a soft-deleted
+// asset all return ErrNotFound, so fetch never reveals another owner's asset
+// (or even its existence). The blob bytes live in S3 and are reached with s3_object (get or
 // presign); this returns the metadata record (name, description, tags, S3
 // location, size, provenance).
 func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
@@ -157,9 +170,9 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 		}
 		return nil, true, fmt.Errorf("getting asset %s: %w", parsed.AssetID, err)
 	}
-	// Fail closed on ownership: a missing, deleted, or other-owner asset is
-	// indistinguishable to the caller (all ErrNotFound), so fetch leaks neither the
-	// content nor the existence of an asset the caller could not have searched.
+	// Fail closed: a missing, deleted, or unreadable asset is indistinguishable
+	// to the caller (all ErrNotFound), so fetch leaks neither the content nor
+	// the existence of an asset the caller could not open.
 	if asset == nil || asset.DeletedAt != nil || !p.mayFetch(ctx, caller, owner, asset) {
 		return nil, true, ErrNotFound
 	}
@@ -176,8 +189,11 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 }
 
 // mayFetch reports whether this caller may dereference a reference to this
-// asset: it belongs to the person the caller acts as, or -- for a managed-script
-// run -- this run's own script produced it.
+// asset: it belongs to the person the caller acts as; for a person, an
+// administrator reads any asset and anyone reads one shared with them, as the
+// portal opens it (#2027); and for a managed-script run, this run's own script
+// produced it. A run inherits neither the share graph nor an administrator's
+// reach: a grant to a person is not a grant to everything they automate.
 //
 // The second arm exists so fetch can dereference everything search returned. A
 // run's search is scoped by its producer rather than by either identifier on the
@@ -193,8 +209,14 @@ func (p *AssetsProvider) mayFetch(ctx context.Context, caller Caller, owner port
 	if owner.OwnsAsset(asset) {
 		return true
 	}
-	return caller.ProducerID != "" && p.produced != nil &&
-		p.produced(ctx, asset.ID, caller.ProducerID)
+	if caller.ProducerID != "" || caller.OnBehalfOf != "" {
+		return caller.ProducerID != "" && p.produced != nil &&
+			p.produced(ctx, asset.ID, caller.ProducerID)
+	}
+	if caller.IsAdmin {
+		return true
+	}
+	return p.shared != nil && p.shared(ctx, asset, caller.UserID, caller.Email)
 }
 
 // assetOwnerOf is the ownership identity a caller is judged by when it names an

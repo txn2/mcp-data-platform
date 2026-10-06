@@ -344,12 +344,11 @@ func scriptFields(sc *script.Script) map[string]any {
 //
 // It used to be the caller's own unless they held an admin persona. Widening
 // it is the point: an agent asked to write a weekly report should be able to
-// see that one already exists rather than writing a second copy of it. What
-// each row carries is unchanged and is the reason this is safe -- name,
-// display name, description, owner, status, version, category and tags. The
-// projection below has never carried Source, and must keep not carrying it:
-// reading the code is the owner's and the administrator's, through the
-// portal's own read.
+// see that one already exists rather than writing a second copy of it. Each
+// row carries name, display name, description, owner, status, version,
+// category and tags, and no source: that is a payload choice, since a listing
+// runs to hundreds of rows. The source is everyone signed in's to read, with
+// command=get_content (#2027).
 func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 	filter := script.ListFilter{
 		Status: input.Status, Search: input.Search, Limit: input.Limit,

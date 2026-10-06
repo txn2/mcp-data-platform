@@ -15,9 +15,13 @@ import (
 // It exists as one type because a script is reachable from more than one
 // surface — fetch on an mcp:script:<id> reference, and a prompt that attaches
 // one (#1302, #1289) — and each surface answering the question in its own shape
-// would be two contracts to keep in step. The source is deliberately not part of
-// it: reading the code is what manage_script's get is for, and what a reviewer
-// does.
+// would be two contracts to keep in step. The source travels with it (Source)
+// but is never serialized: fetch prints it after the contract, and the portal
+// returns it on the script's own route.
+//
+// The definition is everyone's to read (#1866, #2027); what the script's runs
+// produced and the state it carries are its owner's and an administrator's.
+// ForReader is the one place that line is drawn.
 //
 // One field deserves its reasoning stated. Refusal is the run gate's own
 // answer (RefuseRun), not a second reading of it, so a caller is never told a
@@ -66,6 +70,31 @@ type Contract struct {
 	Library bool             `json:"library"`
 	Loads   []string         `json:"loads"`
 	UsedBy  []libraryuse.Use `json:"used_by"`
+
+	// RunsWithheld is true on a contract composed for a reader who neither
+	// owns the script nor administers the platform: its last run and its
+	// saved state are left out (ForReader).
+	RunsWithheld bool `json:"runs_withheld,omitempty"`
+
+	// Source is the latest saved version's source.
+	Source string `json:"-"`
+}
+
+// ForReader is the contract as one reader may see it. canAct is whether the
+// reader owns the script or administers the platform; anyone else reads the
+// definition (what it is, what it takes, how it runs, what it does with
+// state) without its last run, whose outputs name assets that may not be
+// shared with them, or its saved state's revision.
+func (c Contract) ForReader(canAct bool) Contract {
+	if canAct {
+		return c
+	}
+	c.LastRun = nil
+	if c.State != nil {
+		c.State = &ContractState{Reads: c.State.Reads, Saves: c.State.Saves}
+	}
+	c.RunsWithheld = true
+	return c
 }
 
 // ContractState is a script's state as the contract reports it: what the
@@ -97,8 +126,9 @@ func ContractStateOf(use StateUse, st *State) *ContractState {
 }
 
 // line states what the script does with state, in one sentence a reader can
-// act on: whether the next run will read what the last one saved.
-func (s *ContractState) line() string {
+// act on: whether the next run will read what the last one saved. withheld
+// says the revision is not this reader's to see.
+func (s *ContractState) line(withheld bool) string {
 	if s == nil {
 		return ""
 	}
@@ -112,6 +142,9 @@ func (s *ContractState) line() string {
 		does = "State: reads state and never saves it"
 	default:
 		does = "State: keeps none"
+	}
+	if withheld {
+		return does + "; what it saved is shown to the script's owner and administrators."
 	}
 	if s.Revision == 0 {
 		return does + "; nothing has been saved."
@@ -217,9 +250,13 @@ func (c Contract) Text() string {
 		parts = append(parts, fmt.Sprintf("Schedule: %s (%s)%s",
 			c.Schedule.CronSpec, c.Schedule.Timezone, c.Schedule.stateSuffix()))
 	}
-	parts = append(parts, c.LastRun.line())
+	if c.RunsWithheld {
+		parts = append(parts, "Last successful run: shown to the script's owner and administrators.")
+	} else {
+		parts = append(parts, c.LastRun.line())
+	}
 	if c.State != nil {
-		parts = append(parts, c.State.line())
+		parts = append(parts, c.State.line(c.RunsWithheld))
 	}
 	return strings.Join(parts, "\n")
 }
@@ -308,10 +345,8 @@ func ParamSummary(params []Param) string {
 }
 
 // OwnedBy reports whether the named caller owns the script this contract
-// describes. It answers through the same rule the record and the store
-// predicate answer through, so a surface holding only the contract — the fetch
-// path, which composes it in one read — enforces the identical visibility
-// without a second read of the script row.
+// describes, through the same rule the record answers with, so a surface
+// holding only the contract decides ForReader without a second read.
 func (c Contract) OwnedBy(email string) bool {
 	return c.OwnerEmail != "" && c.OwnerEmail == email
 }
@@ -344,6 +379,7 @@ func BuildContract(sc *Script, sched *Schedule, lastRun *Run) Contract {
 		Library:     sc.Library,
 		Loads:       append([]string{}, sc.Loads...),
 		UsedBy:      []libraryuse.Use{},
+		Source:      sc.Source,
 	}
 	if sched != nil {
 		c.Schedule = contractSchedule(sched)

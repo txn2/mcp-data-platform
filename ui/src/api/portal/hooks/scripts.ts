@@ -275,6 +275,10 @@ export interface ScriptContract {
   library?: boolean;
   loads?: string[];
   used_by?: LibraryUse[];
+  // runs_withheld is true for a reader who neither owns the script nor
+  // administers the platform (#2027): last_successful_run and the state's
+  // revision are left out, which is not the same as there being none.
+  runs_withheld?: boolean;
 }
 
 // PortalScriptRow is one script in the portal listing.
@@ -284,8 +288,9 @@ export interface PortalScriptRow {
   // last_run is present only for the scripts this caller owns: a run is
   // owner-and-admin reading, and so is the fact that one failed.
   last_run?: ScriptRun;
-  // owned reports whether this caller may read the script's runs and source,
-  // so the page offers those surfaces rather than linking to a refusal.
+  // owned reports whether this caller may act on the script and read its
+  // runs, so the page offers those surfaces rather than linking to a refusal.
+  // A row carries no source for any caller; the script's own route does.
   owned: boolean;
 }
 
@@ -403,10 +408,12 @@ export function useScriptRunListing(scriptID?: string) {
 export function useScriptContract(scriptID: string | null) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "contract"],
-    // source is the live code, served only to the script's owner: it is what
-    // the editor on that page opens (#1307). draft_params is the parameter
-    // contract read beside it, so the dry-run form binds against exactly the
-    // contract the code was written against.
+    // source is the live code, served to every signed-in reader (#1866,
+    // #2027); the owner's editor opens it (#1307). draft_params is the
+    // parameter contract read beside it, so the dry-run form binds against
+    // exactly the contract the code was written against. The contract's last
+    // run and state are the owner's and an administrator's: for anyone else
+    // it carries runs_withheld.
     queryFn: () =>
       apiFetch<{
         contract: ScriptContract;

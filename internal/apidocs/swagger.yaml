@@ -3978,6 +3978,13 @@ definitions:
     type: object
   flowrun.TimedCall:
     properties:
+      arguments:
+        description: |-
+          Arguments is what the call was sent, in JSON, as its audit row
+          recorded it; ArgumentsTruncated is true when it was cut at its bound.
+        type: string
+      arguments_truncated:
+        type: boolean
       call_site:
         items:
           type: string
@@ -5852,8 +5859,10 @@ definitions:
   portal.knowledgeGraphEdge:
     properties:
       ref_source:
-        description: 'RefSource is how the reference came to be: promoted, manual,
-          or inline.'
+        description: |-
+          RefSource is how the reference came to be: promoted, manual, or inline
+          for a page's citation; produced for an edge from a script to a file its
+          runs wrote.
         type: string
       source:
         type: string
@@ -5871,10 +5880,21 @@ definitions:
         description: Exists is false for a reference whose target is gone (a broken
           reference).
         type: boolean
+      hidden_outputs:
+        description: |-
+          HiddenOutputs counts, on a script's node, the files its runs produced
+          that the viewer cannot open: they are neither drawn nor named.
+        type: integer
       id:
         type: string
       label:
         type: string
+      more_outputs:
+        description: |-
+          MoreOutputs is true on a script's node when its runs wrote more files
+          than the graph reads (the 50 most recent); the drawn edges and the count
+          cover those.
+        type: boolean
       page:
         description: |-
           Page is true for a node backed by a knowledge page in this listing; the
@@ -7586,6 +7606,12 @@ definitions:
           when one would be admitted.
         example: the script is disabled
         type: string
+      runs_withheld:
+        description: |-
+          RunsWithheld is true on a contract composed for a reader who neither
+          owns the script nor administers the platform: its last run and its
+          saved state are left out (ForReader).
+        type: boolean
       schedule:
         allOf:
         - $ref: '#/definitions/script.ContractSchedule'
@@ -8119,8 +8145,10 @@ definitions:
       owner_email:
         description: |-
           OwnerEmail is the one person a script belongs to: the only caller who
-          sees, edits, runs, and schedules it, administrators aside. An
-          administrator can move it to another owner (Transfer).
+          edits, runs, and schedules it and reads its runs, administrators and
+          grantees aside. Its definition is readable by everyone signed in
+          (#1866, #2027). An administrator can move it to another owner
+          (Transfer).
         example: jane@example.com
         type: string
       params:
@@ -9193,8 +9221,7 @@ definitions:
           DraftParams is the LIVE record's parameter contract, which is not always
           the contract above only in freshness: it is read with the source, so the
           dry-run form binds against exactly the contract the code beside it was
-          written against (#1364). It travels with the source for the same
-          audience and for the same reason.
+          written against (#1364).
         items:
           $ref: '#/definitions/script.Param'
         type: array
@@ -9203,10 +9230,8 @@ definitions:
         type: boolean
       source:
         description: |-
-          Source is the live script's code, present only for the owner and an
-          administrator: it is what the editor on that page opens (#1307). The
-          contract document deliberately does not carry it, because that document
-          is what a reference to the script resolves to.
+          Source is the live script's code, for every signed-in caller (#1866,
+          #2027): it is what the page shows and the owner's editor opens (#1307).
         type: string
     type: object
   scripthttp.portalScriptRow:
@@ -12570,9 +12595,10 @@ paths:
         name: id
         required: true
         type: string
-      - description: Asset version (the versions route only)
+      - description: Version
         in: path
         name: version
+        required: true
         type: integer
       produces:
       - application/pdf
@@ -12604,7 +12630,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Export an HTML document as PDF
+      summary: Export one version of an HTML document as PDF
       tags:
       - Portal
   /admin/assets/{id}/versions/{version}/revert:
@@ -19527,9 +19553,10 @@ paths:
         name: id
         required: true
         type: string
-      - description: Asset version (the versions route only)
+      - description: Version
         in: path
         name: version
+        required: true
         type: integer
       produces:
       - application/pdf
@@ -19561,7 +19588,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Export an HTML document as PDF
+      summary: Export one version of an HTML document as PDF
       tags:
       - Portal
   /portal/assets/{id}/versions/{version}/revert:
@@ -22469,8 +22496,12 @@ paths:
       description: Returns the knowledge pages and the entities they reference as
         typed nodes and edges, for the portal's graph view. Entities the viewer cannot
         access are absent (neither node nor edge), the same visibility rule the per-page
-        refs and backlinks reads apply. Node and page caps are reported via truncated/notice
-        rather than applied silently.
+        refs and backlinks reads apply. A cited script is drawn for every reader,
+        with an edge (ref_source "produced") to each file its runs wrote that the
+        viewer can open; the files the viewer cannot open are counted on the script's
+        node as hidden_outputs and not named. Both cover the script's 50 most recent
+        outputs; more_outputs says it wrote older ones too. Node and page caps are
+        reported via truncated/notice rather than applied silently.
       parameters:
       - description: Only include pages carrying this tag
         in: query
@@ -24000,22 +24031,24 @@ paths:
       - Resources
   /portal/scripts:
     get:
-      description: Returns the managed scripts the caller may see, each with its cadence
-        and, for the scripts they own, the state of its most recent run. A script
-        is visible to everyone; what is readable is not. A row the caller does not
-        own carries no source, no run state and no action — it says that the script
-        exists, who owns it, what it says about itself and when it runs. scope=mine
-        narrows to the caller's own and is the default; scope=all lists every script;
-        scope=granted lists the scripts granted to the caller's persona, roles or
-        API key, each with its parameter contract, which is the catalog an application
-        builds from. Administrators see every script either way. The category, tag,
-        search, owner, status, enabled and kind parameters narrow the listing; kind=script
-        lists the scripts that run and kind=library the libraries other scripts load
-        (#1941), and any other kind is refused; tag may be repeated, and a script
-        matching any of the named tags is returned. sort and dir order it in the store,
-        ahead of the page cap, so an ordering is over every matching script rather
-        than over the page. total counts every script the predicate matches, so it
-        exceeds the rows returned when the listing was capped.
+      description: 'Returns the managed scripts the caller may see, each with its
+        cadence and, for the scripts they own, the state of its most recent run. A
+        script''s definition is readable by everyone signed in; its runs are its owner''s
+        and an administrator''s. No row carries the script''s source, for any caller:
+        read it from GET /portal/scripts/{id}. A row the caller does not own carries
+        no run state and no action — it says that the script exists, who owns it,
+        what it says about itself and when it runs. scope=mine narrows to the caller''s
+        own and is the default; scope=all lists every script; scope=granted lists
+        the scripts granted to the caller''s persona, roles or API key, each with
+        its parameter contract, which is the catalog an application builds from. Administrators
+        see every script either way. The category, tag, search, owner, status, enabled
+        and kind parameters narrow the listing; kind=script lists the scripts that
+        run and kind=library the libraries other scripts load (#1941), and any other
+        kind is refused; tag may be repeated, and a script matching any of the named
+        tags is returned. sort and dir order it in the store, ahead of the page cap,
+        so an ordering is over every matching script rather than over the page. total
+        counts every script the predicate matches, so it exceeds the rows returned
+        when the listing was capped.'
       parameters:
       - description: 'Whose scripts to list: mine (default), all, or granted'
         enum:
@@ -24151,7 +24184,9 @@ paths:
       - Scripts
     get:
       description: Returns what the script is, what it takes, whether anything will
-        execute it, on what cadence, and what it last produced. It is the same contract
+        execute it, on what cadence, and its current source, for every signed-in caller.
+        Its last successful run and saved state are included for its owner and administrators
+        only; for anyone else the contract carries runs_withheld. It is the same contract
         document a reference to the script resolves to.
       parameters:
       - description: Script ID
@@ -24814,11 +24849,13 @@ paths:
       description: 'Returns the diagram of the version a run executed, with each step''s
         part in that run: how many of the run''s audited tool calls it made and how
         long they took, the outputs it wrote, whether the run reached it, and the
-        step the run failed at. Calls are attributed by where in the script they were
-        made; a call no step made (a computed tool, a call made before call sites
-        were recorded) is listed in other_calls, so the steps'' calls and other_calls
-        always add up to calls. Readable by the script''s owner, an administrator,
-        and whoever requested the run.'
+        step the run failed at. Each call on the timeline carries the arguments its
+        audit row recorded, cut at 2048 bytes, for the script''s owner and administrators;
+        whoever requested the run sees the calls without them. Calls are attributed
+        by where in the script they were made; a call no step made (a computed tool,
+        a call made before call sites were recorded) is listed in other_calls, so
+        the steps'' calls and other_calls always add up to calls. Readable by the
+        script''s owner, an administrator, and whoever requested the run.'
       parameters:
       - description: Script ID
         in: path
@@ -27161,9 +27198,10 @@ paths:
         name: id
         required: true
         type: string
-      - description: Asset version (the versions route only)
+      - description: Version
         in: path
         name: version
+        required: true
         type: integer
       produces:
       - application/pdf
@@ -27195,7 +27233,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Export an HTML document as PDF
+      summary: Export one version of an HTML document as PDF
       tags:
       - Portal
   /resources/{id}/versions/{version}/restore:

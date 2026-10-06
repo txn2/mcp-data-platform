@@ -20,11 +20,12 @@ var _ script.Searcher = (*Store)(nil)
 
 // scriptFTSExpr is the full-text expression the lexical arm matches and ranks
 // against. It calls the script_fts() function with the same argument order the
-// migration defines it with (000102, extended by 000116 to carry the category),
-// so the planner uses idx_scripts_search_fts (the GIN index built on that same
-// call). Changing either without the other silently drops the index and leaves a
-// sequential scan behind.
-const scriptFTSExpr = `script_fts(display_name, name, description, category, tags, params)`
+// migration defines it with (000102, extended by 000116 to carry the category
+// and by 000177 to carry the source, weighted below the card), so the planner
+// uses idx_scripts_search_fts (the GIN index built on that same call). Changing
+// either without the other silently drops the index and leaves a sequential
+// scan behind.
+const scriptFTSExpr = `script_fts(display_name, name, description, category, tags, params, source_code)`
 
 // scriptFTSQuery is the parameterized tsquery the predicate compares against.
 // The lexical-only path binds the query text as $1; the hybrid arms bind $1 to
@@ -82,10 +83,10 @@ func NewDiscoveryStore(db *sql.DB) script.Store {
 	return New(db)
 }
 
-// Search ranks scripts by relevance to the query within the caller's
-// visibility. Visibility is applied in SQL, before ranking, so a script the
-// caller cannot see never reaches the ranker; a script is its owner's, so that
-// predicate is the caller's own address.
+// Search ranks every script in service by relevance to the query: a script's
+// definition is readable by everyone signed in (#2027), so whose script it is
+// does not enter the ranking. The lifecycle filter is applied in SQL, before
+// ranking.
 //
 // A non-nil q.Embedding selects hybrid (semantic + lexical) ranking over the
 // vectors the indexjobs scripts consumer writes, so a script is found by what it
@@ -103,24 +104,31 @@ func (s *Store) Search(ctx context.Context, q script.SearchQuery) ([]script.Scor
 }
 
 // visibilityPredicate is the SQL the ranker applies before ranking: only
-// enabled scripts, only the discoverable lifecycle states, and only the
-// caller's own scripts. It is script.Script.OwnedBy expressed in SQL, down to
-// requiring both sides to be identified, so an unnamed caller and an ownerless
-// script never match each other. The status and owner placeholders are the
-// caller's; the arm binding them starts at statusIdx.
+// enabled scripts in the discoverable lifecycle states. The statuses are bound
+// at statusIdx.
 func visibilityPredicate(statusIdx int) string {
 	// #nosec G201 -- the only interpolation is a sanitized parameter index.
 	return fmt.Sprintf(`enabled = true
-		  AND status = ANY($%d)
-		  AND owner_email <> ''
-		  AND owner_email = $%d`,
-		statusIdx, statusIdx+1)
+		  AND status = ANY($%d)`, statusIdx)
 }
+
+// bestChunkScore is a script row's semantic score: the cosine similarity of
+// its nearest chunk to the query vector ($1), or 0 when it has none yet.
+const bestChunkScore = `COALESCE((SELECT MAX(1 - (c.embedding <=> $1)) FROM script_embedding_chunks c
+		WHERE c.script_id = scripts.id), 0)`
 
 // buildHybridSearch renders the two-arm hybrid statement. It is a function
 // rather than inline SQL so a test can hand the statement to a real PostgreSQL
-// to parse and plan (#1512). Its four arguments -- the query vector, the query
-// text, the discoverable statuses and the owner -- are bound by the caller.
+// to parse and plan (#1512). Its three arguments -- the query vector, the
+// query text and the discoverable statuses -- are bound by the caller.
+//
+// The vector arm scores every script in service by its best chunk, exactly,
+// rather than through a nearest-chunks pool: a script is embedded as up to
+// dozens of chunks, so a pool of nearest chunks can be filled by one long
+// script, or by chunks of retired scripts the lifecycle filter then drops,
+// leaving fewer scripts than asked for. A script corpus is small enough that
+// the exact scan is cheap. The lexical arm scores its matches the same way, so
+// a script matched by both arms carries one semantic score.
 func buildHybridSearch(q script.SearchQuery) string {
 	limit := q.EffectiveLimit()
 	base := visibilityPredicate(hybridStatusParam)
@@ -128,15 +136,15 @@ func buildHybridSearch(q script.SearchQuery) string {
 	// constants or built from sanitized parameter indices; limit is a clamped
 	// int. No user input is concatenated into the SQL.
 	vecArm := fmt.Sprintf(
-		"SELECT %s, 1 - (embedding <=> $1) AS vec_score, (%s @@ %s) AS lex_match "+
-			"FROM scripts WHERE embedding IS NOT NULL AND %s "+
-			"ORDER BY embedding <=> $1 LIMIT %d",
-		scriptColumns, scriptFTSExpr, scriptFTSQueryHybrid, base, limit)
+		"SELECT %s, %s AS vec_score, (%s @@ %s) AS lex_match "+
+			"FROM scripts WHERE %s AND EXISTS (SELECT 1 FROM script_embedding_chunks c WHERE c.script_id = scripts.id) "+
+			"ORDER BY vec_score DESC LIMIT %d",
+		scriptColumns, bestChunkScore, scriptFTSExpr, scriptFTSQueryHybrid, base, limit)
 	lexArm := fmt.Sprintf(
-		"SELECT %s, CASE WHEN embedding IS NOT NULL THEN 1 - (embedding <=> $1) ELSE 0 END AS vec_score, "+
+		"SELECT %s, %s AS vec_score, "+
 			"TRUE AS lex_match FROM scripts WHERE %s @@ %s AND %s "+
 			"ORDER BY ts_rank_cd(%s, %s) DESC LIMIT %d",
-		scriptColumns, scriptFTSExpr, scriptFTSQueryHybrid, base,
+		scriptColumns, bestChunkScore, scriptFTSExpr, scriptFTSQueryHybrid, base,
 		scriptFTSExpr, scriptFTSQueryHybrid, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
@@ -157,8 +165,7 @@ func (s *Store) searchHybrid(ctx context.Context, q script.SearchQuery) ([]scrip
 	query := buildHybridSearch(q)
 
 	rows, err := s.db.QueryContext(ctx, query,
-		pgvector.NewVector(q.Embedding), q.QueryText, pq.Array(discoverableStatuses),
-		q.OwnerEmail)
+		pgvector.NewVector(q.Embedding), q.QueryText, pq.Array(discoverableStatuses))
 	if err != nil {
 		return nil, fmt.Errorf("search scripts (hybrid): %w", err)
 	}
@@ -250,8 +257,8 @@ func (s hybridTrailingScanner) Scan(dest ...any) error {
 }
 
 // buildLexicalSearch renders the lexical statement, for the same reason
-// buildHybridSearch exists. Its four arguments -- the query text, the
-// discoverable statuses, the owner and the limit -- are bound by the caller.
+// buildHybridSearch exists. Its three arguments -- the query text, the
+// discoverable statuses and the limit -- are bound by the caller.
 func buildLexicalSearch() string {
 	// #nosec G201 -- scriptColumns, the FTS expression and the predicate are
 	// constants or built from sanitized parameter indices; no user input is
@@ -261,12 +268,12 @@ func buildLexicalSearch() string {
 		WHERE %s
 		  AND %s @@ %s
 		ORDER BY score DESC, updated_at DESC
-		LIMIT $4`,
+		LIMIT $3`,
 		scriptColumns, scriptFTSExpr, scriptFTSQuery, lexRankNormalization,
 		visibilityPredicate(lexicalStatusParam), scriptFTSExpr, scriptFTSQuery)
 }
 
-// searchLexical ranks the caller's visible scripts by full-text relevance only.
+// searchLexical ranks scripts in service by full-text relevance only.
 // It is the graceful-degradation path used when no embedding provider is
 // configured: it has no vector parameter and surfaces rows no worker has
 // embedded.
@@ -274,7 +281,7 @@ func (s *Store) searchLexical(ctx context.Context, q script.SearchQuery) ([]scri
 	query := buildLexicalSearch()
 
 	rows, err := s.db.QueryContext(ctx, query,
-		q.QueryText, pq.Array(discoverableStatuses), q.OwnerEmail, q.EffectiveLimit())
+		q.QueryText, pq.Array(discoverableStatuses), q.EffectiveLimit())
 	if err != nil {
 		return nil, fmt.Errorf("search scripts: %w", err)
 	}

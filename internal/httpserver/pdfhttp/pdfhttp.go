@@ -176,7 +176,11 @@ func (h *Handler) route(rt Route) http.Handler {
 			http.Error(w, "Too many PDF exports from this address. Try again shortly.", http.StatusTooManyRequests)
 			return
 		}
-		h.serve(w, r, contentPath(rt.Content, r))
+		printDoc := h.serveCurrent
+		if strings.Contains(rt.Pattern, "{version}") {
+			printDoc = h.serveVersion
+		}
+		printDoc(w, r, contentPath(rt.Content, r))
 	})
 }
 
@@ -194,14 +198,16 @@ func contentPath(template string, r *http.Request) *url.URL {
 	return &url.URL{Path: decoded, RawPath: raw}
 }
 
-// serve prints the document the request's content route serves.
+// serveCurrent prints the current version of a document. It and
+// serveVersion are one handler; each carries the annotation of the routes
+// with its path shape, since a path parameter is required on every route that
+// declares it.
 //
 // @Summary      Export an HTML document as PDF
 // @Description  Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.
 // @Tags         Portal
 // @Produce      application/pdf
-// @Param        id       path  string  true  "Asset or resource ID"
-// @Param        version  path  int     false "Asset version (the versions route only)"
+// @Param        id  path  string  true  "Asset or resource ID"
 // @Success      200  {file}    file
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
@@ -210,11 +216,35 @@ func contentPath(template string, r *http.Request) *url.URL {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /portal/assets/{id}/pdf [get]
-// @Router       /portal/assets/{id}/versions/{version}/pdf [get]
 // @Router       /admin/assets/{id}/pdf [get]
-// @Router       /admin/assets/{id}/versions/{version}/pdf [get]
 // @Router       /resources/{id}/pdf [get]
+func (h *Handler) serveCurrent(w http.ResponseWriter, r *http.Request, content *url.URL) {
+	h.serve(w, r, content)
+}
+
+// serveVersion prints one version of a document.
+//
+// @Summary      Export one version of an HTML document as PDF
+// @Description  Prints the HTML document the route's .../content sibling serves, in the platform's headless renderer, with its backgrounds and colors as shown on screen. A slide deck prints one page per slide, each slide at its last build step. The document is read through its content route with the caller's own request, so the same access rules apply and that route's refusal status is returned. 415 for a document that is not HTML; 503 when no renderer answers.
+// @Tags         Portal
+// @Produce      application/pdf
+// @Param        id       path  string  true  "Asset or resource ID"
+// @Param        version  path  int     true  "Version"
+// @Success      200  {file}    file
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      415  {string}  string
+// @Failure      503  {string}  string
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/assets/{id}/versions/{version}/pdf [get]
+// @Router       /admin/assets/{id}/versions/{version}/pdf [get]
 // @Router       /resources/{id}/versions/{version}/pdf [get]
+func (h *Handler) serveVersion(w http.ResponseWriter, r *http.Request, content *url.URL) {
+	h.serve(w, r, content)
+}
+
+// serve prints the document the request's content route serves.
 func (h *Handler) serve(w http.ResponseWriter, r *http.Request, content *url.URL) {
 	doc, ok := h.readDocument(w, r, content)
 	if !ok {

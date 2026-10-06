@@ -42,6 +42,11 @@ type Deps struct {
 	Run func(w http.ResponseWriter, r *http.Request) (*script.Run, bool)
 	// Audit reads a run's audited calls. Nil draws a run with no calls.
 	Audit AuditQuerier
+	// ActsOn reports whether the caller owns the script or administers the
+	// platform. Only they are shown the arguments a run's calls were sent: a
+	// call made with the owner's roles may carry values only the owner should
+	// read, and whoever requested a run is not its owner. Nil shows none.
+	ActsOn func(r *http.Request, scriptID string) bool
 	// Tiles reads a script's tile (#1909). Nil leaves the tile route
 	// unmounted.
 	Tiles TileReader

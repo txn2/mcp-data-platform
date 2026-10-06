@@ -179,6 +179,13 @@ func newReplicaAs(t *testing.T, db *sql.DB, sessions pkgsession.Store, s3 *memS3
 			return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:%s,%s.%s.%s,PROD)", kind, catalog, schema, table)
 		},
 	})
+	// Assemble starts the catalog's retention sweeper, whose first sweep runs
+	// at once on its own goroutine. A test that sweeps and counts what it
+	// removed would race it: on a loaded runner that first sweep lands after
+	// the test has written its rows and removes them first, and the test's own
+	// sweep counts zero. Stopping it here waits for the sweep in flight, so the
+	// only sweeps are the ones a test runs.
+	require.NoError(t, layer.Calls().Close())
 
 	toolkit := portalkit.New(portalkit.Config{
 		Name:              "portal",

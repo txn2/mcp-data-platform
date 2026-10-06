@@ -1930,7 +1930,7 @@ const docTemplate = `{
                 "tags": [
                     "Portal"
                 ],
-                "summary": "Export an HTML document as PDF",
+                "summary": "Export one version of an HTML document as PDF",
                 "parameters": [
                     {
                         "type": "string",
@@ -1941,9 +1941,10 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Asset version (the versions route only)",
+                        "description": "Version",
                         "name": "version",
-                        "in": "path"
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -12657,7 +12658,7 @@ const docTemplate = `{
                 "tags": [
                     "Portal"
                 ],
-                "summary": "Export an HTML document as PDF",
+                "summary": "Export one version of an HTML document as PDF",
                 "parameters": [
                     {
                         "type": "string",
@@ -12668,9 +12669,10 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Asset version (the versions route only)",
+                        "description": "Version",
                         "name": "version",
-                        "in": "path"
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -16606,7 +16608,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the knowledge pages and the entities they reference as typed nodes and edges, for the portal's graph view. Entities the viewer cannot access are absent (neither node nor edge), the same visibility rule the per-page refs and backlinks reads apply. Node and page caps are reported via truncated/notice rather than applied silently.",
+                "description": "Returns the knowledge pages and the entities they reference as typed nodes and edges, for the portal's graph view. Entities the viewer cannot access are absent (neither node nor edge), the same visibility rule the per-page refs and backlinks reads apply. A cited script is drawn for every reader, with an edge (ref_source \"produced\") to each file its runs wrote that the viewer can open; the files the viewer cannot open are counted on the script's node as hidden_outputs and not named. Both cover the script's 50 most recent outputs; more_outputs says it wrote older ones too. Node and page caps are reported via truncated/notice rather than applied silently.",
                 "produces": [
                     "application/json"
                 ],
@@ -19381,7 +19383,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script is visible to everyone; what is readable is not. A row the caller does not own carries no source, no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
+                "description": "Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script's definition is readable by everyone signed in; its runs are its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.",
                 "produces": [
                     "application/json"
                 ],
@@ -19691,7 +19693,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns what the script is, what it takes, whether anything will execute it, on what cadence, and what it last produced. It is the same contract document a reference to the script resolves to.",
+                "description": "Returns what the script is, what it takes, whether anything will execute it, on what cadence, and its current source, for every signed-in caller. Its last successful run and saved state are included for its owner and administrators only; for anyone else the contract carries runs_withheld. It is the same contract document a reference to the script resolves to.",
                 "produces": [
                     "application/json"
                 ],
@@ -20710,7 +20712,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the diagram of the version a run executed, with each step's part in that run: how many of the run's audited tool calls it made and how long they took, the outputs it wrote, whether the run reached it, and the step the run failed at. Calls are attributed by where in the script they were made; a call no step made (a computed tool, a call made before call sites were recorded) is listed in other_calls, so the steps' calls and other_calls always add up to calls. Readable by the script's owner, an administrator, and whoever requested the run.",
+                "description": "Returns the diagram of the version a run executed, with each step's part in that run: how many of the run's audited tool calls it made and how long they took, the outputs it wrote, whether the run reached it, and the step the run failed at. Each call on the timeline carries the arguments its audit row recorded, cut at 2048 bytes, for the script's owner and administrators; whoever requested the run sees the calls without them. Calls are attributed by where in the script they were made; a call no step made (a computed tool, a call made before call sites were recorded) is listed in other_calls, so the steps' calls and other_calls always add up to calls. Readable by the script's owner, an administrator, and whoever requested the run.",
                 "produces": [
                     "application/json"
                 ],
@@ -24364,7 +24366,7 @@ const docTemplate = `{
                 "tags": [
                     "Portal"
                 ],
-                "summary": "Export an HTML document as PDF",
+                "summary": "Export one version of an HTML document as PDF",
                 "parameters": [
                     {
                         "type": "string",
@@ -24375,9 +24377,10 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Asset version (the versions route only)",
+                        "description": "Version",
                         "name": "version",
-                        "in": "path"
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -29645,6 +29648,13 @@ const docTemplate = `{
         "flowrun.TimedCall": {
             "type": "object",
             "properties": {
+                "arguments": {
+                    "description": "Arguments is what the call was sent, in JSON, as its audit row\nrecorded it; ArgumentsTruncated is true when it was cut at its bound.",
+                    "type": "string"
+                },
+                "arguments_truncated": {
+                    "type": "boolean"
+                },
                 "call_site": {
                     "type": "array",
                     "items": {
@@ -32054,7 +32064,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "ref_source": {
-                    "description": "RefSource is how the reference came to be: promoted, manual, or inline.",
+                    "description": "RefSource is how the reference came to be: promoted, manual, or inline\nfor a page's citation; produced for an edge from a script to a file its\nruns wrote.",
                     "type": "string"
                 },
                 "source": {
@@ -32076,11 +32086,19 @@ const docTemplate = `{
                     "description": "Exists is false for a reference whose target is gone (a broken reference).",
                     "type": "boolean"
                 },
+                "hidden_outputs": {
+                    "description": "HiddenOutputs counts, on a script's node, the files its runs produced\nthat the viewer cannot open: they are neither drawn nor named.",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
                 "label": {
                     "type": "string"
+                },
+                "more_outputs": {
+                    "description": "MoreOutputs is true on a script's node when its runs wrote more files\nthan the graph reads (the 50 most recent); the drawn edges and the count\ncover those.",
+                    "type": "boolean"
                 },
                 "page": {
                     "description": "Page is true for a node backed by a knowledge page in this listing; the\nfields below are populated only for those.",
@@ -34197,6 +34215,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "the script is disabled"
                 },
+                "runs_withheld": {
+                    "description": "RunsWithheld is true on a contract composed for a reader who neither\nowns the script nor administers the platform: its last run and its\nsaved state are left out (ForReader).",
+                    "type": "boolean"
+                },
                 "schedule": {
                     "description": "Schedule is the cadence this script fires on, nil when it has none.",
                     "allOf": [
@@ -34759,7 +34781,7 @@ const docTemplate = `{
                     "example": "daily-sales-report"
                 },
                 "owner_email": {
-                    "description": "OwnerEmail is the one person a script belongs to: the only caller who\nsees, edits, runs, and schedules it, administrators aside. An\nadministrator can move it to another owner (Transfer).",
+                    "description": "OwnerEmail is the one person a script belongs to: the only caller who\nedits, runs, and schedules it and reads its runs, administrators and\ngrantees aside. Its definition is readable by everyone signed in\n(#1866, #2027). An administrator can move it to another owner\n(Transfer).",
                     "type": "string",
                     "example": "jane@example.com"
                 },
@@ -36018,7 +36040,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/script.Contract"
                 },
                 "draft_params": {
-                    "description": "DraftParams is the LIVE record's parameter contract, which is not always\nthe contract above only in freshness: it is read with the source, so the\ndry-run form binds against exactly the contract the code beside it was\nwritten against (#1364). It travels with the source for the same\naudience and for the same reason.",
+                    "description": "DraftParams is the LIVE record's parameter contract, which is not always\nthe contract above only in freshness: it is read with the source, so the\ndry-run form binds against exactly the contract the code beside it was\nwritten against (#1364).",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/script.Param"
@@ -36029,7 +36051,7 @@ const docTemplate = `{
                     "example": true
                 },
                 "source": {
-                    "description": "Source is the live script's code, present only for the owner and an\nadministrator: it is what the editor on that page opens (#1307). The\ncontract document deliberately does not carry it, because that document\nis what a reference to the script resolves to.",
+                    "description": "Source is the live script's code, for every signed-in caller (#1866,\n#2027): it is what the page shows and the owner's editor opens (#1307).",
                     "type": "string"
                 }
             }

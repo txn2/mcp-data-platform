@@ -21,6 +21,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/openrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -153,11 +154,13 @@ func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Aut
 	if err := s.withTx(ctx, "create script", func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `
 			INSERT INTO scripts (name, display_name, description, category, source_code, params,
-			                     owner_email, tags, enabled, status, version, library, library_loads, exclusive)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13)
+			                     owner_email, tags, enabled, status, version, library, library_loads, exclusive,
+			                     index_text_hash)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12, $13, $14)
 			RETURNING id, created_at, updated_at`,
 			sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
-			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status, sc.Library, pq.Array(sc.Loads), sc.Exclusive)
+			sc.OwnerEmail, pq.Array(sc.Tags), sc.Enabled, sc.Status, sc.Library, pq.Array(sc.Loads), sc.Exclusive,
+			indexjobs.TextHash(scriptindex.Corpus(sc)))
 		if err := row.Scan(&sc.ID, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
 			return fmt.Errorf("insert script: %w", err)
 		}
@@ -219,40 +222,27 @@ func (s *Store) Update(ctx context.Context, sc *script.Script) error {
 	return nil
 }
 
-// indexInvalidation is the SET fragment every write of the live script row
-// carries: it drops the stored vector whenever the row's recorded text hash no
-// longer matches the hash of the text the write leaves behind, so an edit never
-// leaves a stale embedding ranking against a description the script no longer
-// has. A metadata-only write (an owner change, a source edit — the source is not
-// indexed) matches the stored hash and preserves the vector, which is what keeps
-// the corpus from re-embedding itself for changes that do not alter what the
-// script is for.
-//
-// $%[1]d is the caller's hash placeholder. The hash is indexjobs.TextHash over
-// script.IndexText, the exact value the worker stores, so the two definitions
-// cannot diverge.
-const indexInvalidation = `,
-		       embedding           = CASE WHEN embedding_text_hash IS DISTINCT FROM $%[1]d
-		                                  THEN NULL ELSE embedding END,
-		       embedding_model     = CASE WHEN embedding_text_hash IS DISTINCT FROM $%[1]d
-		                                  THEN '' ELSE embedding_model END,
-		       embedding_text_hash = CASE WHEN embedding_text_hash IS DISTINCT FROM $%[1]d
-		                                  THEN NULL ELSE embedding_text_hash END`
-
-// indexTextChanged is the RETURNING expression that reports whether the write
-// just invalidated the vector. It reads the POST-update hash: a write that
-// cleared the column leaves NULL, which is distinct from the non-null new hash,
-// while a write that preserved it leaves exactly that hash. So it is true
-// precisely when the indexed text moved, which is when the caller owes the
-// queue a job.
-//
-// One case reports true without the text having moved: a row that was never
-// embedded holds a NULL hash both before and after any write, so a metadata-only
-// edit of an unembedded script enqueues a job. That is the right answer for the
-// wrong reason and is left as is — the row IS a gap the queue owes, so the job
-// has work to do rather than being a wasted wake-up.
-const indexTextChanged = `
-		 RETURNING embedding_text_hash IS DISTINCT FROM $%[1]d`
+// updateScriptQuery writes the live script row and records the hash of what
+// the script is indexed on ($15, indexjobs.TextHash over scriptindex.Corpus,
+// the value the index worker records when it builds the script's chunks). It
+// returns whether that hash moved: the card or the source changed (#2027), so
+// the script owes an embedding and the caller enqueues one. The chunks are not
+// dropped here: the worker rebuilds the set and re-embeds only the chunks
+// whose text moved, so a one-line edit to a long script costs one call rather
+// than the whole source. Until it does, the script ranks on its previous
+// chunks. An owner change leaves the hash where it was. A row saved before
+// 000177 has no hash yet and reports a move, which is right: it owes an
+// embedding.
+const updateScriptQuery = `
+		UPDATE scripts s
+		   SET name = $2, display_name = $3, description = $4, category = $5,
+		       source_code = $6, params = $7,
+		       owner_email = $8, tags = $9, enabled = $10, status = $11,
+		       superseded_by = $12, deprecated_at = $13, version = $14,
+		       library_loads = $16, exclusive = $17, index_text_hash = $15, updated_at = NOW()
+		  FROM (SELECT id, index_text_hash AS prev FROM scripts WHERE id = $1 FOR UPDATE) p
+		 WHERE s.id = $1 AND p.id = s.id
+		 RETURNING p.prev IS DISTINCT FROM $15`
 
 // updateTx writes the live script row within the caller's transaction,
 // reporting whether the write moved the text the scripts index is built from.
@@ -261,24 +251,12 @@ func updateTx(ctx context.Context, tx *sql.Tx, sc *script.Script) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("marshal script params: %w", err)
 	}
-	// #nosec G201 -- the only interpolation is a constant parameter index into
-	// constant SQL fragments; every value is bound.
-	q := `
-		UPDATE scripts
-		   SET name = $2, display_name = $3, description = $4, category = $5,
-		       source_code = $6, params = $7,
-		       owner_email = $8, tags = $9, enabled = $10, status = $11,
-		       superseded_by = $12, deprecated_at = $13, version = $14,
-		       library_loads = $16, exclusive = $17, updated_at = NOW()` +
-		fmt.Sprintf(indexInvalidation, updateHashParam) +
-		"\n\t\t WHERE id = $1" +
-		fmt.Sprintf(indexTextChanged, updateHashParam)
 	var changed bool
-	err = tx.QueryRowContext(ctx, q,
+	err = tx.QueryRowContext(ctx, updateScriptQuery,
 		sc.ID, sc.Name, sc.DisplayName, sc.Description, sc.Category, sc.Source, paramsJSON,
 		sc.OwnerEmail, pq.Array(sc.Tags),
 		sc.Enabled, sc.Status, sc.SupersededBy, sc.DeprecatedAt, sc.Version,
-		indexjobs.TextHash(script.IndexText(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive).Scan(&changed)
+		indexjobs.TextHash(scriptindex.Corpus(sc)), pq.Array(libraryLoads(sc.Source)), sc.Exclusive).Scan(&changed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("script %s not found", sc.ID)
 	}
@@ -310,10 +288,6 @@ func restampOpenRuns(ctx context.Context, tx *sql.Tx, sc *script.Script) error {
 	}
 	return nil
 }
-
-// updateHashParam is updateTx's placeholder index for the new text hash, one
-// past its last column value.
-const updateHashParam = 15
 
 // Delete removes a script by ID. Its versions, schedule, run history and
 // carried state cascade.

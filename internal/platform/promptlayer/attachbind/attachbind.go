@@ -92,18 +92,18 @@ func (b *Binder) ResolveResources(ctx context.Context, pr *prompt.Prompt, person
 // caller, on the same terms: nil without a resolver, without a stored prompt,
 // or when the prompt references none.
 //
-// A script is its owner's, so the only identity this needs is the caller's
-// address. A request carrying no PlatformContext resolves as nobody, which
-// reaches no script at all.
+// A script's definition reaches every signed-in reader (#2027); its last run
+// and saved state reach its owner and administrators. A request carrying no
+// PlatformContext resolves as nobody, which receives no contract.
 func (b *Binder) ResolveScripts(ctx context.Context, pr *prompt.Prompt) []attachserve.ResolvedScript {
 	if b == nil || b.scripts == nil || pr == nil || pr.ID == "" {
 		return nil
 	}
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
-		return b.scripts.Resolve(ctx, pr.ID, "")
+		return b.scripts.Resolve(ctx, pr.ID, "", false)
 	}
-	return b.scripts.Resolve(ctx, pr.ID, pc.UserEmail)
+	return b.scripts.Resolve(ctx, pr.ID, pc.UserEmail, pc.IsAdmin)
 }
 
 // AppendContent adds a prompt's material to a prompts/get result as additional

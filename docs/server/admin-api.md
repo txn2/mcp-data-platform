@@ -29,6 +29,8 @@ The OpenAPI specification is auto-generated from source code annotations using [
 make swagger
 ```
 
+The portal's API types are generated from the same document converted to OpenAPI 3 (`npm run generate-api-types`), and swag can write a document that conversion refuses, such as a path parameter marked optional on a route that declares it. `make apidocs-openapi3-check` runs that conversion and fails on such a document; `make verify` and the CI frontend job both run it (#2022).
+
 ### What the reference covers
 
 The spec is not admin-only. Alongside the `/api/v1/admin/*` control plane it

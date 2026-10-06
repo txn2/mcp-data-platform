@@ -225,6 +225,7 @@ personas:
       - dp_analyst
     tools:
       allow:
+        - "platform_info"
         - "trino_query"
         - "trino_describe_table"
         - "trino_browse"

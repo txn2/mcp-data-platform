@@ -13,14 +13,13 @@ import "github.com/txn2/mcp-data-platform/pkg/script"
 //
 // The file is integration-tagged, so it is absent from the default build.
 func SQLSamples() map[string]string {
-	// 768 is the width of the scripts.embedding column. The gate prepares
+	// 768 is the width of the script_embedding_chunks.embedding column. The gate prepares
 	// rather than executes, so the values do not matter, but a vector of the
 	// declared width is what types $1.
 	q := script.SearchQuery{
-		Embedding:  make([]float32, 768),
-		QueryText:  "weekly refresh",
-		OwnerEmail: "owner@example.com",
-		Limit:      10,
+		Embedding: make([]float32, 768),
+		QueryText: "weekly refresh",
+		Limit:     10,
 	}
 	// The listing's own filter, carrying every axis at once so the rendered
 	// statement exercises each clause the builders can emit.

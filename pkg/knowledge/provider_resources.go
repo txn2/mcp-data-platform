@@ -99,7 +99,7 @@ func (p *ResourcesProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 	scored, err := p.searcher.Search(ctx, resource.SearchQuery{
 		Embedding: q.Embedding,
 		QueryText: q.Intent,
-		Scopes:    resource.VisibleScopes(callerClaims(q.Caller)),
+		Scopes:    resource.VisibleScopes(ResourceClaimsOf(q.Caller)),
 		Limit:     q.Limit,
 	})
 	if err != nil {
@@ -187,7 +187,7 @@ func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller
 		}
 		return nil, true, fmt.Errorf("getting resource %s: %w", parsed.ResourceID, err)
 	}
-	if res == nil || !resource.CanAccessResource(callerClaims(caller), res) {
+	if res == nil || !resource.CanAccessResource(ResourceClaimsOf(caller), res) {
 		return nil, true, ErrNotFound
 	}
 
@@ -303,7 +303,7 @@ func attachedNote(read docread.Result) string {
 	return where
 }
 
-// callerClaims maps a search caller onto the resource permission claims, so the
+// ResourceClaimsOf maps a search caller onto the resource permission claims, so the
 // provider derives visibility through resource.VisibleScopes and
 // resource.CanAccessResource exactly as the resources REST and MCP surfaces do
 // rather than reimplementing the scope rule.
@@ -327,7 +327,7 @@ func attachedNote(read docread.Result) string {
 // An unattended caller's address travels too, so a run finds the material its
 // author can see and the file it wrote itself -- which is filed under the person
 // it acts for, not under the principal (#1487). It is inert for a human.
-func callerClaims(c Caller) resource.Claims {
+func ResourceClaimsOf(c Caller) resource.Claims {
 	claims := resource.BuildClaims(c.UserID, c.Email, "", c.Roles, c.IsAdmin).ActingFor(c.OnBehalfOf, c.OnBehalfOfSub)
 	claims.Personas = c.Personas
 	return claims

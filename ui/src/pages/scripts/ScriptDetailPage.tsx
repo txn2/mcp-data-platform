@@ -351,7 +351,7 @@ function ScriptFacts({ contract }: { contract: ScriptContract }) {
           label="Status"
           value={contract.enabled ? contract.status : `${contract.status} (disabled)`}
         />
-        {contract.state && <Fact label="State" value={stateFact(contract.state)} />}
+        {contract.state && <Fact label="State" value={stateFact(contract.state, !!contract.runs_withheld)} />}
       </dl>
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">Parameters</p>
@@ -381,8 +381,10 @@ function LibraryFacts({ contract }: { contract: ScriptContract }) {
 
 // stateFact is what the script does with the state it carries between runs
 // (#1537), in one line: read from the source, with the revision the platform
-// holds. A script that keeps none says so, whatever an old revision says.
-function stateFact(state: NonNullable<ScriptContract["state"]>): string {
+// holds. A script that keeps none says so, whatever an old revision says. The
+// revision is the owner's and an administrator's to read (#2027): withheld,
+// the line says only what the source does.
+function stateFact(state: NonNullable<ScriptContract["state"]>, withheld: boolean): string {
   const keeps = state.reads_state || state.saves_state;
   if (!keeps) return "keeps none";
   const does = state.reads_state && state.saves_state
@@ -390,6 +392,7 @@ function stateFact(state: NonNullable<ScriptContract["state"]>): string {
     : state.saves_state
       ? "saved, never read"
       : "read, never saved";
+  if (withheld) return does;
   return state.revision === 0 ? `${does}, nothing saved yet` : `${does}, revision ${state.revision}`;
 }
 

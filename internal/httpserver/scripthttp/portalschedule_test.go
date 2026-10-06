@@ -235,31 +235,24 @@ func TestPortalListScripts_BindingsAreTheOwners(t *testing.T) {
 	assert.Equal(t, map[string]any{"account_id": "acct-9"}, scheduleOf(t, owned, "script_2").Params)
 }
 
-// TestPortalListScripts_SourceIsTheOwners pins the other half of the same
-// line: a caller entitled to know a script exists is not thereby entitled to
-// read the code the platform executes for its owner.
-func TestPortalListScripts_SourceIsTheOwners(t *testing.T) {
+// TestPortalListScripts_RowsCarryNoSource pins the listing's payload choice
+// (#2027): no row carries the source, for any caller, administrator included.
+// The source is everyone signed in's to read on the script's own route.
+func TestPortalListScripts_RowsCarryNoSource(t *testing.T) {
 	store := datedPortalStore()
 	store.scripts[0].Source, store.scripts[1].Source = reportSource, reportSource
 
-	rec := servePortalRequest(t, portalDeps(store, nil, nil, stranger), http.MethodGet,
-		"/api/v1/portal/scripts", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	var seen portalScriptListResponse
-	decodeInto(t, rec, &seen)
-	require.NotEmpty(t, seen.Data)
-	for i := range seen.Data {
-		assert.False(t, seen.Data[i].Owned)
-		assert.Empty(t, seen.Data[i].Script.Source, seen.Data[i].Script.Name)
+	for _, who := range []*PortalIdentity{stranger, admin} {
+		rec := servePortalRequest(t, portalDeps(store, nil, nil, who), http.MethodGet,
+			"/api/v1/portal/scripts", "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var seen portalScriptListResponse
+		decodeInto(t, rec, &seen)
+		require.NotEmpty(t, seen.Data)
+		for i := range seen.Data {
+			assert.Empty(t, seen.Data[i].Script.Source, seen.Data[i].Script.Name)
+		}
 	}
-
-	rec = servePortalRequest(t, portalDeps(store, nil, nil, admin), http.MethodGet,
-		"/api/v1/portal/scripts", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	var byAdmin portalScriptListResponse
-	decodeInto(t, rec, &byAdmin)
-	require.NotEmpty(t, byAdmin.Data)
-	assert.Equal(t, reportSource, byAdmin.Data[0].Script.Source, "an administrator is unrestricted")
 }
 
 // scheduleOf finds one script's cadence in a listing.

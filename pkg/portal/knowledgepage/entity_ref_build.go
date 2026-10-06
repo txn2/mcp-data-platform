@@ -14,6 +14,12 @@ func AssetRef(id string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetAsset, AssetID: id})
 }
 
+// CollectionRef returns the canonical reference for a collection, or "" if id
+// is empty.
+func CollectionRef(id string) string {
+	return refOrEmpty(EntityRef{TargetType: RefTargetCollection, CollectionID: id})
+}
+
 // PromptRef returns the canonical reference for a prompt, or "" when id is not a
 // UUID (file-defined prompts have no prompts row and are not referenceable).
 func PromptRef(id string) string {

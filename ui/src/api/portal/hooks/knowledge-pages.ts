@@ -283,14 +283,22 @@ export interface KnowledgeGraphNode {
   page: boolean;
   tags?: string[];
   updated_at?: string;
+  /** On a script's node, how many files its runs produced that the viewer
+   * cannot open (#1985): neither drawn nor named. */
+  hidden_outputs?: number;
+  /** On a script's node, true when its runs wrote more files than the graph
+   * reads; the drawn outputs and the count cover the 50 most recent. */
+  more_outputs?: boolean;
 }
 
-/** KnowledgeGraphEdge is one stored reference, from a page to what it references. */
+/** KnowledgeGraphEdge is one stored reference, from a page to what it
+ * references, or from a script to a file its runs produced. */
 export interface KnowledgeGraphEdge {
   source: string;
   target: string;
   type: string;
-  /** How the reference came to be: promoted, manual, or inline. */
+  /** How the reference came to be: promoted, manual, or inline for a page's
+   * citation; produced for a script's output (#1985). */
   ref_source: string;
 }
 

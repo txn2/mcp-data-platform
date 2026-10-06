@@ -185,6 +185,11 @@ jobs:
       - name: Type check
         run: cd ui && npx tsc --noEmit
 
+      # The API description converts to the OpenAPI 3 the UI's type
+      # generation reads (#2022); the same target runs in make verify.
+      - name: API description converts to OpenAPI 3
+        run: make apidocs-openapi3-check
+
       # Frontend complexity/coupling/layering gate (#816), the analog of the Go
       # golangci-lint job. Error-level rules (complexity <= 10,
       # cognitive-complexity <= 15, import cycles) fail the build; warning-level

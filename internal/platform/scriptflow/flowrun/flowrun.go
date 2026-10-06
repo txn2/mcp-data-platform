@@ -25,6 +25,10 @@ type Call struct {
 	ResponseChars int
 	// At is when the call started.
 	At time.Time
+	// Arguments is what the call was sent, as its audit row recorded it, in
+	// JSON; ArgumentsTruncated is true when it was cut at its bound.
+	Arguments          string
+	ArgumentsTruncated bool
 }
 
 // RunFacts is what the run record says about how the run went.
@@ -112,6 +116,10 @@ type TimedCall struct {
 	CallSite      []string `json:"call_site,omitempty"`
 	// Node is the card the call was attributed to, empty for an other call.
 	Node string `json:"node,omitempty"`
+	// Arguments is what the call was sent, in JSON, as its audit row
+	// recorded it; ArgumentsTruncated is true when it was cut at its bound.
+	Arguments          string `json:"arguments,omitempty"`
+	ArgumentsTruncated bool   `json:"arguments_truncated,omitempty"`
 }
 
 // siteKey is a call site as a map key.
@@ -174,6 +182,7 @@ func timed(c Call, start time.Time, id string, onCard bool) TimedCall {
 	t := TimedCall{
 		DurationMS: c.DurationMS, Tool: c.Tool, Success: c.Success, Error: c.Error,
 		ResponseChars: c.ResponseChars, CallSite: c.CallSite,
+		Arguments: c.Arguments, ArgumentsTruncated: c.ArgumentsTruncated,
 	}
 	if !start.IsZero() && !c.At.IsZero() {
 		t.StartMS = max(0, c.At.Sub(start).Milliseconds())

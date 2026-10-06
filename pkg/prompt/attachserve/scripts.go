@@ -39,8 +39,8 @@ type ScriptDeps struct {
 // a JSON summary carried by manage_prompt use.
 //
 // Like the resource resolver, it never fails a prompt. A reference whose script
-// was deleted, or that this caller cannot see, is reported as unavailable and
-// the prompt still serves: a procedure that has lost one of its automations is
+// was deleted, or that cannot be read, is reported as unavailable and the
+// prompt still serves: a procedure that has lost one of its automations is
 // still a procedure, and saying so is strictly better than refusing to answer.
 type ScriptResolver struct {
 	deps ScriptDeps
@@ -65,23 +65,23 @@ type ResolvedScript struct {
 	// AvailableEmbedded means the contract is inline below, and the unavailable
 	// values mean the caller received nothing but the reason.
 	Availability Availability
-	// Contract is the resolved contract, set only when Availability is
-	// AvailableEmbedded. A caller who may not see the script gets nothing here:
-	// a reference must not become a channel for reading a script's name,
-	// parameters, or schedule.
+	// Contract is the resolved contract as this reader may see it
+	// (script.Contract.ForReader), set only when Availability is
+	// AvailableEmbedded.
 	Contract *script.Contract
 }
 
 // Resolve returns a prompt's referenced scripts in authored order, each
-// evaluated for the caller identified by email. It returns nil when the prompt
-// references none, and nil rather than an error when the link read fails: a
-// store outage must not take down prompt serving.
+// evaluated for the caller identified by email; admin is whether that caller
+// administers the platform. It returns nil when the prompt references none,
+// and nil rather than an error when the link read fails: a store outage must
+// not take down prompt serving.
 //
-// A script is one person's, so a reference resolves for its owner and for
-// nobody else. A prompt served to a wider audience still serves — every other
-// reader is told an automation was referenced and is out of their reach, which
-// is what AudienceNote warns its author about at the moment they attach it.
-func (r *ScriptResolver) Resolve(ctx context.Context, promptID, email string) []ResolvedScript {
+// A script's definition is readable by everyone signed in (#2027), so a
+// reference resolves for every identified reader. Its last run and saved state
+// reach its owner and administrators only. An unidentified caller receives
+// nothing but the reason.
+func (r *ScriptResolver) Resolve(ctx context.Context, promptID, email string, admin bool) []ResolvedScript {
 	if r == nil || promptID == "" {
 		return nil
 	}
@@ -96,13 +96,13 @@ func (r *ScriptResolver) Resolve(ctx context.Context, promptID, email string) []
 	}
 	out := make([]ResolvedScript, 0, len(links))
 	for _, link := range links {
-		out = append(out, r.resolveOne(ctx, link.ScriptRef, email))
+		out = append(out, r.resolveOne(ctx, link.ScriptRef, email, admin))
 	}
 	return out
 }
 
 // resolveOne evaluates a single reference for the caller.
-func (r *ScriptResolver) resolveOne(ctx context.Context, ref, email string) ResolvedScript {
+func (r *ScriptResolver) resolveOne(ctx context.Context, ref, email string, admin bool) ResolvedScript {
 	id, err := scriptIDFromRef(ref)
 	if err != nil {
 		// A stored reference the parser rejects can only have come from an
@@ -122,13 +122,12 @@ func (r *ScriptResolver) resolveOne(ctx context.Context, ref, email string) Reso
 		// attachment row deliberately outlives the script so the broken
 		// reference stays visible.
 		return ResolvedScript{Reference: ref, Availability: UnavailableMissing}
-	case !c.OwnedBy(email):
-		// Report only that something is referenced and out of reach. Returning
-		// the name or description would make a reference a channel for reading
-		// metadata the caller has no access to.
+	case email == "":
+		// A definition is everyone signed in's to read, and nobody else's.
 		return ResolvedScript{Reference: ref, Availability: UnavailableForbidden}
 	}
-	return ResolvedScript{Reference: ref, Availability: AvailableEmbedded, Contract: c}
+	reader := c.ForReader(admin || c.OwnedBy(email))
+	return ResolvedScript{Reference: ref, Availability: AvailableEmbedded, Contract: &reader}
 }
 
 // scriptIDFromRef extracts a script id from its canonical mcp:script:<id>
@@ -176,86 +175,52 @@ const scriptRefPrefix = "mcp:script:"
 
 // ScriptAttachRequest is one request to reference a script from a prompt.
 type ScriptAttachRequest struct {
-	// Prompt is the prompt gaining the reference, read for the audience the
-	// note reports on.
+	// Prompt is the prompt gaining the reference.
 	Prompt *prompt.Prompt
 	// Ref is the script reference or bare id the caller supplied.
 	Ref string
-	// CallerEmail identifies the author, who must be able to see the script
-	// they are referencing: a script is its owner's, so referencing one is
-	// something its owner does.
+	// CallerEmail identifies the author. Any signed-in caller may reference a
+	// script: its definition is everyone signed in's to read (#2027), and a
+	// reference grants nothing a reader did not already have.
 	CallerEmail string
-	// CallerIsAdmin lifts that requirement, as administrative authority lifts
-	// every other script rule.
+	// CallerIsAdmin admits an administrator whose credential carries no
+	// address, as administrative authority admits it everywhere else.
 	CallerIsAdmin bool
 }
 
-// Attach references a script from a prompt.
-//
-// The one rule is that the caller can see what they are referencing. A wider
-// prompt is not refused: a reference resolves for the script's owner only, and
-// a prompt that also serves other people is a normal thing to write — the
-// automation is simply not part of what those readers receive. AudienceNote
-// states that where the caller can act on it, at the moment they attach, and it
-// is returned so the surface that took the request can show it.
-func (r *ScriptResolver) Attach(ctx context.Context, req ScriptAttachRequest) (string, error) {
+// Attach references a script from a prompt. The script must exist; the caller
+// must be identified. Every reader of the prompt then receives the script's
+// contract, and running it stays its owner's, an administrator's and a
+// grantee's.
+func (r *ScriptResolver) Attach(ctx context.Context, req ScriptAttachRequest) error {
 	if r == nil {
-		return "", errors.New("managed scripts are not available on this deployment")
+		return errors.New("managed scripts are not available on this deployment")
 	}
 	if req.Prompt == nil || req.Prompt.ID == "" {
-		return "", errors.New("a stored prompt is required to reference a script")
+		return errors.New("a stored prompt is required to reference a script")
+	}
+	if req.CallerEmail == "" && !req.CallerIsAdmin {
+		return fmt.Errorf("a script can be referenced by a signed-in caller: %w", prompt.ErrAttachmentScope)
 	}
 	ref, id, err := normalizeScriptRef(req.Ref)
 	if err != nil {
-		return "", err
+		return err
 	}
 	c, err := r.deps.Scripts.Contract(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("reading script %s: %w", id, err)
+		return fmt.Errorf("reading script %s: %w", id, err)
 	}
 	if c == nil {
-		return "", fmt.Errorf("script %s does not exist", strconv.Quote(id))
-	}
-	if !req.CallerIsAdmin && !c.OwnedBy(req.CallerEmail) {
-		// Wrapped in the shared attachment sentinel so the surfaces that pass a
-		// refusal through verbatim keep passing this one through: it is a
-		// complete sentence the author can act on.
-		return "", fmt.Errorf("script %s cannot be attached: it belongs to somebody else: %w",
-			strconv.Quote(c.Title()), prompt.ErrAttachmentScope)
+		return fmt.Errorf("script %s does not exist", strconv.Quote(id))
 	}
 	if err := r.deps.Attachments.AttachScript(ctx, prompt.ScriptAttachment{
 		PromptID:   req.Prompt.ID,
 		ScriptRef:  ref,
 		AttachedBy: req.CallerEmail,
 	}); err != nil {
-		return "", fmt.Errorf("attaching script to prompt: %w", err)
+		return fmt.Errorf("attaching script to prompt: %w", err)
 	}
-	return AudienceNote(req.Prompt, c), nil
-}
-
-// AudienceNote states what a reference means for the people this prompt serves,
-// or "" when every reader of the prompt is the script's owner.
-//
-// It exists because the mismatch is invisible from the authoring side: the
-// author sees their own automation resolve perfectly, while every other reader
-// of a shared prompt receives a note saying part of the procedure was
-// unavailable. Saying so where the reference is made is the difference between
-// a prompt whose author knows what it serves and one that quietly serves less
-// than it reads.
-func AudienceNote(p *prompt.Prompt, c *script.Contract) string {
-	if p == nil || c == nil {
-		return ""
-	}
-	if p.Scope == prompt.ScopePersonal && strings.EqualFold(p.OwnerEmail, c.OwnerEmail) {
-		return ""
-	}
-	owner := c.OwnerEmail
-	if owner == "" {
-		owner = "nobody"
-	}
-	return fmt.Sprintf(
-		"This reference resolves only for %s, who owns the script. Anyone else this prompt "+
-			"serves is told an automation was referenced and is out of their reach.", owner)
+	return nil
 }
 
 // Detach removes one script reference from a prompt, returning
@@ -342,7 +307,7 @@ func withheldScriptNote(items []ResolvedScript, withheld int) string {
 	}
 	var parts []string
 	if n := counts[UnavailableForbidden]; n > 0 {
-		parts = append(parts, fmt.Sprintf("%d you are not permitted to see", n))
+		parts = append(parts, fmt.Sprintf("%d that reach signed-in readers only", n))
 	}
 	if n := counts[UnavailableMissing]; n > 0 {
 		verb := "exist"
@@ -377,9 +342,7 @@ func ScriptSummary(items []ResolvedScript) []map[string]any {
 			"availability": string(it.Availability),
 		}
 		if it.Availability == UnavailableForbidden {
-			// A caller who may not see the script learns only that something is
-			// referenced and out of reach. Even the reference is withheld: they
-			// have no repair action, and it would be a probe for existence.
+			// An unidentified caller learns only that something is referenced.
 			delete(entry, fieldScriptRef)
 		}
 		if it.Contract != nil {

@@ -157,33 +157,10 @@ func TestAttachScriptRefusesAnotherOwnersPrompt(t *testing.T) {
 	assert.Empty(t, links.attached)
 }
 
-// TestAttachScriptWarnsAboutAWiderPrompt proves an author referencing their own
-// script from a shared prompt is told who the reference will resolve for, at
-// the moment they make it: every other reader receives a note saying part of
-// the procedure was unavailable, which the author would otherwise never see.
-func TestAttachScriptWarnsAboutAWiderPrompt(t *testing.T) {
-	adminsScript := janesScript()
-	adminsScript.OwnerEmail = "admin@example.com"
-	h, store, links := handleWithScripts(t, adminsScript)
-	require.NoError(t, store.Create(context.Background(), &prompt.Prompt{
-		Name: "shared-sop", Content: "x", Scope: prompt.ScopeGlobal,
-		OwnerEmail: "admin@example.com", Enabled: true,
-	}))
-
-	res, _, err := h.handleManagePrompt(adminCtx(), managePromptInput{
-		Command: cmdAttachScript, Name: "shared-sop", Script: cmdScriptRef,
-	})
-
-	require.NoError(t, err)
-	require.False(t, res.IsError, resultText(res))
-	assert.Contains(t, resultText(res), "audience_note")
-	assert.Contains(t, resultText(res), "admin@example.com")
-	assert.Len(t, links.attached, 1)
-}
-
-// TestAttachScriptRefusesSomebodyElsesScript proves a reference is not a way to
-// reach a script the author cannot see.
-func TestAttachScriptRefusesSomebodyElsesScript(t *testing.T) {
+// TestAttachScriptTakesSomebodyElsesScript proves an author may reference any
+// script (#2027): its definition is everyone signed in's to read, and every
+// reader of the prompt receives its contract.
+func TestAttachScriptTakesSomebodyElsesScript(t *testing.T) {
 	theirs := janesScript()
 	theirs.OwnerEmail = "someone@example.com"
 	h, store, links := handleWithScripts(t, theirs)
@@ -194,9 +171,9 @@ func TestAttachScriptRefusesSomebodyElsesScript(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.True(t, res.IsError)
-	assert.Contains(t, resultText(res), "belongs to somebody else")
-	assert.Empty(t, links.attached)
+	require.False(t, res.IsError, resultText(res))
+	assert.NotContains(t, resultText(res), "audience_note", "every reader receives it, so there is nothing to warn about")
+	assert.Len(t, links.attached, 1)
 }
 
 // TestScriptCommandsValidateTheirInputs proves each missing argument is named,

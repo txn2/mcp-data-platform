@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -124,4 +125,39 @@ func TestForPortal_ARunUnderTheRunsRule(t *testing.T) {
 	st.run.Version = 7
 	assert.Equal(t, http.StatusNotFound, serve(t, st, owner, "/api/v1/portal/scripts/s1/runs/dpx_1/flow").Code,
 		"a run of a version the script no longer has")
+}
+
+// argsAudit answers one audited call carrying an argument.
+type argsAudit struct{}
+
+func (argsAudit) Query(context.Context, audit.QueryFilter) ([]audit.Event, error) {
+	return []audit.Event{{
+		ToolName: "trino_query", CallSite: []string{"1:22"}, Success: true,
+		Parameters: map[string]any{"sql": "SELECT owner_only_column"},
+	}}, nil
+}
+
+// The arguments a run's calls were sent reach the script's owner, and not
+// whoever requested the run (#1982).
+func TestForPortal_RunArgumentsAreTheOwners(t *testing.T) {
+	st := &stores{source: src, run: &script.Run{
+		ID: "dpx_1", ScriptID: "s1", Version: 1, Status: script.RunStatusSucceeded, CreatedAt: time.Now(),
+		RequestedBy: "bob@example.com",
+	}}
+	read := func(who *scripthttp.PortalIdentity) string {
+		deps := scripthttp.Deps{
+			Scripts: st, Versions: st, Runs: st,
+			PortalUser: func(*http.Request) *scripthttp.PortalIdentity { return who },
+		}
+		mux := http.NewServeMux()
+		flowhttp.ForPortal(scripthttp.New(deps), deps, argsAudit{}, nil).
+			RegisterPortal(mux, func(next http.Handler) http.Handler { return next })
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+			"/api/v1/portal/scripts/s1/runs/dpx_1/flow", nil))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		return rec.Body.String()
+	}
+	assert.Contains(t, read(owner), "owner_only_column")
+	assert.NotContains(t, read(stranger), "owner_only_column", "the requester reads the run, not its calls' arguments")
 }

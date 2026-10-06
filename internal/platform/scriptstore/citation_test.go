@@ -29,7 +29,6 @@ func TestCitation(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, c)
 		assert.Equal(t, "Daily", c.Label)
-		assert.Equal(t, "jane@example.com", c.Owner)
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 

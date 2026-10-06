@@ -145,17 +145,18 @@ What platform execution DOES add, and what this document does not minimize:
   the record naming it as the writer outlives it.
 
   A script is reachable from `search` and `fetch` (`mcp:script:<id>`), from a
-  prompt that references it, and from the portal's own script pages, in
-  addition to `manage_script list`. Each of those surfaces applies the same
-  ownership rule as a store predicate rather than a filter over the answer, so
-  a caller sees exactly the set `manage_script list` would show them and
-  nothing more: somebody else's script has neither a hit, nor a fetchable
-  document, nor a resolvable reference from a prompt. Discovery reports; it
-  grants nothing. Finding a script says it exists and what it takes, and
-  running it is still `run_script` under the run gate. What the surfaces return
-  is the script's contract — name, description, owner, typed parameters,
-  whether a run would be admitted, cadence, last successful run — never its
-  source, which is read with `manage_script get` and on the portal script page.
+  prompt that references it, from a knowledge page that cites it and the
+  knowledge graph, and from the portal's own script pages, in addition to
+  `manage_script list`. Every one of them applies one read rule (#2027): a
+  script's definition is readable by everyone signed in, so every signed-in
+  caller finds every script in service with `search` and reads any script's
+  contract and source with `fetch`, whether or not their persona allows
+  `manage_script`. Discovery reports; it grants nothing. Finding a script says
+  it exists and what it takes, and running it is still `run_script` under the
+  run gate. What `fetch` returns is the script's contract (name, description,
+  owner, typed parameters, whether a run would be admitted, cadence), the files
+  it produced that the caller can open, with a count of the ones they cannot,
+  and its current source.
 
   A script's definition is readable by everyone signed in (#1866): its source,
   its parameters and its version history, with `manage_script` `get`,
@@ -612,9 +613,10 @@ acting on it, and reading what it did, is its owner's and an administrator's.
 
 | What | Who | Why |
 |---|---|---|
-| That a script exists, its contract, its source, its parameters and its version history | Everyone signed in, on the portal listing and a script's page and through `manage_script` `list`, `get`, `get_content`, `outline`, `stats`, `locate`, `diff` and `versions` (#1795, #1866). `search`, `fetch` and a prompt reference serve the contract to its owner and administrators (`Script.OwnedBy`, a store predicate) | A script is how a resource or an asset was produced, and somebody given the output can read how it was made. Reading the code grants nothing: a run still presents its author's captured roles |
+| That a script exists, its contract, its source, its parameters and its version history | Everyone signed in, on the portal listing and a script's page, through `manage_script` `list`, `get`, `get_content`, `outline`, `stats`, `locate`, `diff` and `versions` (#1795, #1866), and through `search`, `fetch`, a prompt's reference, a knowledge page's citation and the knowledge graph (#2027) | A script is how a resource or an asset was produced, and somebody given the output can read how it was made. Reading the code grants nothing: a run still presents its author's captured roles |
+| The files it produced | Named to each reader only where that reader can open the file (an asset's owner, an administrator, the people it or a collection holding it is shared with; a resource by its scope), and counted without a name otherwise, on `fetch` and in the knowledge graph | The definition is everyone's; the outputs are as private as each file is |
 | The roles each version's author held at the save | The script's owner, and administrators | They are that person's identity data; `versions` and the portal history leave them out for everyone else |
-| Its run history, its live runs, what it produced, its state, and the values its schedule BINDS | The script's owner, and administrators | A run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
+| Its run history, its live runs, its last successful run, its state, and the values its schedule BINDS | The script's owner, and administrators; anyone else's contract carries `runs_withheld` | A run's log is free text the script printed while presenting its author's captured roles and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about |
 | One run in particular | The above, plus whoever requested that run | The result was handed to them when they asked for it, so a run id they hold stays followable |
 | Running it, changing it, deleting it, and setting, re-timing, pausing, and resuming its cadence | The script's owner, and administrators; a run grant (#1846) lets another principal run it from the portal | A cadence is not an authority: the run gate and the persona filter are re-read at every fire, so re-timing reaches nothing new |
 
@@ -623,18 +625,23 @@ such script" identically. `manage_script` names the rule when a command that
 acts on a script names another person's. An administrator is unrestricted here,
 which is the same authority the admin API already gives them.
 
-**What is embedded is the contract, never the source.** A script's description
-card is embedded off the request path by the scripts consumer of the shared
-index-jobs framework (`internal/platform/scriptindex`), so a script is found by
-what it does and not only by the words it was named with. The text is
+**What is embedded is the card and the source, chunked.** A script is embedded
+off the request path by the scripts consumer of the shared index-jobs framework
+(`internal/platform/scriptindex`), so a script is found by what it does and not
+only by the words it was named with (#2027). The first chunk is the card,
 `script.IndexText`: the title, the description, the parameter names, the tags,
-and the one line stating whether anything will execute it. It is the contract the
-first row of the table above describes, and it is the same text a caller is
-shown as the search snippet. The source is excluded: it churns on every code
-edit while a description changes rarely, so indexing it would re-embed the
-corpus for changes that do not alter what the script is for. The store applies
-the same ownership predicate to both the semantic and the lexical arm before
-ranking, so a script the caller does not own reaches neither.
+and the one line stating whether anything will execute it, which is also the
+search snippet. The source follows, comments included, cut where a definition,
+a load or a left-margin comment starts so a comment stays with the code it
+explains, each chunk within the embedder's input and headed by the script's
+title; nothing is trimmed. Every save that changes the card or the source queues
+the script to be embedded again, and the worker re-embeds only the chunks whose
+text moved; until it lands, the script ranks on its previous chunks.
+The lexical arm reads the source too, weighted below the card, so a script whose
+description matches outranks one that only mentions the word in its code. A
+source cannot carry a credential (a save that does is refused), and a script
+names a connection rather than holding its secret, which is what makes the
+source safe to index for every reader.
 
 **`show_scripts` performs no data work.** It is presentation-only, following
 the `show_prompts` split. It returns a confirmation and, where the deployment

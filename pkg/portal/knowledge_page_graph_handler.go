@@ -42,6 +42,13 @@ type knowledgeGraphNode struct {
 	Page      bool       `json:"page"`
 	Tags      []string   `json:"tags,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// HiddenOutputs counts, on a script's node, the files its runs produced
+	// that the viewer cannot open: they are neither drawn nor named.
+	HiddenOutputs int `json:"hidden_outputs,omitempty"`
+	// MoreOutputs is true on a script's node when its runs wrote more files
+	// than the graph reads (the 50 most recent); the drawn edges and the count
+	// cover those.
+	MoreOutputs bool `json:"more_outputs,omitempty"`
 }
 
 // knowledgeGraphEdge is one stored reference, from the referencing page to the
@@ -52,7 +59,9 @@ type knowledgeGraphEdge struct {
 	// Type is the reference's target type, so the client can filter edges by the
 	// kind of thing they point at without re-deriving it from the node.
 	Type string `json:"type"`
-	// RefSource is how the reference came to be: promoted, manual, or inline.
+	// RefSource is how the reference came to be: promoted, manual, or inline
+	// for a page's citation; produced for an edge from a script to a file its
+	// runs wrote.
 	RefSource string `json:"ref_source"`
 }
 
@@ -72,7 +81,7 @@ type knowledgeGraphResponse struct {
 // knowledgeGraph handles GET /api/v1/portal/knowledge-pages/graph.
 //
 // @Summary      The knowledge corpus as a graph
-// @Description  Returns the knowledge pages and the entities they reference as typed nodes and edges, for the portal's graph view. Entities the viewer cannot access are absent (neither node nor edge), the same visibility rule the per-page refs and backlinks reads apply. Node and page caps are reported via truncated/notice rather than applied silently.
+// @Description  Returns the knowledge pages and the entities they reference as typed nodes and edges, for the portal's graph view. Entities the viewer cannot access are absent (neither node nor edge), the same visibility rule the per-page refs and backlinks reads apply. A cited script is drawn for every reader, with an edge (ref_source "produced") to each file its runs wrote that the viewer can open; the files the viewer cannot open are counted on the script's node as hidden_outputs and not named. Both cover the script's 50 most recent outputs; more_outputs says it wrote older ones too. Node and page caps are reported via truncated/notice rather than applied silently.
 // @Tags         Knowledge
 // @Produce      json
 // @Param        tag    query  string  false  "Only include pages carrying this tag"
@@ -109,6 +118,7 @@ func (h *Handler) knowledgeGraph(w http.ResponseWriter, r *http.Request, reader 
 	b := &knowledgeGraphBuilder{h: h, r: r, user: user, index: map[string]struct{}{}, resolved: map[string]resolvedRef{}}
 	b.addPages(pages)
 	b.addRefs(refs)
+	b.addProduced()
 	writeJSON(w, http.StatusOK, b.response(total, len(pages)))
 }
 
@@ -161,6 +171,9 @@ type knowledgeGraphBuilder struct {
 	labels map[string]string
 	// nodesDropped records that the node cap kept a referenced entity out.
 	nodesDropped bool
+	// scripts are the ids of the scripts drawn, whose outputs addProduced
+	// draws.
+	scripts []string
 }
 
 // addPages seeds the graph with one node per listed page. Pages are always added
@@ -206,8 +219,12 @@ func (b *knowledgeGraphBuilder) addRefs(refs []knowledgepage.EntityRef) {
 		if !rr.Accessible {
 			continue
 		}
+		drawn := b.known(target)
 		if !b.ensureNode(target, rr) {
 			continue
+		}
+		if !drawn && ref.TargetType == knowledgepage.RefTargetScript && rr.Exists {
+			b.scripts = append(b.scripts, ref.ScriptID)
 		}
 		b.edges = append(b.edges, knowledgeGraphEdge{
 			Source: source, Target: target, Type: ref.TargetType, RefSource: ref.Source,

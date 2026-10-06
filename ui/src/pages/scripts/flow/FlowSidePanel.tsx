@@ -9,6 +9,7 @@ import type {
 } from "@/api/portal/hooks/scriptFlow";
 import { Button } from "@/components/ui/button";
 import type { FlowView } from "./flowView";
+import { CallDetail } from "./CallDetail";
 import { Excerpt, Lines, Row, Rows, Swatch } from "./panelParts";
 import { BoxDetail, HowToReadStructure, OtherCalls, StructDetail } from "./StructurePanel";
 import {
@@ -75,22 +76,55 @@ function selectedBody(props: PanelProps, selection: NonNullable<Selection>): Rea
       return <StructDetail {...props} id={selection.id} />;
     case "sbox":
       return <BoxDetail {...props} id={selection.id} />;
+    case "call":
+      return props.run ? (
+        <CallDetail graph={props.graph} run={props.run} index={selection.index} onSelect={props.onSelect} onShowLines={props.onShowLines} />
+      ) : null;
   }
 }
 
-// nodeBody is a selected card, with what the drawn run did there.
-function nodeBody({ graph, source, onShowLines, run }: PanelProps, id: string): ReactNode {
+// nodeBody is a selected card, with what the drawn run did there and the
+// calls it made, each of which opens on its own (#1982).
+function nodeBody({ graph, source, onSelect, onShowLines, run }: PanelProps, id: string): ReactNode {
   const n = graph.nodes.find((x) => x.id === id);
   if (!n) return null;
   return (
-    <NodeDetail
-      graph={graph}
-      node={n}
-      source={source}
-      onShowLines={onShowLines}
-      stat={run?.nodes[n.id]}
-      inRun={run !== undefined}
-    />
+    <>
+      <NodeDetail
+        graph={graph}
+        node={n}
+        source={source}
+        onShowLines={onShowLines}
+        stat={run?.nodes[n.id]}
+        run={run}
+      />
+      {run && <CardCalls run={run} node={n.id} onSelect={onSelect} />}
+    </>
+  );
+}
+
+// CardCalls lists the drawn run's calls a card made, each opening that call.
+function CardCalls({ run, node, onSelect }: { run: ScriptRunFlow; node: string; onSelect: (s: Selection) => void }) {
+  const calls = run.timeline.flatMap((c, index) => (c.node === node ? [{ c, index }] : []));
+  if (calls.length === 0) return null;
+  return (
+    <div className="space-y-1.5 text-xs" data-testid="flow-card-calls">
+      <p className="text-muted-foreground">Calls this run made here. Select one for what it was sent and answered.</p>
+      <ul className="max-h-48 space-y-0.5 overflow-auto">
+        {calls.map(({ c, index }) => (
+          <li key={index}>
+            <button
+              type="button"
+              className={`w-full rounded px-1.5 py-0.5 text-left font-mono hover:bg-muted ${c.success ? "" : "text-destructive"}`}
+              onClick={() => onSelect({ kind: "call", index })}
+            >
+              #{index + 1} {c.tool} · {formatDuration(c.duration_ms)}
+              {c.success ? "" : " · failed"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -212,6 +246,14 @@ function ChangeRows({ graph, node }: { graph: ScriptFlow; node: FlowNode }) {
   );
 }
 
+// RunAtCard is what the drawn run did at one card. A run recorded without
+// call sites has no call on any card, which is not the same as never reaching
+// it.
+function RunAtCard({ stat, unplaced }: { stat: FlowNodeRun | undefined; unplaced: boolean }) {
+  if (unplaced) return <Row label="This run">its calls can't be placed on cards: it predates call sites</Row>;
+  return <RunRows stat={stat} />;
+}
+
 // RunRows is what the drawn run did at one card.
 function RunRows({ stat }: { stat: FlowNodeRun | undefined }) {
   if (!stat?.reached) return <Row label="This run">never reached</Row>;
@@ -275,15 +317,15 @@ function NodeDetail({
   source,
   onShowLines,
   stat,
-  inRun,
+  run,
 }: {
   graph: ScriptFlow;
   node: FlowNode;
   source: string;
   onShowLines?: (lines: number[]) => void;
   stat?: FlowNodeRun;
-  /** inRun is true when a run is drawn, so the card says what the run did. */
-  inRun: boolean;
+  /** run is the run drawn, when one is, so the card says what it did. */
+  run?: ScriptRunFlow;
 }) {
   const lines = node.site ? [node.line, node.site] : [node.line];
   const canShow = onShowLines !== undefined && node.line > 0 && node.change !== "removed";
@@ -298,9 +340,9 @@ function NodeDetail({
         {node.purpose && <p className="mt-2 text-xs">{node.purpose}</p>}
       </div>
       <NodeRows graph={graph} node={node} />
-      {inRun ? (
+      {run ? (
         <Rows>
-          <RunRows stat={stat} />
+          <RunAtCard stat={stat} unplaced={run.unplaced} />
         </Rows>
       ) : null}
       <Excerpt text={excerpt(source, node.line, 1, 4)} />
