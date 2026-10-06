@@ -56,8 +56,9 @@ func nonEmpty(values []string) []string {
 // ordering.
 //
 // Two different things meet here and are kept apart. The SCOPE decides which
-// scripts the caller is asking about -- their own by default, every script on
-// request, and every script unconditionally for an administrator. The NARROWING
+// scripts the caller is asking about -- every script by default, their own
+// with scope=mine (#1994), and every script unconditionally for an
+// administrator. The NARROWING
 // axes (category and tag, #1369; free text, #1405; author, status and enabled,
 // #1795) narrow whatever that scope selected, and apply to an administrator
 // exactly as they do to everybody else, because they narrow what a reader asked
@@ -105,17 +106,20 @@ func Filter(owner string, isAdmin bool, query url.Values) script.ListFilter {
 	if isAdmin {
 		return filter
 	}
-	// A script is visible to everyone; what is readable is not (#1795). A
-	// non-admin listing is their own by default and every script on request,
-	// with reportableScript withholding the source of a row they do not own
-	// and attachLastRuns leaving its run state empty. scope=mine is what the
-	// listing did unconditionally before.
-	if query.Get("scope") == "all" {
-		return filter
+	// A script is visible to everyone, and so is how it is going (#1795,
+	// #1994): a non-admin listing is every script by default, its schedule and
+	// its runs' status included, and scope=mine narrows it to their own.
+	// What a run was given and printed stays with its owner (the run
+	// projections in the handler).
+	if query.Get("scope") == ScopeMine {
+		filter.OwnerEmail = owner
 	}
-	filter.OwnerEmail = owner
 	return filter
 }
+
+// ScopeMine is the scope value that narrows a listing to the caller's own
+// scripts.
+const ScopeMine = "mine"
 
 // parseBool reads a query parameter that is present or absent, rather than
 // true or false: an unset "enabled" must not narrow the listing to the

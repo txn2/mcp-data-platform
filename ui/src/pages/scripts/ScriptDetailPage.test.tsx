@@ -442,12 +442,40 @@ describe("ScriptDetailPage: what an owner may read", () => {
     expect(screen.queryByText(/the roles its author held at the save/)).not.toBeInTheDocument();
     expect(screen.queryByText(/deny-all persona/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Validate|Run now|Save/ })).not.toBeInTheDocument();
-    expect(screen.queryByText("Run history")).not.toBeInTheDocument();
-    // The state is the runs' input and belongs to the same reader (#1537).
+    // How its runs have gone is every reader's (#1994); acting on them is not.
+    expect(screen.getByText("Run history")).toBeInTheDocument();
+    // The state is the runs' input and belongs to the owner (#1537).
     expect(screen.queryByRole("heading", { name: "State" })).not.toBeInTheDocument();
     // And so is removing it (#1575): the control carries the same reach the
     // route enforces, so a reader who is offered it is one the route admits.
     expect(screen.queryByRole("button", { name: "Delete script" })).not.toBeInTheDocument();
+  });
+
+  // A reader who neither owns the script nor asked for a run reads how it went
+  // and not what it was given or printed (#1994).
+  it("shows a reader a withheld run's outcome and not its log, parameters or controls", () => {
+    mockContract.mockReturnValue(query({ contract, owned: false, source: "x = 1\n" }));
+    mockRun.mockReturnValue(
+      query({
+        ...runDetail,
+        withheld: true,
+        status: "failed",
+        error: "Trino could not be reached (timeout); expected to pass on its next run.",
+        cause: "upstream",
+        log: undefined,
+        params: undefined,
+        requested_by: undefined,
+      }),
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByRole("row", { name: /succeeded/ }));
+    expect(screen.getAllByText(/expected to pass on its next run/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/What this run was given, printed and wrote is the script owner's/)).toBeInTheDocument();
+    expect(screen.queryByText("Requested by")).not.toBeInTheDocument();
+    // The definition's parameter list stays; the run's own values do not.
+    expect(screen.queryByText("Parameters", { selector: "dt" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Stop run|Cancel run/ })).not.toBeInTheDocument();
   });
 
   // Removing a script is the owner's and an administrator's, which is the rule

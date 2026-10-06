@@ -2201,7 +2201,7 @@ email says the same thing in words.
 | Cause | What failed | Retryable |
 |---|---|---|
 | `script` | The script: an evaluation error, `fail()`, an argument a binding refused, a step or time limit | no |
-| `upstream` | A service the script called: it timed out, dropped the connection, could not be reached, or answered the script's last call with a 5xx or 429 just before the script failed | yes |
+| `upstream` | A service the script called: it timed out, dropped the connection, could not be reached, answered the script's last call with a 5xx or 429 just before the script failed, or failed the call for a reason its tool reports as temporary (a Trino failure outside the statement, #2032) | yes |
 | `transient` | The script declared its own failure temporary with `fail(msg, retryable=True)` | yes |
 | `memory` | The run held more than its budget, or more than its replica had with it the only run executing | no |
 | `worker_lost` | Its workers kept stopping without a result until its take-overs were spent | no |
@@ -2236,6 +2236,83 @@ was outside the script from reading as the script's:
   records the run as `transient`, for a condition outside the script that the
   next run may not meet, such as a feed that has not published yet. Without
   `retryable=`, `fail` is Starlark's own.
+
+### A failed Trino query
+
+A Trino failure says whose problem it is (#2032). `trino_query` and
+`trino_execute` classify each failure from what Trino and the connection
+reported, and a script's run reads that classification rather than the
+message:
+
+| What Trino reported | Run cause | Retryable |
+|---|---|---|
+| No answer: a timeout (including one while polling the statement), a refused or reset connection, a DNS failure, a 502, 503 or 504 | `upstream` | yes |
+| `INSUFFICIENT_RESOURCES`, or `INTERNAL_ERROR` naming a node or transport fault | `upstream` | yes |
+| `EXTERNAL` with a SQLSTATE `08` connection error from the source | `upstream` | yes |
+| `USER_ERROR` (syntax, a missing table or column, a type mismatch, a permission) | `script` | no |
+| `EXTERNAL` with a data or constraint SQLSTATE (`22`, `23`, `42`) | `script` | no |
+| `EXTERNAL` the classifier does not recognize, any other `INTERNAL_ERROR` | `script` | no |
+
+The run's error keeps Trino's own text and adds one line saying which it was:
+
+```text
+Error in platform.execute: in platform.execute: Execution failed: query failed: trino: query failed (200 OK): "EXTERNAL: The connection attempt failed."
+Trino failed for a reason outside the script (EXTERNAL / JDBC_ERROR, SQLSTATE 08001); expected to pass on its next run.
+```
+
+The owner's email, the `failing_automations` briefing and the run on the
+portal all show that error, so each says whether the next run is expected to
+pass.
+
+A read that Trino itself fails for a temporary reason (`platform.query`, or
+`platform.call` of a tool that writes nothing) is issued again by the host
+after 1s, 2s, then 4s, at most three times and never past the run's deadline,
+each wait written to the log:
+
+```text
+trino_query failed for a temporary reason (EXTERNAL / JDBC_ERROR, SQLSTATE 08001); waited 1s and retried (1 of 3)
+```
+
+`retry = False` turns that off for one call. A read that never reached Trino (a
+timeout, a refused or reset connection) is not issued again: the Trino client
+has already retried the connection, for up to two minutes, before it reports
+the failure. A statement (`platform.execute`, or a `platform.call` that may
+write) is never issued again by the host: it cannot know the statement is safe
+to repeat.
+
+A script that wants to decide for itself passes `on_error = "return"` to
+`platform.query`, `platform.execute` or `platform.call`. A failed call then
+comes back as `{"error": {...}}` instead of ending the run: `code`, `category`
+(`upstream_unavailable`, `client_input`, `internal`), `retryable`, `message`,
+and from Trino `trino` (`error_type`, `error_name`, `error_code`, `sql_state`)
+or `transport` (`kind`, `http_status`, `detail`). The dict holds only `error`,
+so a script that reads `rows` without checking fails at that read. The run's
+deadline and its memory budget end the run however the script asked.
+
+```python
+MERGE_SQL = "INSERT INTO warehouse.public.orders SELECT * FROM warehouse.staging.orders WHERE day = :day"
+
+def main():
+    """Moves the day's staged orders into the warehouse."""
+    res = platform.execute(
+        MERGE_SQL,
+        connection = "warehouse",
+        params = {"day": run.params["day"]},
+        on_error = "return",
+    )
+    if "error" in res:
+        e = res["error"]
+        if e["retryable"]:
+            fail("warehouse unreachable (%s); the next run retries" % e["trino"]["error_name"], retryable = True)
+        fail("the insert failed: %s" % e["message"])
+```
+
+A test reaches that branch by declaring the failure:
+`testing.answer("trino_execute", {"connection": "warehouse"}, error = {"retryable": True, "category": "upstream_unavailable", "message": "...", "trino": {"error_type": "EXTERNAL", "sql_state": "08001"}})`.
+A recorded run keeps the classification of every call that failed, so a replay
+fails the way the run did.
+
+### The owner's email
 
 The owner's failure email follows the same reading. One `script` failure says
 the next scheduled run may succeed; when three or more runs in a row

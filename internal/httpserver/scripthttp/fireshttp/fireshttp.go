@@ -18,6 +18,7 @@ package fireshttp
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -65,10 +66,11 @@ func (h *Handler) Register(mux *http.ServeMux, wrap func(http.Handler) http.Hand
 // list lays out when the caller's scheduled scripts fire.
 //
 // @Summary      Lay out the fire times of the caller's script schedules
-// @Description  Returns every schedule the caller may see, each placed on one of three axes by how often it fires: intraday (the viewer's day, for schedules firing more than once a day), multi_day (the viewer's Monday-to-Monday week, for at least once a week) and long_term (three calendar months from the first of the viewer's month). Each row lists its fires in the window, expanded in the schedule's own timezone with the same parse the scheduler uses, capped at 500 per row; fire_count is every fire in the window and truncated says when fires holds fewer. rhythm classifies the typical gap between fires. Each row carries its script's owner_email, category and tags ([] for none), and a section's rows are in case-insensitive script-name order. A paused schedule is listed with enabled false. A schedule that cannot be parsed is named under unreadable. Owners see their own schedules; administrators see every schedule.
+// @Description  Returns every schedule the caller may see, each placed on one of three axes by how often it fires: intraday (the viewer's day, for schedules firing more than once a day), multi_day (the viewer's Monday-to-Monday week, for at least once a week) and long_term (three calendar months from the first of the viewer's month). Each row lists its fires in the window, expanded in the schedule's own timezone with the same parse the scheduler uses, capped at 500 per row; fire_count is every fire in the window and truncated says when fires holds fewer. rhythm classifies the typical gap between fires. Each row carries its script's owner_email, category and tags ([] for none), and a section's rows are in case-insensitive script-name order. A paused schedule is listed with enabled false. A schedule that cannot be parsed is named under unreadable. Every signed-in caller sees every schedule; scope=mine narrows to the caller's own.
 // @Tags         Scripts
 // @Produce      json
-// @Param        tz  query  string  false  "IANA zone the windows are cut in, the viewer's own; empty means UTC"
+// @Param        tz     query  string  false  "IANA zone the windows are cut in, the viewer's own; empty means UTC"
+// @Param        scope  query  string  false  "Whose schedules to lay out: all (default) or mine"  Enums(all, mine)
 // @Success      200  {object}  fireshttp.Timeline
 // @Failure      400  {object}  httpjson.ProblemDetail
 // @Failure      401  {object}  httpjson.ProblemDetail
@@ -85,7 +87,13 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	scripts, err := h.deps.Scripts.List(r.Context(), scriptlist.Filter(owner, isAdmin, nil))
+	// Every script's cadence by default, as the listing (#1994); scope=mine
+	// narrows to the caller's own. A row carries no fire-time parameters.
+	scope := url.Values{}
+	if r.URL.Query().Get("scope") == scriptlist.ScopeMine {
+		scope.Set("scope", scriptlist.ScopeMine)
+	}
+	scripts, err := h.deps.Scripts.List(r.Context(), scriptlist.Filter(owner, isAdmin, scope))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
 		return

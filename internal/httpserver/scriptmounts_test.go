@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -108,7 +108,7 @@ func TestScriptConnectionEnumerator_AppliesThePersonaBoundary(t *testing.T) {
 	enumerate := scriptConnectionEnumerator(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))
 	require.NotNil(t, enumerate)
 
-	got := enumerate(context.Background(), scripthttp.ConnectionScope{Persona: "analyst"})
+	got := enumerate(context.Background(), connchoicehttp.Scope{Persona: "analyst"})
 	require.Len(t, got, 1, "a persona granted one connection sees one")
 	assert.Equal(t, "warehouse", got[0].Name)
 	assert.Equal(t, "trino", got[0].Kind)
@@ -119,7 +119,7 @@ func TestScriptConnectionEnumerator_AppliesThePersonaBoundary(t *testing.T) {
 func TestScriptConnectionEnumerator_EnumeratesAnAdministratorUnrestricted(t *testing.T) {
 	tr, pr := enumeratorFixture(t)
 	got := scriptConnectionEnumerator(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))(context.Background(),
-		scripthttp.ConnectionScope{Persona: "admin", Unrestricted: true})
+		connchoicehttp.Scope{Persona: "admin", Unrestricted: true})
 
 	require.Len(t, got, 2)
 }
@@ -130,7 +130,7 @@ func TestScriptConnectionEnumerator_EnumeratesAnAdministratorUnrestricted(t *tes
 func TestScriptConnectionEnumerator_DeniesAnUnresolvedPersona(t *testing.T) {
 	tr, pr := enumeratorFixture(t)
 	got := scriptConnectionEnumerator(connreach.New(connreach.Deps{Toolkits: tr, Personas: pr}))(context.Background(),
-		scripthttp.ConnectionScope{Persona: "nobody"})
+		connchoicehttp.Scope{Persona: "nobody"})
 
 	assert.Empty(t, got)
 }

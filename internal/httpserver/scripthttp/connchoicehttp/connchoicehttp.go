@@ -1,4 +1,7 @@
-package scripthttp
+// Package connchoicehttp serves the connections a script's connection-typed
+// parameter may name (#1361), extracted from internal/httpserver/scripthttp
+// for its size budget. The script route around it decides who may ask.
+package connchoicehttp
 
 import (
 	"context"
@@ -18,17 +21,17 @@ import (
 // the roles captured at the script's last save, so what the middleware finally
 // admits is the same boundary this picker draws from.
 
-// ConnectionChoice is one connection a parameter may name: the value bound into
+// Choice is one connection a parameter may name: the value bound into
 // a run, and what a person needs to pick it by.
-type ConnectionChoice struct {
+type Choice struct {
 	Name string `json:"name" example:"warehouse"`
 	// Kind is the toolkit serving it.
 	Kind        string `json:"kind,omitempty" example:"trino"`
 	Description string `json:"description,omitempty" example:"Production Trino cluster"`
 }
 
-// ConnectionScope is the caller a connection enumeration is narrowed to.
-type ConnectionScope struct {
+// Scope is the caller a connection enumeration is narrowed to.
+type Scope struct {
 	// Persona is the caller's resolved persona, whose connections rules decide
 	// what they may reach. An unresolved persona reaches nothing, which is the
 	// same fail-closed default the authorizer applies to a tool call.
@@ -38,7 +41,7 @@ type ConnectionScope struct {
 	Unrestricted bool
 }
 
-// ConnectionEnumerator lists the connections one caller may reach, in the
+// Enumerator lists the connections one caller may reach, in the
 // deployment's terms. It is the composition root's, because resolving it means
 // walking the live toolkit registry through the persona boundary and this
 // package holds neither.
@@ -46,12 +49,12 @@ type ConnectionScope struct {
 // Nil leaves the choices route unmounted: a deployment that cannot enumerate
 // its connections should serve no set at all rather than an empty one, which a
 // form would render as "this script may reach nothing".
-type ConnectionEnumerator func(ctx context.Context, caller ConnectionScope) []ConnectionChoice
+type Enumerator func(ctx context.Context, caller Scope) []Choice
 
 // connectionChoicesResponse is the set a connection parameter chooses from,
 // and where it came from.
 type connectionChoicesResponse struct {
-	Data []ConnectionChoice `json:"data"`
+	Data []Choice `json:"data"`
 	// Source names the boundary the set was drawn from.
 	Source string `json:"source" example:"persona"`
 	// Note states the source in the reader's terms, so a form can put it under
@@ -59,8 +62,34 @@ type connectionChoicesResponse struct {
 	Note string `json:"note"`
 }
 
-// portalScriptConnections returns the connections a connection-typed parameter
-// of this script may be bound to.
+// Deps is what the route needs from the script surface around it.
+type Deps struct {
+	// List enumerates one caller's connections. Nil leaves the route
+	// unmounted (Enumerator).
+	List Enumerator
+	// Caller resolves the caller of a request for the script in its path,
+	// writing the refusal itself when there is none or the script is not
+	// theirs to bind.
+	Caller func(w http.ResponseWriter, r *http.Request) (Scope, bool)
+}
+
+// Handler serves the route.
+type Handler struct{ deps Deps }
+
+// New builds the handler.
+func New(deps Deps) *Handler { return &Handler{deps: deps} }
+
+// Register mounts the route, wrapped in the portal authentication
+// middleware, when there is an enumerator to serve it from.
+func (h *Handler) Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
+	if h.deps.List == nil {
+		return
+	}
+	mux.Handle("GET /api/v1/portal/scripts/{id}/connections", wrap(http.HandlerFunc(h.list)))
+}
+
+// list returns the connections a connection-typed parameter of this script
+// may be bound to.
 //
 // @Summary      List the connections a script's parameters may name
 // @Description  Returns the set a `connection` parameter chooses from: the connections the caller's persona reaches, narrowed to the kind the parameter binds. Restricted to the script's owner and to administrators.
@@ -74,13 +103,12 @@ type connectionChoicesResponse struct {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/connections [get]
-func (h *Handler) portalScriptConnections(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	if _, ok := h.ownedScript(w, r, user); !ok {
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	scope, ok := h.deps.Caller(w, r)
+	if !ok {
 		return
 	}
-	reachable := bindableChoices(h.deps.Connections(r.Context(), ConnectionScope{
-		Persona: user.Persona, Unrestricted: user.IsAdmin,
-	}))
+	reachable := bindableChoices(h.deps.List(r.Context(), scope))
 	httpjson.WriteJSON(w, http.StatusOK, connectionChoicesResponse{
 		Data:   orEmptyChoices(reachable),
 		Source: "persona",
@@ -99,8 +127,8 @@ func (h *Handler) portalScriptConnections(w http.ResponseWriter, r *http.Request
 // (script.ConnectionParamKind). Offering the others offers values the run
 // refuses (#1384); narrowing to the bindable kind resolves a name to the
 // connection the run will actually use, and to that one only.
-func bindableChoices(reachable []ConnectionChoice) []ConnectionChoice {
-	out := make([]ConnectionChoice, 0, len(reachable))
+func bindableChoices(reachable []Choice) []Choice {
+	out := make([]Choice, 0, len(reachable))
 	for _, c := range reachable {
 		if c.Kind == script.ConnectionParamKind {
 			out = append(out, c)
@@ -111,9 +139,9 @@ func bindableChoices(reachable []ConnectionChoice) []ConnectionChoice {
 
 // orEmptyChoices normalizes a nil enumeration so the payload carries a list
 // rather than null.
-func orEmptyChoices(choices []ConnectionChoice) []ConnectionChoice {
+func orEmptyChoices(choices []Choice) []Choice {
 	if choices == nil {
-		return []ConnectionChoice{}
+		return []Choice{}
 	}
 	return choices
 }

@@ -156,6 +156,10 @@ export interface ScriptContractOutput {
 // ScriptRunDetail is one run in full, as the run record itself: its bound
 // parameters, what it cost, what it wrote, and the bounded log it captured.
 export interface ScriptRunDetail extends ScriptRun {
+  /** withheld marks a run read by someone who neither owns its script nor
+   * requested it (#1994): its parameters, log, outputs, state and result are
+   * left out. */
+  withheld?: boolean;
   script_id: string;
   scheduled_for: string;
   attempt: number;

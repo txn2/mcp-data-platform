@@ -449,9 +449,16 @@ asset's version history is the history of what the dashboard has been showing. A
 delivered to a bucket names where it was written and is not a link: those bytes left the
 platform, and nothing here will serve them back.
 
-The schedule controls and the run history of a script belong to its owner and to
-administrators. A script you do not own shows its details, what it says about itself, and
-its source and versions to read, and nothing to run or change.
+The schedule controls of a script belong to its owner and to administrators. A script
+you do not own shows its details (its schedule and next run among them), what it says
+about itself, its source and versions, and its run history: how each run went, when, how
+long it took, and why one failed, with whether the next is expected to pass (#1994). What a
+run was given, printed and wrote stays with the owner, administrators and whoever
+requested that run, and there is nothing to run or change.
+
+**Automations** opens on every automation, including the ones somebody else built that
+run for you; **Mine** narrows it to your own, and the choice is remembered. The
+**Schedules** and **Runs** tabs cover every automation too.
 
 
 ## Files written

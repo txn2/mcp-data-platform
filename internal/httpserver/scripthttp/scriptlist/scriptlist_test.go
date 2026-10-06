@@ -52,11 +52,14 @@ func TestFilter_OrderingAndScope(t *testing.T) {
 	assert.Empty(t, unknown.Sort)
 	assert.False(t, unknown.Desc)
 
-	// Scope decides the population; a non-admin's default is their own.
-	mine := Filter(stranger, false, nil)
+	// Scope decides the population; a non-admin's default is every script
+	// (#1994), and scope=mine narrows it to their own.
+	assert.Empty(t, Filter(stranger, false, nil).OwnerEmail, "every script by default")
+	assert.Empty(t, Filter(stranger, false, url.Values{"scope": {"all"}}).OwnerEmail)
+	mine := Filter(stranger, false, url.Values{"scope": {ScopeMine}})
 	assert.Equal(t, "carol@example.com", mine.OwnerEmail)
-	all := Filter(stranger, false, url.Values{"scope": {"all"}})
-	assert.Empty(t, all.OwnerEmail, "scope=all lifts the owner predicate")
+	assert.Empty(t, Filter(stranger, true, url.Values{"scope": {ScopeMine}}).OwnerEmail,
+		"an administrator's listing is every script")
 
 	// Naming an author selects the population rather than being intersected
 	// with the default scope, which would answer the empty set for every

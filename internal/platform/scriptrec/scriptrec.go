@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -76,6 +77,10 @@ type Call struct {
 	Output *scriptrun.ExportResult `json:"output,omitempty"`
 	// Error is the failure the call answered with instead, if it failed.
 	Error string `json:"error,omitempty"`
+	// Refusal is the failure's structuredContent.error envelope, when the tool
+	// gave one: what a replay answers with, so a classified failure (#2032)
+	// replays as the same class.
+	Refusal map[string]any `json:"refusal,omitempty"`
 }
 
 // Recording is one run's header and its calls, in the order they were made.
@@ -108,6 +113,10 @@ func (r *Recorder) OnCall(tool string, args, out map[string]any, err error) {
 	c := Call{Key: ToolKey(tool, args), Tool: tool, Args: args, Out: out}
 	if err != nil {
 		c.Out, c.Error = nil, err.Error()
+		var refusal *scriptsession.RefusalError
+		if errors.As(err, &refusal) {
+			c.Refusal = refusal.Envelope
+		}
 	}
 	r.write(c)
 }

@@ -4,17 +4,18 @@ import { ScheduleTimelineTab } from "./ScheduleTimelineTab";
 import { ScriptListing } from "./ScriptListing";
 import { ScriptRunsList } from "./ScriptRunsList";
 
-// MyScriptsPage is what the people who own the scripts see (#1290): their
-// scripts, what each is scheduled to do, and how its last run went.
+// MyScriptsPage is Automations for everyone signed in (#1290, #1994): every
+// script, what each is scheduled to do, and how its runs have gone, including
+// the ones somebody else built and runs for the reader. Acting on a script --
+// running, scheduling, changing it -- and what its runs were given and
+// printed stay with its owner and administrators.
 //
-// Three tabs, because there are three questions: what do I have, when do they
+// Three tabs, because there are three questions: what is there, when do they
 // fire in relation to each other (#1891), and how have they been running
 // (#1405). The last two used to take opening every script in turn to answer.
 //
 // Every tab is the same component the administrator's section uses (#1407),
-// told who is reading. Every script here is the reader's own, so there is no
-// owner column; the administrator's listing has one, where whose script it is
-// is the fact worth showing.
+// told who is reading.
 
 interface Props {
   onNavigate: (path: string) => void;

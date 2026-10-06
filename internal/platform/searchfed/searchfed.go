@@ -299,7 +299,9 @@ func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []kn
 	// Canonical knowledge pages (the internal-knowledge home for business
 	// ontology) are shared and searchable over their full content.
 	if s, ok := cfg.KnowledgePageStore.(knowledge.PageSearcher); ok {
-		providers = append(providers, knowledge.NewKnowledgePagesProvider(s))
+		pages := knowledge.NewKnowledgePagesProvider(s)
+		pages.SetReferenceOpener(pageReferenceOpener(cfg))
+		providers = append(providers, pages)
 	}
 	// Prompts are searchable and fetchable through the postgres prompt store
 	// (search + read-by-id, the two halves of search/fetch).

@@ -164,9 +164,14 @@ What platform execution DOES add, and what this document does not minimize:
   owner in `owner_email`, and read-only on the portal script page. A script is
   how a resource or an asset was produced, and somebody given the output can
   read how it was made. Reading the code grants nothing: a run still presents
-  the roles its author captured, and running, scheduling, changing it, its
-  state and its runs stay with the owner and an administrator, with a run grant
-  (#1846) letting another principal run it. The roles a version's author held
+  the roles its author captured, and running, scheduling, changing it and its
+  state stay with the owner and an administrator, with a run grant (#1846)
+  letting another principal run it. How it is going is everyone's too (#1994):
+  its cadence and next fire, and each run's status, timing, cause and error,
+  so the person a scheduled report runs for can see whether it ran. What a run
+  was given, printed and wrote -- its parameters, log, outputs, state and
+  result, the values a schedule binds, and who requested it -- stays with the
+  owner, an administrator and whoever requested that run. The roles a version's author held
   are that person's and are shown to the owner and an administrator only.
   Everyone who can sign in can read the source, so it must not carry a
   credential. A save refuses the credential forms that get pasted (a private

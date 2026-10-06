@@ -145,16 +145,18 @@ test.describe("The health line", () => {
 });
 
 test.describe("Scope", () => {
-  test("it opens on the reader's own and remembers what they chose", async ({ page }) => {
+  test("it opens on every script and remembers what they chose", async ({ page }) => {
     await openScripts(page);
 
-    await expect(page.getByRole("tab", { name: "Mine" })).toHaveAttribute(
+    // Every script by default (#1994): the automations that run for a person
+    // are usually somebody else's.
+    await expect(page.getByRole("tab", { name: "All" })).toHaveAttribute(
       "data-state",
       "active",
     );
 
-    await page.getByRole("tab", { name: "All" }).click();
-    await expect(page.getByRole("tab", { name: "All" })).toHaveAttribute(
+    await page.getByRole("tab", { name: "Mine" }).click();
+    await expect(page.getByRole("tab", { name: "Mine" })).toHaveAttribute(
       "data-state",
       "active",
     );
@@ -163,30 +165,24 @@ test.describe("Scope", () => {
     // whose scripts a reader wants.
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("script-scope")))
-      .toBe("all");
+      .toBe("mine");
     expect(await page.evaluate(() => localStorage.getItem("asset-scope"))).toBeNull();
 
     await page.reload();
-    await expect(page.getByRole("tab", { name: "All" })).toHaveAttribute(
+    await expect(page.getByRole("tab", { name: "Mine" })).toHaveAttribute(
       "data-state",
       "active",
     );
   });
 
-  test("a script the reader does not own shows no run state", async ({ page }) => {
+  test("a script the reader does not own shows how its runs have gone", async ({ page }) => {
     await openScripts(page);
-    await page.getByRole("tab", { name: "All" }).click();
-    await expect(page.locator("tbody tr")).not.toHaveCount(0);
 
-    // Somebody else's rows are listed, and their last run is withheld.
-    const rows = page.locator("tbody tr");
-    const count = await rows.count();
-    let sawUnowned = false;
-    for (let i = 0; i < count; i += 1) {
-      const lastRun = (await rows.nth(i).locator("td:nth-child(5)").innerText()).trim();
-      if (lastRun === "—") sawUnowned = true;
-    }
-    expect(sawUnowned, "scope=all should list a script the reader does not own").toBe(true);
+    // Somebody else's script is listed by default, with its run state (#1994):
+    // Dormant Accounts is another person's and has never run.
+    const theirs = page.locator("tbody tr").filter({ hasText: "Dormant Accounts" });
+    await expect(theirs).toHaveCount(1);
+    await expect(theirs.locator("td:nth-child(5)")).toHaveText("Never run");
   });
 });
 

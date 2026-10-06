@@ -164,13 +164,35 @@ func textOf(res *mcp.CallToolResult) string {
 // the result's own text, so a failure the engine does not absorb reaches the
 // author in the tool's words.
 //
-// The engine acts on exactly one code, toolratelimit.CodeRateLimited, and passes
-// every other refusal through unchanged.
+// The engine waits on a rate_limited refusal, and reads Retryable on every
+// other one: a refusal its tool classified as temporary (mcp-trino's
+// trino_query_failed, #2032) ends a run as the upstream's rather than the
+// script's.
 type RefusalError struct {
 	Code       string
 	RetryAfter time.Duration
 	// Text is the result's own text, what Error returns.
 	Text string
+	// Retryable is the envelope's retryable: the tool says the same call made
+	// later is expected to succeed.
+	Retryable bool
+	// Envelope is the whole structuredContent.error object as the tool wrote
+	// it, decoded from JSON: what platform.query(..., on_error = "return")
+	// hands the script, and what a recording keeps.
+	Envelope map[string]any
+}
+
+// NewRefusal is the refusal a recorded or declared failure answers with: text
+// is what Error returns, and env is the envelope it carried.
+func NewRefusal(text string, env map[string]any) *RefusalError {
+	refusal := &RefusalError{Text: text, Envelope: env}
+	refusal.Code, _ = env["code"].(string)
+	refusal.Retryable, _ = env["retryable"].(bool)
+	// The envelope arrives decoded from JSON, so the integer is a float64.
+	if secs, ok := env["retry_after_seconds"].(float64); ok && secs > 0 {
+		refusal.RetryAfter = time.Duration(secs * float64(time.Second))
+	}
+	return refusal
 }
 
 // Error returns the refusal's text as the tool wrote it.
@@ -190,14 +212,8 @@ func refusalError(res *mcp.CallToolResult) error {
 	if !ok {
 		return errors.New(text)
 	}
-	code, _ := env["code"].(string)
-	if code == "" {
+	if code, _ := env["code"].(string); code == "" {
 		return errors.New(text)
 	}
-	refusal := &RefusalError{Code: code, Text: text}
-	// The envelope arrives decoded from JSON, so the integer is a float64.
-	if secs, ok := env["retry_after_seconds"].(float64); ok && secs > 0 {
-		refusal.RetryAfter = time.Duration(secs * float64(time.Second))
-	}
-	return refusal
+	return NewRefusal(text, env)
 }

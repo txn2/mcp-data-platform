@@ -115,6 +115,32 @@ func TestHasErrorEnvelope(t *testing.T) {
 	assert.False(t, hasErrorEnvelope(nil))
 }
 
+// A typed tool's output reaches the middleware already encoded, so a tool that
+// classifies its own failure there (mcp-trino's trino_query_failed, #2032)
+// carries the envelope in a json.RawMessage. Replacing it with the generic
+// tool_error would discard the classification before any caller saw it.
+func TestHasErrorEnvelopeEncoded(t *testing.T) {
+	encoded := func(body string) *mcp.CallToolResult {
+		return &mcp.CallToolResult{IsError: true, StructuredContent: json.RawMessage(body)}
+	}
+	classified := encoded(`{"columns":null,"rows":null,"error":{"code":"trino_query_failed","category":"upstream_unavailable","retryable":true,"message":"EXTERNAL: The connection attempt failed."}}`)
+	assert.True(t, hasErrorEnvelope(classified))
+	assert.False(t, hasErrorEnvelope(encoded(`{"rows":[]}`)), "no error key")
+	assert.False(t, hasErrorEnvelope(encoded(`{"error":null}`)), "an absent classification is not an envelope")
+	assert.False(t, hasErrorEnvelope(encoded(`{"error":{"message":"x"}}`)), "an envelope names its code")
+	assert.False(t, hasErrorEnvelope(encoded(`[1,2]`)), "not an object")
+
+	assert.Same(t, classified, normalizeErrorResult(classified), "the classified result passes through")
+	assert.Equal(t, "upstream_unavailable", ErrorCategory(classified.GetError()),
+		"the audit row and the call metrics carry the tool's own category")
+	assert.Equal(t, "EXTERNAL: The connection attempt failed.", classified.GetError().Error())
+	bare := encoded(`{"rows":null}`)
+	bare.Content = []mcp.Content{&mcp.TextContent{Text: "Query failed: boom"}}
+	normalized, ok := normalizeErrorResult(bare).(*mcp.CallToolResult)
+	require.True(t, ok)
+	assert.Equal(t, CodeToolError, envelope(t, normalized).Code, "an encoded result with no envelope is still normalized")
+}
+
 func TestAuthzHint(t *testing.T) {
 	withPersona := authzHint("analyst", "trino_query")
 	assert.Contains(t, withPersona, "analyst")

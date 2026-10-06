@@ -117,7 +117,9 @@ export function ScriptListing({ audience, basePath, onNavigate }: Props) {
     <div className="space-y-4">
       <UnreadableListing failed={state.failed} audience={audience} />
 
-      {state.corpus.length > 0 && (
+      {/* Kept on a reader's own scope when they have none, so the empty
+          state's "Choose All" has the control it names. */}
+      {(state.corpus.length > 0 || state.scope === "mine") && (
         <ScriptFilterBar
           audience={audience}
           scope={state.scope}
@@ -152,6 +154,7 @@ export function ScriptListing({ audience, basePath, onNavigate }: Props) {
           basePath={basePath}
           isLoading={state.isLoading}
           narrowed={state.narrowed}
+          mine={state.scope === "mine"}
           sort={state.sort}
           onSort={state.chooseSort}
           onNavigate={onNavigate}
@@ -453,6 +456,7 @@ function ScriptsSection({
   basePath,
   isLoading,
   narrowed,
+  mine,
   sort,
   onSort,
   onNavigate,
@@ -464,6 +468,7 @@ function ScriptsSection({
   basePath: string;
   isLoading: boolean;
   narrowed: boolean;
+  mine: boolean;
   sort: ListSort<ScriptSortKey>;
   onSort: (key: ScriptSortKey) => void;
   onNavigate: (path: string) => void;
@@ -472,7 +477,7 @@ function ScriptsSection({
     return <p className="text-sm text-muted-foreground">Loading...</p>;
   }
   if (rows.length === 0) {
-    return <NothingToList audience={audience} narrowed={narrowed} />;
+    return <NothingToList audience={audience} narrowed={narrowed} mine={mine} />;
   }
   if (view === "grid") {
     return <ScriptGrid rows={rows} basePath={basePath} onNavigate={onNavigate} />;
@@ -525,9 +530,18 @@ function ScriptsSection({
   );
 }
 
-// NothingToList is the empty listing, which is three different statements
-// depending on who is reading and whether they narrowed it themselves.
-function NothingToList({ audience, narrowed }: { audience: Audience; narrowed: boolean }) {
+// NothingToList is the empty listing, which is four different statements
+// depending on who is reading, whose scripts they asked for and whether they
+// narrowed it themselves.
+function NothingToList({
+  audience,
+  narrowed,
+  mine,
+}: {
+  audience: Audience;
+  narrowed: boolean;
+  mine: boolean;
+}) {
   if (narrowed) {
     return (
       <EmptyState icon={FileCode2}>
@@ -536,7 +550,7 @@ function NothingToList({ audience, narrowed }: { audience: Audience; narrowed: b
       </EmptyState>
     );
   }
-  if (audience === "admin") {
+  if (audience === "admin" || !mine) {
     return (
       <EmptyState icon={FileCode2}>
         No automations exist yet. An agent creates one as a script through the
@@ -547,8 +561,9 @@ function NothingToList({ audience, narrowed }: { audience: Audience; narrowed: b
   }
   return (
     <EmptyState icon={FileCode2}>
-      You have no automations yet. Ask an agent to automate a report or an export you run
-      repeatedly. An automation runs as soon as it is saved, under the access you hold.
+      You have no automations of your own yet. Choose All to see everyone's, including the
+      ones that run for you. Ask an agent to automate a report or an export you run
+      repeatedly: an automation runs as soon as it is saved, under the access you hold.
     </EmptyState>
   );
 }

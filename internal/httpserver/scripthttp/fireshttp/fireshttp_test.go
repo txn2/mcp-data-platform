@@ -134,11 +134,19 @@ func TestList_EmptyListsAreArrays(t *testing.T) {
 // TestList_AnOwnerReadsOnlyTheirOwn pins the scoping: a non-admin's script
 // listing is narrowed to their own, and only the listed ids reach the schedule
 // read.
-func TestList_AnOwnerReadsOnlyTheirOwn(t *testing.T) {
+// TestList_EveryReaderSeesEverySchedule pins #1994: every signed-in caller
+// lays out every script's cadence, and scope=mine narrows to their own.
+func TestList_EveryReaderSeesEverySchedule(t *testing.T) {
 	scripts := twoScripts()
 	rec := serve(t, scripts, &fakeSchedules{}, caller{owner: "jane@example.com"}, "")
 	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, scripts.lastFilter.OwnerEmail, "every script by default")
+
+	scripts = twoScripts()
+	rec = serve(t, scripts, &fakeSchedules{}, caller{owner: "jane@example.com"}, "?scope=mine&category=x")
+	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "jane@example.com", scripts.lastFilter.OwnerEmail)
+	assert.Empty(t, scripts.lastFilter.Category, "the layout is narrowed by scope alone")
 
 	scripts = twoScripts()
 	schedules := &fakeSchedules{}

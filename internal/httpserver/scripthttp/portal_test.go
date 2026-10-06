@@ -148,12 +148,19 @@ func decodeInto(t *testing.T, rec *httptest.ResponseRecorder, out any) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), out), rec.Body.String())
 }
 
-func TestPortalListScripts_ScopesToTheCaller(t *testing.T) {
+// TestPortalListScripts_ListsEveryScriptByDefault pins #1994: a reader opens
+// on every script, the ones built for them included, and scope=mine narrows
+// to their own.
+func TestPortalListScripts_ListsEveryScriptByDefault(t *testing.T) {
 	store := portalStore()
-	rec := servePortal(t, portalDeps(store, nil, nil, owner), "/api/v1/portal/scripts")
+	rec := servePortal(t, portalDeps(store, nil, nil, owner), "/api/v1/portal/scripts?scope=mine")
 	require.Equal(t, http.StatusOK, rec.Code)
-
 	assert.Equal(t, "jane@example.com", store.lastFilter.OwnerEmail)
+
+	store = portalStore()
+	rec = servePortal(t, portalDeps(store, nil, nil, owner), "/api/v1/portal/scripts")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Empty(t, store.lastFilter.OwnerEmail, "every script by default")
 
 	var body portalScriptListResponse
 	decodeInto(t, rec, &body)
@@ -176,25 +183,37 @@ func TestPortalListScripts_AdminCarriesNoPredicate(t *testing.T) {
 	assert.True(t, body.Data[1].Owned, "an administrator may read every script's runs")
 }
 
-func TestPortalListScripts_LastRunOnlyForOwnedScripts(t *testing.T) {
+// TestPortalListScripts_EveryRowCarriesItsLastRun pins #1994: every row says
+// how its last run went, and a row the caller does not own carries neither who
+// requested it nor the progress the script reported.
+func TestPortalListScripts_EveryRowCarriesItsLastRun(t *testing.T) {
 	store := portalStore()
+	progress := &script.RunProgress{Message: "page 3"}
 	runs := &stubRuns{latest: map[string]script.Run{
 		"script_1": {ID: "run_1", ScriptID: "script_1", Status: script.RunStatusFailed, Error: "boom"},
-		"script_2": {ID: "run_2", ScriptID: "script_2", Status: script.RunStatusSucceeded},
+		"script_2": {
+			ID: "run_2", ScriptID: "script_2", Status: script.RunStatusFailed, Error: "upstream down",
+			Cause: "upstream", RequestedBy: "carol@example.com", Progress: progress,
+		},
 	}}
 	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts")
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	assert.Equal(t, []string{"script_1"}, runs.latestFor,
-		"a script the caller does not own is never even asked about")
+	assert.ElementsMatch(t, []string{"script_1", "script_2"}, runs.latestFor)
 
 	var body portalScriptListResponse
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Data, 2)
 	require.NotNil(t, body.Data[0].LastRun)
-	assert.Equal(t, script.RunStatusFailed, body.Data[0].LastRun.Status)
 	assert.Equal(t, "boom", body.Data[0].LastRun.Error)
-	assert.Nil(t, body.Data[1].LastRun, "another owner's run state is not this caller's to read")
+	theirs := body.Data[1].LastRun
+	require.NotNil(t, theirs, "another owner's run status is readable")
+	assert.Equal(t, script.RunStatusFailed, theirs.Status)
+	assert.Equal(t, "upstream down", theirs.Error)
+	assert.Equal(t, "upstream", theirs.Cause)
+	assert.True(t, theirs.Retryable)
+	assert.Empty(t, theirs.RequestedBy, "who asked for another owner's run is withheld")
+	assert.Nil(t, theirs.Progress, "the script's own progress lines are withheld")
+	assert.Equal(t, 2, body.Failing, "failing counts the listed rows")
 }
 
 func TestPortalListScripts_CarriesTheCadence(t *testing.T) {
@@ -393,10 +412,9 @@ func TestPortalListVersions_AnonymousOwnerIsNotEveryone(t *testing.T) {
 	assert.Equal(t, [][]string{nil}, versionRoles(t, store, &PortalIdentity{UserID: "u9"}))
 }
 
-// The cross-script listing (#1405): an owner reads the runs of everything they
-// own in one place, and the owned set is BOUND INTO the query rather than
-// filtered out of the answer.
-func TestPortalListOwnRuns_BindsTheCallersScripts(t *testing.T) {
+// The cross-script listing (#1405) narrowed to the caller's own: the owned
+// set is BOUND INTO the query rather than filtered out of the answer.
+func TestPortalListOwnRuns_ScopeMineBindsTheCallersScripts(t *testing.T) {
 	finished := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
 	runs := &stubRuns{runs: []script.Run{{
 		ID: "run_1", ScriptID: "script_1", Version: 3, Status: script.RunStatusFailed,
@@ -407,10 +425,10 @@ func TestPortalListOwnRuns_BindsTheCallersScripts(t *testing.T) {
 	}}}
 	store := portalStore()
 	store.scripts[0].DisplayName = "Daily Sales Report"
-	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs")
+	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs?scope=mine")
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// The script read carried the caller's visibility, and the run read carried
+	// The script read carried the caller's scope, and the run read carried
 	// the scripts it returned.
 	assert.Equal(t, "jane@example.com", store.lastFilter.OwnerEmail)
 	assert.Equal(t, []string{"script_1", "script_2"}, runs.lastFilter.ScriptIDs)
@@ -439,13 +457,13 @@ func TestPortalListOwnRuns_FallsBackToTheScriptName(t *testing.T) {
 	assert.Equal(t, "daily", body.Data[0].ScriptName)
 }
 
-// A caller who owns no script must not fall through to an unfiltered listing:
-// the empty set is bound, and it matches no run.
+// A caller who owns no script and asks for their own must not fall through
+// to an unfiltered listing: the empty set is bound, and it matches no run.
 func TestPortalListOwnRuns_OwningNothingBindsAnEmptySet(t *testing.T) {
 	store := portalStore()
 	store.scripts = nil
 	runs := &stubRuns{}
-	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs")
+	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs?scope=mine")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	require.NotNil(t, runs.lastFilter.ScriptIDs, "an unscoped filter would list every run")
@@ -474,17 +492,45 @@ func TestPortalListOwnRuns_NarrowsToOneScript(t *testing.T) {
 	assert.Equal(t, "script_1", runs.lastFilter.ScriptID)
 }
 
-// The named script is ANDed with the visibility predicate rather than
-// replacing it: naming somebody else's script must not read its runs.
-func TestPortalListOwnRuns_ANamedScriptStaysInsideVisibility(t *testing.T) {
+// The named script is ANDed with the scope rather than replacing it: under
+// scope=mine, naming somebody else's script reads none of its runs.
+func TestPortalListOwnRuns_ANamedScriptStaysInsideTheScope(t *testing.T) {
 	runs := &stubRuns{}
 	rec := servePortal(t, portalDeps(portalStore(), runs, nil, owner),
-		"/api/v1/portal/scripts/runs?script_id=someone_elses_script")
+		"/api/v1/portal/scripts/runs?scope=mine&script_id=someone_elses_script")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	assert.Equal(t, "someone_elses_script", runs.lastFilter.ScriptID)
 	assert.NotNil(t, runs.lastFilter.ScriptIDs)
 	assert.NotContains(t, runs.lastFilter.ScriptIDs, "someone_elses_script")
+}
+
+// TestPortalListOwnRuns_EveryReaderSeesEveryScriptsRuns pins #1994: the Runs
+// tab spans every script by default. A run of a script the caller does not
+// own says how it went and not who asked for it, unless the caller did.
+func TestPortalListOwnRuns_EveryReaderSeesEveryScriptsRuns(t *testing.T) {
+	runs := &stubRuns{runs: []script.Run{
+		{
+			ID: "run_c", ScriptID: "script_2", Status: script.RunStatusFailed, Error: "boom", RequestedBy: "carol@example.com",
+			Progress: &script.RunProgress{Message: "page 3"},
+		},
+		{ID: "run_j", ScriptID: "script_2", Status: script.RunStatusSucceeded, RequestedBy: "jane@example.com"},
+	}}
+	store := portalStore()
+	rec := servePortal(t, portalDeps(store, runs, nil, owner), "/api/v1/portal/scripts/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	assert.Empty(t, store.lastFilter.OwnerEmail)
+	assert.Nil(t, runs.lastFilter.ScriptIDs, "every script's runs")
+
+	var body portalOwnRunsResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.Data, 2)
+	assert.Equal(t, "boom", body.Data[0].Error)
+	assert.Empty(t, body.Data[0].RequestedBy, "who asked for another owner's run is withheld")
+	assert.Nil(t, body.Data[0].Progress)
+	assert.Equal(t, "jane@example.com", body.Data[1].RequestedBy, "a run the caller requested is theirs to read in full")
+	assert.NotContains(t, rec.Body.String(), "page 3")
 }
 
 // The status and the cap are the caller's to name, and the cap is the store's
@@ -560,10 +606,26 @@ func TestPortalListRuns_DefaultLimit(t *testing.T) {
 	assert.Equal(t, portalRunListLimit, runs.lastFilter.Limit)
 }
 
-func TestPortalListRuns_RefusedForANonOwner(t *testing.T) {
-	rec := servePortal(t, portalDeps(portalStore(), &stubRuns{}, nil, stranger),
-		"/api/v1/portal/scripts/script_2/runs")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+// TestPortalListRuns_ReadableByEveryReader pins #1994: a script's run
+// history is readable by everyone signed in, without who requested a run
+// they did not request.
+func TestPortalListRuns_ReadableByEveryReader(t *testing.T) {
+	runs := &stubRuns{runs: []script.Run{{
+		ID: "run_2", ScriptID: "script_2", Status: script.RunStatusFailed,
+		Error: "boom", RequestedBy: "carol@example.com",
+	}}}
+	rec := servePortal(t, portalDeps(portalStore(), runs, nil, stranger), "/api/v1/portal/scripts/script_2/runs")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "script_2", runs.lastFilter.ScriptID)
+
+	var body portalRunListResponse
+	decodeInto(t, rec, &body)
+	require.Len(t, body.Data, 1)
+	assert.Equal(t, "boom", body.Data[0].Error)
+	assert.Empty(t, body.Data[0].RequestedBy)
+
+	rec = servePortal(t, portalDeps(portalStore(), runs, nil, stranger), "/api/v1/portal/scripts/nope/runs")
+	assert.Equal(t, http.StatusNotFound, rec.Code, "a script that does not exist has no history")
 }
 
 func TestPortalListRuns_StoreFailure(t *testing.T) {
@@ -656,7 +718,7 @@ func TestPortalIdentity_EmaillessCallersAreDistinct(t *testing.T) {
 	assert.Equal(t, [][]string{nil}, versionRoles(t, store, marcus), "another email-less caller is not the same person")
 
 	// And the listing scopes on that identity rather than on an empty string.
-	servePortal(t, portalDeps(store, nil, nil, sarah), "/api/v1/portal/scripts")
+	servePortal(t, portalDeps(store, nil, nil, sarah), "/api/v1/portal/scripts?scope=mine")
 	assert.Equal(t, "oidc|sarah", store.lastFilter.OwnerEmail)
 }
 
@@ -668,11 +730,33 @@ func TestPortalIdentity_UnnamedCallerOwnsNothing(t *testing.T) {
 	assert.Equal(t, [][]string{nil}, versionRoles(t, store, &PortalIdentity{Persona: "analyst"}))
 }
 
-func TestPortalGetRun_RefusedForANonOwner(t *testing.T) {
-	runs := &stubRuns{runs: []script.Run{{ID: "run_2", ScriptID: "script_2"}}}
+// TestPortalGetRun_AReaderGetsHowItWentAndNothingItWasGiven pins #1994: a
+// reader who neither owns the script nor requested the run reads its status,
+// timing, cause and error, and not its parameters, log, outputs, state or
+// result.
+func TestPortalGetRun_AReaderGetsHowItWentAndNothingItWasGiven(t *testing.T) {
+	runs := &stubRuns{runs: []script.Run{{
+		ID: "run_2", ScriptID: "script_2", Status: script.RunStatusFailed, Error: "Trino could not be reached",
+		Cause: "upstream", RequestedBy: "carol@example.com", Log: "printed while working",
+		Params: map[string]any{"region": "west"}, StateRead: map[string]any{"through": "2026-09-01"},
+		Outputs: []script.RunOutput{{Name: "daily"}}, Result: json.RawMessage(`{"rows":3}`),
+		Metrics: script.RunMetrics{DurationMS: 1840},
+	}}}
 	rec := servePortal(t, portalDeps(portalStore(), runs, nil, stranger),
 		"/api/v1/portal/scripts/script_2/runs/run_2")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var run portalRunDetail
+	decodeInto(t, rec, &run)
+	assert.True(t, run.Withheld)
+	assert.Equal(t, script.RunStatusFailed, run.Status)
+	assert.Equal(t, "Trino could not be reached", run.Error)
+	assert.True(t, run.Retryable)
+	assert.Equal(t, int64(1840), run.DurationMS)
+	assert.Empty(t, run.RequestedBy)
+	for _, withheld := range []string{"printed while working", "west", "through", "daily", `"rows"`} {
+		assert.NotContains(t, rec.Body.String(), withheld)
+	}
 }
 
 // TestPortalGetScript_CarriesTheLiveParameterContractForTheOwner is the pair

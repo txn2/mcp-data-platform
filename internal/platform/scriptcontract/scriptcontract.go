@@ -67,7 +67,8 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
   version is held to every rule, like any other script's.
 
 WHAT IS AVAILABLE
-  platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
+  platform.query(sql, connection=..., params={}, on_error="raise",
+                 retry=True)  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
       column name, in the SELECT's column order, so rows exported as they
       came keep the query's columns where it put them. It is the read tool, so a statement that modifies state —
@@ -84,7 +85,11 @@ WHAT IS AVAILABLE
       A SQL DECIMAL column arrives in the rows as a STRING, not a number, so
       pass it through float() before arithmetic:
       sum([float(r["total"]) for r in rows]).
-  platform.execute(sql, connection=..., params={})  Run a statement that
+      A query Trino itself fails for a temporary reason (see A FAILED CALL)
+      is issued again by the host, at most 3 times; retry=False turns that
+      off.
+  platform.execute(sql, connection=..., params={}, on_error="raise")
+      Run a statement that
       changes state -- INSERT, UPDATE, DELETE, CREATE, DROP -- through
       trino_execute, and return its answer as platform.call would. Values
       bind exactly as in platform.query: :name placeholders quoted by type, a
@@ -254,7 +259,11 @@ WHAT IS AVAILABLE
       structure or fail().
       In a draft run this writes nothing and reports the payload size it
       would splice.
-  platform.call(tool, args={})  Call any platform tool by name and get its
+      The host never issues a statement twice: it cannot know the statement
+      is safe to repeat. A failure ends the run, or is handed back with
+      on_error="return" (see A FAILED CALL).
+  platform.call(tool, args={}, on_error="raise", retry=True)  Call any
+      platform tool by name and get its
       structured result. This is the same mechanism the helpers above
       are built on, with the tool left to you, and it is how a script reaches
       everything else the platform can do: writing a table with
@@ -438,10 +447,47 @@ WHAT IS AVAILABLE
       condition outside the script that the next run may not meet, such as a
       feed that has not published yet.
 
+A FAILED CALL
+  A tool that classifies its failure says so in its error: trino_query and
+  trino_execute do, from what Trino reported. A run ended by a failure the
+  tool reports as temporary -- Trino or the database behind it unreachable,
+  a timeout, a connection refused or reset, INSUFFICIENT_RESOURCES, a source
+  that answered with a SQLSTATE 08 connection error -- is recorded with
+  cause upstream and retryable true: there is nothing in the script to fix,
+  and the next run is expected to pass. A failure of the statement itself
+  (USER_ERROR, a missing table, a constraint violation such as SQLSTATE
+  23505) stays the script's. Either way the run's error says which class it
+  was, for example "Trino failed for a reason outside the script (EXTERNAL /
+  JDBC_ERROR, SQLSTATE 08001); expected to pass on its next run."
+  A read (platform.query, or platform.call of a tool that writes nothing)
+  that Trino itself fails for a temporary reason is issued again by the host
+  after 1s, 2s, then 4s, at most 3 times and never past the run's deadline,
+  each wait written to the run log; retry=False turns that off for one call.
+  A read that never reached Trino (a timeout, a refused connection) is not:
+  the Trino client has already retried the connection. A statement
+  (platform.execute, or a platform.call that may write) is never issued again
+  by the host.
+  on_error="return" on platform.query, platform.execute or platform.call
+  hands a failed call back as {"error": {...}} instead of ending the run:
+  code, category (upstream_unavailable, client_input, internal), retryable,
+  message, and from Trino trino {error_type, error_name, error_code,
+  sql_state} or transport {kind, http_status, detail}. Only "error" is in it,
+  so reading a result field without checking fails at that read:
+    res = platform.execute(MERGE_SQL, connection = "warehouse", params = p,
+                           on_error = "return")
+    if "error" in res:
+        e = res["error"]
+        if e["retryable"]:
+            fail("warehouse unreachable; the next run retries", retryable = True)
+        fail("MERGE failed: %s" % e["message"])
+  The run's deadline and its memory budget end the run however it asked.
+
 WHAT IS NOT, AND WHAT TO WRITE INSTEAD
   import              There is no module system. json, xml and date are here.
   try / except        Errors fail the run by design, so the failure is recorded
                       rather than swallowed. Check first, or call fail("why").
+                      A failed call can be handed back as data instead:
+                      on_error="return" (see A FAILED CALL).
                       A failure raised straight after an upstream answered
                       the last call with a 5xx or 429 is recorded as the
                       upstream's (cause upstream, retryable).
@@ -544,7 +590,11 @@ TESTS, AND WHAT A SAVE RUNS
   testing.answer(tool, args, answer) declares the answer a call gets, alone
   or on top of a recording: a call to tool whose arguments include every key
   and value in args is answered with answer (a dict, as the tool answers), or
-  with error="..." fails instead. Declared answers are matched in the order
+  with error= fails instead: the failure's text, or the error a tool
+  classifies its failure with, such as error={"category":
+  "upstream_unavailable", "retryable": True, "message": "...", "trino":
+  {"error_type": "EXTERNAL", "sql_state": "08001"}}, which reaches the
+  script's on_error="return" branch as the tool's would. Declared answers are matched in the order
   they were declared, before the recording, and each answers one call. That
   is how a test reaches a write no draft performed (a draft without
   allow_writes stops at the write, and its recording holds every call before

@@ -49,7 +49,7 @@ test.describe("Portal script pages", () => {
     // the test cannot work here, because the mock service worker answers it
     // before it ever reaches the network.
     await page.goto("/portal/automations?empty=scripts");
-    await expect(page.getByText("You have no automations yet")).toBeVisible();
+    await expect(page.getByText("No automations exist yet")).toBeVisible();
   });
 
   test("opens one script's details, its source, and its run history", async ({
@@ -315,8 +315,8 @@ test.describe("Portal script pages", () => {
   // without asking anybody: every fire executes the latest saved version.
   test("an owner gives an on-demand script a schedule", async ({ page }) => {
     await gotoScripts(page);
-    // A script the CALLER owns: the listing opens on Mine now (#1795), and
-    // scheduling somebody else's is not theirs to do anyway.
+    // A script the CALLER owns: scheduling somebody else's is not theirs to
+    // do.
     await page.getByRole("row").filter({ hasText: "My Margin Check" }).click();
 
     await expect(page.getByText("Not scheduled")).toBeVisible();
@@ -327,7 +327,7 @@ test.describe("Portal script pages", () => {
     await page.getByLabel("Time", { exact: true }).fill("05:00");
     // No parameter to bind: this script declares none. The `cutoff` field the
     // case used to fill belongs to Dormant Accounts, which is somebody else's
-    // and so is no longer in the caller's own listing (#1795).
+    // to schedule (#1795).
     await page.getByRole("button", { name: "Set schedule" }).click();
     await expect(page.getByText(/Every day at 5:00 AM/).first()).toBeVisible();
   });

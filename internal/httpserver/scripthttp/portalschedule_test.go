@@ -290,11 +290,26 @@ func TestPortalGetSchedule(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
-	t.Run("a script the caller does not own is a 404", func(t *testing.T) {
+	t.Run("a reader who does not own the script reads its cadence and not its bindings", func(t *testing.T) {
 		store := datedPortalStore()
-		store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily"}
+		store.schedule = &script.Schedule{
+			ID: "sched_1", ScriptID: "script_2", CronSpec: "@daily", Enabled: true,
+			Timezone: "UTC", Params: map[string]any{"region": "west"}, UpdatedBy: "carol@example.com",
+		}
 		rec := servePortalRequest(t, portalDeps(store, nil, nil, stranger),
 			http.MethodGet, portalSchedulePath, "")
+		require.Equal(t, http.StatusOK, rec.Code)
+		var got script.Schedule
+		decodeInto(t, rec, &got)
+		assert.Equal(t, "@daily", got.CronSpec)
+		assert.True(t, got.Enabled)
+		assert.NotContains(t, rec.Body.String(), "west", "the values a fire binds are the owner's")
+		assert.NotContains(t, rec.Body.String(), "carol@example.com")
+	})
+
+	t.Run("a script that does not exist is a 404", func(t *testing.T) {
+		rec := servePortalRequest(t, portalDeps(datedPortalStore(), nil, nil, stranger),
+			http.MethodGet, "/api/v1/portal/scripts/nope/schedule", "")
 		require.Equal(t, http.StatusNotFound, rec.Code)
 		assert.Contains(t, rec.Body.String(), errScriptNot)
 	})

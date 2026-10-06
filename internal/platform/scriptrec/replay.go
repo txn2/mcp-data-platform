@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 )
 
 // Replay answers an execution's host calls from a recording, and never reaches
@@ -30,10 +31,16 @@ type Replay struct {
 }
 
 // Answerer answers a tool call before the recording is consulted. ok is false
-// when it holds no answer for the call; errText is set when the answer it
-// holds is a failure.
+// when it holds no answer for the call.
 type Answerer interface {
-	Answer(tool string, args map[string]any) (out map[string]any, errText string, ok bool)
+	Answer(tool string, args map[string]any) (answer Answered, ok bool)
+}
+
+// Answered is an Answerer's answer to one call: the tool's result, or Fail,
+// the failure as the session caller would return it.
+type Answered struct {
+	Out  map[string]any
+	Fail error
 }
 
 // Made is one tool call an execution made against a Replay, with what it was
@@ -139,12 +146,13 @@ func toolOf(key string) string {
 // CallTool answers one tool call from the recording.
 func (r *Replay) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
 	if r.answers != nil {
-		if out, errText, ok := r.answers.Answer(name, args); ok {
-			r.made = append(r.made, Made{Tool: name, Args: args, Out: out, Error: errText, Declared: true})
-			if errText != "" {
-				return nil, errors.New(errText)
+		if a, ok := r.answers.Answer(name, args); ok {
+			if a.Fail != nil {
+				r.made = append(r.made, Made{Tool: name, Args: args, Error: a.Fail.Error(), Declared: true})
+				return nil, a.Fail
 			}
-			return cloneMap(out), nil
+			r.made = append(r.made, Made{Tool: name, Args: args, Out: a.Out, Declared: true})
+			return cloneMap(a.Out), nil
 		}
 	}
 	c, err := r.next(ToolKey(name, args), DescribeCall(name, args))
@@ -154,9 +162,20 @@ func (r *Replay) CallTool(_ context.Context, name string, args map[string]any) (
 	}
 	r.made = append(r.made, Made{Tool: name, Args: args, Out: c.Out, Error: c.Error})
 	if c.Error != "" {
-		return nil, errors.New(c.Error)
+		return nil, c.failure()
 	}
 	return cloneMap(c.Out), nil
+}
+
+// failure is the error a recorded failed call answers with: the refusal the
+// tool answered, its envelope included, so a classified failure replays as one
+// (#2032). A call recorded before the envelope was kept answers with the
+// generic one the platform gives an unclassified tool failure.
+func (c *Call) failure() error {
+	if c.Refusal != nil {
+		return scriptsession.NewRefusal(c.Error, c.Refusal)
+	}
+	return scriptsession.NewRefusal(c.Error, map[string]any{"code": "tool_error", "category": "tool_error", "message": c.Error})
 }
 
 // HostValue answers a value the run read from the host rather than from a tool

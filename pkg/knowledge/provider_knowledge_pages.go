@@ -43,6 +43,32 @@ type PageSearcher interface {
 // needs no caller identity, and it never holds per-user records.
 type PagesProvider struct {
 	searcher PageSearcher
+	// opens decides which of a page's references a fetch caller is shown; nil
+	// shows none of the kinds it judges (ReferenceOpener).
+	opens ReferenceOpener
+}
+
+// ReferenceOpener reports whether a caller may open what one of a page's
+// references names, by the rule that thing's own surfaces apply: an asset to
+// its owner, an administrator and the people it is shared with, a collection
+// likewise, a prompt by its visibility, a resource by the resource scopes
+// (#2028). The portal's references route applies the same rules, so fetch and
+// the portal show one reader the same list.
+type ReferenceOpener func(ctx context.Context, ref knowledgepage.EntityRef, caller Caller) bool
+
+// SetReferenceOpener wires the rule a fetched page's references are judged by.
+func (p *PagesProvider) SetReferenceOpener(opens ReferenceOpener) { p.opens = opens }
+
+// judged reports whether a reference names something a reader may be denied:
+// the kinds the portal withholds from a reader who cannot open them. A page,
+// a script and a catalog entity are readable by everyone signed in.
+func judged(targetType string) bool {
+	switch targetType {
+	case knowledgepage.RefTargetAsset, knowledgepage.RefTargetCollection,
+		knowledgepage.RefTargetPrompt, knowledgepage.RefTargetResource:
+		return true
+	}
+	return false
 }
 
 // NewKnowledgePagesProvider builds the knowledge-pages provider over a searcher.
@@ -138,7 +164,7 @@ func (p *PagesProvider) searchByText(ctx context.Context, q Query, seen map[stri
 // provider. A missing key, or a soft-deleted page, is ErrNotFound: a page-handler
 // Get returns soft-deleted rows (it is the editor's undelete path), so the live
 // read must filter them exactly as the portal HTTP handler does.
-func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
+func (p *PagesProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
 	parsed, err := knowledgepage.ParseEntityRef(ref)
 	if err != nil || parsed.TargetType != knowledgepage.RefTargetKnowledgePage {
 		// Not a knowledge-page reference: decline so the Router tries the next provider.
@@ -148,12 +174,14 @@ func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Docum
 	if err != nil {
 		return nil, true, err
 	}
+	refs, withheld := p.outboundRefs(ctx, page.ID, caller)
 	return &Document{
-		Reference:  ref,
-		Source:     SourceKnowledgePages,
-		Title:      page.Title,
-		Body:       page.Body,
-		References: p.outboundRefs(ctx, page.ID),
+		Reference:          ref,
+		Source:             SourceKnowledgePages,
+		Title:              page.Title,
+		Body:               page.Body,
+		References:         refs,
+		ReferencesWithheld: withheld,
 	}, true, nil
 }
 
@@ -187,25 +215,31 @@ func (p *PagesProvider) readPage(ctx context.Context, key string) (*knowledgepag
 // deliberately rather than re-parsing the markdown body. It is best-effort: a
 // listing error degrades to no edges rather than failing the fetch, since the body
 // is the primary content. A reference whose serialized form is empty (an
-// unrecognized target type) is skipped.
-func (p *PagesProvider) outboundRefs(ctx context.Context, pageID string) []DocumentRef {
+// unrecognized target type) is skipped. A reference to something the caller
+// cannot open is left out and counted, so its id is not handed to a reader it
+// was not shared with (#2028).
+func (p *PagesProvider) outboundRefs(ctx context.Context, pageID string, caller Caller) (out []DocumentRef, withheld int) {
 	refs, err := p.searcher.ListEntityRefs(ctx, pageID)
 	if err != nil {
 		slog.Debug("knowledge-page outbound refs skipped", "page_id", pageID, "error", err)
-		return nil
+		return nil, 0
 	}
-	out := make([]DocumentRef, 0, len(refs))
+	out = make([]DocumentRef, 0, len(refs))
 	for i := range refs {
 		urn := refs[i].URN()
 		if urn == "" {
 			continue
 		}
+		if judged(refs[i].TargetType) && (p.opens == nil || !p.opens(ctx, refs[i], caller)) {
+			withheld++
+			continue
+		}
 		out = append(out, DocumentRef{Reference: urn, Type: refs[i].TargetType})
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, withheld
 	}
-	return out
+	return out, withheld
 }
 
 // Browse enumerates knowledge pages in full (#695): the offset/limit page of live

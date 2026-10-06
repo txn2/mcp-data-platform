@@ -42,16 +42,17 @@ func (h *Handler) registerPortalSchedules(mux *http.ServeMux, wrap func(http.Han
 	mux.Handle("POST /api/v1/portal/scripts/{id}/schedule/disable", wrap(h.portalHandler(h.portalDisableSchedule)))
 }
 
-// portalGetSchedule returns an owned script's schedule in full.
+// portalGetSchedule returns a script's schedule: in full to its owner and an
+// administrator, whose editor reads it, and as its cadence to anyone else
+// (#1994).
 //
 // The listing and the contract both report a cadence already, but neither
 // carries the parameter bindings every fire passes: the contract is the
 // document a reference resolves to, and adding an owner's bindings to it would
-// widen every surface that renders one. This route is what the owner's editor
-// reads, so it is owner-and-admin like the other editing reads here.
+// widen every surface that renders one. They stay the owner's here too.
 //
 // @Summary      Get a script's schedule
-// @Description  Returns the cadence a script the caller owns runs on, the parameters every fire binds, when it fires next, and how many fires it has missed. Restricted to the script's owner and to administrators.
+// @Description  Returns the cadence a script runs on and when it fires next, for everyone signed in. Its owner and administrators also get the parameters every fire binds, how many fires it has missed, and who last changed it.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id  path  string  true  "Script ID"
@@ -63,7 +64,7 @@ func (h *Handler) registerPortalSchedules(mux *http.ServeMux, wrap func(http.Han
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/schedule [get]
 func (h *Handler) portalGetSchedule(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	sc, ok := h.ownedScript(w, r, user)
+	sc, ok := h.anyScript(w, r)
 	if !ok {
 		return
 	}
@@ -76,7 +77,9 @@ func (h *Handler) portalGetSchedule(w http.ResponseWriter, r *http.Request, user
 		httpjson.WriteError(w, http.StatusInternalServerError, errListSchedules)
 		return
 	}
-	httpjson.WriteJSON(w, http.StatusOK, sched)
+	// The cadence is everyone's to read (#1994); the values every fire binds
+	// and who changed it are the owner's (reportableSchedule).
+	httpjson.WriteJSON(w, http.StatusOK, reportableSchedule(*sched, ownsScript(sc, user)))
 }
 
 // portalSetSchedule creates or replaces an owned script's cadence.

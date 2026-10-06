@@ -284,6 +284,7 @@ function RunDetail({
   if (error || !run) {
     return <p className="text-xs text-muted-foreground">This run could not be loaded.</p>;
   }
+  if (run.withheld) return <WithheldRunDetail run={run} />;
   return (
     <div className="space-y-3">
       <RunControl scriptId={scriptId} run={run} />
@@ -299,6 +300,38 @@ function RunDetail({
       <RunResult run={run} />
       <RunOutputs run={run} onNavigate={onNavigate} />
       <RunLog run={run} />
+    </div>
+  );
+}
+
+// WithheldRunDetail is a run read by someone who neither owns its script nor
+// asked for the run (#1994): how it went, what it cost and why it failed, and
+// none of what it was given, printed or wrote.
+function WithheldRunDetail({ run }: { run: ScriptRunDetail }) {
+  return (
+    <div className="space-y-3">
+      <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-3">
+        <div>
+          <dt className="text-muted-foreground">Computed against</dt>
+          <dd>{formatWhen(run.fire_time)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Cost</dt>
+          <dd>
+            {run.metrics.steps} steps · {run.metrics.queries} queries · {run.metrics.exports} exports
+          </dd>
+        </div>
+      </dl>
+      {run.error && (
+        <pre className="overflow-x-auto rounded-md border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-700 dark:text-red-300">
+          {run.error}
+        </pre>
+      )}
+      {causeNote(run) && <p className="text-xs text-muted-foreground">{causeNote(run)}</p>}
+      <p className="text-xs text-muted-foreground">
+        What this run was given, printed and wrote is the script owner's and an
+        administrator's.
+      </p>
     </div>
   );
 }

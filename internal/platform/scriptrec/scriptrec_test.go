@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -254,9 +255,12 @@ type answers map[string]struct {
 	errText string
 }
 
-func (a answers) Answer(tool string, _ map[string]any) (out map[string]any, errText string, ok bool) {
+func (a answers) Answer(tool string, _ map[string]any) (Answered, bool) {
 	got, ok := a[tool]
-	return got.out, got.errText, ok
+	if got.errText != "" {
+		return Answered{Fail: errors.New(got.errText)}, ok
+	}
+	return Answered{Out: got.out}, ok
 }
 
 // A declared answer is consulted before the recording, and says so in what
@@ -305,4 +309,34 @@ func TestAReplayAnswersHostValuesInTheOrderTheRunReadThem(t *testing.T) {
 	_, err = replay.HostValue("platform.remaining_ms")
 	assert.Error(t, err, "the run read it twice")
 	assert.Empty(t, replay.Made(), "a host value is not a call the run made")
+}
+
+// A failure the tool classified is recorded with its envelope and replays as
+// the same refusal, so a replay of the run fails as the run did -- the same
+// text and the same class (#2032). One recorded before envelopes were kept
+// replays as the platform's generic tool failure, its text unchanged.
+func TestAClassifiedFailureReplaysAsTheSameRefusal(t *testing.T) {
+	env := map[string]any{
+		"code": "trino_query_failed", "category": "upstream_unavailable", "retryable": true,
+		"message": "EXTERNAL: The connection attempt failed.", "trino": map[string]any{"sql_state": "08001"},
+	}
+	r := NewRecorder(Header{})
+	r.OnCall("trino_execute", map[string]any{"sql": "MERGE"}, nil, scriptsession.NewRefusal("Execution failed: EXTERNAL", env))
+	rec := finish(t, r)
+	rec.Calls = append(rec.Calls, Call{Key: ToolKey("old", nil), Tool: "old", Error: "refused long ago"})
+
+	replay := NewReplay(rec)
+	_, err := replay.CallTool(context.Background(), "trino_execute", map[string]any{"sql": "MERGE"})
+	var refusal *scriptsession.RefusalError
+	require.True(t, errors.As(err, &refusal))
+	assert.Equal(t, "Execution failed: EXTERNAL", err.Error())
+	assert.True(t, refusal.Retryable)
+	trino, _ := refusal.Envelope["trino"].(map[string]any)
+	assert.Equal(t, "08001", trino["sql_state"])
+
+	_, err = replay.CallTool(context.Background(), "old", nil)
+	require.True(t, errors.As(err, &refusal))
+	assert.Equal(t, "refused long ago", err.Error())
+	assert.Equal(t, "tool_error", refusal.Code)
+	assert.False(t, refusal.Retryable)
 }

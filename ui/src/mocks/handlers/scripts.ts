@@ -229,9 +229,11 @@ export const scriptHandlers = [
     // fields the store matches: what the script is called, what it is called
     // on a page, and what it says about itself.
     const search = (query.get("search") ?? "").toLowerCase();
-    // Whose scripts, which is the server's predicate rather than a view: a row
-    // the caller does not own carries no source and no run state (#1795).
-    const scope = query.get("scope") === "all" ? "all" : "mine";
+    // Whose scripts, which is the server's predicate rather than a view: every
+    // script by default and the caller's own with scope=mine (#1994). A row
+    // the caller does not own carries no source, and a last run without its
+    // requester or progress (#1795, #1994).
+    const scope = query.get("scope") === "mine" ? "mine" : "all";
     const owner = query.get("owner");
     const status = query.get("status");
     const enabled = query.get("enabled");
@@ -275,7 +277,7 @@ export const scriptHandlers = [
         // session has to be what the listing shows next, and a paused schedule
         // withholds its next fire here exactly as it does on its own route.
         schedule: scheduleOf(script.id),
-        last_run: owned ? runs[0] : undefined,
+        last_run: owned || !runs[0] ? runs[0] : { ...runs[0], requested_by: undefined, progress: undefined },
         owned,
       };
     });

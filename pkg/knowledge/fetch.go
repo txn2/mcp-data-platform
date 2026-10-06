@@ -64,6 +64,10 @@ type Document struct {
 	// can deliberately deep-crawl the knowledge graph (fetch the index, follow into
 	// the relevant branch) instead of re-parsing links out of the markdown body.
 	References []DocumentRef `json:"references,omitempty"`
+	// ReferencesWithheld counts the references this content declares that the
+	// caller cannot open -- an asset not shared with them, a prompt scoped to
+	// someone else -- left out of References without naming them (#2028).
+	ReferencesWithheld int `json:"references_withheld,omitempty"`
 	// Tables are the query-engine tables the fetched file is readable as: one
 	// entry per registration, newest first, in the order and with the content
 	// manage_table action=list reports (#1327, #1627). Reading a record in
