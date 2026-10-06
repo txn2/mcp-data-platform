@@ -16,7 +16,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
-	github.com/klippa-app/go-pdfium v1.21.0
+	github.com/klippa-app/go-pdfium v1.21.1
 	github.com/lib/pq v1.12.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/parquet-go/parquet-go v0.32.0
@@ -32,7 +32,7 @@ require (
 	github.com/txn2/mcp-datahub v1.15.1
 	github.com/txn2/mcp-s3 v1.5.1
 	github.com/txn2/mcp-trino v1.6.0
-	github.com/vektah/gqlparser/v2 v2.5.58
+	github.com/vektah/gqlparser/v2 v2.5.59
 	github.com/wneessen/go-mail v0.8.1
 	github.com/xuri/excelize/v2 v2.11.0
 	github.com/yosida95/uritemplate/v3 v3.0.2

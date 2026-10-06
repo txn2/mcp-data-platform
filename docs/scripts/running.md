@@ -642,9 +642,9 @@ the field. Through the tool, a field left out of an `update` is left alone: send
 "not sent" and cannot clear the field.
 
 All four are matched by search — `script_fts` is composed from the title, the
-description, the category, the tags and the parameter contract, and the semantic
-index embeds the same text — so how a script is described and filed decides
-whether anybody finds it.
+description, the category, the tags and the parameter contract, weighted above
+the source, and the semantic index embeds the same card ahead of the source — so
+how a script is described and filed decides whether anybody finds it.
 
 **Length.** A description is refused only above 64 KiB, which is a structural
 limit rather than an editorial one: the full-text expression is built into a
