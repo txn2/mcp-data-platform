@@ -65,17 +65,20 @@ func TestReleaseTag_AFinalTagSitsOnItsLastCandidate(t *testing.T) {
 	}
 }
 
+// A final tag with no candidate is a release cut straight from main and
+// passes, plain or annotated: v1.140.0 was refused for having none, though no
+// candidate had ever been cut.
 func TestReleaseTag_AFinalTagWithNoCandidate(t *testing.T) {
 	root, commits := releaseRepo(t)
 	runIn(t, root, "git", "tag", "v1.140.0", commits[3])
-	if out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.140.0"}, nil); ok {
-		t.Fatalf("a final tag with no candidate was accepted: %s", out)
+	if out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.140.0"}, nil); !ok {
+		t.Fatalf("a final tag with no candidate was refused: %s", out)
 	}
 	// An annotated tag records a tagger; a CI runner has no git identity.
 	runIn(t, root, "git", "-c", "user.name=gate", "-c", "user.email=gate@example.com",
 		"tag", "-a", "v1.140.1", "-m", "release-without-rc: emergency fix", commits[3])
 	if out, ok := runScript(t, root, []string{releaseTagScript, "check", "v1.140.1"}, nil); !ok {
-		t.Fatalf("an annotated emergency release was refused: %s", out)
+		t.Fatalf("an annotated release with no candidate was refused: %s", out)
 	}
 }
 
