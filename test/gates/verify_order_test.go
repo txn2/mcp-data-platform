@@ -91,6 +91,29 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 		}
 	}
 
+	// The API description and the UI lint are decided in preverify-fast
+	// (#2030), and run once in verify: an annotation edited after the last
+	// `make swagger`, or a UI function over the complexity limit, otherwise
+	// passes preverify and fails verify. swagger-check comes first because
+	// it rewrites internal/apidocs, which the conversion and
+	// state-readers-check read.
+	fastGates := recipe(t, makefile, "preverify-fast")
+	sw, conv, st := stepAt(fastGates, "swagger-check"), stepAt(fastGates, "apidocs-openapi3-check"), stepAt(fastGates, "state-readers-check")
+	if sw != 0 || conv < sw || st < conv {
+		t.Errorf("preverify-fast runs swagger-check at %d, apidocs-openapi3-check at %d and state-readers-check at %d; swagger-check must be first, then the conversion, then the readers", sw, conv, st)
+	}
+	if stepAt(fastGates, "frontend-lint") < 0 {
+		t.Error("preverify-fast does not run frontend-lint")
+	}
+	for _, gate := range []string{"swagger-check", "apidocs-openapi3-check"} {
+		if stepAt(verify, gate) >= 0 {
+			t.Errorf("verify runs %s itself as well as through preverify-fast", gate)
+		}
+	}
+	if stepAt(recipe(t, makefile, "verify-ui"), "frontend-lint") >= 0 {
+		t.Error("verify-ui still runs frontend-lint, which preverify-fast already ran")
+	}
+
 	// Both halves of the schedule lane run in preverify, Go first (#1929): a
 	// vitest file that fails only beside the full suite otherwise passes a
 	// green preverify and fails verify's UI lane. The RealDB tests of the

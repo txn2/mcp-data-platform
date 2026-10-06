@@ -726,16 +726,15 @@ verify-release: verify codeql mutate acceptance-release acceptance-release-check
 ## verify-release, and CI runs each on the pull request. Do not add `mutate` or
 ## `codeql` back to this per-commit target; see the comment in the recipe.
 verify:
-	@# The four steps that REWRITE the working tree run first, one at a time,
+	@# The steps that REWRITE the working tree run first, one at a time,
 	@# because everything after them reads what they produce: fmt rewrites
-	@# sources, swagger-check regenerates internal/apidocs, embed-clean empties
-	@# the UI embed directories. Each is its own $(MAKE) line, so they stay
-	@# ordered even when the outer make was given -j.
+	@# sources, embed-clean empties the UI embed directories, and
+	@# swagger-check, the first step of preverify-fast below, regenerates
+	@# internal/apidocs before any gate reads it. Each is its own $(MAKE)
+	@# line, so they stay ordered even when the outer make was given -j.
 	@$(MAKE) --no-print-directory tools-check
 	@$(MAKE) --no-print-directory fmt
-	@$(MAKE) --no-print-directory swagger-check
 	@$(MAKE) --no-print-directory embed-clean
-	@$(MAKE) --no-print-directory apidocs-openapi3-check
 	@# Then the tagged build, before the lanes fan out. It is here rather than
 	@# inside verify-lint because the lanes start together under -j4: a failure
 	@# reported from a lane does not stop verify-docker from having already
@@ -857,17 +856,23 @@ verify-go:
 	@$(MAKE) --no-print-directory bench-report-check
 	@echo "[lane done  $$(date +%T)] verify-go"
 
-## preverify-fast: the diff-scoped gates verify runs before its lanes (#1856)
-## semgrep-diff, doc-check, acceptance-check, state-readers-check,
-## e2e-copy-check and dead-code read the change and the tree, not a coverage profile, so they
-## answer in about fifteen seconds. verify runs them in its serial preamble.
+## preverify-fast: the cheap gates verify runs before its lanes (#1856, #2030)
+## swagger-check and apidocs-openapi3-check (the API description is current and
+## converts to OpenAPI 3), semgrep-diff, doc-check, acceptance-check,
+## state-readers-check, e2e-copy-check, dead-code and frontend-lint read the
+## change and the tree, not a coverage profile, so they answer in under a
+## minute. verify runs them in its serial preamble. swagger-check runs first
+## because it rewrites internal/apidocs, which state-readers-check reads.
 preverify-fast:
+	@$(MAKE) --no-print-directory swagger-check
+	@$(MAKE) --no-print-directory apidocs-openapi3-check
 	@$(MAKE) --no-print-directory semgrep-diff
 	@$(MAKE) --no-print-directory doc-check
 	@$(MAKE) --no-print-directory acceptance-check
 	@$(MAKE) --no-print-directory state-readers-check
 	@$(MAKE) --no-print-directory e2e-copy-check
 	@$(MAKE) --no-print-directory dead-code
+	@$(MAKE) --no-print-directory frontend-lint
 
 ## realdb-lane: Run the RealDB tests of every changed package and every package importing one (#1947)
 ## make preverify runs no test behind the integration build tag, so a change
@@ -923,7 +928,6 @@ verify-docker:
 verify-ui:
 	@echo "[lane start $$(date +%T)] verify-ui"
 	@$(MAKE) --no-print-directory schedule-lane-ui
-	@$(MAKE) --no-print-directory frontend-lint
 	@$(MAKE) --no-print-directory frontend-e2e
 	@$(MAKE) --no-print-directory release-check
 	@echo "[lane done  $$(date +%T)] verify-ui"
