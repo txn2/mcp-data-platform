@@ -146,12 +146,50 @@ def test_refused():
 	assert.True(t, report.Tests[0].Passed, report.Tests[0].Failure)
 }
 
+// merge retries a temporary failure on its next run and fails loudly on a
+// statement it got wrong, which is the branch #2032 lets a script write and
+// its test reach.
+const merge = `def main():
+    """Merge the staged rows into the warehouse."""
+    res = platform.execute("MERGE INTO w.public.t USING s ON true WHEN MATCHED THEN DELETE", connection = "w", on_error = "return")
+    if "error" in res:
+        e = res["error"]
+        if e["retryable"]:
+            fail("warehouse unreachable (%s); the next run retries" % e["trino"]["error_name"], retryable = True)
+        fail("MERGE failed: %s" % e["message"])
+`
+
+func TestADeclaredClassifiedErrorReachesTheScriptsBranch(t *testing.T) {
+	report := runDeclared(t, merge+`
+def test_unreachable():
+    testing.answer("trino_execute", {"connection": "w"}, error = {"code": "trino_query_failed",
+        "category": "upstream_unavailable", "retryable": True, "message": "EXTERNAL: The connection attempt failed.",
+        "trino": {"error_type": "EXTERNAL", "error_name": "JDBC_ERROR", "sql_state": "08001"}})
+    msg = assert.fails(main)
+    assert.contains(msg, "warehouse unreachable (JDBC_ERROR)")
+
+def test_bad_statement():
+    testing.answer("trino_execute", {"connection": "w"}, error = {"category": "client_input", "retryable": False,
+        "message": "USER_ERROR: Table 'w.public.t' does not exist", "trino": {"error_type": "USER_ERROR"}})
+    msg = assert.fails(main)
+    assert.contains(msg, "MERGE failed: USER_ERROR: Table 'w.public.t' does not exist")
+`)
+	require.Len(t, report.Tests, 2)
+	for _, got := range report.Tests {
+		assert.True(t, got.Passed, got.Name+": "+got.Failure)
+	}
+	assert.InDelta(t, 100, report.Coverage.Percent, 0.001, "both branches are reached")
+}
+
 func TestTestingAnswerRefusesWhatItCannotDeclare(t *testing.T) {
 	for name, call := range map[string]string{
-		"neither":  `testing.answer("t", {})`,
-		"both":     `testing.answer("t", {}, {"a": 1}, error = "x")`,
-		"not dict": `testing.answer("t", {}, [1])`,
-		"keys":     `testing.answer("t", {1: 2}, {"a": 1})`,
+		"neither":            `testing.answer("t", {})`,
+		"both":               `testing.answer("t", {}, {"a": 1}, error = "x")`,
+		"not dict":           `testing.answer("t", {}, [1])`,
+		"keys":               `testing.answer("t", {1: 2}, {"a": 1})`,
+		"empty error":        `testing.answer("t", {}, error = "")`,
+		"error of a list":    `testing.answer("t", {}, error = [1])`,
+		"retryable not bool": `testing.answer("t", {}, error = {"retryable": "yes"})`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			report := runDeclared(t, ingest+`

@@ -97,7 +97,7 @@ func (p *PromptsProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 	if err != nil {
 		return nil, true, fmt.Errorf("getting prompt %s: %w", parsed.PromptID, err)
 	}
-	if pr == nil || !promptVisibleTo(pr, caller) {
+	if pr == nil || !PromptVisibleTo(pr, caller) {
 		return nil, true, ErrNotFound
 	}
 	return &Document{
@@ -109,7 +109,7 @@ func (p *PromptsProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 	}, true, nil
 }
 
-// promptVisibleTo reports whether caller may read pr, mirroring the search path's
+// PromptVisibleTo reports whether caller may read pr, mirroring the search path's
 // full visibility rule so fetch never reveals a prompt a search would have hidden.
 // The search store gates on lifecycle first (`status = 'approved' AND enabled =
 // true`, pkg/prompt/postgres/search.go) and then on scope, so this applies both: a
@@ -117,7 +117,7 @@ func (p *PromptsProvider) Fetch(ctx context.Context, ref string, caller Caller) 
 // appear in search even to its owner), and among live prompts a global one is
 // visible to all, a persona one only to a caller carrying that persona, and a
 // personal one only to its owner. An unknown scope fails closed.
-func promptVisibleTo(pr *prompt.Prompt, caller Caller) bool {
+func PromptVisibleTo(pr *prompt.Prompt, caller Caller) bool {
 	// Lifecycle gate first: search never surfaces a non-approved or disabled prompt,
 	// so fetch must not either (an admin retiring a prompt removes it from both).
 	if pr.Status != prompt.StatusApproved || !pr.Enabled {

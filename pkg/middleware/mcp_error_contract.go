@@ -70,10 +70,33 @@ func recoverToInternalError(ctx context.Context, r any) *mcp.CallToolResult {
 // contract, leaving non-errors and already-structured results untouched.
 func normalizeErrorResult(result mcp.Result) mcp.Result {
 	ctr, ok := result.(*mcp.CallToolResult)
-	if !ok || ctr == nil || !ctr.IsError || hasErrorEnvelope(ctr) {
+	if !ok || ctr == nil || !ctr.IsError {
+		return result
+	}
+	if hasErrorEnvelope(ctr) {
+		stashEncodedEnvelope(ctr)
 		return result
 	}
 	return enrichBareErrorResult(ctr)
+}
+
+// stashEncodedEnvelope records the category of an envelope a typed tool wrote
+// into its encoded output (mcp-trino's classified failure, #2032) as the
+// result's error, as BuildErrorResult does for one the platform builds, so
+// the audit row and the call metrics carry the tool's own category. A result
+// that already stashes an error keeps it.
+func stashEncodedEnvelope(ctr *mcp.CallToolResult) {
+	raw, ok := ctr.StructuredContent.(json.RawMessage)
+	if !ok || ctr.GetError() != nil {
+		return
+	}
+	var decoded struct {
+		Error errorPayload `json:"error"`
+	}
+	if json.Unmarshal(raw, &decoded) != nil {
+		return
+	}
+	ctr.SetError(&PlatformError{Code: decoded.Error.Code, Category: decoded.Error.Category, Message: decoded.Error.Message})
 }
 
 // enrichBareErrorResult promotes an IsError result that lacks the structured

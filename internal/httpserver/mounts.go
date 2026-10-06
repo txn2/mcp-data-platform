@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -22,7 +23,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
@@ -529,15 +529,15 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 // A deployment that cannot enumerate its connections yields a nil enumerator,
 // which leaves the choices route unmounted rather than serving an empty set a
 // form would render as "this script may reach nothing".
-func scriptConnectionEnumerator(lister *connreach.Lister) scripthttp.ConnectionEnumerator {
+func scriptConnectionEnumerator(lister *connreach.Lister) connchoicehttp.Enumerator {
 	if lister == nil {
 		return nil
 	}
-	return func(ctx context.Context, caller scripthttp.ConnectionScope) []scripthttp.ConnectionChoice {
+	return func(ctx context.Context, caller connchoicehttp.Scope) []connchoicehttp.Choice {
 		conns := lister.ForPersona(ctx, caller.Persona, caller.Unrestricted)
-		choices := make([]scripthttp.ConnectionChoice, 0, len(conns))
+		choices := make([]connchoicehttp.Choice, 0, len(conns))
 		for _, c := range conns {
-			choices = append(choices, scripthttp.ConnectionChoice{
+			choices = append(choices, connchoicehttp.Choice{
 				Name: c.Name, Kind: c.Kind, Description: c.Description,
 			})
 		}

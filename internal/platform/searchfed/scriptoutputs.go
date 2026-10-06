@@ -53,17 +53,7 @@ func newScriptOutputs(cfg Config) knowledge.ScriptOutputs {
 // the rules fetch dereferences each by: a run reaches its author's own files
 // and neither the share graph nor an administrator's reach.
 func (s scriptOutputs) Outputs(ctx context.Context, scriptID string, caller knowledge.Caller) (knowledge.ScriptOutputSet, error) {
-	unattended := caller.ProducerID != "" || caller.OnBehalfOf != ""
-	email := caller.Email
-	if caller.OnBehalfOf != "" {
-		// A run's files are filed under the person it acts for.
-		email = caller.OnBehalfOf
-	}
-	opener := s.access.For(producedview.Viewer{
-		UserID: caller.UserID, Email: email, Admin: caller.IsAdmin,
-		Claims: knowledge.ResourceClaimsOf(caller), Unattended: unattended,
-	})
-	produced, err := s.reader.ProducedFor(ctx, scriptID, scriptOutputsLimit, opener)
+	produced, err := s.reader.ProducedFor(ctx, scriptID, scriptOutputsLimit, s.access.For(viewerOf(caller)))
 	if err != nil {
 		return knowledge.ScriptOutputSet{}, fmt.Errorf("listing script outputs: %w", err)
 	}
@@ -74,6 +64,20 @@ func (s scriptOutputs) Outputs(ctx context.Context, scriptID string, caller know
 		})
 	}
 	return knowledge.ScriptOutputSet{Open: out, Hidden: produced.Hidden, More: produced.More}, nil
+}
+
+// viewerOf is the reader a fetch caller is judged as: a run reaches its
+// author's own files and neither the share graph nor an administrator's reach.
+func viewerOf(caller knowledge.Caller) producedview.Viewer {
+	email := caller.Email
+	if caller.OnBehalfOf != "" {
+		// A run's files are filed under the person it acts for.
+		email = caller.OnBehalfOf
+	}
+	return producedview.Viewer{
+		UserID: caller.UserID, Email: email, Admin: caller.IsAdmin,
+		Claims: knowledge.ResourceClaimsOf(caller), Unattended: caller.ProducerID != "" || caller.OnBehalfOf != "",
+	}
 }
 
 // outputReference is the citation fetch dereferences to a produced file.

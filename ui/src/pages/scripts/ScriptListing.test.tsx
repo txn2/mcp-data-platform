@@ -131,10 +131,20 @@ describe("ScriptListing", () => {
     expect(screen.getByTestId("automation-kind")).toHaveTextContent("Script");
   });
 
-  it("tells an owner with nothing yet to ask an agent to automate the work", () => {
+  it("says no automations exist when every script is listed and there are none", () => {
     mockScripts.mockReturnValue(answer([]));
     list();
 
+    expect(screen.getByText(/No automations exist yet/)).toBeInTheDocument();
+  });
+
+  it("tells a reader with none of their own where everyone's are, and to ask an agent", async () => {
+    mockScripts.mockImplementation((f) => (f?.scope === "mine" ? answer([]) : answer([row({ owned: false })])));
+    list();
+
+    chooseScope("Mine");
+    expect(await screen.findByText(/You have no automations of your own yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Choose All to see everyone's/)).toBeInTheDocument();
     expect(
       screen.getByText(/Ask an agent to automate a report or an export you run repeatedly/),
     ).toBeInTheDocument();
@@ -145,7 +155,7 @@ describe("ScriptListing", () => {
     list();
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
-    expect(screen.queryByText(/You have no automations yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No automations exist yet/)).not.toBeInTheDocument();
   });
 
   it("opens the script when its row is clicked", () => {
@@ -323,38 +333,38 @@ describe("ScriptListing: the filter bar", () => {
   });
 });
 
-// A script is visible to everyone; what is readable is not (#1795).
+// A script is visible to everyone, and so is how it is going (#1795, #1994).
 describe("ScriptListing: scope", () => {
-  it("opens on the caller's own scripts", () => {
+  it("opens on every script, the ones built for the reader included", () => {
     mockScripts.mockReturnValue(answer([row()]));
     list();
 
-    expect(lastFilter()).toMatchObject({ scope: "mine" });
+    expect(lastFilter()).toMatchObject({ scope: "all" });
   });
 
-  it("lists every script when the reader asks for all", async () => {
+  it("narrows to the reader's own when they ask for mine", async () => {
     mockScripts.mockReturnValue(answer([row()]));
     list();
 
-    chooseScope("All");
-    await waitFor(() => expect(lastFilter()["scope"]).toBe("all"));
+    chooseScope("Mine");
+    await waitFor(() => expect(lastFilter()["scope"]).toBe("mine"));
   });
 
   // Persistence is asserted in the browser (e2e/interactive/scripts-listing
   // .spec.ts), where the store outlives a reload; each test here opens on an
   // empty one (src/test/setup.ts).
 
-  it("shows a row the reader does not own without its run state", () => {
+  it("shows how a script the reader does not own last ran", () => {
     const theirs = row({
       script: { ...row().script, id: "script-003", display_name: "Someone Else's" },
       owned: false,
-      last_run: undefined,
+      last_run: { ...row().last_run!, status: "failed" },
     });
     mockScripts.mockReturnValue(answer([theirs]));
     list();
 
     expect(screen.getByText("Someone Else's")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("failed")).toBeInTheDocument();
   });
 });
 

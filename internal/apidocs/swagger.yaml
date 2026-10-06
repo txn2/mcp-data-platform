@@ -3135,6 +3135,35 @@ definitions:
           type: string
         type: array
     type: object
+  connchoicehttp.Choice:
+    properties:
+      description:
+        example: Production Trino cluster
+        type: string
+      kind:
+        description: Kind is the toolkit serving it.
+        example: trino
+        type: string
+      name:
+        example: warehouse
+        type: string
+    type: object
+  connchoicehttp.connectionChoicesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/connchoicehttp.Choice'
+        type: array
+      note:
+        description: |-
+          Note states the source in the reader's terms, so a form can put it under
+          the control without composing the sentence itself.
+        type: string
+      source:
+        description: Source names the boundary the set was drawn from.
+        example: persona
+        type: string
+    type: object
   connoauth.OAuthStatus:
     properties:
       authenticated_at:
@@ -8631,19 +8660,6 @@ definitions:
         example: 3f2b6c1e-8d4a-4b8e-9f1a-2c3d4e5f6a7b
         type: string
     type: object
-  scripthttp.ConnectionChoice:
-    properties:
-      description:
-        example: Production Trino cluster
-        type: string
-      kind:
-        description: Kind is the toolkit serving it.
-        example: trino
-        type: string
-      name:
-        example: warehouse
-        type: string
-    type: object
   scripthttp.adminRun:
     properties:
       cancel_requested:
@@ -8772,22 +8788,6 @@ definitions:
         type: string
       type:
         example: about:blank
-        type: string
-    type: object
-  scripthttp.connectionChoicesResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/scripthttp.ConnectionChoice'
-        type: array
-      note:
-        description: |-
-          Note states the source in the reader's terms, so a form can put it under
-          the control without composing the sentence itself.
-        type: string
-      source:
-        description: Source names the boundary the set was drawn from.
-        example: persona
         type: string
     type: object
   scripthttp.deleteResponse:
@@ -9176,6 +9176,13 @@ definitions:
       version:
         example: 3
         type: integer
+      withheld:
+        description: |-
+          Withheld marks a run read by somebody who neither owns its script nor
+          requested it (#1994): its parameters, log, outputs, state and result
+          are left out, and state_read is empty for that reason rather than
+          because the run read no state.
+        type: boolean
     type: object
   scripthttp.portalRunListResponse:
     properties:
@@ -24032,25 +24039,25 @@ paths:
   /portal/scripts:
     get:
       description: 'Returns the managed scripts the caller may see, each with its
-        cadence and, for the scripts they own, the state of its most recent run. A
-        script''s definition is readable by everyone signed in; its runs are its owner''s
-        and an administrator''s. No row carries the script''s source, for any caller:
-        read it from GET /portal/scripts/{id}. A row the caller does not own carries
-        no run state and no action — it says that the script exists, who owns it,
-        what it says about itself and when it runs. scope=mine narrows to the caller''s
-        own and is the default; scope=all lists every script; scope=granted lists
-        the scripts granted to the caller''s persona, roles or API key, each with
-        its parameter contract, which is the catalog an application builds from. Administrators
-        see every script either way. The category, tag, search, owner, status, enabled
-        and kind parameters narrow the listing; kind=script lists the scripts that
-        run and kind=library the libraries other scripts load (#1941), and any other
-        kind is refused; tag may be repeated, and a script matching any of the named
-        tags is returned. sort and dir order it in the store, ahead of the page cap,
-        so an ordering is over every matching script rather than over the page. total
-        counts every script the predicate matches, so it exceeds the rows returned
-        when the listing was capped.'
+        cadence and the state of its most recent run. A script''s definition, its
+        cadence and its runs'' status are readable by everyone signed in; what a run
+        was given and printed is its owner''s and an administrator''s. No row carries
+        the script''s source, for any caller: read it from GET /portal/scripts/{id}.
+        A row the caller does not own carries no action, no fire-time parameters,
+        and a last run without its requester or progress. scope=all lists every script
+        and is the default; scope=mine narrows to the caller''s own; scope=granted
+        lists the scripts granted to the caller''s persona, roles or API key, each
+        with its parameter contract, which is the catalog an application builds from.
+        Administrators see every script either way. The category, tag, search, owner,
+        status, enabled and kind parameters narrow the listing; kind=script lists
+        the scripts that run and kind=library the libraries other scripts load (#1941),
+        and any other kind is refused; tag may be repeated, and a script matching
+        any of the named tags is returned. sort and dir order it in the store, ahead
+        of the page cap, so an ordering is over every matching script rather than
+        over the page. total counts every script the predicate matches, so it exceeds
+        the rows returned when the listing was capped.'
       parameters:
-      - description: 'Whose scripts to list: mine (default), all, or granted'
+      - description: 'Whose scripts to list: all (default), mine, or granted'
         enum:
         - mine
         - all
@@ -24236,7 +24243,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/scripthttp.connectionChoicesResponse'
+            $ref: '#/definitions/connchoicehttp.connectionChoicesResponse'
         "401":
           description: Unauthorized
           schema:
@@ -24642,12 +24649,13 @@ paths:
       - Scripts
   /portal/scripts/{id}/runs:
     get:
-      description: 'Returns the run history of a script the caller owns, newest first:
-        what each run was triggered by, how it ended, how long it took, and how many
-        outputs it produced. page reads further back one page of per_page at a time,
-        and total counts every run the filter matches, so it exceeds the rows returned
-        when the history is longer than a page. Restricted to the script''s owner
-        and to administrators.'
+      description: 'Returns a script''s run history, newest first: what each run was
+        triggered by, how it ended, how long it took, and how many outputs it produced.
+        page reads further back one page of per_page at a time, and total counts every
+        run the filter matches, so it exceeds the rows returned when the history is
+        longer than a page. Readable by everyone signed in; a run carries its requester
+        and progress only for the script''s owner, administrators and whoever requested
+        it.'
       parameters:
       - description: Script ID
         in: path
@@ -24764,8 +24772,10 @@ paths:
   /portal/scripts/{id}/runs/{runID}:
     get:
       description: Returns one run with its parameters, metrics, outputs, and the
-        bounded log the run captured. Restricted to the script's owner, to administrators,
-        and to whoever requested that run.
+        bounded log the run captured, for the script's owner, administrators and whoever
+        requested that run. Anyone else signed in gets its status, timing, metrics,
+        cause and error with withheld true, and its parameters, log, outputs, state
+        and result left out.
       parameters:
       - description: Script ID
         in: path
@@ -24894,9 +24904,9 @@ paths:
       - Scripts
   /portal/scripts/{id}/schedule:
     get:
-      description: Returns the cadence a script the caller owns runs on, the parameters
-        every fire binds, when it fires next, and how many fires it has missed. Restricted
-        to the script's owner and to administrators.
+      description: Returns the cadence a script runs on and when it fires next, for
+        everyone signed in. Its owner and administrators also get the parameters every
+        fire binds, how many fires it has missed, and who last changed it.
       parameters:
       - description: Script ID
         in: path
@@ -25415,12 +25425,20 @@ paths:
         row carries its script''s owner_email, category and tags ([] for none), and
         a section''s rows are in case-insensitive script-name order. A paused schedule
         is listed with enabled false. A schedule that cannot be parsed is named under
-        unreadable. Owners see their own schedules; administrators see every schedule.'
+        unreadable. Every signed-in caller sees every schedule; scope=mine narrows
+        to the caller''s own.'
       parameters:
       - description: IANA zone the windows are cut in, the viewer's own; empty means
           UTC
         in: query
         name: tz
+        type: string
+      - description: 'Whose schedules to lay out: all (default) or mine'
+        enum:
+        - all
+        - mine
+        in: query
+        name: scope
         type: string
       produces:
       - application/json
@@ -25449,13 +25467,22 @@ paths:
       - Scripts
   /portal/scripts/runs:
     get:
-      description: Returns recent runs across every script the caller owns, newest
-        first, with what triggered each one, how it ended, why it failed, and which
-        script it belongs to. Administrators see the runs of every script.
+      description: Returns recent runs across every script, newest first, with what
+        triggered each one, how it ended, why it failed, and which script it belongs
+        to. scope=mine narrows to the scripts the caller owns. A run of a script the
+        caller does not own carries no requester or progress unless the caller requested
+        it.
       parameters:
       - description: Filter by run status
         in: query
         name: status
+        type: string
+      - description: 'Whose scripts'' runs to list: all (default) or mine'
+        enum:
+        - all
+        - mine
+        in: query
+        name: scope
         type: string
       - description: Narrow the listing to one script
         in: query

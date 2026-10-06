@@ -128,13 +128,12 @@ function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): strin
   }
 }
 
-// LastRunCell reports the most recent run. A script the caller does not own
-// carries none: a run is the owner's and the administrator's reading, and so is
-// the fact that one failed.
+// LastRunCell reports the most recent run, for every row: how a script is
+// going is every reader's (#1994), what its run was given and printed is not.
 export function LastRunCell({ row }: { row: PortalScriptRow }) {
   // A library never runs, so "Never run" would read as a script waiting for
   // its first run.
-  if (!row.owned || row.script.library) {
+  if (row.script.library) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   if (!row.last_run) {

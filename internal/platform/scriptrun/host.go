@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportmeta"
@@ -456,10 +457,17 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 		connection string
 		sql        string
 		params     *starlark.Dict
+		onError    string
+		retry      = true
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		argSQL, &sql, "connection?", &connection, "params?", &params); err != nil {
+		argSQL, &sql, "connection?", &connection, "params?", &params,
+		"on_error?", &onError, "retry?", &retry); err != nil {
 		return nil, argErr(b, err)
+	}
+	returnFailure, err := scriptfail.OnError(b.Name(), onError)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
 	}
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
@@ -473,9 +481,9 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if connection != "" {
 		call["connection"] = connection
 	}
-	out, err := h.callTool(ToolQuery, call)
+	out, err := h.callToolWith(ToolQuery, call, callOpts{noRetry: !retry})
 	if err != nil {
-		return nil, argErr(b, err)
+		return h.failed(b, err, returnFailure)
 	}
 	h.queries++
 	return h.queryResult(b.Name(), out)
@@ -499,9 +507,16 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	var (
 		tool     string
 		toolArgs *starlark.Dict
+		onError  string
+		retry    = true
 	)
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args?", &toolArgs); err != nil {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args?", &toolArgs,
+		"on_error?", &onError, "retry?", &retry); err != nil {
 		return nil, argErr(b, err)
+	}
+	returnFailure, err := scriptfail.OnError(b.Name(), onError)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
 	}
 	if tool == "" {
 		return nil, fmt.Errorf("in %s: tool is empty; name the tool to call, as %s(\"trino_execute\", {\"connection\": \"warehouse\", \"sql\": \"...\"})", b.Name(), b.Name())
@@ -513,7 +528,7 @@ func (h *hostState) call(_ *starlark.Thread, b *starlark.Builtin, args starlark.
 	if err != nil {
 		return nil, argErr(b, err)
 	}
-	return h.invoke(b, tool, payload)
+	return h.invoke(b, tool, payload, invokeOpts{call: callOpts{noRetry: !retry}, returnFailure: returnFailure})
 }
 
 // execute implements platform.execute: bind the parameters as platform.query
@@ -524,10 +539,15 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 		connection string
 		sql        string
 		params     *starlark.Dict
+		onError    string
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		argSQL, &sql, "connection?", &connection, "params?", &params); err != nil {
+		argSQL, &sql, "connection?", &connection, "params?", &params, "on_error?", &onError); err != nil {
 		return nil, argErr(b, err)
+	}
+	returnFailure, err := scriptfail.OnError(b.Name(), onError)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // the refusal names the binding and is the script's error
 	}
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
@@ -540,19 +560,20 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 	if connection != "" {
 		payload["connection"] = connection
 	}
-	return h.invoke(b, ToolExecute, payload)
+	// No retry: a statement is never issued twice by the host.
+	return h.invoke(b, ToolExecute, payload, invokeOpts{returnFailure: returnFailure})
 }
 
 // invoke issues one tool call for platform.call and platform.execute: the
 // write barrier, the call, the record of what it wrote, and the result.
-func (h *hostState) invoke(b *starlark.Builtin, tool string, payload map[string]any) (starlark.Value, error) {
+func (h *hostState) invoke(b *starlark.Builtin, tool string, payload map[string]any, opts invokeOpts) (starlark.Value, error) {
 	decision, err := h.admitCall(b, tool, payload)
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.callTool(tool, payload)
+	out, err := h.callToolWith(tool, payload, opts.call)
 	if err != nil {
-		return nil, argErr(b, err)
+		return h.failed(b, err, opts.returnFailure)
 	}
 	// Recorded AFTER the call, and only for a call that returned. A tool that
 	// refused the arguments persisted nothing, and a response listing it under

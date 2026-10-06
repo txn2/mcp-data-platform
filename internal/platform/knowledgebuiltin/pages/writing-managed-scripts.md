@@ -56,6 +56,24 @@ is recorded, unbounded control flow is off so a script's cost is readable from
 its source, and a script with no clock reproduces exactly. The full contract,
 as `manage_script command=help` states it, is appended below.
 
+## A failed call says whose problem it is
+
+When Trino fails a query, the run records which kind of failure it was. A
+failure outside the script -- the database unreachable, a timeout, a refused
+connection, `INSUFFICIENT_RESOURCES`, a source answering with a SQLSTATE `08`
+connection error -- is recorded with cause `upstream` and `retryable: true`, and
+the run's error says it is expected to pass on its next run. A failure of the
+statement itself (`USER_ERROR`, a missing table, a constraint violation) stays
+the script's. A read that Trino itself fails for a temporary reason is issued
+again by the host up to three times; a statement is never issued twice,
+because the host cannot know it is safe to repeat.
+
+A script that wants to decide for itself passes `on_error = "return"` to
+`platform.query`, `platform.execute` or `platform.call` and gets the failure
+back as `{"error": {...}}` (code, category, retryable, message, and Trino's own
+error type, name and SQLSTATE) instead of the run ending. A test reaches that
+branch with `testing.answer(tool, args, error = {...})`.
+
 ## The mistakes that cost a round trip
 
 - **A SQL DECIMAL column arrives in the rows as a string, not a number.** Pass
@@ -211,9 +229,12 @@ interactive session gets, so the script can reach exactly what you can reach
 and nothing more — including the tools that write. A disabled, deprecated, or
 superseded script is the only thing the run gate refuses.
 
-A script is yours: you are the only person who sees it, edits it, runs it, and
-schedules it, and administrators do all four on every script. An administrator
-can also move a script to another owner, which hands over all of that at once.
+A script is yours to act on: you are the only person who edits it, runs it, and
+schedules it, and administrators do all three on every script. Everyone signed in
+reads its source and versions, and on the portal its schedule and how its runs
+have gone; what a run was given, printed and wrote stays yours and an
+administrator's. An administrator can also move a script to another owner, which
+hands over all of that at once.
 
 ## The dialect contract
 

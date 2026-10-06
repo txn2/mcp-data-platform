@@ -259,3 +259,46 @@ func TestSessionCaller_ReadsTheEnvelopeOverTheWire(t *testing.T) {
 	assert.Contains(t, err.Error(), "too many calls")
 	assert.Contains(t, err.Error(), "code: rate_limited")
 }
+
+// TestSessionCaller_KeepsAClassifiedEnvelope drives a typed tool that fails
+// with a classification in its output, as mcp-trino's trino_query does
+// (#2032): the refusal carries retryable and the whole envelope, details
+// included, so the engine can record the run as the upstream's and a script
+// can be handed the envelope.
+func TestSessionCaller_KeepsAClassifiedEnvelope(t *testing.T) {
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	type classified struct {
+		Error map[string]any `json:"error"`
+	}
+	mcp.AddTool(server, &mcp.Tool{Name: "trino_query"},
+		func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, classified, error) {
+			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Query failed: EXTERNAL: The connection attempt failed."}}},
+				classified{Error: map[string]any{
+					"code": "trino_query_failed", "category": "upstream_unavailable", "retryable": true,
+					"message": "EXTERNAL: The connection attempt failed.",
+					"trino":   map[string]any{"error_type": "EXTERNAL", "error_name": "JDBC_ERROR", "sql_state": "08001"},
+				}}, nil
+		})
+	caller, cleanup, err := Connect(ctx, server, "test")
+	require.NoError(t, err)
+	defer cleanup()
+
+	_, err = caller.CallTool(ctx, "trino_query", nil)
+	var refusal *RefusalError
+	require.True(t, errors.As(err, &refusal))
+	assert.Equal(t, "trino_query_failed", refusal.Code)
+	assert.True(t, refusal.Retryable)
+	assert.Equal(t, "Query failed: EXTERNAL: The connection attempt failed.", err.Error(), "the text is the tool's own")
+	trino, _ := refusal.Envelope["trino"].(map[string]any)
+	assert.Equal(t, "08001", trino["sql_state"])
+}
+
+func TestNewRefusal(t *testing.T) {
+	r := NewRefusal("text", map[string]any{"code": "rate_limited", "retry_after_seconds": float64(2), "retryable": true})
+	assert.Equal(t, "rate_limited", r.Code)
+	assert.True(t, r.Retryable)
+	assert.Equal(t, 2*time.Second, r.RetryAfter)
+	assert.Equal(t, "text", r.Error())
+	assert.False(t, NewRefusal("t", map[string]any{"code": "x"}).Retryable, "absent retryable is false")
+}

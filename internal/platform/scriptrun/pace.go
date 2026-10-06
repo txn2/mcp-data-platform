@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
@@ -45,28 +46,45 @@ const minPace = time.Second
 // The interpreter does not advance while the host waits, so a paced run
 // consumes the steps an unlimited one would; only wall-clock time differs, and
 // wall-clock time was never part of the determinism contract.
+//
+// A failure its tool classified (#2032) is read from the envelope: one the
+// tool reports as temporary, to a call that writes nothing, is waited on and
+// issued again as an upstream's answer is, unless the binding asked for no
+// retry; and the failure the script finally gets carries what it means, ending
+// the run as the upstream's when it is temporary (classify). A call that
+// writes is never issued twice by the host: it cannot know the statement is
+// safe to repeat.
 func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, error) {
+	return h.callToolWith(tool, args, callOpts{})
+}
+
+// callToolWith is callTool with what the binding asked of it.
+func (h *hostState) callToolWith(tool string, args map[string]any, opts callOpts) (map[string]any, error) {
 	if h.opts.Test != nil {
 		// A test's answers are the ones a run was finally given, so there is
 		// nothing to pace or retry (#1939).
-		return h.opts.Caller.CallTool(h.callCtx(), tool, args) //nolint:wrapcheck // wrapped by the calling binding
+		out, err := h.opts.Caller.CallTool(h.callCtx(), tool, args)
+		return out, scriptfail.Classify(tool, err) //nolint:wrapcheck // the tool's own failure, attributed; the calling binding names itself around it
 	}
-	out, err := h.pacedCall(tool, args)
+	out, err := h.pacedCall(tool, args, opts)
+	// The recording keeps the failure as the tool answered it; a replay
+	// classifies it again on the way to the script.
 	if h.opts.OnCall != nil {
 		h.opts.OnCall(tool, args, out, err)
 	}
-	return out, err
+	return out, scriptfail.Classify(tool, err) //nolint:wrapcheck // the tool's own failure, attributed; the calling binding names itself around it
 }
 
 // pacedCall issues one call, waiting and issuing it again as callTool says.
-func (h *hostState) pacedCall(tool string, args map[string]any) (map[string]any, error) {
-	for retry := 0; ; {
+func (h *hostState) pacedCall(tool string, args map[string]any, opts callOpts) (map[string]any, error) {
+	for retry, failed := 0, 0; ; {
 		out, err := h.opts.Caller.CallTool(h.callCtx(), tool, args)
 		if err != nil {
-			again, refusedErr := h.onRefusal(tool, err)
+			again, refusedErr := h.onRefusal(tool, args, err, opts, failed)
 			if !again {
 				return nil, refusedErr
 			}
+			failed++
 			continue
 		}
 		done, err := h.answered(tool, out, retry)
@@ -83,11 +101,14 @@ func (h *hostState) pacedCall(tool string, args map[string]any) (map[string]any,
 // onRefusal decides what callTool does with a failed call: again when it was
 // refused for timing alone and the wait it named has been made, and
 // otherwise the error the binding is handed.
-func (h *hostState) onRefusal(tool string, err error) (bool, error) {
+func (h *hostState) onRefusal(tool string, args map[string]any, err error, opts callOpts, failed int) (bool, error) {
 	var refusal *scriptsession.RefusalError
 	if errors.As(err, &refusal) && refusal.Code == upstreamretry.CodeUnavailable {
 		// The upstream did not answer; the run it ends is not the script's.
 		return false, scriptguard.NewUpstreamError(tool, err)
+	}
+	if h.retriesRead(tool, args, refusal, opts) {
+		return h.retryRead(tool, refusal, failed)
 	}
 	if refusal == nil || refusal.Code != toolratelimit.CodeRateLimited {
 		// Returned as the Caller produced it: the binding that asked names
@@ -107,6 +128,45 @@ func (h *hostState) onRefusal(tool string, err error) (bool, error) {
 	// rather than logging a wait that did not complete.
 	h.log.Print(fmt.Sprintf("rate limit: %s was refused; waited %s and retried", tool, wait))
 	return true, nil
+}
+
+// retryRead waits before issuing again a read its tool refused as temporary,
+// at most upstreamretry.MaxRetries times and never past the deadline, and
+// otherwise hands the refusal on (#2032). Each wait is written to the run's
+// log, and so is giving up.
+func (h *hostState) retryRead(tool string, refusal *scriptsession.RefusalError, failed int) (bool, error) {
+	class := scriptfail.Detail(refusal.Envelope)
+	// A tool that names an interval is waited that long; otherwise 1s, 2s, 4s.
+	wait, again := upstreamretry.Seen{Retryable: true, After: refusal.RetryAfter}.Wait(failed, h.remaining())
+	if !again {
+		if failed > 0 {
+			h.log.Print(fmt.Sprintf("%s still failed for a temporary reason (%s) after %d retries; the script has the failure",
+				tool, class, failed))
+		}
+		h.upstream.Clear()
+		return false, refusal
+	}
+	if !sleepWithin(h.ctx, wait) {
+		return false, scriptguard.NewUpstreamError(tool, fmt.Errorf("waiting %s to retry %s after a temporary failure (%s): %w",
+			wait, tool, class, h.ctx.Err()))
+	}
+	h.log.Print(fmt.Sprintf("%s failed for a temporary reason (%s); waited %s and retried (%d of %d)",
+		tool, class, wait, failed+1, upstreamretry.MaxRetries))
+	return true, nil
+}
+
+// retriesRead reports whether a refusal is one the host issues again: a
+// failure the upstream reported as temporary (scriptfail.Retries), to a call
+// that writes nothing, from a binding that did not ask for no retry.
+func (h *hostState) retriesRead(tool string, args map[string]any, refusal *scriptsession.RefusalError, opts callOpts) bool {
+	return scriptfail.Retries(refusal) && !opts.noRetry && !h.mayWrite(tool, args)
+}
+
+// mayWrite reports whether a call may write, by the classification the
+// draft's write barrier uses: a call no rule names and whose tool declares
+// nothing is a write, so it is never issued twice.
+func (h *hostState) mayWrite(tool string, args map[string]any) bool {
+	return h.declare(tool, args).Writes
 }
 
 // answered decides what callTool does with an answer: done when it is the one

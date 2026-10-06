@@ -9,7 +9,9 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 )
 
@@ -38,24 +40,24 @@ type declared struct {
 }
 
 type declaredAnswer struct {
-	tool    string
-	args    map[string]any
-	out     map[string]any
-	errText string
-	used    bool
+	tool string
+	args map[string]any
+	out  map[string]any
+	fail error
+	used bool
 }
 
 // Answer implements scriptrec.Answerer.
-func (d *declared) Answer(tool string, args map[string]any) (out map[string]any, errText string, ok bool) {
+func (d *declared) Answer(tool string, args map[string]any) (scriptrec.Answered, bool) {
 	for i := range d.answers {
 		a := &d.answers[i]
 		if a.used || a.tool != tool || !within(a.args, args) {
 			continue
 		}
 		a.used = true
-		return a.out, a.errText, true
+		return scriptrec.Answered{Out: a.out, Fail: a.fail}, true
 	}
-	return nil, "", false
+	return scriptrec.Answered{}, false
 }
 
 // within reports whether every key of want is in got with an equal value, as
@@ -85,25 +87,35 @@ func jsonMap(m map[string]any) map[string]any {
 	return out
 }
 
-// answerBuiltin is testing.answer(tool, args, answer=None, error=""): the
+// answerBuiltin is testing.answer(tool, args, answer=None, error=None): the
 // answer a call to tool whose arguments include every key and value of args
-// gets, or with error= the failure it gets instead.
+// gets, or with error= the failure it gets instead. error= is the failure's
+// text, or the structuredContent.error envelope a tool classifies its failure
+// with (#2032), so a script's branch on a temporary failure can be tested.
 func (d *declared) answerBuiltin(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
 		tool     string
 		callArgs *starlark.Dict
 		answer   starlark.Value = starlark.None
-		errText  string
+		failure  starlark.Value = starlark.None
 	)
-	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args", &callArgs, "answer?", &answer, "error?", &errText); err != nil {
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "tool", &tool, "args", &callArgs, "answer?", &answer, "error?", &failure); err != nil {
 		return nil, err //nolint:wrapcheck // the interpreter's message names the builtin
 	}
 	_, isNone := answer.(starlark.NoneType)
-	if isNone == (errText == "") {
+	_, noFailure := failure.(starlark.NoneType)
+	if isNone == noFailure {
 		return nil, fmt.Errorf("in %s: declare an answer or an error=, one of the two", b.Name())
 	}
-	a := declaredAnswer{tool: tool, errText: errText}
+	a := declaredAnswer{tool: tool}
 	var err error
+	if !noFailure {
+		refusal, err := declaredFailure(failure)
+		if err != nil {
+			return nil, fmt.Errorf("in %s: error: %w", b.Name(), err)
+		}
+		a.fail = refusal
+	}
 	if a.args, err = dictArg(callArgs); err != nil {
 		return nil, fmt.Errorf("in %s: args: %w", b.Name(), err)
 	}
@@ -121,6 +133,40 @@ func (d *declared) answerBuiltin(_ *starlark.Thread, b *starlark.Builtin, args s
 	}
 	d.answers = append(d.answers, a)
 	return starlark.None, nil
+}
+
+// declaredFailure is the failure testing.answer's error= declares, as the
+// session caller returns it: a text is the platform's generic tool failure, and
+// an envelope is the tool's own, its message the text the script reads.
+func declaredFailure(v starlark.Value) (*scriptsession.RefusalError, error) {
+	if text, ok := starlark.AsString(v); ok {
+		if text == "" {
+			return nil, errors.New("is the failure's text or its envelope, not empty")
+		}
+		return scriptsession.NewRefusal(text, map[string]any{"code": "tool_error", "category": "tool_error", "message": text}), nil
+	}
+	dict, ok := v.(*starlark.Dict)
+	if !ok {
+		return nil, fmt.Errorf("is the failure's text or its envelope dict, not %s", v.Type())
+	}
+	env, err := dictArg(dict)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := env["code"].(string); !ok {
+		env["code"] = "tool_error"
+	}
+	if _, ok := env["retryable"]; ok {
+		if _, isBool := env["retryable"].(bool); !isBool {
+			return nil, errors.New("retryable is True or False")
+		}
+	}
+	text, _ := env["message"].(string)
+	if text == "" {
+		text = "the tool failed"
+		env["message"] = text
+	}
+	return scriptsession.NewRefusal(text, env), nil
 }
 
 // hold checks one declared answer against its tool's contract and applies the

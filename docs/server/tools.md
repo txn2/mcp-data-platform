@@ -119,6 +119,17 @@ Tool call: `trino_query` with query `SELECT customer_id, SUM(amount) as revenue 
 - Row count and execution time
 - **Semantic context** (if enabled): table description, owners, tags, quality score, deprecation warnings
 
+**A failed query** says whose problem it is (#2032). The text is Trino's own, and `structuredContent.error` classifies it, so a client can tell "fix the SQL" from "the source is down, try again later" without reading prose:
+
+```json
+{"error": {"code": "trino_query_failed", "category": "upstream_unavailable", "retryable": true,
+  "message": "EXTERNAL: The connection attempt failed.",
+  "trino": {"error_type": "EXTERNAL", "error_name": "JDBC_ERROR", "error_code": 65536, "sql_state": "08001", "http_status": 200},
+  "transport": null}}
+```
+
+`category` is `upstream_unavailable` (Trino, the source behind it, or the network between), `client_input` (the statement itself: bad SQL, a missing table, a constraint violation) or `internal`. A failure where Trino never answered carries `transport` (`kind` is `timeout`, `connection_refused`, `connection_reset`, `dns`, `network` or `http_status`) and `trino: null`. `trino_execute` answers a failure the same way. A [managed script](../scripts/running.md#a-failed-trino-query) records a run ended by a retryable failure as the upstream's.
+
 ---
 
 ### trino_execute
@@ -700,7 +711,7 @@ routing each well-formed reference by its form to the owning source:
 
 | Reference form | Source | Returns |
 |----------------|--------|---------|
-| `mcp:knowledge_page:<id>` | knowledge pages | the full markdown body. The page's slug works in place of its id, which is what makes a page referenceable from text the platform ships: a built-in page's id is generated on each deployment at reconcile time, so only the slug is the same everywhere. An id is resolved first, so a slug can never shadow a page asked for by id |
+| `mcp:knowledge_page:<id>` | knowledge pages | the full markdown body, and the page's declared references as `references` to follow. A cited asset, collection, prompt or managed resource the caller cannot open is left out and counted in `references_withheld` without naming it, by the rule the portal's page references apply (#2028). The page's slug works in place of its id, which is what makes a page referenceable from text the platform ships: a built-in page's id is generated on each deployment at reconcile time, so only the slug is the same everywhere. An id is resolved first, so a slug can never shadow a page asked for by id |
 | `urn:li:document:<id>` | context documents | the full document body (the only MCP path to it) |
 | `urn:li:dataset:<id>` | catalog | the dataset's catalog context |
 | `urn:li:glossaryTerm:<id>` | governance | the term's name and definition, plus the datasets that carry it |
@@ -1511,7 +1522,7 @@ A script's definition is readable by everyone signed in (#2027), so a reference 
 
 Opens the user's managed scripts in the portal for the human to look at: what they own, what each one is scheduled to do, and how its recent runs went. Call it only when the human wants to see their scripts, schedules, or automations, or asks what ran and why something did not update ("show me my scripts", "did the daily report run"). It performs no data operation and returns a short confirmation with a link to the pages where the deployment is configured with its public address. For reading a script, its runs, or its log as part of your own work, use `manage_script`, which returns data and renders no UI. Optional `search` pre-focuses the pages.
 
-The pages themselves are read-only and described in the [portal guide](../portal/scripts.md). Approving a version stays on the admin surface. A script's source and version history are readable by everyone signed in (#1866); the capability grants and the run history are the script's owner's and an administrator's to read, and one run is additionally readable by whoever requested it.
+The pages themselves are read-only and described in the [portal guide](../portal/scripts.md). Approving a version stays on the admin surface. A script's source and version history are readable by everyone signed in (#1866), and so on the portal are its cadence and its run history as status, timing, cause and error (#1994); the capability grants, and what each run was given, printed and wrote, are the script's owner's and an administrator's to read, and one run is additionally readable in full by whoever requested it.
 
 ---
 

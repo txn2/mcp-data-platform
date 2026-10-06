@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
@@ -78,7 +79,7 @@ type Deps struct {
 	// Connections enumerates the connections the portal caller's own persona
 	// reaches, which a connection-typed parameter is chosen from (#1361). Nil
 	// leaves the choices route unmounted.
-	Connections ConnectionEnumerator
+	Connections connchoicehttp.Enumerator
 
 	// Audit records administrative script writes — today the owner transfer
 	// (#1404). Nil leaves the transfer working and unrecorded, which is what a

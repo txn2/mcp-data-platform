@@ -467,3 +467,56 @@ func TestPagesProvider_FetchBySlug(t *testing.T) {
 		}
 	})
 }
+
+// TestPagesProvider_FetchWithholdsReferencesTheCallerCannotOpen pins #2028: a
+// page citing an asset, collection, prompt or resource the caller cannot open
+// lists the rest and counts those, naming none of them; with no rule wired,
+// none of those kinds is shown.
+func TestPagesProvider_FetchWithholdsReferencesTheCallerCannotOpen(t *testing.T) {
+	s := &fakePageSearcher{
+		page: &knowledgepage.Page{ID: "kp_1", Title: "Index", Body: "b"},
+		entityRefs: []knowledgepage.EntityRef{
+			{TargetType: knowledgepage.RefTargetAsset, AssetID: "a_shared"},
+			{TargetType: knowledgepage.RefTargetAsset, AssetID: "a_private"},
+			{TargetType: knowledgepage.RefTargetCollection, CollectionID: "c_private"},
+			{TargetType: knowledgepage.RefTargetPrompt, PromptID: "p_private"},
+			{TargetType: knowledgepage.RefTargetResource, ResourceID: "r_private"},
+			{TargetType: knowledgepage.RefTargetKnowledgePage, RefPageID: "kp_2"},
+		},
+	}
+	caller := Caller{UserID: "u1", Email: "reader@example.com"}
+	var asked []string
+	p := NewKnowledgePagesProvider(s)
+	p.SetReferenceOpener(func(_ context.Context, ref knowledgepage.EntityRef, got Caller) bool {
+		if got.Email != caller.Email {
+			t.Errorf("judged for %q, want the fetch caller", got.Email)
+		}
+		asked = append(asked, ref.URN())
+		return ref.AssetID == "a_shared"
+	})
+	doc, _, err := p.Fetch(context.Background(), knowledgepage.PageReference("kp_1"), caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DocumentRef{
+		{Reference: "mcp:asset:a_shared", Type: knowledgepage.RefTargetAsset},
+		{Reference: "mcp:knowledge_page:kp_2", Type: knowledgepage.RefTargetKnowledgePage},
+	}
+	if len(doc.References) != len(want) || doc.References[0] != want[0] || doc.References[1] != want[1] {
+		t.Errorf("References = %+v, want %+v", doc.References, want)
+	}
+	if doc.ReferencesWithheld != 4 {
+		t.Errorf("ReferencesWithheld = %d, want 4", doc.ReferencesWithheld)
+	}
+	if len(asked) != 5 {
+		t.Errorf("asked about %v; a page reference is readable by everyone and is not asked about", asked)
+	}
+
+	doc, _, err = NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.References) != 1 || doc.ReferencesWithheld != 5 {
+		t.Errorf("with no rule wired: References = %+v, withheld %d; want only the page, 5 withheld", doc.References, doc.ReferencesWithheld)
+	}
+}

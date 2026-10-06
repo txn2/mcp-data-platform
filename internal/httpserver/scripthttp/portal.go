@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/exclusivehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/granthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/outputshttp"
@@ -31,10 +33,13 @@ import (
 //
 // Two rules apply throughout. A script's definition -- what it is, its code
 // and its version history -- is read by everyone signed in (#1866): a script
-// is how a resource or an asset was produced. Everything else is its owner's
-// and an administrator's: what it did (its runs and what it produced), its
-// state, and every change to it or its schedule; a run grant (#1846) lets
-// another principal run it and read the runs they started.
+// is how a resource or an asset was produced. So is how it is going (#1994):
+// its schedule's cadence and its runs' status, when, how long, why one failed
+// and whether the next is expected to pass, because the people a scheduled
+// report runs for are the ones who depend on it. Everything else is its
+// owner's and an administrator's: what a run was given, printed and produced,
+// its state, and every change to it or its schedule; a run grant (#1846) lets
+// another principal run it and read in full the runs they started.
 
 // portalRunListLimit caps a portal run listing that names no limit. The store
 // clamps to its own ceiling above this, so a caller cannot widen it.
@@ -141,9 +146,7 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	if h.deps.Drafts != nil {
 		mux.Handle("POST /api/v1/portal/scripts/{id}/dry-run", wrap(h.portalHandler(h.portalDryRunSource)))
 	}
-	if h.deps.Connections != nil {
-		mux.Handle("GET /api/v1/portal/scripts/{id}/connections", wrap(h.portalHandler(h.portalScriptConnections)))
-	}
+	connchoicehttp.New(connchoicehttp.Deps{List: h.deps.Connections, Caller: h.connectionCaller}).Register(mux, wrap)
 	// The state a script carries from run to run, and the owner's reset of it
 	// (#1537).
 	if h.deps.States != nil {
@@ -176,6 +179,21 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 	// same store: what a run IS and what a run DID are one record.
 	mux.Handle("POST /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalRunScript)))
 	mux.Handle("POST /api/v1/portal/scripts/{id}/runs/{runID}/cancel", wrap(h.portalHandler(h.portalCancelRun)))
+}
+
+// connectionCaller is the connection choices' caller: the portal user, for a
+// script they own, scoped to their persona or unrestricted for an
+// administrator.
+func (h *Handler) connectionCaller(w http.ResponseWriter, r *http.Request) (connchoicehttp.Scope, bool) {
+	user := h.deps.PortalUser(r)
+	if user == nil {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required")
+		return connchoicehttp.Scope{}, false
+	}
+	if _, ok := h.ownedScript(w, r, user); !ok {
+		return connchoicehttp.Scope{}, false
+	}
+	return connchoicehttp.Scope{Persona: user.Persona, Unrestricted: user.IsAdmin}, true
 }
 
 // portalHandler adapts a portal handler by resolving the caller first,
@@ -229,6 +247,15 @@ type portalRun struct {
 	// unresponsive (it stopped reporting), or lease_expired. Absent on any
 	// other status, so a run whose worker is gone never reads as running.
 	Liveness string `json:"liveness,omitempty" example:"executing"`
+}
+
+// forReader is a run summary as a reader who neither owns its script nor
+// requested the run has it (#1994): how it went, and not who asked for it or
+// the progress lines the script reported, which are its own words.
+func forReader(p portalRun) portalRun {
+	p.RequestedBy = ""
+	p.Progress = nil
+	return p
 }
 
 // summarizeRun projects a run for a listing.
@@ -298,10 +325,10 @@ type portalScriptListResponse struct {
 // portalListScripts returns the scripts this caller may see.
 //
 // @Summary      List scripts visible to the portal caller
-// @Description  Returns the managed scripts the caller may see, each with its cadence and, for the scripts they own, the state of its most recent run. A script's definition is readable by everyone signed in; its runs are its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no run state and no action — it says that the script exists, who owns it, what it says about itself and when it runs. scope=mine narrows to the caller's own and is the default; scope=all lists every script; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
+// @Description  Returns the managed scripts the caller may see, each with its cadence and the state of its most recent run. A script's definition, its cadence and its runs' status are readable by everyone signed in; what a run was given and printed is its owner's and an administrator's. No row carries the script's source, for any caller: read it from GET /portal/scripts/{id}. A row the caller does not own carries no action, no fire-time parameters, and a last run without its requester or progress. scope=all lists every script and is the default; scope=mine narrows to the caller's own; scope=granted lists the scripts granted to the caller's persona, roles or API key, each with its parameter contract, which is the catalog an application builds from. Administrators see every script either way. The category, tag, search, owner, status, enabled and kind parameters narrow the listing; kind=script lists the scripts that run and kind=library the libraries other scripts load (#1941), and any other kind is refused; tag may be repeated, and a script matching any of the named tags is returned. sort and dir order it in the store, ahead of the page cap, so an ordering is over every matching script rather than over the page. total counts every script the predicate matches, so it exceeds the rows returned when the listing was capped.
 // @Tags         Scripts
 // @Produce      json
-// @Param        scope     query  string    false  "Whose scripts to list: mine (default), all, or granted"  Enums(mine, all, granted)
+// @Param        scope     query  string    false  "Whose scripts to list: all (default), mine, or granted"  Enums(mine, all, granted)
 // @Param        category  query  string    false  "Narrow to one category slug"
 // @Param        tag       query  []string  false  "Narrow to the scripts carrying any of these tags"  collectionFormat(multi)
 // @Param        search    query  string    false  "Narrow to the scripts whose name, display name or description contains this text"
@@ -384,9 +411,9 @@ func (h *Handler) grantedFilter(r *http.Request, user *PortalIdentity, filter *s
 //
 // Scheduled is counted in the store, over every script the predicate matches.
 // Failing is counted over the page, and is the one number here that cannot be
-// otherwise: a run is attached per page after the query (attachLastRuns), and
-// only for the rows the caller owns, so there is nothing else to count it
-// over. The listing says so rather than implying a platform-wide figure.
+// otherwise: a run is attached per page after the query (attachLastRuns), so
+// there is nothing else to count it over. The listing says so rather than
+// implying a platform-wide figure.
 func (h *Handler) healthCounts(
 	ctx context.Context, filter script.ListFilter, rows []portalScriptRow,
 ) (scheduled, failing int) {
@@ -474,14 +501,14 @@ func reportableSchedule(s script.Schedule, owned bool) *script.Schedule {
 	}
 }
 
-// attachLastRuns fills in the most recent run of each OWNED row in one query.
-// The unowned rows are not asked about, so the query cannot return a run this
-// caller may not read.
+// attachLastRuns fills in the most recent run of each row in one query: in
+// full for a row the caller owns, and as forReader has it for any other
+// (#1994).
 func (h *Handler) attachLastRuns(ctx context.Context, rows []portalScriptRow) {
 	if h.deps.LatestRuns == nil {
 		return
 	}
-	ids := rowIDs(rows, true)
+	ids := rowIDs(rows, false)
 	if len(ids) == 0 {
 		return
 	}
@@ -491,10 +518,13 @@ func (h *Handler) attachLastRuns(ctx context.Context, rows []portalScriptRow) {
 	}
 	for i := range rows {
 		run, ok := latest[rows[i].Script.ID]
-		if !ok || !rows[i].Owned {
+		if !ok {
 			continue
 		}
 		summary := summarizeRun(&run)
+		if !rows[i].Owned {
+			summary = forReader(summary)
+		}
 		rows[i].LastRun = &summary
 	}
 }
@@ -666,6 +696,26 @@ type portalRunDetail struct {
 	ClaimedAt   *time.Time         `json:"claimed_at,omitempty"`
 	HeartbeatAt *time.Time         `json:"heartbeat_at,omitempty"`
 	Attempts    []runstate.Attempt `json:"attempts,omitempty"`
+	// Withheld marks a run read by somebody who neither owns its script nor
+	// requested it (#1994): its parameters, log, outputs, state and result
+	// are left out, and state_read is empty for that reason rather than
+	// because the run read no state.
+	Withheld bool `json:"withheld,omitempty"`
+}
+
+// readerDetail is one run as forReader has it, for the detail route.
+func readerDetail(r *script.Run) portalRunDetail {
+	return portalRunDetail{
+		portalRun:    forReader(summarizeRun(r)),
+		ScriptID:     r.ScriptID,
+		ScheduledFor: r.ScheduledFor,
+		Attempt:      r.Attempt,
+		Metrics:      r.Metrics,
+		StateRead:    map[string]any{},
+		CreatedAt:    r.CreatedAt,
+		Reclaims:     r.Reclaims,
+		Withheld:     true,
+	}
 }
 
 // detailRun projects one run for the detail route.
@@ -757,10 +807,11 @@ const portalOwnRunsLimit = 50
 // answer to a case nobody is in.
 //
 // @Summary      List the caller's script runs
-// @Description  Returns recent runs across every script the caller owns, newest first, with what triggered each one, how it ended, why it failed, and which script it belongs to. Administrators see the runs of every script.
+// @Description  Returns recent runs across every script, newest first, with what triggered each one, how it ended, why it failed, and which script it belongs to. scope=mine narrows to the scripts the caller owns. A run of a script the caller does not own carries no requester or progress unless the caller requested it.
 // @Tags         Scripts
 // @Produce      json
 // @Param        status     query  string  false  "Filter by run status"
+// @Param        scope      query  string  false  "Whose scripts' runs to list: all (default) or mine"  Enums(all, mine)
 // @Param        script_id  query  string  false  "Narrow the listing to one script"
 // @Param        per_page   query  int     false  "Maximum rows to return"
 // @Success      200  {object}  portalOwnRunsResponse
@@ -770,9 +821,14 @@ const portalOwnRunsLimit = 50
 // @Security     BearerAuth
 // @Router       /portal/scripts/runs [get]
 func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	// The visibility predicate alone: the facet axes narrow which scripts a
-	// reader asked to see, and a run listing is not filtered by them.
-	scripts, err := h.deps.Scripts.List(r.Context(), scriptlist.Filter(user.owner(), user.IsAdmin, nil))
+	// The scope alone: the facet axes narrow which scripts a reader asked to
+	// see, and a run listing is not filtered by them.
+	mine := r.URL.Query().Get("scope") == scriptlist.ScopeMine
+	scope := url.Values{}
+	if mine {
+		scope.Set("scope", scriptlist.ScopeMine)
+	}
+	scripts, err := h.deps.Scripts.List(r.Context(), scriptlist.Filter(user.owner(), user.IsAdmin, scope))
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list scripts")
 		return
@@ -791,7 +847,7 @@ func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user
 		Status:   r.URL.Query().Get("status"),
 		Limit:    limit,
 	}
-	if !user.IsAdmin {
+	if mine && !user.IsAdmin {
 		// A non-nil, empty set is the answer for a caller who owns nothing: it
 		// matches no run, where a nil set would list every run on the platform.
 		filter.ScriptIDs = scriptIDs(scripts)
@@ -802,10 +858,15 @@ func (h *Handler) portalListOwnRuns(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	names := scriptNames(scripts)
+	owned := ownedIDs(scripts, user)
 	out := make([]portalScriptRun, 0, len(runs))
 	for i := range runs {
+		summary := summarizeRun(&runs[i])
+		if !owned[runs[i].ScriptID] && !ownsEmail(runs[i].RequestedBy, user.owner()) {
+			summary = forReader(summary)
+		}
 		out = append(out, portalScriptRun{
-			portalRun:  summarizeRun(&runs[i]),
+			portalRun:  summary,
 			ScriptID:   runs[i].ScriptID,
 			ScriptName: names[runs[i].ScriptID],
 		})
@@ -825,6 +886,17 @@ func scriptIDs(scripts []script.Script) []string {
 	return ids
 }
 
+// ownedIDs is the set of a listing's scripts the caller reads runs of in full.
+func ownedIDs(scripts []script.Script, user *PortalIdentity) map[string]bool {
+	owned := make(map[string]bool, len(scripts))
+	for i := range scripts {
+		if ownsScript(&scripts[i], user) {
+			owned[scripts[i].ID] = true
+		}
+	}
+	return owned
+}
+
 // scriptNames maps a listing's ids to what a person calls each script.
 func scriptNames(scripts []script.Script) map[string]string {
 	names := make(map[string]string, len(scripts))
@@ -841,7 +913,7 @@ func scriptNames(scripts []script.Script) map[string]string {
 // portalListRuns returns an owned script's run history, newest first.
 //
 // @Summary      List a script's runs
-// @Description  Returns the run history of a script the caller owns, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. page reads further back one page of per_page at a time, and total counts every run the filter matches, so it exceeds the rows returned when the history is longer than a page. Restricted to the script's owner and to administrators.
+// @Description  Returns a script's run history, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. page reads further back one page of per_page at a time, and total counts every run the filter matches, so it exceeds the rows returned when the history is longer than a page. Readable by everyone signed in; a run carries its requester and progress only for the script's owner, administrators and whoever requested it.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id        path   string  true   "Script ID"
@@ -857,7 +929,7 @@ func scriptNames(scripts []script.Script) map[string]string {
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/runs [get]
 func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	sc, ok := h.ownedScript(w, r, user)
+	sc, ok := h.anyScript(w, r)
 	if !ok {
 		return
 	}
@@ -867,9 +939,14 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list runs")
 		return
 	}
+	owned := ownsScript(sc, user)
 	out := make([]portalRun, 0, len(runs))
 	for i := range runs {
-		out = append(out, summarizeRun(&runs[i]))
+		summary := summarizeRun(&runs[i])
+		if !owned && !ownsEmail(runs[i].RequestedBy, user.owner()) {
+			summary = forReader(summary)
+		}
+		out = append(out, summary)
 	}
 	total := runpage.Total(r.Context(), h.deps.Runs, filter, len(out))
 	httpjson.WriteJSON(w, http.StatusOK, portalRunListResponse{Data: out, Total: total})
@@ -878,7 +955,7 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 // portalGetRun returns one run in full, including the log it captured.
 //
 // @Summary      Get one script run
-// @Description  Returns one run with its parameters, metrics, outputs, and the bounded log the run captured. Restricted to the script's owner, to administrators, and to whoever requested that run.
+// @Description  Returns one run with its parameters, metrics, outputs, and the bounded log the run captured, for the script's owner, administrators and whoever requested that run. Anyone else signed in gets its status, timing, metrics, cause and error with withheld true, and its parameters, log, outputs, state and result left out.
 // @Tags         Scripts
 // @Produce      json
 // @Param        id     path  string  true  "Script ID"
@@ -891,15 +968,29 @@ func (h *Handler) portalListRuns(w http.ResponseWriter, r *http.Request, user *P
 // @Security     BearerAuth
 // @Router       /portal/scripts/{id}/runs/{runID} [get]
 func (h *Handler) portalGetRun(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
-	run, ok := h.ReadableRun(w, r, user)
+	sc, ok := h.anyScript(w, r)
 	if !ok {
+		return
+	}
+	run, err := h.deps.Runs.GetRun(r.Context(), r.PathValue(pathRunID))
+	if errors.Is(err, script.ErrRunNotFound) || (err == nil && run.ScriptID != sc.ID) {
+		httpjson.WriteError(w, http.StatusNotFound, errRunNot)
+		return
+	}
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to get run")
+		return
+	}
+	if !ownsScript(sc, user) && !ownsEmail(run.RequestedBy, user.owner()) {
+		httpjson.WriteJSON(w, http.StatusOK, readerDetail(run))
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, detailRun(run))
 }
 
-// ReadableRun reads the run in the path for a caller entitled to it, or
-// writes the refusal. A run id is unguessable, but unguessable is not an
+// ReadableRun reads the run in the path for a caller entitled to all of it,
+// or writes the refusal: its cancel and its drawing on the flow diagram, which
+// shows the calls it made. A run id is unguessable, but unguessable is not an
 // authorization rule: the run must belong to the script in the path, and the
 // caller must be the script's owner, an administrator, or whoever asked for
 // this particular run -- the result was handed to them when they requested

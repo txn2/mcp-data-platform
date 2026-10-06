@@ -41,14 +41,15 @@ const SCRIPT_SCOPE_STORAGE_KEY = "script-scope";
 
 /**
  * Read the persisted scripts scope. Its own key, not the assets one: a reader
- * who browses every asset has said nothing about whose scripts they want, and
- * the scripts listing defaults to their own (#1795).
+ * who browses every asset has said nothing about whose scripts they want. The
+ * scripts listing defaults to every script (#1994): the automations that run
+ * for a person are usually somebody else's.
  */
 export function getStoredScriptScope(): ScriptScope {
   try {
-    return globalThis.localStorage?.getItem(SCRIPT_SCOPE_STORAGE_KEY) === "all" ? "all" : "mine";
+    return globalThis.localStorage?.getItem(SCRIPT_SCOPE_STORAGE_KEY) === "mine" ? "mine" : "all";
   } catch {
-    return "mine";
+    return "all";
   }
 }
 

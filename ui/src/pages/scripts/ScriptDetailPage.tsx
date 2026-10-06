@@ -29,6 +29,7 @@ import { ScriptTestsView } from "./ScriptTestsView";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 import { ScriptChanges } from "./ScriptChanges";
 import { ScriptUsedBy } from "./ScriptUsedBy";
+import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptRunSections } from "./ScriptRunSections";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
@@ -130,7 +131,9 @@ function ScriptDetail({
   const { contract, owned } = data;
   const library = Boolean(contract.library);
   // What belongs to running -- the schedule, and the runs below the code --
-  // is the owner's, and a library has none of it (#1941).
+  // is the owner's to act on, and a library has none of it (#1941). How its
+  // runs have gone is every reader's (#1994): the history, without what a
+  // run was given or printed.
   const runs = owned && !library;
   // Moving a script to another person is an administrator's, and the only
   // control on this page that is not the owner's own (#1404).
@@ -167,10 +170,11 @@ function ScriptDetail({
           loadable by anyone, so who depends on it is not the owner's alone. */}
       {library && <ScriptUsedBy contract={contract} basePath={basePath} onNavigate={onNavigate} />}
 
-      {runs && (
-        <ScriptRunSections
+      {!library && (
+        <ScriptRuns
           scriptId={scriptId}
           contract={contract}
+          owned={owned}
           openRunId={openRunId}
           onNavigate={onNavigate}
           filePath={filePath}
@@ -189,6 +193,38 @@ function ScriptDetail({
         <ScriptDelete scriptId={scriptId} contract={contract} onDeleted={onBack} />
       )}
     </div>
+  );
+}
+
+// ScriptRuns is everything on the page about a script's runs: all of it for
+// its owner and an administrator, and the history for anyone else, which
+// shows how each run went and not what it was given or printed (#1994).
+function ScriptRuns({
+  scriptId,
+  contract,
+  owned,
+  openRunId,
+  onNavigate,
+  filePath,
+}: {
+  scriptId: string;
+  contract: ScriptContract;
+  owned: boolean;
+  openRunId?: string;
+  onNavigate: (path: string) => void;
+  filePath?: (kind: ProducedTargetKind, id: string) => string;
+}) {
+  if (!owned) {
+    return <ScriptRunHistory scriptId={scriptId} openRunId={openRunId} onNavigate={onNavigate} />;
+  }
+  return (
+    <ScriptRunSections
+      scriptId={scriptId}
+      contract={contract}
+      openRunId={openRunId}
+      onNavigate={onNavigate}
+      filePath={filePath}
+    />
   );
 }
 
@@ -280,7 +316,7 @@ function ScriptSourceReadOnly({
           <p className="text-xs text-muted-foreground">
             {contract.library
               ? `Read only. Changing this library is ${contract.owner_email || "its owner"}'s and an administrator's.`
-              : `Read only. Running, scheduling and changing this script are ${contract.owner_email || "its owner"}'s and an administrator's.`}
+              : `Read only. Running, scheduling and changing this script are ${contract.owner_email || "its owner"}'s and an administrator's, and so is what each run was given and printed.`}
           </p>
           <SourceLines
             source={source ?? ""}

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -177,14 +178,24 @@ func UnauthorizedResult(message, hint string) *mcp.CallToolResult {
 
 // hasErrorEnvelope reports whether a result already carries the structured
 // error contract, so the normalizer leaves source-categorized results untouched.
+// A typed tool's output arrives already encoded (json.RawMessage), and a tool
+// that classifies its own failure there -- mcp-trino's trino_query_failed
+// (#2032) -- is source-categorized too: replacing it would discard the class.
 func hasErrorEnvelope(result *mcp.CallToolResult) bool {
 	if result == nil {
 		return false
 	}
-	if sc, ok := result.StructuredContent.(map[string]any); ok {
-		if _, present := sc[errorEnvelopeKey]; present {
-			return true
+	switch sc := result.StructuredContent.(type) {
+	case map[string]any:
+		_, present := sc[errorEnvelopeKey]
+		return present
+	case json.RawMessage:
+		var decoded struct {
+			Error *struct {
+				Code string `json:"code"`
+			} `json:"error"`
 		}
+		return json.Unmarshal(sc, &decoded) == nil && decoded.Error != nil && decoded.Error.Code != ""
 	}
 	return false
 }

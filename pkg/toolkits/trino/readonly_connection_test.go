@@ -185,7 +185,10 @@ func newExecCaller(t *testing.T, tk *Toolkit) func(conn, sql string) string {
 
 	return func(conn, sql string) string {
 		t.Helper()
-		args := map[string]any{"sql": sql}
+		// One second: the Trino client retries a refused connection until the
+		// query's deadline (txn2/mcp-trino#106), so the deadline is what ends
+		// a call that reached it.
+		args := map[string]any{"sql": sql, "timeout_seconds": 1}
 		if conn != "" {
 			args["connection"] = conn
 		}
@@ -221,11 +224,12 @@ func isReadOnlyRefusal(text string) bool {
 }
 
 // reachedEngine reports whether the statement got past every gate and was sent
-// to the Trino client, which fails to dial the closed loopback port. Asserting
-// this rather than only the absence of a refusal keeps "not blocked" from
-// passing on some earlier, unrelated failure.
+// to the Trino client, which fails to dial the closed loopback port: refused,
+// or retried until the call's deadline. Asserting this rather than only the
+// absence of a refusal keeps "not blocked" from passing on some earlier,
+// unrelated failure.
 func reachedEngine(text string) bool {
-	return strings.Contains(text, "connection refused")
+	return strings.Contains(text, "connection refused") || strings.Contains(text, "context deadline exceeded")
 }
 
 // TestMultiToolkit_ReadOnlyIsPerConnection is the issue #1269 acceptance test:

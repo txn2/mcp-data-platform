@@ -412,7 +412,7 @@ for i in $(seq 1 120); do
   fi
   sleep 1
 done
-ok "Trino ready on :9283 (catalogs: scratch, scratch_resources, memory)"
+ok "Trino ready on :9283 (catalogs: scratch, scratch_resources, memory, unreachable)"
 # Point the trino toolkit at this Trino: every TRINO_* the platform config
 # reads is set here, SSL and password included, because a value left to the
 # shell or .env (a TRINO_SSL=true or TRINO_PASSWORD from a profile that

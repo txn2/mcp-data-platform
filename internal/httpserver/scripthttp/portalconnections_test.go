@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 )
 
 // The set a connection parameter chooses from (#1361): the connections the
@@ -16,10 +17,17 @@ import (
 
 const connectionsPath = "/api/v1/portal/scripts/script_2/connections"
 
+// choicesBody is what the route answers, read back here.
+type choicesBody struct {
+	Data   []connchoicehttp.Choice `json:"data"`
+	Source string                  `json:"source"`
+	Note   string                  `json:"note"`
+}
+
 // reachable is what the caller's own persona enumerates in these tests: three
 // connections, only two of a kind a connection parameter can name.
-func reachable() []ConnectionChoice {
-	return []ConnectionChoice{
+func reachable() []connchoicehttp.Choice {
+	return []connchoicehttp.Choice{
 		{Name: "warehouse", Kind: "trino", Description: "Production warehouse"},
 		{Name: "reporting", Kind: "trino", Description: "Reporting cluster"},
 		{Name: "lake", Kind: "s3", Description: "Raw object store"},
@@ -29,10 +37,10 @@ func reachable() []ConnectionChoice {
 // connectionDeps assembles the portal deps with an enumerator that records the
 // scope it was asked for, since narrowing to the caller is the whole contract
 // between this package and the composition root.
-func connectionDeps(store *stubStore, user *PortalIdentity, choices []ConnectionChoice) (Deps, *ConnectionScope) {
-	asked := &ConnectionScope{}
+func connectionDeps(store *stubStore, user *PortalIdentity, choices []connchoicehttp.Choice) (Deps, *connchoicehttp.Scope) {
+	asked := &connchoicehttp.Scope{}
 	deps := portalDeps(store, nil, nil, user)
-	deps.Connections = func(_ context.Context, caller ConnectionScope) []ConnectionChoice {
+	deps.Connections = func(_ context.Context, caller connchoicehttp.Scope) []connchoicehttp.Choice {
 		*asked = caller
 		return choices
 	}
@@ -47,7 +55,7 @@ func TestPortalScriptConnections_ServesThePersonaReach(t *testing.T) {
 	rec := servePortalRequest(t, deps, http.MethodGet, connectionsPath, "")
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body connectionChoicesResponse
+	var body choicesBody
 	decodeInto(t, rec, &body)
 	assert.Equal(t, "persona", body.Source)
 	require.Len(t, body.Data, 2,
@@ -101,35 +109,13 @@ func TestPortalScriptConnections_IsUnmountedWithoutAnEnumerator(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "about:blank")
 }
 
-// TestOrEmptyChoices keeps a deployment whose enumeration answers nothing from
-// putting a null where a form expects a list.
-func TestOrEmptyChoices(t *testing.T) {
-	assert.NotNil(t, orEmptyChoices(nil))
-	assert.Empty(t, orEmptyChoices(nil))
-	assert.Len(t, orEmptyChoices(reachable()), 3)
-}
-
-// TestBindableChoices narrows an enumeration to the kind a connection parameter
-// can name, which is the kind the query binding reaches (#1384). Offering the
-// others offered values the run refuses, and made a name carried by several
-// kinds resolve to whichever the enumeration reached first.
-func TestBindableChoices(t *testing.T) {
-	got := bindableChoices(reachable())
-	require.Len(t, got, 2)
-	assert.Equal(t, "warehouse", got[0].Name)
-	assert.Equal(t, "reporting", got[1].Name)
-
-	assert.Empty(t, bindableChoices(nil))
-	assert.Empty(t, bindableChoices([]ConnectionChoice{{Name: "lake", Kind: "s3"}}))
-}
-
 // TestPortalScriptConnections_ResolvesASharedNameToTheKindTheRunReaches is the
 // stability the picker owes its reader (#1384). A deployment may carry one name
 // across kinds, and a value bound here is passed to the query binding, so the
 // name resolves to the connection that binding reaches — the same one on every
 // call.
 func TestPortalScriptConnections_ResolvesASharedNameToTheKindTheRunReaches(t *testing.T) {
-	shared := []ConnectionChoice{
+	shared := []connchoicehttp.Choice{
 		{Name: "warehouse", Kind: "s3", Description: "Raw object store"},
 		{Name: "warehouse", Kind: "datahub", Description: "Catalog"},
 		{Name: "warehouse", Kind: "trino", Description: "Production warehouse"},
@@ -138,7 +124,7 @@ func TestPortalScriptConnections_ResolvesASharedNameToTheKindTheRunReaches(t *te
 
 	rec := servePortalRequest(t, deps, http.MethodGet, connectionsPath, "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var body connectionChoicesResponse
+	var body choicesBody
 	decodeInto(t, rec, &body)
 	require.Len(t, body.Data, 1)
 	assert.Equal(t, "warehouse", body.Data[0].Name)

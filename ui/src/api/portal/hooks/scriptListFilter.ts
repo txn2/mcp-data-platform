@@ -25,10 +25,11 @@ export interface ScriptListFilter {
   /** enabled narrows to the enabled or the disabled scripts. */
   enabled?: boolean;
   /**
-   * scope is whose scripts to list. "mine" is the default and is what this
-   * listing has always shown; "all" lists every script on the platform, where
-   * a row the caller does not own carries no source and no run state (#1795).
-   * An administrator sees everything either way.
+   * scope is whose scripts to list. "all" is the default and lists every
+   * script, where a row the caller does not own carries no source, no
+   * fire-time parameters, and a last run without its requester or progress
+   * (#1795, #1994); "mine" narrows to the caller's own. An administrator sees
+   * everything either way.
    */
   scope?: "mine" | "all";
   /**
@@ -93,8 +94,8 @@ const LIST_AXES = [
  *
  * total counts every script the predicate matches, so it exceeds data.length
  * when the listing was capped; scheduled counts the same population. failing
- * counts the page, because a run is attached per page and only for the rows
- * the caller owns -- there is nothing else to count it over.
+ * counts the page, because a run is attached per page -- there is nothing else
+ * to count it over.
  */
 export interface ScriptListResponse extends ListResponse<PortalScriptRow> {
   scheduled: number;
