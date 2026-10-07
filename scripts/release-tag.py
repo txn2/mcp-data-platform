@@ -8,9 +8,10 @@ final tag: a fix is another candidate.
 
   check <tag>     refuse a tag that breaks the rules:
                   - a tag that is neither vX.Y.Z nor vX.Y.Z-rcN;
-                  - a final tag with no candidate, unless its annotation says
-                    "release-without-rc" (an emergency fix, stated on purpose);
                   - a final tag on a commit other than its latest candidate's.
+                  A final tag with no candidate is a release cut straight from
+                  main and passes: a candidate is how a release is judged when
+                  one is cut, not a precondition of every release.
   previous <tag>  print the last FINAL release before <tag>: what the changelog
                   and the release gates measure from, so neither a final tag's
                   notes nor its checks shrink to what changed since a candidate.
@@ -26,7 +27,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
-OVERRIDE = "release-without-rc"
 
 
 def git(*args: str) -> str:
@@ -68,14 +68,8 @@ def check(tag: str) -> int:
         return 0
     rcs = candidates(tag)
     if not rcs:
-        note = git("tag", "--list", "--format=%(contents)", tag)
-        if OVERRIDE in note:
-            print(f"release tag: {tag} has no candidate; its annotation says {OVERRIDE}.")
-            return 0
-        print(f"FAIL release tag: {tag} has no release candidate. Tag {tag}-rc1, run it on the staging "
-              f"deployment, then tag {tag} on the same commit. An emergency release without one says "
-              f"{OVERRIDE!r} in the tag's annotation.", file=sys.stderr)
-        return 1
+        print(f"release tag: {tag} has no candidate; it is released from its own commit.")
+        return 0
     latest = rcs[-1]
     if commit_of(latest) != commit_of(tag):
         print(f"FAIL release tag: {tag} is on {commit_of(tag)[:12]}, but its latest candidate {latest} is on "

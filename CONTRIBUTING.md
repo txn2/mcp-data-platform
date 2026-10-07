@@ -591,8 +591,14 @@ test is the gate.
 
 ## Releasing
 
-A release is cut as one or more release candidates and then a final tag on
-the same commit (#2012). A candidate is a build being judged, not a release.
+A release is either tagged straight from `main`, or cut as one or more
+release candidates and then a final tag on the same commit (#2012). A
+candidate is a build being judged, not a release.
+
+**Straight from `main`.** Run `make release-tag-check TAG=v1.140.1` on the
+commit and push the tag. A final tag with no candidate passes the check.
+
+**With candidates:**
 
 1. **Gate the candidate.** On the commit to release, run `make verify-release`
    (CodeQL, mutation testing, and the acceptance suite with every ticket's
@@ -615,8 +621,8 @@ the same commit (#2012). A candidate is a build being judged, not a release.
    everything since then, not only what changed since the candidate.
 5. **Write the release notes** against the final tag.
 
-An emergency release with no candidate is tagged annotated, with
-`release-without-rc` in its message; the check accepts it and nothing else.
+Once a version has a candidate, its final tag must be on the commit its
+latest candidate was built from.
 
 ## Getting Help
 

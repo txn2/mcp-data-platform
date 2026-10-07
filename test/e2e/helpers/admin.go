@@ -806,7 +806,11 @@ func BuildAdminHandler(p *platform.Platform) http.Handler {
 
 	if p.APIKeyAuthenticator() != nil {
 		deps.APIKeyManager = p.APIKeyAuthenticator()
+		deps.BoundPrincipals = p.APIKeyAuthenticator().Principals()
 	}
+	// Keys are issued into and answered from the key store (#1715), as the
+	// production admin routes are wired (internal/httpserver/mounts.go).
+	deps.APIKeyStore = p.APIKeyStore()
 
 	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
 }
