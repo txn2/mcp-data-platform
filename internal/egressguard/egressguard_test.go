@@ -40,8 +40,11 @@ func TestIPBlockedReason(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := ipBlockedReason(netip.MustParseAddr(tt.addr))
-		if (got != "") != tt.blocked {
-			t.Errorf("ipBlockedReason(%s) = %q; want blocked=%v", tt.addr, got, tt.blocked)
+		if (got.class != "") != tt.blocked {
+			t.Errorf("ipBlockedReason(%s) = %+v; want blocked=%v", tt.addr, got, tt.blocked)
+		}
+		if got.class != "" && got.reason == "" {
+			t.Errorf("ipBlockedReason(%s) names a class with no reason", tt.addr)
 		}
 	}
 }

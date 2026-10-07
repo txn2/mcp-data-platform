@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -36,6 +37,8 @@ func Assemble() (*Layer, error) {
 		return nil, fmt.Errorf("observability: %w", err)
 	}
 	l := &Layer{metrics: m, listener: observability.NewListener(m)}
+	// Every outbound HTTP client records through this recorder (#1895).
+	outbound.SetDefaultMetrics(m)
 	if m != nil {
 		slog.Info("observability: metrics recorder enabled", "listen", cfg.ListenAddr, "exporter", cfg.Exporter)
 	}

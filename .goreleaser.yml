@@ -5,6 +5,14 @@ version: 2
 
 project_name: mcp-data-platform
 
+# The go tool skips directories whose name starts with "_" when it expands
+# ./..., so `go test ./...` never walks this one. `make verify` runs
+# release-check (this file, with --clean) beside the real-DB lane's
+# `go test -tags=integration ./...`; with the default dist/ the walk reached
+# the directory between the remove and the recreate and the whole lane died
+# on "open dist: no such file or directory" before a test ran (#2042).
+dist: _dist
+
 env:
   - GO111MODULE=on
 

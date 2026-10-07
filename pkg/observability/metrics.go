@@ -162,6 +162,7 @@ const (
 	instDBPoolIdle         = "db_pool_idle"
 	instDBPoolWaitCount    = "db_pool_wait_count"
 	instDBPoolWaitDuration = "db_pool_wait_duration"
+	instDBPoolMaxOpen      = "db_pool_max_open_connections"
 )
 
 // unitSeconds is the OTel unit for duration histograms; the Prometheus exporter
@@ -350,8 +351,15 @@ type Metrics struct {
 	// Inbound webhook instruments (#1870), metrics_webhooks.go.
 	webhook webhookInstruments
 
+	// Inbound HTTP and MCP method instruments (#1889), metrics_http.go.
+	http httpInstruments
+
+	// Outbound HTTP, egress, retry, embedding and MCP gateway instruments
+	// (#1895), metrics_outbound.go.
+	outbound outboundInstruments
+
 	// DB connection-pool instruments, observed at scrape time from each
-	// registered pool's (*sql.DB).Stats(). The five instruments and the
+	// registered pool's (*sql.DB).Stats(). The six instruments and the
 	// callback are registered exactly once at New(); RegisterDBPool only
 	// appends to dbPools, which the callback iterates under dbMu.
 	meter         metric.Meter
@@ -360,6 +368,7 @@ type Metrics struct {
 	dbPoolIdle    metric.Int64ObservableGauge
 	dbPoolWaitCnt metric.Int64ObservableCounter
 	dbPoolWaitDur metric.Float64ObservableCounter
+	dbPoolMaxOpen metric.Int64ObservableGauge
 	dbMu          sync.RWMutex
 	dbPools       []registeredPool
 
@@ -625,6 +634,12 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerWebhookInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerHTTPInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerOutboundInstruments(meter); err != nil {
 		return err
 	}
 	return m.registerDBPoolInstruments(meter)
@@ -948,7 +963,7 @@ type registeredPool struct {
 	name string
 }
 
-// registerDBPoolInstruments creates the five DB-pool observable instruments and
+// registerDBPoolInstruments creates the six DB-pool observable instruments and
 // registers a single callback that, on each scrape, reads (*sql.DB).Stats() for
 // every pool registered via RegisterDBPool. The callback is registered exactly
 // once here; RegisterDBPool only appends to the observed set.
@@ -985,6 +1000,12 @@ func (m *Metrics) registerDBPoolInstruments(meter metric.Meter) error {
 			m.dbPoolWaitDur = v
 			return wrapReg(instDBPoolWaitDuration, err)
 		},
+		func() error {
+			v, err := meter.Int64ObservableGauge(instDBPoolMaxOpen,
+				metric.WithDescription("The pool's open-connection ceiling (database.max_open_conns, 0 when unlimited), labeled by pool. db_pool_open_connections at this value is a pool every further query waits on (#1889)."))
+			m.dbPoolMaxOpen = v
+			return wrapReg(instDBPoolMaxOpen, err)
+		},
 	}
 	for _, fn := range regs {
 		if err := fn(); err != nil {
@@ -992,7 +1013,7 @@ func (m *Metrics) registerDBPoolInstruments(meter metric.Meter) error {
 		}
 	}
 	if _, err := meter.RegisterCallback(m.observeDBPools,
-		m.dbPoolOpen, m.dbPoolInUse, m.dbPoolIdle, m.dbPoolWaitCnt, m.dbPoolWaitDur); err != nil {
+		m.dbPoolOpen, m.dbPoolInUse, m.dbPoolIdle, m.dbPoolWaitCnt, m.dbPoolWaitDur, m.dbPoolMaxOpen); err != nil {
 		return fmt.Errorf(instErrFmt, "db_pool callback", err)
 	}
 	return nil
@@ -1011,6 +1032,7 @@ func (m *Metrics) observeDBPools(_ context.Context, o metric.Observer) error {
 		o.ObserveInt64(m.dbPoolIdle, int64(s.Idle), set)
 		o.ObserveInt64(m.dbPoolWaitCnt, s.WaitCount, set)
 		o.ObserveFloat64(m.dbPoolWaitDur, s.WaitDuration.Seconds(), set)
+		o.ObserveInt64(m.dbPoolMaxOpen, int64(s.MaxOpenConnections), set)
 	}
 	return nil
 }

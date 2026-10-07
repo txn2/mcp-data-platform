@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
@@ -204,7 +205,7 @@ func (h *handler) newClient(follow bool) *http.Client {
 			return http.ErrUseLastResponse
 		}
 	}
-	return &http.Client{Transport: h.transport, CheckRedirect: checkRedirect}
+	return outbound.NewClient(outbound.Options{Kind: outbound.KindUtil, Base: h.transport, CheckRedirect: checkRedirect})
 }
 
 // blockedRemedy follows a guard refusal: the fix is the destination, or the

@@ -208,6 +208,7 @@ server:
 | `tls.enabled` | bool | `false` | Enable TLS for HTTP transport |
 | `tls.cert_file` | string | - | Path to TLS certificate |
 | `tls.key_file` | string | - | Path to TLS private key |
+| `slow_request_threshold` | duration | `5s` | An inbound HTTP request slower than this is logged at WARN with its route template, method, status and duration (`slow HTTP request`); see [Observability](observability.md#inbound-requests) |
 
 !!! warning "HTTP Transport Security"
     When using HTTP transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.

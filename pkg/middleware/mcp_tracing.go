@@ -4,12 +4,11 @@ import (
 	"context"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -38,27 +37,10 @@ const (
 	spanAttrEnrichMode    = "mcp.enrichment_mode"
 )
 
-// The MCP semantic convention keys (GenAI conventions, status Development),
-// emitted on every tool-call span beside the platform's own (#1893).
-// error.type is the bounded error category of a failed call; a succeeded
-// call does not carry it, as the convention requires.
-const (
-	spanAttrMethodName      = "mcp.method.name"
-	spanAttrGenAIToolName   = "gen_ai.tool.name"
-	spanAttrGenAIOperation  = "gen_ai.operation.name"
-	spanAttrConvSessionID   = "mcp.session.id"
-	spanAttrProtocolVersion = "mcp.protocol.version"
-	spanAttrErrorType       = "error.type"
-
-	genAIOperationExecuteTool = "execute_tool"
-)
-
-// The _meta keys a caller carries trace context in, where the MCP semantic
-// conventions put it; the same names as the W3C headers.
-const (
-	metaKeyTraceparent = "traceparent"
-	metaKeyTracestate  = "tracestate"
-)
+// The MCP semantic convention keys (GenAI conventions, status Development)
+// are emitted on every tool-call span beside the platform's own (#1893) and
+// are defined once, in internal/mcpobs, beside the observer of every other
+// method (#1889).
 
 // MCPTracingMiddleware records an OpenTelemetry span for every tool call,
 // a call the platform refuses before the handler included.
@@ -109,7 +91,7 @@ func traceToolCall(
 	tracer *observability.Tracer,
 ) (mcp.Result, error) {
 	ctx, pc := ensurePlatformContext(ctx, req)
-	ctx = inboundTraceContext(ctx, req)
+	ctx = mcpobs.TraceContext(ctx, req)
 	ctx, span := tracer.Start(ctx, methodToolsCall, trace.WithSpanKind(trace.SpanKindServer))
 	defer span.End()
 
@@ -118,11 +100,11 @@ func traceToolCall(
 	// Read the PlatformContext AFTER the call: the auth middleware and the
 	// enrichment middleware inner to this one have written into it by now.
 	span.SetName(toolCallSpanName(pc))
-	setToolSpanAttributes(span, pc, tracer.IncludeUserEmail(), protocolVersion(req))
+	setToolSpanAttributes(span, pc, tracer.IncludeUserEmail(), mcpobs.ProtocolVersion(req))
 	isToolError, errCategory := toolResultErrorInfo(result)
 	status := observability.ClassifyToolCallResult(err, isToolError, errCategory)
 	if status != observability.StatusOK {
-		span.SetAttributes(attribute.String(spanAttrErrorType, errorType(status, errCategory)))
+		span.SetAttributes(attribute.String(mcpobs.AttrErrorType, errorType(status, errCategory)))
 	}
 	observability.SetSpanStatus(span, status, spanError(result, err))
 	return result, err
@@ -136,63 +118,6 @@ func errorType(status, errCategory string) string {
 		return errCategory
 	}
 	return status
-}
-
-// inboundTraceContext continues the caller's trace (#1893): the W3C
-// traceparent and tracestate are read from params._meta, where the MCP
-// semantic conventions carry them, and else from the HTTP request's headers
-// (req.GetExtra().Header, nil on stdio and on an in-process session). With
-// neither, or an invalid header, ctx is returned as it was and the span the
-// caller opens is a root; with a sampled parent, ParentBased keeps the whole
-// trace. _meta wins over the header: it is the one the caller wrote for this
-// request, where a header may be the client library's own.
-func inboundTraceContext(ctx context.Context, req mcp.Request) context.Context {
-	prop := otel.GetTextMapPropagator()
-	if extra := req.GetExtra(); extra != nil && extra.Header != nil {
-		ctx = prop.Extract(ctx, propagation.HeaderCarrier(extra.Header))
-	}
-	if carrier := metaTraceCarrier(req); carrier != nil {
-		ctx = prop.Extract(ctx, carrier)
-	}
-	return ctx
-}
-
-// metaTraceCarrier is the request's _meta read as a propagation carrier: the
-// traceparent and tracestate entries when they are strings, nil otherwise.
-// Guarded like extractProgressToken against a typed-nil params value.
-func metaTraceCarrier(req mcp.Request) (carrier propagation.MapCarrier) {
-	defer func() {
-		if r := recover(); r != nil {
-			carrier = nil
-		}
-	}()
-	params := req.GetParams()
-	if params == nil {
-		return nil
-	}
-	meta := params.GetMeta()
-	for _, key := range []string{metaKeyTraceparent, metaKeyTracestate} {
-		if v, ok := meta[key].(string); ok && v != "" {
-			if carrier == nil {
-				carrier = propagation.MapCarrier{}
-			}
-			carrier[key] = v
-		}
-	}
-	return carrier
-}
-
-// protocolVersion is the MCP protocol revision the session negotiated, or
-// empty before initialization or off a session the platform did not open.
-func protocolVersion(req mcp.Request) string {
-	ss := extractServerSession(req)
-	if ss == nil {
-		return ""
-	}
-	if params := ss.InitializeParams(); params != nil {
-		return params.ProtocolVersion
-	}
-	return ""
 }
 
 // spanError is the error a tool call's span records: the protocol-level
@@ -221,11 +146,11 @@ const maxSpanToolNameBytes = 128
 func setToolSpanAttributes(span trace.Span, pc *PlatformContext, includeEmail bool, protocol string) {
 	tool := logsan.Excerpt(pc.ToolName, maxSpanToolNameBytes)
 	attrs := []attribute.KeyValue{
-		attribute.String(spanAttrMethodName, methodToolsCall),
-		attribute.String(spanAttrGenAIOperation, genAIOperationExecuteTool),
-		attribute.String(spanAttrGenAIToolName, tool),
-		attribute.String(spanAttrConvSessionID, pc.SessionID),
-		attribute.String(spanAttrProtocolVersion, protocol),
+		attribute.String(mcpobs.AttrMethodName, methodToolsCall),
+		attribute.String(mcpobs.AttrGenAIOperation, mcpobs.GenAIOperationExecuteTool),
+		attribute.String(mcpobs.AttrGenAIToolName, tool),
+		attribute.String(mcpobs.AttrSessionID, pc.SessionID),
+		attribute.String(mcpobs.AttrProtocolVersion, protocol),
 		attribute.String(spanAttrTool, tool),
 		attribute.String(spanAttrToolkitKind, pc.ToolkitKind),
 		attribute.String(spanAttrToolkitName, pc.ToolkitName),

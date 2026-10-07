@@ -1,0 +1,40 @@
+rules:
+  # Every HTTP client the platform builds is built on the outbound chain
+  # (internal/outbound, #1895): the platform's User-Agent, a client span that
+  # continues the caller's trace and carries it to the upstream, and the
+  # http_client_requests_total count by kind. A client built anywhere else
+  # bypasses all three, which is how eleven clients had no User-Agent and
+  # three had no timeout when the chain was written. The shapes refused are
+  # a client literal, the process-wide client, and the package-level helpers
+  # that use it. Test code builds what it likes; so does the chain itself,
+  # and cmd/'s development mocks, which are servers and build no client. The
+  # bench module is a load-test harness outside the platform.
+  - id: http-client-outside-the-outbound-chain
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - pkg
+        - internal
+        - cmd
+      exclude:
+        - "*_test.go"
+        - internal/outbound
+        - bench
+    patterns:
+      - pattern-either:
+          - pattern: "&http.Client{...}"
+          - pattern: "http.Client{...}"
+          - pattern: http.DefaultClient
+          - pattern: http.Get(...)
+          - pattern: http.Post(...)
+          - pattern: http.PostForm(...)
+          - pattern: http.Head(...)
+    message: >-
+      An HTTP client is built on the outbound chain: outbound.NewClient(outbound.Options{Kind: ..., ...}),
+      or outbound.Transport(base, opts) when the client is another library's to build. The chain
+      sets the User-Agent, opens the client span, carries the trace to the upstream and counts the
+      request (#1895); a client built here has none of them.
+    metadata:
+      category: observability
+      issue: "#1895"

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 // This file implements the handler=internal dispatch (issue #1005):
@@ -45,13 +47,8 @@ func (t *Toolkit) SetInternalHandler(h http.Handler) {
 // invoke stays bounded by the shorter invoke timeout. Redirects are
 // not followed here; the internal handler owns its own redirect policy
 // (fetch_url's follow_redirects) and returns a final response.
-func newInternalHTTPClient(h http.Handler) *http.Client {
-	return &http.Client{
-		Transport: &internalRoundTripper{handler: h},
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+func newInternalHTTPClient(name string, h http.Handler) *http.Client {
+	return outbound.NewClient(outbound.Options{Kind: outbound.KindAPI, Connection: name, Base: &internalRoundTripper{handler: h}})
 }
 
 // internalRoundTripper serves a request by running an http.Handler in

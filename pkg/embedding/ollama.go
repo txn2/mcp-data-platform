@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 // OllamaConfig configures the Ollama embedding provider.
@@ -132,7 +134,7 @@ func NewOllamaProvider(cfg OllamaConfig) Provider {
 	}
 
 	return &ollamaProvider{
-		client:        &http.Client{Timeout: cfg.Timeout, Transport: cloneTransport(http.DefaultTransport)},
+		client:        outbound.NewClient(outbound.Options{Kind: outbound.KindEmbedding, Timeout: cfg.Timeout, CheckRedirect: outbound.FollowRedirects}),
 		url:           cfg.URL,
 		model:         cfg.Model,
 		dim:           DefaultDimension,
@@ -140,26 +142,13 @@ func NewOllamaProvider(cfg OllamaConfig) Provider {
 	}
 }
 
-// cloneTransport returns an independent copy of rt so the provider runs on its
-// own connection pool rather than the process-wide one.
-//
-// A pool shared with every other HTTP client in the process is not the
-// provider's to manage, and anything that empties it empties the provider's
-// connections too. httptest.Server.Close does exactly that: it calls
-// CloseIdleConnections on http.DefaultTransport as a convenience for its users
-// (net/http/httptest/server.go). A request already holding a pooled connection
-// then fails with "http: CloseIdleConnections called" rather than reaching its
-// server, which is how a parallel test elsewhere could break an embedding
-// request that had nothing to do with it.
-//
-// A RoundTripper the caller installed in place of the standard transport is
-// returned as it is: whatever pooling it does is its own.
-func cloneTransport(rt http.RoundTripper) http.RoundTripper {
-	if t, ok := rt.(*http.Transport); ok {
-		return t.Clone()
-	}
-	return rt
-}
+// The provider's client is built on the platform's outbound chain (#1895),
+// which gives it a connection pool of its own rather than the process-wide
+// one: httptest.Server.Close empties http.DefaultTransport's pool as a
+// convenience for its users, and a request already holding a pooled
+// connection then fails with "http: CloseIdleConnections called", which is
+// how a parallel test elsewhere could break an embedding request that had
+// nothing to do with it.
 
 // ollamaRequest is the JSON body sent to Ollama's /api/embeddings endpoint.
 // Truncate is always true so Ollama trims any residual overflow; the

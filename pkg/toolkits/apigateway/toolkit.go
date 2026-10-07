@@ -856,7 +856,7 @@ func (t *Toolkit) newConnClient(name string, cfg Config) (*http.Client, error) {
 	if h == nil {
 		return nil, fmt.Errorf("apigateway: %s: handler=internal requires SetInternalHandler before the connection is added", name)
 	}
-	return newInternalHTTPClient(h), nil
+	return newInternalHTTPClient(name, h), nil
 }
 
 // specSummaryTitle resolves the title shown at api_discover's specs level and the

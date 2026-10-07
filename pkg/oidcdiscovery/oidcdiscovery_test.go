@@ -48,9 +48,14 @@ func TestFetch_TrimsTrailingSlashAndDefaultsClient(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Trailing slash on the issuer must not double up the path; nil client falls
-	// back to http.DefaultClient.
-	if _, err := Fetch(context.Background(), nil, srv.URL+"/"); err != nil {
+	// Trailing slash on the issuer must not double up the path. A nil client
+	// is refused: every caller builds one on the platform's outbound chain
+	// (#1895), and a silent fallback to http.DefaultClient was a call with
+	// no User-Agent, no span and no timeout.
+	if _, err := Fetch(context.Background(), nil, srv.URL+"/"); err == nil {
+		t.Fatal("Fetch with a nil client must refuse")
+	}
+	if _, err := Fetch(context.Background(), &http.Client{}, srv.URL+"/"); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if gotPath != WellKnownPath {

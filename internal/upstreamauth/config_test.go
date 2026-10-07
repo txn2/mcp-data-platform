@@ -49,8 +49,10 @@ func TestParse_ReadsEveryKey(t *testing.T) {
 		"mtls_client_key_pem":  "key",
 		"tls_ca_bundle_pem":    "bundle",
 		"identity_passthrough": true,
+		"trace_propagation":    false,
 	})
 	require.NoError(t, err)
+	assert.False(t, c.TracePropagation, "trace_propagation: false is read (#1895)")
 	assert.Equal(t, AuthModeAPIKey, c.AuthMode)
 	assert.Equal(t, "k3y", c.Credential)
 	assert.Equal(t, CredentialPlacementQuery, c.CredentialPlacement)
@@ -72,6 +74,17 @@ func TestParse_ReadsEveryKey(t *testing.T) {
 // auth_mode strings that encoded the grant collapse to the canonical
 // mode with the grant carried separately, so the authenticator and the
 // validators dispatch on one value rather than three.
+// TestParse_TracePropagationDefaultsOn: a connection that says nothing sends
+// the trace headers; one that says false does not; a string form is read.
+func TestParse_TracePropagationDefaultsOn(t *testing.T) {
+	c, err := Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{})
+	require.NoError(t, err)
+	assert.True(t, c.TracePropagation)
+	c, err = Parse(connoauth.KindAPI, "apigateway", "https://upstream.example", map[string]any{"trace_propagation": "false"})
+	require.NoError(t, err)
+	assert.False(t, c.TracePropagation)
+}
+
 func TestParse_NormalizesEveryOAuthModeSpelling(t *testing.T) {
 	base := map[string]any{
 		"oauth_token_url":         "https://idp.example/token",

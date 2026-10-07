@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/txn2/mcp-data-platform/internal/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
@@ -79,6 +80,10 @@ type Config struct {
 	CallTimeout time.Duration
 	// TrustLevel is "untrusted" (default) or "trusted".
 	TrustLevel string
+	// TracePropagation sends traceparent and tracestate with every request
+	// to the upstream server, so its own telemetry joins the caller's trace.
+	// On by default; trace_propagation: false turns it off (#1895).
+	TracePropagation bool
 }
 
 // OAuthConfig describes the OAuth 2.1 parameters used when AuthMode is
@@ -181,10 +186,11 @@ func ParseMultiConfig(defaultName string, raw map[string]map[string]any) (MultiC
 // ParseConfig parses a gateway configuration from a map.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
-		AuthMode:       AuthModeNone,
-		ConnectTimeout: DefaultConnectTimeout,
-		CallTimeout:    DefaultCallTimeout,
-		TrustLevel:     TrustLevelUntrusted,
+		AuthMode:         AuthModeNone,
+		ConnectTimeout:   DefaultConnectTimeout,
+		CallTimeout:      DefaultCallTimeout,
+		TrustLevel:       TrustLevelUntrusted,
+		TracePropagation: true,
 	}
 
 	c.Endpoint = getString(cfg, cfgKeyEndpoint)
@@ -199,6 +205,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.ConnectTimeout = getDuration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
+	c.TracePropagation = cfgmap.BoolDefault(cfg, cfgKeyTracePropagation, true)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err

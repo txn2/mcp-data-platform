@@ -22,6 +22,8 @@ rules:
         - pkg/admin
         - pkg/oauth
         - pkg/auth
+        - internal/httpobs
+        - internal/mcpobs
       exclude:
         - "*_test.go"
     patterns:

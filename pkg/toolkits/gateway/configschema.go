@@ -16,7 +16,8 @@ const ownConfigSchemaProperties = `
     "trust_level": {"type": "string", "enum": ["untrusted", "trusted"], "description": "Whether this upstream's tool results are treated as data only. Defaults to untrusted."},
     "connect_timeout": {"type": ["string", "integer"], "description": "How long to wait for the upstream session to open, as a duration string or seconds."},
     "call_timeout": {"type": ["string", "integer"], "description": "How long one proxied tool call may take, as a duration string or seconds."},
-    "connection_name": {"type": "string", "description": "The name calls bind this connection by, when it differs from the instance name it is stored under. It also prefixes the proxied tool names."}`
+    "connection_name": {"type": "string", "description": "The name calls bind this connection by, when it differs from the instance name it is stored under. It also prefixes the proxied tool names."},
+    "trace_propagation": {"type": "boolean", "description": "Whether every request to the upstream server carries the W3C traceparent and tracestate headers, so its own telemetry joins the caller's trace. Defaults to true; set false for an upstream that rejects unknown headers or must not see the deployment's trace ids."}`
 
 // ConfigSchemaJSON declares what an mcp connection's config takes. See the same
 // constant on the trino kind for why a kind declares this at all (#1805).

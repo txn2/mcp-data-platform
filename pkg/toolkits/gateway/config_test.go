@@ -32,16 +32,20 @@ func TestParseConfig_Defaults(t *testing.T) {
 
 func TestParseConfig_AllFields(t *testing.T) {
 	cfg, err := ParseConfig(map[string]any{
-		"endpoint":        "https://upstream.example.com/mcp",
-		"auth_mode":       AuthModeBearer,
-		"credential":      "secret-token",
-		"connection_name": "crm",
-		"connect_timeout": "5s",
-		"call_timeout":    "2m",
-		"trust_level":     TrustLevelTrusted,
+		"endpoint":          "https://upstream.example.com/mcp",
+		"auth_mode":         AuthModeBearer,
+		"credential":        "secret-token",
+		"connection_name":   "crm",
+		"connect_timeout":   "5s",
+		"call_timeout":      "2m",
+		"trust_level":       TrustLevelTrusted,
+		"trace_propagation": false,
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.TracePropagation {
+		t.Error("trace_propagation: false must be read (#1895)")
 	}
 	if cfg.AuthMode != AuthModeBearer || cfg.Credential != "secret-token" {
 		t.Errorf("auth fields: got mode=%q cred=%q", cfg.AuthMode, cfg.Credential)
@@ -54,6 +58,18 @@ func TestParseConfig_AllFields(t *testing.T) {
 	}
 	if cfg.TrustLevel != TrustLevelTrusted {
 		t.Errorf("trust_level: got %q", cfg.TrustLevel)
+	}
+}
+
+// TestParseConfig_TracePropagationDefaultsOn: an mcp connection sends the
+// trace headers unless it says not to.
+func TestParseConfig_TracePropagationDefaultsOn(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{"endpoint": "https://upstream.example.com/mcp"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if !cfg.TracePropagation {
+		t.Error("trace_propagation defaults on")
 	}
 }
 

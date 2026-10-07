@@ -10,7 +10,7 @@ LDFLAGS := -ldflags "-X github.com/txn2/mcp-data-platform/internal/buildinfo.Ver
 # Directories
 CMD_DIR := ./cmd/mcp-data-platform
 BUILD_DIR := ./build
-DIST_DIR := ./dist
+DIST_DIR := ./_dist
 UI_DIR := ./ui
 UI_EMBED_DIR := ./internal/ui/dist
 CV_EMBED_DIR := ./internal/contentviewer/dist
@@ -833,7 +833,11 @@ verify:
 ##     inside node_modules, so `go test ./...` compiled it and an ill-timed
 ##     `npm ci` failed the run on a file that had vanished. ui/go.mod takes
 ##     that directory out of the root module, so the two lanes no longer share
-##     it; see the comment in that file.
+##     it; see the comment in that file. GoReleaser's --clean likewise removes
+##     and recreates its output directory while the Docker lane's
+##     `go test -tags=integration ./...` walks the module; that directory is
+##     named _dist (.goreleaser.yml) because the go tool skips a "_"-prefixed
+##     directory when it expands ./..., so the walk never opens it (#2042).
 ##   - test-realdb starts a Postgres container per test and runs them in
 ##     parallel; 20 were live at once here. Beside goreleaser's five-platform
 ##     build and CodeQL it starved the Docker daemon into `context deadline

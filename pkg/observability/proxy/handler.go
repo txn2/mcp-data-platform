@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 )
 
@@ -56,13 +58,8 @@ func New(cfg Config, authz Authorizer) (*Handler, error) {
 		base = parsed
 	}
 	return &Handler{
-		base: base,
-		client: &http.Client{
-			Timeout: cfg.timeout(),
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+		base:    base,
+		client:  outbound.NewClient(outbound.Options{Kind: outbound.KindPromQL, Timeout: cfg.timeout()}),
 		user:    cfg.BasicAuthUser,
 		pass:    cfg.BasicAuthPass,
 		authz:   authz,
@@ -104,6 +101,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, upstreamPath str
 		key = dec.UserID
 	}
 	if !h.limiter.allow(key) {
+		httpobs.MarkRateLimited(r, httpobs.LimiterObservabilityProxy)
 		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}

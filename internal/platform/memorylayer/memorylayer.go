@@ -38,6 +38,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 )
@@ -62,6 +63,9 @@ type Config struct {
 	// Ollama configures the Ollama embedder; used only when EmbeddingProvider
 	// is "ollama".
 	Ollama embedding.OllamaConfig
+	// Metrics counts every embedding call under its model (#1895); nil
+	// records nothing.
+	Metrics *observability.Metrics
 	// StalenessEnabled gates the background staleness watcher; the watcher also
 	// requires a non-nil semantic provider (see New).
 	StalenessEnabled bool
@@ -165,7 +169,7 @@ func (h *Handle) Start() {
 // persist Embedding: nil (the toolkit guards see Kind() == KindNoop) (#429).
 func buildEmbedder(cfg Config) embedding.Provider {
 	if cfg.EmbeddingProvider == providerOllama {
-		return embedding.NewOllamaProvider(cfg.Ollama)
+		return embedding.WithMetrics(embedding.NewOllamaProvider(cfg.Ollama), cfg.Metrics)
 	}
 	slog.Warn("memory.embedding.provider not configured; semantic ranking disabled (set memory.embedding.provider to 'ollama' to enable)",
 		"config_key", "memory.embedding.provider",

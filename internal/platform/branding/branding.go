@@ -29,6 +29,7 @@
 package branding
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -43,6 +44,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
@@ -475,8 +477,14 @@ func fetchLogo(logoURL string) (body []byte, mediaType string, err error) {
 		return nil, "", errors.New("unsupported scheme")
 	}
 
-	client := &http.Client{Timeout: logoFetchTimeout}
-	resp, err := client.Get(logoURL) //nolint:gosec,noctx // URL comes from operator config, not user input
+	ctx, cancel := context.WithTimeout(context.Background(), logoFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, logoURL, http.NoBody)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch: %w", err)
+	}
+	client := outbound.NewClient(outbound.Options{Kind: outbound.KindBranding, Timeout: logoFetchTimeout, CheckRedirect: outbound.FollowRedirects})
+	resp, err := client.Do(req) //nolint:gosec // URL comes from operator config, not user input
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch: %w", err)
 	}

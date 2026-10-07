@@ -12,6 +12,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -28,12 +29,7 @@ const tokenExchangeTimeout = 30 * time.Second
 // misconfigured (or compromised) IdP cannot redirect this form body —
 // which carries client_secret — to an attacker URL.
 func newTokenExchangeClient() *http.Client {
-	return &http.Client{
-		Timeout: tokenExchangeTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return outbound.NewClient(outbound.Options{Kind: outbound.KindOAuth, Timeout: tokenExchangeTimeout})
 }
 
 // tokenProvider yields a fresh access token for an outbound upstream

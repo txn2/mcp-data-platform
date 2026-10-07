@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
@@ -455,12 +456,9 @@ const maxCodeExchangeBodyBytes = 1 << 20
 // misconfigured or compromised IdP cannot redirect the
 // credential-bearing POST (client_secret, authorization_code,
 // code_verifier) to an attacker URL.
-var codeExchangeClient = &http.Client{
-	Timeout: codeExchangeTimeout,
-	CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
-}
+//
+//nolint:gochecknoglobals // one client for the package's exchanges, built on the outbound chain (#1895)
+var codeExchangeClient = outbound.NewClient(outbound.Options{Kind: outbound.KindOAuth, Timeout: codeExchangeTimeout})
 
 // exchangeAuthorizationCode POSTs the code + PKCE verifier to the
 // upstream's token endpoint and returns the parsed response.

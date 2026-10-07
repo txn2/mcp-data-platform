@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
@@ -130,6 +131,10 @@ func (h *hostState) onRefusal(tool string, args map[string]any, err error, opts 
 	return true, nil
 }
 
+// retryKind is what upstream_retries_total{kind} counts a host's retry
+// under (#1895).
+const retryKind = "script"
+
 // retryRead waits before issuing again a read its tool refused as temporary,
 // at most upstreamretry.MaxRetries times and never past the deadline, and
 // otherwise hands the refusal on (#2032). Each wait is written to the run's
@@ -140,6 +145,7 @@ func (h *hostState) retryRead(tool string, refusal *scriptsession.RefusalError, 
 	wait, again := upstreamretry.Seen{Retryable: true, After: refusal.RetryAfter}.Wait(failed, h.remaining())
 	if !again {
 		if failed > 0 {
+			outbound.Metrics().RecordUpstreamRetry(h.ctx, retryKind, true)
 			h.log.Print(fmt.Sprintf("%s still failed for a temporary reason (%s) after %d retries; the script has the failure",
 				tool, class, failed))
 		}
@@ -150,6 +156,7 @@ func (h *hostState) retryRead(tool string, refusal *scriptsession.RefusalError, 
 		return false, scriptguard.NewUpstreamError(tool, fmt.Errorf("waiting %s to retry %s after a temporary failure (%s): %w",
 			wait, tool, class, h.ctx.Err()))
 	}
+	outbound.Metrics().RecordUpstreamRetry(h.ctx, retryKind, false)
 	h.log.Print(fmt.Sprintf("%s failed for a temporary reason (%s); waited %s and retried (%d of %d)",
 		tool, class, wait, failed+1, upstreamretry.MaxRetries))
 	return true, nil

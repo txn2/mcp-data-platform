@@ -81,7 +81,8 @@ func EmbedForSearch(ctx context.Context, p Provider, query string) []float32 {
 	}
 	emb, err := p.Embed(ctx, query)
 	if err != nil {
-		slog.Warn("search embedding failed; falling back to lexical ranking", "error", err)
+		slog.WarnContext(ctx, "search embedding failed; falling back to lexical ranking", "error", err)
+		countFallback(ctx, p)
 		return nil
 	}
 	if IsZeroVector(emb) {
@@ -104,7 +105,8 @@ func EmbedChunksForSearch(ctx context.Context, p Provider, texts []string) [][]f
 	}
 	embs, err := p.EmbedBatch(ctx, texts)
 	if err != nil {
-		slog.Warn("search embedding failed; falling back to lexical ranking", "error", err)
+		slog.WarnContext(ctx, "search embedding failed; falling back to lexical ranking", "error", err)
+		countFallback(ctx, p)
 		return nil
 	}
 	out := make([][]float32, 0, len(embs))

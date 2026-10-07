@@ -106,6 +106,26 @@ func Bool(cfg map[string]any, key string) bool {
 	return false
 }
 
+// BoolDefault reads a boolean flag that defaults to def when the key is
+// absent: the form a switch that is on unless an operator turns it off
+// takes (a connection's trace_propagation, #1895). An unrecognized value is
+// def too.
+func BoolDefault(cfg map[string]any, key string, def bool) bool {
+	raw, ok := cfg[key]
+	if !ok {
+		return def
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
+}
+
 // StringMap reads a map of strings. Accepts map[string]string
 // (programmatic construction) or map[string]any (YAML/JSON
 // unmarshaling); non-string values inside a map[string]any are skipped.

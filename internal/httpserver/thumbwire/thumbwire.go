@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/platform/scripttiles"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -84,10 +85,7 @@ func NewRenderer(cfg *platform.Config) (*headless.Renderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building the renderer's egress guard: %w", err)
 	}
-	public := &http.Client{
-		Transport:     guard.Transport(),
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	public := outbound.NewClient(outbound.Options{Kind: outbound.KindRenderer, Base: guard.Transport()})
 	return headless.New(cfg.Thumbnails.EffectiveRendererURL(), public), nil
 }
 

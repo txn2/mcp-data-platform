@@ -187,6 +187,11 @@ const (
 	cfgKeyTLSCABundlePEM    = "tls_ca_bundle_pem"
 
 	cfgKeyIdentityPassthrough = "identity_passthrough"
+
+	// cfgKeyTracePropagation switches the W3C trace headers on outbound
+	// requests off for an upstream that rejects unknown headers or must not
+	// see the deployment's trace ids (#1895). On unless set false.
+	cfgKeyTracePropagation = "trace_propagation"
 )
 
 // Config is the authentication and transport slice of a connection's
@@ -253,6 +258,10 @@ type Config struct {
 	ConnectTimeout time.Duration
 	// CallTimeout caps the total per-invocation time.
 	CallTimeout time.Duration
+	// TracePropagation sends traceparent and tracestate with every request
+	// to the upstream, so its own telemetry joins the caller's trace. On by
+	// default; trace_propagation: false turns it off.
+	TracePropagation bool
 	// MaxResponseBytes is the upstream read cap: the most a kind reads
 	// of any one response. Defaults to DefaultMaxResponseBytes.
 	MaxResponseBytes int64
@@ -363,6 +372,7 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		ConnectTimeout:      DefaultConnectTimeout,
 		CallTimeout:         DefaultCallTimeout,
 		MaxResponseBytes:    DefaultMaxResponseBytes,
+		TracePropagation:    true,
 	}
 	c.AuthMode = cfgmap.StringDefault(cfg, cfgKeyAuthMode, c.AuthMode)
 	c.Credential = cfgmap.String(cfg, cfgKeyCredential)
@@ -373,6 +383,7 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 	c.Password = cfgmap.String(cfg, cfgKeyPassword)
 	c.ConnectTimeout = cfgmap.Duration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = cfgmap.Duration(cfg, cfgKeyCallTimeout, c.CallTimeout)
+	c.TracePropagation = cfgmap.BoolDefault(cfg, cfgKeyTracePropagation, true)
 	c.MaxResponseBytes = cfgmap.Int64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
 	if _, ok := cfg[cfgKeyRetiredMaxInlineBytes]; ok {
 		slog.Warn("upstreamauth: max_inline_bytes on a connection has no effect; "+
