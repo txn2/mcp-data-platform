@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
-	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
 // AuthorizationHeader is the HTTP header bearer-mode auth populates.
@@ -37,14 +37,17 @@ const maxIdleConnections = 10
 // manually by reading the upstream Location header from the response
 // and issuing a new call with the redirected URL.
 //
-// Every request the client sends carries the platform's User-Agent
-// unless the request already names one (useragent.Transport), so a
-// kind's tool call, a page of a walk and a schema introspection all
-// present the product rather than Go's default, which a web application
-// firewall refuses (#1679). The wrapper sits directly over the
-// *http.Transport; metrics wrapping is applied by the caller rather
-// than here so test helpers can construct a bare client without
-// threading a metrics handle through every call site.
+// The client is built on the platform's outbound chain (#1895): every
+// request carries the platform's User-Agent unless the request already
+// names one, so a kind's tool call, a page of a walk and a schema
+// introspection all present the product rather than Go's default, which a
+// web application firewall refuses (#1679); a client span continues the
+// caller's trace and the traceparent reaches the upstream unless the
+// connection sets trace_propagation false; and the call is counted under
+// http_client_requests_total by kind and connection. The api gateway's
+// own per-connection recorder (apigwmetrics) is applied by the caller over
+// this, so test helpers can construct a bare client without threading a
+// metrics handle through every call site.
 //
 // TLS-config build errors are intentionally not surfaced from this
 // constructor. Validation has already checked cert + key + CA bundle,
@@ -64,13 +67,13 @@ func NewHTTPClient(cfg Config) *http.Client {
 		// TLS but not the path secret a call's path carries.
 		rt = sessionlogin.NewTransport(cfg.Session, prefixOr(cfg.ErrPrefix), rt, base)
 	}
-	return &http.Client{
-		Timeout:   cfg.CallTimeout,
-		Transport: useragent.Transport(rt),
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return outbound.NewClient(outbound.Options{
+		Kind:          outbound.Kind(cfg.Kind),
+		Connection:    cfg.ConnectionName,
+		Base:          rt,
+		Timeout:       cfg.CallTimeout,
+		NoPropagation: !cfg.TracePropagation,
+	})
 }
 
 // NewHTTPTransport builds the per-connection http.Transport. The

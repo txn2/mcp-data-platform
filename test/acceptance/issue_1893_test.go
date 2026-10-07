@@ -289,12 +289,28 @@ func assertCallerTrace(t *testing.T, span exportedSpan, traceID, spanID string) 
 	if span.TraceID != traceID {
 		t.Errorf("span trace id = %s, want the caller's %s", span.TraceID, traceID)
 	}
-	if span.ParentSpanID != spanID {
-		t.Errorf("span parent = %q, want the caller's span %s", span.ParentSpanID, spanID)
+	// The caller's span parents the tool call directly when the traceparent
+	// came in params._meta, and through the HTTP request's own server span
+	// (#1889) when it came as a header: that span continues the caller's and
+	// the tool call nests under it.
+	if span.ParentSpanID != spanID && !parentedThroughHTTPSpan(t, span, spanID) {
+		t.Errorf("span parent = %q, want the caller's span %s, directly or through the HTTP server span", span.ParentSpanID, spanID)
 	}
 	if !strings.HasPrefix(span.Name, "tools/call ") {
 		t.Errorf("span name = %q, want the convention's \"tools/call {tool}\"", span.Name)
 	}
+}
+
+// parentedThroughHTTPSpan reports whether span's parent is an HTTP server
+// span whose own parent is the caller's span.
+func parentedThroughHTTPSpan(t *testing.T, span exportedSpan, callerSpanID string) bool {
+	t.Helper()
+	for _, sp := range readSpans(t) {
+		if sp.SpanID == span.ParentSpanID && sp.TraceID == span.TraceID {
+			return sp.ParentSpanID == callerSpanID && strings.HasPrefix(sp.Name, "POST ")
+		}
+	}
+	return false
 }
 
 // TestIssue1893_ATraceparentHeaderContinuesTheCallersTrace: a tools/call

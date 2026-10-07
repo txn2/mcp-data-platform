@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/txn2/mcp-data-platform/internal/egressguard"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 // FetchOptions controls the URL-fetch step used by the admin layer
@@ -512,9 +514,10 @@ func preflightHostCheck(ctx context.Context, host string, opts FetchOptions) err
 		return nil
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if blockedIPReason(ip) != "" {
+		if reason := blockedIPReason(ip); reason != "" {
+			outbound.RecordBlocked(ctx, outbound.KindSpecFetch, host, blockedClass(reason))
 			return fmt.Errorf("host literal IP %s in %s range: %w",
-				ip, blockedIPReason(ip), ErrSSRFBlocked)
+				ip, reason, ErrSSRFBlocked)
 		}
 		return nil
 	}
@@ -531,6 +534,7 @@ func preflightHostCheck(ctx context.Context, host string, opts FetchOptions) err
 	}
 	for _, ip := range ips {
 		if reason := blockedIPReason(ip); reason != "" {
+			outbound.RecordBlocked(ctx, outbound.KindSpecFetch, host, blockedClass(reason))
 			return fmt.Errorf("host %s resolves to %s in %s range: %w",
 				host, ip, reason, ErrSSRFBlocked)
 		}
@@ -570,6 +574,25 @@ func blockedIPReason(ip net.IP) string {
 		return "carrier-grade-nat"
 	}
 	return ""
+}
+
+// blockedClass is a preflight reason as egress_blocked_total{reason} names
+// it: the same classes the egress guard reports, so the two guards' refusals
+// share one series.
+func blockedClass(reason string) string {
+	switch reason {
+	case "loopback":
+		return egressguard.ClassLoopback
+	case "link-local":
+		return egressguard.ClassLinkLocal
+	case "multicast":
+		return egressguard.ClassMulticast
+	case "unspecified":
+		return egressguard.ClassUnspecified
+	case "private":
+		return egressguard.ClassPrivate
+	}
+	return egressguard.ClassCGNAT
 }
 
 // doFetch issues the request through an HTTP client whose dialer
@@ -633,21 +656,19 @@ func newFetchClient(opts FetchOptions) *http.Client {
 			return checkDialAddress(network, address)
 		}
 	}
-	return &http.Client{
+	// On the outbound chain (#1895), which refuses redirects: an
+	// attacker-controlled upstream could 302 us to a private-network URL
+	// that wouldn't survive the preflight check.
+	return outbound.NewClient(outbound.Options{
+		Kind:    outbound.KindSpecFetch,
 		Timeout: opts.TotalTimeout,
-		Transport: &http.Transport{
+		Base: &http.Transport{
 			DialContext:           dialer.DialContext,
 			TLSHandshakeTimeout:   opts.ConnectTimeout,
 			ExpectContinueTimeout: time.Second,
 			IdleConnTimeout:       idleConnTimeout,
 		},
-		// Don't follow redirects: an attacker-controlled upstream could
-		// 302 us to a private-network URL that wouldn't survive the
-		// preflight check.
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	})
 }
 
 // buildFetchRequest constructs the GET request from a checkedURL.

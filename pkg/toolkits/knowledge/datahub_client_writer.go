@@ -16,20 +16,31 @@ import (
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	"github.com/txn2/mcp-datahub/pkg/types"
+
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 // DataHubClientWriter is a real DataHubWriter implementation that delegates
 // to the mcp-datahub client for read and write operations against DataHub.
 type DataHubClientWriter struct {
 	client *dhclient.Client
+	// rest sends the aspect reads and ingest proposals the dhclient has no
+	// method for: the outbound chain, with a timeout (#1895).
+	rest *http.Client
 }
+
+// datahubRESTTimeout bounds one aspect read or ingest proposal.
+const datahubRESTTimeout = 30 * time.Second
 
 // Verify interface compliance.
 var _ DataHubWriter = (*DataHubClientWriter)(nil)
 
 // NewDataHubClientWriter creates a DataHubClientWriter from an existing client.
 func NewDataHubClientWriter(c *dhclient.Client) *DataHubClientWriter {
-	return &DataHubClientWriter{client: c}
+	return &DataHubClientWriter{
+		client: c,
+		rest:   outbound.NewClient(outbound.Options{Kind: outbound.KindDataHub, Timeout: datahubRESTTimeout, CheckRedirect: outbound.FollowRedirects}),
+	}
 }
 
 // GetCurrentMetadata retrieves current metadata for an entity from DataHub.
@@ -400,7 +411,7 @@ func (w *DataHubClientWriter) doRESTGet(ctx context.Context, reqURL string) (bod
 		req.Header.Set("X-RestLi-Protocol-Version", "2.0.0")
 	}
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL from configured endpoint
+	resp, err := w.rest.Do(req) //nolint:gosec // URL from configured endpoint
 	if err != nil {
 		return nil, 0, fmt.Errorf("http get: %w", err)
 	}
@@ -471,7 +482,7 @@ func (w *DataHubClientWriter) postIngestProposal(ctx context.Context, entityType
 		req.Header.Set("X-RestLi-Protocol-Version", "2.0.0")
 	}
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL from configured endpoint
+	resp, err := w.rest.Do(req) //nolint:gosec // URL from configured endpoint
 	if err != nil {
 		return fmt.Errorf("rest post aspect: %w", err)
 	}

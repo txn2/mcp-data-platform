@@ -36,6 +36,7 @@ toolkits:
 | `max_response_bytes` | Upstream read cap: the most the platform reads of one response. An answer past it is refused, naming the cap and `graphql_export`. Default 10 MiB |
 | `mtls_client_cert_pem`, `mtls_client_key_pem`, `tls_ca_bundle_pem` | The connection's TLS material, as on an `api` connection |
 | `identity_passthrough` | Forwards the acting caller's inbound bearer token instead of this connection's credential |
+| `trace_propagation` | Whether every request carries the W3C `traceparent` and `tracestate` headers so the upstream's telemetry joins the caller's trace. Default `true`; `false` for an upstream that rejects unknown headers. See [Trace propagation](api-gateway.md#trace-propagation) |
 | `schema_validation` | `strict` (default) or `warn`. See [Schema validation](#schema-validation) |
 | `max_query_depth` | Deepest selection a document may have. Default 15 |
 | `namespace_depth` | How many segments a dotted operation id may have. Default 3. See [Namespace descent](#namespace-descent) |

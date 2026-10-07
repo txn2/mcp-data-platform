@@ -15,7 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/internal/useragent"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -690,12 +690,12 @@ func TestNewHTTPClient_HasTransport(t *testing.T) {
 	if c.Transport == nil {
 		t.Fatal("Client.Transport is nil; cfg.ConnectTimeout would be dropped")
 	}
-	base, wrapped := useragent.Wraps(c.Transport)
-	if !wrapped {
-		t.Fatalf("Client.Transport = %T; want the User-Agent wrapper (#1679)", c.Transport)
+	chain, wrapped := outbound.Wraps(c.Transport)
+	if !wrapped || chain.Kind != outbound.KindAPI {
+		t.Fatalf("Client.Transport = %T (%q); want the outbound chain for the api kind, which carries the User-Agent (#1679, #1895)", c.Transport, chain.Kind)
 	}
-	if _, ok := base.(*http.Transport); !ok {
-		t.Errorf("wrapped transport = %T; want *http.Transport", base)
+	if _, ok := chain.Base.(*http.Transport); !ok {
+		t.Errorf("wrapped transport = %T; want *http.Transport", chain.Base)
 	}
 }
 

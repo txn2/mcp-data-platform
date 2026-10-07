@@ -105,7 +105,7 @@ type Deps struct {
 // above still apply to a raw call that fails before any byte is
 // streamed; once the first byte is out the response is committed and
 // no later failure can change it.
-func NewHandler(deps Deps) (http.Handler, error) {
+func NewHandler(deps Deps) (*http.ServeMux, error) {
 	if deps.MCPServer == nil {
 		return nil, errors.New("gatewayhttp: MCPServer is required")
 	}
@@ -119,6 +119,10 @@ func NewHandler(deps Deps) (http.Handler, error) {
 	// bounded memory (issue #535), for retrieving large/binary bodies
 	// through the gateway without buffering them into a JSON envelope.
 	mux.Handle("POST /api/v1/gateway/{connection}/invoke-raw", withMetrics(http.HandlerFunc(h.invokeRaw), deps))
+	// The mux itself, not a handler over it: the composition root resolves a
+	// request's route template on it before the auth layer clones the
+	// request (#1889), so a refused call still reports
+	// "POST /api/v1/gateway/{connection}/invoke" rather than the mount prefix.
 	return mux, nil
 }
 

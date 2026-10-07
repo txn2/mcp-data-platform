@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
-	"github.com/txn2/mcp-data-platform/internal/useragent"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 func TestConfigAuthHeader(t *testing.T) {
@@ -111,9 +111,12 @@ func TestIsValidHeaderName(t *testing.T) {
 func TestNewTokenExchangeClient_BadBundleFallsBackQuietly(t *testing.T) {
 	client := newTokenExchangeClient(Config{TLSCABundlePEM: "not pem"})
 	require.NotNil(t, client)
-	base, wrapped := useragent.Wraps(client.Transport)
-	require.True(t, wrapped, "the token client must send the platform's User-Agent")
-	assert.Same(t, http.DefaultTransport, base, "fallback must not attach a half-built transport")
+	chain, wrapped := outbound.Wraps(client.Transport)
+	require.True(t, wrapped, "the token client is on the outbound chain, which sends the platform's User-Agent")
+	assert.Equal(t, outbound.KindOAuth, chain.Kind)
+	tr, ok := chain.Base.(*http.Transport)
+	require.True(t, ok, "fallback must be a plain transport, got %T", chain.Base)
+	assert.Nil(t, tr.TLSClientConfig, "fallback must not attach a half-built transport")
 }
 
 // TestNewTokenExchangeClient_HonorsCABundle exercises the IdP-side CA
@@ -376,9 +379,10 @@ func TestNewHTTPClient_WiresTimeoutsAndRefusesRedirects(t *testing.T) {
 	assert.Equal(t, cfg.CallTimeout, client.Timeout)
 	require.NotNil(t, client.Transport, "a nil transport would silently fall back to http.DefaultTransport")
 
-	base, wrapped := useragent.Wraps(client.Transport)
-	require.True(t, wrapped, "the client must send the platform's User-Agent (#1679)")
-	tr, ok := base.(*http.Transport)
+	chain, wrapped := outbound.Wraps(client.Transport)
+	require.True(t, wrapped, "the client is on the outbound chain, which sends the platform's User-Agent (#1679, #1895)")
+	assert.Equal(t, outbound.Kind(cfg.Kind), chain.Kind)
+	tr, ok := chain.Base.(*http.Transport)
 	require.True(t, ok)
 	assert.Equal(t, cfg.ConnectTimeout, tr.TLSHandshakeTimeout)
 	require.NotNil(t, tr.DialContext, "DialContext is nil; ConnectTimeout cannot be enforced")

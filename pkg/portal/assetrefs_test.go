@@ -349,7 +349,7 @@ func TestRefRateLimitScalesWithTheCap(t *testing.T) {
 // worth of references in one burst is answered for every one of them.
 func TestRefRouteLoadsTheConfiguredCapsWorthWithoutA429(t *testing.T) {
 	const raisedCap = 60
-	rl := viewerlimit.New(refRateLimit(RateLimitConfig{}, raisedCap), nil)
+	rl := viewerlimit.New(refRateLimit(RateLimitConfig{}, raisedCap), nil, "test")
 	defer rl.Close()
 	route := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

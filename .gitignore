@@ -43,6 +43,8 @@ site/
 tmp/
 
 # Build artifacts
+/_dist/
+# GoReleaser wrote here before #2042; a checkout may still hold it.
 /dist/
 build/
 /mcp-data-platform

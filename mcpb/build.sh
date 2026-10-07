@@ -7,11 +7,11 @@
 # - Windows amd64
 #
 # Options:
-#   --use-dist  Use binaries from goreleaser's dist/ folder instead of building
+#   --use-dist  Use binaries from goreleaser's _dist/ folder instead of building
 #
 # Prerequisites:
 # - Go toolchain (if building from source)
-# - goreleaser dist/ output (if using --use-dist)
+# - goreleaser _dist/ output (if using --use-dist)
 
 set -e
 
@@ -27,12 +27,12 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$PROJECT_ROOT/dist/mcpb"
+BUILD_DIR="$PROJECT_ROOT/_dist/mcpb"
 MANIFEST_TEMPLATE="$SCRIPT_DIR/manifest.json"
 
 echo "Building MCPB bundles for mcp-data-platform v${VERSION}"
 if [ "$USE_DIST" = true ]; then
-    echo "Using pre-built binaries from dist/"
+    echo "Using pre-built binaries from _dist/"
 fi
 
 # Clean and create build directory
@@ -68,7 +68,7 @@ for platform in "${PLATFORMS[@]}"; do
     if [ "$USE_DIST" = true ]; then
         # Use goreleaser's pre-built binary from archive
         # GoReleaser creates archives like mcp-data-platform_1.0.0_darwin_amd64.tar.gz
-        ARCHIVE_PATTERN="$PROJECT_ROOT/dist/mcp-data-platform_${VERSION}_${DIST_SUFFIX}"
+        ARCHIVE_PATTERN="$PROJECT_ROOT/_dist/mcp-data-platform_${VERSION}_${DIST_SUFFIX}"
 
         if [ "$GOOS" = "windows" ]; then
             ARCHIVE="${ARCHIVE_PATTERN}.zip"

@@ -356,7 +356,7 @@ func TestBrowserSocket(t *testing.T) {
 		return srv.URL
 	}
 	good := serve(http.StatusOK, `{"webSocketDebuggerUrl":"ws://0.0.0.0:9222/devtools/browser/abc"}`)
-	socket, err := browserSocket(context.Background(), strings.Replace(good, "http://", "ws://", 1))
+	socket, err := browserSocket(context.Background(), &http.Client{}, strings.Replace(good, "http://", "ws://", 1))
 	if err != nil {
 		t.Fatalf("browserSocket: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestBrowserSocket(t *testing.T) {
 		{"no socket", serve(http.StatusOK, `{"webSocketDebuggerUrl":"http://x/y"}`), "no DevTools socket"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := browserSocket(context.Background(), tc.endpoint); err == nil || !contains(err.Error(), tc.want) {
+			if _, err := browserSocket(context.Background(), &http.Client{}, tc.endpoint); err == nil || !contains(err.Error(), tc.want) {
 				t.Fatalf("browserSocket(%q) = %v, want %q", tc.endpoint, err, tc.want)
 			}
 		})
@@ -383,10 +383,7 @@ func TestBrowserSocket(t *testing.T) {
 			_, _ = w.Write([]byte(`{"webSocketDebuggerUrl":"ws://0.0.0.0:9222/devtools/browser/abc"}`))
 		}))
 		defer srv.Close()
-		saved := http.DefaultClient.Transport
-		http.DefaultClient.Transport = srv.Client().Transport
-		defer func() { http.DefaultClient.Transport = saved }()
-		socket, err := browserSocket(context.Background(), srv.URL)
+		socket, err := browserSocket(context.Background(), srv.Client(), srv.URL)
 		if err != nil {
 			t.Fatalf("browserSocket: %v", err)
 		}
@@ -406,7 +403,7 @@ func TestConn_ACommandThatCannotBeCompletedSaysWhy(t *testing.T) {
 		}
 		return answer{}
 	})
-	c, err := dial(context.Background(), fb.endpoint(), nil)
+	c, err := dial(context.Background(), &http.Client{}, fb.endpoint(), nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -450,7 +447,7 @@ func TestConn_ACommandInFlightWhenTheBrowserGoesAwayIsReleased(t *testing.T) {
 		}
 		return answer{}
 	})
-	c, err := dial(context.Background(), fb.endpoint(), nil)
+	c, err := dial(context.Background(), &http.Client{}, fb.endpoint(), nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -472,7 +469,7 @@ func TestConn_ACommandInFlightWhenTheBrowserGoesAwayIsReleased(t *testing.T) {
 func TestConn_EventsReachTheHandler(t *testing.T) {
 	fb := newFakeBrowser(t, nil)
 	got := make(chan message, 1)
-	c, err := dial(context.Background(), fb.endpoint(), func(m message) { got <- m })
+	c, err := dial(context.Background(), &http.Client{}, fb.endpoint(), func(m message) { got <- m })
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -497,7 +494,7 @@ func harness(t *testing.T, reply func(call) answer, public *http.Client) (*rende
 	t.Helper()
 	fb := newFakeBrowser(t, reply)
 	rs := &render{r: New(fb.endpoint(), public), host: "t-0.render.invalid", sessions: map[string]bool{}}
-	c, err := dial(context.Background(), fb.endpoint(), nil)
+	c, err := dial(context.Background(), &http.Client{}, fb.endpoint(), nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

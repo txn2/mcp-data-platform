@@ -233,7 +233,8 @@ type Config struct {
 	// When internal, BaseURL is optional (a synthetic, never-dialed
 	// placeholder is filled in) and AuthMode must be "none" — there is
 	// no upstream to authenticate against.
-	Handler string
+	Handler          string
+	TracePropagation bool // sends the W3C trace headers with every request (#1895)
 	// IdentityPassthrough forwards the acting caller's inbound bearer
 	// token (the one that authenticated the MCP session, read from the
 	// request context) as the outbound Authorization header, instead of

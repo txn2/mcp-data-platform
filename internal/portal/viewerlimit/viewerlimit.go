@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
@@ -41,7 +42,8 @@ const (
 // per-IP limit outright; the resolver closes that hole and the global bucket
 // bounds the overflow.
 type RateLimiter struct {
-	lim *ratelimit.HTTPLimiter
+	lim  *ratelimit.HTTPLimiter
+	name string
 }
 
 // New creates a rate limiter from config and a client-IP resolver. A nil
@@ -49,7 +51,10 @@ type RateLimiter struct {
 // used and X-Forwarded-For is ignored (matching ratelimit.NewResolver(nil),
 // which never errors on nil input). Callers that trust a proxy topology build
 // the resolver from a trusted-proxy CIDR list and pass it in.
-func New(cfg Config, resolver *ratelimit.Resolver) *RateLimiter {
+//
+// name is the limiter as http_rate_limited_total{limiter} reports a refusal
+// (#1889): one of the httpobs.Limiter* constants.
+func New(cfg Config, resolver *ratelimit.Resolver, name string) *RateLimiter {
 	if resolver == nil {
 		resolver, _ = ratelimit.NewResolver(nil)
 	}
@@ -57,7 +62,8 @@ func New(cfg Config, resolver *ratelimit.Resolver) *RateLimiter {
 	// is sized off the resolved rate rather than zero. See the const block above.
 	cfg = WithDefaults(cfg)
 	return &RateLimiter{
-		lim: ratelimit.NewHTTPLimiter(cfg.RequestsPerMinute, cfg.BurstSize, resolver),
+		name: name,
+		lim:  ratelimit.NewHTTPLimiter(cfg.RequestsPerMinute, cfg.BurstSize, resolver),
 	}
 }
 
@@ -113,6 +119,7 @@ func isInProcess(ctx context.Context) bool {
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isInProcess(r.Context()) && !rl.Allow(r) {
+			httpobs.MarkRateLimited(r, rl.name)
 			w.Header().Set("Retry-After", strconv.Itoa(rl.lim.RetryAfter()))
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return

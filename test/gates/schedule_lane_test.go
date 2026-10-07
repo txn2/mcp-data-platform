@@ -86,6 +86,26 @@ func TestExitsMidTest(t *testing.T) {
 }
 `
 
+	// verbose prints more than a pipe holds (64 KiB on Linux) before passing.
+	// The lane collects its packages one at a time after starting them
+	// together; a package read late must not lose the run it finished
+	// while it waited (#2045).
+	verbose = `package verbose
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func TestVerbose(t *testing.T) {
+	line := strings.Repeat("x", 100)
+	for i := 0; i < 3000; i++ {
+		fmt.Println(line)
+	}
+}
+`
+
 	// sourceOnly is a change to a package's non-test file.
 	sourceOnly = `package steady
 
@@ -153,6 +173,14 @@ func TestScheduleLane(t *testing.T) {
 				"schedule-lane: example.com/lanefixture/steady: 1 test(s) x 5 at -cpu=1 in",
 				"schedule-lane: 1 changed test(s) in 1 package(s) passed 5 runs at -cpu=1,2.",
 			}, mustNot: []string{"FAIL", "TestBroken", "TestUntouchedSibling"}},
+		},
+		{
+			name:  "a package whose tests print more than a pipe holds passes beside a slower one",
+			files: map[string]string{"steady/steady_test.go": steady, "verbose/verbose_test.go": verbose},
+			expect: expect{pass: true, want: []string{
+				"schedule-lane: example.com/lanefixture/verbose: 1 test(s) x 5 at -cpu=1 in",
+				"schedule-lane: 2 changed test(s) in 2 package(s) passed 5 runs at -cpu=1,2.",
+			}, mustNot: []string{"FAIL", "I/O incomplete"}},
 		},
 		{
 			name:   "a change to a package's source alone repeats none of its tests",

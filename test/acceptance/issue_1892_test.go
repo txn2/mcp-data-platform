@@ -94,17 +94,23 @@ type otlpAttr struct {
 	Value struct {
 		String string `json:"stringValue"`
 		Bool   *bool  `json:"boolValue"`
+		// Int is an integer attribute as OTLP JSON writes it, a string
+		// (http.response.status_code on a client span, #1895).
+		Int string `json:"intValue"`
 	} `json:"value"`
 }
 
 func attrsOf(raw []otlpAttr) map[string]string {
 	out := map[string]string{}
 	for _, a := range raw {
-		if a.Value.Bool != nil {
+		switch {
+		case a.Value.Bool != nil:
 			out[a.Key] = strconv.FormatBool(*a.Value.Bool)
-			continue
+		case a.Value.Int != "":
+			out[a.Key] = a.Value.Int
+		default:
+			out[a.Key] = a.Value.String
 		}
-		out[a.Key] = a.Value.String
 	}
 	return out
 }

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
-	"github.com/txn2/mcp-data-platform/internal/useragent"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 )
 
@@ -67,17 +67,12 @@ const scopeSep = " "
 // silently falling back to system trust (which would mask the
 // operator's intent).
 func newTokenExchangeClient(cfg Config) (*http.Client, error) {
-	client := &http.Client{
-		Timeout: tokenFetchTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		// The oauth2 library builds the token request itself, so the
-		// platform's User-Agent is applied by the transport (#1679).
-		Transport: useragent.Transport(nil),
-	}
+	// The oauth2 library builds the token request itself, so the platform's
+	// User-Agent, the client span and the count come from the outbound chain
+	// (#1679, #1895).
+	opts := outbound.Options{Kind: outbound.KindOAuth, Timeout: tokenFetchTimeout}
 	if cfg.CABundlePEM == "" {
-		return client, nil
+		return outbound.NewClient(opts), nil
 	}
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
@@ -86,13 +81,13 @@ func newTokenExchangeClient(cfg Config) (*http.Client, error) {
 	if ok := pool.AppendCertsFromPEM([]byte(cfg.CABundlePEM)); !ok {
 		return nil, errors.New("connoauth: ca_bundle_pem contained no valid certificates")
 	}
-	client.Transport = useragent.Transport(&http.Transport{
+	opts.Base = &http.Transport{
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 			RootCAs:    pool,
 		},
-	})
-	return client, nil
+	}
+	return outbound.NewClient(opts), nil
 }
 
 // Source is the per-connection access-token getter. Toolkits call

@@ -88,7 +88,7 @@ type conn struct {
 // listens on inside its own container; the host and port are replaced with the
 // ones the platform reached it at, which is the only address that works from
 // here.
-func browserSocket(ctx context.Context, endpoint string) (string, error) {
+func browserSocket(ctx context.Context, client *http.Client, endpoint string) (string, error) {
 	base, err := url.Parse(endpoint)
 	if err != nil || base.Host == "" {
 		return "", fmt.Errorf("headless: renderer address %q is not a URL with a host", endpoint)
@@ -104,7 +104,7 @@ func browserSocket(ctx context.Context, endpoint string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("headless: building the discovery request: %w", err)
 	}
-	res, err := http.DefaultClient.Do(req) // #nosec G107 G704 -- the operator-configured renderer, which runs beside the platform by design
+	res, err := client.Do(req) // #nosec G107 G704 -- the operator-configured renderer, which runs beside the platform by design
 	if err != nil {
 		return "", fmt.Errorf("headless: no renderer answers at %s: %w: %w", base.Host, err, ErrUnavailable)
 	}
@@ -136,12 +136,12 @@ func socketFrom(doc io.Reader, host string, secure bool) (string, error) {
 }
 
 // dial opens a connection to the renderer behind endpoint.
-func dial(ctx context.Context, endpoint string, onEvent func(message)) (*conn, error) {
-	socket, err := browserSocket(ctx, endpoint)
+func dial(ctx context.Context, client *http.Client, endpoint string, onEvent func(message)) (*conn, error) {
+	socket, err := browserSocket(ctx, client, endpoint)
 	if err != nil {
 		return nil, err
 	}
-	ws, _, err := websocket.Dial(ctx, socket, nil) //nolint:bodyclose // coder/websocket closes the handshake response itself
+	ws, _, err := websocket.Dial(ctx, socket, &websocket.DialOptions{HTTPClient: client}) //nolint:bodyclose // coder/websocket closes the handshake response itself
 	if err != nil {
 		return nil, fmt.Errorf("headless: opening the DevTools socket: %w: %w", err, ErrUnavailable)
 	}

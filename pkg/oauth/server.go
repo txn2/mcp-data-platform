@@ -17,7 +17,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/oauth/signkey"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -248,7 +250,7 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 		storage:    storage,
 		dcr:        dcr,
 		stateStore: NewMemoryStateStore(),
-		httpClient: &http.Client{Timeout: defaultHTTPTimeoutSeconds * time.Second},
+		httpClient: outbound.NewClient(outbound.Options{Kind: outbound.KindOAuth, Timeout: defaultHTTPTimeoutSeconds * time.Second, CheckRedirect: outbound.FollowRedirects}),
 	}
 	if len(config.SigningKey) > 0 {
 		srv.signingKID = signkey.KeyID(config.SigningKey)
@@ -729,7 +731,7 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 	// Rate-limit before any work (including the bcrypt compare in the grant
 	// path) so a flood is bounded regardless of method or payload validity.
 	if !s.allowRequest(s.tokenRL, r) {
-		s.writeRateLimited(w, s.tokenRL)
+		s.writeRateLimited(w, r, s.tokenRL, httpobs.LimiterOAuthToken)
 		return
 	}
 
@@ -821,7 +823,7 @@ func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) 
 	// path) so registration spam is bounded and unused-client growth is
 	// throttled at the front door.
 	if !s.allowRequest(s.registerRL, r) {
-		s.writeRateLimited(w, s.registerRL)
+		s.writeRateLimited(w, r, s.registerRL, httpobs.LimiterOAuthRegister)
 		return
 	}
 

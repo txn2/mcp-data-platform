@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -1500,9 +1501,24 @@ func TestAuthRoundTripper_APIKeyInjectsHeader(t *testing.T) {
 	}
 }
 
-func TestBuildHTTPClient_NoneReturnsNil(t *testing.T) {
-	if c := buildHTTPClient(Config{AuthMode: AuthModeNone}, nil); c != nil {
-		t.Errorf("expected nil client for auth_mode=none, got %v", c)
+// TestBuildHTTPClient_NoneIsOnTheChainWithoutAuth: auth_mode=none builds a
+// client of the toolkit's own on the outbound chain (#1895), with no auth
+// round-tripper under it, rather than leaving the SDK to its default client,
+// which sent no User-Agent and recorded nothing.
+func TestBuildHTTPClient_NoneIsOnTheChainWithoutAuth(t *testing.T) {
+	c := buildHTTPClient(Config{AuthMode: AuthModeNone, ConnectionName: "plain"}, nil)
+	if c == nil {
+		t.Fatal("expected a client for auth_mode=none")
+	}
+	chain, ok := outbound.Wraps(c.Transport)
+	if !ok || chain.Kind != outbound.KindMCP || chain.Connection != "plain" {
+		t.Fatalf("Transport = %T (%q, %q); want the outbound chain for the mcp kind", c.Transport, chain.Kind, chain.Connection)
+	}
+	if _, isAuth := chain.Base.(*authRoundTripper); isAuth {
+		t.Error("auth_mode=none must not inject an auth header")
+	}
+	if _, isTransport := chain.Base.(*http.Transport); !isTransport {
+		t.Errorf("base = %T; want a plain transport of the connection's own", chain.Base)
 	}
 }
 

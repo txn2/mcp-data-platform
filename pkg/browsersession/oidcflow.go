@@ -13,11 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
@@ -75,8 +77,8 @@ type FlowConfig struct {
 	// Falls back to PostLoginRedirect if empty.
 	PostLogoutRedirect string
 
-	// HTTPClient is used for OIDC discovery and token exchange.
-	// If nil, http.DefaultClient is used.
+	// HTTPClient is used for OIDC discovery and token exchange. Nil builds
+	// one on the platform's outbound chain with a timeout (#1895).
 	HTTPClient *http.Client
 
 	// OnLogin, if set, is called after a successful login with the person's
@@ -103,6 +105,9 @@ type oidcEndpoints struct {
 type Flow struct {
 	cfg       FlowConfig
 	endpoints oidcEndpoints
+	// clientOnce builds the chain client the first time httpClient is
+	// read with none configured.
+	clientOnce sync.Once
 }
 
 // NewFlow creates a new OIDC flow by performing provider discovery.
@@ -683,13 +688,21 @@ func (f *Flow) discover(ctx context.Context) (oidcEndpoints, error) {
 	return ep, nil
 }
 
-// httpClient returns the configured or default HTTP client.
+// httpClient returns the flow's HTTP client, built on the outbound chain
+// when the config named none: discovery and the code exchange carry the
+// platform's User-Agent and a span, and a hung identity provider cannot
+// hold a request past oidcHTTPTimeout.
 func (f *Flow) httpClient() *http.Client {
-	if f.cfg.HTTPClient != nil {
-		return f.cfg.HTTPClient
-	}
-	return http.DefaultClient
+	f.clientOnce.Do(func() {
+		if f.cfg.HTTPClient == nil {
+			f.cfg.HTTPClient = outbound.NewClient(outbound.Options{Kind: outbound.KindOIDC, Timeout: oidcHTTPTimeout, CheckRedirect: outbound.FollowRedirects})
+		}
+	})
+	return f.cfg.HTTPClient
 }
+
+// oidcHTTPTimeout bounds one request to the identity provider.
+const oidcHTTPTimeout = 30 * time.Second
 
 // --- State cookie helpers ---
 

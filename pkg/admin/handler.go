@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/admin/apiroutesapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/connoauthapi"
 	"github.com/txn2/mcp-data-platform/internal/apidocs"
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -376,6 +377,9 @@ type Handler struct {
 	publicMux  *http.ServeMux
 	deps       Deps
 	authMiddle func(http.Handler) http.Handler
+	// authed is mux behind authMiddle (or mux itself), wrapped once at
+	// construction with the route-template resolution (#1889).
+	authed http.Handler
 	// toolsDenyMu serializes read-modify-write of the tools.deny config
 	// entry across concurrent setToolVisibility calls. Without it, two
 	// admins toggling visibility on different tools could each load the
@@ -430,6 +434,12 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		authMiddle: authMiddle,
 	}
 	h.registerRoutes()
+	// Wrapped once: the auth layer clones the request before h.mux matches,
+	// so the route template is resolved on h.mux first (#1889).
+	h.authed = h.mux
+	if authMiddle != nil {
+		h.authed = httpobs.Routed(h.mux, authMiddle)
+	}
 	return h
 }
 
@@ -442,11 +452,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.publicMux.ServeHTTP(w, r)
 		return
 	}
-	if h.authMiddle != nil {
-		h.authMiddle(h.mux).ServeHTTP(w, r)
-		return
-	}
-	h.mux.ServeHTTP(w, r)
+	h.authed.ServeHTTP(w, r)
 }
 
 // registerRoutes registers all admin API routes.

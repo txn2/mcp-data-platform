@@ -36,6 +36,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 const (
@@ -139,6 +141,9 @@ type Page struct {
 type Renderer struct {
 	endpoint string
 	public   *http.Client
+	// local reaches the renderer itself: its discovery document and the
+	// DevTools socket, on the outbound chain (#1895).
+	local *http.Client
 
 	// withoutProxy and withoutScrub switch a layer off. They exist so the
 	// integration tests can show each remaining layer holds on its own; the
@@ -152,13 +157,17 @@ type Renderer struct {
 // public URLs a document names and must refuse internal addresses; nil refuses
 // every URL outside the page's own origin.
 func New(endpoint string, public *http.Client) *Renderer {
-	return &Renderer{endpoint: endpoint, public: public}
+	return &Renderer{
+		endpoint: endpoint,
+		public:   public,
+		local:    outbound.NewClient(outbound.Options{Kind: outbound.KindRenderer, CheckRedirect: outbound.FollowRedirects}),
+	}
 }
 
 // Ping reports whether the renderer answers, without drawing anything: a
 // caller holding work checks it once rather than claiming work it cannot do.
 func (r *Renderer) Ping(ctx context.Context) error {
-	_, err := browserSocket(ctx, r.endpoint)
+	_, err := browserSocket(ctx, r.local, r.endpoint)
 	return err
 }
 
@@ -202,7 +211,7 @@ func (r *Renderer) PrintPDF(ctx context.Context, p Page) (pdf []byte, err error)
 // draw is one render from dial to teardown, ending in capture.
 func (r *Renderer) draw(ctx context.Context, p Page, capture func(*render, context.Context, string) ([]byte, error)) (out []byte, err error) {
 	rs := &render{r: r, page: p, host: originHost(), sessions: map[string]bool{}}
-	c, err := dial(ctx, r.endpoint, rs.onEvent)
+	c, err := dial(ctx, r.local, r.endpoint, rs.onEvent)
 	if err != nil {
 		return nil, err
 	}

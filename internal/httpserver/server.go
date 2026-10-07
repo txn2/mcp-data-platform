@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/buildinfo"
@@ -21,6 +20,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
@@ -29,7 +30,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/platform/listenbridge"
 	"github.com/txn2/mcp-data-platform/internal/ui"
-	whreceiver "github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -51,44 +51,6 @@ const logKeyError = "error"
 // new build. A var so tests can lower it; capped at the grace period at use.
 var sessionDrainSettle = 3 * time.Second
 
-// corsMiddleware adds CORS headers for browser-based MCP clients.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
-		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers",
-			"Content-Type, Authorization, Accept, X-API-Key, "+
-				"Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
-		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Max-Age", "86400")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// withoutCORS routes the webhook receiver around cors. A webhook is posted by
-// a server, never a browser, and the receiver answers OPTIONS itself: the
-// CloudEvents handshake is an OPTIONS request, and a source without it must
-// refuse one rather than have it answered 200 here (#1870).
-func withoutCORS(receiver, rest http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, whreceiver.PathPrefix) {
-			receiver.ServeHTTP(w, r)
-			return
-		}
-		rest.ServeHTTP(w, r)
-	})
-}
-
 // httpConfig holds configuration extracted from the platform for HTTP servers.
 type httpConfig struct {
 	requireAuth   bool
@@ -98,6 +60,7 @@ type httpConfig struct {
 	tlsKeyFile    string
 	streamableCfg platform.StreamableConfig
 	shutdownCfg   platform.ShutdownConfig
+	observe       httpobs.Config // the request observer's metrics and slow threshold (#1889)
 	// mcpServer is closed-out on shutdown so connected agents reconnect to the new
 	// build (#675). Carried on the config so listenAndServe stays within its arg budget.
 	mcpServer *mcp.Server
@@ -119,6 +82,7 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
 		cfg.streamableCfg = c.Server.Streamable
 		cfg.shutdownCfg = c.Server.Shutdown
+		cfg.observe = httpobs.Config{Metrics: p.Metrics(), SlowThreshold: c.Server.SlowRequestThreshold}
 		cfg.authenticator = p.Authenticator()
 	}
 	return cfg
@@ -293,7 +257,9 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	defer hooks.Stop()
 
 	hcfg.mcpServer = mcpServer
-	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), withoutCORS(mux, corsMiddleware(mux))), hcfg, hc)
+	hcfg.observe.Mux = mux
+	// The observer is outermost (#1889): every request, a CORS preflight and a webhook included, is measured under its route template.
+	return listenAndServe(ctx, address, instanceheader.Middleware(instanceheader.HostName(address), httpobs.Middleware(hcfg.observe)(corshttp.WithoutHooks(mux, corshttp.Middleware(mux)))), hcfg, hc)
 }
 
 // buildRootHandler constructs the MCP streamable HTTP handler with optional

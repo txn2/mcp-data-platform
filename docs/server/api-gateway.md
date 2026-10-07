@@ -645,6 +645,10 @@ Headers listed under `static_headers` are attached to every outbound request, in
 
 Every outbound request presents `User-Agent: mcp-data-platform/<version>` unless the request already names one. Go's default, `Go-http-client/1.1`, is a value a web application firewall in front of a public endpoint refuses outright, and the refusal is an HTML page that does not say why. The product string names the platform's traffic in an upstream's access log and gives a firewall rule something to match on. To send a different value, pin it: `static_headers: {"User-Agent": "<value>"}`. A per-call `headers` entry naming `User-Agent` is honored the same way, under the precedence below. The same default applies to the token requests an `oauth` connection makes to its identity provider.
 
+### Trace propagation
+
+Every outbound request carries the W3C `traceparent` and `tracestate` headers, so an upstream that records its own telemetry joins the trace of the tool call that reached it, and has a client span of its own in the platform's trace (#1895; see [Observability](observability.md#outbound-requests)). An upstream that rejects unknown headers, or that must not see the deployment's trace ids, turns this off on its connection with `trace_propagation: false`. The client span and the `http_client_requests_total` count are recorded either way.
+
 ### Encryption at rest
 
 Header values are encrypted with AES-256-GCM via the platform's `FieldEncryptor` (same mechanism that protects `credential`, `client_secret`, etc.). Set `ENCRYPTION_KEY` to enable; without it, values are stored in plaintext just like every other sensitive field. The admin API redacts header values to `"[REDACTED]"` so the portal can edit other fields without ever showing the secret.

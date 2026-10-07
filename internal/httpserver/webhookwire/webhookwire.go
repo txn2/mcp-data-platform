@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
@@ -55,6 +56,9 @@ type Webhooks struct {
 	compactor *compactor.Worker
 	address   string
 	listener  *http.Server
+	// observe is the request observer's config for the receiver's own
+	// listener, which serves one handler and no mux (#1889).
+	observe httpobs.Config
 }
 
 // Build assembles webhooks from the platform. address is the main listener's,
@@ -109,7 +113,7 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) *Webhook
 		resources: windowResources{
 			w: writer, byURI: p.ResourceStore(), uriScheme: uriScheme, adminPersona: cfg.Admin.Persona,
 		},
-		encryptor: p.RestEncryptor(), metrics: p.Metrics(), cfg: cfg,
+		encryptor: p.RestEncryptor(), metrics: p.Metrics(), observe: p.Metrics(), cfg: cfg,
 		replica: instanceheader.HostName(address), address: address,
 		personaExists: personaLookup(p.PersonaRegistry()),
 	})
@@ -130,9 +134,12 @@ type parts struct {
 	resources windowResources
 	encryptor whsource.Encryptor
 	metrics   metricsSink
-	cfg       *platform.Config
-	replica   string
-	address   string
+	// observe is the same metrics as the request observer's typed handle;
+	// nil when metrics are off.
+	observe *observability.Metrics
+	cfg     *platform.Config
+	replica string
+	address string
 	// personaExists reports whether a persona is defined; nil accepts any.
 	personaExists func(string) bool
 }
@@ -150,7 +157,7 @@ func assemble(pt parts) *Webhooks {
 	sources := whsource.NewStore(db, pt.encryptor)
 	windows := whstore.New(db)
 	wcfg := pt.cfg.Webhooks
-	w := &Webhooks{address: wcfg.Receiver.Address}
+	w := &Webhooks{address: wcfg.Receiver.Address, observe: httpobs.Config{Route: receiver.PathPrefix, Metrics: pt.observe}}
 	if wcfg.ReceiverEnabled() {
 		w.receiver = receiver.New(receiver.Config{
 			Sources: sources, Objects: pt.objects, Bucket: pt.bucket, Recorder: windows,
@@ -230,8 +237,9 @@ func (w *Webhooks) Start(ctx context.Context) {
 		return
 	}
 	w.listener = &http.Server{
-		Addr:              w.address,
-		Handler:           instanceheader.Middleware(instanceheader.HostName(w.address), w.receiver),
+		Addr: w.address,
+		Handler: instanceheader.Middleware(instanceheader.HostName(w.address),
+			httpobs.Middleware(w.observe)(w.receiver)),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	go func() {

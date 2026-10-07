@@ -380,3 +380,51 @@ func TestCoverageExclusionsAgree(t *testing.T) {
 			"the local gate counts lines CI ignores and fails a diff CI would accept", f)
 	}
 }
+
+// ── GoReleaser output directory ─────────────────────────────────────────────
+
+// TestReleaseOutputDirectoryIsSkippedByGoTool pins the fix for #2042. `make
+// verify` runs release-check (GoReleaser with --clean) beside the real-DB
+// lane's `go test -tags=integration ./...`; --clean removes and recreates the
+// output directory while ./... walks the module, and the walk died on "open
+// dist: no such file or directory" before a test ran. The go tool skips a
+// directory whose name starts with "_" or "." when it expands ./..., so the
+// output directory is named _dist and every file that reads from it names the
+// same directory: the release workflow's provenance globs and MCPB steps, the
+// MCPB build script, the Makefile's clean target and .gitignore.
+func TestReleaseOutputDirectoryIsSkippedByGoTool(t *testing.T) {
+	goreleaser := readRepoFile(t, ".goreleaser.yml")
+	dist := firstSubmatch(t, goreleaser, `(?m)^dist:\s*(\S+)\s*$`, ".goreleaser.yml dist")
+	if !strings.HasPrefix(dist, "_") && !strings.HasPrefix(dist, ".") {
+		t.Fatalf(".goreleaser.yml dist is %q; the go tool walks it under ./... while --clean recreates it (#2042)", dist)
+	}
+
+	makefile := readRepoFile(t, "Makefile")
+	if got := strings.TrimPrefix(makefileVar(t, makefile, "DIST_DIR"), "./"); got != dist {
+		t.Errorf("Makefile DIST_DIR is %q, .goreleaser.yml writes to %q", got, dist)
+	}
+	if !strings.Contains(readRepoFile(t, ".gitignore"), "\n/"+dist+"/\n") {
+		t.Errorf(".gitignore does not ignore /%s/", dist)
+	}
+
+	// Every path that reads GoReleaser's output must read the directory it
+	// writes to, and none may read the old one.
+	readers := []struct {
+		name string
+		text string
+	}{
+		{".github/workflows/release.yml", readRepoFile(t, ".github", "workflows", "release.yml")},
+		{"mcpb/build.sh", readRepoFile(t, "mcpb", "build.sh")},
+	}
+	stale := regexp.MustCompile(`(^|[^\w./-])dist/`)
+	for _, r := range readers {
+		if !strings.Contains(r.text, dist+"/") {
+			t.Errorf("%s never reads %s/", r.name, dist)
+		}
+		for i, line := range strings.Split(r.text, "\n") {
+			if stale.MatchString(line) {
+				t.Errorf("%s:%d reads dist/, GoReleaser writes to %s/: %s", r.name, i+1, dist, strings.TrimSpace(line))
+			}
+		}
+	}
+}

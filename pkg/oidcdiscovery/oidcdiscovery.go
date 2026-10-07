@@ -11,6 +11,7 @@ package oidcdiscovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,7 +42,7 @@ type Document struct {
 // present, leaving that to the caller.
 func Fetch(ctx context.Context, client *http.Client, issuer string) (*Document, error) {
 	if client == nil {
-		client = http.DefaultClient
+		return nil, errors.New("oidcdiscovery: an http.Client is required")
 	}
 
 	// Trim whitespace/newlines that commonly ride along from YAML block scalars

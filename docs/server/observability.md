@@ -145,8 +145,23 @@ query them; the tab is the at-a-glance read.
 | `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_inflight_tool_calls` | gauge | (none) |
 | `mcp_enrichment_bytes_total` | counter | `tool`, `toolkit_kind`, `persona` |
+| `http_server_request_duration_seconds` | histogram | `route`, `method`, `status_class` |
+| `http_rate_limited_total` | counter | `limiter` |
+| `mcp_requests_total` | counter | `method`, `status` |
+| `mcp_request_duration_seconds` | histogram | `method`, `status` |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category`, `persona` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
+| `http_client_requests_total` | counter | `kind`, `connection`, `status_class` |
+| `http_client_request_duration_seconds` | histogram | `kind`, `connection`, `status_class` |
+| `egress_blocked_total` | counter | `reason` |
+| `upstream_retries_total` | counter | `kind` |
+| `upstream_retries_exhausted_total` | counter | `kind` |
+| `embedding_calls_total` | counter | `model`, `status` |
+| `embedding_call_duration_seconds` | histogram | `model` |
+| `embedding_fallbacks_total` | counter | `model` |
+| `gateway_upstream_calls_total` | counter | `connection`, `outcome` |
+| `gateway_upstream_call_duration_seconds` | histogram | `connection` |
+| `gateway_session_redials_total` | counter | `connection`, `result` |
 | `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
 | `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
 | `trino_queries_total` | counter | `status`, `query_kind` |
@@ -185,8 +200,72 @@ query them; the tab is the at-a-glance read.
 | `db_pool_idle` | gauge | `pool` |
 | `db_pool_wait_count_total` | counter | `pool` |
 | `db_pool_wait_duration_seconds_total` | counter | `pool` |
+| `db_pool_max_open_connections` | gauge | `pool` |
 
 Plus the free Go runtime + process metrics (`go_*`, `process_*`).
+
+### Inbound requests
+
+Every request either listener answers is measured once, outside every
+handler, under the **route template** it matched (#1889):
+`http_server_request_duration_seconds{route="GET /api/v1/resources",method="GET",status_class="2xx"}`.
+The `route` label is the pattern registered on the mux, never the path: a
+request for `/api/v1/portal/assets/9f3c` is recorded under
+`GET /api/v1/portal/assets/{id}`, so the series set is the size of the route
+table and a caller cannot mint one by inventing a path. A request no pattern
+answers (a 404 or 405, a CORS preflight the CORS layer answers before the
+mux, a CONNECT) is `route="unmatched"`. The admin, portal, resources, REST
+gateway and PromQL proxy routes live on nested muxes behind an authentication
+layer that clones the request; each nested mux resolves its template on the
+request as it arrives, so a request the authentication layer refuses still
+reports the template it was headed for rather than the mount prefix. The
+webhook receiver's own listener reports `/hooks/`.
+
+The MCP transport at `/` is split by `method`: a `GET` is a long-lived
+event stream whose duration is the client's choice, and sits in its own
+series beside the `POST` messages and the `DELETE` that ends a session. The
+same request carries a server span named `{method} {route}` (`GET
+/api/v1/resources`), with `http.request.method`, `http.route` and
+`http.response.status_code`, and the `tools/call` span of an MCP message
+nests under it.
+
+Every `429` answered by one of the platform's HTTP rate limiters is counted
+by `http_rate_limited_total{limiter}`: `oauth_token` and `oauth_register`
+(the OAuth server's `/token` and `/register`), `portal_viewer`,
+`portal_content` and `portal_refs` (the public share viewer, its content
+route and asset references), `observability_proxy` (the PromQL proxy's
+per-persona limit), `pdf_export` (the public PDF routes) and `webhook` (a
+source's rate limit, also in `webhook_requests_total{outcome="rate_limited"}`).
+A 429 no limiter named is `limiter="unknown"`. Before #1889 the OAuth, portal
+viewer and proxy refusals left no metric and no log.
+
+A request slower than `server.slow_request_threshold` (default `5s`) is
+logged at WARN with its template, method, status and duration:
+
+```json
+{"level":"WARN","msg":"slow HTTP request","route":"GET /api/v1/resources","method":"GET","status":"200","duration_ms":12480,"trace_id":"...","span_id":"..."}
+```
+
+An event stream is never slow: its duration is how long the client stayed.
+The request that opened #1889, a resources listing taking 12 to 30 seconds on
+one install and under a second a minute later, left nothing behind; this line
+and the span it names are what would have said where the seconds went.
+
+**MCP methods other than `tools/call`** (`tools/list`, `resources/read`,
+`prompts/get`, `completion/complete`, ...) are counted and timed by
+`mcp_requests_total{method,status}` and `mcp_request_duration_seconds`, and
+each carries a server span named by the method, with `mcp.method.name`,
+`mcp.session.id` and `mcp.protocol.version`. `status` is `ok`, `client_err`
+(a JSON-RPC error the caller caused: an invalid request or params, a method
+or resource that does not exist) or `internal_err`. A `tools/call` keeps
+`mcp_tool_calls_total` and its own span; `initialize` is answered by the SDK
+before any middleware and is not counted. The observer is the outermost
+receiving middleware, so its duration covers the list decorators (icons,
+descriptions, visibility, schemas) as well as the handler.
+
+`db_pool_max_open_connections` is the pool's ceiling (`database.max_open_conns`,
+`0` when unlimited): `db_pool_open_connections` at that value is a pool every
+further query waits on, which `db_pool_wait_count_total` then counts.
 
 **Trino** rows are recorded for the statements the query provider runs for
 cross-enrichment (table resolution, availability, schema), and for nothing
@@ -336,6 +415,69 @@ tool no toolkit registers records `tool="unregistered"`: the name is the
 caller's to choose, a persona allowing `*` admits it as far as the
 handler lookup, and recording it as sent would let one caller mint a
 series per invented name. The name itself is on the audit row.
+
+### Outbound requests
+
+Every HTTP request the platform sends goes through one transport chain
+(`internal/outbound`, #1895), whatever it is for: an API or GraphQL
+connection's upstream, an MCP gateway's upstream server, the util
+connection's public fetch, a token endpoint, OIDC discovery and JWKS, the
+embedding provider, a notification channel's webhook, an OpenAPI document
+fetched for a catalog, the PromQL proxy's Prometheus, the headless renderer,
+the knowledge layer's DataHub REST writes, the portal's logo fetch. The chain
+sets the platform's User-Agent, opens a client span named `{kind} {method}`
+(`api POST`) under the span of the call that made the request, carries the
+W3C `traceparent` to the upstream, and records the request under
+`http_client_requests_total{kind, connection, status_class}` and its
+duration histogram. `kind` is the closed set above (`api`, `graphql`, `mcp`,
+`util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`,
+`promql`, `renderer`, `datahub`, `branding`); `connection` is the operator's
+connection name, empty for a kind that has none; a transport failure (DNS,
+dial, TLS, timeout) is `status_class="other"`. A Semgrep rule
+(`.semgrep/go-outbound-client.yml`) refuses an `http.Client` built anywhere
+else, so a new client cannot bypass the chain.
+
+`apigateway_outbound_*` stays as it was: it is the API-kind view with the
+`persona` of the call and the body-level verdict a GraphQL answer carries
+(a 200 with an `errors` array is `upstream_err` there), which the transport
+cannot know. The two agree on the count of API and GraphQL requests; the
+`http_client_*` series is where every other kind is.
+
+**Trace propagation** is on for every connection and can be turned off on
+one: `trace_propagation: false` on an `api`, `graphql` or `mcp` connection
+leaves `traceparent` and `tracestate` off its requests, for an upstream that
+rejects unknown headers or must not see the deployment's trace ids. The
+client span is recorded either way.
+
+**Egress refusals.** A fetch the egress guard refuses (the util connection,
+the renderer's public fetch) and an OpenAPI document fetch whose host the
+catalog's preflight refuses increment `egress_blocked_total{reason}` and log
+`egress blocked` once at WARN with the host sanitized and the kind.
+`reason` is the class of address: `loopback`, `private`, `link_local`,
+`multicast`, `unspecified`, `cgnat`, `embedded_ipv4`, `internal_hostname`.
+Before #1895 a blocked egress looked the same as an upstream 403.
+
+**Retries.** `upstream_retries_total{kind}` counts a request issued again
+after a 429 or 503 (`api` for a page walk's Retry-After pause, `script` for
+a managed script host's retry of a temporary failure), and
+`upstream_retries_exhausted_total{kind}` the requests given up on.
+
+**Embedding.** `embedding_calls_total{model, status}` and
+`embedding_call_duration_seconds{model}` count every call to the embedding
+provider, a search's query and an index job's batch alike, under the model
+the deployment configured; `embedding_fallbacks_total{model}` counts the
+searches that ranked lexically because the call failed.
+`indexjob_embed_calls_total` keeps counting the indexing path by consumer
+kind; the model is on these.
+
+**MCP gateway.** `gateway_upstream_calls_total{connection, outcome}` and
+`gateway_upstream_call_duration_seconds{connection}` count every tool call
+the gateway forwarded: `ok`, `tool_error` (the upstream tool answered with
+an error result), `transport_error` (no answer) or `timeout` (the
+connection's `call_timeout` passed). `gateway_session_redials_total{connection, result}`
+counts the re-dials after the upstream dropped the session (`ok`, `failed`).
+Before #1895 the gateway kept the last error in memory for
+`list_connections` and nothing else.
 
 ### Background indexing
 
@@ -504,6 +646,15 @@ bound times its bucket count; adding persona there would multiply that
 by the persona count, which is what a deployment weighs if it wants
 upstream latency split by principal.
 
+For inbound requests: `route` is the route table, about 300 patterns across
+the admin, portal and REST surfaces, `method` is the 9 standard HTTP methods
+plus `unknown` (a pattern registered with a method takes that one method, so
+most routes hold a single series) and `status_class` is 5, so
+`http_server_request_duration_seconds` is bounded by 300 × 10 × 5 = 15,000
+series times its bucket count and in practice holds about one series per
+route per status class seen. `http_rate_limited_total{limiter}` is 9
+series. `mcp_requests_total` is the SDK's method table (about 14) times 3.
+
 Both are well under typical Prometheus limits and well within any
 managed observability backend's per-metric series budget. If you add
 labels, weigh the cardinality impact carefully — a `user_id` label
@@ -651,7 +802,8 @@ Each tool call produces one trace:
 
 ```mermaid
 graph TD
-    Root["tools/call {tool} (root)"] --> Enrich["enrichment (cross-service fan-out)"]
+    HTTP["POST / (HTTP server span)"] --> Root["tools/call {tool}"]
+    Root --> Enrich["enrichment (cross-service fan-out)"]
     Root --> Trino["trino.&lt;query_kind&gt;"]
     Root --> DataHub["datahub.&lt;operation&gt;"]
     Root --> S3["s3.&lt;operation&gt;"]
@@ -659,7 +811,17 @@ graph TD
     Enrich --> TrinoE["trino.&lt;query_kind&gt;"]
 ```
 
-- **Root span** is opened by the tracing middleware, outer to auth and the
+- **HTTP server span** is opened by the listener's outermost layer for every
+  request (#1889), named `{method} {route}` by the route template (`POST /`
+  for an MCP message, `GET /api/v1/resources` for a REST call), carrying
+  `http.request.method`, `http.route` and `http.response.status_code`, in
+  error on a 5xx. It continues a `traceparent` header the caller sent, and
+  every span below it, the tool call's included, is its child. An MCP method
+  other than `tools/call` has a span named by the method (`tools/list`,
+  `resources/read`) under it, with `mcp.method.name`, `mcp.session.id` and
+  `mcp.protocol.version`. On stdio there is no HTTP span and the tool call's
+  span is the root.
+- **Tool-call span** is opened by the tracing middleware, outer to auth and the
   gates, so a refused call has its span too; it reads the identity auth
   resolved after the call returns. Its name follows the MCP semantic
   conventions, `{mcp.method.name} {target}`: `tools/call trino_query`. The
@@ -702,13 +864,13 @@ the key a lookup missed) and email addresses are replaced, control
 characters stripped, and the text cut at 256 bytes. The full text stays on
 the audit row and in the platform's log.
 
-> Not every external call has its own child span yet. The apigateway toolkit's
-> outbound HTTP calls are captured by the root `tools/call` span (an
-> `api_invoke_endpoint` call is itself a tool call) but do not yet emit a
-> dedicated outbound span like Trino/DataHub/S3 do — that is a follow-up. The
-> inbound OAuth 2.1 server and the asynchronous audit write run outside a tool
-> call's request context entirely and so are not part of the tool-call trace;
-> their latency is covered by the metrics in the tables above.
+> Every outbound HTTP request has a client span under the span of the call
+> that made it, named `{kind} {method}` (`api POST`, `mcp POST`, `oidc GET`),
+> with `upstream.kind`, `mcp.connection` and the HTTP semantic convention
+> attributes otelhttp emits (#1895); see [Outbound requests](#outbound-requests).
+> The inbound OAuth 2.1 server and the asynchronous audit write run outside a
+> tool call's request context entirely and so are not part of the tool-call
+> trace; their latency is covered by the metrics in the tables above.
 
 ### Sampling
 
@@ -740,6 +902,15 @@ In Tempo (TraceQL), find slow Trino-backed tool calls:
 ```
 
 Or one tool by its name, `{ name = "tools/call trino_query" && duration > 2s }`.
+
+Slow REST requests by route template, whatever handler answered them:
+
+```
+{ span.http.route =~ "/api/v1/.*" && kind = server && duration > 5s }
+```
+
+Or one route, `{ name = "GET /api/v1/resources" && duration > 5s }`, which
+is the same request the `slow HTTP request` log line names.
 
 In Jaeger, filter by service `mcp-data-platform`, operation `tools/call
 trino_query`, and tag `status_category=upstream_err` to see failed calls with

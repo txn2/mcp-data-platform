@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/useragent"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 // TestNewTokenExchangeClient_EmptyBundleLeavesTransportNil keeps the
@@ -34,12 +34,13 @@ func TestNewTokenExchangeClient_EmptyBundleLeavesTransportNil(t *testing.T) {
 	if client == nil {
 		t.Fatal("client must not be nil")
 	}
-	base, wrapped := useragent.Wraps(client.Transport)
-	if !wrapped {
-		t.Fatalf("Transport must carry the User-Agent wrapper (got %T)", client.Transport)
+	chain, wrapped := outbound.Wraps(client.Transport)
+	if !wrapped || chain.Kind != outbound.KindOAuth {
+		t.Fatalf("Transport must be the outbound chain for the oauth kind (got %T, %q)", client.Transport, chain.Kind)
 	}
-	if base != http.DefaultTransport {
-		t.Fatalf("Transport must wrap the system default when no bundle is set (got %T)", base)
+	tr, ok := chain.Base.(*http.Transport)
+	if !ok || tr.TLSClientConfig != nil {
+		t.Fatalf("Transport must wrap a plain transport trusting the system CAs when no bundle is set (got %T)", chain.Base)
 	}
 	if client.Timeout != tokenFetchTimeout {
 		t.Fatalf("Timeout=%v, want %v", client.Timeout, tokenFetchTimeout)
@@ -58,13 +59,13 @@ func TestNewTokenExchangeClient_ValidBundleAttachesRootCAs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTokenExchangeClient: %v", err)
 	}
-	base, wrapped := useragent.Wraps(client.Transport)
+	chain, wrapped := outbound.Wraps(client.Transport)
 	if !wrapped {
-		t.Fatalf("Transport must carry the User-Agent wrapper, got %T", client.Transport)
+		t.Fatalf("Transport must be the outbound chain, got %T", client.Transport)
 	}
-	tr, ok := base.(*http.Transport)
+	tr, ok := chain.Base.(*http.Transport)
 	if !ok {
-		t.Fatalf("wrapped transport must be *http.Transport, got %T", base)
+		t.Fatalf("wrapped transport must be *http.Transport, got %T", chain.Base)
 	}
 	if tr.TLSClientConfig == nil {
 		t.Fatal("TLSClientConfig must be populated when a bundle is set")
