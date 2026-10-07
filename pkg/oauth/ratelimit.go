@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
@@ -91,8 +92,9 @@ func (s *Server) allowRequest(el *ratelimit.HTTPLimiter, r *http.Request) bool {
 }
 
 // writeRateLimited writes a 429 with a Retry-After header and an RFC-style
-// JSON error body.
-func (s *Server) writeRateLimited(w http.ResponseWriter, el *ratelimit.HTTPLimiter) {
+// JSON error body, and names the limiter for http_rate_limited_total (#1889).
+func (s *Server) writeRateLimited(w http.ResponseWriter, r *http.Request, el *ratelimit.HTTPLimiter, limiter string) {
+	httpobs.MarkRateLimited(r, limiter)
 	w.Header().Set("Retry-After", strconv.Itoa(el.RetryAfter()))
 	s.writeError(w, http.StatusTooManyRequests, errSlowDown, "rate limit exceeded")
 }

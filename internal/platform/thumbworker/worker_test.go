@@ -991,7 +991,7 @@ func TestServeInProcess_ARouteThatWritesNothingIsA200(t *testing.T) {
 // document's references are refused partway through it (#1791). A limiter of
 // burst one in front of the route admits every call.
 func TestServeInProcess_IsNotCountedByTheViewerLimiter(t *testing.T) {
-	rl := viewerlimit.New(viewerlimit.Config{RequestsPerMinute: 1, BurstSize: 1}, nil)
+	rl := viewerlimit.New(viewerlimit.Config{RequestsPerMinute: 1, BurstSize: 1}, nil, "test")
 	defer rl.Close()
 	routes := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("<svg/>"))

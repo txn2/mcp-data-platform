@@ -187,3 +187,31 @@ func TestStringMap_CopiesTheSource(t *testing.T) {
 		t.Errorf("source map mutated through the returned copy: %#v", src)
 	}
 }
+
+func TestBoolDefault(t *testing.T) {
+	tests := []struct {
+		name string
+		val  any
+		def  bool
+		want bool
+	}{
+		{"absent keeps the default on", nil, true, true},
+		{"absent keeps the default off", nil, false, false},
+		{"native false overrides", false, true, false},
+		{"native true overrides", true, false, true},
+		{"string false overrides", "false", true, false},
+		{"string garbage keeps the default", "nope", true, true},
+		{"wrong type keeps the default", 42, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := map[string]any{}
+			if tt.val != nil {
+				cfg["k"] = tt.val
+			}
+			if got := BoolDefault(cfg, "k", tt.def); got != tt.want {
+				t.Errorf("BoolDefault(%v, %v) = %v; want %v", tt.val, tt.def, got, tt.want)
+			}
+		})
+	}
+}

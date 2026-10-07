@@ -80,6 +80,7 @@ func TestRegisterDBPool(t *testing.T) {
 	m := newEnabledMetrics(t)
 	db := sql.OpenDB(fakeConnector{})
 	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(7)
 
 	m.RegisterDBPool(db, "platform")
 
@@ -90,6 +91,7 @@ func TestRegisterDBPool(t *testing.T) {
 		`db_pool_idle{pool="platform"}`,
 		`db_pool_wait_count_total{pool="platform"}`,
 		`db_pool_wait_duration_seconds_total{pool="platform"}`,
+		`db_pool_max_open_connections{pool="platform"} 7`,
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(body, want) {

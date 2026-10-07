@@ -176,6 +176,8 @@ type Config struct {
 	// TLSCABundlePEM is an optional PEM bundle of root CAs added to the
 	// trust store for this connection's outbound requests.
 	TLSCABundlePEM string
+	// TracePropagation sends the W3C trace headers with every request (#1895).
+	TracePropagation bool
 	// IdentityPassthrough forwards the acting caller's inbound bearer
 	// token as the outbound Authorization header instead of applying
 	// this connection's shared credential.

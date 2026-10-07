@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
 )
 
@@ -21,7 +22,7 @@ func TestWithoutCORS_HooksAnswerTheirOwnOptions(t *testing.T) {
 	receiver := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
-	h := withoutCORS(receiver, corsMiddleware(http.NotFoundHandler()))
+	h := corshttp.WithoutHooks(receiver, corshttp.Middleware(http.NotFoundHandler()))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/hooks/esp", http.NoBody))

@@ -97,8 +97,31 @@ var (
 type BlockedError struct {
 	// Host is the hostname or literal address that was refused.
 	Host string
-	// Reason names the rule that refused it.
+	// Reason names the rule that refused it, for a message.
 	Reason string
+	// Class is the rule as a bounded token, for egress_blocked_total{reason}
+	// (#1895): one of the Class* constants.
+	Class string
+}
+
+// The classes of address the guard refuses, as egress_blocked_total names
+// them.
+const (
+	ClassLoopback         = "loopback"
+	ClassPrivate          = "private"
+	ClassLinkLocal        = "link_local"
+	ClassMulticast        = "multicast"
+	ClassUnspecified      = "unspecified"
+	ClassCGNAT            = "cgnat"
+	ClassEmbeddedIPv4     = "embedded_ipv4"
+	ClassInternalHostname = "internal_hostname"
+)
+
+// refusal is why an address is not a public destination: the class the
+// metric counts and the reason a message names.
+type refusal struct {
+	class  string
+	reason string
 }
 
 func (e *BlockedError) Error() string {
@@ -174,29 +197,29 @@ func hostnameBlocked(host string) bool {
 	return false
 }
 
-// ipBlockedReason classifies an address as non-public. Empty string
+// ipBlockedReason classifies an address as non-public. The zero refusal
 // means the address is a legitimate public-internet destination.
 // v4-mapped v6 addresses are unmapped first so ::ffff:10.0.0.1 cannot
 // smuggle past the v4 checks.
-func ipBlockedReason(a netip.Addr) string {
+func ipBlockedReason(a netip.Addr) refusal {
 	a = a.Unmap()
 	switch {
 	case a.IsLoopback():
-		return "loopback address"
+		return refusal{ClassLoopback, "loopback address"}
 	case a.IsPrivate():
-		return "private address range"
+		return refusal{ClassPrivate, "private address range"}
 	case a.IsLinkLocalUnicast(), a.IsLinkLocalMulticast():
-		return "link-local address range (includes cloud metadata endpoints)"
+		return refusal{ClassLinkLocal, "link-local address range (includes cloud metadata endpoints)"}
 	case a.IsMulticast():
-		return "multicast address"
+		return refusal{ClassMulticast, "multicast address"}
 	case a.IsUnspecified():
-		return "unspecified address"
+		return refusal{ClassUnspecified, "unspecified address"}
 	case cgnatPrefix.Contains(a):
-		return "carrier-grade NAT address range"
+		return refusal{ClassCGNAT, "carrier-grade NAT address range"}
 	case containsAny(embeddedIPv4Prefixes, a):
-		return "IPv4-in-IPv6 embedded address range (NAT64/6to4) not permitted"
+		return refusal{ClassEmbeddedIPv4, "IPv4-in-IPv6 embedded address range (NAT64/6to4) not permitted"}
 	default:
-		return ""
+		return refusal{}
 	}
 }
 
@@ -213,17 +236,17 @@ func containsAny(prefixes []netip.Prefix, a netip.Addr) bool {
 // permitted applies the operator allow-list before the internal-range
 // block: an explicitly listed prefix is reachable even when the
 // classifier would refuse it.
-func (g *Guard) permitted(a netip.Addr) (ok bool, reason string) {
+func (g *Guard) permitted(a netip.Addr) (ok bool, why refusal) {
 	a = a.Unmap()
 	for _, p := range g.allowPrivate {
 		if p.Contains(a) {
-			return true, ""
+			return true, refusal{}
 		}
 	}
-	if r := ipBlockedReason(a); r != "" {
+	if r := ipBlockedReason(a); r.class != "" {
 		return false, r
 	}
-	return true, ""
+	return true, refusal{}
 }
 
 // DialContext resolves the hostname once, filters the answers, and dials only
@@ -240,7 +263,7 @@ func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn
 		return nil, fmt.Errorf("egressguard: dial port %q: %w", portStr, err)
 	}
 	if hostnameBlocked(host) {
-		return nil, &BlockedError{Host: host, Reason: "internal hostname"}
+		return nil, &BlockedError{Host: host, Reason: "internal hostname", Class: ClassInternalHostname}
 	}
 	addrs, err := g.lookup(ctx, host)
 	if err != nil {
@@ -248,9 +271,9 @@ func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn
 	}
 	var lastErr error
 	for _, a := range addrs {
-		ok, reason := g.permitted(a)
+		ok, why := g.permitted(a)
 		if !ok {
-			lastErr = &BlockedError{Host: host, Reason: reason}
+			lastErr = &BlockedError{Host: host, Reason: why.reason, Class: why.class}
 			continue
 		}
 		conn, derr := g.dialIP(ctx, network, netip.AddrPortFrom(a.Unmap(), uint16(port)))

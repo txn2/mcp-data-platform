@@ -32,7 +32,7 @@ func newReq(remoteAddr, xff string) *http.Request {
 }
 
 func TestRateLimiterAllow(t *testing.T) {
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 5}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 5}, nil, "test")
 	defer rl.Close()
 
 	req := newReq("1.2.3.4:1111", "")
@@ -45,7 +45,7 @@ func TestRateLimiterAllow(t *testing.T) {
 }
 
 func TestRateLimiterDifferentIPs(t *testing.T) {
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 2}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 2}, nil, "test")
 	defer rl.Close()
 
 	req1 := newReq("1.1.1.1:1111", "")
@@ -59,7 +59,7 @@ func TestRateLimiterDifferentIPs(t *testing.T) {
 }
 
 func TestRateLimiterDefaults(t *testing.T) {
-	rl := New(Config{}, nil)
+	rl := New(Config{}, nil, "test")
 	defer rl.Close()
 	// Should not panic; defaults applied by the shared limiter.
 	assert.True(t, rl.Allow(newReq("9.9.9.9:9999", "")))
@@ -72,7 +72,7 @@ func TestRateLimiterDefaults(t *testing.T) {
 // Firing >10 requests from distinct IPs (so per-IP never limits) must all pass;
 // before the fix the 11th tripped the undersized global bucket.
 func TestRateLimiterGlobalBackstopSizing(t *testing.T) {
-	rl := New(Config{}, nil)
+	rl := New(Config{}, nil, "test")
 	defer rl.Close()
 
 	for i := range 50 {
@@ -83,7 +83,7 @@ func TestRateLimiterGlobalBackstopSizing(t *testing.T) {
 }
 
 func TestRateLimiterMiddleware(t *testing.T) {
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil, "test")
 	defer rl.Close()
 
 	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -106,7 +106,7 @@ func TestRateLimiterMiddleware(t *testing.T) {
 // its own routes is passed through uncounted, however drained the bucket its
 // address maps to, and leaves that bucket as it found it (#1791).
 func TestRateLimiterAdmitsTheProcessesOwnRequests(t *testing.T) {
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil, "test")
 	defer rl.Close()
 	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -141,7 +141,7 @@ func TestWithDefaults(t *testing.T) {
 // a fresh per-IP bucket. All requests from one peer share one bucket regardless
 // of the spoofed header, so the per-IP limit holds.
 func TestRateLimiterIgnoresSpoofedXFF(t *testing.T) {
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 2}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 2}, nil, "test")
 	defer rl.Close()
 
 	// Same peer, a different forged leftmost XFF on every request. Pre-#904 the
@@ -160,7 +160,7 @@ func TestRateLimiterTrustedProxyAttribution(t *testing.T) {
 	resolver, err := ratelimit.NewResolver([]string{"10.0.0.0/8"})
 	require.NoError(t, err)
 
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, resolver)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, resolver, "test")
 	defer rl.Close()
 
 	// Two real clients behind the same trusted proxy (10.1.2.3). Each is
@@ -175,7 +175,7 @@ func TestRateLimiterTrustedProxyAttribution(t *testing.T) {
 func TestRateLimiterNilResolverDefault(t *testing.T) {
 	// A nil resolver must not panic and must behave as trust-none: two requests
 	// from the same peer with different XFF headers share one bucket.
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 1}, nil, "test")
 	defer rl.Close()
 
 	assert.True(t, rl.Allow(newReq("7.7.7.7:1", "1.1.1.1")))
@@ -183,7 +183,7 @@ func TestRateLimiterNilResolverDefault(t *testing.T) {
 }
 
 func TestRateLimiterClose(t *testing.T) {
-	rl := New(Config{RequestsPerMinute: 60, BurstSize: 5}, nil)
+	rl := New(Config{RequestsPerMinute: 60, BurstSize: 5}, nil, "test")
 	// Close should not panic and should be idempotent.
 	rl.Close()
 	rl.Close()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contenturl"
@@ -365,17 +366,19 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		mux:         http.NewServeMux(),
 		publicMux:   http.NewServeMux(),
 		deps:        deps,
-		rateLimiter: viewerlimit.New(deps.RateLimit, deps.RateLimitResolver),
+		rateLimiter: viewerlimit.New(deps.RateLimit, deps.RateLimitResolver, httpobs.LimiterPortalViewer),
 		access:      newAccessChecker(deps),
 	}
 	h.viewerAssets = contentviewer.Handler()
-	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit, deps.MaxRefs), deps.RateLimitResolver)
-	h.contentLimiter = viewerlimit.New(contentRateLimit(deps.RateLimit), deps.RateLimitResolver)
+	h.refLimiter = viewerlimit.New(refRateLimit(deps.RateLimit, deps.MaxRefs), deps.RateLimitResolver, httpobs.LimiterPortalRefs)
+	h.contentLimiter = viewerlimit.New(contentRateLimit(deps.RateLimit), deps.RateLimitResolver, httpobs.LimiterPortalContent)
 	h.registerRoutes()
 
-	// Wrap the authenticated mux once at startup, not on every request.
+	// Wrap the authenticated mux once at startup, not on every request. The
+	// auth layer clones the request before h.mux matches, so the route
+	// template is resolved on h.mux first (#1889).
 	if authMiddle != nil {
-		h.authedMux = authMiddle(h.mux)
+		h.authedMux = httpobs.Routed(h.mux, authMiddle)
 	} else {
 		h.authedMux = h.mux
 	}

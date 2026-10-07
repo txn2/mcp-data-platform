@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -46,13 +47,14 @@ const (
 	logKeyError      = "error"
 
 	// Config-map keys used by configToMap and AddConnection's parser.
-	cfgKeyEndpoint       = "endpoint"
-	cfgKeyAuthMode       = "auth_mode"
-	cfgKeyCredential     = "credential"
-	cfgKeyConnectionName = "connection_name"
-	cfgKeyConnectTimeout = "connect_timeout"
-	cfgKeyCallTimeout    = "call_timeout"
-	cfgKeyTrustLevel     = "trust_level"
+	cfgKeyEndpoint         = "endpoint"
+	cfgKeyAuthMode         = "auth_mode"
+	cfgKeyCredential       = "credential"
+	cfgKeyConnectionName   = "connection_name"
+	cfgKeyConnectTimeout   = "connect_timeout"
+	cfgKeyCallTimeout      = "call_timeout"
+	cfgKeyTrustLevel       = "trust_level"
+	cfgKeyTracePropagation = "trace_propagation"
 
 	// LogKeyTokenURLHost is the structured-log field name used when
 	// emitting an IdP host. Exported so external packages don't
@@ -149,6 +151,18 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+
+	// metrics records every forwarded call and every re-dial (#1895); nil
+	// records nothing. Set by the platform through SetMetrics.
+	metrics atomic.Pointer[observability.Metrics]
+}
+
+// SetMetrics installs the recorder the toolkit counts forwarded calls and
+// session re-dials with (gateway_upstream_calls_total,
+// gateway_session_redials_total). The platform calls it for every toolkit
+// with this method before the first call.
+func (t *Toolkit) SetMetrics(m *observability.Metrics) {
+	t.metrics.Store(m)
 }
 
 // SetAuthEvents wires the audit-event writer into the toolkit so every
@@ -1260,6 +1274,7 @@ func (t *Toolkit) makeForwarder(u *upstream, remoteName, localName string) mcp.T
 		}
 
 		args := argumentsFromRequest(req)
+		start := time.Now()
 		res, err := callTool(ctx, client, callTimeout, remoteName, args)
 		if err != nil && isSessionDropped(err) {
 			// The upstream evicted or restarted the session. Re-dial once and
@@ -1267,12 +1282,16 @@ func (t *Toolkit) makeForwarder(u *upstream, remoteName, localName string) mcp.T
 			// instead of failing every call until the toolkit is recreated.
 			fresh, rerr := t.reconnectUpstream(u, client)
 			if rerr != nil {
+				t.metrics.Load().RecordGatewaySessionRedial(ctx, connection, observability.RedialFailed)
 				msg := "reconnect after dropped session failed: " + rerr.Error()
 				u.recordError(msg)
+				t.metrics.Load().RecordGatewayUpstreamCall(ctx, connection, observability.GatewayOutcomeTransportError, time.Since(start))
 				return upstreamErr(connection, msg), nil
 			}
+			t.metrics.Load().RecordGatewaySessionRedial(ctx, connection, observability.RedialOK)
 			res, err = callTool(ctx, fresh, callTimeout, remoteName, args)
 		}
+		t.metrics.Load().RecordGatewayUpstreamCall(ctx, connection, callOutcome(res, err), time.Since(start))
 		if err != nil {
 			u.recordError(err.Error())
 			return upstreamErr(connection, err.Error()), nil
@@ -1335,6 +1354,22 @@ func (u *upstream) health() *toolkit.ConnectionHealth {
 		LastSuccessUnix: u.lastSuccessUnix.Load(),
 		LastError:       lastErr,
 	}
+}
+
+// callOutcome is the bounded outcome a forwarded call is counted under:
+// timeout when the per-call deadline passed, transport_error for any other
+// failure to get an answer, tool_error when the upstream tool answered with
+// an error result, ok otherwise.
+func callOutcome(res *mcp.CallToolResult, err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return observability.GatewayOutcomeTimeout
+	case err != nil:
+		return observability.GatewayOutcomeTransportError
+	case res != nil && res.IsError:
+		return observability.GatewayOutcomeToolError
+	}
+	return observability.GatewayOutcomeOK
 }
 
 // callTool forwards a single call to the given client under a per-call timeout.

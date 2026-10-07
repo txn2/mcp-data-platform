@@ -36,12 +36,12 @@ func (p *Platform) workerEmbedder() embedding.Provider {
 	if timeout <= 0 {
 		timeout = defaultEmbedJobsTimeout
 	}
-	return p.memory.Background(embedding.NewOllamaProvider(embedding.OllamaConfig{
+	return p.memory.Background(embedding.WithMetrics(embedding.NewOllamaProvider(embedding.OllamaConfig{
 		URL:           p.config.Memory.Embedding.Ollama.URL,
 		Model:         p.config.Memory.Embedding.Ollama.Model,
 		Timeout:       timeout,
 		MaxInputBytes: p.config.Memory.Embedding.Ollama.MaxInputBytes,
-	}))
+	}), p.obs.Metrics()))
 }
 
 // WireAPIGatewayEmbedJobsFromDB initializes the shared index-jobs

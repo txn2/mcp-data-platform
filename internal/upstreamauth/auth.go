@@ -16,8 +16,8 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/txn2/mcp-data-platform/internal/apigwtls"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
-	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -304,27 +304,18 @@ const oauth2TokenFetchTimeout = 30 * time.Second
 // transport: an IdP behind the same firewall as the upstream would
 // otherwise refuse Go's default (#1679).
 func newTokenExchangeClient(cfg Config) *http.Client {
-	client := &http.Client{
-		Timeout: oauth2TokenFetchTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Transport: useragent.Transport(nil),
+	opts := outbound.Options{Kind: outbound.KindOAuth, Connection: cfg.ConnectionName, Timeout: oauth2TokenFetchTimeout}
+	if cfg.TLSCABundlePEM != "" {
+		if pool, err := apigwtls.RootPool(cfg.TLSCABundlePEM); err == nil {
+			opts.Base = &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					RootCAs:    pool,
+				},
+			}
+		}
 	}
-	if cfg.TLSCABundlePEM == "" {
-		return client
-	}
-	pool, err := apigwtls.RootPool(cfg.TLSCABundlePEM)
-	if err != nil {
-		return client
-	}
-	client.Transport = useragent.Transport(&http.Transport{
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    pool,
-		},
-	})
-	return client
+	return outbound.NewClient(opts)
 }
 
 // newOAuth2ClientCredentialsAuth builds the client_credentials authenticator.

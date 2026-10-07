@@ -847,11 +847,19 @@ func TestExtractRolesEmpty(t *testing.T) {
 	}
 }
 
+// TestHTTPClientDefault: a flow with no client configured builds one on the
+// outbound chain, once, with a timeout; never the process-wide client (#1895).
 func TestHTTPClientDefault(t *testing.T) {
 	f := &Flow{cfg: FlowConfig{}}
 	client := f.httpClient()
-	if client != http.DefaultClient {
-		t.Error("expected default client")
+	if client == nil || client == http.DefaultClient {
+		t.Fatalf("expected a client of the flow's own, got %v", client)
+	}
+	if client.Timeout != oidcHTTPTimeout {
+		t.Errorf("Timeout = %v, want %v", client.Timeout, oidcHTTPTimeout)
+	}
+	if f.httpClient() != client {
+		t.Error("the client is built once")
 	}
 }
 

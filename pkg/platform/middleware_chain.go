@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
@@ -20,6 +21,7 @@ import (
 type mwName = mwchain.Name
 
 const (
+	mwMethodObserver      mwName = "method_observer"
 	mwResultType          mwName = "result_type"
 	mwIcons               mwName = "icons"
 	mwDescriptionOverride mwName = "description_override"
@@ -68,7 +70,10 @@ type mwSpec = mwchain.Spec
 // of which middlewares are enabled at runtime.
 func (p *Platform) receivingMiddlewareChain() []mwSpec {
 	return []mwSpec{
-		// Result type (outermost): types every result the layers below hand back, theirs included (#1382, #1383).
+		// Method observer (outermost): a span and a count for every method other than tools/call (#1889).
+		{Name: mwMethodObserver, Register: func() { p.mcpServer.AddReceivingMiddleware(mcpobs.Middleware(p.obs.Tracer(), p.obs.Metrics())) }},
+
+		// Result type: types every result the layers below hand back, theirs included (#1382, #1383).
 		{Name: mwResultType, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPResultTypeMiddleware()) }},
 
 		// List decorators: shape tools/list, prompts/list, and

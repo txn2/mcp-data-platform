@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oidcdiscovery"
 )
@@ -92,6 +93,10 @@ type OIDCConfig struct {
 type OIDCAuthenticator struct {
 	cfg       OIDCConfig
 	extractor *ClaimsExtractor
+	// httpClient fetches the discovery document and the JWKS: the outbound
+	// chain with an explicit timeout, so a hung identity provider cannot
+	// hold a refresh forever (#1895).
+	httpClient *http.Client
 
 	// Cached JWKS
 	mu   sync.RWMutex
@@ -144,8 +149,9 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 	}
 
 	auth := &OIDCAuthenticator{
-		cfg:       cfg,
-		extractor: extractor,
+		cfg:        cfg,
+		extractor:  extractor,
+		httpClient: outbound.NewClient(outbound.Options{Kind: outbound.KindOIDC, Timeout: oidcHTTPTimeout, CheckRedirect: outbound.FollowRedirects}),
 	}
 
 	// Fetch JWKS on startup unless signature verification is disabled
@@ -535,9 +541,14 @@ func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 	return nil
 }
 
+// oidcHTTPTimeout bounds one discovery or JWKS request. The refresh paths
+// also bound their contexts; this is the floor under a provider that
+// accepts the connection and never answers.
+const oidcHTTPTimeout = 30 * time.Second
+
 // discoverJWKSURI fetches the OIDC discovery document to get the JWKS URI.
 func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error) {
-	doc, err := oidcdiscovery.Fetch(ctx, http.DefaultClient, a.cfg.Issuer)
+	doc, err := oidcdiscovery.Fetch(ctx, a.httpClient, a.cfg.Issuer)
 	if err != nil {
 		return "", fmt.Errorf("discovering jwks uri: %w", err)
 	}
@@ -554,7 +565,7 @@ func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI strin
 		return nil, nil, fmt.Errorf("creating JWKS request: %w", err)
 	}
 
-	jwksResp, err := http.DefaultClient.Do(jwksReq) // #nosec G704 -- URL from OIDC discovery document
+	jwksResp, err := a.httpClient.Do(jwksReq) // #nosec G704 -- URL from OIDC discovery document
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching JWKS: %w", err)
 	}

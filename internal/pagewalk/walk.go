@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 // ErrPageDoesNotFit is what a Sink returns when the page it was handed
@@ -185,6 +187,10 @@ func parseJSON(body []byte) any {
 // until the call's timeout.
 const maxRetryAfterPauses = 10
 
+// retryKind is what upstream_retries_total{kind} counts a page's retry
+// under: a walk is the api gateway's (#1895).
+const retryKind = "api"
+
 // fetchPage requests the target until it answers with a page. A 429 or
 // 503 carrying Retry-After pauses the walk for that interval, bounded by
 // the call's timeout, and the same page is requested again; any other
@@ -205,11 +211,13 @@ func (w *Walk) fetchPage(ctx context.Context, target Target) (Page, error) {
 		}
 		_ = resp.Body.Close() // the body of a refusal is not read
 		if pauses >= maxRetryAfterPauses {
+			outbound.Metrics().RecordUpstreamRetry(ctx, retryKind, true)
 			return Page{}, fmt.Errorf("upstream returned %d with Retry-After %d times in a row", resp.StatusCode, pauses+1)
 		}
 		if err := waitRetryAfter(ctx, wait); err != nil {
 			return Page{}, err
 		}
+		outbound.Metrics().RecordUpstreamRetry(ctx, retryKind, false)
 	}
 }
 

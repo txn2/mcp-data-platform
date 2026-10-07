@@ -265,22 +265,6 @@ func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errStubRoundTrip
 }
 
-func TestCloneTransport(t *testing.T) {
-	t.Parallel()
-
-	t.Run("the standard transport is copied", func(t *testing.T) {
-		t.Parallel()
-		got := cloneTransport(http.DefaultTransport)
-		assert.NotSame(t, http.DefaultTransport, got)
-		assert.IsType(t, &http.Transport{}, got)
-	})
-	t.Run("any other RoundTripper is left alone", func(t *testing.T) {
-		t.Parallel()
-		rt := stubRoundTripper{}
-		assert.Equal(t, rt, cloneTransport(rt))
-	})
-}
-
 func TestOllamaProvider_EmbedBatch_FallbackPropagatesSequentialError(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whauth"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
@@ -86,6 +87,7 @@ func (r *Receiver) post(w http.ResponseWriter, req *http.Request, src served, to
 		return
 	}
 	if allowed, wait := r.allow(src.Source); !allowed {
+		httpobs.MarkRateLimited(req, httpobs.LimiterWebhook)
 		r.refuse(w, src.Name, refusal{OutcomeRateLimited, "the source's rate limit was reached", http.StatusTooManyRequests, wait})
 		return
 	}

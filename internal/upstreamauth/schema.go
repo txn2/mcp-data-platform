@@ -53,6 +53,10 @@ const ConfigSchemaPropertiesJSON = `{
     "type": "integer",
     "description": "Ceiling on how much of a response is read."
   },
+  "trace_propagation": {
+    "type": "boolean",
+    "description": "Whether every request to the upstream carries the W3C traceparent and tracestate headers, so the upstream's own telemetry joins the caller's trace. Defaults to true; set false for an upstream that rejects unknown headers or must not see the deployment's trace ids."
+  },
   "static_headers": {
     "type": "object",
     "additionalProperties": {"type": "string"},

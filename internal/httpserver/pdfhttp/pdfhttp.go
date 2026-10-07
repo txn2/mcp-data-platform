@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/inproc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -172,6 +173,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 func (h *Handler) route(rt Route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if rt.Public && h.deps.Limiter != nil && !h.deps.Limiter.Allow(r) {
+			httpobs.MarkRateLimited(r, httpobs.LimiterPDFExport)
 			w.Header().Set("Retry-After", strconv.Itoa(h.deps.Limiter.RetryAfter()))
 			http.Error(w, "Too many PDF exports from this address. Try again shortly.", http.StatusTooManyRequests)
 			return
@@ -294,7 +296,10 @@ func (d document) pdfName() string {
 // one, with the caller's own request, and answers the caller with that
 // route's refusal when it refuses.
 func (h *Handler) readDocument(w http.ResponseWriter, r *http.Request, content *url.URL) (document, bool) {
-	fwd := r.Clone(r.Context())
+	// Detached from the request's route scope: the content route serves
+	// this document on the PDF route's behalf, and the PDF route is what
+	// the caller's request is recorded under (#1889).
+	fwd := r.Clone(httpobs.Detached(r.Context()))
 	fwd.URL = content
 	fwd.RequestURI = ""
 	// The whole document, fresh: a validator or a range would answer 304 or

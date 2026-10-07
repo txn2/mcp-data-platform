@@ -18,6 +18,10 @@ server:
   # second replica dev/start.sh runs is started with DEV_API_PORT set to its
   # own port (#1708).
   address: ":${DEV_API_PORT:-8080}"
+  # A request slower than this logs "slow HTTP request" with its route
+  # template (#1889). Low here so the acceptance suite can provoke one with
+  # the fixture's slow tool; the shipped default is 5s.
+  slow_request_threshold: 2s
   description: |
     ACME Corp's unified data platform providing governed access to the enterprise
     data warehouse (Trino/Iceberg), data catalog (DataHub), and object storage (S3).

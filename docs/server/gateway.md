@@ -76,6 +76,8 @@ The credential field is encrypted at rest (AES-256-GCM) when `ENCRYPTION_KEY` is
 
 Connections use a **shared service credential** per connection — one upstream identity for every platform user that hits the proxied tool. User-level attribution remains in the audit log; the upstream sees the connection's credential.
 
+Every request to the upstream server carries the W3C `traceparent` and `tracestate` headers, so an upstream that records its own telemetry joins the trace of the tool call that reached it; `trace_propagation: false` on the connection leaves them off for an upstream that rejects unknown headers or must not see the deployment's trace ids (#1895). Each forwarded call is counted by `gateway_upstream_calls_total{connection, outcome}` and every re-dial after a dropped session by `gateway_session_redials_total`; see [Observability](observability.md#outbound-requests).
+
 ### OAuth 2.1
 
 Two grants are supported:

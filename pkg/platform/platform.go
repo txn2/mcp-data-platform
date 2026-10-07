@@ -473,6 +473,7 @@ func (p *Platform) initMemory() error {
 			Timeout:       p.config.Memory.Embedding.Ollama.Timeout,
 			MaxInputBytes: p.config.Memory.Embedding.Ollama.MaxInputBytes,
 		},
+		Metrics:          p.obs.Metrics(),
 		StalenessEnabled: p.config.Memory.Staleness.Enabled,
 		Staleness: memory.StalenessConfig{
 			Interval:  p.config.Memory.Staleness.Interval,

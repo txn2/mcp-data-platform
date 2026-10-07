@@ -468,6 +468,9 @@ type ServerConfig struct {
 	TLS               TLSConfig        `yaml:"tls"`
 	Streamable        StreamableConfig `yaml:"streamable"`
 	Shutdown          ShutdownConfig   `yaml:"shutdown"`
+	// SlowRequestThreshold is how long an inbound HTTP request may take before
+	// it is logged at WARN with its route template (#1889). Defaults to 5s.
+	SlowRequestThreshold time.Duration `yaml:"slow_request_threshold"`
 }
 
 // ShutdownConfig configures graceful shutdown timing.

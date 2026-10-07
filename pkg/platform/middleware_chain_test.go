@@ -25,6 +25,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 	p := &Platform{}
 
 	want := []mwName{
+		mwMethodObserver,
 		mwResultType,
 		mwIcons,
 		mwDescriptionOverride,

@@ -8,6 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 )
 
 const (
@@ -156,22 +158,34 @@ func (u *upstreamClient) close() error {
 	return nil
 }
 
-// buildHTTPClient constructs an HTTP client with the configured auth scheme.
-// For AuthModeNone it returns nil, letting the SDK use its default client.
-// The tp tokenProvider is required when AuthMode is "oauth" and ignored
-// otherwise; pass nil for the non-OAuth modes.
+// buildHTTPClient constructs the HTTP client the upstream session runs over:
+// the platform's outbound chain (#1895), which counts every request under
+// http_client_requests_total{kind="mcp"}, opens a client span and carries the
+// caller's trace to the upstream unless the connection sets
+// trace_propagation false, around the configured auth scheme. The tp
+// tokenProvider is required when AuthMode is "oauth" and ignored otherwise;
+// pass nil for the non-OAuth modes. No client timeout: the SDK bounds each
+// request by its context, and the standalone stream would outlive any.
 func buildHTTPClient(cfg Config, tp tokenProvider) *http.Client {
-	if cfg.AuthMode == AuthModeNone {
-		return nil
+	var base http.RoundTripper
+	if std, ok := http.DefaultTransport.(*http.Transport); ok {
+		base = std.Clone()
 	}
-	return &http.Client{
-		Transport: &authRoundTripper{
+	if cfg.AuthMode != AuthModeNone {
+		base = &authRoundTripper{
 			mode:          cfg.AuthMode,
 			credential:    cfg.Credential,
 			tokenProvider: tp,
-			base:          http.DefaultTransport,
-		},
+			base:          base,
+		}
 	}
+	return outbound.NewClient(outbound.Options{
+		Kind:          outbound.KindMCP,
+		Connection:    cfg.ConnectionName,
+		Base:          base,
+		NoPropagation: !cfg.TracePropagation,
+		CheckRedirect: outbound.FollowRedirects,
+	})
 }
 
 // authRoundTripper injects an outbound auth header on every request.

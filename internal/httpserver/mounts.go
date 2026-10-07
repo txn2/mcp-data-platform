@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
+	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/adminwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
@@ -211,11 +212,11 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 		return
 	}
 
-	wrapped := handler
+	var auth func(http.Handler) http.Handler
 	if requireAuth {
-		wrapped = httpauth.RequireAuth()(handler)
+		auth = httpauth.RequireAuth()
 	}
-	mux.Handle("/api/v1/gateway/", wrapped)
+	mux.Handle("/api/v1/gateway/", httpobs.Routed(handler, auth))
 	slog.Info("REST gateway enabled on /api/v1/gateway/{connection}/invoke")
 }
 
@@ -254,7 +255,7 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 	proxyMux := http.NewServeMux()
 	handler.Register(proxyMux)
 
-	var wrapped http.Handler = proxyMux
+	var auth func(http.Handler) http.Handler
 	if requireAuth {
 		// The portal SPA calls these endpoints directly with its
 		// browser-session cookie, so accept that (like the admin and
@@ -262,9 +263,9 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 		// authorizer enforces authentication (401) and the
 		// observability:read capability (403); OptionalAuth only lifts a
 		// present token onto the context without rejecting cookie auth.
-		wrapped = p.ObservabilityAuthMiddleware()(httpauth.OptionalAuth()(proxyMux))
+		auth = func(h http.Handler) http.Handler { return p.ObservabilityAuthMiddleware()(httpauth.OptionalAuth()(h)) }
 	}
-	mux.Handle("/api/v1/observability/", wrapped)
+	mux.Handle("/api/v1/observability/", httpobs.Routed(proxyMux, auth))
 	if pc.URL == "" {
 		slog.Info("observability proxy mounted (Prometheus not configured; endpoints return 503)")
 	} else {

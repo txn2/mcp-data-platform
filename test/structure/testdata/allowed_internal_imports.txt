@@ -30,6 +30,7 @@ internal/admin/catalogapi -> pkg/toolkits/apigateway/catalogindex
 internal/admin/catalogapi -> pkg/toolkits/graphql
 internal/admin/connoauthapi -> internal/httpjson
 internal/admin/connoauthapi -> internal/logsan
+internal/admin/connoauthapi -> internal/outbound
 internal/admin/connoauthapi -> pkg/authevents
 internal/admin/connoauthapi -> pkg/connoauth
 internal/admin/connoauthapi -> pkg/pkcestore
@@ -69,16 +70,21 @@ internal/conncatchup -> internal/logsan
 internal/docread -> pkg/contenttype
 internal/formdata -> internal/pagewalk
 internal/headless -> internal/egressguard
+internal/headless -> internal/outbound
 internal/httpjson -> internal/wirejson
+internal/httpobs -> internal/logsan
+internal/httpobs -> pkg/observability
 internal/httpserver -> internal/admin/webhookapi
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/apikeyissue
 internal/httpserver -> internal/buildinfo
+internal/httpserver -> internal/httpobs
 internal/httpserver -> internal/httpserver/accessgate
 internal/httpserver -> internal/httpserver/adminwire
 internal/httpserver -> internal/httpserver/apiwire
 internal/httpserver -> internal/httpserver/attachhttp
+internal/httpserver -> internal/httpserver/corshttp
 internal/httpserver -> internal/httpserver/datahubapi
 internal/httpserver -> internal/httpserver/gatewayhttp
 internal/httpserver -> internal/httpserver/health
@@ -126,7 +132,6 @@ internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
 internal/httpserver -> internal/toolanswer
 internal/httpserver -> internal/ui
-internal/httpserver -> internal/webhook/receiver
 internal/httpserver -> internal/webhook/whsource
 internal/httpserver -> internal/webhook/whstore
 internal/httpserver -> pkg/admin
@@ -179,6 +184,7 @@ internal/httpserver/attachhttp -> internal/wirejson
 internal/httpserver/attachhttp -> pkg/prompt
 internal/httpserver/attachhttp -> pkg/prompt/attachserve
 internal/httpserver/attachhttp -> pkg/resource
+internal/httpserver/corshttp -> internal/webhook/receiver
 internal/httpserver/datahubapi -> internal/logsan
 internal/httpserver/datahubapi -> internal/wirejson
 internal/httpserver/datahubapi -> pkg/audit
@@ -215,6 +221,7 @@ internal/httpserver/notifywire -> pkg/portal/mention
 internal/httpserver/notifywire -> pkg/registry
 internal/httpserver/notifywire -> pkg/toolkits/apigateway
 internal/httpserver/pdfhttp -> internal/headless
+internal/httpserver/pdfhttp -> internal/httpobs
 internal/httpserver/pdfhttp -> internal/httpserver/thumbwire
 internal/httpserver/pdfhttp -> internal/inproc
 internal/httpserver/pdfhttp -> internal/logsan
@@ -297,6 +304,7 @@ internal/httpserver/tablesource -> pkg/resource
 internal/httpserver/thumbwire -> internal/contentviewer
 internal/httpserver/thumbwire -> internal/egressguard
 internal/httpserver/thumbwire -> internal/headless
+internal/httpserver/thumbwire -> internal/outbound
 internal/httpserver/thumbwire -> internal/platform/scripttiles
 internal/httpserver/thumbwire -> internal/platform/thumbworker
 internal/httpserver/thumbwire -> internal/portal/assetrefs
@@ -311,6 +319,7 @@ internal/httpserver/userkeyhttp -> pkg/auth
 internal/httpserver/userkeyhttp -> pkg/middleware
 internal/httpserver/versionhttp -> internal/wirejson
 internal/httpserver/versionhttp -> pkg/prompt
+internal/httpserver/webhookwire -> internal/httpobs
 internal/httpserver/webhookwire -> internal/httpserver/instanceheader
 internal/httpserver/webhookwire -> internal/platform/resourcelayer
 internal/httpserver/webhookwire -> internal/platform/resourcewrite
@@ -331,6 +340,8 @@ internal/httpserver/webhookwire -> pkg/resource
 internal/inlinefit -> pkg/toolkit
 internal/inproc -> internal/portal/viewerlimit
 internal/listcut -> internal/pagenext
+internal/mcpobs -> pkg/observability
+internal/mcpobs -> pkg/session
 internal/notification/notifychannel -> pkg/notification
 internal/notification/notifypost -> internal/upstreamretry
 internal/notification/notifypost -> pkg/notification
@@ -347,6 +358,11 @@ internal/notification/notifyworker -> internal/notification/notifysend
 internal/notification/notifyworker -> pkg/notification
 internal/notification/notifyworker -> pkg/notification/smtp
 internal/openrun -> pkg/script
+internal/outbound -> internal/egressguard
+internal/outbound -> internal/logsan
+internal/outbound -> internal/useragent
+internal/outbound -> pkg/observability
+internal/pagewalk -> internal/outbound
 internal/pagewalk -> internal/upstreamretry
 internal/platform/apigwwiring -> internal/logsan
 internal/platform/apigwwiring -> pkg/registry
@@ -363,6 +379,7 @@ internal/platform/auditwiring -> pkg/audit/postgres
 internal/platform/auditwiring -> pkg/middleware
 internal/platform/auditwiring -> pkg/observability
 internal/platform/branding -> internal/logsan
+internal/platform/branding -> internal/outbound
 internal/platform/branding -> pkg/contenttype
 internal/platform/browserauth -> pkg/browsersession
 internal/platform/callcatchup -> internal/conncatchup
@@ -481,6 +498,7 @@ internal/platform/memorylayer -> pkg/embedding
 internal/platform/memorylayer -> pkg/indexjobs
 internal/platform/memorylayer -> pkg/memory
 internal/platform/memorylayer -> pkg/middleware
+internal/platform/memorylayer -> pkg/observability
 internal/platform/memorylayer -> pkg/portal/knowledgepage
 internal/platform/memorylayer -> pkg/semantic
 internal/platform/memorylayer -> pkg/toolkits/knowledge
@@ -525,6 +543,7 @@ internal/platform/notifywiring -> pkg/portal
 internal/platform/oauthserver -> pkg/oauth
 internal/platform/oauthserver -> pkg/oauth/postgres
 internal/platform/oauthserver -> pkg/observability
+internal/platform/obs -> internal/outbound
 internal/platform/obs -> pkg/observability
 internal/platform/personacfg -> pkg/persona
 internal/platform/portalstore -> internal/platform/assetindex
@@ -726,6 +745,7 @@ internal/platform/scriptrec -> internal/platform/scriptrun
 internal/platform/scriptrec -> internal/platform/scriptsession
 internal/platform/scriptrec -> pkg/script
 internal/platform/scriptrec/recstore -> internal/platform/scriptrec
+internal/platform/scriptrun -> internal/outbound
 internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
 internal/platform/scriptrun -> internal/platform/scriptdialect
@@ -875,6 +895,7 @@ internal/platform/utilconn -> pkg/toolkits/apigateway
 internal/platform/utilconn -> pkg/toolkits/apigateway/catalog
 internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
 internal/platform/utilhandler -> internal/egressguard
+internal/platform/utilhandler -> internal/outbound
 internal/platform/utilhandler -> internal/wirejson
 internal/portal/access -> internal/portal/portaldomain
 internal/portal/access -> pkg/portal/threads
@@ -934,6 +955,7 @@ internal/portal/sessionapi -> internal/portal/access
 internal/portal/sessionapi -> pkg/audit
 internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
+internal/portal/viewerlimit -> internal/httpobs
 internal/portal/viewerlimit -> pkg/ratelimit
 internal/producedby -> internal/logsan
 internal/producedby -> pkg/script
@@ -959,8 +981,8 @@ internal/upstreamauth -> internal/apigwtls
 internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
+internal/upstreamauth -> internal/outbound
 internal/upstreamauth -> internal/upstreamauth/sessionlogin
-internal/upstreamauth -> internal/useragent
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
 internal/upstreamauth/sessionlogin -> internal/cfgmap
@@ -975,6 +997,7 @@ internal/webhook/compactor -> internal/webhook/whlayout
 internal/webhook/compactor -> internal/webhook/whsource
 internal/webhook/compactor -> internal/webhook/whstore
 internal/webhook/compactor -> internal/webhook/whtable
+internal/webhook/receiver -> internal/httpobs
 internal/webhook/receiver -> internal/logsan
 internal/webhook/receiver -> internal/webhook/whauth
 internal/webhook/receiver -> internal/webhook/whevent
@@ -1019,6 +1042,7 @@ pkg/admin -> internal/apikeyissue
 pkg/admin -> internal/buildinfo
 pkg/admin -> internal/connprobe
 pkg/admin -> internal/httpjson
+pkg/admin -> internal/httpobs
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/configenv
@@ -1065,18 +1089,20 @@ pkg/audit/postgres -> pkg/audit
 pkg/audit/postgres -> pkg/prompt
 pkg/audit/postgres -> pkg/resource
 pkg/auth -> internal/logsan
+pkg/auth -> internal/outbound
 pkg/auth -> pkg/middleware
 pkg/auth -> pkg/oauth/signkey
 pkg/auth -> pkg/oidcdiscovery
 pkg/blobserve -> pkg/contenttype
 pkg/browsersession -> internal/logsan
+pkg/browsersession -> internal/outbound
 pkg/browsersession -> pkg/middleware
 pkg/browsersession -> pkg/user
 pkg/configstore/postgres -> pkg/configstore
 pkg/connid -> pkg/registry
 pkg/connid -> pkg/toolkit
 pkg/connoauth -> internal/logsan
-pkg/connoauth -> internal/useragent
+pkg/connoauth -> internal/outbound
 pkg/connoauth -> pkg/authevents
 pkg/connreconcile -> pkg/registry
 pkg/connreconcile -> pkg/toolkit
@@ -1085,6 +1111,8 @@ pkg/connview -> pkg/connid
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
+pkg/embedding -> internal/outbound
+pkg/embedding -> pkg/observability
 pkg/indexjobs -> internal/logsan
 pkg/indexjobs -> pkg/embedding
 pkg/knowledge -> internal/docread
@@ -1113,6 +1141,7 @@ pkg/knowledge/federation -> pkg/toolkits/graphql
 pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
 pkg/middleware -> internal/logsan
+pkg/middleware -> internal/mcpobs
 pkg/middleware -> internal/producedby
 pkg/middleware -> internal/scriptcallsite
 pkg/middleware -> internal/sqltables
@@ -1135,7 +1164,9 @@ pkg/middleware -> pkg/toolkit
 pkg/middleware -> pkg/urnbuild
 pkg/notification -> internal/logsan
 pkg/notification -> pkg/ratelimit
+pkg/oauth -> internal/httpobs
 pkg/oauth -> internal/logsan
+pkg/oauth -> internal/outbound
 pkg/oauth -> internal/wirejson
 pkg/oauth -> pkg/oauth/signkey
 pkg/oauth -> pkg/observability
@@ -1144,6 +1175,8 @@ pkg/oauth -> pkg/ratelimit
 pkg/oauth/postgres -> pkg/oauth
 pkg/observability -> internal/buildinfo
 pkg/observability -> internal/logsan
+pkg/observability/proxy -> internal/httpobs
+pkg/observability/proxy -> internal/outbound
 pkg/observability/proxy -> internal/wirejson
 pkg/persona -> pkg/middleware
 pkg/pkcestore -> pkg/connoauth
@@ -1152,6 +1185,7 @@ pkg/platform -> internal/agentinstructions
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/cfgmap
 pkg/platform -> internal/logsan
+pkg/platform -> internal/mcpobs
 pkg/platform -> internal/platform/apigwwiring
 pkg/platform -> internal/platform/apikeystore
 pkg/platform -> internal/platform/auditwiring
@@ -1278,6 +1312,7 @@ pkg/platform/instructions -> pkg/persona
 pkg/platform/personastore -> pkg/persona
 pkg/portal -> internal/contentviewer
 pkg/portal -> internal/httpjson
+pkg/portal -> internal/httpobs
 pkg/portal -> internal/logsan
 pkg/portal -> internal/platform/callrecord
 pkg/portal -> internal/portal/access
@@ -1373,6 +1408,7 @@ pkg/toolkits/apigateway -> internal/listcut
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> internal/membudget
 pkg/toolkits/apigateway -> internal/opranking
+pkg/toolkits/apigateway -> internal/outbound
 pkg/toolkits/apigateway -> internal/pagenext
 pkg/toolkits/apigateway -> internal/pagewalk
 pkg/toolkits/apigateway -> internal/soap
@@ -1392,6 +1428,8 @@ pkg/toolkits/apigateway -> pkg/query
 pkg/toolkits/apigateway -> pkg/semantic
 pkg/toolkits/apigateway -> pkg/toolkit
 pkg/toolkits/apigateway -> pkg/toolkits/apigateway/catalog
+pkg/toolkits/apigateway/catalog -> internal/egressguard
+pkg/toolkits/apigateway/catalog -> internal/outbound
 pkg/toolkits/apigateway/catalog -> internal/swagger2
 pkg/toolkits/apigateway/catalogindex -> internal/logsan
 pkg/toolkits/apigateway/catalogindex -> pkg/indexjobs
@@ -1399,10 +1437,13 @@ pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog
 pkg/toolkits/datahub -> pkg/query
 pkg/toolkits/datahub -> pkg/semantic
 pkg/toolkits/datahub -> pkg/toolkit
+pkg/toolkits/gateway -> internal/cfgmap
 pkg/toolkits/gateway -> internal/connprobe
 pkg/toolkits/gateway -> internal/logsan
+pkg/toolkits/gateway -> internal/outbound
 pkg/toolkits/gateway -> pkg/authevents
 pkg/toolkits/gateway -> pkg/connoauth
+pkg/toolkits/gateway -> pkg/observability
 pkg/toolkits/gateway -> pkg/query
 pkg/toolkits/gateway -> pkg/semantic
 pkg/toolkits/gateway -> pkg/toolkit
@@ -1429,6 +1470,7 @@ pkg/toolkits/graphql -> pkg/query
 pkg/toolkits/graphql -> pkg/semantic
 pkg/toolkits/graphql -> pkg/toolkit
 pkg/toolkits/knowledge -> internal/agentinstructions
+pkg/toolkits/knowledge -> internal/outbound
 pkg/toolkits/knowledge -> internal/toolnames
 pkg/toolkits/knowledge -> pkg/embedding
 pkg/toolkits/knowledge -> pkg/memory

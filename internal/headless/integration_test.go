@@ -312,7 +312,7 @@ func renderUnarmed(t *testing.T, endpoint, doc string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	c, err := dial(ctx, endpoint, nil)
+	c, err := dial(ctx, &http.Client{}, endpoint, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
