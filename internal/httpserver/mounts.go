@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -78,7 +77,7 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeliv
 	mux.Handle(prefix+"/", adminHandler)
 	mountPromptVersionAdminAPI(mux, p, prefix)
 	mountScriptAdminAPI(mux, p, prefix)
-	log.Println("Admin API enabled on", prefix)
+	slog.Info("Admin API enabled", "prefix", prefix)
 }
 
 // portalDisabled returns true when portal is explicitly disabled or platform is nil.
@@ -136,7 +135,7 @@ func portalRateLimitResolver(cfg platform.PortalRateLimitConfig) (*ratelimit.Res
 // per-client fairness.
 func warnOnUntrustedPortalRateLimit(trustedProxies []string) {
 	if len(trustedProxies) == 0 {
-		log.Println("Portal rate limiting is on but portal.rate_limit.trusted_proxies is empty: " +
+		slog.Warn("Portal rate limiting is on but portal.rate_limit.trusted_proxies is empty: " +
 			"behind a reverse proxy or ingress every client shares the proxy IP, so per-client " +
 			"limiting collapses to a single bucket. Set portal.rate_limit.trusted_proxies to your " +
 			"proxy/ingress CIDRs (the global backstop still bounds total load meanwhile).")
@@ -208,7 +207,7 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 		RawMaxBytes: p.APIGatewayRawMaxBytes(),
 	})
 	if err != nil {
-		log.Printf("REST gateway disabled: %v", err)
+		slog.Warn("REST gateway disabled", "error", err)
 		return
 	}
 
@@ -217,7 +216,7 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 		wrapped = httpauth.RequireAuth()(handler)
 	}
 	mux.Handle("/api/v1/gateway/", wrapped)
-	log.Println("REST gateway enabled on /api/v1/gateway/{connection}/invoke")
+	slog.Info("REST gateway enabled on /api/v1/gateway/{connection}/invoke")
 }
 
 // defaultPrometheusURL is the auto-discovered in-cluster Prometheus endpoint
@@ -248,7 +247,7 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 		RateLimitPerSecond: pc.RateLimitPerSecond,
 	}, p.NewObservabilityAuthorizer())
 	if err != nil {
-		log.Printf("observability proxy disabled: %v", err)
+		slog.Warn("observability proxy disabled", "error", err)
 		return
 	}
 
@@ -267,9 +266,9 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 	}
 	mux.Handle("/api/v1/observability/", wrapped)
 	if pc.URL == "" {
-		log.Println("observability proxy mounted (Prometheus not configured; endpoints return 503)")
+		slog.Info("observability proxy mounted (Prometheus not configured; endpoints return 503)")
 	} else {
-		log.Println("observability proxy enabled on /api/v1/observability/{query,query_range}")
+		slog.Info("observability proxy enabled on /api/v1/observability/{query,query_range}")
 	}
 }
 
@@ -422,7 +421,7 @@ func buildDataHubBridge(p *platform.Platform) datahubapi.Bridge {
 		}
 		reader, writer, err := datahubapi.BuildConnection(dhTk.Client(), platformName, urn.CatalogMapping, dhTk.Config().ReadOnly)
 		if err != nil {
-			log.Printf("portal datahub: skipping connection %q: %v", dhTk.Name(), err)
+			slog.Warn("portal datahub: skipping connection", "connection", dhTk.Name(), "error", err)
 			continue
 		}
 		bridge.Add(dhTk.Name(), reader, writer)
@@ -584,7 +583,7 @@ func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable boo
 		spa = gated
 	}
 	mux.Handle("/portal/", spa)
-	log.Println("Portal UI enabled on /portal/")
+	slog.Info("Portal UI enabled on /portal/")
 }
 
 // shellPersonaResolver builds the resolver the portal shell's gate is judged
@@ -874,7 +873,7 @@ func mountBrowserAuth(mux *http.ServeMux, p *platform.Platform) {
 	mux.HandleFunc("/portal/auth/login", flow.LoginHandler)
 	mux.HandleFunc("/portal/auth/callback", flow.CallbackHandler)
 	mux.HandleFunc("/portal/auth/logout", flow.LogoutHandler)
-	log.Println("Browser auth enabled (OIDC login on /portal/auth/login)")
+	slog.Info("Browser auth enabled (OIDC login on /portal/auth/login)")
 }
 
 // browserRedirectMiddleware redirects browser requests to the portal.
@@ -935,7 +934,7 @@ func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, e
 	return func(ctx context.Context, id string) (string, bool, error) {
 		c, err := lookup(ctx, id)
 		if err != nil {
-			slog.Warn("resolving a cited script failed",
+			slog.WarnContext(ctx, "resolving a cited script failed",
 				"script_id", logsan.SanitizeForLog(id), "error", logsan.SanitizeForLog(err.Error()))
 			return "", false, err
 		}
@@ -953,5 +952,5 @@ func mountWebhookAdminAPI(mux *http.ServeMux, p *platform.Platform, hooks *webho
 		return
 	}
 	webhookapi.Register(mux, buildAdminAuth(p), webhookapi.Config{Service: hooks.Service, Author: adminEmail})
-	log.Println("Webhook source admin API enabled on /api/v1/admin/webhooks/sources and /api/v1/admin/webhooks/status")
+	slog.Info("Webhook source admin API enabled on /api/v1/admin/webhooks/sources and /api/v1/admin/webhooks/status")
 }

@@ -107,7 +107,7 @@ func (l *Lifecycle) rollback(ctx context.Context, failedAt int) {
 			continue
 		}
 		if err := l.components[j].stop(ctx); err != nil {
-			slog.Warn("lifecycle rollback: stop callback failed",
+			slog.WarnContext(ctx, "lifecycle rollback: stop callback failed",
 				"callback", j, "error", err)
 		}
 	}

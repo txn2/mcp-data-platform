@@ -88,7 +88,7 @@ func Register(d Deps) error {
 	d.Toolkit.SetInternalHandler(h)
 	d.OnStart(func(ctx context.Context) error {
 		if serr := seed(ctx, d); serr != nil {
-			slog.Warn("util connection: seed failed", "error", serr)
+			slog.WarnContext(ctx, "util connection: seed failed", "error", serr)
 		}
 		return nil
 	})
@@ -122,13 +122,13 @@ func seed(ctx context.Context, d Deps) error {
 		if _, eerr := d.Enqueuer.Enqueue(ctx, catalogindex.SpecKey{
 			CatalogID: catalogID, SpecName: specName,
 		}, catalogindex.KindSpecWrite); eerr != nil {
-			slog.Warn("util connection: enqueue embedding failed", "error", eerr)
+			slog.WarnContext(ctx, "util connection: enqueue embedding failed", "error", eerr)
 		}
 	}
 	if err := registerConnection(d.Toolkit); err != nil {
 		return fmt.Errorf("registering connection: %w", err)
 	}
-	slog.Info("util connection: registered",
+	slog.InfoContext(ctx, "util connection: registered",
 		"connection", connectionName, "operations", opCount)
 	return nil
 }

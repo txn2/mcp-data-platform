@@ -12,7 +12,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
@@ -99,7 +99,7 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	// A binary built without the UI has no page to draw a tile from. Claiming
 	// work it cannot draw would record every document as a failure.
 	if tileEntry == "" {
-		log.Println("Thumbnails not drawn: this build embeds no tile page")
+		slog.Warn("Thumbnails not drawn: this build embeds no tile page")
 		return nil
 	}
 	assets, ok := p.PortalAssetStore().(thumbworker.AssetWork)
@@ -109,7 +109,7 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	}
 	renderer, err := NewRenderer(p.Config())
 	if err != nil {
-		log.Printf("Thumbnails disabled: %v", err)
+		slog.Warn("Thumbnails disabled", "error", err)
 		return nil
 	}
 	cfg := p.Config()
@@ -139,9 +139,9 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 	// is the same answer.
 	tuning, err := cfg.Thumbnails.Tuning()
 	if err != nil {
-		log.Printf("Thumbnails disabled: %v", err)
+		slog.Warn("Thumbnails disabled", "error", err)
 		return nil
 	}
-	log.Printf("Thumbnails drawn by the renderer at %s, %d at a time", cfg.Thumbnails.EffectiveRendererURL(), tuning.Concurrency)
+	slog.Info("Thumbnails drawn by the renderer", "renderer_url", cfg.Thumbnails.EffectiveRendererURL(), "concurrency", tuning.Concurrency)
 	return thumbworker.New(tuning, deps)
 }

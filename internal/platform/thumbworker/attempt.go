@@ -116,7 +116,7 @@ func (w *Worker) attempt(ctx context.Context, j job) {
 		return
 	}
 	hold := w.cfg.backoff(j.attempts)
-	slog.Info("thumbnails: an attempt did not finish; holding the document back",
+	slog.InfoContext(ctx, "thumbnails: an attempt did not finish; holding the document back",
 		logKeyDocument, logsan.SanitizeForLog(j.name), "attempt", j.attempts, "hold", hold.String(),
 		logKeyError, logsan.SanitizeForLog(err.Error()))
 	w.endClaim(ctx, j, hold, j.attempts)
@@ -132,7 +132,7 @@ func (*Worker) endClaim(ctx context.Context, j job, hold time.Duration, attempts
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storageTimeout)
 	defer cancel()
 	if err := j.hold(sctx, hold, attempts); err != nil {
-		slog.Error("thumbnails: ending a claim failed; it lapses with its lease",
+		slog.ErrorContext(ctx, "thumbnails: ending a claim failed; it lapses with its lease",
 			logKeyDocument, logsan.SanitizeForLog(j.name), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
@@ -143,10 +143,10 @@ func (w *Worker) giveUp(ctx context.Context, j job, last error) {
 	// whole bounded after.
 	reason := failureReason(fmt.Errorf("the renderer could not finish drawing this after %d attempts; the last: %s",
 		w.cfg.MaxAttempts, failureReason(last)))
-	slog.Warn("thumbnails: recording a document as not drawable after its attempts",
+	slog.WarnContext(ctx, "thumbnails: recording a document as not drawable after its attempts",
 		logKeyDocument, logsan.SanitizeForLog(j.name), "reason", logsan.SanitizeForLog(reason))
 	if err := j.fail(ctx, reason); err != nil {
-		slog.Error("thumbnails: recording a failure failed", logKeyDocument, logsan.SanitizeForLog(j.name),
+		slog.ErrorContext(ctx, "thumbnails: recording a failure failed", logKeyDocument, logsan.SanitizeForLog(j.name),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }

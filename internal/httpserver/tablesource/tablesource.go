@@ -237,7 +237,7 @@ func resourceSourceRefs(
 	}
 	found, err := store.GetByIDs(ctx, ids)
 	if err != nil {
-		slog.Warn("registered tables: reading the resources a listing names failed",
+		slog.WarnContext(ctx, "registered tables: reading the resources a listing names failed",
 			"error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
@@ -270,7 +270,7 @@ func assetSourceRefs(
 	}
 	found, err := store.GetByIDs(ctx, ids)
 	if err != nil {
-		slog.Warn("registered tables: reading the assets a listing names failed",
+		slog.WarnContext(ctx, "registered tables: reading the assets a listing names failed",
 			"error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}

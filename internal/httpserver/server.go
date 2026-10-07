@@ -9,7 +9,6 @@ package httpserver
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -198,7 +197,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	hc := health.NewChecker()
 
 	if !hcfg.tlsEnabled {
-		log.Println("WARNING: HTTP transport without TLS - credentials may be transmitted in plaintext")
+		slog.WarnContext(ctx, "HTTP transport without TLS; credentials may be transmitted in plaintext")
 	}
 
 	// Health endpoints (registered before catch-all /)
@@ -214,7 +213,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// Mount OAuth server if enabled
 	if p != nil && p.OAuthServer() != nil {
 		registerOAuthRoutes(mux, p.OAuthServer())
-		log.Println("OAuth server enabled")
+		slog.InfoContext(ctx, "OAuth server enabled")
 	}
 
 	// Mount OAuth protected resource metadata (RFC 9728) when OAuth is
@@ -230,7 +229,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 				BearerMethodsSupported: []string{"header"},
 				ResourceName:           p.Config().Server.Name,
 			}))
-		log.Println("OAuth protected resource metadata enabled on /.well-known/oauth-protected-resource")
+		slog.InfoContext(ctx, "OAuth protected resource metadata enabled on /.well-known/oauth-protected-resource")
 	}
 
 	// Mount browser auth routes (OIDC login/callback/logout)
@@ -278,7 +277,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL, hcfg.authenticator)
 	mux.Handle("/sse", wrappedSSE)
 	mux.Handle("/message", wrappedSSE)
-	log.Println("SSE transport enabled on /sse, /message")
+	slog.InfoContext(ctx, "SSE transport enabled on /sse, /message")
 
 	// Build and mount the root handler (MCP streamable HTTP + session + browser redirect).
 	rootHandler := buildRootHandler(ctx, mcpServer, p, hcfg)
@@ -324,7 +323,7 @@ func buildRootHandler(ctx context.Context, mcpServer *mcp.Server, p *platform.Pl
 		handler = aware
 		listenbridge.Wire(ctx, mcpServer, p.Broadcaster(), aware)
 		// Broadcaster() is non-nil after New; operators grep "+ broadcaster".
-		log.Println("Session-aware handler enabled (external session store + broadcaster)")
+		slog.InfoContext(ctx, "Session-aware handler enabled (external session store + broadcaster)")
 	}
 
 	return handler
@@ -338,9 +337,9 @@ func mountRootHandler(mux *http.ServeMux, rootHandler http.Handler, hcfg httpCon
 	handler := rootHandler
 	if hcfg.requireAuth {
 		handler = httpauth.MCPAuthGateway(hcfg.authenticator, rmURL)(handler)
-		log.Println("Streamable HTTP transport enabled on / (auth required)")
+		slog.Info("Streamable HTTP transport enabled on / (auth required)")
 	} else {
-		log.Println("Streamable HTTP transport enabled on / (anonymous)")
+		slog.Info("Streamable HTTP transport enabled on / (anonymous)")
 	}
 
 	if hcfg.portalUI {
@@ -381,12 +380,12 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 		// Mark not-ready so K8s load balancer stops sending traffic.
 		if hc != nil {
 			hc.SetDraining()
-			slog.Info("shutdown: readiness set to draining, waiting for LB deregistration",
+			slog.InfoContext(ctx, "shutdown: readiness set to draining, waiting for LB deregistration",
 				"pre_shutdown_delay", preDelay)
 			time.Sleep(preDelay)
 		}
 
-		slog.Info("shutdown: draining HTTP connections", "grace_period", gracePeriod)
+		slog.InfoContext(ctx, "shutdown: draining HTTP connections", "grace_period", gracePeriod)
 		drainHTTPServer(server, hcfg.mcpServer, gracePeriod)
 	}()
 
@@ -416,14 +415,14 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 // failure: ErrServerClosed is the expected end of a drained server.
 func listen(server *http.Server, hcfg httpConfig, addr string) error {
 	if hcfg.tlsEnabled {
-		log.Printf("Starting HTTP server with TLS on %s\n", addr)
+		slog.Info("Starting HTTP server with TLS", "addr", addr)
 		if err := server.ListenAndServeTLS(hcfg.tlsCertFile, hcfg.tlsKeyFile); err != http.ErrServerClosed {
 			return fmt.Errorf("listening with TLS on %s: %w", addr, err)
 		}
 		return nil
 	}
 
-	log.Printf("Starting HTTP server on %s\n", addr)
+	slog.Info("Starting HTTP server", "addr", addr)
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		return fmt.Errorf("listening on %s: %w", addr, err)
 	}
@@ -486,9 +485,9 @@ func closeMCPSessions(ctx context.Context, mcpServer *mcp.Server) {
 
 	select {
 	case <-closed:
-		slog.Info("shutdown: closed live MCP sessions so clients reconnect to the new build", "count", len(sessions))
+		slog.InfoContext(ctx, "shutdown: closed live MCP sessions so clients reconnect to the new build", "count", len(sessions))
 	case <-ctx.Done():
-		slog.Warn("shutdown: MCP session close did not finish before the grace deadline; process exit will drop remaining connections", "count", len(sessions))
+		slog.WarnContext(ctx, "shutdown: MCP session close did not finish before the grace deadline; process exit will drop remaining connections", "count", len(sessions))
 	}
 }
 

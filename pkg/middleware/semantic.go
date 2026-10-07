@@ -259,7 +259,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 
 	cache := e.cfg.SessionCache
 	if cache == nil {
-		slog.Debug("dedup: cache is nil, full enrichment")
+		slog.DebugContext(ctx, "dedup: cache is nil, full enrichment")
 		pc.EnrichmentMode = enrichmentModeFull
 		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
 	}
@@ -267,7 +267,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	// Identify tables from the request
 	tableKeys := extractTableKeysFromRequest(request)
 	if len(tableKeys) == 0 {
-		slog.Debug("dedup: no table keys extracted, full enrichment",
+		slog.DebugContext(ctx, "dedup: no table keys extracted, full enrichment",
 			"tool", pc.ToolName,
 			keySessionID, pc.SessionID,
 			"has_params", request.Params != nil,
@@ -275,7 +275,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
 	}
 
-	slog.Debug("dedup: checking cache",
+	slog.DebugContext(ctx, "dedup: checking cache",
 		keySessionID, pc.SessionID,
 		"table_keys", tableKeys,
 		"entry_ttl", e.cfg.SessionCache.EntryTTL(),
@@ -344,7 +344,7 @@ func (e *semanticEnricher) handleDedupEnrichment(
 	tableKeys []string,
 ) (*mcp.CallToolResult, error) {
 	cache := e.cfg.SessionCache
-	slog.Debug("dedup: all tables cached, applying dedup mode",
+	slog.DebugContext(ctx, "dedup: all tables cached, applying dedup mode",
 		keySessionID, pc.SessionID,
 		"mode", e.cfg.DedupMode,
 		"table_keys", tableKeys,
@@ -551,7 +551,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 	if sql := extractSQLFromRequest(request); sql != "" {
 		tables := sqltables.Extract(sql)
 		if len(tables) > 0 {
-			slog.Debug("extracted tables from SQL for enrichment",
+			slog.DebugContext(ctx, "extracted tables from SQL for enrichment",
 				"sql_length", len(sql),
 				"table_count", len(tables),
 				"tables", formatTableRefs(tables),
@@ -596,7 +596,7 @@ func (e *semanticEnricher) enrichTrinoTable(
 	// Get semantic context for the table
 	semanticCtx, err := e.semanticProvider.GetTableContext(ctx, table)
 	if err != nil {
-		slog.Debug("semantic enrichment failed for Trino result",
+		slog.DebugContext(ctx, "semantic enrichment failed for Trino result",
 			keyTable, tableName,
 			"parsed_catalog", table.Catalog,
 			"parsed_schema", table.Schema,
@@ -621,7 +621,7 @@ func (e *semanticEnricher) enrichTrinoTable(
 	// Get column-level semantic context
 	columnsCtx, columnsErr := e.semanticProvider.GetColumnsContext(ctx, table)
 	if columnsErr != nil {
-		slog.Debug("column semantic enrichment failed for Trino result",
+		slog.DebugContext(ctx, "column semantic enrichment failed for Trino result",
 			keyTable, tableName,
 			keyError, columnsErr,
 		)
@@ -664,7 +664,7 @@ func (e *semanticEnricher) trySemanticFallback(ctx context.Context, table semant
 		Limit: topK,
 	})
 	if err != nil {
-		slog.Debug("semantic fallback search failed",
+		slog.DebugContext(ctx, "semantic fallback search failed",
 			keyTable, table.String(),
 			keyError, err,
 		)
@@ -785,7 +785,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 
 	tableCtx, err := e.semanticProvider.GetTableContext(ctx, tableID)
 	if err != nil {
-		slog.Debug("semantic enrichment failed for primary table",
+		slog.DebugContext(ctx, "semantic enrichment failed for primary table",
 			keyTable, primary.FullPath,
 			keyError, err,
 		)
@@ -794,7 +794,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 
 	columnsCtx, columnsErr := e.semanticProvider.GetColumnsContext(ctx, tableID)
 	if columnsErr != nil {
-		slog.Debug("column enrichment failed for primary table",
+		slog.DebugContext(ctx, "column enrichment failed for primary table",
 			keyTable, primary.FullPath,
 			keyError, columnsErr,
 		)
@@ -811,7 +811,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 		tID := applyCatalogMapping(refToTableIdentifier(t), catalogMapping)
 		tCtx, tErr := e.semanticProvider.GetTableContext(ctx, tID)
 		if tErr != nil {
-			slog.Debug("semantic enrichment failed for additional table",
+			slog.DebugContext(ctx, "semantic enrichment failed for additional table",
 				keyTable, t.FullPath,
 				keyError, tErr,
 			)

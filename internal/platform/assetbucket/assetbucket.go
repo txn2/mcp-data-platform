@@ -60,12 +60,12 @@ func fill(ctx context.Context, db *sql.DB, query, bucket string) (int64, error) 
 func RunLogged(ctx context.Context, db *sql.DB, bucket string) {
 	assets, versions, err := Run(ctx, db, bucket)
 	if err != nil {
-		slog.Warn("asset bucket: rows naming no bucket were not given one",
+		slog.WarnContext(ctx, "asset bucket: rows naming no bucket were not given one",
 			"error", logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	if assets+versions > 0 {
-		slog.Info("asset bucket: rows naming no bucket now name the portal bucket",
+		slog.InfoContext(ctx, "asset bucket: rows naming no bucket now name the portal bucket",
 			"bucket", logsan.SanitizeForLog(bucket), "assets", assets, "versions", versions)
 	}
 }

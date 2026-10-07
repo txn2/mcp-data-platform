@@ -720,7 +720,7 @@ func cleanupOrphanedS3(ctx context.Context, s3Client portal.S3Client, bucket, ke
 		return
 	}
 	if err := s3Client.DeleteObject(ctx, bucket, key); err != nil {
-		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
+		slog.WarnContext(ctx, "failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
 			"bucket", bucket, "key", key, "error", err)
 	}
 }

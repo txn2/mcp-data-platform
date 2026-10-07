@@ -81,7 +81,7 @@ func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, e
 		Link:      link,
 	})
 	if err != nil {
-		slog.Warn("notification: share enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+		slog.WarnContext(ctx, "notification: share enqueue failed", // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
@@ -137,7 +137,7 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 	// say so. Mentions above still went out: the body named those addresses
 	// explicitly, so they are not guesses about who wrote this.
 	if notification.NormalizeAddress(actorEmail) == "" {
-		slog.Warn("notification: thread event has no actor address; skipping comment fan-out", // #nosec G706 -- structured slog call; thread ID is server-generated and sanitized
+		slog.WarnContext(ctx, "notification: thread event has no actor address; skipping comment fan-out", // #nosec G706 -- structured slog call; thread ID is server-generated and sanitized
 			"thread", logsan.SanitizeForLog(thread.ID))
 		return
 	}
@@ -184,7 +184,7 @@ func (n *PortalNotifier) queueMentions(ctx context.Context, named []string, payl
 	for _, recipient := range named {
 		queued, err := n.enq.Notify(ctx, recipient, notification.CategoryMention, payload)
 		if err != nil {
-			slog.Warn("notification: mention enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+			slog.WarnContext(ctx, "notification: mention enqueue failed", // #nosec G706 -- structured slog call; error sanitized
 				logKeyError, logsan.SanitizeForLog(err.Error()))
 			continue
 		}
@@ -204,7 +204,7 @@ func (n *PortalNotifier) grantees(ctx context.Context, thread *portal.Thread) []
 	}
 	emails, err := n.stores.Grantees.Grantees(ctx, thread.TargetType, thread.TargetID())
 	if err != nil {
-		slog.Warn("notification: thread grantee lookup failed", // #nosec G706 -- structured slog call; error sanitized
+		slog.WarnContext(ctx, "notification: thread grantee lookup failed", // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 		return nil
 	}

@@ -748,7 +748,7 @@ func (r *Registrar) forgetDroppedRegistration(ctx context.Context, a attempt, ra
 		caller: a.caller, reg: *replaced, ddl: ran, source: a.req.Source, err: errors.Join(cause, delErr),
 	})
 	if delErr != nil {
-		slog.Warn("table registration: the replaced table was dropped and its record could not be removed",
+		slog.WarnContext(ctx, "table registration: the replaced table was dropped and its record could not be removed",
 			"registration", logsan.SanitizeForLog(replaced.ID),
 			logFieldTable, logsan.SanitizeForLog(replaced.QualifiedName()),
 			logFieldError, logsan.SanitizeForLog(delErr.Error()))
@@ -811,7 +811,7 @@ func (r *Registrar) rollBackTable(ctx context.Context, a attempt, cause error) {
 		caller: a.caller, reg: reg, ddl: []string{stmt}, source: a.req.Source, err: errors.Join(cause, execErr),
 	})
 	if execErr != nil {
-		slog.Warn("table registration: the record could not be written and the table it made could not be dropped",
+		slog.WarnContext(ctx, "table registration: the record could not be written and the table it made could not be dropped",
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()),
 			logFieldError, logsan.SanitizeForLog(execErr.Error()))
 	}
@@ -837,7 +837,7 @@ func (r *Registrar) Unregister(ctx context.Context, caller Caller, id, source st
 	execErr := r.deps.Trino.Exec(ctx, reg.Connection, stmt)
 	r.audit(ctx, auditRecord{caller: caller, reg: *reg, ddl: []string{stmt}, source: source, err: execErr})
 	if execErr != nil {
-		slog.Warn("table registration: dropping the table failed; the record is removed anyway",
+		slog.WarnContext(ctx, "table registration: dropping the table failed; the record is removed anyway",
 			"registration", logsan.SanitizeForLog(reg.ID),
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()),
 			logFieldError, logsan.SanitizeForLog(execErr.Error()))
@@ -895,18 +895,18 @@ func (r *Registrar) UnregisterAllForSource(ctx context.Context, kind, sourceID s
 	}
 	regs, err := r.deps.Store.BySource(ctx, kind, sourceID)
 	if err != nil {
-		slog.Warn("table registration: could not list registrations of a deleted source",
+		slog.WarnContext(ctx, "table registration: could not list registrations of a deleted source",
 			"kind", logsan.SanitizeForLog(kind), "source", logsan.SanitizeForLog(sourceID), logFieldError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	dropped := map[string]string{}
 	for _, reg := range regs {
 		if err := r.deps.Trino.Exec(ctx, reg.Connection, dropTableStatement(reg)); err != nil {
-			slog.Warn("table registration: dropping the table of a deleted source failed",
+			slog.WarnContext(ctx, "table registration: dropping the table of a deleted source failed",
 				logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
 		if err := r.deps.Store.Delete(ctx, reg.ID); err != nil {
-			slog.Warn("table registration: removing the record of a deleted source failed",
+			slog.WarnContext(ctx, "table registration: removing the record of a deleted source failed",
 				"registration", logsan.SanitizeForLog(reg.ID), logFieldError, logsan.SanitizeForLog(err.Error()))
 		}
 		dropped[reg.Connection] = reg.QualifiedName()
@@ -1088,7 +1088,7 @@ func (r *Registrar) audit(ctx context.Context, rec auditRecord) {
 		ev.ErrorMessage = rec.err.Error()
 	}
 	if err := r.deps.Audit.Log(ctx, *ev); err != nil {
-		slog.Warn("table registration audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
+		slog.WarnContext(ctx, "table registration audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
 			logFieldTable, logsan.SanitizeForLog(rec.reg.QualifiedName()))
 	}
 }

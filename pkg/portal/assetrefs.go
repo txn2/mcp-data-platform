@@ -143,7 +143,7 @@ func (h *Handler) copyRefs(ctx context.Context, sourceID, copyID string, user *U
 	}
 	refs, err := h.deps.ContentRefs.ListByAsset(ctx, sourceID)
 	if err != nil {
-		slog.Warn("asset copy: reading source references failed, copy carries none",
+		slog.WarnContext(ctx, "asset copy: reading source references failed, copy carries none",
 			logFieldAssetID, logsan.SanitizeForLog(sourceID),
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return
@@ -157,7 +157,7 @@ func (h *Handler) copyRefs(ctx context.Context, sourceID, copyID string, user *U
 		return
 	}
 	if err := h.deps.ContentRefs.Replace(ctx, copyID, carried); err != nil {
-		slog.Warn("asset copy: recording carried references failed",
+		slog.WarnContext(ctx, "asset copy: recording carried references failed",
 			logFieldAssetID, logsan.SanitizeForLog(copyID),
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 	}
@@ -220,7 +220,7 @@ func (h *Handler) copyableResources(
 	}
 	resources, err := h.deps.ResourceReader.GetByIDs(ctx, ids)
 	if err != nil {
-		slog.Warn("asset copy: reading referenced resources failed, copy carries none of them",
+		slog.WarnContext(ctx, "asset copy: reading referenced resources failed, copy carries none of them",
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
@@ -248,7 +248,7 @@ func (h *Handler) copyableAssets(
 	}
 	assets, err := h.deps.AssetStore.GetByIDs(ctx, ids)
 	if err != nil {
-		slog.Warn("asset copy: reading referenced assets failed, copy carries none of them",
+		slog.WarnContext(ctx, "asset copy: reading referenced assets failed, copy carries none of them",
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return nil
 	}

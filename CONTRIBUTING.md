@@ -137,6 +137,7 @@ test: add tests for persona filtering
 - Always handle errors explicitly
 - Wrap errors with context using `fmt.Errorf("context: %w", err)`
 - Return errors rather than logging and continuing
+- Log through `log/slog`, and in a function that has a `context.Context` use the `Context` form (`slog.InfoContext(ctx, ...)`) so the record carries the trace of the call that wrote it; `.semgrep/go-slog-context.yml` refuses the context-less form in the request and worker packages (#1894)
 - Use error types for distinguishable error conditions
 
 ### Testing

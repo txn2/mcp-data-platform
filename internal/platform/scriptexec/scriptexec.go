@@ -52,6 +52,8 @@ import (
 const (
 	logKeyError = "error"
 	logKeyRunID = "run_id"
+	// logKeyAttempt is the run attempt a log line is about.
+	logKeyAttempt = "attempt"
 )
 
 // DefaultRunRetention is how long a terminal run row is kept when the
@@ -409,7 +411,7 @@ func (h *Handle) Start(ctx context.Context) error {
 	h.scheduler.Start(ctx)
 	if h.listener != nil {
 		if err := h.listener.Start(ctx); err != nil {
-			slog.Warn("scripts: run queue listener unavailable; falling back to polling", logKeyError, err)
+			slog.WarnContext(ctx, "scripts: run queue listener unavailable; falling back to polling", logKeyError, err)
 			h.listener = nil
 		}
 	}

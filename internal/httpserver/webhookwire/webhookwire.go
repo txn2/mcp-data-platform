@@ -16,7 +16,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"time"
@@ -92,7 +91,7 @@ func buildFrom(p platformSource, address string, exec whtable.Executor) *Webhook
 		MaxObjectBytes: cfg.Resources.Managed.MaxUploadBytes,
 	})
 	if err != nil || client == nil {
-		log.Printf("Webhooks disabled: no client on the managed-resources connection (%v)", err)
+		slog.Warn("Webhooks disabled: no client on the managed-resources connection", "error", err)
 		return nil
 	}
 	uriScheme := cfg.Resources.Managed.URIScheme
@@ -216,7 +215,7 @@ func (w *Webhooks) Mount(mux *http.ServeMux) {
 		return
 	}
 	mux.Handle(receiver.PathPrefix, w.receiver)
-	log.Println("Webhook receiver enabled on", receiver.PathPrefix)
+	slog.Info("Webhook receiver enabled", "path", receiver.PathPrefix)
 }
 
 // Start begins receiving, compacting, and serving the receiver's own
@@ -237,10 +236,10 @@ func (w *Webhooks) Start(ctx context.Context) {
 	}
 	go func() {
 		if err := w.listener.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("Webhook receiver listener on %s stopped: %v", w.address, err)
+			slog.ErrorContext(ctx, "Webhook receiver listener stopped", "addr", w.address, "error", err)
 		}
 	}()
-	log.Println("Webhook receiver also listening on", w.address)
+	slog.InfoContext(ctx, "Webhook receiver also listening", "addr", w.address)
 }
 
 // Stop ends the listener, answers every request waiting on a segment, and

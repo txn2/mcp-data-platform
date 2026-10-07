@@ -546,7 +546,7 @@ func (h *Handle) listSharedDescriptors(ctx context.Context, email string) []*mcp
 	}
 	refs, err := h.shareStore.ListSharedPromptsWithUser(ctx, "", email)
 	if err != nil {
-		slog.Warn("failed to list shared prompts", logKeyError, err)
+		slog.WarnContext(ctx, "failed to list shared prompts", logKeyError, err)
 		return nil
 	}
 	var out []*mcp.Prompt
@@ -573,7 +573,7 @@ func (h *Handle) listScopedDescriptors(ctx context.Context, filter prompt.ListFi
 	filter.Enabled = &enabled
 	prompts, err := h.store.List(ctx, filter)
 	if err != nil {
-		slog.Warn("failed to list prompts", logKeyError, err, "scope", filter.Scope)
+		slog.WarnContext(ctx, "failed to list prompts", logKeyError, err, "scope", filter.Scope)
 		return nil
 	}
 	out := make([]*mcp.Prompt, 0, len(prompts))
@@ -600,7 +600,7 @@ func (h *Handle) listPersonaDescriptors(ctx context.Context, personas []string) 
 		Scope: prompt.ScopePersona, Personas: personas, Enabled: &enabled,
 	})
 	if err != nil {
-		slog.Warn("failed to list persona prompts", logKeyError, err)
+		slog.WarnContext(ctx, "failed to list persona prompts", logKeyError, err)
 		return nil
 	}
 	var out []*mcp.Prompt

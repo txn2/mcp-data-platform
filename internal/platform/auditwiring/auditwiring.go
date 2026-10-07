@@ -251,7 +251,7 @@ func ProvenQueries(calls *callrecord.PostgresStore) middleware.ProvenQueryLister
 	return func(ctx context.Context, urn, userID string, limit int) []middleware.ProvenQuery {
 		records, err := calls.ForTargets(ctx, []string{urn}, userID, limit)
 		if err != nil {
-			slog.Debug("proven queries unavailable", "urn", urn, "error", err)
+			slog.DebugContext(ctx, "proven queries unavailable", "urn", urn, "error", err)
 			return nil
 		}
 		proven := make([]middleware.ProvenQuery, 0, len(records))

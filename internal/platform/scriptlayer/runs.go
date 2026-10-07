@@ -30,7 +30,7 @@ func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.
 	}
 	runs, err := h.runs.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID, Status: input.RunStatus, Limit: limit})
 	if err != nil {
-		slog.Error("failed to list script runs", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to list script runs", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to list runs"), nil, nil
 	}
 	summaries := make([]map[string]any, 0, len(runs))
@@ -60,7 +60,7 @@ func (h *Handle) handleGetRun(ctx context.Context, input manageScriptInput) (*mc
 		return errorResult("run not found"), nil, nil
 	}
 	if err != nil {
-		slog.Error("failed to read a script run", "run_id", input.RunID, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read a script run", logKeyRunID, input.RunID, logKeyError, err)
 		return errorResult("failed to read the run"), nil, nil
 	}
 	sc, errResult := h.readableRunScript(ctx, run)
@@ -93,7 +93,7 @@ func (h *Handle) handleCancelRun(ctx context.Context, input manageScriptInput) (
 		return errorResult("run not found"), nil, nil
 	}
 	if err != nil {
-		slog.Error("failed to read a script run", "run_id", input.RunID, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read a script run", logKeyRunID, input.RunID, logKeyError, err)
 		return errorResult("failed to read the run"), nil, nil
 	}
 	sc, errResult := h.readableRunScript(ctx, run)
@@ -102,7 +102,7 @@ func (h *Handle) handleCancelRun(ctx context.Context, input manageScriptInput) (
 	}
 	prior, now, err := h.runs.CancelRun(ctx, run.ID, resolveEmail(ctx))
 	if err != nil {
-		slog.Error("failed to cancel a script run", "run_id", run.ID, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to cancel a script run", logKeyRunID, run.ID, logKeyError, err)
 		return errorResult("failed to cancel the run"), nil, nil
 	}
 	return jsonResult(map[string]any{
@@ -121,7 +121,7 @@ func (h *Handle) handleCancelRun(ctx context.Context, input manageScriptInput) (
 func (h *Handle) readableRunScript(ctx context.Context, run *script.Run) (*script.Script, *mcp.CallToolResult) {
 	sc, err := h.store.GetByID(ctx, run.ScriptID)
 	if err != nil {
-		slog.Error("failed to read the script a run belongs to", "run_id", run.ID, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read the script a run belongs to", logKeyRunID, run.ID, logKeyError, err)
 		return nil, errorResult("failed to read the run")
 	}
 	// Whoever asked for a run may read it back, whether or not they own the
@@ -195,7 +195,7 @@ func (h *Handle) handleState(ctx context.Context, input manageScriptInput) (*mcp
 func (h *Handle) stateGet(ctx context.Context, sc *script.Script) (*mcp.CallToolResult, any, error) {
 	st, err := h.states.GetState(ctx, sc.ID)
 	if err != nil {
-		slog.Error("failed to read script state", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read script state", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the script's state"), nil, nil
 	}
 	return jsonResult(stateFields(sc, st, ""))
@@ -215,7 +215,7 @@ func (h *Handle) stateWrite(ctx context.Context, sc *script.Script, action strin
 	}
 	st, err := h.states.SetState(ctx, sc.ID, value, resolveEmail(ctx))
 	if err != nil {
-		slog.Error("failed to write script state", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to write script state", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to write the script's state"), nil, nil
 	}
 	return jsonResult(stateFields(sc, st, script.StateResetMessage(action == stateActionClear)))
@@ -258,7 +258,7 @@ func (h *Handle) liveState(ctx context.Context, sc *script.Script) map[string]an
 	}
 	st, err := h.states.GetState(ctx, sc.ID)
 	if err != nil {
-		slog.Warn("failed to read script state for a draft; the draft reads {}", fieldName, sc.Name, logKeyError, err)
+		slog.WarnContext(ctx, "failed to read script state for a draft; the draft reads {}", fieldName, sc.Name, logKeyError, err)
 		return nil
 	}
 	return st.Value

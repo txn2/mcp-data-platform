@@ -132,7 +132,7 @@ func (s *Source) enumerate(ctx context.Context) ([]Entry, error) {
 		}
 		offset += len(results)
 	}
-	slog.Warn("catalog index: enumeration stopped: entry cap reached; any catalog datasets beyond it are not indexed",
+	slog.WarnContext(ctx, "catalog index: enumeration stopped: entry cap reached; any catalog datasets beyond it are not indexed",
 		"max_entries", s.maxEntries, "indexed", len(out))
 	return out, nil
 }

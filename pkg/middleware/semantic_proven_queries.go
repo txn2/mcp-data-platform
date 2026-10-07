@@ -99,7 +99,7 @@ func (e *semanticEnricher) appendProvenQueries(
 	}
 	payload, err := wirejson.Marshal(map[string]any{"proven_queries": queries})
 	if err != nil {
-		slog.Debug("proven queries not appended", keyError, err)
+		slog.DebugContext(ctx, "proven queries not appended", keyError, err)
 		return result
 	}
 	before := len(result.Content)

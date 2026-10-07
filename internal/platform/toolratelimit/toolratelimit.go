@@ -180,7 +180,7 @@ func (h *Handle) meteredKey(pc *middleware.PlatformContext) string {
 // the RATE_LIMITED result it is answered with.
 func (h *Handle) refuse(ctx context.Context, pc *middleware.PlatformContext) mcp.Result {
 	h.metrics.RecordRateLimited(ctx)
-	slog.Warn("rate limit: tool call refused",
+	slog.WarnContext(ctx, "rate limit: tool call refused",
 		"tool", logsan.SanitizeForLog(pc.ToolName),
 		"user_id", logsan.SanitizeForLog(pc.UserID),
 		"session_id", pc.SessionID,
@@ -205,7 +205,7 @@ func (h *Handle) queue(ctx context.Context, pc *middleware.PlatformContext, key 
 			pc.ToolName, err)
 	}
 	h.metrics.RecordRateLimitQueued(ctx)
-	slog.Info("rate limit: tool call queued",
+	slog.InfoContext(ctx, "rate limit: tool call queued",
 		"tool", logsan.SanitizeForLog(pc.ToolName),
 		"user_id", logsan.SanitizeForLog(pc.UserID),
 		"session_id", pc.SessionID,

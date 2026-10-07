@@ -61,7 +61,7 @@ func recoverToInternalError(ctx context.Context, r any) *mcp.CallToolResult {
 	if pc := GetPlatformContext(ctx); pc != nil {
 		reqID = pc.RequestID
 	}
-	slog.Error("tool call panicked; returning categorized internal error",
+	slog.ErrorContext(ctx, "tool call panicked; returning categorized internal error",
 		"panic", r, "request_id", reqID)
 	return BuildErrorResult(InternalError("the tool call failed unexpectedly"))
 }

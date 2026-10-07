@@ -169,7 +169,7 @@ func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware 
 			// mode Log either enqueues (async) or writes inline within its
 			// per-write timeout (sync); neither fails the tool call.
 			if err := logger.Log(context.Background(), event); err != nil {
-				slog.Error("failed to log audit event",
+				slog.ErrorContext(ctx, "failed to log audit event",
 					"error", err,
 					"tool", event.ToolName,
 					"user_id", event.UserID,

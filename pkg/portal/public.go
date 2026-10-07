@@ -393,7 +393,7 @@ func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *
 
 	existing, err := h.deps.ShareStore.GetActiveShareForTarget(ctx, t.targetType, t.targetID, user.UserID, user.Email)
 	if err != nil {
-		slog.Warn("auto-promote: lookup failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
+		slog.WarnContext(ctx, "auto-promote: lookup failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
 		return false
 	}
 	if existing != nil {
@@ -405,7 +405,7 @@ func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *
 		return false
 	}
 	if err := h.deps.ShareStore.Insert(ctx, &share); err != nil {
-		slog.Warn("auto-promote: insert failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
+		slog.WarnContext(ctx, "auto-promote: insert failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
 		return false
 	}
 	return true
@@ -880,7 +880,7 @@ func collectAssetIDs(coll *Collection) []string {
 func (h *Handler) fetchAssetMap(ctx context.Context, assetIDs []string) map[string]*Asset {
 	result, err := h.deps.AssetStore.GetByIDs(ctx, assetIDs)
 	if err != nil {
-		slog.Warn("fetchAssetMap: batch query failed", "error", err)
+		slog.WarnContext(ctx, "fetchAssetMap: batch query failed", "error", err)
 		return map[string]*Asset{}
 	}
 	return result

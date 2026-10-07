@@ -124,7 +124,7 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 			transientErr = err
 			continue
 		}
-		slog.Debug("chained auth: verification failed for this authenticator, trying next",
+		slog.DebugContext(ctx, "chained auth: verification failed for this authenticator, trying next",
 			"index", i,
 			"type", fmt.Sprintf("%T", auth),
 			"error", err.Error(),

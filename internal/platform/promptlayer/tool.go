@@ -257,7 +257,7 @@ func (h *Handle) handlePromptCreate(ctx context.Context, input managePromptInput
 	}
 
 	if err := h.store.Create(ctx, pr); err != nil {
-		slog.Error("failed to create prompt", promptLogKey, input.Name, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to create prompt", promptLogKey, input.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to create prompt", err), nil, nil
 	}
 
@@ -331,7 +331,7 @@ func (h *Handle) checkCollectionExists(ctx context.Context, collectionID string)
 	}
 	col, err := cs.GetCollection(ctx, collectionID)
 	if err != nil {
-		slog.Error("failed to look up prompt collection", "collection_id", collectionID, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to look up prompt collection", "collection_id", collectionID, promptLogKeyErr, err)
 		return "failed to look up collection"
 	}
 	if col == nil {
@@ -352,7 +352,7 @@ func (h *Handle) assignPromptCollection(ctx context.Context, promptID, collectio
 		if errors.Is(err, prompt.ErrCollectionNotFound) {
 			return fmt.Sprintf("collection %q not found; collections are created and managed in the portal", collectionID)
 		}
-		slog.Error("failed to assign prompt collection", "collection_id", collectionID, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to assign prompt collection", "collection_id", collectionID, promptLogKeyErr, err)
 		return "failed to assign collection"
 	}
 	return ""
@@ -384,7 +384,7 @@ func (h *Handle) persistPromptEdit(ctx context.Context, e promptEdit) (*mcp.Call
 		return promptErrorResult(err.Error()), nil, nil
 	}
 	if err != nil {
-		slog.Error("failed to update prompt", promptLogKey, existing.Name, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to update prompt", promptLogKey, existing.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
 	}
 	// The edit landed (applied, or deferred to a pending draft — placement is
@@ -545,7 +545,7 @@ func (h *Handle) handlePromptDelete(ctx context.Context, input managePromptInput
 
 	existing, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope, input.OwnerEmail)
 	if err != nil {
-		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if existing == nil {
@@ -561,7 +561,7 @@ func (h *Handle) handlePromptDelete(ctx context.Context, input managePromptInput
 	}
 
 	if err := h.store.DeleteByID(ctx, existing.ID); err != nil {
-		slog.Error("failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to delete prompt", err), nil, nil
 	}
 
@@ -610,7 +610,7 @@ func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) 
 
 	prompts, err := h.store.List(ctx, filter)
 	if err != nil {
-		slog.Error("failed to list prompts", promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to list prompts", promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to list prompts", err), nil, nil
 	}
 
@@ -652,7 +652,7 @@ func (h *Handle) listCollections(ctx context.Context) []prompt.Collection {
 	}
 	cols, err := cs.ListCollections(ctx)
 	if err != nil {
-		slog.Warn("failed to list prompt collections", logKeyError, err)
+		slog.WarnContext(ctx, "failed to list prompt collections", logKeyError, err)
 		return nil
 	}
 	return cols
@@ -675,7 +675,7 @@ func (h *Handle) mergeNonAdminExtras(ctx context.Context, prompts []prompt.Promp
 			Enabled:    enabled,
 		})
 		if err != nil {
-			slog.Warn("failed to load own shared prompts", logKeyError, err)
+			slog.WarnContext(ctx, "failed to load own shared prompts", logKeyError, err)
 		} else {
 			prompts = append(prompts, own...)
 		}
@@ -709,7 +709,7 @@ func (h *Handle) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, 
 		Status:  prompt.StatusApproved,
 	})
 	if globalErr != nil {
-		slog.Warn("failed to load global prompts", logKeyError, globalErr)
+		slog.WarnContext(ctx, "failed to load global prompts", logKeyError, globalErr)
 	} else {
 		prompts = append(prompts, globalPrompts...)
 	}
@@ -723,7 +723,7 @@ func (h *Handle) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, 
 			Status:   prompt.StatusApproved,
 		})
 		if personaErr != nil {
-			slog.Warn("failed to load persona prompts", logKeyError, personaErr)
+			slog.WarnContext(ctx, "failed to load persona prompts", logKeyError, personaErr)
 		} else {
 			prompts = append(prompts, personaPrompts...)
 		}
@@ -766,7 +766,7 @@ func (h *Handle) handlePromptSearch(ctx context.Context, input managePromptInput
 		Limit:      input.Limit,
 	})
 	if err != nil {
-		slog.Error("failed to search prompts", promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to search prompts", promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to search prompts", err), nil, nil
 	}
 
@@ -789,7 +789,7 @@ func (h *Handle) handlePromptGet(ctx context.Context, input managePromptInput) (
 
 	pr, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope, input.OwnerEmail)
 	if err != nil {
-		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if pr == nil {

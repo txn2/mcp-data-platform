@@ -65,7 +65,7 @@ func (s *Service) tryIssueLink(ctx context.Context, token string) {
 	now, since := s.claimWindow()
 	count, err := s.links.CountSince(ctx, share.ID, since)
 	if err != nil {
-		slog.Warn("share guest link: issue-cap query failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest link: issue-cap query failed", logKeyError, err, logKeyShareID, share.ID)
 		return
 	}
 	if count >= maxLinksPerWindow {
@@ -73,7 +73,7 @@ func (s *Service) tryIssueLink(ctx context.Context, token string) {
 	}
 	otk, hash, err := mintOTK()
 	if err != nil {
-		slog.Warn("share guest link: token generation failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest link: token generation failed", logKeyError, err, logKeyShareID, share.ID)
 		return
 	}
 	err = s.links.Insert(ctx, Link{
@@ -84,12 +84,12 @@ func (s *Service) tryIssueLink(ctx context.Context, token string) {
 		ExpiresAt: now.Add(LinkTTL),
 	})
 	if err != nil {
-		slog.Warn("share guest link: insert failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest link: insert failed", logKeyError, err, logKeyShareID, share.ID)
 		return
 	}
 	link := s.baseURL + "/portal/view/" + url.PathEscape(share.Token) + "/guest?otk=" + otk
 	if err := s.send(ctx, share.RecipientEmail, link); err != nil {
-		slog.Warn("share guest link: send failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest link: send failed", logKeyError, err, logKeyShareID, share.ID)
 	}
 }
 
@@ -121,13 +121,13 @@ func (s *Service) tryResubscribe(ctx context.Context, token string) {
 		return
 	}
 	if err := s.resubscribe(ctx, share.RecipientEmail); err != nil {
-		slog.Warn("share guest resubscribe: prefs write failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest resubscribe: prefs write failed", logKeyError, err, logKeyShareID, share.ID)
 		return
 	}
 	// The action is unauthenticated by design (its audience is opted-out
 	// recipients the gate refuses), so leave an operator-auditable record of
 	// every successful preference flip.
-	slog.Info("share guest resubscribe: notification delivery resumed", logKeyShareID, share.ID)
+	slog.InfoContext(ctx, "share guest resubscribe: notification delivery resumed", logKeyShareID, share.ID)
 }
 
 // HandleClaim serves GET /portal/view/{token}/guest?otk=...: it claims the
@@ -166,7 +166,7 @@ func (s *Service) claimGuestSession(ctx context.Context, token, otk string) (str
 	now := s.now()
 	claimed, err := s.links.Claim(ctx, hashOTK(otk), share.ID, now)
 	if err != nil {
-		slog.Warn("share guest link: claim failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest link: claim failed", logKeyError, err, logKeyShareID, share.ID)
 		return "", false
 	}
 	if !claimed {
@@ -174,7 +174,7 @@ func (s *Service) claimGuestSession(ctx context.Context, token, otk string) (str
 	}
 	signed, err := s.signGuestSession(share.ID, share.RecipientEmail)
 	if err != nil {
-		slog.Warn("share guest link: session signing failed", logKeyError, err, logKeyShareID, share.ID)
+		slog.WarnContext(ctx, "share guest link: session signing failed", logKeyError, err, logKeyShareID, share.ID)
 		return "", false
 	}
 	return signed, true

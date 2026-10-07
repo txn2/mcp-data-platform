@@ -53,7 +53,7 @@ func (s *Service) ResolveMentions(ctx context.Context, targetType, targetID, bod
 	}
 	eligible, err := s.audience.Eligible(ctx, Target{Type: targetType, ID: targetID}, named)
 	if err != nil {
-		slog.Warn("mention: audience lookup failed; treating mentions as plain text", // #nosec G706 -- structured slog call; values sanitized
+		slog.WarnContext(ctx, "mention: audience lookup failed; treating mentions as plain text", // #nosec G706 -- structured slog call; values sanitized
 			"target_type", logsan.SanitizeForLog(targetType),
 			"error", logsan.SanitizeForLog(err.Error()))
 		return nil

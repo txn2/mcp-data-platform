@@ -19,7 +19,11 @@ import (
 )
 
 // logKeyError is the slog key for error values.
-const logKeyError = "error"
+// Log attribute keys shared by the script tools.
+const (
+	logKeyError = "error"
+	logKeyRunID = "run_id"
+)
 
 // handleCreate creates a script. The source is validated before the row exists,
 // so a script that cannot parse never reaches the store: an unparseable script
@@ -46,7 +50,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	gated.Apply(sc)
 	author := callerAuthor(ctx)
 	if err := h.store.Create(ctx, sc, author); err != nil {
-		slog.Error("failed to create script", fieldName, input.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to create script", fieldName, input.Name, logKeyError, err)
 		return errorResult("failed to create script"), nil, nil
 	}
 	h.keepRecordings(ctx, sc)
@@ -78,7 +82,7 @@ func (h *Handle) saveRequest(ctx context.Context, existing *script.Script, name,
 // retention sweep. A failure is logged: the save landed.
 func (h *Handle) keepRecordings(ctx context.Context, sc *script.Script) {
 	if err := h.gate.Keep(ctx, sc, resolveEmail(ctx)); err != nil {
-		slog.Warn("failed to keep the recordings a script's tests name", fieldName, sc.Name, logKeyError, err)
+		slog.WarnContext(ctx, "failed to keep the recordings a script's tests name", fieldName, sc.Name, logKeyError, err)
 	}
 }
 
@@ -266,7 +270,7 @@ func (h *Handle) handleDelete(ctx context.Context, input manageScriptInput) (*mc
 		return errorResult(inUse.Error()), nil, nil
 	}
 	if err != nil {
-		slog.Error("failed to delete script", fieldName, existing.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to delete script", fieldName, existing.Name, logKeyError, err)
 		return errorResult("failed to delete script"), nil, nil
 	}
 	return jsonResult(map[string]any{
@@ -312,7 +316,7 @@ func (h *Handle) liveRuns(ctx context.Context, sc *script.Script) []map[string]a
 	}
 	runs, err := h.runs.ListRuns(ctx, script.RunFilter{ScriptID: sc.ID, Live: true, Limit: liveRunsLimit})
 	if err != nil {
-		slog.Warn("failed to list a script's live runs", fieldName, sc.Name, logKeyError, err)
+		slog.WarnContext(ctx, "failed to list a script's live runs", fieldName, sc.Name, logKeyError, err)
 		return out
 	}
 	for i := range runs {
@@ -356,7 +360,7 @@ func (h *Handle) handleList(ctx context.Context, input manageScriptInput) (*mcp.
 	}
 	scripts, err := h.store.List(ctx, filter)
 	if err != nil {
-		slog.Error("failed to list scripts", logKeyError, err)
+		slog.ErrorContext(ctx, "failed to list scripts", logKeyError, err)
 		return errorResult("failed to list scripts"), nil, nil
 	}
 	items := make([]map[string]any, 0, len(scripts))

@@ -104,7 +104,7 @@ func (s *Source) resolveContentText(ctx context.Context, id string, row Row) str
 		return row.ContentText
 	}
 	if row.Resource.SizeBytes > resource.MaxContentReadBytes {
-		slog.Info("resource index: content too large to extract; indexing metadata only",
+		slog.InfoContext(ctx, "resource index: content too large to extract; indexing metadata only",
 			logKeyResourceID, id, "size_bytes", row.Resource.SizeBytes) // #nosec G706 -- server-generated id and size, not user input
 		s.settleContent(ctx, id, row, row.ContentText)
 		return row.ContentText
@@ -114,12 +114,12 @@ func (s *Source) resolveContentText(ctx context.Context, id string, row Row) str
 	switch {
 	case err == nil:
 	case resource.IsObjectNotFound(err):
-		slog.Warn("resource index: backing object missing; indexing metadata only",
+		slog.WarnContext(ctx, "resource index: backing object missing; indexing metadata only",
 			logKeyResourceID, id) // #nosec G706 -- server-generated id, not user input
 		s.settleContent(ctx, id, row, "")
 		return ""
 	default:
-		slog.Warn("resource index: blob read failed; leaving the content pass owed for the next sweep",
+		slog.WarnContext(ctx, "resource index: blob read failed; leaving the content pass owed for the next sweep",
 			logKeyResourceID, id, "error", err) //nolint:gosec // structured slog of a store error
 		return row.ContentText
 	}
@@ -153,7 +153,7 @@ func (s *Source) settleContent(ctx context.Context, id string, row Row, next str
 		return
 	}
 	if err := s.store.SetContentText(ctx, id, next); err != nil {
-		slog.Warn("resource index: persisting extracted content failed",
+		slog.WarnContext(ctx, "resource index: persisting extracted content failed",
 			logKeyResourceID, id, "error", err) //nolint:gosec // structured slog of a store error
 	}
 }

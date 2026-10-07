@@ -1,4 +1,4 @@
-# Observability (Prometheus metrics and distributed tracing)
+# Observability (Prometheus metrics, distributed tracing, correlated logs)
 
 mcp-data-platform exposes operational metrics in Prometheus format on a
 dedicated HTTP listener, plus optional OpenTelemetry distributed tracing.
@@ -32,6 +32,56 @@ Phase 1.
 |---|---|---|
 | `OTEL_METRICS_ENABLED` | `true`  | Master switch. Set to `false` (or `0`) to skip MeterProvider construction and not start the listener. |
 | `OTEL_METRICS_ADDR`    | `:9090` | Bind address for the `/metrics` HTTP listener. |
+| `OTEL_METRICS_EXPORTER` | `prometheus` | Where metrics go: `prometheus` (the `/metrics` listener), `otlp` (pushed to the collector at `OTEL_EXPORTER_OTLP_ENDPOINT`; no listener), or `both`. An unrecognized value is `prometheus`, so a typo cannot switch the scrape off. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Milliseconds between OTLP pushes, read by the SDK's periodic reader as the OpenTelemetry specification defines it. |
+
+The OTLP push is a second reader on the same `MeterProvider`, so the two
+paths see the same instruments and the same values; the endpoint is the one
+the tracer and the log export use ([OTLP endpoint](#otlp-endpoint)). The
+collector it reaches needs a `metrics` pipeline on its OTLP receiver (and a
+`logs` one for the log export below); the example in
+`deployments/observability/otel-collector.yaml` carries traces alone until
+the turn-key bundle ticket of the observability epic extends it, and a
+collector without the pipeline answers each push with an error the platform
+logs and drops.
+
+### Resource attributes
+
+Every signal the platform emits, a metric, a span or a log record, carries
+one resource that identifies the process it came from:
+
+| Attribute | Source |
+|---|---|
+| `service.name` | `OTEL_SERVICE_NAME`, else `service.name` in `OTEL_RESOURCE_ATTRIBUTES`, else `mcp-data-platform` |
+| `service.version` | the build's version |
+| `service.instance.id` | the hostname (the pod name on Kubernetes), else a UUID minted at boot |
+| `vcs.ref.head.revision` | the build's commit |
+| `deployment.environment.name` | `MCP_PLATFORM_DEPLOYMENT_ENVIRONMENT`, else the key in `OTEL_RESOURCE_ATTRIBUTES` |
+| `mcp_platform.deployment.id` | `MCP_PLATFORM_DEPLOYMENT_ID`, else the key in `OTEL_RESOURCE_ATTRIBUTES` |
+
+`OTEL_RESOURCE_ATTRIBUTES` is merged in full, so an operator's own keys
+(`team=data`) ride along; the platform's two variables win over the same
+key there, as `OTEL_SERVICE_NAME` wins over `service.name` there. The key
+names are from semantic conventions 1.44.0: `deployment.environment.name`
+is the Stable key that replaced `deployment.environment`, and
+`vcs.ref.head.revision` the Release Candidate key that replaced
+`vcs.repository.ref.revision`. `mcp_platform.deployment.id` is the
+platform's own: the stable name of one deployment across its replicas and
+restarts, which a fleet backend receiving several deployments' signals
+tells them apart by. Startup logs a warning when an OTLP exporter is on and
+nothing sets it.
+
+On `/metrics` the resource is exposed as `target_info` (the Prometheus
+convention for resource attributes, with the keys' dots as underscores:
+`target_info{service_name="mcp-data-platform",mcp_platform_deployment_id="a",...} 1`),
+so a Prometheus reader identifies the process the same way an OTLP backend
+does; join on it with `on (job, instance) group_left(...)`. The build is also
+its own metric, the conventional constant gauge a dashboard reads version
+drift from:
+
+```
+mcp_platform_build_info{version="1.142.0",commit="b23841b9",go_version="go1.26.6"} 1
+```
 
 The listener is intentionally separate from the platform's main MCP/HTTP
 listener so:
@@ -553,14 +603,47 @@ tool calls).
 | Env var | Default | Meaning |
 |---|---|---|
 | `OTEL_TRACES_ENABLED` | `false` | Enable the tracer and install the global OTel `TracerProvider`. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC collector address (`host:port`). |
-| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Disable transport TLS (the common in-cluster topology). Set `false` for a TLS remote collector. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | The OTLP/gRPC collector, in either form the specification defines; see [OTLP endpoint](#otlp-endpoint). |
+| `OTEL_EXPORTER_OTLP_INSECURE` | unset | Transport TLS to the collector; see [OTLP endpoint](#otlp-endpoint). |
 | `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Head-based sampling ratio in `[0,1]` applied to root spans. See [Sampling](#sampling): a deployment that tail-samples in its collector sets `1.0`. |
-| `OTEL_SERVICE_NAME` | `mcp-data-platform` | `service.name` resource attribute on every span. |
+| `OTEL_SERVICE_NAME` | `mcp-data-platform` | `service.name` on every signal; see [Resource attributes](#resource-attributes). |
 | `OTEL_TRACES_INCLUDE_USER_EMAIL` | `false` | Put the caller's email address on the tool-call span as `mcp.user_email`. The user id is always there; the address is personal data a trace backend would otherwise hold for every call. |
 
 The OTLP exporter connects lazily: an unreachable or unconfigured collector
 never blocks or fails startup; spans are batched and dropped if undeliverable.
+
+### OTLP endpoint
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` is parsed once and feeds the trace exporter,
+the metrics push and the log export, in either form the OpenTelemetry
+specification defines:
+
+- `host:port` (`otel-collector:4317`): plaintext, the common in-cluster
+  topology, unless `OTEL_EXPORTER_OTLP_INSECURE=false`.
+- a URL (`http://otel-collector:4317`, `https://collector.example.com`):
+  the scheme chooses TLS. `OTEL_EXPORTER_OTLP_INSECURE`, when set, decides
+  instead, for either scheme.
+
+Unset, `OTEL_EXPORTER_OTLP_INSECURE` leaves the choice to the form; it has
+no default of its own.
+
+### Continuing a caller's trace
+
+A `tools/call` that arrives with W3C trace context continues the caller's
+trace rather than starting one: the span's trace id is the caller's and its
+parent is the caller's span, and a sampled parent keeps the whole trace
+through the `ParentBased` sampler whatever `OTEL_TRACES_SAMPLER_ARG` says.
+The context is read from two places, the request's own winning:
+
+1. `params._meta.traceparent` and `params._meta.tracestate`, where the MCP
+   semantic conventions carry trace context;
+2. the `traceparent` and `tracestate` HTTP headers of the request that
+   carried the call, on the HTTP transports.
+
+An agent runtime that opens a span per tool call and propagates it, or an
+HTTP client instrumented with OpenTelemetry, gets one trace from the
+agent's step through the platform's span to the Trino query, with nothing
+to configure on the platform.
 
 ### Span tree
 
@@ -568,7 +651,7 @@ Each tool call produces one trace:
 
 ```mermaid
 graph TD
-    Root["tool_call (root)"] --> Enrich["enrichment (cross-service fan-out)"]
+    Root["tools/call {tool} (root)"] --> Enrich["enrichment (cross-service fan-out)"]
     Root --> Trino["trino.&lt;query_kind&gt;"]
     Root --> DataHub["datahub.&lt;operation&gt;"]
     Root --> S3["s3.&lt;operation&gt;"]
@@ -578,18 +661,32 @@ graph TD
 
 - **Root span** is opened by the tracing middleware, outer to auth and the
   gates, so a refused call has its span too; it reads the identity auth
-  resolved after the call returns. Its name is the fixed, low-cardinality
-  `tool_call`
-  (the specific tool is on the `mcp.tool` attribute, not the span name, so all
-  tool calls share one queryable name). It holds the bounded attributes that
-  mirror the metric labels (`mcp.tool`,
-  `mcp.toolkit_kind`, `mcp.persona`, `status_category`) **plus** the
-  high-cardinality fields that are deliberately kept off Prometheus labels —
-  `mcp.user_id`, `mcp.session_id`, `mcp.request_id`,
-  `mcp.connection`, `mcp.transport`, `mcp.source`, and the enrichment summary.
-  This is the whole point of spans: per-request detail a label set cannot carry.
-  The caller's email address is not among them unless the deployment sets
-  `OTEL_TRACES_INCLUDE_USER_EMAIL=true`.
+  resolved after the call returns. Its name follows the MCP semantic
+  conventions, `{mcp.method.name} {target}`: `tools/call trino_query`. The
+  target is the bounded tool name (the registered name, `unregistered` for a
+  name no toolkit registers, `unknown` for a call that carried none), so a
+  caller cannot mint a span name per invented tool and the name set stays
+  the size of the tool set. It holds the convention's keys,
+  `mcp.method.name`, `gen_ai.operation.name=execute_tool`,
+  `gen_ai.tool.name`, `mcp.session.id` and `mcp.protocol.version`, with
+  `error.type` (the bounded error category) on a failed call only; the
+  bounded attributes that mirror the metric labels (`mcp.toolkit_kind`,
+  `mcp.persona`, `status_category`); **plus** the high-cardinality fields
+  that are deliberately kept off Prometheus labels — `mcp.user_id`,
+  `mcp.request_id`, `mcp.connection`, `mcp.transport`, `mcp.source`, and the
+  enrichment summary. This is the whole point of spans: per-request detail a
+  label set cannot carry. The caller's email address is not among them unless
+  the deployment sets `OTEL_TRACES_INCLUDE_USER_EMAIL=true`.
+
+  Two keys predate the conventions and are kept for one release beside them:
+  `mcp.tool` (now `gen_ai.tool.name`) and `mcp.session_id` (now
+  `mcp.session.id`). A query on either should move; both are removed in the
+  release after this one. Before this release the span was named `tool_call`;
+  a query on that name moves to the `tools/call` prefix (the examples below).
+  The conventions' metrics, `mcp.server.operation.duration` and
+  `mcp.server.session.duration`, are not emitted: the first would duplicate
+  `mcp_tool_call_duration_seconds` series for series, and session duration is
+  on the session store's rows.
 - **Child spans** nest under the root via context propagation: the cross-service
   `enrichment` fan-out, and one span per upstream call to Trino
   (`trino.<query_kind>`), DataHub (`datahub.<operation>`), and S3
@@ -606,7 +703,7 @@ characters stripped, and the text cut at 256 bytes. The full text stays on
 the audit row and in the platform's log.
 
 > Not every external call has its own child span yet. The apigateway toolkit's
-> outbound HTTP calls are captured by the root `tool_call` span (an
+> outbound HTTP calls are captured by the root `tools/call` span (an
 > `api_invoke_endpoint` call is itself a tool call) but do not yet emit a
 > dedicated outbound span like Trino/DataHub/S3 do — that is a follow-up. The
 > inbound OAuth 2.1 server and the asynchronous audit write run outside a tool
@@ -639,9 +736,67 @@ where two of the alert's three series are absent.
 In Tempo (TraceQL), find slow Trino-backed tool calls:
 
 ```
-{ name = "tool_call" && .mcp.toolkit_kind = "trino" && duration > 2s }
+{ name =~ "tools/call .*" && .mcp.toolkit_kind = "trino" && duration > 2s }
 ```
 
-In Jaeger, filter by service `mcp-data-platform`, operation `tool_call`, and tag
-`status_category=upstream_err` to see failed calls with their full child-span
-breakdown.
+Or one tool by its name, `{ name = "tools/call trino_query" && duration > 2s }`.
+
+In Jaeger, filter by service `mcp-data-platform`, operation `tools/call
+trino_query`, and tag `status_category=upstream_err` to see failed calls with
+their full child-span breakdown.
+
+## Logs
+
+The platform logs JSON to stderr, one record per line, at `LOG_LEVEL`
+(`debug`, `info`, `warn`, `error`; default `info`). Every record written on a
+tool call's path carries `trace_id` and `span_id`: the ids of the span the
+call's context carries, so a stderr line and the span of the call that wrote
+it are joined by one id, in a log backend that indexes `trace_id` (Loki's
+derived fields, ClickStack, Elastic) as well as by `grep`.
+
+```json
+{"time":"...","level":"WARN","msg":"tool call authorization denied","tool":"list_connections","user_id":"apikey:analyst","persona":"inventory-analyst","trace_id":"0af7651916cd43dd8448eb211c80319c","span_id":"b7ad6b7169203331"}
+```
+
+A record logged outside a tool call (a background loop, startup) has no span
+and so no ids; the background-work ticket of the observability epic gives
+those loops their spans.
+
+### Exporting log records over OTLP
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OTEL_LOGS_EXPORTER` | `none` | `otlp` sends every record the stderr handler accepts to the collector at `OTEL_EXPORTER_OTLP_ENDPOINT` as well, through the OpenTelemetry slog bridge, at the same `LOG_LEVEL`. Anything else keeps stderr the only sink. |
+
+An exported record carries the [resource](#resource-attributes), the record's
+attributes, and the trace and span ids of the span its context carries (as
+OTLP fields, not attributes), so a backend that holds traces and logs
+together joins them without parsing. The Go logs SDK (`otel/sdk/log`) is
+stable at v1.47; the slog bridge (`contrib/bridges/otelslog`) is at v0.21 and
+pre-v1, so its API, not the wire format, may still change between releases.
+Stderr stays the primary sink either way: the export is a second copy, and
+an unreachable collector costs a dropped batch, never a blocked log call.
+
+### Collecting stderr
+
+Where the OTLP export is off, the collector reads stderr where the runtime
+put it. On Kubernetes the collector's `filelog` receiver with the `container`
+parser reads `/var/log/pods/*/*/*.log`, undoes the runtime's framing and
+leaves the platform's JSON line as the body; a `json_parser` operator over it
+lifts `trace_id`, `span_id`, `level` and `msg` into the record. In Compose,
+the `json-file` logging driver (the default) writes the same lines under
+`/var/lib/docker/containers/<id>/<id>-json.log`, which the same receiver
+reads. The turn-key collector bundle of the observability epic ships those
+pipelines; until then the receiver configuration is the collector's own.
+
+### Writing a log line
+
+Every `slog` call in a function that has a `context.Context` uses the
+`Context` form (`slog.InfoContext(ctx, ...)`), or the record cannot carry its
+trace. The rule in `.semgrep/go-slog-context.yml`, run by `make semgrep` and
+CI over `pkg/middleware`, `pkg/platform`, `internal/platform`,
+`internal/httpserver`, `internal/admin`, `pkg/portal`, `pkg/admin`, `pkg/oauth`
+and `pkg/auth`, refuses a context-less `slog.Info/Warn/Error/Debug` in such a
+function, inside its closures too; a function with no context parameter and
+the blank identifier (`_ context.Context`) are out of its scope. A package
+added to the rule has every covered call converted in the same change.

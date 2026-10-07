@@ -168,7 +168,7 @@ func (b *Book) ForRun(ctx context.Context, address string) string {
 	}
 	subject, err := b.store.Lookup(ctx, key)
 	if err != nil {
-		slog.Warn("identity subjects: lookup failed; the run files by address",
+		slog.WarnContext(ctx, "identity subjects: lookup failed; the run files by address",
 			"error", logsan.SanitizeForLog(err.Error()))
 		return ""
 	}
@@ -194,18 +194,18 @@ func (b *Book) foldInto(ctx context.Context, address, subject string) {
 	actor := resource.Claims{Sub: subject, Email: address}
 	fold, err := resource.FoldLibrary(ctx, *deps, from, to, actor)
 	if err != nil {
-		slog.Warn("identity subjects: folding the address-keyed library failed",
+		slog.WarnContext(ctx, "identity subjects: folding the address-keyed library failed",
 			"error", logsan.SanitizeForLog(err.Error()))
 	}
 	if fold == nil {
 		return
 	}
 	for _, e := range fold.Moved {
-		slog.Info("identity subjects: refiled a resource into the subject-keyed library",
+		slog.InfoContext(ctx, "identity subjects: refiled a resource into the subject-keyed library",
 			"resource_id", e.ID, "from", logsan.SanitizeForLog(e.FromURI), "to", logsan.SanitizeForLog(e.URI))
 	}
 	for _, e := range fold.Skipped {
-		slog.Warn("identity subjects: a resource stays in the address-keyed library; its path is taken in the subject-keyed one",
+		slog.WarnContext(ctx, "identity subjects: a resource stays in the address-keyed library; its path is taken in the subject-keyed one",
 			"resource_id", e.ID, "uri", logsan.SanitizeForLog(e.URI))
 	}
 }

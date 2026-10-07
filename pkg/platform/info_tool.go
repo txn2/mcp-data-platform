@@ -347,7 +347,7 @@ func (p *Platform) mintSessionHandle(ctx context.Context, persona string) (id, e
 	}
 	sess, err := session.MintHandle(ctx, store, userID, persona, p.config.Sessions.Handles.HandleTTL())
 	if err != nil {
-		slog.Error("platform_info: failed to mint session handle", "error", err)
+		slog.ErrorContext(ctx, "platform_info: failed to mint session handle", "error", err)
 		return "", ""
 	}
 	return sess.ID, sess.ExpiresAt.UTC().Format(time.RFC3339)

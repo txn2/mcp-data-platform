@@ -238,7 +238,7 @@ func (s *PostgresStore) Close() error {
 func (s *PostgresStore) sweepTick(ctx context.Context) bool {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		slog.Warn("call catalog: acquire connection for the retention lock", "error", err)
+		slog.WarnContext(ctx, "call catalog: acquire connection for the retention lock", "error", err)
 		return true
 	}
 	defer func() { _ = conn.Close() }()
@@ -246,7 +246,7 @@ func (s *PostgresStore) sweepTick(ctx context.Context) bool {
 	var acquired bool
 	if err := conn.QueryRowContext(ctx,
 		"SELECT pg_try_advisory_lock($1)", sweepLockKey).Scan(&acquired); err != nil {
-		slog.Warn("call catalog: try retention lock", "error", err)
+		slog.WarnContext(ctx, "call catalog: try retention lock", "error", err)
 		return true
 	}
 	if !acquired {
@@ -257,17 +257,17 @@ func (s *PostgresStore) sweepTick(ctx context.Context) bool {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
 		defer cancel()
 		if _, err := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", sweepLockKey); err != nil {
-			slog.Warn("call catalog: release retention lock", "error", err)
+			slog.WarnContext(ctx, "call catalog: release retention lock", "error", err)
 		}
 	}()
 
 	removed, err := s.Cleanup(ctx)
 	if err != nil {
-		slog.Warn("call catalog: sweep expired records", "error", err)
+		slog.WarnContext(ctx, "call catalog: sweep expired records", "error", err)
 		return true
 	}
 	if removed > 0 {
-		slog.Info("call catalog: swept records that came to nothing",
+		slog.InfoContext(ctx, "call catalog: swept records that came to nothing",
 			"removed", removed, "retention_days", s.retentionDays,
 			"excluded_personas", len(s.excluded.Personas()))
 	}

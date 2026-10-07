@@ -17,7 +17,7 @@ package httpserver
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/apiwire"
@@ -62,7 +62,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		return nil
 	}
 	if p.PortalAssetStore() == nil || p.PortalShareStore() == nil {
-		log.Println("Portal enabled but stores not available (database required)")
+		slog.Warn("Portal enabled but stores not available (database required)")
 		return nil
 	}
 
@@ -198,7 +198,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// resources API, so it is mounted once here rather than beside each.
 	mountTableAPI(mux, p, wrap, adminRoles)
 	wireTableToolRegistrar(p, adminRoles)
-	log.Println("Portal API enabled on /api/v1/portal/ (persona required)")
+	slog.Info("Portal API enabled on /api/v1/portal/ (persona required)")
 	return nil
 }
 
@@ -501,7 +501,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	handler := resource.NewHandler(deps, extractClaims, nil)
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
-	log.Println("Managed resources API enabled on /api/v1/resources")
+	slog.Info("Managed resources API enabled on /api/v1/resources")
 }
 
 // mountMentionAPI registers the people and mention routes with the portal's

@@ -279,7 +279,7 @@ func (h *Handler) liveState(ctx context.Context, sc *script.Script) map[string]a
 	}
 	st, err := h.deps.States.GetState(ctx, sc.ID)
 	if err != nil {
-		slog.Warn("failed to read script state for a draft; the draft reads {}", "script_id", sc.ID, "error", err)
+		slog.WarnContext(ctx, "failed to read script state for a draft; the draft reads {}", "script_id", sc.ID, "error", err)
 		return nil
 	}
 	return st.Value

@@ -284,7 +284,7 @@ func (r *Recorder) SaveTo(ctx context.Context, store Store, m Meta) bool {
 	data, reason := r.Finish()
 	m.Reason = reason
 	if err := store.Save(ctx, Stored{Meta: m, Data: data}); err != nil {
-		slog.Warn("scripts: keeping a run's recording failed", "run_id", m.RunID, "error", err)
+		slog.WarnContext(ctx, "scripts: keeping a run's recording failed", "run_id", m.RunID, "error", err)
 		return false
 	}
 	return reason == ""

@@ -84,7 +84,7 @@ func (p *Platform) WireAdminSelfConnection(listenAddr string) {
 			// Non-fatal: a failed self-connection must not block startup.
 			// The admin can still use the Portal; the error is logged for
 			// diagnosis and the next boot retries.
-			slog.Warn("platform-admin self-connection: seed failed", "error", err)
+			slog.WarnContext(ctx, "platform-admin self-connection: seed failed", "error", err)
 		}
 		return nil
 	})
@@ -144,7 +144,7 @@ func (p *Platform) seedAdminSelfConnection(
 		if _, eerr := enqueuer.Enqueue(ctx, catalogindex.SpecKey{
 			CatalogID: adminSelfCatalogID, SpecName: adminSelfSpecName,
 		}, catalogindex.KindSpecWrite); eerr != nil {
-			slog.Warn("platform-admin self-connection: enqueue embedding failed", "error", eerr)
+			slog.WarnContext(ctx, "platform-admin self-connection: enqueue embedding failed", "error", eerr)
 		}
 	}
 
@@ -152,7 +152,7 @@ func (p *Platform) seedAdminSelfConnection(
 		return fmt.Errorf("registering connection: %w", err)
 	}
 
-	slog.Info("platform-admin self-connection: registered",
+	slog.InfoContext(ctx, "platform-admin self-connection: registered",
 		"connection", adminSelfConnectionName, "base_url", baseURL, "operations", opCount)
 	return nil
 }

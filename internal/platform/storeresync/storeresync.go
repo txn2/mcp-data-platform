@@ -98,7 +98,7 @@ func Personas[D any, PD interface {
 	}
 	defs, err := store.List(ctx)
 	if err != nil {
-		slog.Warn("failed to load DB personas", logKeyError, err)
+		slog.WarnContext(ctx, "failed to load DB personas", logKeyError, err)
 		return
 	}
 	stored := make([]*persona.Persona, 0, len(defs))
@@ -112,11 +112,11 @@ func Personas[D any, PD interface {
 			per.Source = src.Both
 		}
 		if err := reg.Register(per); err != nil {
-			slog.Warn("failed to load DB persona", logKeyName, per.Name, logKeyError, err)
+			slog.WarnContext(ctx, "failed to load DB persona", logKeyName, per.Name, logKeyError, err)
 		}
 	}
 	if len(stored) > 0 {
-		slog.Info("loaded DB persona overrides", "count", len(stored))
+		slog.InfoContext(ctx, "loaded DB persona overrides", "count", len(stored))
 	}
 }
 

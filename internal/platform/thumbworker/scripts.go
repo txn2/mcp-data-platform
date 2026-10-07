@@ -115,7 +115,7 @@ func (w *Worker) drawScript(ctx context.Context, s scripttiles.Work) error {
 	}
 	key := scripttiles.Key(w.deps.CollectionPrefix, s.ScriptID, scripttiles.VariantLight)
 	if err := w.deps.Scripts.Record(ctx, s.ScriptID, s.Version, key, ScriptRenderer); err != nil {
-		slog.Error("thumbnails: recording a script's tile failed", logKeyScript, logsan.SanitizeForLog(s.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(ctx, "thumbnails: recording a script's tile failed", logKeyScript, logsan.SanitizeForLog(s.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ const logKeyScript = "script"
 
 func (w *Worker) failScript(ctx context.Context, s scripttiles.Work, reason string) {
 	if err := w.deps.Scripts.RecordFailure(ctx, s.ScriptID, s.Version, reason); err != nil {
-		slog.Error("thumbnails: recording a script's failure failed", logKeyScript, logsan.SanitizeForLog(s.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(ctx, "thumbnails: recording a script's failure failed", logKeyScript, logsan.SanitizeForLog(s.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
 
@@ -165,7 +165,7 @@ func parseReason(g scriptflow.Graph) string {
 func (w *Worker) sweepScripts(ctx context.Context) {
 	orphans, err := w.deps.Scripts.Orphans(ctx, orphanBatch)
 	if err != nil {
-		slog.Error("thumbnails: listing deleted scripts' tiles failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(ctx, "thumbnails: listing deleted scripts' tiles failed", logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	for _, o := range orphans {
@@ -173,7 +173,7 @@ func (w *Worker) sweepScripts(ctx context.Context) {
 			continue
 		}
 		if err := w.deps.Scripts.Forget(ctx, o.ScriptID); err != nil {
-			slog.Error("thumbnails: forgetting a deleted script's tile failed", logKeyScript, logsan.SanitizeForLog(o.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.ErrorContext(ctx, "thumbnails: forgetting a deleted script's tile failed", logKeyScript, logsan.SanitizeForLog(o.ScriptID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
 }
@@ -186,7 +186,7 @@ func (w *Worker) removeScriptTiles(ctx context.Context, lightKey string) bool {
 		err := w.deps.AssetBlobs.DeleteObject(sctx, w.deps.CollectionBucket, key)
 		cancel()
 		if err != nil {
-			slog.Error("thumbnails: removing a deleted script's tile failed", "key", logsan.SanitizeForLog(key), logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.ErrorContext(ctx, "thumbnails: removing a deleted script's tile failed", "key", logsan.SanitizeForLog(key), logKeyError, logsan.SanitizeForLog(err.Error()))
 			return false
 		}
 	}

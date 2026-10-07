@@ -288,7 +288,7 @@ func (w *worker) Start(_ context.Context) {
 func (w *worker) Stop(ctx context.Context) {
 	w.stopOnce.Do(func() { close(w.stopCh) })
 	if w.inFlight.Load() > 0 && !w.awaitIdle(drainWindow(ctx)) {
-		slog.Info("scripts: the drain window is spent; canceling and releasing the runs still executing")
+		slog.InfoContext(ctx, "scripts: the drain window is spent; canceling and releasing the runs still executing")
 	}
 	w.cancelRun()
 	w.wg.Wait()
@@ -396,11 +396,11 @@ func (w *worker) maybePurge(ctx context.Context) {
 	w.lastPurge = time.Now()
 	purged, err := w.cfg.runs.PurgeRuns(ctx, w.cfg.retention)
 	if err != nil {
-		slog.Warn("scripts: run retention sweep failed", logKeyError, err)
+		slog.WarnContext(ctx, "scripts: run retention sweep failed", logKeyError, err)
 		return
 	}
 	if purged > 0 {
-		slog.Info("scripts: run retention sweep", "rows", purged, "retention", w.cfg.retention)
+		slog.InfoContext(ctx, "scripts: run retention sweep", "rows", purged, "retention", w.cfg.retention)
 	}
 	w.purgeRecordings(ctx)
 }
@@ -412,11 +412,11 @@ func (w *worker) purgeRecordings(ctx context.Context) {
 	}
 	purged, err := w.cfg.recordings.Purge(ctx, w.cfg.retention)
 	if err != nil {
-		slog.Warn("scripts: recording retention sweep failed", logKeyError, err)
+		slog.WarnContext(ctx, "scripts: recording retention sweep failed", logKeyError, err)
 		return
 	}
 	if purged > 0 {
-		slog.Info("scripts: recording retention sweep", "rows", purged, "retention", w.cfg.retention)
+		slog.InfoContext(ctx, "scripts: recording retention sweep", "rows", purged, "retention", w.cfg.retention)
 	}
 }
 
@@ -435,18 +435,18 @@ func (w *worker) maybeFailAbandoned(ctx context.Context) {
 	failed, err := w.cfg.runs.FailAbandoned(ctx, w.cfg.maxReclaims)
 	if err != nil {
 		if ctx.Err() == nil {
-			slog.Warn("scripts: failing runs whose workers stopped failed", logKeyError, err)
+			slog.WarnContext(ctx, "scripts: failing runs whose workers stopped failed", logKeyError, err)
 		}
 		return
 	}
 	for i := range failed {
 		run := &failed[i]
-		slog.Warn("scripts: failed a run whose workers kept stopping without a result", // #nosec G706 -- structured slog call; error sanitized
+		slog.WarnContext(ctx, "scripts: failed a run whose workers kept stopping without a result", // #nosec G706 -- structured slog call; error sanitized
 			logKeyRunID, run.ID, "reclaims", run.Reclaims, logKeyError, logsan.SanitizeForLog(run.Error))
 		w.cfg.metrics.RecordScriptRunReclaim(ctx, observability.ReclaimFailed)
 		sc, readErr := w.cfg.scripts.GetByID(ctx, run.ScriptID)
 		if readErr != nil {
-			slog.Warn("scripts: reading the script of an abandoned run failed", logKeyRunID, run.ID, logKeyError, readErr)
+			slog.WarnContext(ctx, "scripts: reading the script of an abandoned run failed", logKeyRunID, run.ID, logKeyError, readErr)
 		}
 		result := script.RunResult{Status: script.RunStatusFailed, Error: run.Error, Log: run.Log, Cause: runstate.CauseWorkerLost}
 		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
@@ -467,7 +467,7 @@ func (w *worker) processNext(ctx context.Context) bool {
 		// A claim that failed because the worker is shutting down is not a fault
 		// worth reporting; every stop would log one.
 		if ctx.Err() == nil {
-			slog.Warn("scripts: claiming a run failed", logKeyError, err)
+			slog.WarnContext(ctx, "scripts: claiming a run failed", logKeyError, err)
 		}
 		return false
 	}
@@ -485,8 +485,8 @@ func (w *worker) processNext(ctx context.Context) bool {
 	}
 	if run.Reclaimed {
 		// The worker that held it stopped without reporting a result.
-		slog.Warn("scripts: took over a run whose worker stopped without a result",
-			logKeyRunID, run.ID, "attempt", run.Attempt, "reclaims", run.Reclaims)
+		slog.WarnContext(ctx, "scripts: took over a run whose worker stopped without a result",
+			logKeyRunID, run.ID, logKeyAttempt, run.Attempt, "reclaims", run.Reclaims)
 		w.cfg.metrics.RecordScriptRunReclaim(ctx, observability.ReclaimReexecuted)
 	}
 	w.cfg.metrics.RecordScriptQueueWait(ctx, queueWait(run))
@@ -585,8 +585,8 @@ func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) {
 	w.cfg.metrics.ScriptRunStarted(ctx)
 	defer w.cfg.metrics.ScriptRunFinished(ctx)
 	started := time.Now()
-	slog.Info("scripts: running", logKeyRunID, run.ID,
-		"script_id", logsan.SanitizeForLog(run.ScriptID), "version", run.Version, "attempt", run.Attempt)
+	slog.InfoContext(ctx, "scripts: running", logKeyRunID, run.ID,
+		"script_id", logsan.SanitizeForLog(run.ScriptID), "version", run.Version, logKeyAttempt, run.Attempt)
 	sc, v, loadErr := w.load(ctx, run)
 	var outcome attempt
 	switch {
@@ -713,7 +713,7 @@ func (w *worker) resolve(run *script.Run, a attempt) bool {
 	if a.retryable && run.Attempt < w.cfg.maxAttempts {
 		backoff := computeBackoff(run.Attempt)
 		slog.Warn("scripts: run failed on a platform fault; retrying",
-			logKeyRunID, run.ID, "attempt", run.Attempt, "backoff", backoff, logKeyError, a.result.Error)
+			logKeyRunID, run.ID, logKeyAttempt, run.Attempt, "backoff", backoff, logKeyError, a.result.Error)
 		outcome := cmp.Or(a.requeue, runstate.AttemptRetried)
 		if err := w.cfg.runs.Retry(ctx, run.Lease(), outcome, a.result.Error, backoff); err != nil {
 			logLeaseAware("scripts: returning a run to the queue failed", run, err)
@@ -734,7 +734,7 @@ func (w *worker) resolve(run *script.Run, a attempt) bool {
 // the same reason: a restart is not an attempt at the work. Its caller bounds
 // the write.
 func (w *worker) release(ctx context.Context, run *script.Run) {
-	slog.Info("scripts: releasing a run at shutdown", logKeyRunID, run.ID, "attempt", run.Attempt)
+	slog.InfoContext(ctx, "scripts: releasing a run at shutdown", logKeyRunID, run.ID, logKeyAttempt, run.Attempt)
 	if err := w.cfg.runs.Retry(ctx, run.Lease(), runstate.AttemptReleased,
 		"the worker executing this run shut down; it was requeued", 0); err != nil {
 		// Nothing more to do: the lease expires on its own and another replica

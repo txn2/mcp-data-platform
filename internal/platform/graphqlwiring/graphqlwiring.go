@@ -97,7 +97,7 @@ func Wire(ctx context.Context, d Deps) {
 	for _, tk := range toolkits {
 		tk.HydrateSchemas(ctx)
 	}
-	slog.Info("graphql connections wired",
+	slog.InfoContext(ctx, "graphql connections wired",
 		"toolkits", len(toolkits), "schema_store", store != nil)
 }
 
@@ -113,7 +113,7 @@ func ReloadStoredSchema(ctx context.Context, reg *registry.Registry, name string
 			continue
 		}
 		if err := tk.LoadStoredSchema(ctx, name); err != nil {
-			slog.Warn("graphql: loading the stored schema a peer announced failed",
+			slog.WarnContext(ctx, "graphql: loading the stored schema a peer announced failed",
 				"connection", logsan.SanitizeForLog(name), "error", logsan.SanitizeForLog(err.Error()))
 		}
 	}

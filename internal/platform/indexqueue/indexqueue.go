@@ -430,12 +430,12 @@ func (h *Handle) Start(ctx context.Context) error {
 	}
 	if h.listener != nil {
 		if err := h.listener.Start(ctx); err != nil {
-			slog.Warn("index jobs: listener start failed; falling back to poll-only", logKeyError, err)
+			slog.WarnContext(ctx, "index jobs: listener start failed; falling back to poll-only", logKeyError, err)
 			h.listener = nil
 		}
 	}
 	h.bootstrapToolsIndex(ctx)
-	slog.Info("index jobs: started", "kinds", h.registry.Kinds())
+	slog.InfoContext(ctx, "index jobs: started", "kinds", h.registry.Kinds())
 	return nil
 }
 
@@ -472,7 +472,7 @@ func (h *Handle) bootstrapToolsIndex(ctx context.Context) {
 	if _, err := h.store.Enqueue(ctx,
 		indexjobs.Key{SourceKind: toolsindex.SourceKind, SourceID: toolsindex.SourceID},
 		indexjobs.TriggerWrite); err != nil {
-		slog.Warn("index jobs: tools bootstrap enqueue failed", logKeyError, err)
+		slog.WarnContext(ctx, "index jobs: tools bootstrap enqueue failed", logKeyError, err)
 	}
 }
 
@@ -531,7 +531,7 @@ func boundedStop(ctx context.Context, component string, fn func()) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		slog.Warn("shutdown: bounded stop deadline reached; abandoning in-flight work",
+		slog.WarnContext(ctx, "shutdown: bounded stop deadline reached; abandoning in-flight work",
 			"component", component, logKeyError, ctx.Err())
 		return ctx.Err() //nolint:wrapcheck // ctx.Err() is the expected sentinel; lifecycle aggregates it
 	}

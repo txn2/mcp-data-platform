@@ -86,7 +86,7 @@ func (h *Handle) auditPromptServe(ctx context.Context, pr *prompt.Prompt, surfac
 	// the async writer ignores the context and a sync write must not be
 	// canceled when the serving request ends.
 	if err := h.auditLogger.Log(context.Background(), ev); err != nil {
-		slog.Warn("failed to log prompt serve event", logKeyError, err, promptLogKey, pr.Name)
+		slog.WarnContext(ctx, "failed to log prompt serve event", logKeyError, err, promptLogKey, pr.Name)
 	}
 }
 
@@ -115,7 +115,7 @@ func (h *Handle) applyUsageAll(ctx context.Context, prompts []*prompt.Prompt) {
 	}
 	usage, err := h.usage.PromptUsage(ctx, ids)
 	if err != nil {
-		slog.Warn("failed to read prompt usage", logKeyError, err)
+		slog.WarnContext(ctx, "failed to read prompt usage", logKeyError, err)
 		return
 	}
 	for _, pr := range prompts {

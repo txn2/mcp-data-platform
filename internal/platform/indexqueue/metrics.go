@@ -98,7 +98,7 @@ func (s *queueSampler) read(ctx context.Context) ([]observability.IndexQueueSamp
 		g.Go(func() error {
 			cov, err := s.coverage.Coverage(gctx, kind)
 			if err != nil {
-				slog.Warn("index jobs: coverage sample failed", "kind", kind, logKeyError, err)
+				slog.WarnContext(ctx, "index jobs: coverage sample failed", "kind", kind, logKeyError, err)
 				return nil
 			}
 			if cov != nil {

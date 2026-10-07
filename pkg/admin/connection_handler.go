@@ -84,7 +84,7 @@ func (h *Handler) validateConnectionCatalog(ctx context.Context, kind string, co
 		return "catalog_id references a catalog that does not exist: " + id, false
 	}
 	if err != nil {
-		slog.Warn("validateConnectionCatalog: lookup failed",
+		slog.WarnContext(ctx, "validateConnectionCatalog: lookup failed",
 			"catalog_id", logsan.SanitizeForLog(id), logKeyError, err)
 		return "failed to validate catalog_id", false
 	}

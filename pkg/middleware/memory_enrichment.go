@@ -117,7 +117,7 @@ func enrichWithMemories(ctx context.Context, mp MemoryProvider, result *mcp.Call
 
 	memories, err := mp.RecallForEntities(ctx, urns, pc.PersonaName, limit)
 	if err != nil {
-		slog.Debug("memory enrichment failed", "error", err)
+		slog.DebugContext(ctx, "memory enrichment failed", "error", err)
 		return result
 	}
 	if len(memories) == 0 {

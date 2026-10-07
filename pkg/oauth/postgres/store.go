@@ -260,7 +260,7 @@ func (s *Store) SaveRefreshToken(ctx context.Context, token *oauth.RefreshToken)
 	if _, err := s.db.ExecContext(ctx,
 		`UPDATE oauth_clients SET last_used_at = NOW() WHERE client_id = $1 AND last_used_at IS NULL`,
 		token.ClientID); err != nil {
-		slog.Warn("oauth store: marking client used failed", "client_id", token.ClientID, logKeyError, err)
+		slog.WarnContext(ctx, "oauth store: marking client used failed", "client_id", token.ClientID, logKeyError, err)
 	}
 	return nil
 }
@@ -389,17 +389,17 @@ func (s *Store) StartCleanupRoutine(interval, dcrTTL time.Duration) {
 // error so one failing sweep does not skip the others.
 func (s *Store) runPeriodicCleanup(ctx context.Context, dcrTTL time.Duration) {
 	if err := s.CleanupExpiredCodes(ctx); err != nil {
-		slog.Warn("oauth store cleanup: expired codes", logKeyError, err)
+		slog.WarnContext(ctx, "oauth store cleanup: expired codes", logKeyError, err)
 	}
 	if err := s.CleanupExpiredTokens(ctx); err != nil {
-		slog.Warn("oauth store cleanup: expired tokens", logKeyError, err)
+		slog.WarnContext(ctx, "oauth store cleanup: expired tokens", logKeyError, err)
 	}
 	if err := s.CleanupExpiredStates(ctx, oauth.StateMaxAge); err != nil {
-		slog.Warn("oauth store cleanup: expired states", logKeyError, err)
+		slog.WarnContext(ctx, "oauth store cleanup: expired states", logKeyError, err)
 	}
 	if dcrTTL > 0 {
 		if err := s.CleanupUnusedDCRClients(ctx, dcrTTL); err != nil {
-			slog.Warn("oauth store cleanup: unused DCR clients", logKeyError, err)
+			slog.WarnContext(ctx, "oauth store cleanup: unused DCR clients", logKeyError, err)
 		}
 	}
 }

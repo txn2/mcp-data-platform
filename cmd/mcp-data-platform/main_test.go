@@ -1,16 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -33,7 +39,11 @@ func TestInitLogging(t *testing.T) {
 	for _, tt := range tests {
 		t.Run("LOG_LEVEL="+tt.env, func(t *testing.T) {
 			t.Setenv("LOG_LEVEL", tt.env)
-			initLogging()
+			t.Setenv("OTEL_LOGS_EXPORTER", "")
+			shutdown := initLogging()
+			if err := shutdown(context.Background()); err != nil {
+				t.Fatalf("shutdown with no export: %v", err)
+			}
 
 			handler := slog.Default().Handler()
 			// Verify the handler is enabled at the expected level
@@ -266,4 +276,71 @@ func TestApplySoftMemoryLimit(t *testing.T) {
 	if !strings.Contains(buf.String(), "soft_limit_bytes=900") || !strings.Contains(buf.String(), "GOMEMLIMIT is not set") {
 		t.Fatalf("log = %s", buf.String())
 	}
+}
+
+// TestBuildLogHandler_StampsTraceIDsAndTeesTheExport: a record logged with a
+// span's context carries trace_id and span_id on stderr (#1894); with an OTLP
+// log provider the same record is also handed to the bridge, under the level
+// filter.
+func TestBuildLogHandler_StampsTraceIDsAndTeesTheExport(t *testing.T) {
+	var stderr bytes.Buffer
+	exporter := &recordingLogExporter{}
+	provider := observability.NewLogProviderFromSDK(sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter))))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	logger := slog.New(buildLogHandler(&stderr, slog.LevelInfo, provider))
+
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	ctx, span := tp.Tracer("test").Start(context.Background(), "tools/call trino_query")
+	logger.InfoContext(ctx, "query ran", "rows", 3)
+	logger.DebugContext(ctx, "below the level")
+	span.End()
+
+	var line map[string]any
+	if err := json.Unmarshal(stderr.Bytes(), &line); err != nil {
+		t.Fatalf("stderr line is not JSON: %v: %q", err, stderr.String())
+	}
+	if line["trace_id"] != span.SpanContext().TraceID().String() {
+		t.Errorf("trace_id = %v, want %s", line["trace_id"], span.SpanContext().TraceID())
+	}
+	if line["span_id"] != span.SpanContext().SpanID().String() {
+		t.Errorf("span_id = %v, want %s", line["span_id"], span.SpanContext().SpanID())
+	}
+	if got := exporter.records(); len(got) != 1 {
+		t.Fatalf("exported records = %d, want 1 (the debug record is under LOG_LEVEL)", len(got))
+	} else if got[0].TraceID() != span.SpanContext().TraceID() || got[0].Body().AsString() != "query ran" {
+		t.Errorf("exported record = %q trace %s", got[0].Body().AsString(), got[0].TraceID())
+	}
+}
+
+// TestBuildLogHandler_StderrAloneWithoutAProvider: no provider, one handler,
+// no fan-out.
+func TestBuildLogHandler_StderrAloneWithoutAProvider(t *testing.T) {
+	var stderr bytes.Buffer
+	logger := slog.New(buildLogHandler(&stderr, slog.LevelWarn, nil))
+	logger.Info("dropped")
+	logger.Warn("kept")
+	if !strings.Contains(stderr.String(), "kept") || strings.Contains(stderr.String(), "dropped") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+// recordingLogExporter keeps every exported record for assertions.
+type recordingLogExporter struct {
+	mu   sync.Mutex
+	recs []sdklog.Record
+}
+
+func (e *recordingLogExporter) Export(_ context.Context, recs []sdklog.Record) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.recs = append(e.recs, recs...)
+	return nil
+}
+func (*recordingLogExporter) Shutdown(context.Context) error   { return nil }
+func (*recordingLogExporter) ForceFlush(context.Context) error { return nil }
+func (e *recordingLogExporter) records() []sdklog.Record {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]sdklog.Record(nil), e.recs...)
 }

@@ -136,7 +136,7 @@ func (s *scheduler) pass(ctx context.Context) {
 	due, err := s.cfg.schedules.DueSchedules(ctx, now, 0)
 	if err != nil {
 		if ctx.Err() == nil {
-			slog.Warn("scripts: reading due schedules failed", logKeyError, err)
+			slog.WarnContext(ctx, "scripts: reading due schedules failed", logKeyError, err)
 		}
 		return
 	}
@@ -146,7 +146,7 @@ func (s *scheduler) pass(ctx context.Context) {
 		// the rest arrive on the next tick — but a deployment whose schedules
 		// no longer fit in one pass is running later than it thinks, and that
 		// is worth saying rather than leaving to be inferred.
-		slog.Info("scripts: the schedule pass filled its batch; the remainder waits for the next tick",
+		slog.InfoContext(ctx, "scripts: the schedule pass filled its batch; the remainder waits for the next tick",
 			"schedules", len(due), "interval", s.cfg.interval)
 	}
 	for i := range due {
@@ -272,20 +272,20 @@ func (s *scheduler) insert(ctx context.Context, sched *script.Schedule, run *scr
 	outcome, err := s.cfg.schedules.MaterializeRun(ctx, run)
 	if err != nil {
 		if ctx.Err() == nil {
-			slog.Warn("scripts: materializing a scheduled run failed",
+			slog.WarnContext(ctx, "scripts: materializing a scheduled run failed",
 				logKeyScheduleID, logsan.SanitizeForLog(sched.ID), logKeyError, err)
 		}
 		return false
 	}
 	switch outcome {
 	case script.MaterializedRun:
-		slog.Info("scripts: schedule fired", logKeyScheduleID, logsan.SanitizeForLog(sched.ID),
+		slog.InfoContext(ctx, "scripts: schedule fired", logKeyScheduleID, logsan.SanitizeForLog(sched.ID),
 			logKeyRunID, run.ID, "fire_time", run.FireTime)
 		if s.cfg.wake != nil {
 			s.cfg.wake()
 		}
 	case script.MaterializedSkippedOverlap:
-		slog.Warn("scripts: schedule fire skipped; the previous run is still going",
+		slog.WarnContext(ctx, "scripts: schedule fire skipped; the previous run is still going",
 			logKeyScheduleID, logsan.SanitizeForLog(sched.ID), "fire_time", run.FireTime)
 	case script.MaterializedDuplicate:
 		// Another replica materialized this fire. The expected outcome of
@@ -306,7 +306,7 @@ func (s *scheduler) advance(ctx context.Context, sched *script.Schedule, adv scr
 		s.cfg.metrics.RecordScriptMissedFires(ctx, s.scriptLabel(ctx, sched.ScriptID), adv.Missed)
 	}
 	if _, err := s.cfg.schedules.AdvanceSchedule(ctx, adv); err != nil && ctx.Err() == nil {
-		slog.Warn("scripts: advancing a schedule failed",
+		slog.WarnContext(ctx, "scripts: advancing a schedule failed",
 			logKeyScheduleID, logsan.SanitizeForLog(sched.ID), logKeyError, err)
 	}
 }
@@ -343,7 +343,7 @@ func refuse(sched *script.Schedule, reason error) {
 // parked (below).
 func (s *scheduler) refuseCadence(ctx context.Context, sched *script.Schedule, cause error) {
 	if errors.Is(cause, script.ErrUnknownTimezone) {
-		slog.Error("scripts: a schedule names a timezone this build cannot load; it is left alone until the deployment is fixed", // #nosec G706 -- structured slog call; ids sanitized
+		slog.ErrorContext(ctx, "scripts: a schedule names a timezone this build cannot load; it is left alone until the deployment is fixed", // #nosec G706 -- structured slog call; ids sanitized
 			logKeyScheduleID, logsan.SanitizeForLog(sched.ID),
 			"timezone", logsan.SanitizeForLog(sched.Timezone),
 			logKeyError, logsan.SanitizeForLog(cause.Error()))
@@ -360,12 +360,12 @@ func (s *scheduler) refuseCadence(ctx context.Context, sched *script.Schedule, c
 // schedule that reads as on while producing nothing. Disabled is a state the
 // owner can see and correct.
 func (s *scheduler) park(ctx context.Context, sched *script.Schedule, cause error) {
-	slog.Error("scripts: disabling a schedule whose cron expression no longer parses", // #nosec G706 -- structured slog call; ids sanitized
+	slog.ErrorContext(ctx, "scripts: disabling a schedule whose cron expression no longer parses", // #nosec G706 -- structured slog call; ids sanitized
 		logKeyScheduleID, logsan.SanitizeForLog(sched.ID),
 		"script_id", logsan.SanitizeForLog(sched.ScriptID),
 		logKeyError, logsan.SanitizeForLog(cause.Error()))
 	if err := s.cfg.schedules.SetScheduleEnabled(ctx, sched.ScriptID, false, schedulePrincipal); err != nil && ctx.Err() == nil {
-		slog.Warn("scripts: disabling an unparseable schedule failed",
+		slog.WarnContext(ctx, "scripts: disabling an unparseable schedule failed",
 			logKeyScheduleID, logsan.SanitizeForLog(sched.ID), logKeyError, err)
 	}
 }
