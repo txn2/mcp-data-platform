@@ -132,9 +132,9 @@ func (l *Loop) RunOnce(ctx context.Context) {
 		removed, ran, err := l.runLocked(ctx, s)
 		switch {
 		case err != nil:
-			slog.Warn("retention: sweep failed", "sweep", s.Name, "error", logsan.SanitizeForLog(err.Error()))
+			slog.WarnContext(ctx, "retention: sweep failed", "sweep", s.Name, "error", logsan.SanitizeForLog(err.Error()))
 		case ran && removed > 0:
-			slog.Info("retention: sweep removed rows", "sweep", s.Name, "removed", removed)
+			slog.InfoContext(ctx, "retention: sweep removed rows", "sweep", s.Name, "removed", removed)
 		}
 	}
 }
@@ -159,7 +159,7 @@ func (l *Loop) runLocked(ctx context.Context, s Sweep) (removed int64, ran bool,
 		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
 		defer cancel()
 		if _, uerr := conn.ExecContext(unlockCtx, "SELECT pg_advisory_unlock($1)", s.LockKey); uerr != nil {
-			slog.Warn("retention: advisory unlock failed", "sweep", s.Name, "error", logsan.SanitizeForLog(uerr.Error()))
+			slog.WarnContext(ctx, "retention: advisory unlock failed", "sweep", s.Name, "error", logsan.SanitizeForLog(uerr.Error()))
 		}
 	}()
 	removed, err = s.Run(ctx)

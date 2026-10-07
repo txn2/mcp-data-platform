@@ -37,7 +37,7 @@ func Assemble() (*Layer, error) {
 	}
 	l := &Layer{metrics: m, listener: observability.NewListener(m)}
 	if m != nil {
-		slog.Info("observability: metrics recorder enabled", "listen", cfg.ListenAddr)
+		slog.Info("observability: metrics recorder enabled", "listen", cfg.ListenAddr, "exporter", cfg.Exporter)
 	}
 
 	tcfg := observability.TracingConfigFromEnv()
@@ -47,9 +47,21 @@ func Assemble() (*Layer, error) {
 	}
 	l.tracer = tr
 	if tr != nil {
-		slog.Info("observability: tracing enabled", "endpoint", tcfg.Endpoint, "sampler_ratio", tcfg.SamplerArg)
+		slog.Info("observability: tracing enabled", "endpoint", tcfg.OTLP.Endpoint, "sampler_ratio", tcfg.SamplerArg)
 	}
+	warnUnnamedDeployment(tr != nil || (m != nil && cfg.Exporter.OTLP()) || observability.LogsConfigFromEnv().Exporter == observability.LogsExporterOTLP)
 	return l, nil
+}
+
+// warnUnnamedDeployment says so at startup when a signal leaves the process
+// over OTLP and nothing names the deployment it came from (#1893). A fleet
+// backend receiving several deployments' signals tells them apart by
+// mcp_platform.deployment.id; without it their series and traces merge.
+func warnUnnamedDeployment(exportsOTLP bool) {
+	if exportsOTLP && !observability.DeploymentIDSet() {
+		slog.Warn("observability: an OTLP exporter is on and MCP_PLATFORM_DEPLOYMENT_ID is unset; " +
+			"set it (or mcp_platform.deployment.id in OTEL_RESOURCE_ATTRIBUTES) so a shared backend can tell this deployment's signals from another's")
+	}
 }
 
 // New builds a Layer from explicit handles, deriving the /metrics listener from

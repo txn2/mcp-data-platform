@@ -73,21 +73,29 @@ func recordToolCall(
 // series per invented name (#1892); a call that never carried a name (a
 // malformed request) records MetricLabelUnknown.
 func toolCallAttrs(pc *PlatformContext, result mcp.Result, err error) observability.ToolCallAttrs {
-	tool := pc.ToolName
-	switch {
-	case pc.ToolUnregistered:
-		tool = observability.ToolLabelUnregistered
-	case tool == "":
-		tool = observability.MetricLabelUnknown
-	}
-
 	isToolError, errCategory := toolResultErrorInfo(result)
 	return observability.ToolCallAttrs{
-		Tool:           tool,
+		Tool:           boundedToolName(pc),
 		ToolkitKind:    pc.ToolkitKind,
 		Persona:        pc.PersonaName,
 		StatusCategory: observability.ClassifyToolCallResult(err, isToolError, errCategory),
 		Source:         pc.Source,
+	}
+}
+
+// boundedToolName is the tool name as a bounded value: the registered name,
+// observability.ToolLabelUnregistered when no toolkit registers the name the
+// caller sent, observability.MetricLabelUnknown when the call carried none.
+// The metric label and the span name (#1893) both take it, so neither can be
+// minted per invented name.
+func boundedToolName(pc *PlatformContext) string {
+	switch {
+	case pc.ToolUnregistered:
+		return observability.ToolLabelUnregistered
+	case pc.ToolName == "":
+		return observability.MetricLabelUnknown
+	default:
+		return pc.ToolName
 	}
 }
 

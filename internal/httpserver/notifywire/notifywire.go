@@ -11,7 +11,7 @@
 package notifywire
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"net/mail"
 
@@ -77,7 +77,7 @@ func BuildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *revi
 		BaseURL:  p.Config().Portal.PublicBaseURL,
 	})
 	if checker != nil {
-		log.Println("Knowledge review-queue staleness alert enabled")
+		slog.Info("Knowledge review-queue staleness alert enabled")
 	}
 	return checker
 }
@@ -138,7 +138,7 @@ func WireConnRevocationAlert(p *platform.Platform, notify *notifydelivery.Handle
 		return nil
 	}
 	p.AuthEventWriter().WithRevocations(alerter)
-	log.Println("Connection revocation alerts enabled")
+	slog.Info("Connection revocation alerts enabled")
 	return connalert.NewEscalator(cfg)
 }
 
@@ -186,11 +186,11 @@ func BuildNotifications(p *platform.Platform, brand Brand) *notifydelivery.Handl
 	if err != nil {
 		// A renderer build failure means broken embedded templates — a build
 		// defect, not an operator error. Degrade to no notifications.
-		log.Println("WARNING: email notifications unavailable:", err)
+		slog.Warn("email notifications unavailable", "error", err)
 		return nil
 	}
 	if handle != nil {
-		log.Println("Email notifications enabled (queue + send worker)")
+		slog.Info("Email notifications enabled (queue + send worker)")
 	}
 	return handle
 }
@@ -203,7 +203,7 @@ func emailReplyTo(addr string) string {
 		return ""
 	}
 	if _, err := mail.ParseAddress(addr); err != nil {
-		log.Println("WARNING: portal.reply_to is not a valid email address; leaving Reply-To off:", err)
+		slog.Warn("portal.reply_to is not a valid email address; leaving Reply-To off", "error", err)
 		return ""
 	}
 	return addr
@@ -219,7 +219,7 @@ func emailLogo(url string) []byte {
 	}
 	png, err := branding.FetchEmailLogoPNG(url)
 	if err != nil {
-		log.Println("WARNING: email logo unavailable, using text wordmark:", err)
+		slog.Warn("email logo unavailable, using text wordmark", "error", err)
 		return nil
 	}
 	return png

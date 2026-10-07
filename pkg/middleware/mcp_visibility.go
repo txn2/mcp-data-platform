@@ -118,7 +118,7 @@ func resolveCallerRoles(ctx context.Context, authenticator Authenticator) []stri
 	// Fall back to authenticating from the context (e.g. token in headers).
 	userInfo, err := authenticator.Authenticate(ctx)
 	if err != nil || userInfo == nil {
-		slog.Debug("visibility: no authenticated user for tools/list filtering")
+		slog.DebugContext(ctx, "visibility: no authenticated user for tools/list filtering")
 		return nil
 	}
 	return userInfo.Roles

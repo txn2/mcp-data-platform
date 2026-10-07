@@ -128,7 +128,7 @@ func (h *Handle) handleRecording(ctx context.Context, input manageScriptInput) (
 		return notFound, nil, nil
 	}
 	if err != nil {
-		slog.Error("failed to read a script recording", logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read a script recording", logKeyError, err)
 		return errorResult("failed to read the recording"), nil, nil
 	}
 	var sc *script.Script

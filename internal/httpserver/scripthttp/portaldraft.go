@@ -265,7 +265,7 @@ func (h *Handler) recordDryRun(ctx context.Context, ran executedDraft) {
 		StateWritten: ran.result.State,
 	})
 	if err != nil {
-		slog.Error("failed to record a script dry run", "script", ran.script.Name, "error", err)
+		slog.ErrorContext(ctx, "failed to record a script dry run", "script", ran.script.Name, "error", err)
 	}
 }
 

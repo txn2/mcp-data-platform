@@ -148,7 +148,7 @@ func (r *Registrar) followOthers(ctx context.Context, src Source, version int, e
 	}
 	regs, err := r.deps.Store.BySource(ctx, src.Kind, src.ID)
 	if err != nil {
-		slog.Warn("table registration: could not list the registrations of a revised source",
+		slog.WarnContext(ctx, "table registration: could not list the registrations of a revised source",
 			"kind", logsan.SanitizeForLog(src.Kind), "source", logsan.SanitizeForLog(src.ID),
 			logFieldError, logsan.SanitizeForLog(err.Error()))
 		return nil
@@ -265,7 +265,7 @@ func (r *Registrar) reconcileConnection(ctx context.Context, connection, exceptI
 	for offset := 0; ; offset += MaxListLimit {
 		page, total, err := r.deps.Store.List(ctx, Filter{Connections: []string{connection}, Limit: MaxListLimit, Offset: offset})
 		if err != nil {
-			slog.Warn("table registration: could not list a connection's registrations after a drop",
+			slog.WarnContext(ctx, "table registration: could not list a connection's registrations after a drop",
 				"connection", logsan.SanitizeForLog(connection), logFieldError, logsan.SanitizeForLog(err.Error()))
 			return nil
 		}
@@ -289,7 +289,7 @@ func (r *Registrar) reconcileOne(ctx context.Context, reg Registration, exceptID
 	}
 	exists, err := r.deps.Trino.TableExists(ctx, reg.Connection, reg.Catalog, reg.Schema, reg.Table)
 	if err != nil {
-		slog.Warn("table registration: could not check whether a table still exists after a drop",
+		slog.WarnContext(ctx, "table registration: could not check whether a table still exists after a drop",
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 		return FollowOutcome{}, false
 	}
@@ -298,7 +298,7 @@ func (r *Registrar) reconcileOne(ctx context.Context, reg Registration, exceptID
 	}
 	recorded := missingPrefix + reason
 	if err := r.deps.Store.RecordFollowFailure(ctx, reg.ID, recorded); err != nil {
-		slog.Warn("table registration: could not record that a table no longer exists",
+		slog.WarnContext(ctx, "table registration: could not record that a table no longer exists",
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 	}
 	return FollowOutcome{
@@ -397,7 +397,7 @@ func (r *Registrar) pinned(ctx context.Context, reg Registration, src Source, ou
 	sameDir := headDir == regDir
 	files, err := r.filesTrinoReads(ctx, src, regDir)
 	if err != nil {
-		slog.Warn("table registration: could not list the directory a pinned table reads",
+		slog.WarnContext(ctx, "table registration: could not list the directory a pinned table reads",
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()), logFieldError, logsan.SanitizeForLog(err.Error()))
 		outcome.Followed, outcome.Pinned = sameDir, !sameDir
 		return outcome
@@ -596,7 +596,7 @@ func (r *Registrar) restoreDroppedTable(ctx context.Context, reg Registration, r
 	execErr := r.deps.Trino.Exec(ctx, reg.Connection, stmt)
 	r.auditFollow(ctx, followRecord{from: reg, to: reg, ddl: []string{stmt}, err: errors.Join(cause, execErr)})
 	if execErr != nil {
-		slog.Warn("table registration: a follow dropped the table and could not put it back",
+		slog.WarnContext(ctx, "table registration: a follow dropped the table and could not put it back",
 			logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()),
 			logFieldError, logsan.SanitizeForLog(execErr.Error()))
 	}
@@ -608,11 +608,11 @@ func (r *Registrar) followFailed(
 	ctx context.Context, reg Registration, outcome FollowOutcome, cause error,
 ) FollowOutcome {
 	outcome.Reason = cause.Error()
-	slog.Warn("table registration: a following registration could not be moved",
+	slog.WarnContext(ctx, "table registration: a following registration could not be moved",
 		logFieldTable, logsan.SanitizeForLog(reg.QualifiedName()),
 		logFieldError, logsan.SanitizeForLog(cause.Error()))
 	if err := r.deps.Store.RecordFollowFailure(ctx, reg.ID, outcome.Reason); err != nil {
-		slog.Warn("table registration: the follow failure could not be recorded",
+		slog.WarnContext(ctx, "table registration: the follow failure could not be recorded",
 			"registration", logsan.SanitizeForLog(reg.ID), logFieldError, logsan.SanitizeForLog(err.Error()))
 	}
 	return outcome
@@ -669,7 +669,7 @@ func (r *Registrar) auditFollow(ctx context.Context, rec followRecord) {
 		ev.ErrorMessage = rec.err.Error()
 	}
 	if err := r.deps.Audit.Log(ctx, *ev); err != nil {
-		slog.Warn("table follow audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
+		slog.WarnContext(ctx, "table follow audit log failed", logFieldError, logsan.SanitizeForLog(err.Error()),
 			logFieldTable, logsan.SanitizeForLog(rec.from.QualifiedName()))
 	}
 }

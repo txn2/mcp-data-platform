@@ -42,13 +42,13 @@ func enrichWithKnowledgePages(ctx context.Context, kp KnowledgePageProvider, res
 	}
 
 	if len(urns) > maxKnowledgeEnrichmentURNs {
-		slog.Debug("knowledge-page enrichment urn set truncated", "have", len(urns), "cap", maxKnowledgeEnrichmentURNs)
+		slog.DebugContext(ctx, "knowledge-page enrichment urn set truncated", "have", len(urns), "cap", maxKnowledgeEnrichmentURNs)
 		urns = urns[:maxKnowledgeEnrichmentURNs]
 	}
 
 	pages, err := kp.PagesForEntities(ctx, urns, defaultKnowledgePageEnrichmentLimit)
 	if err != nil {
-		slog.Debug("knowledge-page enrichment failed", "error", err)
+		slog.DebugContext(ctx, "knowledge-page enrichment failed", "error", err)
 		return result
 	}
 
@@ -58,7 +58,7 @@ func enrichWithKnowledgePages(ctx context.Context, kp KnowledgePageProvider, res
 
 	data, err := wirejson.Marshal(map[string]any{"knowledge_pages": pages})
 	if err != nil {
-		slog.Debug("failed to marshal knowledge pages", "error", err)
+		slog.DebugContext(ctx, "failed to marshal knowledge pages", "error", err)
 		return result
 	}
 

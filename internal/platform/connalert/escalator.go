@@ -74,7 +74,7 @@ func (e *Escalator) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if err := e.Sweep(ctx); err != nil {
-					slog.Warn("connection revocation escalation sweep failed", // #nosec G706 -- structured slog call; error sanitized
+					slog.WarnContext(ctx, "connection revocation escalation sweep failed", // #nosec G706 -- structured slog call; error sanitized
 						logKeyError, logsan.SanitizeForLog(err.Error()))
 				}
 			}

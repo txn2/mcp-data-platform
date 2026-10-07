@@ -115,7 +115,7 @@ func (r *Recorder) Close() error { return r.inner.Close() }
 // catalog stores the record and credits whatever it re-ran.
 func (r *Recorder) catalog(ctx context.Context, rec Record) {
 	if err := r.store.Insert(ctx, rec); err != nil {
-		slog.Warn("call catalog: record not stored",
+		slog.WarnContext(ctx, "call catalog: record not stored",
 			"tool", rec.ToolName, "event_id", rec.EventID, "error", err)
 		return
 	}
@@ -126,7 +126,7 @@ func (r *Recorder) catalog(ctx context.Context, rec Record) {
 		return
 	}
 	if _, err := r.store.CreditReuse(ctx, rec); err != nil {
-		slog.Warn("call catalog: reuse not credited",
+		slog.WarnContext(ctx, "call catalog: reuse not credited",
 			"tool", rec.ToolName, "event_id", rec.EventID, "error", err)
 	}
 }

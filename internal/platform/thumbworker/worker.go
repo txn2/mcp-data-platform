@@ -293,12 +293,12 @@ func (w *Worker) rendererAnswers(ctx context.Context) bool {
 	switch {
 	case err != nil && !w.unavailable:
 		w.unavailable = true
-		slog.Warn("thumbnails: the renderer does not answer; tiles are not being drawn",
+		slog.WarnContext(ctx, "thumbnails: the renderer does not answer; tiles are not being drawn",
 			logKeyError, logsan.SanitizeForLog(err.Error()),
 			"last_unfinished", logsan.SanitizeForLog(w.lastUnfinished))
 	case err == nil && w.unavailable:
 		w.unavailable = false
-		slog.Info("thumbnails: the renderer answers again; drawing owed tiles")
+		slog.InfoContext(ctx, "thumbnails: the renderer answers again; drawing owed tiles")
 	}
 	return err == nil
 }

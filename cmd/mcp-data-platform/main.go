@@ -24,6 +24,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver"
 	"github.com/txn2/mcp-data-platform/internal/procload"
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
+	"github.com/txn2/mcp-data-platform/internal/tracelog"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -38,6 +40,9 @@ const (
 
 // logKeyError is the structured-log key for an error value.
 const logKeyError = "error"
+
+// logShutdownTimeout bounds the final flush of the OTLP log export at exit.
+const logShutdownTimeout = 5 * time.Second
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate-config" {
@@ -108,23 +113,52 @@ func createServer(opts serverOptions) (*serverResult, error) {
 
 // initLogging configures slog from the LOG_LEVEL environment variable.
 // Supported values: debug, info, warn, error. Defaults to info.
-func initLogging() {
-	level := slog.LevelInfo
+//
+// Records go to stderr as JSON, each stamped with the trace_id and span_id of
+// the span its context carries (#1894), and, when OTEL_LOGS_EXPORTER=otlp, to
+// the collector as well through the OpenTelemetry slog bridge at the same
+// level. The returned function flushes and stops that export; it is a no-op
+// when the export is off.
+func initLogging() func(context.Context) error {
+	level := logLevelFromEnv()
+	provider, err := observability.NewLogProvider(observability.LogsConfigFromEnv())
+	slog.SetDefault(slog.New(buildLogHandler(os.Stderr, level, provider)))
+	if err != nil {
+		slog.Error("OTEL_LOGS_EXPORTER=otlp: the log exporter could not be built; stderr is the only sink", logKeyError, err)
+	}
+	return provider.Shutdown
+}
+
+// logLevelFromEnv reads LOG_LEVEL.
+func logLevelFromEnv() slog.Level {
 	switch os.Getenv("LOG_LEVEL") {
 	case "debug", "DEBUG":
-		level = slog.LevelDebug
+		return slog.LevelDebug
 	case "warn", "WARN":
-		level = slog.LevelWarn
+		return slog.LevelWarn
 	case "error", "ERROR":
-		level = slog.LevelError
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	})))
+}
+
+// buildLogHandler assembles the default logger's handler: the stderr JSON
+// sink under the trace-id stamp, and the OTLP export beside it when the
+// provider offers one (nil, and so no second sink, when the export is off).
+func buildLogHandler(w io.Writer, level slog.Level, provider *observability.LogProvider) slog.Handler {
+	return tracelog.Build(w, level, provider.Handler())
 }
 
 func run() error {
-	initLogging()
+	shutdownLogs := initLogging()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), logShutdownTimeout)
+		defer cancel()
+		if err := shutdownLogs(ctx); err != nil {
+			slog.Error("shutdown: log exporter", logKeyError, err)
+		}
+	}()
 	opts := parseFlags()
 
 	if opts.showVersion {

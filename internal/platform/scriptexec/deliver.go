@@ -72,7 +72,7 @@ func (w *outputWriter) deliver(ctx context.Context, req scriptrun.ExportRequest,
 			req.Name, req.Destination.Label(), err)
 	}
 	w.delivered[objectAddress(req.Destination, key)] = req.Name
-	slog.Info("scripts: delivered an output",
+	slog.InfoContext(ctx, "scripts: delivered an output",
 		logKeyRunID, w.run.ID, "output", req.Name,
 		"destination", req.Destination.Name, "bucket", req.Destination.Bucket,
 		"key", key, "bytes", len(data))

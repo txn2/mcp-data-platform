@@ -61,7 +61,7 @@ func New(ctx context.Context, cfg Config) (*Session, error) {
 	// SameSite=None disables the browser's built-in cross-site cookie defense,
 	// leaving the X-CSRF-Token check as the sole protection; warn on it.
 	if cookieCfg.IsCrossSiteCookieMode() {
-		slog.Warn("session cookie SameSite=None permits cross-site submission; " +
+		slog.WarnContext(ctx, "session cookie SameSite=None permits cross-site submission; "+
 			"the X-CSRF-Token header is the sole CSRF protection")
 	}
 

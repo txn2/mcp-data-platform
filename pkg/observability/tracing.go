@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -21,12 +20,6 @@ import (
 // every span shares one scope without threading a *Tracer through every
 // constructor.
 const InstrumentationScope = "github.com/txn2/mcp-data-platform"
-
-// attrServiceName is the resource attribute key for the logical service.
-// Set directly (rather than via a pinned semconv module) so the package
-// is not coupled to a specific OpenTelemetry semantic-conventions
-// version; collectors read the "service.name" resource key regardless.
-const attrServiceName = "service.name"
 
 // noopTracer backs Tracer.Start on a nil receiver so call sites can
 // start spans unconditionally. The OTel noop span is safe to End, set
@@ -70,27 +63,16 @@ func NewTracer(cfg TracingConfig) (*Tracer, error) {
 		return nil, nil
 	}
 
-	opts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(cfg.Endpoint)}
-	if cfg.Insecure {
-		opts = append(opts, otlptracegrpc.WithInsecure())
-	}
+	opts := otlpOptions(cfg.OTLP, otlptracegrpc.WithEndpoint, otlptracegrpc.WithEndpointURL, otlptracegrpc.WithInsecure)
 	exporter, err := otlptracegrpc.New(context.Background(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("observability: otlp trace exporter: %w", err)
 	}
 
-	res, err := resource.New(context.Background(),
-		resource.WithAttributes(attribute.String(attrServiceName, cfg.ServiceName)))
-	if err != nil {
-		// resource.New only errors on schema-URL conflicts, which a
-		// single hand-set attribute cannot trigger; fall back to a bare
-		// resource rather than failing tracing init.
-		res = resource.NewSchemaless(attribute.String(attrServiceName, cfg.ServiceName))
-	}
-
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
+		// The one resource every signal carries (#1893).
+		sdktrace.WithResource(Resource()),
 		// ParentBased honors an upstream sampling decision (so a sampled
 		// caller's whole trace is kept); root spans are sampled at the
 		// configured ratio, and a root span this sampler drops is never

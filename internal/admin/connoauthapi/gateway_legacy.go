@@ -490,14 +490,14 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	// grep one connection's full lifecycle (admin code-exchange +
 	// gateway refresh) by `grant_type=*` regardless of which package
 	// emitted the line.
-	slog.Debug("oauth-exchange: posting authorization_code grant",
+	slog.DebugContext(ctx, "oauth-exchange: posting authorization_code grant",
 		gatewaykit.LogKeyTokenURLHost, tokenHost,
 		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 		"client_id", logsan.SanitizeForLog(oc.ClientID),
 		logKeyRedirectURI, pending.RedirectURI)
 	resp, err := codeExchangeClient.Do(req)
 	if err != nil {
-		slog.Error("oauth-exchange: token request transport error",
+		slog.ErrorContext(ctx, "oauth-exchange: token request transport error",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			logKeyDuration, time.Since(exchangeStart),
@@ -518,21 +518,21 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	// fields into the token row).
 	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCodeExchangeBodyBytes+1))
 	if readErr != nil {
-		slog.Error("oauth-exchange: read response body failed",
+		slog.ErrorContext(ctx, "oauth-exchange: read response body failed",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			logKeyError, readErr)
 		return nil, fmt.Errorf("read token response: %w", readErr)
 	}
 	if int64(len(bodyBytes)) > maxCodeExchangeBodyBytes {
-		slog.Warn("oauth-exchange: token response exceeds size cap",
+		slog.WarnContext(ctx, "oauth-exchange: token response exceeds size cap",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			"limit_bytes", maxCodeExchangeBodyBytes)
 		return nil, fmt.Errorf("token response exceeds %d-byte cap (likely misbehaving IdP)", maxCodeExchangeBodyBytes)
 	}
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("oauth-exchange: non-200 from token endpoint",
+		slog.WarnContext(ctx, "oauth-exchange: non-200 from token endpoint",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			"status", resp.StatusCode,
@@ -542,14 +542,14 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	}
 	var tr authCodeTokenResponse
 	if jerr := json.Unmarshal(bodyBytes, &tr); jerr != nil {
-		slog.Error("oauth-exchange: decode response failed",
+		slog.ErrorContext(ctx, "oauth-exchange: decode response failed",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			logKeyError, jerr)
 		return nil, fmt.Errorf("decode token response: %w", jerr)
 	}
 	if tr.Error != "" {
-		slog.Warn("oauth-exchange: structured error in token response",
+		slog.WarnContext(ctx, "oauth-exchange: structured error in token response",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 			"idp_error", logsan.SanitizeForLog(tr.Error),
@@ -557,12 +557,12 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 		return nil, fmt.Errorf("upstream %s: %s", tr.Error, tr.ErrorDesc)
 	}
 	if tr.AccessToken == "" {
-		slog.Warn("oauth-exchange: token response missing access_token",
+		slog.WarnContext(ctx, "oauth-exchange: token response missing access_token",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode)
 		return nil, errors.New("token response missing access_token")
 	}
-	slog.Info("oauth-exchange: success",
+	slog.InfoContext(ctx, "oauth-exchange: success",
 		gatewaykit.LogKeyTokenURLHost, tokenHost,
 		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 		logKeyDuration, time.Since(exchangeStart),

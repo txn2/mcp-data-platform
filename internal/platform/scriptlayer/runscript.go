@@ -94,7 +94,7 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 		return errorResult(openErr.Error()), nil, nil
 	}
 	if err != nil {
-		slog.Error("failed to queue a script run", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to queue a script run", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to queue the run"), nil, nil
 	}
 	return jsonResult(h.awaitRun(ctx, sc, run, waitBudget(input.WaitSeconds)))
@@ -120,7 +120,7 @@ func (h *Handle) currentVersion(ctx context.Context, sc *script.Script) (*script
 	}
 	version, err := h.versions.GetVersion(ctx, sc.ID, sc.Version)
 	if err != nil {
-		slog.Error("failed to read a script version", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read a script version", fieldName, sc.Name, logKeyError, err)
 		return nil, errorResult("failed to read the script's current version")
 	}
 	if version == nil {
@@ -184,7 +184,7 @@ func (h *Handle) awaitRun(ctx context.Context, sc *script.Script, run *script.Ru
 	if err != nil && !errors.Is(err, script.ErrRunNotFound) {
 		// A read failing mid-wait says nothing about the run, which a worker
 		// is executing elsewhere; it is reported as pending with its id.
-		slog.Warn("failed to read a script run while waiting", "run_id", run.ID, logKeyError, err)
+		slog.WarnContext(ctx, "failed to read a script run while waiting", "run_id", run.ID, logKeyError, err)
 	}
 	if finished {
 		return runResult(sc, current)

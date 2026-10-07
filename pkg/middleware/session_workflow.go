@@ -157,7 +157,7 @@ func (t *SessionWorkflowTracker) HasPerformedDiscovery(ctx context.Context, scop
 	}
 	ok, err := t.store.HasDiscovered(ctx, scopeKey)
 	if err != nil {
-		slog.Warn("search gate: discovery check failed; allowing the call (fail-open)",
+		slog.WarnContext(ctx, "search gate: discovery check failed; allowing the call (fail-open)",
 			"error", err, "scope_key", scopeKey)
 		return true
 	}
@@ -218,7 +218,7 @@ func (t *SessionWorkflowTracker) mark(ctx context.Context, scopeKey string, forc
 	}
 
 	if err := t.store.MarkDiscovered(ctx, scopeKey); err != nil {
-		slog.Warn("search gate: failed to persist discovery",
+		slog.WarnContext(ctx, "search gate: failed to persist discovery",
 			"error", err, "scope_key", scopeKey, "forced", force)
 	}
 }

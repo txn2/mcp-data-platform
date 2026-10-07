@@ -78,6 +78,6 @@ func emitClientLog(ctx context.Context, logger sessionLogger, pc *PlatformContex
 		Logger: "mcp-data-platform",
 		Data:   msg,
 	}); err != nil {
-		slog.Debug("client logging: failed to send log notification", "error", err)
+		slog.DebugContext(ctx, "client logging: failed to send log notification", "error", err)
 	}
 }

@@ -167,7 +167,7 @@ func splitTitle(raw string) (title, body string, err error) {
 func Start(ctx context.Context, store knowledgepage.Store) {
 	go func() {
 		if err := Reconcile(ctx, store); err != nil {
-			slog.Warn("built-in knowledge pages not reconciled", "error", err)
+			slog.WarnContext(ctx, "built-in knowledge pages not reconciled", "error", err)
 		}
 	}()
 }
@@ -196,7 +196,7 @@ func Reconcile(ctx context.Context, store knowledgepage.Store) error {
 	if err != nil {
 		return fmt.Errorf("knowledgebuiltin: reconciling built-in knowledge pages: %w", err)
 	}
-	slog.Info("built-in knowledge pages reconciled",
+	slog.InfoContext(ctx, "built-in knowledge pages reconciled",
 		"shipped", len(pages), "created", stats.Created, "updated", stats.Updated,
 		"skipped", stats.Skipped, "pruned", stats.Pruned)
 	return nil

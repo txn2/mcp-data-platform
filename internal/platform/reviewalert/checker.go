@@ -95,7 +95,7 @@ func (c *Checker) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if err := c.Check(ctx); err != nil {
-					slog.Warn("review queue alert check failed", // #nosec G706 -- structured slog call; error sanitized
+					slog.WarnContext(ctx, "review queue alert check failed", // #nosec G706 -- structured slog call; error sanitized
 						"queue", c.cfg.Target.Queue,
 						logKeyError, logsan.SanitizeForLog(err.Error()))
 				}
@@ -163,7 +163,7 @@ func (c *Checker) deliver(ctx context.Context, recipients []string, q notificati
 		// nobody addressed by hand.
 		wrote, err := c.cfg.Enqueuer.Notify(ctx, recipient, c.cfg.Target.Category, payload)
 		if err != nil {
-			slog.Warn("review queue alert enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+			slog.WarnContext(ctx, "review queue alert enqueue failed", // #nosec G706 -- structured slog call; error sanitized
 				"queue", c.cfg.Target.Queue,
 				logKeyError, logsan.SanitizeForLog(err.Error()))
 			continue
@@ -175,7 +175,7 @@ func (c *Checker) deliver(ctx context.Context, recipients []string, q notificati
 	// queued is what was actually written, not what was attempted: a
 	// recipient who opted out, or whose enqueue failed, must not read as
 	// notified in the log an operator checks after a silent alert.
-	slog.Info("review queue alert enqueued",
+	slog.InfoContext(ctx, "review queue alert enqueued",
 		"queue", c.cfg.Target.Queue,
 		"pending", q.Pending, "oldest_age_days", q.OldestAgeDays,
 		"recipients", len(recipients), "queued", queued)

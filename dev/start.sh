@@ -240,6 +240,11 @@ mkdir -p "$DEV_OTEL_DIR" && chmod a+rwx "$DEV_OTEL_DIR"
 # condition (FROM scratch, no /tmp). Recorded here so the acceptance suite can
 # state the condition rather than assume it.
 export DEV_PLATFORM_TMPDIR="/nonexistent/mcp-data-platform-has-no-temp-directory"
+# Where each replica's stderr goes (air's output). Recorded so the acceptance
+# suite can read a log line back and compare its trace_id with the exported
+# span's (#1894).
+export DEV_AIR_LOG="/tmp/mcp-dev-air.log"
+export DEV_AIR_B_LOG="/tmp/mcp-dev-air-b.log"
 # Persist the resolved ports so `make dev-info` (a separate process that does
 # not inherit these exports) reprints the correct, possibly-relocated URLs.
 # Gitignored; overwritten each run.
@@ -256,6 +261,8 @@ DEV_PLATFORM_TMPDIR=$DEV_PLATFORM_TMPDIR
 DEV_REPLICAS=$DEV_REPLICAS
 DEV_API_PORT_B=$DEV_API_PORT_B
 DEV_PROXY_PORT=$DEV_PROXY_PORT
+DEV_AIR_LOG=$DEV_AIR_LOG
+DEV_AIR_B_LOG=$DEV_AIR_B_LOG
 EOF
 if [ "$DEV_OFFSET" != 0 ]; then
   info "Default ports busy — relocated the dev stack by +$DEV_OFFSET (pg:$DEV_PG_PORT api:$DEV_API_PORT s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT)"
@@ -636,7 +643,7 @@ echo ""
 # ─── Start Go server with hot-reload ────────────────────────────────
 
 echo -e "${BOLD}Starting Go server (air)${NC}"
-AIR_LOG="/tmp/mcp-dev-air.log"
+AIR_LOG="$DEV_AIR_LOG"
 # Pin the /metrics scrape endpoint to :9464. The default (:9090) collides
 # with Keycloak in this stack; the dev Prometheus scrapes this port.
 export OTEL_METRICS_ADDR=":9464"
@@ -648,6 +655,17 @@ export OTEL_TRACES_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT="localhost:$DEV_OTLP_PORT"
 export OTEL_TRACES_SAMPLER_ARG=1.0
 export OTEL_BSP_SCHEDULE_DELAY=1000
+# Metrics go to the dev collector too, beside the /metrics scrape, every two
+# seconds (dev/.otel/metrics.jsonl), and the platform's log records go to it
+# over OTLP beside stderr (dev/.otel/logs.jsonl). The resource every signal
+# carries names this deployment (#1893): the environment through the standard
+# OTEL_RESOURCE_ATTRIBUTES, the deployment id through the platform's own
+# variable.
+export OTEL_METRICS_EXPORTER=both
+export OTEL_METRIC_EXPORT_INTERVAL=2000
+export OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=dev"
+export MCP_PLATFORM_DEPLOYMENT_ID=acme-dev
+export OTEL_LOGS_EXPORTER=otlp
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 
@@ -671,7 +689,7 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   # port and metrics port, and its own build output so the two air processes
   # never replace each other's binary. It starts after the first is healthy,
   # so the migrations the first ran are in place.
-  AIR_B_LOG="/tmp/mcp-dev-air-b.log"
+  AIR_B_LOG="$DEV_AIR_B_LOG"
   DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
     -tmp_dir build/air-b \
     -build.cmd "go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \

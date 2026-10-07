@@ -53,7 +53,7 @@ func (h *Handle) handlePromptUse(ctx context.Context, input managePromptInput) (
 func (h *Handle) useByID(ctx context.Context, id string, args map[string]string) (*mcp.CallToolResult, any, error) {
 	pr, err := h.store.GetByID(ctx, id)
 	if err != nil {
-		slog.Error(promptErrGet, promptLogKey, id, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, promptErrGet, promptLogKey, id, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if pr == nil || !pr.Enabled || !h.canViewPrompt(ctx, pr) {
@@ -167,7 +167,7 @@ func (h *Handle) visiblePrompts(ctx context.Context, search string) []prompt.Pro
 	if h.isAdminPersona(ctx) {
 		out, err := h.store.List(ctx, prompt.ListFilter{Search: search, Enabled: &enabled})
 		if err != nil {
-			slog.Warn("failed to list prompts", logKeyError, err)
+			slog.WarnContext(ctx, "failed to list prompts", logKeyError, err)
 			return nil
 		}
 		return out
@@ -176,7 +176,7 @@ func (h *Handle) visiblePrompts(ctx context.Context, search string) []prompt.Pro
 		Scope: prompt.ScopePersonal, OwnerEmail: resolveEmail(ctx), Search: search, Enabled: &enabled,
 	})
 	if err != nil {
-		slog.Warn("failed to list personal prompts", logKeyError, err)
+		slog.WarnContext(ctx, "failed to list personal prompts", logKeyError, err)
 		out = nil
 	}
 	return h.mergeExtraScopes(ctx, out, &enabled)
@@ -204,7 +204,7 @@ func (h *Handle) useRanked(ctx context.Context, handle string, args map[string]s
 		Limit:      useCandidateLimit,
 	})
 	if err != nil {
-		slog.Error("failed to resolve prompt", promptLogKey, handle, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, "failed to resolve prompt", promptLogKey, handle, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to resolve prompt", err), nil, nil
 	}
 	switch {

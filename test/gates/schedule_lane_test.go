@@ -69,6 +69,23 @@ import "testing"
 
 func TestUntouchedSibling(t *testing.T) { t.Fatal("not written by the change") }
 `
+	// exitsMidTest dies without a `--- FAIL`: a runtime fatal error, a
+	// `race:` runtime abort and an os.Exit all leave the test running with no
+	// terminal event, and what it printed is the only clue to the cause.
+	exitsMidTest = `package crash
+
+import (
+	"fmt"
+	"os"
+	"testing"
+)
+
+func TestExitsMidTest(t *testing.T) {
+	fmt.Println("the last thing the test said")
+	os.Exit(3)
+}
+`
+
 	// sourceOnly is a change to a package's non-test file.
 	sourceOnly = `package steady
 
@@ -118,6 +135,15 @@ func TestScheduleLane(t *testing.T) {
 				"FAIL TestFailsOnThirdRun in example.com/lanefixture/third: 1 of 5 runs failed at -cpu=1",
 				"FAIL TestFailsOnThirdRun in example.com/lanefixture/third: 1 of 5 runs failed at -cpu=2",
 				"reproduce: go test -race -cpu=2 -count=300 -run '^TestFailsOnThirdRun$' ./third/",
+			}},
+		},
+		{
+			name:  "a binary that dies mid-test is reported with the test it died in and what that test printed",
+			files: map[string]string{"crash/crash_test.go": exitsMidTest},
+			expect: expect{want: []string{
+				"FAIL example.com/lanefixture/crash at -cpu=1 with no failing test",
+				"the binary exited during TestExitsMidTest; its output before that:",
+				"the last thing the test said",
 			}},
 		},
 		{

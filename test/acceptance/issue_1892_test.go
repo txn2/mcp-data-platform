@@ -72,11 +72,17 @@ func callBare(t *testing.T, s *mcp.ClientSession, name string, args map[string]a
 	return res, firstText(res)
 }
 
-// exportedSpan is one span as the dev collector wrote it (OTLP JSON).
+// exportedSpan is one span as the dev collector wrote it (OTLP JSON): its
+// ids (hex, as OTLP JSON writes them), the resource of the process that
+// emitted it (#1893), its attributes, status and events.
 type exportedSpan struct {
-	Name   string
-	Attrs  map[string]string
-	Status struct {
+	Name         string
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+	Resource     map[string]string
+	Attrs        map[string]string
+	Status       struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	}
@@ -129,11 +135,17 @@ func readSpans(t *testing.T) []exportedSpan {
 	for sc.Scan() {
 		var line struct {
 			ResourceSpans []struct {
+				Resource struct {
+					Attributes []otlpAttr `json:"attributes"`
+				} `json:"resource"`
 				ScopeSpans []struct {
 					Spans []struct {
-						Name       string     `json:"name"`
-						Attributes []otlpAttr `json:"attributes"`
-						Status     struct {
+						Name         string     `json:"name"`
+						TraceID      string     `json:"traceId"`
+						SpanID       string     `json:"spanId"`
+						ParentSpanID string     `json:"parentSpanId"`
+						Attributes   []otlpAttr `json:"attributes"`
+						Status       struct {
 							Code    int    `json:"code"`
 							Message string `json:"message"`
 						} `json:"status"`
@@ -148,9 +160,13 @@ func readSpans(t *testing.T) []exportedSpan {
 			t.Fatalf("collector line is not OTLP JSON: %v", err)
 		}
 		for _, rs := range line.ResourceSpans {
+			res := attrsOf(rs.Resource.Attributes)
 			for _, ss := range rs.ScopeSpans {
 				for _, sp := range ss.Spans {
-					es := exportedSpan{Name: sp.Name, Attrs: attrsOf(sp.Attributes)}
+					es := exportedSpan{
+						Name: sp.Name, TraceID: sp.TraceID, SpanID: sp.SpanID, ParentSpanID: sp.ParentSpanID,
+						Resource: res, Attrs: attrsOf(sp.Attributes),
+					}
 					es.Status.Code, es.Status.Message = sp.Status.Code, sp.Status.Message
 					for _, ev := range sp.Events {
 						es.Events = append(es.Events, attrsOf(ev.Attributes))
@@ -163,7 +179,11 @@ func readSpans(t *testing.T) []exportedSpan {
 	return out
 }
 
-// awaitSpan waits for the tool_call span of one call: the one carrying the
+// isToolCallSpan reports whether sp is the platform's root span for a tool
+// call: named "tools/call {tool}" as the MCP semantic conventions say (#1893).
+func isToolCallSpan(sp exportedSpan) bool { return strings.HasPrefix(sp.Name, "tools/call ") }
+
+// awaitSpan waits for the tool-call span of one call: the one carrying the
 // session it was made in and the tool it named. The newest such span is
 // returned, so a session that made the same call twice reads its latest.
 func awaitSpan(t *testing.T, sessionID, tool string) exportedSpan {
@@ -172,7 +192,7 @@ func awaitSpan(t *testing.T, sessionID, tool string) exportedSpan {
 	for {
 		var found *exportedSpan
 		for _, sp := range readSpans(t) {
-			if sp.Name == "tool_call" && sp.Attrs["mcp.session_id"] == sessionID && sp.Attrs["mcp.tool"] == tool {
+			if isToolCallSpan(sp) && sp.Attrs["mcp.session_id"] == sessionID && sp.Attrs["mcp.tool"] == tool {
 				cp := sp
 				found = &cp
 			}
@@ -181,7 +201,7 @@ func awaitSpan(t *testing.T, sessionID, tool string) exportedSpan {
 			return *found
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no tool_call span for %s in session %s reached the collector within %s", tool, sessionID, spanWait)
+			t.Fatalf("no tools/call span for %s in session %s reached the collector within %s", tool, sessionID, spanWait)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -384,7 +404,7 @@ func TestIssue1892_SpansCarryNoEmailAndNoUpstreamTextByDefault(t *testing.T) {
 		if _, has := sp.Attrs["mcp.user_email"]; has {
 			t.Fatalf("a span carries mcp.user_email with default settings: %v", sp.Attrs)
 		}
-		if sp.Name == "tool_call" && sp.Status.Code == 2 && !categories[sp.Status.Message] {
+		if isToolCallSpan(sp) && sp.Status.Code == 2 && !categories[sp.Status.Message] {
 			t.Errorf("an error span's status description is %q, not a bounded category", sp.Status.Message)
 		}
 	}

@@ -143,7 +143,7 @@ func (w *Worker) rewriteRefs(ctx context.Context, assetID, contentType string, d
 	}
 	refs, err := w.deps.Refs.ListByAsset(ctx, assetID)
 	if err != nil {
-		slog.Warn("thumbnails: listing references failed; drawing the document as stored",
+		slog.WarnContext(ctx, "thumbnails: listing references failed; drawing the document as stored",
 			"asset", logsan.SanitizeForLog(assetID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return data
 	}
@@ -174,7 +174,7 @@ func (w *Worker) recordAsset(ctx context.Context, a portaldomain.Asset, stored [
 		u.ThumbnailRenderer, u.ThumbnailFailure, u.ThumbnailFailedVersion = &renderer, &cleared, &zero
 	}
 	if err := w.deps.Assets.Update(ctx, a.ID, u); err != nil {
-		slog.Error("thumbnails: recording an asset's tile failed", "asset", logsan.SanitizeForLog(a.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(ctx, "thumbnails: recording an asset's tile failed", "asset", logsan.SanitizeForLog(a.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	for _, d := range stored {
@@ -193,7 +193,7 @@ func (*Worker) removeSuperseded(ctx context.Context, blobs Blobs, bucket, old, c
 	sctx, cancel := context.WithTimeout(ctx, storageTimeout)
 	defer cancel()
 	if err := blobs.DeleteObject(sctx, bucket, old); err != nil {
-		slog.Warn("thumbnails: removing a superseded tile failed", "key", logsan.SanitizeForLog(old), logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.WarnContext(ctx, "thumbnails: removing a superseded tile failed", "key", logsan.SanitizeForLog(old), logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
 
@@ -217,7 +217,7 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) error {
 		if err := w.deps.Resources.SetThumbnail(ctx, r.ID, resource.ThumbnailCapture{
 			Variant: d.variant, S3Key: d.key, CapturedAt: r.UpdatedAt, Renderer: Renderer,
 		}); err != nil {
-			slog.Error("thumbnails: recording a resource's tile failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.ErrorContext(ctx, "thumbnails: recording a resource's tile failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 			return nil
 		}
 		// A revision moves the file to a new key, so the tile drawn from
@@ -234,11 +234,11 @@ func (w *Worker) drawResource(ctx context.Context, r resource.Resource) error {
 		return unfinished
 	case reason != "":
 		if err := w.deps.Resources.RecordThumbnailFailure(ctx, r.ID, reason, r.UpdatedAt); err != nil {
-			slog.Error("thumbnails: recording a resource's failure failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.ErrorContext(ctx, "thumbnails: recording a resource's failure failed", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	default:
 		if err := w.deps.Resources.HoldThumbnailWork(ctx, r.ID, 0, 0); err != nil {
-			slog.Warn("thumbnails: ending a resource's claim failed; it lapses with its lease", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+			slog.WarnContext(ctx, "thumbnails: ending a resource's claim failed; it lapses with its lease", "resource", logsan.SanitizeForLog(r.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
 	return nil
@@ -270,14 +270,14 @@ func (w *Worker) drawCollection(ctx context.Context, c portaldomain.CollectionTh
 		}
 		if reason != "" {
 			if err := w.deps.Collections.RecordCollectionThumbnailFailure(ctx, c.ID, c.Source, reason); err != nil {
-				slog.Error("thumbnails: recording a collection's failure failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+				slog.ErrorContext(ctx, "thumbnails: recording a collection's failure failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 			}
 			return nil
 		}
 	}
 	key := portaldomain.CollectionThumbnailKey(w.deps.CollectionPrefix, c.ID, portaldomain.ThumbnailVariantLight)
 	if err := w.deps.Collections.RecordCollectionThumbnail(ctx, c.ID, key, c.Source); err != nil {
-		slog.Error("thumbnails: recording a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(ctx, "thumbnails: recording a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
 	// A mosaic stored under an earlier layout or prefix is replaced by
@@ -316,7 +316,7 @@ func (w *Worker) storeMosaic(ctx context.Context, id, variant string, tiles [][]
 
 func (w *Worker) clearCollection(ctx context.Context, c portaldomain.CollectionThumbnailWork) {
 	if err := w.deps.Collections.RecordCollectionThumbnail(ctx, c.ID, "", ""); err != nil {
-		slog.Error("thumbnails: clearing a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
+		slog.ErrorContext(ctx, "thumbnails: clearing a collection's tile failed", logKeyCollection, logsan.SanitizeForLog(c.ID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	w.removeSuperseded(ctx, w.deps.AssetBlobs, w.deps.CollectionBucket, c.ThumbnailS3Key, "")

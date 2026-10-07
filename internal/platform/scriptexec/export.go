@@ -215,7 +215,7 @@ func (w *outputWriter) record(ctx context.Context, out script.RunOutput) {
 		// The output exists and is correct; only the run's record of it failed.
 		// Failing the run here would report a write that did happen as a write
 		// that did not, so the run continues and the gap is logged.
-		slog.Error("scripts: recording an output on the run failed",
+		slog.ErrorContext(ctx, "scripts: recording an output on the run failed",
 			logKeyRunID, w.run.ID, "output", out.Name, logKeyError, err)
 	}
 	w.run.Outputs = append(w.run.Outputs, out)
@@ -229,7 +229,7 @@ func (w *outputWriter) record(ctx context.Context, out script.RunOutput) {
 func (w *outputWriter) RecordToolOutput(ctx context.Context, out script.RunOutput) {
 	if w.runs != nil {
 		if err := w.runs.RecordOutput(ctx, w.run.Lease(), out); err != nil {
-			slog.Error("scripts: recording a tool's output on the run failed",
+			slog.ErrorContext(ctx, "scripts: recording a tool's output on the run failed",
 				logKeyRunID, w.run.ID, "tool", out.Tool, logKeyError, err)
 		}
 	}
@@ -344,7 +344,7 @@ func (w *outputWriter) addTags(ctx context.Context, asset *portal.Asset, tags []
 		merged = merged[:portaldomain.MaxTags]
 	}
 	if err := w.deps.Assets.Update(ctx, asset.ID, portal.AssetUpdate{Tags: merged}); err != nil {
-		slog.Warn("scripts: adding an output's tags failed", logKeyRunID, w.run.ID,
+		slog.WarnContext(ctx, "scripts: adding an output's tags failed", logKeyRunID, w.run.ID,
 			"asset_id", asset.ID, "error", logsan.SanitizeForLog(err.Error()))
 		return
 	}

@@ -46,6 +46,9 @@ var approvedLabelKeys = map[string]string{
 	"kind":              "the registered index-job consumers",
 	"result":            "a closed set per instrument (embedded/reused, created/exists, ...)",
 	"state":             "the index-job queue states",
+	"version":           "the builds a deployment runs (mcp_platform_build_info)",
+	"commit":            "the builds a deployment runs (mcp_platform_build_info)",
+	"go_version":        "the Go releases a deployment's builds use (mcp_platform_build_info)",
 }
 
 // attributeConstructors are the attribute package functions whose first
@@ -107,8 +110,8 @@ func TestLabelKeysAreApproved(t *testing.T) {
 		require.True(t, ok, "%s: the label key must be a named constant, not %T", pos, c.Args[0])
 		key, ok := consts[id.Name]
 		require.True(t, ok, "%s: %s is not a string constant in this package", pos, id.Name)
-		if key == attrServiceName {
-			// A resource attribute, not a label; it names the service.
+		if resourceAttributeKeys[key] {
+			// A resource attribute names the process, not a series (resource.go).
 			continue
 		}
 		_, approved := approvedLabelKeys[key]

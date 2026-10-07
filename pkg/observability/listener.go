@@ -44,11 +44,12 @@ type Listener struct {
 
 // NewListener constructs a Listener for the supplied Metrics. The
 // listener serves only /metrics on its mux; all other paths return
-// 404. When metrics are disabled NewListener returns nil so callers
+// 404. When metrics are disabled, or go to OTLP alone
+// (OTEL_METRICS_EXPORTER=otlp, #1893), NewListener returns nil so callers
 // can mount it unconditionally and observe a nil receiver as the
 // "disabled" signal.
 func NewListener(m *Metrics) *Listener {
-	if m == nil || !m.cfg.Enabled || m.cfg.ListenAddr == "" {
+	if m == nil || !m.cfg.Enabled || m.cfg.ListenAddr == "" || m.Handler() == nil {
 		return nil
 	}
 	mux := http.NewServeMux()

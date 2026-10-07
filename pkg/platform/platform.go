@@ -724,7 +724,7 @@ func (n gatewayListChangedNotifier) NotifyToolsListChanged(ctx context.Context) 
 		// (today there are none, but the broadcaster is shared and a
 		// future publisher would otherwise produce identically-shaped
 		// noise in dashboards).
-		slog.Warn("broadcaster: publish tools/list_changed failed",
+		slog.WarnContext(ctx, "broadcaster: publish tools/list_changed failed",
 			"source", "gateway",
 			"method", "notifications/tools/list_changed",
 			"error", err)

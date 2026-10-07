@@ -1,0 +1,52 @@
+rules:
+  # A log record written on a request or worker path must carry the trace of
+  # the call that wrote it (#1894). The stderr handler and the OTLP export read
+  # the span off the record's context, so a context-less slog call in a
+  # function that HAS a context is a record that can never be correlated.
+  # Scoped to the packages the conversion covered; a package added here has
+  # every covered call converted in the same change. A function with no
+  # context.Context parameter is out of scope: a background loop gets its
+  # span, and so its context, in a later observability ticket. The blank
+  # identifier (`_ context.Context`) is not a context the call could use.
+  - id: slog-without-context-in-context-function
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - pkg/middleware
+        - pkg/platform
+        - internal/platform
+        - internal/httpserver
+        - internal/admin
+        - pkg/portal
+        - pkg/admin
+        - pkg/oauth
+        - pkg/auth
+      exclude:
+        - "*_test.go"
+    patterns:
+      - pattern-either:
+          - pattern: slog.Info(...)
+          - pattern: slog.Warn(...)
+          - pattern: slog.Error(...)
+          - pattern: slog.Debug(...)
+      - pattern-either:
+          - pattern-inside: |
+              func $F(..., $CTX context.Context, ...) { ... }
+          - pattern-inside: |
+              func ($R $T) $F(..., $CTX context.Context, ...) { ... }
+      - metavariable-regex:
+          metavariable: $CTX
+          regex: '^[A-Za-z]'
+    message: >-
+      `slog.$M(...)` in a function that has the context `$CTX`: use
+      `slog.$MContext($CTX, ...)` so the record carries the trace_id and
+      span_id of the call that wrote it (#1894). The stderr handler and the
+      OTLP export read the span off the record's context; a record logged
+      without one can never be joined to its trace.
+    metadata:
+      category: correctness
+      confidence: HIGH
+      impact: MEDIUM
+      references:
+        - https://github.com/txn2/mcp-data-platform/issues/1894

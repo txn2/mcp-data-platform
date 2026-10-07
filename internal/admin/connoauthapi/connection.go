@@ -669,7 +669,7 @@ func (h *handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 		// reconciliation paths. Failing the Connect here would force
 		// the operator to repeat the browser flow even though the
 		// credential is good.
-		slog.Warn("oauth-callback: AfterConnect hook failed (token persisted, side effect deferred)",
+		slog.WarnContext(ctx, "oauth-callback: AfterConnect hook failed (token persisted, side effect deferred)",
 			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
@@ -690,7 +690,7 @@ func (h *handler) clearRevocation(ctx context.Context, kind, name string) {
 		return
 	}
 	if err := h.cfg.Revocations.Clear(ctx, kind, name); err != nil {
-		slog.Warn("oauth-callback: clearing the connection's open revocation failed", // #nosec G706 -- structured slog call; values sanitized
+		slog.WarnContext(ctx, "oauth-callback: clearing the connection's open revocation failed", // #nosec G706 -- structured slog call; values sanitized
 			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}

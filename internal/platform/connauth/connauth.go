@@ -136,7 +136,7 @@ func (h *Handle) Stop(ctx context.Context) error {
 	if h == nil || h.refresher == nil {
 		return nil
 	}
-	slog.Debug("connauth: stopping refresher")
+	slog.DebugContext(ctx, "connauth: stopping refresher")
 	if err := h.refresher.Stop(ctx); err != nil {
 		return fmt.Errorf("connauth: stop refresher: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -12,9 +13,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+
+	"github.com/txn2/mcp-data-platform/internal/buildinfo"
 )
 
 // Instrument names follow the OpenTelemetry convention of NOT
@@ -386,47 +390,103 @@ func New(cfg Config) (*Metrics, error) {
 		return nil, nil
 	}
 
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(collectors.NewGoCollector())
-	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-
-	exporter, err := otelprom.New(
-		otelprom.WithRegisterer(reg),
-		// WithoutScopeInfo / WithoutTargetInfo drop two
-		// auto-emitted info metrics that aren't useful for the
-		// platform's dashboards and inflate scrape size.
-		otelprom.WithoutScopeInfo(),
-		otelprom.WithoutTargetInfo(),
-	)
+	m := &Metrics{cfg: cfg}
+	readers, err := m.readers(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("observability: prometheus exporter: %w", err)
+		return nil, err
 	}
 
-	provider := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(exporter),
+	// The one resource every signal carries (#1893). On the Prometheus side
+	// it is exposed as target_info, so a scrape and an OTLP push identify
+	// the process the same way.
+	opts := []sdkmetric.Option{
 		sdkmetric.WithView(durationHistogramView()),
-	)
-	meter := provider.Meter("github.com/txn2/mcp-data-platform")
-
-	m := &Metrics{
-		cfg:      cfg,
-		provider: provider,
-		registry: reg,
-		meter:    meter,
-		handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{
-			ErrorHandling: promhttp.HTTPErrorOnError,
-			// EnableOpenMetrics off — the counter "_total"
-			// suffix flag above and most Grafana queries
-			// assume classic Prometheus format.
-		}),
-		shutdownFn: provider.Shutdown,
+		sdkmetric.WithResource(Resource()),
 	}
+	for _, r := range readers {
+		opts = append(opts, sdkmetric.WithReader(r))
+	}
+	provider := sdkmetric.NewMeterProvider(opts...)
+	meter := provider.Meter(InstrumentationScope)
+	m.provider, m.meter, m.shutdownFn = provider, meter, provider.Shutdown
 
 	if err := m.registerInstruments(meter); err != nil {
 		_ = provider.Shutdown(context.Background())
 		return nil, err
 	}
+	if err := recordBuildInfo(meter); err != nil {
+		_ = provider.Shutdown(context.Background())
+		return nil, err
+	}
 	return m, nil
+}
+
+// readers builds the readers cfg.Exporter asks for: the Prometheus exporter
+// (which also sets the registry and the /metrics handler) and the periodic
+// OTLP push. The periodic reader takes its interval from
+// OTEL_METRIC_EXPORT_INTERVAL as the SDK defines it; the OTLP exporter
+// connects lazily, so an unreachable collector never delays startup.
+func (m *Metrics) readers(cfg Config) ([]sdkmetric.Reader, error) {
+	var readers []sdkmetric.Reader
+	if cfg.Exporter.Prometheus() {
+		reg := prometheus.NewRegistry()
+		reg.MustRegister(collectors.NewGoCollector())
+		reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+		exporter, err := otelprom.New(
+			otelprom.WithRegisterer(reg),
+			// otel_scope_info says nothing a reader of this endpoint needs
+			// and inflates the scrape; target_info stays (#1893).
+			otelprom.WithoutScopeInfo(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("observability: prometheus exporter: %w", err)
+		}
+		m.registry = reg
+		m.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{
+			ErrorHandling: promhttp.HTTPErrorOnError,
+			// EnableOpenMetrics off — the counter "_total"
+			// suffix flag above and most Grafana queries
+			// assume classic Prometheus format.
+		})
+		readers = append(readers, exporter)
+	}
+	if cfg.Exporter.OTLP() {
+		exporter, err := otlpmetricgrpc.New(context.Background(),
+			otlpOptions(cfg.OTLP, otlpmetricgrpc.WithEndpoint, otlpmetricgrpc.WithEndpointURL, otlpmetricgrpc.WithInsecure)...)
+		if err != nil {
+			return nil, fmt.Errorf("observability: otlp metric exporter: %w", err)
+		}
+		readers = append(readers, sdkmetric.NewPeriodicReader(exporter))
+	}
+	return readers, nil
+}
+
+// Build-info labels (#1893): the three values a fleet compares to find
+// version drift. Each is one value per binary, bounded by the builds a
+// deployment runs.
+const (
+	instBuildInfo  = "mcp_platform_build_info"
+	attrVersion    = "version"
+	attrCommit     = "commit"
+	attrGoVersion  = "go_version"
+	buildInfoValue = 1
+)
+
+// recordBuildInfo sets mcp_platform_build_info{version,commit,go_version} 1,
+// the conventional constant gauge a dashboard joins on to see which build
+// each replica runs.
+func recordBuildInfo(meter metric.Meter) error {
+	g, err := meter.Int64Gauge(instBuildInfo,
+		metric.WithDescription("The running build, as 1 under its version, commit and Go version."))
+	if err != nil {
+		return wrapReg(instBuildInfo, err)
+	}
+	g.Record(context.Background(), buildInfoValue, metric.WithAttributes(
+		attribute.String(attrVersion, buildinfo.Version),
+		attribute.String(attrCommit, buildinfo.Commit),
+		attribute.String(attrGoVersion, runtime.Version()),
+	))
+	return nil
 }
 
 // durationHistogramView applies the platform's bucket boundaries to
@@ -687,10 +747,15 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 func (m *Metrics) Enabled() bool { return m != nil }
 
 // Handler returns the /metrics HTTP handler. Returns http.NotFoundHandler
-// when m is nil so cmd/main can mount the handler unconditionally.
+// when m is nil so cmd/main can mount the handler unconditionally, and nil
+// when the recorder pushes over OTLP alone (OTEL_METRICS_EXPORTER=otlp),
+// which is how NewListener knows there is nothing to serve.
 func (m *Metrics) Handler() http.Handler {
 	if m == nil {
 		return http.NotFoundHandler()
+	}
+	if m.handler == nil {
+		return nil
 	}
 	return m.handler
 }

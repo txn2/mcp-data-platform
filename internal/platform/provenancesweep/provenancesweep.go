@@ -73,7 +73,7 @@ func Run(ctx context.Context, db *sql.DB, platformDefault *int) {
 	defaultCap := portaldomain.EffectiveMaxVersions(nil, platformDefault)
 	candidates, err := findCandidates(ctx, db, defaultCap)
 	if err != nil {
-		slog.Warn("provenance sweep: could not list the assets to trim",
+		slog.WarnContext(ctx, "provenance sweep: could not list the assets to trim",
 			"error", logsan.SanitizeForLog(err.Error()))
 		return
 	}
@@ -84,18 +84,18 @@ func Run(ctx context.Context, db *sql.DB, platformDefault *int) {
 	var trimmed, failed int
 	for _, c := range candidates {
 		if err := portalversions.TrimProvenanceCaptures(ctx, db, c.id, c.watermark); err != nil {
-			slog.Warn("provenance sweep: asset not trimmed",
+			slog.WarnContext(ctx, "provenance sweep: asset not trimmed",
 				"asset_id", logsan.SanitizeForLog(c.id),
 				"error", logsan.SanitizeForLog(err.Error()))
 			failed++
 			continue
 		}
 		trimmed++
-		slog.Info("provenance sweep: captures for pruned versions removed",
+		slog.InfoContext(ctx, "provenance sweep: captures for pruned versions removed",
 			"asset_id", logsan.SanitizeForLog(c.id),
 			"captures_removed", c.trimmable, "below_version", c.watermark+1)
 	}
-	slog.Info("provenance sweep complete", "assets_trimmed", trimmed, "assets_failed", failed)
+	slog.InfoContext(ctx, "provenance sweep complete", "assets_trimmed", trimmed, "assets_failed", failed)
 }
 
 func findCandidates(ctx context.Context, db *sql.DB, defaultCap int) ([]candidate, error) {

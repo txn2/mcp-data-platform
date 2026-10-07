@@ -126,7 +126,7 @@ func handleManagedList(ctx context.Context, next mcp.MethodHandler, method strin
 	pc, visibleURIs := resolveVisibleManagedURIsWithPC(ctx, req, cfg)
 	before := len(listResult.Resources)
 	listResult.Resources = filterResources(listResult.Resources, prefix, visibleURIs)
-	slog.Debug("managed resources list: filtered",
+	slog.DebugContext(ctx, "managed resources list: filtered",
 		"in", before,
 		"out", len(listResult.Resources),
 		logKeyUserID, userIDForLog(pc),
@@ -186,7 +186,7 @@ func resolveVisibleManagedURIsWithPC(ctx context.Context, req mcp.Request, cfg M
 	scopes := scopesFromPlatformContext(pc, cfg)
 	managed, _, err := cfg.Store.List(ctx, resource.Filter{Scopes: scopes, Limit: 1000})
 	if err != nil {
-		slog.Warn("managed resources: scope filter failed, removing all managed",
+		slog.WarnContext(ctx, "managed resources: scope filter failed, removing all managed",
 			logKeyError, err,
 			logKeyUserID, pc.UserID,
 			"persona", pc.PersonaName,
@@ -219,7 +219,7 @@ func filterResources(resources []*mcp.Resource, prefix string, visibleURIs map[s
 func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method string, req mcp.Request, cfg ManagedResourceConfig) (mcp.Result, error) {
 	uri, err := extractResourceURI(req)
 	if err != nil || uri == "" {
-		slog.Debug("managed resources read: URI extraction failed, falling through", logKeyError, err, logKeyURI, uri)
+		slog.DebugContext(ctx, "managed resources read: URI extraction failed, falling through", logKeyError, err, logKeyURI, uri)
 		return next(ctx, method, req)
 	}
 
@@ -230,31 +230,31 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 	prefix := scheme + "://"
 
 	if !strings.HasPrefix(uri, prefix) {
-		slog.Debug("managed resources read: URI doesn't match scheme, falling through", logKeyURI, uri, "prefix", prefix)
+		slog.DebugContext(ctx, "managed resources read: URI doesn't match scheme, falling through", logKeyURI, uri, "prefix", prefix)
 		return next(ctx, method, req)
 	}
 
 	res, getErr := cfg.Store.GetByURI(ctx, uri)
 	if getErr != nil {
-		slog.Debug("managed resources read: not in store, falling through to SDK", logKeyURI, uri, logKeyError, getErr)
+		slog.DebugContext(ctx, "managed resources read: not in store, falling through to SDK", logKeyURI, uri, logKeyError, getErr)
 		return next(ctx, method, req)
 	}
-	slog.Debug("managed resources read: found in store", logKeyURI, uri, "scope", res.Scope, "id", res.ID)
+	slog.DebugContext(ctx, "managed resources read: found in store", logKeyURI, uri, "scope", res.Scope, "id", res.ID)
 
 	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
 	if pc == nil {
-		slog.Warn("managed resources read: auth failed, falling through to SDK", logKeyURI, uri)
+		slog.WarnContext(ctx, "managed resources read: auth failed, falling through to SDK", logKeyURI, uri)
 		return next(ctx, method, req)
 	}
-	slog.Debug("managed resources read: authenticated", logKeyURI, uri, logKeyUserID, pc.UserID, "persona", pc.PersonaName)
+	slog.DebugContext(ctx, "managed resources read: authenticated", logKeyURI, uri, logKeyUserID, pc.UserID, "persona", pc.PersonaName)
 
 	claims := claimsFromPC(pc, cfg)
 	if !resource.CanReadResource(claims, res) {
-		slog.Warn("managed resources read: permission denied", logKeyURI, uri, logKeyUserID, pc.UserID, "scope", res.Scope)
+		slog.WarnContext(ctx, "managed resources read: permission denied", logKeyURI, uri, logKeyUserID, pc.UserID, "scope", res.Scope)
 		return nil, fmt.Errorf("resource not found: %s", uri)
 	}
 
-	slog.Debug("managed resources read: serving content", logKeyURI, uri, "mime_type", res.MIMEType, "s3_key", res.S3Key)
+	slog.DebugContext(ctx, "managed resources read: serving content", logKeyURI, uri, "mime_type", res.MIMEType, "s3_key", res.S3Key)
 	result, err := fetchResourceContent(ctx, cfg, res)
 	// Recorded only when content was actually served. A deployment with no blob
 	// storage gets a placeholder body from the fetch above, and counting that as
@@ -306,16 +306,16 @@ func pruneOrphanedResource(ctx context.Context, cfg ManagedResourceConfig, res *
 		return
 	}
 	if delErr := pruner.Delete(ctx, res.ID); delErr != nil {
-		slog.Warn("managed resource: failed to prune orphaned row", logKeyURI, res.URI, "id", res.ID, logKeyError, delErr)
+		slog.WarnContext(ctx, "managed resource: failed to prune orphaned row", logKeyURI, res.URI, "id", res.ID, logKeyError, delErr)
 		return
 	}
-	slog.Info("managed resource: pruned orphaned row (backing object missing)", logKeyURI, res.URI, "id", res.ID)
+	slog.InfoContext(ctx, "managed resource: pruned orphaned row (backing object missing)", logKeyURI, res.URI, "id", res.ID)
 }
 
 // fetchResourceContent fetches resource content from S3 and builds the read result.
 func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *resource.Resource) (*mcp.ReadResourceResult, error) {
 	if cfg.S3Client == nil {
-		slog.Warn("managed resource read: S3 client nil, returning placeholder", logKeyURI, res.URI)
+		slog.WarnContext(ctx, "managed resource read: S3 client nil, returning placeholder", logKeyURI, res.URI)
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
 				URI:      res.URI,
@@ -334,11 +334,11 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 			// failure, so the caller learns the content is permanently missing
 			// (and an operator can prune or re-upload it) rather than concluding
 			// resource reads are broken.
-			slog.Warn("managed resource read: backing object missing (orphaned resource)",
+			slog.WarnContext(ctx, "managed resource read: backing object missing (orphaned resource)",
 				logKeyURI, res.URI, "s3_key", res.S3Key)
 			return nil, fmt.Errorf("resource content unavailable for %q: %w (orphaned resource; remove or re-upload it)", res.URI, errResourceBlobMissing)
 		}
-		slog.Error("managed resource read: s3 get failed", logKeyError, s3Err, logKeyURI, res.URI)
+		slog.ErrorContext(ctx, "managed resource read: s3 get failed", logKeyError, s3Err, logKeyURI, res.URI)
 		return nil, fmt.Errorf("error reading resource content for %q", res.URI)
 	}
 
@@ -401,11 +401,11 @@ func ResolvePlatformContext(ctx context.Context, req mcp.Request, auth Authentic
 // authentication fails or no authenticator is configured.
 func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, adminPersona string) *PlatformContext {
 	if pc := GetPlatformContext(ctx); pc != nil {
-		slog.Debug("getOrAuthenticatePC: using existing PlatformContext", logKeyUserID, pc.UserID)
+		slog.DebugContext(ctx, "getOrAuthenticatePC: using existing PlatformContext", logKeyUserID, pc.UserID)
 		return pc
 	}
 	if auth == nil {
-		slog.Debug("getOrAuthenticatePC: no authenticator configured")
+		slog.DebugContext(ctx, "getOrAuthenticatePC: no authenticator configured")
 		return nil
 	}
 	// Bridge auth token from per-request headers (Streamable HTTP).
@@ -413,13 +413,13 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticato
 		ctx = bridgeAuthToken(ctx, req)
 	}
 	tokenPresent := GetToken(ctx) != ""
-	slog.Debug("getOrAuthenticatePC: attempting direct auth", "token_present", tokenPresent)
+	slog.DebugContext(ctx, "getOrAuthenticatePC: attempting direct auth", "token_present", tokenPresent)
 	userInfo, err := auth.Authenticate(ctx)
 	if err != nil || userInfo == nil {
-		slog.Debug("getOrAuthenticatePC: auth failed", logKeyError, err, "user_nil", userInfo == nil)
+		slog.DebugContext(ctx, "getOrAuthenticatePC: auth failed", logKeyError, err, "user_nil", userInfo == nil)
 		return nil
 	}
-	slog.Debug("getOrAuthenticatePC: auth succeeded", logKeyUserID, userInfo.UserID, "email", userInfo.Email)
+	slog.DebugContext(ctx, "getOrAuthenticatePC: auth succeeded", logKeyUserID, userInfo.UserID, "email", userInfo.Email)
 	pc := &PlatformContext{
 		UserID:    userInfo.UserID,
 		UserEmail: userInfo.Email,

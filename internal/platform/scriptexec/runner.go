@@ -228,17 +228,17 @@ func (p *reporter) report(ctx context.Context) {
 	snap.Unchanged = p.sent && version == p.last
 	requested, by, err := p.runs.RecordProgress(ctx, p.lease, snap)
 	if errors.Is(err, script.ErrLeaseLost) {
-		slog.Warn("scripts: the run was reclaimed by another worker; stopping this execution", logKeyRunID, p.lease.RunID)
+		slog.WarnContext(ctx, "scripts: the run was reclaimed by another worker; stopping this execution", logKeyRunID, p.lease.RunID)
 		p.stop()
 		return
 	}
 	if err != nil {
-		slog.Warn("scripts: recording run progress failed", logKeyRunID, p.lease.RunID, logKeyError, err)
+		slog.WarnContext(ctx, "scripts: recording run progress failed", logKeyRunID, p.lease.RunID, logKeyError, err)
 		return
 	}
 	p.sent, p.last = true, version
 	if requested && !p.canceled {
-		slog.Info("scripts: stopping a run on request", logKeyRunID, p.lease.RunID)
+		slog.InfoContext(ctx, "scripts: stopping a run on request", logKeyRunID, p.lease.RunID)
 		p.canceled, p.by = true, by
 		p.stop()
 	}
@@ -397,7 +397,7 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 		ErrorMessage: res.Error,
 	}
 	if err := r.audit.Log(ctx, event); err != nil {
-		slog.Warn("scripts: recording the run audit event failed", logKeyRunID, run.ID, logKeyError, err)
+		slog.WarnContext(ctx, "scripts: recording the run audit event failed", logKeyRunID, run.ID, logKeyError, err)
 	}
 }
 

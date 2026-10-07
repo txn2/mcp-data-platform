@@ -40,7 +40,7 @@ func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput)
 	}
 	prev, err := h.existingSchedule(ctx, sc.ID)
 	if err != nil {
-		slog.Error("failed to read a script schedule", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read a script schedule", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the current schedule"), nil, nil
 	}
 	sched, err := script.BuildSchedule(sc, prev, script.ScheduleRequest{
@@ -51,7 +51,7 @@ func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput)
 		return errorResult(err.Error()), nil, nil
 	}
 	if err := h.schedules.SetSchedule(ctx, sched); err != nil {
-		slog.Error("failed to set a script schedule", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to set a script schedule", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to set the schedule"), nil, nil
 	}
 	out := scheduleFields(sc, sched)
@@ -82,7 +82,7 @@ func (h *Handle) handleScheduleList(ctx context.Context, input manageScriptInput
 	}
 	visible, err := h.visibleScripts(ctx, input.Limit)
 	if err != nil {
-		slog.Error("failed to list scripts", logKeyError, err)
+		slog.ErrorContext(ctx, "failed to list scripts", logKeyError, err)
 		return errorResult("failed to list schedules"), nil, nil
 	}
 	// The visibility rule is pushed into the query rather than applied to the
@@ -96,7 +96,7 @@ func (h *Handle) handleScheduleList(ctx context.Context, input manageScriptInput
 	}
 	schedules, err := h.schedules.ListSchedules(ctx, filter)
 	if err != nil {
-		slog.Error("failed to list script schedules", logKeyError, err)
+		slog.ErrorContext(ctx, "failed to list script schedules", logKeyError, err)
 		return errorResult("failed to list schedules"), nil, nil
 	}
 	items := []map[string]any{}
@@ -165,7 +165,7 @@ func (h *Handle) oneSchedule(ctx context.Context, input manageScriptInput) (*mcp
 	}
 	sched, err := h.existingSchedule(ctx, sc.ID)
 	if err != nil {
-		slog.Error("failed to read a script schedule", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to read a script schedule", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the schedule"), nil, nil
 	}
 	if sched == nil {
@@ -206,7 +206,7 @@ func (h *Handle) setScheduleEnabled(ctx context.Context, input manageScriptInput
 		if errors.Is(err, script.ErrScheduleNotFound) {
 			return errorResult("this script has no schedule; set one with command=schedule_set"), nil, nil
 		}
-		slog.Error("failed to change a script schedule", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to change a script schedule", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to change the schedule"), nil, nil
 	}
 	sched, err := h.existingSchedule(ctx, sc.ID)

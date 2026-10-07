@@ -100,7 +100,7 @@ func (r *Recorder) RecordRead(ctx context.Context, ev resource.ReadEvent) {
 	}
 	at := r.now()
 	if err := r.logger.Log(ctx, readEvent(ctx, ev, at)); err != nil {
-		slog.Warn("resource read audit: write failed", logKeyError, err,
+		slog.WarnContext(ctx, "resource read audit: write failed", logKeyError, err,
 			paramResourceID, ev.ResourceID) // #nosec G706 -- server-generated ID
 	}
 	// A preview is the portal drawing the library, not somebody using the file,
@@ -110,7 +110,7 @@ func (r *Recorder) RecordRead(ctx context.Context, ev resource.ReadEvent) {
 		return
 	}
 	if err := r.tracker.TouchRead(ctx, ev.ResourceID, at); err != nil {
-		slog.Warn("resource read audit: last-read stamp failed", logKeyError, err,
+		slog.WarnContext(ctx, "resource read audit: last-read stamp failed", logKeyError, err,
 			paramResourceID, ev.ResourceID) // #nosec G706 -- server-generated ID
 	}
 }
@@ -209,7 +209,7 @@ func (r *Recorder) RecordMove(ctx context.Context, ev resource.MoveEvent) {
 		return
 	}
 	if err := r.logger.Log(ctx, moveEvent(ctx, ev, r.now())); err != nil {
-		slog.Warn("resource move audit: write failed", logKeyError, err,
+		slog.WarnContext(ctx, "resource move audit: write failed", logKeyError, err,
 			paramResourceID, ev.ResourceID) // #nosec G706 -- server-generated ID
 	}
 }

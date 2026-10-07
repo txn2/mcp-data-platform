@@ -212,7 +212,7 @@ func (c *Capturer) waitForWrites(ctx context.Context) {
 	flushCtx, cancel := context.WithTimeout(ctx, flushTimeout)
 	defer cancel()
 	if err := c.flush.Flush(flushCtx); err != nil {
-		slog.Warn("provenance: audit flush did not complete; the newest call may be missing from this capture",
+		slog.WarnContext(ctx, "provenance: audit flush did not complete; the newest call may be missing from this capture",
 			"error", err)
 	}
 }
@@ -260,7 +260,7 @@ func (c *Capturer) resolveCited(ctx context.Context, req portal.ProvenanceReques
 	}
 	rows, err := c.events.Query(ctx, filter)
 	if err != nil {
-		slog.Warn("provenance: cited sources could not be read", "error", err, "tool", req.Tool)
+		slog.WarnContext(ctx, "provenance: cited sources could not be read", "error", err, "tool", req.Tool)
 		return nil, false
 	}
 	for _, ev := range rows {
@@ -285,7 +285,7 @@ func (c *Capturer) resolveWindow(ctx context.Context, req portal.ProvenanceReque
 		Limit:     scanLimit,
 	})
 	if err != nil {
-		slog.Warn("provenance: session calls could not be read", "error", err, "session_id", req.SessionID)
+		slog.WarnContext(ctx, "provenance: session calls could not be read", "error", err, "session_id", req.SessionID)
 		return nil, false
 	}
 

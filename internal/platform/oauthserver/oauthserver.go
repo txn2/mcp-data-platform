@@ -191,9 +191,9 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 	if pgStore != nil {
 		pgStore.StartCleanupRoutine(time.Minute, dcrTTL)
 		h.storeCloser = pgStore
-		slog.Info("OAuth storage: database")
+		slog.InfoContext(ctx, "OAuth storage: database")
 	} else {
-		slog.Info("OAuth storage: memory")
+		slog.InfoContext(ctx, "OAuth storage: memory")
 	}
 
 	// If assembly fails after a cleanup ticker has started, tear the Handle back
@@ -262,7 +262,7 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 	// ticker goroutines.
 	if pgStore != nil {
 		server.SetStateStore(pgStore)
-		slog.Info("OAuth state store: database")
+		slog.InfoContext(ctx, "OAuth state store: database")
 	} else {
 		// cancelCleanup escapes via h.stateCleanup: the caller invokes it at
 		// lifecycle stop (StateStoreCleanup), and the error defer invokes it on a
@@ -270,7 +270,7 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 		cleanupCtx, cancelCleanup := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is retained on the Handle and invoked by the caller / error defer, not leaked.
 		server.StartCleanupRoutine(cleanupCtx, time.Minute)
 		h.stateCleanup = cancelCleanup
-		slog.Info("OAuth state store: memory (single-replica)")
+		slog.InfoContext(ctx, "OAuth state store: memory (single-replica)")
 	}
 
 	server.SetMetrics(cfg.Metrics)

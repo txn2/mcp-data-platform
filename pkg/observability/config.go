@@ -34,9 +34,44 @@ const envListenAddr = "OTEL_METRICS_ADDR"
 // (8080 by default).
 const DefaultListenAddr = ":9090"
 
-// Config holds the operator-configurable knobs for the metrics
-// subsystem. Phase 1 keeps this minimal; tracing and per-toolkit
-// instrumentation in later phases may add fields.
+// envMetricsExporter selects where metrics go (#1893): "prometheus" (the
+// default: the /metrics listener only), "otlp" (pushed to the collector at
+// OTEL_EXPORTER_OTLP_ENDPOINT, no listener), or "both". An unrecognized
+// value is the default, so a typo cannot silently switch the scrape off.
+const envMetricsExporter = "OTEL_METRICS_EXPORTER"
+
+// MetricsExporter is the OTEL_METRICS_EXPORTER choice.
+type MetricsExporter string
+
+// The MetricsExporter values.
+const (
+	MetricsExporterPrometheus MetricsExporter = "prometheus"
+	MetricsExporterOTLP       MetricsExporter = "otlp"
+	MetricsExporterBoth       MetricsExporter = "both"
+)
+
+// Prometheus reports whether the /metrics listener is served.
+func (e MetricsExporter) Prometheus() bool {
+	return e == MetricsExporterPrometheus || e == MetricsExporterBoth || e == ""
+}
+
+// OTLP reports whether metrics are pushed over OTLP.
+func (e MetricsExporter) OTLP() bool {
+	return e == MetricsExporterOTLP || e == MetricsExporterBoth
+}
+
+// parseMetricsExporter reads the choice, defaulting on anything it does not
+// recognize.
+func parseMetricsExporter(raw string) MetricsExporter {
+	switch e := MetricsExporter(strings.ToLower(strings.TrimSpace(raw))); e {
+	case MetricsExporterPrometheus, MetricsExporterOTLP, MetricsExporterBoth:
+		return e
+	default:
+		return MetricsExporterPrometheus
+	}
+}
+
+// Config holds the operator-configurable knobs for the metrics subsystem.
 type Config struct {
 	// Enabled gates the entire subsystem. When false, New returns a
 	// Metrics value whose Record methods are no-ops, the listener is
@@ -44,8 +79,17 @@ type Config struct {
 	Enabled bool
 
 	// ListenAddr is the bind address for the /metrics HTTP listener,
-	// e.g. ":9090" or "127.0.0.1:9090". Ignored when Enabled is false.
+	// e.g. ":9090" or "127.0.0.1:9090". Ignored when Enabled is false or
+	// Exporter leaves Prometheus out.
 	ListenAddr string
+
+	// Exporter is where metrics go: the Prometheus listener, an OTLP push to
+	// the collector, or both (#1893).
+	Exporter MetricsExporter
+
+	// OTLP is the collector the OTLP reader pushes to; shared with the
+	// tracer and the log provider.
+	OTLP OTLPEndpoint
 }
 
 // ConfigFromEnv reads the observability configuration from environment
@@ -60,6 +104,8 @@ func ConfigFromEnv() Config {
 	return Config{
 		Enabled:    parseBoolEnv(envEnabled, true),
 		ListenAddr: stringEnvOrDefault(envListenAddr, DefaultListenAddr),
+		Exporter:   parseMetricsExporter(os.Getenv(envMetricsExporter)),
+		OTLP:       OTLPEndpointFromEnv(),
 	}
 }
 
@@ -71,15 +117,17 @@ const (
 	// envTracesEnabled toggles the tracing subsystem. Defaults to false.
 	envTracesEnabled = "OTEL_TRACES_ENABLED"
 
-	// envOTLPEndpoint is the OTLP/gRPC collector endpoint, e.g.
-	// "otel-collector:4317". This is the standard OpenTelemetry variable
-	// name so existing collector deployments work unchanged.
+	// envOTLPEndpoint is the OTLP/gRPC collector endpoint, in either form
+	// the OpenTelemetry specification defines: "otel-collector:4317", or a
+	// URL whose scheme chooses TLS (OTLPEndpoint). The standard variable
+	// name, so existing collector deployments work unchanged; one value for
+	// the trace, metric and log exporters.
 	envOTLPEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-	// envOTLPInsecure disables transport TLS to the collector. Defaults
-	// to true: the common topology is an in-cluster collector reached
-	// over the pod network, not the public internet. Set to false to use
-	// TLS to a remote collector.
+	// envOTLPInsecure disables transport TLS to the collector. Unset, a
+	// host:port endpoint is plaintext (the common topology is an in-cluster
+	// collector reached over the pod network) and a URL follows its scheme.
+	// Set, it decides for both forms.
 	envOTLPInsecure = "OTEL_EXPORTER_OTLP_INSECURE"
 
 	// envTracesSamplerArg is the head-based sampling ratio in [0,1]
@@ -97,11 +145,11 @@ const (
 	// address is personal data, and a trace backend is outside the
 	// platform (#1892).
 	envTracesIncludeUserEmail = "OTEL_TRACES_INCLUDE_USER_EMAIL"
-
-	// envServiceName sets the service.name resource attribute on every
-	// span. Standard OpenTelemetry variable. Defaults to DefaultServiceName.
-	envServiceName = "OTEL_SERVICE_NAME"
 )
+
+// OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES are read by the SDK's
+// environment detector inside Resource; the platform does not read them
+// itself.
 
 // Tracing defaults.
 const (
@@ -109,8 +157,8 @@ const (
 	// OTEL_EXPORTER_OTLP_ENDPOINT is unset.
 	DefaultOTLPEndpoint = "localhost:4317"
 
-	// DefaultServiceName is the service.name resource value when
-	// OTEL_SERVICE_NAME is unset.
+	// DefaultServiceName is the service.name resource value when neither
+	// OTEL_SERVICE_NAME nor OTEL_RESOURCE_ATTRIBUTES names one.
 	DefaultServiceName = "mcp-data-platform"
 
 	// DefaultSamplerArg is the head-based sampling ratio when
@@ -126,17 +174,12 @@ type TracingConfig struct {
 	// or global TracerProvider override is constructed.
 	Enabled bool
 
-	// Endpoint is the OTLP/gRPC collector address ("host:port").
-	Endpoint string
-
-	// Insecure disables transport TLS to the collector.
-	Insecure bool
+	// OTLP is the collector the spans are exported to; shared with the
+	// metrics OTLP reader and the log provider.
+	OTLP OTLPEndpoint
 
 	// SamplerArg is the head-based sampling ratio for root spans, [0,1].
 	SamplerArg float64
-
-	// ServiceName is the service.name resource attribute on every span.
-	ServiceName string
 
 	// IncludeUserEmail lets the tool-call span carry mcp.user_email.
 	IncludeUserEmail bool
@@ -148,11 +191,9 @@ type TracingConfig struct {
 // configuration still boots.
 func TracingConfigFromEnv() TracingConfig {
 	return TracingConfig{
-		Enabled:     parseBoolEnv(envTracesEnabled, false),
-		Endpoint:    stringEnvOrDefault(envOTLPEndpoint, DefaultOTLPEndpoint),
-		Insecure:    parseBoolEnv(envOTLPInsecure, true),
-		SamplerArg:  parseFloatEnv(envTracesSamplerArg, DefaultSamplerArg),
-		ServiceName: stringEnvOrDefault(envServiceName, DefaultServiceName),
+		Enabled:    parseBoolEnv(envTracesEnabled, false),
+		OTLP:       OTLPEndpointFromEnv(),
+		SamplerArg: parseFloatEnv(envTracesSamplerArg, DefaultSamplerArg),
 
 		IncludeUserEmail: parseBoolEnv(envTracesIncludeUserEmail, false),
 	}

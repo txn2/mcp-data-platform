@@ -497,7 +497,7 @@ func (s *Server) handleAuthorizationCodeGrant(ctx context.Context, req TokenRequ
 	// Consume takes the raw request value: the scanned code.Code holds
 	// the at-rest digest, which storage would hash again on lookup.
 	if _, err := s.storage.ConsumeAuthorizationCode(ctx, req.Code); err != nil {
-		slog.Warn("oauth: authorization code consume failed",
+		slog.WarnContext(ctx, "oauth: authorization code consume failed",
 			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
 			return nil, errors.New("invalid authorization code")
@@ -520,7 +520,7 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 		// Delete takes the raw request value: the scanned token.Token
 		// holds the at-rest digest, which storage would hash again.
 		if delErr := s.storage.DeleteRefreshToken(ctx, req.RefreshToken); delErr != nil {
-			slog.Warn("oauth: expired refresh token delete failed",
+			slog.WarnContext(ctx, "oauth: expired refresh token delete failed",
 				paramClientID, token.ClientID, logKeyError, delErr.Error())
 		}
 		return nil, errors.New("refresh token expired")
@@ -548,7 +548,7 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 	// Consume takes the raw request value: the scanned token.Token holds
 	// the at-rest digest, which storage would hash again on lookup.
 	if _, err := s.storage.ConsumeRefreshToken(ctx, req.RefreshToken); err != nil {
-		slog.Warn("oauth: refresh token rotation consume failed",
+		slog.WarnContext(ctx, "oauth: refresh token rotation consume failed",
 			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
 			return nil, errors.New("invalid refresh token")
@@ -1280,13 +1280,13 @@ func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration
 // still run.
 func (s *Server) runCleanup(ctx context.Context) {
 	if err := s.storage.CleanupExpiredCodes(ctx); err != nil {
-		slog.Warn("oauth cleanup: expired codes", logKeyError, err)
+		slog.WarnContext(ctx, "oauth cleanup: expired codes", logKeyError, err)
 	}
 	if err := s.storage.CleanupExpiredTokens(ctx); err != nil {
-		slog.Warn("oauth cleanup: expired tokens", logKeyError, err)
+		slog.WarnContext(ctx, "oauth cleanup: expired tokens", logKeyError, err)
 	}
 	if err := s.stateStore.CleanupExpiredStates(ctx, StateMaxAge); err != nil {
-		slog.Warn("oauth cleanup: expired states", logKeyError, err)
+		slog.WarnContext(ctx, "oauth cleanup: expired states", logKeyError, err)
 	}
 }
 

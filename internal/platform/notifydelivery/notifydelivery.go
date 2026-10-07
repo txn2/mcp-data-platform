@@ -147,7 +147,7 @@ func (h *Handle) Start(ctx context.Context) {
 		return
 	}
 	if err := h.listener.Start(ctx); err != nil {
-		slog.Warn("notification: LISTEN unavailable; falling back to polling", logKeyError, err)
+		slog.WarnContext(ctx, "notification: LISTEN unavailable; falling back to polling", logKeyError, err)
 		h.listener = nil
 	}
 }
@@ -225,7 +225,7 @@ func (h *Handle) SendGuestLink(ctx context.Context, to, link string) error {
 		return fmt.Errorf("rendering guest link email: %w", err)
 	}
 	if err := h.sender.Send(ctx, *settings, *email); err != nil {
-		slog.Error("notification: guest link send failed", logKeyError, err)
+		slog.ErrorContext(ctx, "notification: guest link send failed", logKeyError, err)
 		return err //nolint:wrapcheck // sender error already carries context
 	}
 	return nil
@@ -265,14 +265,14 @@ func (h *Handle) SendTest(ctx context.Context, to string) error {
 	settings, err := h.smtpSettings(ctx)
 	if err != nil {
 		if !errors.Is(err, smtp.ErrNotConfigured) {
-			slog.Error("notification: test send failed", "recipient", to, logKeyError, err)
+			slog.ErrorContext(ctx, "notification: test send failed", "recipient", to, logKeyError, err)
 		}
 		return err
 	}
 	// The recipient is a mail.ParseAddress-validated address and the host is
 	// sanitized, so neither can forge a log line.
 	if err := h.deliverTest(ctx, *settings, to); err != nil {
-		slog.Error("notification: test send failed",
+		slog.ErrorContext(ctx, "notification: test send failed",
 			"recipient", to,
 			"smtp_host", logsan.SanitizeForLog(settings.Host),
 			"smtp_port", settings.Port,

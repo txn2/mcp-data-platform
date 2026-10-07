@@ -70,7 +70,7 @@ func checkWorkflowGate(ctx context.Context, tracker *SessionWorkflowTracker, pc 
 		return nil
 	}
 
-	slog.Warn("workflow gate: query tool called before search",
+	slog.WarnContext(ctx, "workflow gate: query tool called before search",
 		"tool", pc.ToolName,
 		"session_id", pc.SessionID,
 		"user_id", pc.UserID,

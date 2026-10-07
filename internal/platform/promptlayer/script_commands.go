@@ -85,7 +85,7 @@ func (h *Handle) resolveForScriptEdit(ctx context.Context, input managePromptInp
 	email := resolveEmail(ctx)
 	pr, err := h.resolveManagedPrompt(ctx, input.Name, email, input.Scope, input.OwnerEmail)
 	if err != nil {
-		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
+		slog.ErrorContext(ctx, promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return nil, h.promptErrorDetail(ctx, promptErrGet, err)
 	}
 	if pr == nil {
@@ -110,6 +110,6 @@ func (h *Handle) scriptRefError(ctx context.Context, what, ref string, err error
 	if errors.Is(err, prompt.ErrAttachmentScope) {
 		return promptErrorResult(err.Error())
 	}
-	slog.Error(what, "script", ref, promptLogKeyErr, err)
+	slog.ErrorContext(ctx, what, "script", ref, promptLogKeyErr, err)
 	return h.promptErrorDetail(ctx, what, err)
 }

@@ -41,7 +41,7 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 	}
 	recipients := alertRecipients(sc)
 	if len(recipients) == 0 {
-		slog.Warn("scripts: a scheduled run failed and there is nobody to tell",
+		slog.WarnContext(ctx, "scripts: a scheduled run failed and there is nobody to tell",
 			logKeyRunID, run.ID, "script", logsan.SanitizeForLog(sc.Name))
 		return
 	}
@@ -71,7 +71,7 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 		if _, err := w.cfg.notifier.Notify(writeCtx, recipient, notification.CategoryScriptRun, payload); err != nil {
 			// A failed alert is not a failed run. It is logged and the next
 			// recipient is still told.
-			slog.Warn("scripts: queueing a run-failure alert failed", // #nosec G706 -- structured slog call; error sanitized
+			slog.WarnContext(ctx, "scripts: queueing a run-failure alert failed", // #nosec G706 -- structured slog call; error sanitized
 				logKeyRunID, run.ID, logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
@@ -90,7 +90,7 @@ func (w *worker) repeats(ctx context.Context, scriptID string) int {
 	defer cancel()
 	streaks, err := reader.FailureStreaks(readCtx, []string{scriptID})
 	if err != nil {
-		slog.Warn("scripts: reading a failing script's recent runs failed; the alert reads as a first failure",
+		slog.WarnContext(ctx, "scripts: reading a failing script's recent runs failed; the alert reads as a first failure",
 			"script_id", scriptID, logKeyError, logsan.SanitizeForLog(err.Error()))
 		return 0
 	}

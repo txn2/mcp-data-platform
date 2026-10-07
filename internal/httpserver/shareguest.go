@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -87,7 +87,7 @@ func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, s
 	}
 	svc := shareguest.New(cfg)
 	if svc.LinksAvailable() {
-		log.Println("Portal share guest links enabled (one-time email links)")
+		slog.Info("Portal share guest links enabled (one-time email links)")
 	}
 	return svc
 }
@@ -174,5 +174,5 @@ func mountNotificationUnsubscribe(mux *http.ServeMux, p *platform.Platform, noti
 	// RFC 8058 one-click: mail providers POST to the same URL the header
 	// names, so the opt-out records without any page interaction.
 	mux.Handle("POST "+unsubscribePath, handler)
-	log.Println("Notification unsubscribe endpoint enabled on " + unsubscribePath)
+	slog.Info("Notification unsubscribe endpoint enabled", "path", unsubscribePath)
 }

@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -233,8 +233,8 @@ func mountTableAPI(
 		return
 	}
 	handler.Routes(mux, wrap)
-	log.Println("Table registration enabled on /api/v1/{resources,portal/assets}/{id}/tables")
-	log.Println("Registered tables listed on /api/v1/tables")
+	slog.Info("Table registration enabled on /api/v1/{resources,portal/assets}/{id}/tables")
+	slog.Info("Registered tables listed on /api/v1/tables")
 }
 
 // TableSourceHooks are the callbacks the surrounding surfaces install at the

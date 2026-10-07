@@ -32,7 +32,7 @@ This starts:
 | dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
 | mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
 | api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 12 deterministic `/v1/*` paths (17 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
-| OpenTelemetry Collector | `:4317` (OTLP/gRPC) | Receives every trace both replicas export (tracing on at sampler 1.0) and writes them to `dev/.otel/traces.jsonl` (`dev/otel-collector.yml`); the acceptance suite reads spans back from there (#1892) |
+| OpenTelemetry Collector | `:4317` (OTLP/gRPC) | Receives every trace both replicas export (tracing on at sampler 1.0), their metrics (`OTEL_METRICS_EXPORTER=both`, every two seconds) and their log records (`OTEL_LOGS_EXPORTER=otlp`), and writes each to `dev/.otel/{traces,metrics,logs}.jsonl` (`dev/otel-collector.yml`); the acceptance suite reads them back from there (#1892, #1893, #1894). The stack names its deployment `acme-dev` in environment `dev`, and records each replica's stderr path (`DEV_AIR_LOG`, `DEV_AIR_B_LOG`) in `dev/.dev-ports.env` |
 
 On first run, seed data (~5K audit events, 8 knowledge insights) is automatically loaded.
 

@@ -200,7 +200,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			if isIsolatedRunSource(pc.Source) && !pkgsession.IsRunID(pc.SessionID) {
 				runID, gerr := mintIsolatedRunSessionID(pc.Source)
 				if gerr != nil {
-					slog.Warn("isolated run session id generation failed; run will record an empty session id",
+					slog.WarnContext(ctx, "isolated run session id generation failed; run will record an empty session id",
 						"source", pc.Source, logKeyError, gerr)
 				}
 				pc.SessionID = runID
@@ -333,7 +333,7 @@ func authenticateAndAuthorize(
 	// the HTTP middleware already validated the browser session cookie).
 	userInfo := GetPreAuthenticatedUser(ctx)
 	if userInfo != nil {
-		slog.Debug("using pre-authenticated user",
+		slog.DebugContext(ctx, "using pre-authenticated user",
 			logKeyTool, params.toolName,
 			"user_id", userInfo.UserID,
 			"auth_type", userInfo.AuthType,
@@ -342,7 +342,7 @@ func authenticateAndAuthorize(
 		var err error
 		userInfo, err = params.authenticator.Authenticate(ctx)
 		if err != nil {
-			slog.Warn("tool call authentication failed",
+			slog.WarnContext(ctx, "tool call authentication failed",
 				logKeyTool, params.toolName,
 				"request_id", params.pc.RequestID,
 				"error", err.Error(),
@@ -382,7 +382,7 @@ func authenticateAndAuthorize(
 	params.pc.PersonaName = personaName
 	params.pc.IsAdmin = personaName != "" && personaName == params.adminPersona
 	if !authorized {
-		slog.Warn("tool call authorization denied",
+		slog.WarnContext(ctx, "tool call authorization denied",
 			logKeyTool, params.toolName,
 			"user_id", params.pc.UserID,
 			"roles", params.pc.Roles,
@@ -401,7 +401,7 @@ func authenticateAndAuthorize(
 	if userInfo != nil {
 		authType = userInfo.AuthType
 	}
-	slog.Debug("tool call authorized",
+	slog.DebugContext(ctx, "tool call authorized",
 		"tool", params.toolName,
 		"user_id", params.pc.UserID,
 		"roles", params.pc.Roles,

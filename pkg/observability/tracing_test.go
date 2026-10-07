@@ -30,12 +30,13 @@ func recorderTracer(t *testing.T) (*Tracer, *tracetest.SpanRecorder) {
 
 func TestTracingConfigFromEnv_Defaults(t *testing.T) {
 	// No env set in this test process → tracing disabled, defaults applied.
+	t.Setenv(envOTLPEndpoint, "")
+	t.Setenv(envOTLPInsecure, "")
 	cfg := TracingConfigFromEnv()
 	assert.False(t, cfg.Enabled)
-	assert.Equal(t, DefaultOTLPEndpoint, cfg.Endpoint)
-	assert.True(t, cfg.Insecure)
+	assert.Equal(t, DefaultOTLPEndpoint, cfg.OTLP.Endpoint)
+	assert.Nil(t, cfg.OTLP.Insecure, "unset OTEL_EXPORTER_OTLP_INSECURE leaves the choice to the endpoint's form")
 	assert.InEpsilon(t, DefaultSamplerArg, cfg.SamplerArg, 0.0001)
-	assert.Equal(t, DefaultServiceName, cfg.ServiceName)
 }
 
 func TestTracingConfigFromEnv_Overrides(t *testing.T) {
@@ -43,14 +44,13 @@ func TestTracingConfigFromEnv_Overrides(t *testing.T) {
 	t.Setenv(envOTLPEndpoint, "collector:4317")
 	t.Setenv(envOTLPInsecure, "false")
 	t.Setenv(envTracesSamplerArg, "0.5")
-	t.Setenv(envServiceName, "custom-svc")
 
 	cfg := TracingConfigFromEnv()
 	assert.True(t, cfg.Enabled)
-	assert.Equal(t, "collector:4317", cfg.Endpoint)
-	assert.False(t, cfg.Insecure)
+	assert.Equal(t, "collector:4317", cfg.OTLP.Endpoint)
+	require.NotNil(t, cfg.OTLP.Insecure)
+	assert.False(t, *cfg.OTLP.Insecure)
 	assert.InEpsilon(t, 0.5, cfg.SamplerArg, 0.0001)
-	assert.Equal(t, "custom-svc", cfg.ServiceName)
 }
 
 func TestParseFloatEnv_Clamping(t *testing.T) {
@@ -93,11 +93,9 @@ func TestNewTracer_EnabledLazyExporter(t *testing.T) {
 	// Enabled with an unreachable collector must NOT block or error:
 	// the OTLP exporter connects lazily.
 	tr, err := NewTracer(TracingConfig{
-		Enabled:     true,
-		Endpoint:    "127.0.0.1:4317",
-		Insecure:    true,
-		SamplerArg:  1,
-		ServiceName: "test",
+		Enabled:    true,
+		OTLP:       OTLPEndpoint{Endpoint: "127.0.0.1:4317"},
+		SamplerArg: 1,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, tr)

@@ -220,7 +220,7 @@ func (a *APIKeyAuthenticator) matchAfterSync(ctx context.Context, seen []*APIKey
 		return nil
 	}
 	if err := a.syncShared(ctx); err != nil {
-		slog.Warn("api key: re-reading the key store for an unrecognized key failed", "error", logsan.SanitizeForLog(err.Error()))
+		slog.WarnContext(ctx, "api key: re-reading the key store for an unrecognized key failed", "error", logsan.SanitizeForLog(err.Error()))
 		return nil
 	}
 	seenHashes := make(map[string]bool, len(seen))
@@ -256,7 +256,7 @@ func (a *APIKeyAuthenticator) syncShared(ctx context.Context) error {
 func (a *APIKeyAuthenticator) confirmHeld(ctx context.Context, source HashedKeySource, key *APIKey) error {
 	held, err := source.HoldsKey(ctx, key.Name, key.KeyHash)
 	if err != nil {
-		slog.Warn("api key: confirming a key against the key store failed",
+		slog.WarnContext(ctx, "api key: confirming a key against the key store failed",
 			"name", logsan.SanitizeForLog(key.Name), "error", logsan.SanitizeForLog(err.Error()))
 		return fmt.Errorf("api key %q could not be confirmed against the key store: %w", key.Name, err)
 	}

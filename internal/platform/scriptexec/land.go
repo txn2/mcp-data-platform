@@ -57,7 +57,7 @@ func (w *outputWriter) writeResource(
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q to the library: %w", req.Name, err)
 	}
 	w.delivered[libraryAddress(req.Key)] = req.Name
-	slog.Info("scripts: wrote an output to the managed-resource library",
+	slog.InfoContext(ctx, "scripts: wrote an output to the managed-resource library",
 		logKeyRunID, w.run.ID, "output", req.Name, "uri", landing.URI,
 		"version", landing.Version, "created", landing.Created, "bytes", landing.SizeBytes)
 

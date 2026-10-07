@@ -129,7 +129,7 @@ func (h *Handle) handleDiff(ctx context.Context, input manageScriptInput) (*mcp.
 	if err != nil {
 		// Swallowing this would report "version N not found" for a script whose
 		// history is intact and whose store merely blinked.
-		slog.Error("failed to list script versions", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to list script versions", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the version history"), nil, nil
 	}
 	from, to, err := resolveDiffVersions(history, sc, input)
@@ -212,7 +212,7 @@ func (h *Handle) handleVersions(ctx context.Context, input manageScriptInput) (*
 	}
 	history, err := h.versions.ListVersions(ctx, sc.ID)
 	if err != nil {
-		slog.Error("failed to list script versions", fieldName, sc.Name, logKeyError, err)
+		slog.ErrorContext(ctx, "failed to list script versions", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to read the version history"), nil, nil
 	}
 	// The roles each version was saved with are its author's identity data,

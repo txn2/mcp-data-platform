@@ -166,7 +166,7 @@ func (s *Service) optedOut(ctx context.Context, email string) bool {
 	}
 	out, err := s.optOutStatus(ctx, email)
 	if err != nil {
-		slog.Warn("share guest landing: opt-out lookup failed", logKeyError, err)
+		slog.WarnContext(ctx, "share guest landing: opt-out lookup failed", logKeyError, err)
 		return false
 	}
 	return out

@@ -137,7 +137,7 @@ func (a *PrefsAPI) deliveryAvailable(ctx context.Context) bool {
 		return false
 	}
 	if err != nil {
-		slog.Warn("notification: reading smtp settings for delivery signal failed", logKeyError, err)
+		slog.WarnContext(ctx, "notification: reading smtp settings for delivery signal failed", logKeyError, err)
 		return true
 	}
 	return settings != nil && settings.Enabled && settings.Host != ""

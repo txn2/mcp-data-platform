@@ -43,7 +43,7 @@ func (h *Handle) ingestStaticPrompts(ctx context.Context) {
 	h.pruneStaleSystemPrompts(ctx, wanted)
 
 	if len(wanted) > 0 {
-		slog.Info("ingested static prompts for indexing and search", "count", len(wanted))
+		slog.InfoContext(ctx, "ingested static prompts for indexing and search", "count", len(wanted))
 	}
 }
 
@@ -55,21 +55,21 @@ func (h *Handle) upsertSystemPrompt(ctx context.Context, info registry.PromptInf
 
 	existing, err := h.store.Get(ctx, info.Name)
 	if err != nil {
-		slog.Warn("ingest static prompt: lookup failed", promptLogKey, info.Name, logKeyError, err)
+		slog.WarnContext(ctx, "ingest static prompt: lookup failed", promptLogKey, info.Name, logKeyError, err)
 		return
 	}
 	switch {
 	case existing == nil:
 		if err := h.store.Create(ctx, desired); err != nil {
-			slog.Warn("ingest static prompt: create failed", promptLogKey, info.Name, logKeyError, err)
+			slog.WarnContext(ctx, "ingest static prompt: create failed", promptLogKey, info.Name, logKeyError, err)
 		}
 	case existing.Source == prompt.SourceSystem:
 		desired.ID = existing.ID
 		if err := h.store.Update(ctx, desired); err != nil {
-			slog.Warn("ingest static prompt: update failed", promptLogKey, info.Name, logKeyError, err)
+			slog.WarnContext(ctx, "ingest static prompt: update failed", promptLogKey, info.Name, logKeyError, err)
 		}
 	default:
-		slog.Warn("ingest static prompt: name already used by a non-system prompt; skipping",
+		slog.WarnContext(ctx, "ingest static prompt: name already used by a non-system prompt; skipping",
 			promptLogKey, info.Name, "source", existing.Source)
 	}
 }
@@ -113,7 +113,7 @@ func systemPromptFromInfo(info registry.PromptInfo) *prompt.Prompt {
 func (h *Handle) pruneStaleSystemPrompts(ctx context.Context, wanted map[string]bool) {
 	rows, err := h.store.List(ctx, prompt.ListFilter{Source: prompt.SourceSystem})
 	if err != nil {
-		slog.Warn("ingest static prompt: list system prompts failed", logKeyError, err)
+		slog.WarnContext(ctx, "ingest static prompt: list system prompts failed", logKeyError, err)
 		return
 	}
 	for i := range rows {
@@ -121,7 +121,7 @@ func (h *Handle) pruneStaleSystemPrompts(ctx context.Context, wanted map[string]
 			continue
 		}
 		if err := h.store.DeleteByID(ctx, rows[i].ID); err != nil {
-			slog.Warn("ingest static prompt: prune failed", "name", rows[i].Name, logKeyError, err)
+			slog.WarnContext(ctx, "ingest static prompt: prune failed", "name", rows[i].Name, logKeyError, err)
 		}
 	}
 }

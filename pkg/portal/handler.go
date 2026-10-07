@@ -1436,7 +1436,7 @@ func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
 		return
 	}
 	if err := h.deps.S3Client.DeleteObject(ctx, bucket, key); err != nil {
-		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
+		slog.WarnContext(ctx, "failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
 			"bucket", bucket, "key", key, logKeyError, err)
 	}
 }
@@ -2765,7 +2765,7 @@ func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User
 			ChangeSummary: "Copied from " + asset.ID,
 		}
 		if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {
-			slog.Warn("failed to create initial version for copied asset", // #nosec G706 -- structured log, not user-facing
+			slog.WarnContext(ctx, "failed to create initial version for copied asset", // #nosec G706 -- structured log, not user-facing
 				"asset_id", newID, logKeyError, err)
 		}
 	}

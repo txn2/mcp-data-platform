@@ -4,6 +4,8 @@ cmd/mcp-data-platform -> internal/buildinfo
 cmd/mcp-data-platform -> internal/httpserver
 cmd/mcp-data-platform -> internal/procload
 cmd/mcp-data-platform -> internal/server
+cmd/mcp-data-platform -> internal/tracelog
+cmd/mcp-data-platform -> pkg/observability
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
 cmd/preview-content-viewer -> internal/portal/publicviewer
@@ -1140,6 +1142,7 @@ pkg/oauth -> pkg/observability
 pkg/oauth -> pkg/oidcdiscovery
 pkg/oauth -> pkg/ratelimit
 pkg/oauth/postgres -> pkg/oauth
+pkg/observability -> internal/buildinfo
 pkg/observability -> internal/logsan
 pkg/observability/proxy -> internal/wirejson
 pkg/persona -> pkg/middleware

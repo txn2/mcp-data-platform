@@ -195,6 +195,11 @@ def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: in
     rel = rel + "/" if rel != "." else "./"
     fails: dict[str, int] = defaultdict(int)
     output: dict[str, list[str]] = defaultdict(list)
+    # The top-level tests that have started and not ended. A binary that dies
+    # mid-test (a runtime fatal error, an os.Exit, the race runtime giving up)
+    # prints no `--- FAIL`, so the test it died in has no terminal event; what
+    # it printed before the death is attributed to it and is the only clue.
+    running: set[str] = set()
     package_failed = False
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -206,8 +211,12 @@ def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: in
         test, action = ev.get("Test"), ev.get("Action")
         if action in ("output", "build-output"):
             output[top_level(test) if test else ""].append(ev.get("Output", ""))
-        elif action == "fail" and test and "/" not in test:
-            fails[test] += 1
+        elif action == "run" and test and "/" not in test:
+            running.add(test)
+        elif action in ("pass", "fail", "skip") and test and "/" not in test:
+            running.discard(test)
+            if action == "fail":
+                fails[test] += 1
         elif action in ("fail", "build-fail") and not test:
             package_failed = True
     proc.wait()
@@ -224,10 +233,12 @@ def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: in
         )
     if package_failed and not fails:
         tail = "".join(output[""][-MAX_OUTPUT_LINES:])
+        for test in sorted(running):
+            tail += f"the binary exited during {test}; its output before that:\n" + "".join(output[test][-MAX_OUTPUT_LINES:])
         reports.append(
-            f"FAIL {pkg} at -cpu={cpu} with no failing test (build failure, panic, or the {PACKAGE_TIMEOUT} "
-            f"lane budget: {len(names)} changed test(s) x {RUNS} runs took {elapsed:.0f}s; a set that large "
-            f"belongs in fewer, faster tests)\n"
+            f"FAIL {pkg} at -cpu={cpu} with no failing test (build failure, a fatal error or exit mid-test, or the "
+            f"{PACKAGE_TIMEOUT} lane budget: {len(names)} changed test(s) x {RUNS} runs took {elapsed:.0f}s; a set "
+            f"that large belongs in fewer, faster tests)\n"
             f"  reproduce: go test -race -cpu={cpu} -count={RUNS} -timeout={PACKAGE_TIMEOUT} -run '{run_pattern(names)}' {rel}\n"
             + indent(tail)
         )

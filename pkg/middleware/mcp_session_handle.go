@@ -186,7 +186,7 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 			return nil
 		}
 		r.recordMetric(ctx, sessionSourceNone)
-		slog.Warn("session handle: missing and no session to adopt",
+		slog.WarnContext(ctx, "session handle: missing and no session to adopt",
 			logKeyTool, toolName, logKeyUserID, pc.UserID)
 		return createSessionRequiredError(r.initTool)
 	}
@@ -220,7 +220,7 @@ func (r *SessionResolver) adoptByIdentity(ctx context.Context, pc *PlatformConte
 	}
 	sess, err := r.store.LatestHandleForUser(ctx, pc.UserID)
 	if err != nil {
-		slog.Warn("session handle: identity lookup failed, allowing unadopted",
+		slog.WarnContext(ctx, "session handle: identity lookup failed, allowing unadopted",
 			logKeyUserID, pc.UserID, logKeyError, err)
 		r.recordMetric(ctx, sessionSourceNone)
 		return true
@@ -248,14 +248,14 @@ func (r *SessionResolver) resolveExplicit(ctx context.Context, pc *PlatformConte
 		// unvalidated call during an outage risks only session-scoping coherence,
 		// which self-corrects when the store recovers. The handle is adopted
 		// best-effort so audit/provenance stay coherent.
-		slog.Warn("session handle: store unavailable, allowing call unvalidated",
+		slog.WarnContext(ctx, "session handle: store unavailable, allowing call unvalidated",
 			logKeyTool, toolName, logKeyError, err)
 		pc.SessionID = handle
 		r.recordMetric(ctx, sessionSourceExplicit)
 		return nil
 	}
 	if sess == nil || sess.UserID != pc.UserID {
-		slog.Warn("session handle: rejected (unknown, expired, or identity mismatch)",
+		slog.WarnContext(ctx, "session handle: rejected (unknown, expired, or identity mismatch)",
 			logKeyTool, toolName, logKeyUserID, pc.UserID)
 		r.recordMetric(ctx, sessionSourceNone)
 		return createSessionExpiredError(r.initTool)

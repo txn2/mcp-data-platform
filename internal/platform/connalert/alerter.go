@@ -117,7 +117,7 @@ func (a *Alerter) Revoked(ctx context.Context, rev authevents.Revocation) {
 		return
 	}
 	if alert.AuthorizedBy == "" {
-		slog.Warn("a connection's credential was discarded and the platform does not know who authorized it",
+		slog.WarnContext(ctx, "a connection's credential was discarded and the platform does not know who authorized it",
 			logKeyKind, logsan.SanitizeForLog(rev.Kind), logKeyName, logsan.SanitizeForLog(rev.Name))
 		return
 	}
@@ -137,7 +137,7 @@ func (a *Alerter) Revoked(ctx context.Context, rev authevents.Revocation) {
 func (a *Alerter) announceRefusedAssertion(ctx context.Context, settings Settings, alert Alert) {
 	recipients := settings.EscalatesTo()
 	if len(recipients) == 0 {
-		slog.Warn("a connection's signed assertion was refused and no connection alert recipients are configured",
+		slog.WarnContext(ctx, "a connection's signed assertion was refused and no connection alert recipients are configured",
 			logKeyKind, logsan.SanitizeForLog(alert.Kind), logKeyName, logsan.SanitizeForLog(alert.Name))
 		return
 	}
@@ -231,7 +231,7 @@ func (a *Alerter) deliver(ctx context.Context, recipients []string, alert Alert,
 	// queued is what was actually written, not what was attempted: a recipient
 	// who opted out, or whose enqueue failed, must not read as notified in the
 	// log an operator checks after a silent alert.
-	slog.Info("connection revocation alert enqueued",
+	slog.InfoContext(ctx, "connection revocation alert enqueued",
 		logKeyKind, logsan.SanitizeForLog(alert.Kind),
 		logKeyName, logsan.SanitizeForLog(alert.Name),
 		"escalated", esc != nil,
