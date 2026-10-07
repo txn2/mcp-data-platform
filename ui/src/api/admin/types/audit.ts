@@ -28,6 +28,14 @@ export interface AuditEvent {
   parameters?: Record<string, unknown>;
   success: boolean;
   error_message?: string;
+  /**
+   * The bounded class of a failed call (#1892): one of the platform's error
+   * categories (authentication_failed, authorization_denied, search_required,
+   * rate_limited, user_declined, client_input, ...) or an upstream outcome
+   * (upstream_4xx, ...). Absent on a success and on rows written before the
+   * column existed.
+   */
+  error_category?: string;
   response_chars: number;
   request_chars: number;
   content_blocks: number;

@@ -54,7 +54,7 @@ services:
 
   # SeaweedFS for S3-compatible storage
   seaweedfs:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:3.88@sha256:98e034880fed76fdf508b20cae9de57b0e1f93f5910c89a94fe936af91c59abe
     container_name: e2e-seaweedfs
     # The same ceiling the dev stack hit: five volumes, after which every write
     # that needs a new one fails with "Not enough data nodes found" and retries
@@ -79,7 +79,7 @@ services:
 
   # SeaweedFS setup - creates buckets and uploads test data
   seaweedfs-setup:
-    image: amazon/aws-cli:latest
+    image: amazon/aws-cli:2.37.9@sha256:92de75724b6a746951f0e8b915d86bbccd7cb55aff96cd0cb4f7017272160780
     container_name: e2e-seaweedfs-setup
     depends_on:
       seaweedfs:

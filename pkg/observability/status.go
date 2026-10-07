@@ -6,12 +6,32 @@ import "errors"
 // closed and small so total label cardinality on counters and
 // histograms stays bounded.
 const (
-	StatusOK            = "ok"
-	StatusAuthErr       = "auth_err"
-	StatusAuthzErr      = "authz_err"
+	StatusOK       = "ok"
+	StatusAuthErr  = "auth_err"
+	StatusAuthzErr = "authz_err"
+	// StatusGateErr is a call the platform refused before the handler ran for
+	// a reason other than identity: the session gate, the search-first gate,
+	// a missing session handle or purpose, or the per-user rate limit. The
+	// specific gate is the error category on the audit row and on the span;
+	// the metric carries one value so the label set stays closed (#1892).
+	StatusGateErr = "gate_err"
+	// StatusDeclined is a person answering no to an elicitation prompt. It is
+	// not bad input and not a platform fault, so it has its own value rather
+	// than folding into StatusValidationErr (#1892).
+	StatusDeclined      = "declined"
 	StatusValidationErr = "validation_err"
 	StatusUpstreamErr   = "upstream_err"
 	StatusInternalErr   = "internal_err"
+)
+
+// Status labels for the OAuth server's own token endpoint. A grant the client
+// got wrong (an expired code, a mismatched client_id, a bad verifier) and a
+// grant the platform could not complete (its token store or signer failed) are
+// different operational conditions and were one upstream_err label until
+// #1892; the AuthFailureSpike alert reads status!="ok", so both still count.
+const (
+	StatusClientErr = "client_err"
+	StatusServerErr = "server_err"
 )
 
 // Audit outcome categories for upstream-proxying toolkits (e.g. the
@@ -97,14 +117,21 @@ type CategorizedError interface {
 // pkg/middleware.ErrCategory* uses so the platform's existing error
 // taxonomy maps to bounded metric labels without duplication.
 const (
-	CategoryAuth          = "authentication_failed"
-	CategoryAuthz         = "authorization_denied"
-	CategoryDeclined      = "user_declined"
-	CategoryClientInput   = "client_input"
-	CategoryNotFound      = "not_found"
-	CategorySetupRequired = "setup_required"
-	CategoryUnavailable   = "feature_unavailable"
-	CategoryInternal      = "internal"
+	CategoryAuth        = "authentication_failed"
+	CategoryAuthz       = "authorization_denied"
+	CategoryDeclined    = "user_declined"
+	CategoryClientInput = "client_input"
+	CategoryNotFound    = "not_found"
+	CategoryUnavailable = "feature_unavailable"
+	CategoryInternal    = "internal"
+	// The gate refusals (StatusGateErr). The values are the categories the
+	// gates in pkg/middleware and internal/platform/toolratelimit stamp on
+	// their refusals.
+	CategorySetupRequired   = "setup_required"
+	CategorySearchRequired  = "search_required"
+	CategorySessionRequired = "session_required"
+	CategoryPurposeRequired = "purpose_required"
+	CategoryRateLimited     = "rate_limited"
 )
 
 // ClassifyError maps an error returned from a tool handler (or from
@@ -130,7 +157,7 @@ func ClassifyError(err error) string {
 		case CategoryAuthz:
 			return StatusAuthzErr
 		case CategoryDeclined:
-			return StatusValidationErr
+			return StatusDeclined
 		}
 	}
 	return StatusInternalErr
@@ -145,7 +172,9 @@ func ClassifyError(err error) string {
 // Logic:
 //   - err != nil → ClassifyError(err) (protocol-level failure)
 //   - !isToolError → StatusOK
-//   - isToolError with a recognized category → mapped label
+//   - isToolError with a recognized category → mapped label; a refusal by one
+//     of the platform's gates maps to StatusGateErr, a declined elicitation
+//     to StatusDeclined
 //   - isToolError without a category → StatusUpstreamErr
 //     (most tool-level errors are upstream — Trino query failures,
 //     S3 access errors, DataHub fetch errors, etc.)
@@ -161,10 +190,14 @@ func ClassifyToolCallResult(err error, isToolError bool, errCategory string) str
 		return StatusAuthErr
 	case CategoryAuthz:
 		return StatusAuthzErr
+	case CategorySetupRequired, CategorySearchRequired, CategorySessionRequired,
+		CategoryPurposeRequired, CategoryRateLimited:
+		return StatusGateErr
+	case CategoryDeclined:
+		return StatusDeclined
 	// Caller- or config-correctable faults: the request cannot be served as-is
 	// for a reason that is not a platform fault or a transient backend error.
-	case CategoryDeclined, CategoryClientInput, CategoryNotFound,
-		CategorySetupRequired, CategoryUnavailable:
+	case CategoryClientInput, CategoryNotFound, CategoryUnavailable:
 		return StatusValidationErr
 	case CategoryInternal:
 		return StatusInternalErr

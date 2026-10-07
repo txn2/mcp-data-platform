@@ -309,6 +309,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # OpenTelemetry Collector: receives what the host-run platform exports over
+  # OTLP (dev/start.sh enables tracing at sampler 1.0 and points
+  # OTEL_EXPORTER_OTLP_ENDPOINT here) and writes each signal to a JSON-lines
+  # file under dev/.otel/ (dev/otel-collector.yml). The acceptance suite reads
+  # those files, so a criterion about a span is executed against what a real
+  # collector received (#1892, #1893, #1894). Dev-only; production runs its own
+  # collector (deployments/observability/otel-collector.yaml).
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    container_name: acme-dev-otel-collector
+    command: ["--config=/etc/otelcol/config.yml"]
+    ports:
+      - "127.0.0.1:${DEV_OTLP_PORT:-4317}:4317"
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol/config.yml:ro
+      - ./.otel:/var/lib/otelcol
+
   # Ollama: local embedding provider backing semantic indexing (#557). The
   # host-run platform points embedding.ollama.url at http://localhost:11434
   # (dev/platform.yaml), so bundling it here makes `make dev` exercise the

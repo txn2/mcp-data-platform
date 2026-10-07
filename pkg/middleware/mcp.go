@@ -15,7 +15,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/producedby"
-	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -119,6 +118,13 @@ type ToolCallConfig struct {
 	// process does not serve it (#1757). Optional; nil leaves a call answered
 	// from the connections this process holds.
 	ConnectionCatchUp connectionCatchUp
+	// ToolRegistered reports whether a name the toolkit lookup does not know
+	// is a tool the server registers all the same (the platform's own tools:
+	// platform_info, search, ...). It decides whether a call records under
+	// its own tool label or under observability.ToolLabelUnregistered
+	// (#1892). Optional; nil treats every name the lookup misses as
+	// unregistered.
+	ToolRegistered func(name string) bool
 }
 
 // connectionCatchUp takes on a connection saved through another replica, which
@@ -162,14 +168,13 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				return nil, newInvalidParamsError(fmt.Sprintf("invalid request: %v", err))
 			}
 
-			// Build platform context and enrich the Go context.
-			pc := NewPlatformContext(generateRequestID())
+			// Fill in the platform context. The observers outer to this
+			// middleware have usually attached it already, so what is written
+			// here (the identity, the persona, a refusal) is what they read
+			// after the call returns (#1892); alone, this creates it.
+			ctx, pc := ensurePlatformContext(ctx, req)
+			pc.claimedFor = req
 			pc.ToolName = toolName
-			// Mint the audit event id up front: the row is written after the
-			// handler returns, but the result this call is about to produce
-			// cites the id, and an asset saved from it records the same id as
-			// its source (#1320).
-			pc.EventID = audit.NewEventID()
 			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
 			pc.Source = resolveSource(ctx)
@@ -201,6 +206,9 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				pc.SessionID = runID
 			}
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
+			if pc.ToolUnregistered && cfg.ToolRegistered != nil && cfg.ToolRegistered(toolName) {
+				pc.ToolUnregistered = false
+			}
 
 			// Authenticate and authorize
 			return authenticateAndAuthorize(ctx, method, req, next, authParams{
@@ -272,6 +280,7 @@ func populateToolkitMetadata(pc *PlatformContext, lookup ToolkitLookup, toolName
 		pc.Connection = match.Connection
 		return match.ConnectionResolved
 	}
+	pc.ToolUnregistered = true
 	return false
 }
 
@@ -373,11 +382,9 @@ func authenticateAndAuthorize(
 	params.pc.PersonaName = personaName
 	params.pc.IsAdmin = personaName != "" && personaName == params.adminPersona
 	if !authorized {
-		params.pc.AuthzError = reason
 		slog.Warn("tool call authorization denied",
 			logKeyTool, params.toolName,
 			"user_id", params.pc.UserID,
-			"email", params.pc.UserEmail,
 			"roles", params.pc.Roles,
 			"persona", personaName,
 			"reason", reason,
@@ -397,7 +404,6 @@ func authenticateAndAuthorize(
 	slog.Debug("tool call authorized",
 		"tool", params.toolName,
 		"user_id", params.pc.UserID,
-		"email", params.pc.UserEmail,
 		"roles", params.pc.Roles,
 		"persona", personaName,
 		"auth_type", authType,

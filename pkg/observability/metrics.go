@@ -26,14 +26,21 @@ import (
 // observe.
 //
 // Exposed names:
-//   - mcp_tool_calls_total
-//   - mcp_tool_call_duration_seconds
+//   - mcp_tool_calls_total{tool, toolkit_kind, persona, status_category, source}
+//   - mcp_tool_call_duration_seconds{tool, toolkit_kind, persona, status_category}
 //   - mcp_inflight_tool_calls
 //   - mcp_enrichment_bytes_total{tool, toolkit_kind, persona}
 //   - apigateway_outbound_total{connection, http_status_class, status_category, persona}
 //   - apigateway_outbound_duration_seconds{connection, http_status_class, status_category}
 //   - apigateway_inbound_requests_total{connection, operation_id, method, status_class, identity}
 //   - apigateway_inbound_duration_seconds{connection, operation_id, method, status_class}
+//
+// Tool-call cardinality: tool is the registered tool set, with one value
+// (ToolLabelUnregistered) for every name a caller sent that no toolkit
+// registers, so a caller cannot mint a series per invented name (#1892).
+// source is the closed set of ways a call arrives (mcp, admin, rest, script)
+// and is on the call counter only, so the histogram's bucket series do not
+// multiply by it.
 //
 // Outbound cardinality: connection is operator-configured (small);
 // http_status_class and status_category are closed sets; persona is the
@@ -50,7 +57,9 @@ import (
 // closed sets (~7 and 5); operation_id is bounded by the catalog's
 // operation count and falls back to "unknown" for connections with no
 // catalog or requests that match no spec path; identity is the API key
-// name or OIDC subject ("unknown" when unauthenticated). identity is
+// name for key auth, "oidc" for a signed-in person and "unknown" when
+// unauthenticated: it is bounded by the operator's key list, never by the
+// number of people, and never carries an address (#1892). identity is
 // recorded ONLY on the request counter, never on the duration histogram,
 // to keep the histogram's bucket series from multiplying by the identity
 // dimension.
@@ -213,6 +222,13 @@ const (
 // series per unresolved caller.
 const MetricLabelUnknown = "unknown"
 
+// ToolLabelUnregistered is the tool label for a tools/call naming a tool no
+// toolkit registers. The name a caller sends is theirs to choose, and a
+// persona allowing "*" admits it as far as the handler lookup, so recording
+// it as sent would let one caller mint a series per invented name (#1892).
+// The name itself is on the audit row.
+const ToolLabelUnregistered = "unregistered"
+
 // PersonaLabel bounds a resolved persona name into a label value. An empty
 // name -- a call that failed authentication, or one assembled outside the
 // tool-call middleware -- becomes MetricLabelUnknown, so mcp_tool_calls_total
@@ -232,12 +248,16 @@ func PersonaLabel(persona string) string {
 // fields, not Prometheus labels. Persona is bounded by the deployment's
 // persona definitions and records MetricLabelUnknown when the call never
 // reached persona resolution, which is the same value the api-gateway's
-// outbound counter records for the same case (#1615).
+// outbound counter records for the same case (#1615). Source is how the
+// call arrived (the audit event's source: mcp, admin, rest, script), so
+// an agent's traffic, a portal replay, the REST shim and a managed
+// script's run are separable; it is on the call counter only.
 type ToolCallAttrs struct {
 	Tool           string
 	ToolkitKind    string
 	Persona        string
 	StatusCategory string
+	Source         string
 }
 
 // APIGatewayAttrs is the bounded label set for outbound HTTP from the
@@ -265,8 +285,8 @@ type APIGatewayAttrs struct {
 // APIGatewayInboundAttrs is the bounded label set for inbound HTTP
 // requests to the apigateway REST shim. OperationID is the OpenAPI
 // operationId resolved from the connection's catalog ("unknown" when
-// unresolved); Identity is the API key name or OIDC subject ("unknown"
-// when unauthenticated). The raw path, query string, and numeric status
+// unresolved); Identity is the API key name, "oidc" for a signed-in
+// person, or "unknown" when unauthenticated. The raw path, query string, and numeric status
 // code are NOT labels; they are cardinality bombs and belong on trace
 // spans. Identity is applied to the request counter only (see
 // RecordAPIGatewayInbound).
@@ -452,7 +472,7 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	var err error
 	m.toolCallsTotal, err = meter.Int64Counter(
 		instToolCalls,
-		metric.WithDescription("Total number of MCP tool calls handled by the platform, labeled by tool, toolkit_kind, persona, and status_category."),
+		metric.WithDescription("Total number of MCP tool calls the platform answered, refused calls included, labeled by tool, toolkit_kind, persona, status_category and source."),
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instToolCalls, err)
@@ -600,7 +620,7 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 		},
 		func() error {
 			v, err := meter.Int64Counter(instTrinoQueries,
-				metric.WithDescription("Total Trino queries executed through the platform's Trino toolkit, labeled by status and query_kind."))
+				metric.WithDescription("Total Trino statements the platform's query provider ran for cross-enrichment (table resolution, availability, schema), labeled by status and query_kind. A trino_query tool call is counted by mcp_tool_calls_total{toolkit_kind=\"trino\"}, not here."))
 			m.trinoQueriesTotal = v
 			return wrapReg(instTrinoQueries, err)
 		},
@@ -693,19 +713,38 @@ func (m *Metrics) Shutdown(ctx context.Context) error {
 	return m.shutdownErr
 }
 
-// RecordToolCall records one tool-call observation. Nil-safe.
+// RecordToolCall records one tool-call observation. Nil-safe. The source
+// label is on the call counter only: the duration histogram's bucket series
+// would otherwise multiply by it.
 func (m *Metrics) RecordToolCall(ctx context.Context, attrs ToolCallAttrs, duration time.Duration) {
 	if m == nil {
 		return
 	}
-	set := metric.WithAttributes(
+	histSet := metric.WithAttributes(
 		attribute.String(attrTool, attrs.Tool),
 		attribute.String(attrToolkitKind, attrs.ToolkitKind),
 		attribute.String(attrPersona, PersonaLabel(attrs.Persona)),
 		attribute.String(attrStatusCategory, attrs.StatusCategory),
 	)
-	m.toolCallsTotal.Add(ctx, 1, set)
-	m.toolCallDuration.Record(ctx, duration.Seconds(), set)
+	counterSet := metric.WithAttributes(
+		attribute.String(attrTool, attrs.Tool),
+		attribute.String(attrToolkitKind, attrs.ToolkitKind),
+		attribute.String(attrPersona, PersonaLabel(attrs.Persona)),
+		attribute.String(attrStatusCategory, attrs.StatusCategory),
+		attribute.String(attrSource, SourceLabel(attrs.Source)),
+	)
+	m.toolCallsTotal.Add(ctx, 1, counterSet)
+	m.toolCallDuration.Record(ctx, duration.Seconds(), histSet)
+}
+
+// SourceLabel bounds a call's source into a label value: an empty source,
+// which only a call assembled outside the tool-call middleware carries,
+// records MetricLabelUnknown.
+func SourceLabel(source string) string {
+	if source == "" {
+		return MetricLabelUnknown
+	}
+	return source
 }
 
 // RecordEnrichmentBytes records the per-response cross-enrichment overhead in

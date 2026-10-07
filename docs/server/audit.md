@@ -94,6 +94,7 @@ result: the fields the table below defines.
 | `parameters` | JSONB | Tool call arguments with sensitive values redacted, plus a `result` key when the tool reports facts about the call's outcome: an API gateway [page walk](api-gateway.md#walking-a-paginated-operation) records `pages_fetched`, `items_merged`, and `stopped_by` there. See [Parameter Sanitization](#parameter-sanitization). |
 | `success` | BOOLEAN | `true` if the tool handler returned without error and `IsError` was not set. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
+| `error_category` | VARCHAR(64) | The bounded class of a failed call: one of the platform's error categories (`authentication_failed`, `authorization_denied`, `search_required`, `setup_required`, `session_required`, `purpose_required`, `rate_limited`, `user_declined`, `client_input`, `not_found`, `feature_unavailable`, `internal`, `tool_error`) or an upstream outcome (`upstream_4xx`, `upstream_5xx`, `upstream_timeout`, `transport_err`, `upstream_error`). Empty on a success; `NULL` on rows written before the column existed. A call the platform refused before the handler ran (a failed authentication, a persona denial, a gate, the rate limit) is audited like any other, and this column names the refusal (#1892). |
 | `session_id` | VARCHAR(255) | Session identity. For agents (`source=mcp`) this is the explicit session handle (`dps_…`) or the transport session ID. Portal-driven runs (`source=admin`) carry a distinct portal session ID (`dpp_…`) so they are attributable and never collide with an agent session. Links tool calls within the same session for pattern analysis. |
 | `response_chars` | INTEGER | Character count of the tool response. |
 | `content_blocks` | INTEGER | Number of content blocks in the tool response. |
@@ -305,6 +306,7 @@ CREATE TABLE audit_logs (
     parameters      JSONB,
     success         BOOLEAN NOT NULL,
     error_message   TEXT,
+    error_category  VARCHAR(64),
     created_date    DATE NOT NULL DEFAULT CURRENT_DATE,
     PRIMARY KEY (id, created_date)
 ) PARTITION BY RANGE (created_date);

@@ -1,0 +1,45 @@
+# Dev-only OpenTelemetry Collector configuration.
+#
+# Receives what the host-run platform exports over OTLP/gRPC (traces, and the
+# metrics and logs the later observability tickets add) and writes each signal
+# to a JSON-lines file under dev/.otel/, where the acceptance suite reads it:
+# a criterion about a span's attributes or a log line's trace id is executed
+# against what a real collector received, not against an in-process recorder.
+# dev/start.sh points OTEL_EXPORTER_OTLP_ENDPOINT at this container and
+# records the directory as DEV_OTEL_DIR in dev/.dev-ports.env.
+#
+# Nothing here is a production posture; deployments/observability/ holds that.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  file/traces:
+    path: /var/lib/otelcol/traces.jsonl
+    rotation:
+      max_megabytes: 50
+      max_backups: 1
+  file/metrics:
+    path: /var/lib/otelcol/metrics.jsonl
+    rotation:
+      max_megabytes: 50
+      max_backups: 1
+  file/logs:
+    path: /var/lib/otelcol/logs.jsonl
+    rotation:
+      max_megabytes: 50
+      max_backups: 1
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [file/traces]
+    metrics:
+      receivers: [otlp]
+      exporters: [file/metrics]
+    logs:
+      receivers: [otlp]
+      exporters: [file/logs]

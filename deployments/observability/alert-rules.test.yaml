@@ -1,0 +1,78 @@
+# promtool unit tests for alert-rules.yaml. `make alert-rules-test` extracts the
+# rule groups from the ConfigMap and runs these against them with the promtool
+# of the pinned Prometheus image, so the file needs no local install.
+#
+# The AuthFailureSpike cases are the reason the file exists (#1892): the alert
+# sums three series, and a deployment without the OAuth server has only one of
+# them. A sum over an absent series is empty, and empty plus anything is empty,
+# so the alert as first written could never fire there.
+rule_files:
+  - alert-rules.extracted.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # No OAuth server: only the tool-call series exists. 150 refused calls a
+  # minute is 2.5/s, above the 1/s threshold, and the alert must fire.
+  - interval: 1m
+    input_series:
+      - series: 'mcp_tool_calls_total{status_category="auth_err",tool="trino_query",persona="unknown",source="mcp",toolkit_kind="trino"}'
+        values: '0+150x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AuthFailureSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Authentication/authorization failure spike"
+              description: "Combined auth/authz failure rate exceeded 1/s over the last 5m."
+
+  # OAuth server present and the tool-call series absent (no tool call has
+  # been refused yet): the issuance failures alone fire it.
+  - interval: 1m
+    input_series:
+      - series: 'oauth_token_issuance_total{grant_type="authorization_code",status="client_err"}'
+        values: '0+150x10'
+      - series: 'oauth_token_refresh_total{status="ok"}'
+        values: '0+10x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AuthFailureSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Authentication/authorization failure spike"
+              description: "Combined auth/authz failure rate exceeded 1/s over the last 5m."
+
+  # Every series present and quiet: nothing fires.
+  - interval: 1m
+    input_series:
+      - series: 'mcp_tool_calls_total{status_category="auth_err",tool="trino_query",persona="unknown",source="mcp",toolkit_kind="trino"}'
+        values: '0+6x10'
+      - series: 'oauth_token_issuance_total{grant_type="authorization_code",status="client_err"}'
+        values: '0+6x10'
+      - series: 'oauth_token_refresh_total{status="server_err"}'
+        values: '0+6x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AuthFailureSpike
+        exp_alerts: []
+
+  # The three terms add: 0.5/s from each of two series crosses 1/s together.
+  - interval: 1m
+    input_series:
+      - series: 'mcp_tool_calls_total{status_category="authz_err",tool="s3_list",persona="analyst",source="mcp",toolkit_kind="s3"}'
+        values: '0+36x10'
+      - series: 'oauth_token_refresh_total{status="client_err"}'
+        values: '0+36x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AuthFailureSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Authentication/authorization failure spike"
+              description: "Combined auth/authz failure rate exceeded 1/s over the last 5m."

@@ -1140,6 +1140,7 @@ pkg/oauth -> pkg/observability
 pkg/oauth -> pkg/oidcdiscovery
 pkg/oauth -> pkg/ratelimit
 pkg/oauth/postgres -> pkg/oauth
+pkg/observability -> internal/logsan
 pkg/observability/proxy -> internal/wirejson
 pkg/persona -> pkg/middleware
 pkg/pkcestore -> pkg/connoauth

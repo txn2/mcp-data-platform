@@ -92,22 +92,35 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		{Name: mwOutputSchema, Register: func() { p.mcpServer.AddReceivingMiddleware(middleware.MCPOutputSchemaMiddleware()) }},
 		{Name: mwMCPApps, Register: p.addMCPAppsMiddleware},
 
-		// Auth/authz writes PlatformContext; it must be outer to every reader below.
-		{Name: mwToolCall, Register: p.addToolCallMiddleware},
+		// Observers of every tools/call (#1892): OUTER to auth/authz and the
+		// gates, so a refused call still yields its span, its
+		// mcp_tool_calls_total increment and its audit row. Each attaches the
+		// PlatformContext auth then fills in (middleware.ensurePlatformContext)
+		// and reads it after the call returns. Tracing is outermost so the span
+		// covers the whole call and parents every child span below.
+		{Name: mwTracing, Register: p.addTracingMiddleware},
+		{Name: mwMetrics, Register: p.addMetricsMiddleware},
+		{Name: mwAudit, Register: p.addAuditMiddleware},
 
-		// Gates: block tools before they reach audit/enrichment. Both read
-		// PlatformContext, and the workflow gate is inner to the session gate so
-		// platform_info takes precedence.
+		// Auth/authz fills in the PlatformContext the observers above
+		// attached; it must be outer to every reader below, and inner to the
+		// observers so its refusals are observed.
+		{Name: mwToolCall, Requires: []mwName{mwTracing, mwMetrics, mwAudit}, Register: p.addToolCallMiddleware},
+
+		// Gates: block tools before they reach the handler and enrichment. Both
+		// read PlatformContext, and the workflow gate is inner to the session
+		// gate so platform_info takes precedence. A gated call is still
+		// observed by the three middlewares above.
 		{Name: mwSessionGate, Requires: []mwName{mwToolCall}, Register: p.addSessionGateMiddleware},
 		{Name: mwWorkflowGate, Requires: []mwName{mwToolCall, mwSessionGate}, Register: p.addWorkflowGateMiddleware},
 
 		// Per-user rate limiter (#929): a safety net that refuses tools/call
 		// requests over a generous per-identity limit before they reach the
-		// observers, handler, or upstream. Inner to the gates so it only meters
-		// calls that pass them and would actually execute; outer to
-		// audit/metrics/tracing/enrichment so a refused call consumes none of
-		// their work. Reads PlatformContext (identity), so it requires the
-		// auth/authz middleware that writes it. The limiter is owned by the
+		// handler or upstream. Inner to the gates so it only meters calls that
+		// pass them and would actually execute; outer to enrichment so a
+		// refused call does none of that work. Its refusal is observed above
+		// like every other (#1892). Reads PlatformContext (identity), so it
+		// requires the auth/authz middleware that writes it. The limiter is owned by the
 		// toolratelimit seam and its lifetime is tracked on the lifecycle, so
 		// registration is an inline closure rather than a *Platform method: the
 		// platform facade gains no field or method for this subsystem.
@@ -132,15 +145,12 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 			)
 		}},
 
-		// Observers: read PlatformContext (identity/session/tool metadata), so
-		// they require the auth/authz middleware that writes it. Reflexive
-		// capture observes the tool result on the way out and must see the
+		// Reflexive capture reads PlatformContext (identity/session/tool
+		// metadata), so it requires the auth/authz middleware that writes it.
+		// It observes the tool result on the way out and must see the
 		// normalized error the error contract produces, so it is outer to it
 		// (encoded on mwErrorContract's Requires below).
 		{Name: mwReflexiveCapture, Requires: []mwName{mwToolCall}, Register: p.addReflexiveCaptureMiddleware},
-		{Name: mwTracing, Requires: []mwName{mwToolCall}, Register: p.addTracingMiddleware},
-		{Name: mwMetrics, Requires: []mwName{mwToolCall}, Register: p.addMetricsMiddleware},
-		{Name: mwAudit, Requires: []mwName{mwToolCall}, Register: p.addAuditMiddleware},
 
 		// Error contract normalizes handler errors; it is inner to audit/metrics
 		// and reflexive capture so they observe the normalized {code, category}
@@ -174,9 +184,9 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// EnrichmentApplied on the way out. The observers that record it —
 		// audit, tracing, and client logging — read it after next() returns, so
 		// they must be outer to enrichment (enrichment inner to them), or they
-		// record enrichment as not-applied. Metrics does not read the flag, so
-		// it is intentionally absent here.
-		{Name: mwEnrichment, Requires: []mwName{mwToolCall, mwTracing, mwAudit, mwClientLogging}, Register: p.addEnrichmentMiddleware},
+		// record enrichment as not-applied. Metrics reads EnrichmentBytes the
+		// same way.
+		{Name: mwEnrichment, Requires: []mwName{mwToolCall, mwTracing, mwMetrics, mwAudit, mwClientLogging}, Register: p.addEnrichmentMiddleware},
 
 		// Result capture (#1878): the tool's own result, for the budget.
 		{Name: mwResultCapture, Requires: []mwName{mwResultBudget}, Register: func() {
@@ -227,8 +237,9 @@ func (p *Platform) addErrorContractMiddleware() {
 	)
 }
 
-// addAuditMiddleware logs tool calls, reading PlatformContext set by
-// auth/authz. Must be inner to MCPToolCallMiddleware.
+// addAuditMiddleware logs tool calls. Outer to MCPToolCallMiddleware so a
+// refused call is audited (#1892); it attaches the PlatformContext that
+// middleware fills in.
 func (p *Platform) addAuditMiddleware() {
 	if p.config.Audit.IsToolCallLoggingEnabled() {
 		p.mcpServer.AddReceivingMiddleware(
@@ -242,10 +253,10 @@ func (p *Platform) addAuditMiddleware() {
 }
 
 // addMetricsMiddleware records tool_calls_total / tool_call_duration_seconds
-// and the in-flight gauge. Reads PlatformContext (tool, toolkit_kind, persona)
-// populated by MCPToolCallMiddleware, so it must be inner to that middleware.
-// Safe to register unconditionally: the middleware short-circuits on a
-// nil-or-disabled recorder.
+// and the in-flight gauge. Outer to MCPToolCallMiddleware so a refused call is
+// counted (#1892); it reads the tool, toolkit_kind and persona that middleware
+// fills in after the call returns. Safe to register unconditionally: the
+// middleware short-circuits on a nil-or-disabled recorder.
 func (p *Platform) addMetricsMiddleware() {
 	if p.obs.Metrics().Enabled() {
 		p.mcpServer.AddReceivingMiddleware(
@@ -256,9 +267,9 @@ func (p *Platform) addMetricsMiddleware() {
 
 // addTracingMiddleware opens the per-tool-call OTel span that becomes the
 // parent of every downstream adapter span via context propagation. Like Metrics
-// it reads PlatformContext and so sits inner to MCPToolCallMiddleware and outer
-// to the handler. Safe to register unconditionally: the middleware
-// short-circuits on a nil/disabled tracer.
+// it sits outer to MCPToolCallMiddleware, so a refused call has its span
+// (#1892), and outer to the handler. Safe to register unconditionally: the
+// middleware short-circuits on a nil/disabled tracer.
 func (p *Platform) addTracingMiddleware() {
 	if p.obs.Tracer().Enabled() {
 		p.mcpServer.AddReceivingMiddleware(
@@ -270,8 +281,8 @@ func (p *Platform) addTracingMiddleware() {
 // addWorkflowGateMiddleware refuses query tools until search has been called in
 // the session (issue #787). It short-circuits a blocked call with a
 // SEARCH_REQUIRED error result and never runs the handler. Inner to the session
-// gate so platform_info takes precedence, but outer to Audit/enrichment so
-// blocked calls don't produce audit events or enrichment.
+// gate so platform_info takes precedence, and outer to enrichment so a blocked
+// call is not enriched; the observers outer to it record the refusal (#1892).
 func (p *Platform) addWorkflowGateMiddleware() {
 	if p.workflowTracker != nil {
 		p.mcpServer.AddReceivingMiddleware(
@@ -281,8 +292,8 @@ func (p *Platform) addWorkflowGateMiddleware() {
 }
 
 // addSessionGateMiddleware blocks non-exempt tools until platform_info is
-// called. Inner to Auth/Authz so PlatformContext is available; outer to Audit
-// so gated calls don't produce audit events.
+// called. Inner to Auth/Authz so PlatformContext is available; a gated call
+// is recorded by the observers outer to both (#1892).
 func (p *Platform) addSessionGateMiddleware() {
 	if p.sessionGate != nil {
 		p.mcpServer.AddReceivingMiddleware(
@@ -291,9 +302,11 @@ func (p *Platform) addSessionGateMiddleware() {
 	}
 }
 
-// addToolCallMiddleware authenticates and authorizes users and creates
-// PlatformContext. Must be outer to Audit (and every other PlatformContext
-// reader) so PlatformContext is available in the ctx they receive. The
+// addToolCallMiddleware authenticates and authorizes users and fills in the
+// PlatformContext the observers attached (creating it when registered alone).
+// Must be outer to every PlatformContext reader below it so the value is
+// available in the ctx they receive, and inner to tracing, metrics and audit
+// so a refusal reaches them as the call's result (#1892). The
 // session-handle resolver (#792) runs inside it, adopting the explicit handle
 // onto pc.SessionID before the gates and audit observe it, followed by the
 // purpose resolver (#1317), which takes the stated purpose off the request onto
@@ -309,6 +322,19 @@ func (p *Platform) addToolCallMiddleware() {
 			ConnectionCatchUp: callcatchup.New(p.toolkitRegistry, callcatchup.Reader(
 				p.connectionStore, ErrConnectionNotFound,
 				func(inst *ConnectionInstance) map[string]any { return inst.Config })),
+			ToolRegistered: p.isPlatformTool,
 		}),
 	)
+}
+
+// isPlatformTool reports whether name is one of the platform's own tools,
+// which the toolkit registry does not know. Consulted only for a name the
+// registry misses, so a caller's invented name costs the small list once.
+func (p *Platform) isPlatformTool(name string) bool {
+	for _, t := range p.PlatformTools() {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
 }

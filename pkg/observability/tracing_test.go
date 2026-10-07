@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -153,7 +154,7 @@ func TestSetSpanStatus(t *testing.T) {
 	okSpan.End()
 
 	_, errSpan := tr.Start(context.Background(), "err")
-	SetSpanStatus(errSpan, StatusUpstreamErr, errors.New("boom"))
+	SetSpanStatus(errSpan, StatusUpstreamErr, errors.New("line 1:8: Column 'ssn' cannot be resolved for jo@example.com"))
 	errSpan.End()
 
 	require.NoError(t, tr.Shutdown(context.Background()))
@@ -167,10 +168,40 @@ func TestSetSpanStatus(t *testing.T) {
 	// OK span carries codes.Ok and the status_category attribute.
 	assert.Equal(t, "Ok", byName["ok"].Status().Code.String())
 	assert.True(t, hasStringAttr(byName["ok"], attrStatusCategory, StatusOK))
-	// Error span carries codes.Error, the error message, and a recorded event.
-	assert.Equal(t, "Error", byName["err"].Status().Code.String())
-	assert.Equal(t, "boom", byName["err"].Status().Description)
-	assert.NotEmpty(t, byName["err"].Events(), "RecordError should add an exception event")
+	// Error span carries codes.Error with the bounded category as its
+	// description, and the error as a recorded event with its quoted literal
+	// and the address redacted (#1892): the raw text stays in the platform.
+	errS := byName["err"]
+	assert.Equal(t, "Error", errS.Status().Code.String())
+	assert.Equal(t, StatusUpstreamErr, errS.Status().Description)
+	require.NotEmpty(t, errS.Events(), "RecordError should add an exception event")
+	var recorded string
+	for _, a := range errS.Events()[0].Attributes {
+		if a.Key == "exception.message" {
+			recorded = a.Value.AsString()
+		}
+	}
+	assert.Equal(t, "line 1:8: Column '?' cannot be resolved for [email]", recorded)
+	assert.NotContains(t, recorded, "ssn")
+}
+
+func TestRedactMessage(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"single quoted literal", `Column 'ssn' cannot be resolved`, `Column '?' cannot be resolved`},
+		{"double quoted literal", `key "s3://bucket/people.csv" not found`, `key '?' not found`},
+		{"backtick literal", "table `people` missing", "table '?' missing"},
+		{"email address", "no persona for jo.smith+x@example.co.uk", "no persona for [email]"},
+		{"control characters and runs of space", "a\n\tb   c", "a b c"},
+		{"long text is cut", strings.Repeat("x", 300), strings.Repeat("x", maxRedactedBytes) + "..."},
+		{"empty", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, RedactMessage(tc.in))
+		})
+	}
+	assert.NoError(t, RedactError(nil))
+	assert.EqualError(t, RedactError(errors.New("select 'a'")), "select '?'")
 }
 
 func hasStringAttr(s sdktrace.ReadOnlySpan, key, val string) bool {

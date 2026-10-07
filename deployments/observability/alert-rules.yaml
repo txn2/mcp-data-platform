@@ -40,12 +40,19 @@ data:
               description: "Inbound p95 latency is more than 2x its value 1h ago, sustained for 10m."
 
           # Authentication/authorization failure spike of any kind over 5m,
-          # across MCP tool calls and OAuth token issuance/refresh.
+          # across MCP tool calls and OAuth token issuance/refresh. Each term
+          # is wrapped in `or vector(0)`: a PromQL sum over an absent series is
+          # empty, and adding an empty vector empties the whole expression, so
+          # without the wrap the alert could never fire on a deployment that
+          # runs no OAuth server (two of the three series are absent there)
+          # or has yet to see a token grant. deployments/observability/
+          # alert-rules.test.yaml holds that case; `make alert-rules-test`
+          # runs it.
           - alert: AuthFailureSpike
             expr: |
-              sum (rate(mcp_tool_calls_total{status_category=~"auth_err|authz_err"}[5m]))
-                + sum (rate(oauth_token_issuance_total{status!="ok"}[5m]))
-                + sum (rate(oauth_token_refresh_total{status!="ok"}[5m]))
+              (sum (rate(mcp_tool_calls_total{status_category=~"auth_err|authz_err"}[5m])) or vector(0))
+                + (sum (rate(oauth_token_issuance_total{status!="ok"}[5m])) or vector(0))
+                + (sum (rate(oauth_token_refresh_total{status!="ok"}[5m])) or vector(0))
                 > 1
             for: 5m
             labels:

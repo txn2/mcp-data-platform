@@ -42,8 +42,7 @@ type SessionGate struct {
 	exemptSet  map[string]bool
 	sessionTTL time.Duration
 	done       chan struct{}
-	gateCount  int64 // total gating violations
-	retryCount int64 // total successful retries (init after gate)
+	gateCount  int64 // total gating violations, for the refusal's log line
 }
 
 // NewSessionGate creates a new session gate tracker.
@@ -74,12 +73,7 @@ func (g *SessionGate) RecordInit(sessionID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	_, existed := g.sessions[sessionID]
 	g.sessions[sessionID] = time.Now()
-
-	if existed {
-		g.retryCount++
-	}
 }
 
 // IsInitialized returns true if the session has called the init tool.
@@ -106,13 +100,6 @@ func (g *SessionGate) IncrementGateCount() int64 {
 	defer g.mu.Unlock()
 	g.gateCount++
 	return g.gateCount
-}
-
-// Stats returns current gate statistics.
-func (g *SessionGate) Stats() (gateViolations, retries, activeSessions int64) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.gateCount, g.retryCount, int64(len(g.sessions))
 }
 
 // StartCleanup starts a background goroutine that evicts expired sessions.

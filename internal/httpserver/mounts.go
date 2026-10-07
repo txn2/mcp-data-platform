@@ -204,7 +204,7 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 		MCPServer:   mcpServer,
 		Metrics:     p.Metrics(),
 		Resolver:    resolver,
-		Identity:    p.NewGatewayIdentityResolver(),
+		Identity:    gatewayhttp.NewIdentityResolver(p.Authenticator()),
 		RawMaxBytes: p.APIGatewayRawMaxBytes(),
 	})
 	if err != nil {

@@ -32,12 +32,13 @@ This starts:
 | dev-mcp-mock | `:9180` (OAuth) / `:9181` (MCP) | In-process mock — exercises the MCP gateway + OAuth grants |
 | mcp-test fixture | `http://localhost:9281/` | `ghcr.io/plexara/mcp-test` — 12-tool deterministic MCP upstream + portal at `/portal/` |
 | api-test fixture | `http://localhost:9282` | `ghcr.io/plexara/api-test` — 12 deterministic `/v1/*` paths (17 operations — `/echo` accepts all 6 HTTP methods) + OpenAPI at `/openapi.yaml` + portal at `/portal/` |
+| OpenTelemetry Collector | `:4317` (OTLP/gRPC) | Receives every trace both replicas export (tracing on at sampler 1.0) and writes them to `dev/.otel/traces.jsonl` (`dev/otel-collector.yml`); the acceptance suite reads spans back from there (#1892) |
 
 On first run, seed data (~5K audit events, 8 knowledge insights) is automatically loaded.
 
 **API Key**: `acme-dev-key-2024` (the `admin` persona)
 
-Four more keys authenticate as somebody other than an administrator, which is
+Five more keys authenticate as somebody other than an administrator, which is
 what an owner-authority check has to be executed by:
 
 | Key | Address | Persona |
@@ -45,6 +46,7 @@ what an owner-authority check has to be executed by:
 | `acme-analyst-key` | `rachel.thompson@example.com` | `inventory-analyst` |
 | `acme-engineer-key` | `marcus.johnson@example.com` | `data-engineer` |
 | `acme-director-key` | `david.park@example.com` | `regional-director` |
+| `acme-reporter-key` | `priya.nair@example.com` | `report-viewer` |
 | `acme-owner-key` | `asset.owner@example.com` | `collaborator` |
 | `acme-peer-key` | `asset.peer@example.com` | `collaborator` |
 

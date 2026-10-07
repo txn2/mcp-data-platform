@@ -93,8 +93,10 @@ func NewTracer(cfg TracingConfig) (*Tracer, error) {
 		sdktrace.WithResource(res),
 		// ParentBased honors an upstream sampling decision (so a sampled
 		// caller's whole trace is kept); root spans are sampled at the
-		// configured ratio. Tail-sampling of errors/slow spans lives in
-		// the collector.
+		// configured ratio, and a root span this sampler drops is never
+		// exported, whatever its outcome. A collector's tail sampling sees
+		// only what arrives, so a deployment that relies on it sets the
+		// ratio to 1.0 (see config.go).
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SamplerArg))),
 	)
 	return NewTracerFromProvider(provider, cfg), nil
@@ -120,6 +122,12 @@ func NewTracerFromProvider(provider *sdktrace.TracerProvider, cfg TracingConfig)
 // Enabled reports whether tracing is active. Call sites that build
 // expensive span attributes can gate on this; Start itself is nil-safe.
 func (t *Tracer) Enabled() bool { return t != nil }
+
+// IncludeUserEmail reports whether the tool-call span may carry the caller's
+// email address (OTEL_TRACES_INCLUDE_USER_EMAIL, default false). The user id
+// is always on the span; the address is personal data a trace backend would
+// otherwise hold for every call (#1892). Nil-safe: a disabled tracer says no.
+func (t *Tracer) IncludeUserEmail() bool { return t != nil && t.cfg.IncludeUserEmail }
 
 // Start begins a span. Nil-safe: on a nil receiver it returns a no-op
 // span (and the unchanged context) so call sites need no enabled check.
@@ -163,21 +171,19 @@ func ChildSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) 
 // SetSpanStatus records the outcome of an operation on span from the
 // platform's bounded status_category plus the underlying error. It maps
 // every category except StatusOK to codes.Error so error traces stand
-// out in Tempo/Jaeger, and attaches the error detail (which, unlike a
-// Prometheus label, is safe to carry on a span). Nil-safe span handling
-// is the caller's (trace.Span is never nil from Start).
+// out in Tempo/Jaeger. The status description is the category itself, and
+// the error is recorded as a span event after RedactError: an upstream
+// error's text can quote the SQL a query ran or the body a response
+// carried, and a trace backend is outside the platform (#1892). Nil-safe
+// span handling is the caller's (trace.Span is never nil from Start).
 func SetSpanStatus(span trace.Span, statusCategory string, err error) {
 	span.SetAttributes(attribute.String(attrStatusCategory, statusCategory))
 	if err != nil {
-		span.RecordError(err)
+		span.RecordError(RedactError(err))
 	}
 	if statusCategory == StatusOK {
 		span.SetStatus(codes.Ok, "")
 		return
 	}
-	msg := statusCategory
-	if err != nil {
-		msg = err.Error()
-	}
-	span.SetStatus(codes.Error, msg)
+	span.SetStatus(codes.Error, statusCategory)
 }

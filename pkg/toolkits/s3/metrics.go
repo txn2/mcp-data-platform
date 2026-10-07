@@ -20,25 +20,28 @@ func (t *Toolkit) SetMetrics(m *observability.Metrics) {
 	t.metrics = m
 }
 
-// observe records one s3_operations observation AND one span for a finished
-// call. The operation label and span name are the tool plus the operation it
-// performed (s3_list.buckets, s3_object.put, ...); status is StatusOK unless
-// the handler returned an error result, in which case it is StatusUpstreamErr.
-//
-// The span is created with an explicit start timestamp and ended immediately,
-// so it carries the true operation duration. It is a no-op outside an active
-// trace (ChildSpan), so when tracing is off only the nil-safe metric runs.
-func (t *Toolkit) observe(ctx context.Context, op string, start time.Time, result *mcp.CallToolResult) {
+// begin opens the span for one S3 call before the call is made, so the span
+// parents whatever the call does inside it and its start is the call's
+// start. The operation label and span name are the tool plus the operation
+// it performs (s3_list.buckets, s3_object.put, ...). ChildSpan is a no-op
+// outside an active trace, so when tracing is off this costs one check.
+func begin(ctx context.Context, op string) (context.Context, trace.Span, time.Time) {
+	ctx, span := observability.ChildSpan(ctx, "s3."+op,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("s3.operation", op)))
+	return ctx, span, time.Now()
+}
+
+// observe ends the span begin opened and records one s3_operations
+// observation for the finished call. status is StatusOK unless the handler
+// returned an error result, in which case it is StatusUpstreamErr. The metric
+// is nil-safe, so a tracing-only deployment (m nil) still produces the span.
+func (t *Toolkit) observe(ctx context.Context, span trace.Span, op string, start time.Time, result *mcp.CallToolResult) {
 	status := observability.StatusOK
 	if result != nil && result.IsError {
 		status = observability.StatusUpstreamErr
 	}
 	t.metrics.RecordS3Operation(ctx, op, status, time.Since(start))
-
-	_, span := observability.ChildSpan(ctx, "s3."+op,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithTimestamp(start),
-		trace.WithAttributes(attribute.String("s3.operation", op)))
 	observability.SetSpanStatus(span, status, nil)
 	span.End()
 }

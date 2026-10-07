@@ -99,6 +99,8 @@ dev/.dev-ports.env
 dev/.mattermost-env
 # Self-signed certificate dev/start.sh generates for the api-test TLS terminator.
 dev/.tls/
+# What the dev OpenTelemetry collector received, as JSON lines (dev/otel-collector.yml).
+dev/.otel/
 __pycache__/
 
 # Build residue: a docs build drops this empty lock in the repo root.

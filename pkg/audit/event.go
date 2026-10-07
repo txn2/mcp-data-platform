@@ -145,6 +145,12 @@ func (e *Event) WithResult(success bool, errorMsg string, durationMS int64) *Eve
 	return e
 }
 
+// WithErrorCategory records the bounded category of a failed call.
+func (e *Event) WithErrorCategory(category string) *Event {
+	e.ErrorCategory = category
+	return e
+}
+
 // WithRequestID adds a request ID to the event.
 func (e *Event) WithRequestID(requestID string) *Event {
 	e.RequestID = requestID

@@ -2299,6 +2299,14 @@ definitions:
       enrichment_tokens_full:
         example: 850
         type: integer
+      error_category:
+        description: |-
+          ErrorCategory is the bounded class of a failed call: one of the
+          platform's error categories (authentication_failed, authorization_denied,
+          search_required, rate_limited, user_declined, client_input, ...) or an
+          upstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage
+          is the text; this is what a query groups by (#1892).
+        type: string
       error_message:
         type: string
       event_kind:

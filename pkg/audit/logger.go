@@ -39,19 +39,25 @@ type Event struct {
 	// (an MCP App, a script run, the REST shim), and on every row written before
 	// the feature existed. It is not an argument value, so the parameter
 	// redaction policy does not apply to it.
-	Purpose               string         `json:"purpose,omitempty" example:"Sizing Q3 revenue by region for the board deck."`
-	Parameters            map[string]any `json:"parameters,omitempty"`
-	Success               bool           `json:"success" example:"true"`
-	ErrorMessage          string         `json:"error_message,omitempty"`
-	ResponseChars         int            `json:"response_chars" example:"2450"`
-	RequestChars          int            `json:"request_chars" example:"120"`
-	ContentBlocks         int            `json:"content_blocks" example:"2"`
-	Transport             string         `json:"transport" example:"http"`
-	Source                string         `json:"source" example:"mcp"`
-	EnrichmentApplied     bool           `json:"enrichment_applied" example:"true"`
-	EnrichmentTokensFull  int            `json:"enrichment_tokens_full" example:"850"`
-	EnrichmentTokensDedup int            `json:"enrichment_tokens_dedup" example:"350"`
-	EnrichmentMode        string         `json:"enrichment_mode,omitempty" example:"summary"`
+	Purpose      string         `json:"purpose,omitempty" example:"Sizing Q3 revenue by region for the board deck."`
+	Parameters   map[string]any `json:"parameters,omitempty"`
+	Success      bool           `json:"success" example:"true"`
+	ErrorMessage string         `json:"error_message,omitempty"`
+	// ErrorCategory is the bounded class of a failed call: one of the
+	// platform's error categories (authentication_failed, authorization_denied,
+	// search_required, rate_limited, user_declined, client_input, ...) or an
+	// upstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage
+	// is the text; this is what a query groups by (#1892).
+	ErrorCategory         string `json:"error_category,omitempty"`
+	ResponseChars         int    `json:"response_chars" example:"2450"`
+	RequestChars          int    `json:"request_chars" example:"120"`
+	ContentBlocks         int    `json:"content_blocks" example:"2"`
+	Transport             string `json:"transport" example:"http"`
+	Source                string `json:"source" example:"mcp"`
+	EnrichmentApplied     bool   `json:"enrichment_applied" example:"true"`
+	EnrichmentTokensFull  int    `json:"enrichment_tokens_full" example:"850"`
+	EnrichmentTokensDedup int    `json:"enrichment_tokens_dedup" example:"350"`
+	EnrichmentMode        string `json:"enrichment_mode,omitempty" example:"summary"`
 	// EnrichmentMatchKind records how the semantic enrichment matched
 	// the target table or column: "urn" when the URN-equality lookup
 	// resolved exactly, "semantic" when an exact lookup missed and the

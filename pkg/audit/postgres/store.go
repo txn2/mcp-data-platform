@@ -39,20 +39,21 @@ const (
 // the same literal does not appear repeatedly across the column list,
 // predicates, and ORDER BY clauses inside this package.
 const (
-	colTimestamp    = "timestamp"
-	colUserID       = "user_id"
-	colToolName     = "tool_name"
-	colDurationMS   = "duration_ms"
-	colPersona      = "persona"
-	colConnection   = "connection"
-	colSessionID    = "session_id"
-	colToolkitKind  = "toolkit_kind"
-	colErrorMessage = "error_message"
-	colUserEmail    = "user_email"
-	colSuccess      = "success"
-	colSource       = "source"
-	colEventKind    = "event_kind"
-	colPurpose      = "purpose"
+	colTimestamp     = "timestamp"
+	colUserID        = "user_id"
+	colToolName      = "tool_name"
+	colDurationMS    = "duration_ms"
+	colPersona       = "persona"
+	colConnection    = "connection"
+	colSessionID     = "session_id"
+	colToolkitKind   = "toolkit_kind"
+	colErrorMessage  = "error_message"
+	colErrorCategory = "error_category"
+	colUserEmail     = "user_email"
+	colSuccess       = "success"
+	colSource        = "source"
+	colEventKind     = "event_kind"
+	colPurpose       = "purpose"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -62,7 +63,7 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 var auditColumns = []string{
 	"id", colTimestamp, colDurationMS, "request_id", colSessionID,
 	colUserID, colUserEmail, colPersona, colToolName, colToolkitKind,
-	"toolkit_name", colConnection, colPurpose, "parameters", colSuccess, colErrorMessage,
+	"toolkit_name", colConnection, colPurpose, "parameters", colSuccess, colErrorMessage, colErrorCategory,
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
@@ -103,8 +104,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind, call_site)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, error_category, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind, call_site)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -124,6 +125,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		params,
 		event.Success,
 		event.ErrorMessage,
+		event.ErrorCategory,
 		event.Timestamp.Format("2006-01-02"),
 		event.ResponseChars,
 		event.RequestChars,
@@ -392,6 +394,8 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	var eventKind sql.NullString
 	// Nullable on rows written before the purpose column existed (issue #1317).
 	var purpose sql.NullString
+	// Nullable on rows written before the error_category column existed (#1892).
+	var errorCategory sql.NullString
 
 	err := rows.Scan(
 		&event.ID,
@@ -410,6 +414,7 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&params,
 		&event.Success,
 		&event.ErrorMessage,
+		&errorCategory,
 		&event.ResponseChars,
 		&event.RequestChars,
 		&event.ContentBlocks,
@@ -442,6 +447,9 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	}
 	if purpose.Valid {
 		event.Purpose = purpose.String
+	}
+	if errorCategory.Valid {
+		event.ErrorCategory = errorCategory.String
 	}
 
 	return event, nil

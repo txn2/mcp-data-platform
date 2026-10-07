@@ -121,28 +121,25 @@ type objectInput struct {
 
 // handleList is s3_list: buckets when no bucket is named, objects when one is.
 func (t *Toolkit) handleList(ctx context.Context, _ *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, any, error) {
-	start := time.Now()
-	op, res, out := t.list(ctx, in)
-	t.observe(ctx, op, start, res)
+	op := toolList + ".objects"
+	if in.Bucket == "" {
+		op = toolList + ".buckets"
+	}
+	ctx, span, start := begin(ctx, op)
+	res, out := t.list(ctx, in)
+	t.observe(ctx, span, op, start, res)
 	return res, out, nil
 }
 
-func (t *Toolkit) list(ctx context.Context, in listInput) (op string, res *mcp.CallToolResult, out any) {
-	if in.Bucket == "" {
-		op = toolList + ".buckets"
-	} else {
-		op = toolList + ".objects"
-	}
+func (t *Toolkit) list(ctx context.Context, in listInput) (res *mcp.CallToolResult, out any) {
 	client, err := t.s3Toolkit.GetClient(in.Connection)
 	if err != nil {
-		return op, s3tools.ErrorResult(err.Error()), nil
+		return s3tools.ErrorResult(err.Error()), nil
 	}
 	if in.Bucket == "" {
-		res, out = listBuckets(ctx, client, t.settings(in.Connection).bucketPrefix)
-		return op, res, out
+		return listBuckets(ctx, client, t.settings(in.Connection).bucketPrefix)
 	}
-	res, out = listObjects(ctx, client, in)
-	return op, res, out
+	return listObjects(ctx, client, in)
 }
 
 func listBuckets(ctx context.Context, client s3tools.S3Client, prefix string) (res *mcp.CallToolResult, out any) {
@@ -190,9 +187,10 @@ func listObjects(ctx context.Context, client s3tools.S3Client, in listInput) (re
 
 // handleObject is s3_object: one action over a (bucket, key).
 func (t *Toolkit) handleObject(ctx context.Context, _ *mcp.CallToolRequest, in objectInput) (*mcp.CallToolResult, any, error) {
-	start := time.Now()
+	op := toolObject + "." + operationLabel(in.Action)
+	ctx, span, start := begin(ctx, op)
 	res, out := t.object(ctx, in)
-	t.observe(ctx, toolObject+"."+operationLabel(in.Action), start, res)
+	t.observe(ctx, span, op, start, res)
 	return res, out, nil
 }
 

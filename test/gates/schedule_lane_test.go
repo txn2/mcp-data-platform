@@ -1,9 +1,11 @@
 package gates
 
-// scripts/schedule-lane.py runs the Go packages a change touched at
-// -race -cpu=1,2 -count=5 (#1711), because a test whose assertion depends on
-// goroutine ordering passes one run at the developer machine's CPU count and
-// fails a loaded CI runner. What it must never do is pass such a test.
+// scripts/schedule-lane.py runs the Test functions in the _test.go files a
+// change touched at -race -cpu=1,2 -count=5 (#1711), because a test whose
+// assertion depends on goroutine ordering passes one run at the developer
+// machine's CPU count and fails a loaded CI runner. What it must never do is
+// pass such a test. The unit is the changed test, not its package (#2039):
+// a package's untouched tests ran once in `make test` and are not repeated.
 //
 // The fixtures stand in for an ordering-dependent test deterministically: one
 // fails only when GOMAXPROCS is 1, one only on its third run in a process. A
@@ -58,14 +60,31 @@ import "testing"
 
 func TestBroken(t *testing.T) { t.Fatal("not touched by the change") }
 `
+	// untouchedSibling is committed on the base branch beside a test the change
+	// adds: a test in a changed package that the change did not write is not
+	// repeated either (#2039).
+	untouchedSibling = `package steady
+
+import "testing"
+
+func TestUntouchedSibling(t *testing.T) { t.Fatal("not written by the change") }
+`
+	// sourceOnly is a change to a package's non-test file.
+	sourceOnly = `package steady
+
+// Answer is what the change edits.
+const Answer = 42
+`
 )
 
 // newLaneRepo is a Go module with a package the change will not touch.
 func newLaneRepo(t *testing.T) string {
 	t.Helper()
 	return newGitRepo(t, laneScriptRelPath, map[string]string{
-		"go.mod":                "module example.com/lanefixture\n\ngo 1.22\n",
-		"broken/broken_test.go": broken,
+		"go.mod":                 "module example.com/lanefixture\n\ngo 1.22\n",
+		"broken/broken_test.go":  broken,
+		"steady/sibling_test.go": untouchedSibling,
+		"steady/steady.go":       "package steady\n",
 	})
 }
 
@@ -102,14 +121,22 @@ func TestScheduleLane(t *testing.T) {
 			}},
 		},
 		{
-			name:   "a deterministic test passes, and a package the change did not touch is not run",
-			files:  map[string]string{"steady/steady_test.go": steady},
-			expect: expect{pass: true, want: []string{"schedule-lane: 1 package(s) passed 5 runs at -cpu=1,2."}, mustNot: []string{"FAIL", "TestBroken"}},
+			name:  "a deterministic test passes; a package the change did not touch and a test it did not write are not run",
+			files: map[string]string{"steady/steady_test.go": steady},
+			expect: expect{pass: true, want: []string{
+				"schedule-lane: example.com/lanefixture/steady: 1 test(s) x 5 at -cpu=1 in",
+				"schedule-lane: 1 changed test(s) in 1 package(s) passed 5 runs at -cpu=1,2.",
+			}, mustNot: []string{"FAIL", "TestBroken", "TestUntouchedSibling"}},
+		},
+		{
+			name:   "a change to a package's source alone repeats none of its tests",
+			files:  map[string]string{"steady/steady.go": sourceOnly},
+			expect: expect{pass: true, want: []string{"no test function changed against main; nothing to run."}, mustNot: []string{"TestUntouchedSibling"}},
 		},
 		{
 			name:   "a change with no Go package runs nothing",
 			files:  map[string]string{"README.md": "text\n"},
-			expect: expect{pass: true, want: []string{"no Go package with tests changed against main; nothing to run."}},
+			expect: expect{pass: true, want: []string{"no test function changed against main; nothing to run."}},
 		},
 		{
 			name:     "a base branch that cannot be resolved fails rather than skipping",

@@ -22,9 +22,10 @@ type OperationResolver interface {
 	HasConnection(connection string) bool
 }
 
-// IdentityResolver maps a request's auth context to a display identity
-// (API key name or OIDC subject) for metric labeling. Returns
-// "unknown" when no identity can be resolved. Implemented in the
+// IdentityResolver maps a request's auth context to the bounded identity
+// label on the inbound request counter: the API key's name, "oidc" for a
+// signed-in person, "unknown" when no identity can be resolved. The value
+// never carries a person's address or subject (#1892). Implemented in the
 // platform package over the existing authenticator so this package
 // imports no auth code.
 type IdentityResolver interface {
@@ -126,7 +127,7 @@ func resolveOperation(r *http.Request, deps Deps, meta *invokeMeta) string {
 	return op
 }
 
-// resolveIdentity returns the caller's display identity, or "unknown".
+// resolveIdentity returns the caller's identity label, or "unknown".
 // Identity is not on r.Context() at this layer (the handler only stashes
 // the raw token), so the token context is rebuilt the same way the
 // handler does before delegating to the resolver.

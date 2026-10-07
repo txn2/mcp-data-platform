@@ -34,14 +34,14 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwPurposeSchema,
 		mwOutputSchema,
 		mwMCPApps,
+		mwTracing,
+		mwMetrics,
+		mwAudit,
 		mwToolCall,
 		mwSessionGate,
 		mwWorkflowGate,
 		mwRateLimit,
 		mwReflexiveCapture,
-		mwTracing,
-		mwMetrics,
-		mwAudit,
 		mwErrorContract,
 		mwResultBudget,
 		mwClientLogging,
@@ -77,9 +77,13 @@ func TestReceivingMiddlewareChain_Validates(t *testing.T) {
 }
 
 // TestReceivingMiddlewareChain_PlatformContextReadersRequireAuth guards the
-// central invariant: every PlatformContext reader declares a dependency on the
-// auth/authz middleware that writes it. If a new reader is added without the
-// requires entry, this test fails.
+// central invariant: every middleware that reads the PlatformContext BEFORE
+// calling the next handler declares a dependency on the auth/authz middleware
+// that fills it in. If a new reader is added without the requires entry, this
+// test fails. The three observers (tracing, metrics, audit) are not in this
+// set: they attach the context themselves and read it only after the call
+// returns, which is what lets them sit outer to auth and record a refusal
+// (#1892); the next test pins that side.
 func TestReceivingMiddlewareChain_PlatformContextReadersRequireAuth(t *testing.T) {
 	specs := (&Platform{}).receivingMiddlewareChain()
 
@@ -88,9 +92,6 @@ func TestReceivingMiddlewareChain_PlatformContextReadersRequireAuth(t *testing.T
 		mwWorkflowGate:     true,
 		mwRateLimit:        true,
 		mwReflexiveCapture: true,
-		mwTracing:          true,
-		mwMetrics:          true,
-		mwAudit:            true,
 		mwCallReference:    true,
 		mwEnrichment:       true,
 	}
@@ -101,6 +102,26 @@ func TestReceivingMiddlewareChain_PlatformContextReadersRequireAuth(t *testing.T
 		}
 		if !requires(s, mwToolCall) {
 			t.Errorf("middleware %q reads PlatformContext but does not require %q", s.Name, mwToolCall)
+		}
+	}
+}
+
+// TestReceivingMiddlewareChain_RefusalsAreObserved pins the #1892 invariant:
+// the auth/authz middleware declares tracing, metrics and audit as outer to it,
+// so a call it or a gate inner to it refuses still produces a span, a counter
+// increment and an audit row. Before this, all three sat inner to auth and the
+// gates, and a refused call left one log line and nothing else.
+func TestReceivingMiddlewareChain_RefusalsAreObserved(t *testing.T) {
+	var toolCall mwSpec
+	for _, s := range (&Platform{}).receivingMiddlewareChain() {
+		if s.Name == mwToolCall {
+			toolCall = s
+		}
+	}
+	require.Equal(t, mwToolCall, toolCall.Name)
+	for _, observer := range []mwName{mwTracing, mwMetrics, mwAudit} {
+		if !requires(toolCall, observer) {
+			t.Errorf("%q must declare %q as outer to it, or that observer misses every refused call", mwToolCall, observer)
 		}
 	}
 }
@@ -124,9 +145,9 @@ func TestReceivingMiddlewareChain_DeclaredDependencies(t *testing.T) {
 		// The rate limiter reads PlatformContext identity to key its per-user
 		// bucket, so it depends on the auth/authz writer.
 		mwRateLimit: {mwToolCall},
-		// Observers of EnrichmentApplied (set on the way out) must be outer to
-		// enrichment; metrics is deliberately excluded (it does not read it).
-		mwEnrichment: {mwToolCall, mwTracing, mwAudit, mwClientLogging},
+		// Observers of the enrichment fields (set on the way out) must be
+		// outer to enrichment.
+		mwEnrichment: {mwToolCall, mwTracing, mwMetrics, mwAudit, mwClientLogging},
 		// audit/metrics/reflexive-capture observe the normalized error, so the
 		// error contract is inner to all three.
 		mwErrorContract: {mwAudit, mwMetrics, mwReflexiveCapture},
