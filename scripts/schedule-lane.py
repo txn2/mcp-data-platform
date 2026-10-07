@@ -10,11 +10,20 @@ TestWithRevocations_WiredLate did that: 0 of 300 runs failed at -cpu=2 and
 -cpu=4, 140 of 300 at -cpu=1, and it reached main behind two green `make
 verify` runs.
 
-  go  Every Go package in the root module with a changed file against the
-      merge base runs `go test -race -count=5` once per CPU setting in
-      CPU_SETTINGS. At a 47% failure rate five runs at one CPU miss the defect
-      with probability under 5%. Each failure prints the command that
-      reproduces it.
+  go  The Test functions in every changed _test.go file against the merge
+      base run `go test -race -count=5 -run '^(TestA|TestB)$'` once per CPU
+      setting in CPU_SETTINGS. At a 47% failure rate five runs at one CPU miss
+      the defect with probability under 5%. Each failure prints the command
+      that reproduces it. The unit of work is the changed test, not its
+      package (#2039): the lane used to run every test of every changed
+      package, and on a change to pkg/platform that was ten passes of an
+      eight-minute suite on one core, an hour on a developer machine and a
+      timeout in CI, almost all of it tests the change did not touch. The
+      ordering-dependent tests this lane exists for have been the ones a
+      change wrote; `make test` runs every test once regardless. A package
+      whose changed tests do not finish inside PACKAGE_TIMEOUT fails as too
+      large for the lane rather than running on, and each package's time is
+      printed.
 
   ui  The full vitest suite runs, and beside it every changed *.test.ts(x)
       file runs five times, so the files under test run on a loaded machine
@@ -32,17 +41,20 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CPU_SETTINGS = (1, 2)
 RUNS = 5
-# A package runs RUNS times inside one test binary, so go test's default
-# 10-minute binary timeout is shared by all of them. internal/pdftext took 368s
-# for five runs here with the rest of the tree beside it; on a slower runner
-# the default would kill a package no test in it is wrong about.
-TIMEOUT = "30m"
+# The changed tests of a package run RUNS times inside one test binary, so one
+# timeout is shared by all of them. Ten minutes is the whole budget a package
+# gets per CPU setting: a set of changed tests that needs more than that is
+# too large for a lane whose point is to be cheap, and the failure says so
+# instead of running on.
+PACKAGE_TIMEOUT = "10m"
+TEST_FUNC = re.compile(r"^func (Test[A-Za-z0-9_]*)\s*\(", re.MULTILINE)
 # How many runs a reproduction command asks for. At the rates this lane exists
 # for, 300 runs at the failing CPU setting reproduce the failure every time.
 REPRO_COUNT = 300
@@ -105,11 +117,30 @@ def go_package_dirs(files: list[str]) -> list[str]:
     return sorted(dirs)
 
 
-def packages_with_tests(dirs: list[str]) -> dict[str, str]:
-    """Import path -> ./relative dir, for the dirs that hold a test file.
+def changed_tests_by_dir(files: list[str]) -> dict[str, set[str]]:
+    """./relative package dir -> the Test functions in its changed _test.go files.
 
-    A directory whose files are all behind a build tag (test/acceptance) or
-    that holds no test has nothing for this lane to run.
+    A test file behind a build tag the default build does not set
+    (test/acceptance) is listed by go list under IgnoredGoFiles, not
+    TestGoFiles, and packages_with_tests drops its package.
+    """
+    tests: dict[str, set[str]] = defaultdict(set)
+    for rel in files:
+        if not rel.endswith("_test.go") or not in_root_module(rel):
+            continue
+        parts = Path(rel).parts[:-1]
+        if any(p == "testdata" or p.startswith(("_", ".")) for p in parts):
+            continue
+        names = set(TEST_FUNC.findall((REPO_ROOT / rel).read_text(errors="replace")))
+        if names:
+            tests["./" + "/".join(parts) if parts else "."].update(names)
+    return tests
+
+
+def packages_with_tests(dirs: list[str]) -> dict[str, str]:
+    """Import path -> ./relative dir, for the dirs whose test files the default
+    build compiles. A directory whose test files are all behind a build tag
+    (test/acceptance) has nothing for this lane to run.
     """
     if not dirs:
         return {}
@@ -127,22 +158,44 @@ def packages_with_tests(dirs: list[str]) -> dict[str, str]:
         pos = len(out) - len(out[pos:].lstrip())
         if pkg.get("TestGoFiles") or pkg.get("XTestGoFiles"):
             rel = os.path.relpath(pkg["Dir"], REPO_ROOT)
-            found[pkg["ImportPath"]] = "./" + rel + "/" if rel != "." else "./"
+            # The same spelling changed_tests_by_dir keys on, so the two maps join.
+            found[pkg["ImportPath"]] = "./" + rel if rel != "." else "."
     return found
+
+
+def run_pattern(names: set[str]) -> str:
+    return "^(" + "|".join(sorted(names)) + ")$"
 
 
 def top_level(test: str) -> str:
     return test.split("/", 1)[0]
 
 
-def run_go_setting(packages: dict[str, str], cpu: int) -> list[str]:
-    """Run every package at one CPU setting; return a report per failure."""
-    cmd = ["go", "test", "-race", f"-cpu={cpu}", f"-count={RUNS}", f"-timeout={TIMEOUT}", "-json", *packages]
-    print(f"schedule-lane: {' '.join(cmd[:5])} ({len(packages)} package(s))", flush=True)
-    proc = subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, text=True)
-    fails: dict[tuple[str, str], int] = defaultdict(int)
-    output: dict[tuple[str, str], list[str]] = defaultdict(list)
-    package_failed: set[str] = set()
+def run_go_setting(packages: dict[str, str], tests: dict[str, set[str]], cpu: int) -> list[str]:
+    """Run each package's changed tests at one CPU setting; return a report per failure.
+
+    One `go test` per package, since -run takes one pattern: the packages run
+    in parallel up to GOMAXPROCS, as `go test ./...` does.
+    """
+    total = sum(len(tests[rel]) for rel in packages.values())
+    print(f"schedule-lane: go test -race -cpu={cpu} -count={RUNS} ({total} test(s) in {len(packages)} package(s))", flush=True)
+    procs = {}
+    for pkg, rel in sorted(packages.items()):
+        cmd = ["go", "test", "-race", f"-cpu={cpu}", f"-count={RUNS}", f"-timeout={PACKAGE_TIMEOUT}",
+               "-run", run_pattern(tests[rel]), "-json", rel]
+        procs[pkg] = (subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, text=True), time.monotonic())
+    reports = []
+    for pkg, (proc, started) in procs.items():
+        reports += collect(proc, pkg, packages[pkg], tests[packages[pkg]], cpu, started)
+    return reports
+
+
+def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: int, started: float) -> list[str]:
+    # The reproduce commands name the package the way a developer types it.
+    rel = rel + "/" if rel != "." else "./"
+    fails: dict[str, int] = defaultdict(int)
+    output: dict[str, list[str]] = defaultdict(list)
+    package_failed = False
     assert proc.stdout is not None
     for line in proc.stdout:
         try:
@@ -150,33 +203,36 @@ def run_go_setting(packages: dict[str, str], cpu: int) -> list[str]:
         except json.JSONDecodeError:
             print(line, end="")
             continue
-        pkg, test, action = ev.get("ImportPath") or ev.get("Package", ""), ev.get("Test"), ev.get("Action")
+        test, action = ev.get("Test"), ev.get("Action")
         if action in ("output", "build-output"):
-            output[(pkg, top_level(test) if test else "")].append(ev.get("Output", ""))
+            output[top_level(test) if test else ""].append(ev.get("Output", ""))
         elif action == "fail" and test and "/" not in test:
-            fails[(pkg, test)] += 1
+            fails[test] += 1
         elif action in ("fail", "build-fail") and not test:
-            package_failed.add(pkg)
+            package_failed = True
     proc.wait()
+    elapsed = time.monotonic() - started
+    print(f"schedule-lane: {pkg}: {len(names)} test(s) x {RUNS} at -cpu={cpu} in {elapsed:.0f}s", flush=True)
 
     reports = []
-    for (pkg, test), n in sorted(fails.items()):
-        rel = packages.get(pkg, pkg)
-        tail = "".join(output[(pkg, test)][-MAX_OUTPUT_LINES:])
+    for test, n in sorted(fails.items()):
+        tail = "".join(output[test][-MAX_OUTPUT_LINES:])
         reports.append(
             f"FAIL {test} in {pkg}: {n} of {RUNS} runs failed at -cpu={cpu}\n"
             f"  reproduce: go test -race -cpu={cpu} -count={REPRO_COUNT} -run '^{test}$' {rel}\n"
             + indent(tail)
         )
-    for pkg in sorted(package_failed - {p for p, _ in fails}):
-        rel = packages.get(pkg, pkg)
-        tail = "".join(output[(pkg, "")][-MAX_OUTPUT_LINES:])
+    if package_failed and not fails:
+        tail = "".join(output[""][-MAX_OUTPUT_LINES:])
         reports.append(
-            f"FAIL {pkg} at -cpu={cpu} with no failing test (build failure, panic or timeout)\n"
-            f"  reproduce: go test -race -cpu={cpu} -count={RUNS} {rel}\n" + indent(tail)
+            f"FAIL {pkg} at -cpu={cpu} with no failing test (build failure, panic, or the {PACKAGE_TIMEOUT} "
+            f"lane budget: {len(names)} changed test(s) x {RUNS} runs took {elapsed:.0f}s; a set that large "
+            f"belongs in fewer, faster tests)\n"
+            f"  reproduce: go test -race -cpu={cpu} -count={RUNS} -timeout={PACKAGE_TIMEOUT} -run '{run_pattern(names)}' {rel}\n"
+            + indent(tail)
         )
     if proc.returncode != 0 and not reports:
-        reports.append(f"FAIL go test exited {proc.returncode} at -cpu={cpu} and named no package")
+        reports.append(f"FAIL go test exited {proc.returncode} for {pkg} at -cpu={cpu} and named no test")
     return reports
 
 
@@ -186,19 +242,21 @@ def indent(text: str) -> str:
 
 def lane_go(base_branch: str) -> int:
     base = merge_base(base_branch)
-    packages = packages_with_tests(go_package_dirs(changed_files(base)))
+    tests = changed_tests_by_dir(changed_files(base))
+    packages = {pkg: rel for pkg, rel in packages_with_tests(sorted(tests)).items() if tests.get(rel)}
     if not packages:
-        print(f"schedule-lane: no Go package with tests changed against {base_branch}; nothing to run.")
+        print(f"schedule-lane: no test function changed against {base_branch}; nothing to run.")
         return 0
     reports = []
     for cpu in CPU_SETTINGS:
-        reports += run_go_setting(packages, cpu)
+        reports += run_go_setting(packages, tests, cpu)
     if reports:
         print("\n=== schedule-lane: tests that fail under a schedule `make test` did not choose ===")
         print("\n".join(reports))
         return 1
     settings = ",".join(str(c) for c in CPU_SETTINGS)
-    print(f"schedule-lane: {len(packages)} package(s) passed {RUNS} runs at -cpu={settings}.")
+    total = sum(len(tests[rel]) for rel in packages.values())
+    print(f"schedule-lane: {total} changed test(s) in {len(packages)} package(s) passed {RUNS} runs at -cpu={settings}.")
     return 0
 
 

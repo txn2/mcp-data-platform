@@ -114,18 +114,19 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 		t.Error("verify-ui still runs frontend-lint, which preverify-fast already ran")
 	}
 
-	// Both halves of the schedule lane run in preverify, Go first (#1929): a
-	// vitest file that fails only beside the full suite otherwise passes a
-	// green preverify and fails verify's UI lane. The RealDB tests of the
-	// packages a branch can break follow (#1947): preverify otherwise compiles
-	// no test behind the integration build tag.
+	// preverify runs nothing verify runs again in full (#2039). The schedule
+	// lane, its UI half and the real-DB lane used to follow lint here (#1929,
+	// #1947); on a change to pkg/platform they cost as much as verify, so the
+	// pre-gate doubled the time to a commit instead of saving a run. They run
+	// once, in verify and in CI.
 	pre := recipe(t, makefile, "preverify")
-	g, u, r := stepAt(pre, "schedule-lane"), stepAt(pre, "schedule-lane-ui"), stepAt(pre, "realdb-lane")
-	if g < 0 || u < 0 || g > u {
-		t.Errorf("preverify runs schedule-lane at %d and schedule-lane-ui at %d; both must run, Go first", g, u)
+	for _, lane := range []string{"schedule-lane", "schedule-lane-ui", "realdb-lane"} {
+		if stepAt(pre, lane) >= 0 {
+			t.Errorf("preverify runs %s, which verify runs again in full; the pre-gate must stay cheap (#2039)", lane)
+		}
 	}
-	if r < 0 || r < u {
-		t.Errorf("preverify runs realdb-lane at %d; it must run, after the schedule lane (%d)", r, u)
+	if stepAt(pre, "lint") < 0 {
+		t.Error("preverify does not run lint")
 	}
 	if !strings.Contains(strings.Join(recipe(t, makefile, "test-realdb"), "\n"), "$(REALDB_PKGS)") {
 		t.Errorf("test-realdb does not run $(REALDB_PKGS), so realdb-lane cannot narrow it")

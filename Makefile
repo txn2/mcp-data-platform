@@ -520,10 +520,13 @@ state-readers-check:
 e2e-copy-check:
 	@python3 scripts/e2e-copy-check.py
 
-## schedule-lane: Run every changed Go package at -race -cpu=1,2 -count=5 (ordering-dependent tests, #1711)
+## schedule-lane: Run the tests the diff touched at -race -cpu=1,2 -count=5 (ordering-dependent tests, #1711, #2039)
 ## `test` runs each test once at this machine's CPU count, which is not the
 ## schedule a loaded CI runner chooses. TestWithRevocations_WiredLate passed
-## two verify runs on 18 cores and fails 140 of 300 runs at -cpu=1. CI runs
+## two verify runs on 18 cores and fails 140 of 300 runs at -cpu=1. The lane
+## runs the Test functions in the changed _test.go files, not their whole
+## packages: ten passes of pkg/platform ran an hour on one core and then hit
+## the lane's timeout in CI (#2039). Each package has ten minutes. CI runs
 ## this same target on every pull request.
 schedule-lane:
 	@python3 scripts/schedule-lane.py go
@@ -901,11 +904,13 @@ realdb-lane:
 ## package importing one (#1947). A branch that passes it fails verify only on
 ## the full unit run, coverage, security, the rest of the real-DB lane, or the
 ## rest of the UI lane.
+## preverify: The cheap gates and the patch-scoped lint, under a few minutes (#1856, #2039)
+## It runs nothing verify runs again in full: the schedule lane, its UI half and
+## the real-DB lane used to follow lint here (#1929, #1947) and on a change to
+## pkg/platform they cost as much as verify itself, so a pre-gate was no longer
+## one. Those three run once, in verify and in CI.
 preverify: preverify-fast
 	@$(MAKE) --no-print-directory lint
-	@$(MAKE) --no-print-directory schedule-lane
-	@$(MAKE) --no-print-directory schedule-lane-ui
-	@$(MAKE) --no-print-directory realdb-lane
 
 ## verify-lint: the two lint targets, in order.
 ##
