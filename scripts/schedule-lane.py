@@ -40,6 +40,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 import time
 from collections import defaultdict
@@ -176,6 +177,18 @@ def run_go_setting(packages: dict[str, str], tests: dict[str, set[str]], cpu: in
 
     One `go test` per package, since -run takes one pattern: the packages run
     in parallel up to GOMAXPROCS, as `go test ./...` does.
+
+    Each process writes its -json stream to a file of its own, never to a
+    pipe this script reads later (#2045). The processes start together and
+    are collected one at a time, so a pipe would be drained only when its
+    turn came; a package whose binary wrote more than the pipe holds (64 KiB
+    on Linux) blocked `go test` on its write while the binary finished and
+    exited, and after `go test`'s one-minute WaitDelay the run was reported
+    as "Test I/O incomplete 1m0s after exiting" with the rest of the stream
+    lost. The lane then read that as a binary that died mid-test: that is
+    what killed pkg/observability on #2043's first CI run and five packages
+    on each of #2046's, and it never reproduced alone, because alone the
+    reader was never behind.
     """
     total = sum(len(tests[rel]) for rel in packages.values())
     print(f"schedule-lane: go test -race -cpu={cpu} -count={RUNS} ({total} test(s) in {len(packages)} package(s))", flush=True)
@@ -183,14 +196,15 @@ def run_go_setting(packages: dict[str, str], tests: dict[str, set[str]], cpu: in
     for pkg, rel in sorted(packages.items()):
         cmd = ["go", "test", "-race", f"-cpu={cpu}", f"-count={RUNS}", f"-timeout={PACKAGE_TIMEOUT}",
                "-run", run_pattern(tests[rel]), "-json", rel]
-        procs[pkg] = (subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, text=True), time.monotonic())
+        out = tempfile.TemporaryFile(mode="w+", encoding="utf-8")  # noqa: SIM115 -- closed by collect
+        procs[pkg] = (subprocess.Popen(cmd, cwd=REPO_ROOT, stdout=out, text=True), time.monotonic(), out)
     reports = []
-    for pkg, (proc, started) in procs.items():
-        reports += collect(proc, pkg, packages[pkg], tests[packages[pkg]], cpu, started)
+    for pkg, (proc, started, out) in procs.items():
+        reports += collect(proc, out, pkg, packages[pkg], tests[packages[pkg]], cpu, started)
     return reports
 
 
-def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: int, started: float) -> list[str]:
+def collect(proc: subprocess.Popen, out, pkg: str, rel: str, names: set[str], cpu: int, started: float) -> list[str]:
     # The reproduce commands name the package the way a developer types it.
     rel = rel + "/" if rel != "." else "./"
     fails: dict[str, int] = defaultdict(int)
@@ -201,8 +215,12 @@ def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: in
     # it printed before the death is attributed to it and is the only clue.
     running: set[str] = set()
     package_failed = False
-    assert proc.stdout is not None
-    for line in proc.stdout:
+    # The whole stream is on disk once the process has exited; nothing here
+    # was ever waiting on this reader.
+    proc.wait()
+    elapsed = time.monotonic() - started
+    out.seek(0)
+    for line in out:
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
@@ -219,8 +237,7 @@ def collect(proc: subprocess.Popen, pkg: str, rel: str, names: set[str], cpu: in
                 fails[test] += 1
         elif action in ("fail", "build-fail") and not test:
             package_failed = True
-    proc.wait()
-    elapsed = time.monotonic() - started
+    out.close()
     print(f"schedule-lane: {pkg}: {len(names)} test(s) x {RUNS} at -cpu={cpu} in {elapsed:.0f}s", flush=True)
 
     reports = []
@@ -293,16 +310,22 @@ def lane_ui(base_branch: str) -> int:
     repeats = []
     if files:
         print(f"schedule-lane-ui: {len(files)} changed test file(s), {RUNS} runs beside the full suite", flush=True)
-        repeats = [
-            subprocess.Popen(
+        # Each repeat writes to a file of its own, for the reason the Go lane
+        # does (#2045): collected one at a time, a repeat on a pipe would run
+        # only as fast as its turn to be read.
+        repeats = []
+        for _ in range(RUNS):
+            log = tempfile.TemporaryFile(mode="w+", encoding="utf-8")  # noqa: SIM115 -- closed below
+            repeats.append((subprocess.Popen(
                 ["npx", "vitest", "run", *files], cwd=ui, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            )
-            for _ in range(RUNS)
-        ]
+                stdout=log, stderr=subprocess.STDOUT, text=True,
+            ), log))
     failures = []
-    for run, proc in enumerate(repeats, start=1):
-        out, _ = proc.communicate()
+    for run, (proc, log) in enumerate(repeats, start=1):
+        proc.wait()
+        log.seek(0)
+        out = log.read()
+        log.close()
         if proc.returncode != 0:
             named = failing_vitest_files(out) or files
             failures.append(
