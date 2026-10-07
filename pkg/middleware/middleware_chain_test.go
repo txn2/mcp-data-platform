@@ -438,11 +438,14 @@ func TestMiddlewareChain_AuditDropsParameters(t *testing.T) {
 	}
 }
 
-// TestMiddlewareChain_WrongOrder_AuditGetsNilContext proves that if middleware
-// is added in the WRONG order (auth first, audit second — making audit
-// outermost), the audit middleware gets nil PlatformContext and skips logging.
-// This is a regression test for the bug fixed in v0.12.2.
-func TestMiddlewareChain_WrongOrder_AuditGetsNilContext(t *testing.T) {
+// TestMiddlewareChain_AuditOuterToAuth_RecordsTheResolvedCall proves the
+// #1892 contract: with audit OUTER to auth (the order the platform now
+// registers), the audit middleware attaches the PlatformContext, auth fills it
+// in, and the event carries the identity auth resolved. Before #1892 this
+// order left audit with a nil context and no row; v0.12.2 had worked around
+// that by ordering audit inner to auth, which is what made refused calls
+// invisible.
+func TestMiddlewareChain_AuditOuterToAuth_RecordsTheResolvedCall(t *testing.T) {
 	auditStore := &testAuditStore{}
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{
@@ -472,8 +475,7 @@ func TestMiddlewareChain_WrongOrder_AuditGetsNilContext(t *testing.T) {
 		}, nil
 	})
 
-	// WRONG ORDER: auth first (innermost), audit second (outermost).
-	// This is what the code did before the fix.
+	// Auth first (innermost), audit second (outermost): the platform's order.
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 
@@ -491,12 +493,15 @@ func TestMiddlewareChain_WrongOrder_AuditGetsNilContext(t *testing.T) {
 		t.Fatalf(chainTestCallingTool, err)
 	}
 
-	// Wait briefly for any async audit goroutine
-	time.Sleep(200 * time.Millisecond)
-
-	events := auditStore.Events()
-	if len(events) != 0 {
-		t.Errorf("expected 0 audit events with wrong middleware order, got %d", len(events))
+	events := waitForAuditEvents(t, auditStore)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 audit event with audit outer to auth, got %d", len(events))
+	}
+	if events[0].UserID != chainTestUser || events[0].Persona != chainTestAnalyst || events[0].ToolName != "test_tool" {
+		t.Errorf("audit event = user %q persona %q tool %q; want the identity and tool auth resolved", events[0].UserID, events[0].Persona, events[0].ToolName)
+	}
+	if !events[0].Authorized || !events[0].Success {
+		t.Errorf("audit event authorized=%v success=%v; want both true", events[0].Authorized, events[0].Success)
 	}
 }
 

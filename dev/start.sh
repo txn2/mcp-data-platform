@@ -193,7 +193,7 @@ reloc_free() {
   fi
 }
 
-RELOC_BASE=(5432 8080 9000 11434)   # pg, api, s3, ollama
+RELOC_BASE=(5432 8080 9000 11434 4317)   # pg, api, s3, ollama, otlp
 DEV_OFFSET=0
 NEED_SHIFT=0
 for p in "${RELOC_BASE[@]}"; do reloc_free "$p" 0 || NEED_SHIFT=1; done
@@ -204,7 +204,7 @@ if [ "$NEED_SHIFT" = 1 ]; then
     if [ "$all_free" = 1 ]; then DEV_OFFSET=$off; break; fi
   done
   if [ "$DEV_OFFSET" = 0 ]; then
-    fail "Could not find a free port window for the dev stack (tried offsets 20000-50000). Stop a conflicting stack or free ports 5432/8080/9000/11434."
+    fail "Could not find a free port window for the dev stack (tried offsets 20000-50000). Stop a conflicting stack or free ports 5432/8080/9000/11434/4317."
   fi
 fi
 export DEV_PG_PORT=$((5432 + DEV_OFFSET))
@@ -227,6 +227,14 @@ export DEV_S3_PORT=$((9000 + DEV_OFFSET))
 # own, so the two object stores stay in one addressable block.
 export DEV_S3_TLS_PORT=$((9443 + DEV_OFFSET))
 export DEV_OLLAMA_PORT=$((11434 + DEV_OFFSET))
+# The dev OpenTelemetry collector's OTLP/gRPC port (dev/otel-collector.yml),
+# and the directory it writes what it received to, where the acceptance suite
+# reads spans back (#1892). The directory is created writable by anyone
+# because the collector image runs as its own user and the bind mount keeps
+# the host's ownership on a Linux engine.
+export DEV_OTLP_PORT=$((4317 + DEV_OFFSET))
+export DEV_OTEL_DIR="$PWD/dev/.otel"
+mkdir -p "$DEV_OTEL_DIR" && chmod a+rwx "$DEV_OTEL_DIR"
 # Where the platform's TMPDIR points, which is nowhere: dev/.air.toml starts
 # the binary with this value so the dev stack runs under the published image's
 # condition (FROM scratch, no /tmp). Recorded here so the acceptance suite can
@@ -242,6 +250,8 @@ DEV_API_PORT=$DEV_API_PORT
 DEV_S3_PORT=$DEV_S3_PORT
 DEV_S3_TLS_PORT=$DEV_S3_TLS_PORT
 DEV_OLLAMA_PORT=$DEV_OLLAMA_PORT
+DEV_OTLP_PORT=$DEV_OTLP_PORT
+DEV_OTEL_DIR=$DEV_OTEL_DIR
 DEV_PLATFORM_TMPDIR=$DEV_PLATFORM_TMPDIR
 DEV_REPLICAS=$DEV_REPLICAS
 DEV_API_PORT_B=$DEV_API_PORT_B
@@ -630,6 +640,14 @@ AIR_LOG="/tmp/mcp-dev-air.log"
 # Pin the /metrics scrape endpoint to :9464. The default (:9090) collides
 # with Keycloak in this stack; the dev Prometheus scrapes this port.
 export OTEL_METRICS_ADDR=":9464"
+# Export every trace to the dev collector (dev/otel-collector.yml), which
+# writes them to dev/.otel/traces.jsonl for the acceptance suite. Sampler 1.0
+# so a criterion sees the span of the call it made; a one-second batch delay
+# so it sees it soon. Both replicas inherit these.
+export OTEL_TRACES_ENABLED=true
+export OTEL_EXPORTER_OTLP_ENDPOINT="localhost:$DEV_OTLP_PORT"
+export OTEL_TRACES_SAMPLER_ARG=1.0
+export OTEL_BSP_SCHEDULE_DELAY=1000
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 

@@ -69,7 +69,7 @@ func TestMCPMetricsMiddleware_IntegrationRecordsToolCall(t *testing.T) {
 
 	body := scrape(t, m.Handler())
 	wantSeries := []string{
-		`mcp_tool_calls_total{persona="analyst",status_category="ok",tool="trino_query",toolkit_kind="trino"} 1`,
+		`mcp_tool_calls_total{persona="analyst",source="mcp",status_category="ok",tool="trino_query",toolkit_kind="trino"} 1`,
 		`mcp_tool_call_duration_seconds_count{persona="analyst",status_category="ok",tool="trino_query",toolkit_kind="trino"} 1`,
 		// Inflight returns to 0 after the call (1 inc + 1 dec).
 		`mcp_inflight_tool_calls 0`,
@@ -228,8 +228,8 @@ func TestMCPMetricsMiddleware_ToolErrorClassified(t *testing.T) {
 
 	body := scrape(t, m.Handler())
 	wantSeries := []string{
-		`mcp_tool_calls_total{persona="analyst",status_category="upstream_err",tool="tool_bare_err",toolkit_kind="demo"} 1`,
-		`mcp_tool_calls_total{persona="analyst",status_category="authz_err",tool="tool_authz_err",toolkit_kind="demo"} 1`,
+		`mcp_tool_calls_total{persona="analyst",source="mcp",status_category="upstream_err",tool="tool_bare_err",toolkit_kind="demo"} 1`,
+		`mcp_tool_calls_total{persona="analyst",source="mcp",status_category="authz_err",tool="tool_authz_err",toolkit_kind="demo"} 1`,
 	}
 	for _, want := range wantSeries {
 		if !strings.Contains(body, want) {

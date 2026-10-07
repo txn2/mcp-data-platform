@@ -303,16 +303,22 @@ func TestMCPAuditMiddleware_NoPlatformContext(t *testing.T) {
 
 	wrapped := mw(mockHandler)
 
-	// No PlatformContext in context.
+	// No PlatformContext in context: the middleware attaches one of its own
+	// (#1892), so the call is still audited, with a minted request id and
+	// event id and no identity, which is what a call refused before
+	// authentication looks like.
 	req := createAuditTestRequest(t, testAuditToolName, nil)
 	result, err := wrapped(context.Background(), testAuditMethodCall, req)
 
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 
-	// Wait for async logging - should NOT log without platform context.
-	time.Sleep(50 * time.Millisecond)
-	assert.Empty(t, mockLogger.Events())
+	events := mockLogger.Events()
+	require.Len(t, events, 1)
+	assert.NotEmpty(t, events[0].ID)
+	assert.True(t, strings.HasPrefix(events[0].RequestID, "req-"), "request id %q is minted", events[0].RequestID)
+	assert.Empty(t, events[0].UserID)
+	assert.True(t, events[0].Success)
 }
 
 func TestMCPAuditMiddleware_DurationTracking(t *testing.T) {

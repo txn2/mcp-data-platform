@@ -3,12 +3,19 @@
 # The platform exports spans over OTLP/gRPC when OTEL_TRACES_ENABLED=true and
 # OTEL_EXPORTER_OTLP_ENDPOINT points at this collector (default port 4317).
 # This config shows the recommended posture: accept OTLP, apply TAIL-BASED
-# sampling here (keep 100% of error and slow traces regardless of the app's
-# head-sampling ratio), and forward to a trace backend (Tempo or Jaeger).
+# sampling here (keep every error and slow trace, down-sample the rest), and
+# forward to a trace backend (Tempo or Jaeger).
+#
+# Tail sampling can only keep what arrives. The platform's head sampler
+# (OTEL_TRACES_SAMPLER_ARG, default 0.1) decides when a root span starts,
+# before its outcome is known, so at the default about 90% of traces never
+# leave the platform, errors and slow calls among them, and the policies
+# below would keep about 10% of the error traces, not all of them. A
+# deployment that uses this file sets OTEL_TRACES_SAMPLER_ARG=1.0 on the
+# platform and lets sample-the-rest below do the thinning.
 #
 # Mount this as a ConfigMap and run the contrib collector image. The platform
-# itself needs no redeploy when you tune sampling — that is the whole reason
-# tail sampling lives in the collector, not the app.
+# needs no redeploy when you tune the policies below.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -32,11 +39,10 @@ data:
         spike_limit_percentage: 20
       batch:
         timeout: 5s
-      # Tail-based sampling: decide AFTER a trace is complete so we can keep
-      # every error and every slow trace, and only down-sample the fast,
-      # successful majority. The platform's head sampler
-      # (OTEL_TRACES_SAMPLER_ARG) thins normal traffic before it ever reaches
-      # here; this layer guarantees the interesting traces survive.
+      # Tail-based sampling: decide AFTER a trace is complete so every error
+      # and every slow trace that reached the collector is kept, and only the
+      # fast, successful majority is down-sampled. With the platform's head
+      # sampler at 1.0 (see the header) that is every error and slow trace.
       tail_sampling:
         decision_wait: 10s
         policies:

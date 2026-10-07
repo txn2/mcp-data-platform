@@ -84,10 +84,19 @@ const (
 
 	// envTracesSamplerArg is the head-based sampling ratio in [0,1]
 	// applied to ROOT spans (a parent's sampling decision is always
-	// honored). Defaults to 0.1 (10%). Tail-based sampling — keeping
-	// 100% of error/slow traces — is configured in the collector, not
-	// here, so it can be tuned without redeploying the platform.
+	// honored). Defaults to 0.1 (10%). The decision is made when the span
+	// starts, before its outcome is known, so at the default about 90% of
+	// root traces are never exported, errors and slow calls included. A
+	// collector's tail sampling can only keep what it receives: a
+	// deployment that wants every error or slow trace kept there sets this
+	// to 1.0 and lets the collector drop the rest.
 	envTracesSamplerArg = "OTEL_TRACES_SAMPLER_ARG"
+
+	// envTracesIncludeUserEmail lets the tool-call span carry the caller's
+	// email address. Defaults to false: the user id is on every span, the
+	// address is personal data, and a trace backend is outside the
+	// platform (#1892).
+	envTracesIncludeUserEmail = "OTEL_TRACES_INCLUDE_USER_EMAIL"
 
 	// envServiceName sets the service.name resource attribute on every
 	// span. Standard OpenTelemetry variable. Defaults to DefaultServiceName.
@@ -128,6 +137,9 @@ type TracingConfig struct {
 
 	// ServiceName is the service.name resource attribute on every span.
 	ServiceName string
+
+	// IncludeUserEmail lets the tool-call span carry mcp.user_email.
+	IncludeUserEmail bool
 }
 
 // TracingConfigFromEnv reads the tracing configuration from environment
@@ -141,6 +153,8 @@ func TracingConfigFromEnv() TracingConfig {
 		Insecure:    parseBoolEnv(envOTLPInsecure, true),
 		SamplerArg:  parseFloatEnv(envTracesSamplerArg, DefaultSamplerArg),
 		ServiceName: stringEnvOrDefault(envServiceName, DefaultServiceName),
+
+		IncludeUserEmail: parseBoolEnv(envTracesIncludeUserEmail, false),
 	}
 }
 

@@ -50,13 +50,14 @@ func TestMCPTracingMiddleware_IntegrationRecordsSpan(t *testing.T) {
 	authorizer := &fakeAuthz{persona: "analyst"}
 	lookup := &fakeLookup{kind: "trino", name: "prod", conn: "primary"}
 
-	// Innermost first, outermost last. Tracing must be inner to ToolCall
-	// so the PlatformContext is populated when the span attributes are set.
-	server.AddReceivingMiddleware(middleware.MCPTracingMiddleware(tr))
+	// Innermost first, outermost last. Tracing is OUTER to ToolCall, as the
+	// platform registers it (#1892): it attaches the PlatformContext that
+	// ToolCall fills in and reads it after the call returns.
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
 		authenticator, authorizer, lookup,
 		middleware.ToolCallConfig{Transport: "stdio", AdminPersona: "admin"},
 	))
+	server.AddReceivingMiddleware(middleware.MCPTracingMiddleware(tr))
 
 	ctx := context.Background()
 	sess := mustConnect(ctx, t, server)
@@ -85,7 +86,8 @@ func TestMCPTracingMiddleware_IntegrationRecordsSpan(t *testing.T) {
 	assert.Equal(t, "trino", attrs["mcp.toolkit_kind"])
 	assert.Equal(t, "analyst", attrs["mcp.persona"])
 	assert.Equal(t, "u1", attrs["mcp.user_id"], "high-cardinality user id belongs on the span")
-	assert.Equal(t, "u1@example.com", attrs["mcp.user_email"])
+	_, hasEmail := attrs["mcp.user_email"]
+	assert.False(t, hasEmail, "the address stays off the span unless OTEL_TRACES_INCLUDE_USER_EMAIL opts in (#1892)")
 	assert.Equal(t, "ok", attrs["status_category"], "outcome set by observability.SetSpanStatus")
 }
 

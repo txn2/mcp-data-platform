@@ -169,7 +169,12 @@ export function EventDrawer({
 
       {event.error_message && (
         <div>
-          <p className="text-xs text-muted-foreground">Error Message</p>
+          <p className="text-xs text-muted-foreground">
+            Error Message
+            {event.error_category && (
+              <span className="ml-2 font-mono">{event.error_category}</span>
+            )}
+          </p>
           <Alert variant="destructive" className="mt-1">
             <AlertDescription className="break-words">
               {event.error_message}

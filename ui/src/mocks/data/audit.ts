@@ -423,6 +423,7 @@ function generateEvents(count: number): AuditEvent[] {
       parameters: toolParameters(tool),
       success,
       error_message: success ? "" : errorMessage(tool),
+      error_category: success ? "" : "tool_error",
       response_chars: seededInt(200, 12000),
       request_chars: seededInt(50, 800),
       content_blocks: seededInt(1, 5),

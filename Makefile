@@ -46,7 +46,7 @@ GOVET := $(GO) vet
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
+.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test \
 	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
@@ -501,6 +501,13 @@ doc-check:
 ## acceptance-check: Warn when production Go changed with no test/acceptance file beside it
 acceptance-check:
 	@./scripts/acceptance-check.sh
+
+## alert-rules-test: Run the promtool unit tests over deployments/observability/alert-rules.yaml (#1892)
+## The rules ship as a ConfigMap, so the script extracts the groups first and
+## runs promtool from the Prometheus image dev/docker-compose.yml pins (or a
+## local promtool). Not in verify: it needs Docker or promtool.
+alert-rules-test:
+	@./scripts/alert-rules-test.sh
 
 ## state-readers-check: Warn when an API contract field or swagger.json changed and nothing under ui/src did (#1709)
 state-readers-check:

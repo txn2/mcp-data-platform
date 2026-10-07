@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -39,9 +38,10 @@ func TestObserve_RecordsOperation(t *testing.T) {
 	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
 
 	tk := &Toolkit{metrics: m}
-	ctx := context.Background()
-	tk.observe(ctx, "s3_object.get", time.Now(), nil)
-	tk.observe(ctx, "s3_list.objects", time.Now(), &mcp.CallToolResult{IsError: true})
+	ctx, span, start := begin(context.Background(), "s3_object.get")
+	tk.observe(ctx, span, "s3_object.get", start, nil)
+	ctx, span, start = begin(ctx, "s3_list.objects")
+	tk.observe(ctx, span, "s3_list.objects", start, &mcp.CallToolResult{IsError: true})
 
 	body := scrapeForTest(t, m.Handler())
 	for _, want := range []string{
@@ -68,7 +68,8 @@ func TestObserve_NilRecorder(t *testing.T) {
 	if tk.metrics != nil {
 		t.Error("SetMetrics(nil) must not store a (non-nil) recorder")
 	}
-	tk.observe(context.Background(), "s3_object.put", time.Now(), nil)
+	ctx, span, start := begin(context.Background(), "s3_object.put")
+	tk.observe(ctx, span, "s3_object.put", start, nil)
 }
 
 // TestSetMetrics_StoresRecorder confirms the recorder the handlers report to

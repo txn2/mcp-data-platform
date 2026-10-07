@@ -98,6 +98,14 @@ auth:
         name: "director"
         email: "david.park@example.com"
         roles: ["regional_director"]
+      # A person whose persona runs queries but never discovers: platform_info
+      # and trino_query without search. Every trino_query of theirs is a
+      # search-first refusal, whatever an earlier run left in the gate's store,
+      # which is what the refused-call criteria (#1892) are executed with.
+      - key: "acme-reporter-key"
+        name: "reporter"
+        email: "priya.nair@example.com"
+        roles: ["report_viewer"]
       # Two ordinary people who own their own work. They hold no admin role,
       # which is what makes them the pair an owner-authority check is exercised
       # against: one owns a script and what its runs produce, the other is
@@ -267,6 +275,23 @@ personas:
       description_prefix: |
         You are providing regional performance data to an ACME regional director.
         Focus on the analytics schema and regional reports.
+
+  report-viewer:
+    display_name: "Report Viewer"
+    roles:
+      - report_viewer
+    tools:
+      allow:
+        - "platform_info"
+        - "trino_query"
+        - "trino_describe_table"
+      deny: []
+    connections:
+      allow:
+        - "*"
+    context:
+      description_prefix: |
+        You run the saved reporting queries you are given.
 
   finance-executive:
     display_name: "Finance Executive"

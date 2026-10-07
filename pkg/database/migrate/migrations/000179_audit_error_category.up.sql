@@ -1,0 +1,12 @@
+-- The bounded category of a failed call (#1892): the platform's error taxonomy
+-- (authentication_failed, authorization_denied, search_required, setup_required,
+-- session_required, purpose_required, rate_limited, user_declined, client_input,
+-- not_found, feature_unavailable, internal, tool_error, or an upstream outcome
+-- such as upstream_4xx). The tool-call middleware has derived it for every row
+-- since the error contract existed and the adapter dropped it, so the only
+-- record of why a call failed was the free-text error_message. A refused call
+-- is now audited (#1892), and its reason is read here, not parsed out of text.
+--
+-- Nullable with no default: a NULL means the row predates the column, which is
+-- a different fact from a success (empty category).
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS error_category VARCHAR(64);

@@ -9,7 +9,8 @@ every file applies standalone with `kubectl apply -f`.
 | `pod-annotations.yaml` | Example Deployment patch enabling the metrics listener and the `prometheus.io/*` scrape annotations. |
 | `recording-rules.yaml` | ConfigMap with starter recording rules (pre-computed p95s and error rates). |
 | `alert-rules.yaml` | ConfigMap with starter alert rules (5xx rate, latency regression, auth spike, DB pool saturation, target down). |
-| `otel-collector.yaml` | Example OpenTelemetry Collector config for OTLP traces: OTLP receiver, tail sampling (keep errors and >2s traces), OTLP export to Tempo. |
+| `alert-rules.test.yaml` | promtool unit tests for the alert rules; `make alert-rules-test` runs them. The `AuthFailureSpike` cases include a deployment without the OAuth server, where two of the alert's three series are absent. |
+| `otel-collector.yaml` | Example OpenTelemetry Collector config for OTLP traces: OTLP receiver, tail sampling (keep the errors and >2s traces that arrive, down-sample the rest), OTLP export to Tempo. Pair it with `OTEL_TRACES_SAMPLER_ARG=1.0` on the platform: the head sampler decides before a span's outcome is known, so at its default about 90% of error traces never reach the collector. |
 
 ## 1. Make the pods scrapable
 

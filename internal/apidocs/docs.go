@@ -27602,6 +27602,10 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 850
                 },
+                "error_category": {
+                    "description": "ErrorCategory is the bounded class of a failed call: one of the\nplatform's error categories (authentication_failed, authorization_denied,\nsearch_required, rate_limited, user_declined, client_input, ...) or an\nupstream outcome (upstream_4xx, ...). Empty on a success. ErrorMessage\nis the text; this is what a query groups by (#1892).",
+                    "type": "string"
+                },
                 "error_message": {
                     "type": "string"
                 },

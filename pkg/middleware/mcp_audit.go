@@ -109,11 +109,13 @@ func boundValue(v any) any {
 // for auditing purposes.
 //
 // This middleware intercepts tools/call requests and:
-//  1. Records the start time
-//  2. Executes the tool handler
-//  3. Gets the PlatformContext (set by MCPToolCallMiddleware)
-//  4. Builds an audit event with all captured information
-//  5. Hands the event to the logger's Log call
+//  1. Attaches the PlatformContext (ensurePlatformContext) and records the
+//     start time
+//  2. Executes the chain below it: the auth middleware fills the context in,
+//     and a refusal (authentication, authorization, a gate, the rate limit)
+//     comes back as the result, so it is audited like any other call (#1892)
+//  3. Builds an audit event with all captured information
+//  4. Hands the event to the logger's Log call
 //
 // The middleware itself spawns no goroutine (issue #884, which replaced a
 // per-call detached goroutine that grew without bound under a stalled store);
@@ -140,6 +142,7 @@ func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware 
 				return next(ctx, method, req)
 			}
 
+			ctx, pc := ensurePlatformContext(ctx, req)
 			startTime := time.Now()
 
 			// Execute handler
@@ -148,13 +151,6 @@ func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware 
 			duration := time.Since(startTime)
 
 			// Get platform context (set by MCPToolCallMiddleware)
-			pc := GetPlatformContext(ctx)
-			if pc == nil {
-				// No platform context means auth middleware didn't run
-				// or this is an edge case - don't log
-				slog.Warn("audit: no platform context available, skipping audit log")
-				return result, err
-			}
 
 			// Build audit event
 			event := buildMCPAuditEvent(pc, auditCallInfo{

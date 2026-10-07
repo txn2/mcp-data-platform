@@ -114,6 +114,13 @@ var (
 	// instead of treating the failure as a terminal invalid_grant and
 	// discarding a still-valid refresh token.
 	ErrStorageFailure = errors.New("temporary storage failure")
+
+	// ErrTokenIssuance marks a grant the platform could not complete for a
+	// reason of its own: signing the access token or drawing the refresh
+	// token failed. Like ErrStorageFailure it is the platform's fault, not
+	// the client's, so the token endpoint answers server_error and the
+	// metric records server_err rather than client_err (#1892).
+	ErrTokenIssuance = errors.New("token issuance failed")
 )
 
 // ServerConfig configures the OAuth server.
@@ -382,14 +389,39 @@ func (s *Server) Token(ctx context.Context, req TokenRequest) (*TokenResponse, e
 	switch req.GrantType {
 	case grantTypeAuthCode:
 		resp, err := s.handleAuthorizationCodeGrant(ctx, req)
-		s.metrics.RecordOAuthIssuance(ctx, grantTypeAuthCode, observability.UpstreamStatus(err))
+		s.metrics.RecordOAuthIssuance(ctx, grantTypeAuthCode, grantStatus(err))
 		return resp, err
 	case grantTypeRefreshToken:
 		resp, err := s.handleRefreshTokenGrant(ctx, req)
-		s.metrics.RecordOAuthRefresh(ctx, observability.UpstreamStatus(err), time.Since(start))
+		s.metrics.RecordOAuthRefresh(ctx, grantStatus(err), time.Since(start))
 		return resp, err
 	default:
 		return nil, errors.New("unsupported grant_type")
+	}
+}
+
+// isServerFault reports whether a grant failed for a reason of the platform's
+// (its token store or signer) rather than the client's. The token endpoint
+// answers these with server_error so the client retries with the same
+// credentials; every other grant error is a client mistake answered with
+// invalid_request.
+func isServerFault(err error) bool {
+	return errors.Is(err, ErrStorageFailure) || errors.Is(err, ErrTokenIssuance)
+}
+
+// grantStatus is the status label a grant outcome records: ok, server_err for
+// a platform fault, client_err for a grant the client got wrong (an expired
+// code, a mismatched client_id, a bad verifier). Both were one upstream_err
+// value before #1892, which hid a broken token store behind the ordinary
+// stream of expired codes.
+func grantStatus(err error) string {
+	switch {
+	case err == nil:
+		return observability.StatusOK
+	case isServerFault(err):
+		return observability.StatusServerErr
+	default:
+		return observability.StatusClientErr
 	}
 }
 
@@ -565,13 +597,13 @@ func (s *Server) generateTokens(ctx context.Context, client *Client, userID stri
 	// Generate access token
 	accessToken, err := s.generateAccessToken(client.ClientID, userID, userClaims, scope)
 	if err != nil {
-		return nil, fmt.Errorf("generating access token: %w", err)
+		return nil, fmt.Errorf("generating access token: %w: %w", ErrTokenIssuance, err)
 	}
 
 	// Generate refresh token
 	refreshTokenValue, err := generateSecureToken(tokenByteLength)
 	if err != nil {
-		return nil, fmt.Errorf("generating refresh token: %w", err)
+		return nil, fmt.Errorf("generating refresh token: %w: %w", ErrTokenIssuance, err)
 	}
 
 	// Save refresh token
@@ -587,7 +619,10 @@ func (s *Server) generateTokens(ctx context.Context, client *Client, userID stri
 	}
 
 	if err := s.storage.SaveRefreshToken(ctx, refreshToken); err != nil {
-		return nil, fmt.Errorf("saving refresh token: %w", err)
+		// A storage outage, like the ones consuming a code or rotating a
+		// refresh token meet: retryable, so it surfaces as server_error and
+		// the client keeps its credentials.
+		return nil, fmt.Errorf("saving refresh token: %w", ErrStorageFailure)
 	}
 
 	return &TokenResponse{
@@ -751,10 +786,11 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 			"has_code_verifier", req.CodeVerifier != "",
 			"duration_ms", time.Since(start).Milliseconds(),
 			logKeyError, err.Error())
-		// Storage outages are retryable: surface them as 500
-		// server_error so the client keeps its credentials and retries,
-		// instead of treating the failure as a terminal invalid grant.
-		if errors.Is(err, ErrStorageFailure) {
+		// Storage outages and the platform's own issuance failures are
+		// retryable: surface them as 500 server_error so the client keeps
+		// its credentials and retries, instead of treating the failure as
+		// a terminal invalid grant.
+		if isServerFault(err) {
 			s.writeError(w, http.StatusInternalServerError, errServerError, err.Error())
 			return
 		}

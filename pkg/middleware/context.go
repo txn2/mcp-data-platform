@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
@@ -94,11 +95,15 @@ type PlatformContext struct {
 	ToolkitKind string
 	ToolkitName string
 	Connection  string
+	// ToolUnregistered is set when the registry was consulted and no toolkit
+	// registers ToolName. The name is the caller's to choose, so the metrics
+	// layer records such a call under one fixed label rather than under the
+	// name sent (#1892); the audit row keeps the name.
+	ToolUnregistered bool
 
 	// Authorization
 	Authorized bool
 	IsAdmin    bool // user belongs to the platform's admin persona
-	AuthzError string
 
 	// Transport metadata
 	Transport string // "stdio" or "http"
@@ -134,6 +139,15 @@ type PlatformContext struct {
 	Success      bool
 	ErrorMessage string
 	Duration     time.Duration
+
+	// claimedFor is the tools/call request this value describes, set by the
+	// auth middleware. A context seeded by an observer and not yet claimed is
+	// the one the auth middleware fills in; one claimed for the request in
+	// hand is shared by every middleware of that call; one claimed for
+	// another request belongs to a call in progress, and a tools/call made
+	// inside it (a managed script's host calls run inside manage_script,
+	// #1892) gets a value of its own rather than overwriting its parent's.
+	claimedFor mcp.Request
 }
 
 // NewPlatformContext creates a new platform context.
@@ -256,6 +270,29 @@ func GetPlatformContext(ctx context.Context) *PlatformContext {
 		return pc
 	}
 	return nil
+}
+
+// ensurePlatformContext returns the PlatformContext ctx carries for req,
+// creating and attaching one (with its request id and audit event id minted)
+// when it carries none, or when the one it carries is claimed by another
+// request: a tools/call nested inside another (a managed script's host calls
+// inside manage_script) must not write into its parent's. The observers
+// (tracing, metrics, audit) call it before the auth/authz middleware runs, so
+// that one shared value is what the auth middleware fills in and what the
+// observers read after the call returns. That is what lets a call refused
+// before the handler still be traced, counted and audited (#1892): the
+// refusal is written into the same pointer the observer holds. The auth
+// middleware calls it too, so it works alone.
+func ensurePlatformContext(ctx context.Context, req mcp.Request) (context.Context, *PlatformContext) {
+	if pc := GetPlatformContext(ctx); pc != nil && (pc.claimedFor == nil || pc.claimedFor == req) {
+		return ctx, pc
+	}
+	pc := NewPlatformContext(generateRequestID())
+	// Mint the audit event id up front: the row is written after the handler
+	// returns, but the result a call produces cites the id, and an asset
+	// saved from it records the same id as its source (#1320).
+	pc.EventID = audit.NewEventID()
+	return WithPlatformContext(ctx, pc), pc
 }
 
 // mustGetPlatformContext retrieves platform context or panics.

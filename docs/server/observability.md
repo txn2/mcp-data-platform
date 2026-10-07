@@ -4,10 +4,14 @@ mcp-data-platform exposes operational metrics in Prometheus format on a
 dedicated HTTP listener, plus optional OpenTelemetry distributed tracing.
 Two chokepoints cover every tool call through the platform:
 
-1. **`MCPToolCallMiddleware`** records request rate, latency, and outcome
-   for every tool the platform serves (Trino, DataHub, S3, MCP gateway,
-   REST shim, admin tools/call). One series per (tool, toolkit_kind,
-   persona, status_category).
+1. **The tool-call observers** record request rate, latency, and outcome
+   for every `tools/call` the platform answers (Trino, DataHub, S3, MCP
+   gateway, REST shim, admin tools/call), a call it refuses included: a
+   failed authentication, a persona denial, a session or search-first gate
+   refusal, a missing session handle or purpose, and a rate-limit refusal
+   each count under their `status_category`, open a span and write an
+   audit row. One series per (tool, toolkit_kind, persona, status_category,
+   source).
 2. **apigateway transport** records outbound HTTP rate and latency for
    every call made by the `api` toolkit — `api_invoke_endpoint`,
    `api_export`, and the REST gateway shim. One series per (connection,
@@ -87,7 +91,7 @@ query them; the tab is the at-a-glance read.
 
 | Name | Type | Labels |
 |---|---|---|
-| `mcp_tool_calls_total` | counter | `tool`, `toolkit_kind`, `persona`, `status_category` |
+| `mcp_tool_calls_total` | counter | `tool`, `toolkit_kind`, `persona`, `status_category`, `source` |
 | `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_inflight_tool_calls` | gauge | (none) |
 | `mcp_enrichment_bytes_total` | counter | `tool`, `toolkit_kind`, `persona` |
@@ -134,9 +138,12 @@ query them; the tab is the at-a-glance read.
 
 Plus the free Go runtime + process metrics (`go_*`, `process_*`).
 
-**Trino** rows are recorded for the queries and catalog/metadata calls the
-query provider makes (cross-enrichment); user-facing `trino_query` tool
-calls are also counted by `mcp_tool_calls_total{toolkit_kind="trino"}`.
+**Trino** rows are recorded for the statements the query provider runs for
+cross-enrichment (table resolution, availability, schema), and for nothing
+else: a `trino_query` or `trino_execute` tool call is counted by
+`mcp_tool_calls_total{toolkit_kind="trino"}` and is not in
+`trino_queries_total`. The same holds for `datahub_requests_total`, which
+measures the semantic provider, not the DataHub toolkit's tools.
 `query_kind` is the SQL verb (`select`, `show`, `insert`, ...) for SQL
 queries, or the metadata operation (`list_catalogs`, `list_schemas`,
 `list_tables`, `describe_table`) for catalog calls; unknown SQL maps to
@@ -211,8 +218,11 @@ calls to the upstream API. `operation_id` is the OpenAPI operationId
 resolved from the connection's catalog by path-template matching (e.g.
 `GET /v1/users/123` resolves to `getUser`); it is `unknown` for
 connections with no catalog or requests that match no spec path.
-`identity` is the API key name or OIDC subject (`unknown` when
-unauthenticated) and is recorded on the request counter only, never on
+`identity` is the API key's name for key auth, `oidc` for a signed-in
+person, and `unknown` when unauthenticated: it is bounded by the
+operator's key list, never by the number of people, and never carries an
+address or subject (who the person was is on the audit row). It is
+recorded on the request counter only, never on
 the duration histogram, to keep the histogram's bucket series from
 multiplying by the identity dimension. The `connection` and `method`
 labels are clamped to the registered-connection set and the supported
@@ -258,6 +268,24 @@ the HTTP handler). For API-key callers this is a cheap lookup; for OIDC
 it re-verifies the JWT per request. On very high-volume inbound traffic a
 per-token identity cache is the planned optimization; until then the
 extra verification is the cost of the `identity` label.
+
+**Upgrading:** before #1892 the label was the caller's email address or
+OIDC subject for signed-in people, one series each. Those series end at
+the upgrade and `identity="oidc"` begins; a dashboard that broke the
+inbound counter down by person reads the audit log for that now.
+
+`mcp_tool_calls_total` carries `source`: how the call arrived, which is
+the audit event's source (`mcp` for an agent over a real transport,
+`admin` for a portal-driven run, `rest` for the gateway REST shim,
+`script` for a managed script's run). It is on the call counter only, not
+on `mcp_tool_call_duration_seconds`, for the reason `persona` is kept off
+the outbound histogram.
+
+The `tool` label is the registered tool's name. A `tools/call` naming a
+tool no toolkit registers records `tool="unregistered"`: the name is the
+caller's to choose, a persona allowing `*` admits it as far as the
+handler lookup, and recording it as sent would let one caller mint a
+series per invented name. The name itself is on the audit row.
 
 ### Background indexing
 
@@ -328,12 +356,12 @@ error messages, free-text tool arguments) are **not** recorded as
 Prometheus labels; they belong on trace spans (Phase 2) and on audit
 log rows.
 
-The one deliberate exception is the `identity` label on
-`apigateway_inbound_requests_total`, which is the API key name or OIDC
-subject (and may therefore be an email). Its cardinality is bounded by
-the count of real callers, which is small for the NiFi-class ETL clients
-this metric targets, and it is recorded on the counter only, never on a
-histogram.
+Every label value is drawn from a set the operator controls (the tool
+registry, the persona definitions, the connection list, the API key
+list) or from a closed set in the code. `TestLabelKeysAreApproved`
+(`pkg/observability`) fails when an instrument declares a label key
+outside the approved list, so a new high-cardinality dimension cannot
+arrive unreviewed.
 
 `status_category` values:
 
@@ -342,9 +370,23 @@ histogram.
 | `ok` | Tool returned successfully. |
 | `auth_err` | Authentication failed (no/invalid credential). |
 | `authz_err` | User authenticated but persona denied the tool. |
-| `validation_err` | Bad arguments or the user declined an elicitation. |
+| `gate_err` | The platform refused the call before the handler ran: the session gate (`platform_info` not yet called), the search-first gate (`SEARCH_REQUIRED`), a missing session handle or purpose, or the per-user rate limit. The specific gate is the audit row's `error_category`. |
+| `declined` | The user answered no to an elicitation prompt (cost or PII consent). |
+| `validation_err` | Bad arguments, a missing feature or connection, or a not-found reference. |
 | `upstream_err` | Tool reached the upstream and the upstream returned an error (Trino query failure, S3 4xx/5xx, API 4xx/5xx, etc.). |
 | `internal_err` | Anything else — a platform bug. Watch this in dashboards; a healthy deployment is near zero. |
+
+**Upgrading:** before #1892 a refused call was not counted at all, and a
+declined elicitation counted as `validation_err`. A rule that reads
+`status_category!="ok"` as the error rate now includes the refusals; one
+that wants handler failures alone excludes `gate_err` as it excludes
+`auth_err` and `authz_err`.
+
+The OAuth server's `oauth_token_issuance_total` and
+`oauth_token_refresh_total` carry a `status` of `ok`, `client_err` (an
+expired or reused code, a mismatched `client_id`, a bad verifier, an
+invalid refresh token) or `server_err` (the platform's token store or
+signer failed). Before #1892 both failures were one `upstream_err` value.
 
 `http_status_class` for outbound calls buckets the response into `2xx`,
 `3xx`, `4xx`, `5xx`, or `other`. Transport-level failures (DNS, dial,
@@ -396,11 +438,13 @@ mcp_inflight_tool_calls
 ## Cardinality budget
 
 Counter cardinality is the product of label cardinalities. With
-`tool` ≈ 40 tools, `toolkit_kind` ≈ 8, `persona` ≈ 5, and
-`status_category` = 6, the upper bound for
-`mcp_tool_calls_total` is 40 × 8 × 5 × 6 = 9,600 series. In practice
-only a fraction of combinations occur (most tools belong to one
-toolkit_kind, and `status_category` is heavily skewed toward `ok`).
+`tool` ≈ 40 tools, `toolkit_kind` ≈ 8, `persona` ≈ 5,
+`status_category` = 8 and `source` = 4, the upper bound for
+`mcp_tool_calls_total` is 40 × 8 × 5 × 8 × 4 = 51,200 series, and
+`mcp_tool_call_duration_seconds` (no `source`) 12,800 series times its
+bucket count. In practice only a fraction of combinations occur (most
+tools belong to one toolkit_kind, almost every call arrives from one
+source, and `status_category` is heavily skewed toward `ok`).
 
 For outbound: `connection` ≈ 10, `http_status_class` = 5,
 `status_category` = 6, `persona` ≈ 5 → 1,500 series upper bound for
@@ -511,8 +555,9 @@ tool calls).
 | `OTEL_TRACES_ENABLED` | `false` | Enable the tracer and install the global OTel `TracerProvider`. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC collector address (`host:port`). |
 | `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Disable transport TLS (the common in-cluster topology). Set `false` for a TLS remote collector. |
-| `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Head-based sampling ratio in `[0,1]` applied to root spans. |
+| `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Head-based sampling ratio in `[0,1]` applied to root spans. See [Sampling](#sampling): a deployment that tail-samples in its collector sets `1.0`. |
 | `OTEL_SERVICE_NAME` | `mcp-data-platform` | `service.name` resource attribute on every span. |
+| `OTEL_TRACES_INCLUDE_USER_EMAIL` | `false` | Put the caller's email address on the tool-call span as `mcp.user_email`. The user id is always there; the address is personal data a trace backend would otherwise hold for every call. |
 
 The OTLP exporter connects lazily: an unreachable or unconfigured collector
 never blocks or fails startup; spans are batched and dropped if undeliverable.
@@ -531,16 +576,20 @@ graph TD
     Enrich --> TrinoE["trino.&lt;query_kind&gt;"]
 ```
 
-- **Root span** is opened by the tracing middleware, inner to auth so it carries
-  the request's identity. Its name is the fixed, low-cardinality `tool_call`
+- **Root span** is opened by the tracing middleware, outer to auth and the
+  gates, so a refused call has its span too; it reads the identity auth
+  resolved after the call returns. Its name is the fixed, low-cardinality
+  `tool_call`
   (the specific tool is on the `mcp.tool` attribute, not the span name, so all
   tool calls share one queryable name). It holds the bounded attributes that
   mirror the metric labels (`mcp.tool`,
   `mcp.toolkit_kind`, `mcp.persona`, `status_category`) **plus** the
   high-cardinality fields that are deliberately kept off Prometheus labels —
-  `mcp.user_id`, `mcp.user_email`, `mcp.session_id`, `mcp.request_id`,
+  `mcp.user_id`, `mcp.session_id`, `mcp.request_id`,
   `mcp.connection`, `mcp.transport`, `mcp.source`, and the enrichment summary.
   This is the whole point of spans: per-request detail a label set cannot carry.
+  The caller's email address is not among them unless the deployment sets
+  `OTEL_TRACES_INCLUDE_USER_EMAIL=true`.
 - **Child spans** nest under the root via context propagation: the cross-service
   `enrichment` fan-out, and one span per upstream call to Trino
   (`trino.<query_kind>`), DataHub (`datahub.<operation>`), and S3
@@ -548,8 +597,13 @@ graph TD
   decorators that record the toolkit metrics, installed when **either** metrics
   or tracing is enabled.
 
-Span status is `Error` for any non-`ok` `status_category`, with the error
-recorded as a span event, so error traces stand out in Tempo/Jaeger.
+Span status is `Error` for any non-`ok` `status_category`, with the category
+as the status description and the error recorded as a span event, so error
+traces stand out in Tempo/Jaeger. The recorded error is redacted before it
+leaves the platform: quoted literals (the column a query could not resolve,
+the key a lookup missed) and email addresses are replaced, control
+characters stripped, and the text cut at 256 bytes. The full text stays on
+the audit row and in the platform's log.
 
 > Not every external call has its own child span yet. The apigateway toolkit's
 > outbound HTTP calls are captured by the root `tool_call` span (an
@@ -562,11 +616,23 @@ recorded as a span event, so error traces stand out in Tempo/Jaeger.
 ### Sampling
 
 Head-based sampling is in-app via `OTEL_TRACES_SAMPLER_ARG` (a `ParentBased`
-ratio sampler — a sampled caller's whole trace is always kept). **Tail-based**
-sampling — keeping 100% of error and slow traces — belongs in the collector, not
-the application, so it can be tuned without redeploying. An example collector
-pipeline and OTLP export config ship in
-[`deployments/observability/`](https://github.com/txn2/mcp-data-platform/tree/main/deployments/observability).
+ratio sampler — a sampled caller's whole trace is always kept). The decision
+is made when the root span starts, before its outcome is known, so at the
+default of `0.1` about 90% of the platform's own traces are never exported,
+errors and slow calls among them.
+
+**Tail-based** sampling in a collector keeps every error and slow trace it
+receives and down-samples the rest, and can be tuned without redeploying the
+platform. It can only keep what arrives: with the head sampler at its default
+the collector keeps about 10% of the error traces, not all of them. A
+deployment that tail-samples sets `OTEL_TRACES_SAMPLER_ARG=1.0` on the
+platform and lets the collector drop. An example collector pipeline and OTLP
+export config ship in
+[`deployments/observability/`](https://github.com/txn2/mcp-data-platform/tree/main/deployments/observability);
+its `AuthFailureSpike` alert has promtool unit tests
+(`deployments/observability/alert-rules.test.yaml`, run with
+`make alert-rules-test`), one of them the deployment without an OAuth server,
+where two of the alert's three series are absent.
 
 ### Example trace queries
 

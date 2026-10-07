@@ -93,8 +93,9 @@ func TestSessionGate_Cleanup(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	gate.cleanup()
 
-	_, _, active := gate.Stats()
-	assert.Equal(t, int64(0), active, "all expired sessions should be cleaned up")
+	gate.mu.RLock()
+	defer gate.mu.RUnlock()
+	assert.Empty(t, gate.sessions, "all expired sessions should be cleaned up")
 }
 
 func TestSessionGate_StartCleanupAndStop(t *testing.T) {
@@ -111,27 +112,6 @@ func TestSessionGate_StartCleanupAndStop(t *testing.T) {
 	gate.Stop()
 
 	assert.False(t, gate.IsInitialized("s-bg"))
-}
-
-func TestSessionGate_Stats(t *testing.T) {
-	gate := NewSessionGate(SessionGateConfig{
-		InitTool:   gateTestToolPlatformInfo,
-		SessionTTL: defaultGateSessionTTL * time.Minute,
-	})
-
-	gate.RecordInit("s1")
-	gate.IncrementGateCount()
-	gate.IncrementGateCount()
-
-	violations, retries, active := gate.Stats()
-	assert.Equal(t, int64(2), violations)
-	assert.Equal(t, int64(0), retries)
-	assert.Equal(t, int64(1), active)
-
-	// Recording init for existing session counts as retry
-	gate.RecordInit("s1")
-	_, retries, _ = gate.Stats()
-	assert.Equal(t, int64(1), retries)
 }
 
 func TestSessionGate_ConcurrentAccess(t *testing.T) {
@@ -307,11 +287,12 @@ func TestMCPSessionGateMiddleware(t *testing.T) {
 			pc.SessionID = "s1"
 			ctx := WithPlatformContext(context.Background(), pc)
 
-			_, err := handler(ctx, methodToolsCall, nil)
+			result, err := handler(ctx, methodToolsCall, nil)
 			require.NoError(t, err)
-
-			violations, _, _ := gate.Stats()
-			assert.Equal(t, int64(i+1), violations)
+			res, ok := result.(*mcp.CallToolResult)
+			require.True(t, ok)
+			assert.True(t, res.IsError, "call %d is refused while the session is uninitialized", i)
+			assert.Equal(t, int64(i+1), gate.IncrementGateCount()-1-int64(i), "the refusal counted one violation")
 		}
 	})
 

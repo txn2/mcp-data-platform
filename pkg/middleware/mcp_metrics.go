@@ -10,11 +10,15 @@ import (
 )
 
 // MCPMetricsMiddleware records Prometheus metrics for every tool call
-// that reaches the middleware chain.
+// that reaches the middleware chain, a call the platform refuses before
+// the handler included.
 //
-// Chain position: the middleware must be INNER to MCPToolCallMiddleware
-// so the PlatformContext (carrying tool name, toolkit kind, persona) is
-// available in the ctx the recorder sees, and OUTER to any handler so
+// Chain position: the middleware is OUTER to MCPToolCallMiddleware and the
+// gates, so a call refused by authentication, authorization, a gate or the
+// rate limiter is counted under its status category (#1892). It attaches
+// the PlatformContext the auth middleware then fills in
+// (ensurePlatformContext) and reads the tool name, toolkit kind and
+// persona off it after the call returns. It is OUTER to any handler so
 // the measured duration covers semantic enrichment, rule enforcement,
 // and the toolkit handler itself — i.e. what a Grafana dashboard
 // labels "tool call latency" should actually mean.
@@ -46,43 +50,44 @@ func recordToolCall(
 	metrics.IncInflightToolCalls(ctx)
 	defer metrics.DecInflightToolCalls(ctx)
 
+	ctx, pc := ensurePlatformContext(ctx, req)
 	start := time.Now()
 	result, err := next(ctx, method, req)
 	duration := time.Since(start)
 
-	pc := GetPlatformContext(ctx)
 	attrs := toolCallAttrs(pc, result, err)
 	metrics.RecordToolCall(ctx, attrs, duration)
 
 	// Enrichment runs inner to this middleware, so pc.EnrichmentBytes is set
 	// on the shared PlatformContext by the time next() returns (issue #761).
-	if pc != nil && pc.EnrichmentBytes > 0 {
+	if pc.EnrichmentBytes > 0 {
 		metrics.RecordEnrichmentBytes(ctx, attrs, pc.EnrichmentBytes)
 	}
 	return result, err
 }
 
-// toolCallAttrs derives the bounded metric labels from the
-// PlatformContext (when set by MCPToolCallMiddleware) and the
-// (result, err) pair. A missing PlatformContext is recorded with
-// empty tool/toolkit_kind/persona so the call is still counted —
-// dropping it would silently hide auth-rejected calls that never got
-// far enough to populate the context, which is exactly the case
-// operators want visible.
+// toolCallAttrs derives the bounded metric labels from the PlatformContext
+// the auth middleware filled in and the (result, err) pair. The tool label
+// is the registered name, or observability.ToolLabelUnregistered when no
+// toolkit registers the name the caller sent, so a caller cannot mint a
+// series per invented name (#1892); a call that never carried a name (a
+// malformed request) records MetricLabelUnknown.
 func toolCallAttrs(pc *PlatformContext, result mcp.Result, err error) observability.ToolCallAttrs {
-	tool, toolkitKind, persona := "", "", ""
-	if pc != nil {
-		tool = pc.ToolName
-		toolkitKind = pc.ToolkitKind
-		persona = pc.PersonaName
+	tool := pc.ToolName
+	switch {
+	case pc.ToolUnregistered:
+		tool = observability.ToolLabelUnregistered
+	case tool == "":
+		tool = observability.MetricLabelUnknown
 	}
 
 	isToolError, errCategory := toolResultErrorInfo(result)
 	return observability.ToolCallAttrs{
 		Tool:           tool,
-		ToolkitKind:    toolkitKind,
-		Persona:        persona,
+		ToolkitKind:    pc.ToolkitKind,
+		Persona:        pc.PersonaName,
 		StatusCategory: observability.ClassifyToolCallResult(err, isToolError, errCategory),
+		Source:         pc.Source,
 	}
 }
 
