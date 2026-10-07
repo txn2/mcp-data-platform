@@ -104,7 +104,7 @@
     "jsdom": "^26.1.0",
     "msw": "^2.12.10",
     "openapi-typescript": "^7.6.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "swagger2openapi": "^7.0.8",
     "tailwindcss": "^4.1.7",
     "tsx": "^4.22.4",
