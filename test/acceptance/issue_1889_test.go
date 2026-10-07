@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"regexp"
@@ -228,7 +229,7 @@ func TestIssue1889_ASlowRequestIsLoggedWithItsTemplate(t *testing.T) {
 			time.Sleep(250 * time.Millisecond)
 		}
 	}
-	if status, _ := rec["status"].(float64); status != http.StatusOK {
+	if fmt.Sprint(rec["status"]) != "200" {
 		t.Errorf("status = %v, want 200", rec["status"])
 	}
 	traceID, _ := rec["trace_id"].(string)

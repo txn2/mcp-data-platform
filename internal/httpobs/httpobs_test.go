@@ -219,7 +219,7 @@ func TestMiddleware_SlowLogAndStreams(t *testing.T) {
 	require.Contains(t, out, `msg="slow HTTP request"`)
 	require.Contains(t, out, `route="GET /api/v1/admin/slow"`)
 	require.Contains(t, out, `method=GET`)
-	require.Contains(t, out, `status=200`)
+	require.Contains(t, out, `status=200`, "the status is logged as text, sanitized like every other value")
 	require.Contains(t, out, `route="POST /mcp"`, "a streamable message answered as an event stream is a slow request")
 	require.Equal(t, 2, strings.Count(out, "slow HTTP request"), "the open stream and the fast request are not slow: %s", out)
 	require.NotContains(t, out, "/stream")

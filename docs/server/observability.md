@@ -243,7 +243,7 @@ A request slower than `server.slow_request_threshold` (default `5s`) is
 logged at WARN with its template, method, status and duration:
 
 ```json
-{"level":"WARN","msg":"slow HTTP request","route":"GET /api/v1/resources","method":"GET","status":200,"duration_ms":12480,"trace_id":"...","span_id":"..."}
+{"level":"WARN","msg":"slow HTTP request","route":"GET /api/v1/resources","method":"GET","status":"200","duration_ms":12480,"trace_id":"...","span_id":"..."}
 ```
 
 An event stream is never slow: its duration is how long the client stayed.

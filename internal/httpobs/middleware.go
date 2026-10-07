@@ -97,10 +97,15 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 				cfg.Metrics.RecordHTTPRateLimited(ctx, s.limiterOr(LimiterUnknown))
 			}
 			if d >= cfg.slowThreshold() && !rw.isOpenStream(r.Method) {
+				// Every value that reaches the log sink is sanitized, the
+				// status included: a handler may derive the code it writes
+				// from what the caller sent, and the project treats a log
+				// line's inputs as the caller's until a sanitizer has seen
+				// them (internal/logsan).
 				slog.WarnContext(ctx, "slow HTTP request",
 					"route", logsan.SanitizeForLog(route),
-					"method", observability.HTTPMethodLabel(r.Method),
-					"status", status,
+					"method", logsan.SanitizeForLog(observability.HTTPMethodLabel(r.Method)),
+					"status", logsan.SanitizeForLog(strconv.Itoa(status)),
 					"duration_ms", d.Milliseconds())
 			}
 		})

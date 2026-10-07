@@ -104,11 +104,28 @@ func (m *Metrics) RecordMCPRequest(ctx context.Context, method, status string, d
 
 // HTTPMethodLabel clamps an HTTP method to the standard set, so a request
 // with an invented method cannot mint a series; anything else is unknown.
+// Each case returns the constant rather than the request's own string, so
+// the value a label or a log line carries is never the caller's bytes.
 func HTTPMethodLabel(method string) string {
 	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
-		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
-		return method
+	case http.MethodGet:
+		return http.MethodGet
+	case http.MethodHead:
+		return http.MethodHead
+	case http.MethodPost:
+		return http.MethodPost
+	case http.MethodPut:
+		return http.MethodPut
+	case http.MethodPatch:
+		return http.MethodPatch
+	case http.MethodDelete:
+		return http.MethodDelete
+	case http.MethodConnect:
+		return http.MethodConnect
+	case http.MethodOptions:
+		return http.MethodOptions
+	case http.MethodTrace:
+		return http.MethodTrace
 	}
 	return MetricLabelUnknown
 }
