@@ -173,11 +173,12 @@ func (l *loader) load(thread *starlark.Thread, module string) (starlark.StringDi
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", ref, err)
 	}
-	prog, err := starlark.FileProgram(file, l.env.Has)
+	file, env := scriptdialect.Formatting(file, l.env)
+	prog, err := starlark.FileProgram(file, env.Has)
 	if err != nil {
 		return nil, fmt.Errorf("resolving %s: %w", ref, err)
 	}
-	globals, err := prog.Init(thread, l.env)
+	globals, err := prog.Init(thread, env)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the interpreter's failure, whose backtrace names the library
 	}

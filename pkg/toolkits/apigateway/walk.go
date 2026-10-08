@@ -39,7 +39,7 @@ func (r *pageRequester) Do(ctx context.Context, t pagewalk.Target) (*http.Respon
 	// same host pinning and validatePath checks as a single call.
 	resp, err := r.inv.client.Do(req)
 	if err != nil {
-		return nil, &transportError{msg: scrubTransportError(err)}
+		return nil, &transportError{msg: scrubTransportError(ctx, err)}
 	}
 	return resp, nil
 }

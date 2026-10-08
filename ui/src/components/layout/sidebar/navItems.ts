@@ -1,4 +1,5 @@
 import {
+  KeySquare,
   Home,
   Wrench,
   Users,
@@ -75,6 +76,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin/personas", label: "Personas", icon: Users },
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/resources", label: "Resources", icon: FileUp },
+  { path: "/admin/secrets", label: "Secrets", icon: KeySquare },
   { path: "/admin/sessions", label: "Sessions", icon: History },
   { path: "/admin/settings", label: "Settings", icon: Settings },
   { path: "/admin/tools", label: "Tools", icon: Wrench },

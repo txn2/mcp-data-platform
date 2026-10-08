@@ -6,7 +6,10 @@ import type { ReactNode } from "react";
 import { AssetViewerPage } from "./AssetViewerPage";
 import { AdminAssetViewerPage } from "./AdminAssetViewerPage";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
-import { TEXT_INLINE_LIMIT, VIRTUALIZED_INLINE_LIMIT } from "@/components/renderers/registry";
+import {
+  TEXT_INLINE_LIMIT,
+  VIRTUALIZED_INLINE_LIMIT,
+} from "@/components/renderers/registry";
 
 // #1883: a CSV written by a managed script, with two versions and a name with
 // no extension, sat on "Loading..." with no content request made. The page it
@@ -21,15 +24,55 @@ const ID = "a1";
 
 /** One inline family: its type, a name with its extension, its limit and a body. */
 const FAMILIES = [
-  { type: "text/csv", ext: ".csv", limit: VIRTUALIZED_INLINE_LIMIT, body: "region,total\nwest,4\n" },
-  { type: "text/tab-separated-values", ext: ".tsv", limit: VIRTUALIZED_INLINE_LIMIT, body: "region\ttotal\nwest\t4\n" },
-  { type: "application/json", ext: ".json", limit: VIRTUALIZED_INLINE_LIMIT, body: '{"region":"west"}' },
-  { type: "application/x-ndjson", ext: ".jsonl", limit: VIRTUALIZED_INLINE_LIMIT, body: '{"region":"west"}\n' },
-  { type: "text/markdown", ext: ".md", limit: TEXT_INLINE_LIMIT, body: "# west\n" },
+  {
+    type: "text/csv",
+    ext: ".csv",
+    limit: VIRTUALIZED_INLINE_LIMIT,
+    body: "region,total\nwest,4\n",
+  },
+  {
+    type: "text/tab-separated-values",
+    ext: ".tsv",
+    limit: VIRTUALIZED_INLINE_LIMIT,
+    body: "region\ttotal\nwest\t4\n",
+  },
+  {
+    type: "application/json",
+    ext: ".json",
+    limit: VIRTUALIZED_INLINE_LIMIT,
+    body: '{"region":"west"}',
+  },
+  {
+    type: "application/x-ndjson",
+    ext: ".jsonl",
+    limit: VIRTUALIZED_INLINE_LIMIT,
+    body: '{"region":"west"}\n',
+  },
+  {
+    type: "text/markdown",
+    ext: ".md",
+    limit: TEXT_INLINE_LIMIT,
+    body: "# west\n",
+  },
   { type: "text/plain", ext: ".txt", limit: TEXT_INLINE_LIMIT, body: "west\n" },
-  { type: "application/xml", ext: ".xml", limit: TEXT_INLINE_LIMIT, body: "<r>west</r>\n" },
-  { type: "application/yaml", ext: ".yaml", limit: TEXT_INLINE_LIMIT, body: "region: west\n" },
-  { type: "text/html", ext: ".html", limit: TEXT_INLINE_LIMIT, body: "<p>west</p>" },
+  {
+    type: "application/xml",
+    ext: ".xml",
+    limit: TEXT_INLINE_LIMIT,
+    body: "<r>west</r>\n",
+  },
+  {
+    type: "application/yaml",
+    ext: ".yaml",
+    limit: TEXT_INLINE_LIMIT,
+    body: "region: west\n",
+  },
+  {
+    type: "text/html",
+    ext: ".html",
+    limit: TEXT_INLINE_LIMIT,
+    body: "<p>west</p>",
+  },
 ];
 
 const OWNERS = [
@@ -89,12 +132,27 @@ function versions(s: Shape) {
  */
 function stubServer(s: Shape) {
   const json = (v: unknown) =>
-    Promise.resolve(new Response(JSON.stringify(v), { status: 200, headers: { "Content-Type": "application/json" } }));
+    Promise.resolve(
+      new Response(JSON.stringify(v), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
     const path = url.split("?")[0] ?? "";
     if (path.endsWith(`/assets/${ID}/content`)) {
-      return Promise.resolve(new Response(s.body, { status: 200, headers: { "Content-Type": s.type } }));
+      return Promise.resolve(
+        new Response(s.body, {
+          status: 200,
+          headers: { "Content-Type": s.type },
+        }),
+      );
     }
     if (path.endsWith(`/assets/${ID}`)) return json(record(s));
     if (path.endsWith(`/assets/${ID}/versions`)) return json(versions(s));
@@ -107,7 +165,13 @@ function stubServer(s: Shape) {
 
 function contentRequests(fetchMock: ReturnType<typeof stubServer>): string[] {
   return fetchMock.mock.calls
-    .map(([input]) => (typeof input === "string" ? input : input instanceof URL ? input.href : input.url))
+    .map(([input]) =>
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
+    )
     .filter((u) => u.split("?")[0]?.endsWith(`/assets/${ID}/content`));
 }
 
@@ -126,7 +190,14 @@ function shapes(): Array<{ label: string; shape: Shape }> {
           const name = named ? `daily${f.ext}` : "daily";
           out.push({
             label: `${f.type}, ${v} version(s), ${owner.owner_id}, "${name}"`,
-            shape: { type: f.type, size: f.limit - 1, name, versions: v, owner, body: f.body },
+            shape: {
+              type: f.type,
+              size: f.limit - 1,
+              name,
+              versions: v,
+              owner,
+              body: f.body,
+            },
           });
         }
       }
@@ -135,11 +206,17 @@ function shapes(): Array<{ label: string; shape: Shape }> {
   return out;
 }
 
-const SURFACES: Array<{ name: string; route: string; mount: (s: Shape) => ReactNode }> = [
+const SURFACES: Array<{
+  name: string;
+  route: string;
+  mount: (s: Shape) => ReactNode;
+}> = [
   {
     name: "asset page",
     route: `/api/v1/portal/assets/${ID}/content`,
-    mount: () => <AssetViewerPage assetId={ID} onNavigate={() => {}} onBack={() => {}} />,
+    mount: () => (
+      <AssetViewerPage assetId={ID} onNavigate={() => {}} onBack={() => {}} />
+    ),
   },
   {
     name: "admin asset viewer",
@@ -150,7 +227,13 @@ const SURFACES: Array<{ name: string; route: string; mount: (s: Shape) => ReactN
     name: "preview modal",
     route: `/api/v1/portal/assets/${ID}/content`,
     mount: (s) => (
-      <AssetPreviewModal assetId={ID} assetName={s.name} contentType={s.type} sizeBytes={s.size} onClose={() => {}} />
+      <AssetPreviewModal
+        assetId={ID}
+        assetName={s.name}
+        contentType={s.type}
+        sizeBytes={s.size}
+        onClose={() => {}}
+      />
     ),
   },
 ];
@@ -158,17 +241,23 @@ const SURFACES: Array<{ name: string; route: string; mount: (s: Shape) => ReactN
 describe("every inline family under its limit reaches one content request (#1883)", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  // One test per surface and shape, whatever the version count, owner and
+  // name: each mounts a whole viewer, and a single test looping every shape
+  // ran past the per-test timeout when the machine was busy.
   for (const surface of SURFACES) {
-    it(`on the ${surface.name}, whatever the version count, owner and name`, async () => {
-      for (const { label, shape } of shapes()) {
+    for (const { label, shape } of shapes()) {
+      it(`on the ${surface.name}: ${label}`, async () => {
         const fetchMock = stubServer(shape);
         const view = render(withQuery(surface.mount(shape)));
-        await waitFor(() => expect(contentRequests(fetchMock), label).toHaveLength(1));
-        expect(contentRequests(fetchMock)[0]?.split("?")[0], label).toBe(surface.route);
+        await waitFor(() =>
+          expect(contentRequests(fetchMock), label).toHaveLength(1),
+        );
+        expect(contentRequests(fetchMock)[0]?.split("?")[0], label).toBe(
+          surface.route,
+        );
         view.unmount();
-        vi.unstubAllGlobals();
-      }
-    });
+      });
+    }
   }
 
   // The asset #1883 was reported against, as it was stored: 3,140,976 bytes of
@@ -187,7 +276,12 @@ describe("every inline family under its limit reaches one content request (#1883
       const fetchMock = stubServer(shape);
       const view = render(withQuery(surface.mount(shape)));
       expect(await screen.findByText("west"), surface.name).toBeInTheDocument();
-      await waitFor(() => expect(screen.queryByText("Loading..."), surface.name).not.toBeInTheDocument());
+      await waitFor(() =>
+        expect(
+          screen.queryByText("Loading..."),
+          surface.name,
+        ).not.toBeInTheDocument(),
+      );
       expect(contentRequests(fetchMock), surface.name).toHaveLength(1);
       view.unmount();
       vi.unstubAllGlobals();

@@ -472,6 +472,26 @@ A call then reads a site's workbooks with `"path": "/api/3.22/sites/{session.sit
 
 `path_secret` is appended to every request's path as it is sent, for a receiver that authenticates by a secret in the URL: a chat incoming webhook's token, or an inbound source's `path_token`. Unlike `base_url`, which a connection read returns as written, it is encrypted at rest, read back as `[REDACTED]`, and never appears in a call's path, the audit log or an error: the request a call builds carries the path without it, and the copy that is sent carries it. It works with every `auth_mode`.
 
+### A secret in the request
+
+Some requests have to carry a credential that is not the connection's own: a password typed into a vendor's login form through a WebDriver connection (`POST /session/{id}/element/{id}/value`), a key an API wants in a JSON body field. An administrator stores it under **Admin > Secrets** (or `PUT /api/v1/admin/secrets/{name}`), and a caller writes `{{secret:<name>}}` where the value goes:
+
+```json
+{
+  "connection": "selenium-grid",
+  "method": "POST",
+  "path": "/session/4b1c/element/9f2e/value",
+  "body": {"text": "{{secret:portal_password}}"}
+}
+```
+
+The placeholder works in `body` (an object, or a string of JSON or form text, with the value escaped for it), `query_params`, `path_params`, `path` and `headers`, for `api_invoke_endpoint` and `api_export`, and on every page of a `paginate` walk.
+
+- **When it is filled.** As the request is sent, on a copy. The call's arguments, the audit row, the call record, a script's recording and the `export_arguments` and `next_arguments` a result hands back all hold the placeholder, so a test that replays a recorded run needs no value.
+- **Where it may go.** Each secret names the connections it may be sent through (`allow_connections`, required) and, optionally, the personas that may use it (`allow_personas`; empty means any persona that can reach one of its connections, and the administrator persona may always use it). `allow_connections` holds for every caller, the administrator included: it is where the value may go. A placeholder outside that scope, a name no secret is stored under, and a malformed placeholder are each refused by name before anything is sent. A placeholder is never sent as written.
+- **What comes back.** Every occurrence of the value in the upstream's response headers and body, as written or JSON-, query- or path-escaped, is replaced with `[REDACTED:<name>]` before the response reaches the caller, so reading the field back (`GET .../element/{id}/property/value`) does not hand it over. An error message that would carry it (a filled path in a transport error) is redacted the same way. An `api_export` is redacted as it streams.
+- **Storage.** The value is encrypted at rest with the same field encryption as connection credentials, must be at least 6 characters (it is redacted wherever it appears, and a shorter one would rewrite ordinary text), and is never returned by the API or shown in the portal. Changing a secret without a `value` keeps the stored one. A rotated value is used from the next call, with no reload.
+
 ### OAuth JWT bearer grant (RFC 7523)
 
 `oauth_grant: jwt_bearer` is the unattended server-to-server flow many OAuth providers recommend for integrations: the upstream registers a public key for an application and approves an integration user for it, and the client signs a short-lived assertion with the private key and exchanges it at the token endpoint for an access token. There is no browser, no refresh token, and no client secret on the wire unless the upstream also asks for one. It is available on every HTTP-based kind (`api`, `graphql`); an `mcp` connection saved with it is refused.

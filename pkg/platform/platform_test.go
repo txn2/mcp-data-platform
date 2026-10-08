@@ -4891,7 +4891,7 @@ func TestWireGatewayIntegrations_NoToolkits_NoOp(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	p.WireGatewayIntegrations() // all seven steps no-op with no toolkits registered
+	p.WireGatewayIntegrations() // every step no-ops with no toolkits registered
 }
 
 // TestWireAPIGatewayTokenStore proves the api gateway parallel of

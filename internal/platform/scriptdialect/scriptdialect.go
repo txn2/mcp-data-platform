@@ -11,6 +11,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/internal/scriptprintf"
 )
 
 // Options is the dialect every managed script is parsed and resolved under.
@@ -141,6 +143,7 @@ func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict,
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the parser's own message is what the author reads
 	}
+	file, env = Formatting(file, env)
 	// Instrumented first, so the statement withMainEnd appends to main is not
 	// counted as the author's.
 	if hooks.Cover != nil {
@@ -173,6 +176,15 @@ func Exec(thread *starlark.Thread, name, source string, env starlark.StringDict,
 	}
 	_, err = starlark.Call(thread, fn, nil, nil)
 	return globals, err //nolint:wrapcheck // the interpreter's failure, whose backtrace is the message
+}
+
+// Formatting routes the file's `%` and str.format through the platform's
+// implementation, which takes the flags, widths and precisions Starlark's own
+// refuses (#2048), and returns env with it bound. Every module a run compiles
+// goes through it: the script's own, and each library it loads.
+func Formatting(file *syntax.File, env starlark.StringDict) (*syntax.File, starlark.StringDict) {
+	scriptprintf.Rewrite(file)
+	return file, scriptprintf.Bind(env)
 }
 
 // mainEndName is the builtin withMainEnd routes main's ending through. A

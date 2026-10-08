@@ -448,6 +448,23 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
+    // Stored secrets (#2051): the list, one secret's editor, and the form a
+    // secret is created with. No value is ever shown.
+    slug: "admin-secrets",
+    path: "/portal/admin/secrets",
+    category: "admin",
+  },
+  {
+    slug: "admin-secret-edit",
+    path: "/portal/admin/secrets/portal_password",
+    category: "admin",
+  },
+  {
+    slug: "admin-secret-new",
+    path: "/portal/admin/secrets/new",
+    category: "admin",
+  },
+  {
     // Inbound webhook sources (#1870): the list, one source with its address,
     // request counts, compaction and rejections, and the form a source is
     // created with.

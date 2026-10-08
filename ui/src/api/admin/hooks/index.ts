@@ -14,4 +14,5 @@ export * from "./notifications";
 export * from "./scripts";
 export * from "./sessions";
 export * from "./calls";
+export * from "./secrets";
 export * from "./webhooks";

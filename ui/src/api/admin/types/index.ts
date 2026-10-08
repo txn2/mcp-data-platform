@@ -9,3 +9,4 @@ export * from "./scripts";
 export * from "./sessions";
 export * from "./calls";
 export * from "./webhooks";
+export * from "./secrets";

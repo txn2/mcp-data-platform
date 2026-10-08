@@ -121,6 +121,7 @@ const pageTitles: Record<string, string> = {
   "/admin/calls": "Calls",
   "/admin/keys": "Keys",
   "/admin/users": "Users",
+  "/admin/secrets": "Secrets",
   "/admin/webhooks": "Webhooks",
   "/admin/changelog": "Change Log",
   "/admin/settings": "Settings",
@@ -142,6 +143,7 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
   { prefix: "/resources/", title: "Resource" },
   { prefix: "/admin/resources/", title: "Resource" },
   { prefix: "/scratch-tables/", title: "Registered Table" },
+  { prefix: "/admin/secrets/", title: "Secret" },
   { prefix: "/admin/webhooks/", title: "Webhook Source" },
 ];
 

@@ -48,6 +48,8 @@ internal/admin/memoryapi -> pkg/memory
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
+internal/admin/secretapi -> internal/httpjson
+internal/admin/secretapi -> internal/secretstore
 internal/admin/sessionapi -> internal/httpjson
 internal/admin/sessionapi -> internal/platform/sessionview
 internal/admin/settingsapi -> internal/notification/notifychannel
@@ -79,6 +81,7 @@ internal/headless -> internal/outbound
 internal/httpjson -> internal/wirejson
 internal/httpobs -> internal/logsan
 internal/httpobs -> pkg/observability
+internal/httpserver -> internal/admin/secretapi
 internal/httpserver -> internal/admin/webhookapi
 internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
@@ -135,6 +138,7 @@ internal/httpserver -> internal/portal/portaldomain
 internal/httpserver -> internal/portal/producerapi
 internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
+internal/httpserver -> internal/secretstore
 internal/httpserver -> internal/toolanswer
 internal/httpserver -> internal/ui
 internal/httpserver -> internal/webhook/whsource
@@ -382,6 +386,7 @@ internal/pagewalk -> internal/outbound
 internal/pagewalk -> internal/upstreamretry
 internal/pglisten -> internal/bgloop
 internal/platform/apigwwiring -> internal/logsan
+internal/platform/apigwwiring -> internal/secretstore
 internal/platform/apigwwiring -> pkg/registry
 internal/platform/apigwwiring -> pkg/toolkits/apigateway
 internal/platform/apigwwiring -> pkg/toolkits/apigateway/catalog
@@ -700,6 +705,7 @@ internal/platform/scriptbehavior -> internal/platform/scriptrec
 internal/platform/scriptbehavior -> internal/platform/scriptrun
 internal/platform/scriptbehavior -> internal/platform/scripttest
 internal/platform/scriptcontract -> pkg/script
+internal/platform/scriptdialect -> internal/scriptprintf
 internal/platform/scriptdraft -> internal/platform/scriptlib
 internal/platform/scriptdraft -> internal/platform/scriptrec
 internal/platform/scriptdraft -> internal/platform/scriptrun
@@ -788,6 +794,8 @@ internal/platform/scriptlint -> internal/platform/scriptfmt
 internal/platform/scriptlint -> internal/platform/scriptrun
 internal/platform/scriptlint -> internal/scriptconst
 internal/platform/scriptlint -> internal/scriptdest
+internal/platform/scriptlint -> internal/scriptprintf
+internal/platform/scriptlint -> internal/scriptre
 internal/platform/scriptlint -> pkg/script
 internal/platform/scriptlive -> internal/platform/starlarkconv
 internal/platform/scriptlive -> pkg/script
@@ -826,6 +834,8 @@ internal/platform/scriptrun -> internal/scriptcallsite
 internal/platform/scriptrun -> internal/scriptconst
 internal/platform/scriptrun -> internal/scriptdate
 internal/platform/scriptrun -> internal/scriptdest
+internal/platform/scriptrun -> internal/scripthash
+internal/platform/scriptrun -> internal/scriptre
 internal/platform/scriptrun -> internal/scriptreserved
 internal/platform/scriptrun -> internal/scriptsum
 internal/platform/scriptrun -> internal/scriptxml
@@ -1035,6 +1045,7 @@ internal/producedview -> pkg/script
 internal/scriptdate -> pkg/script
 internal/scriptdest -> pkg/script
 internal/scriptxml -> internal/xmltree
+internal/secretstore -> internal/secretref
 internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
@@ -1505,6 +1516,9 @@ pkg/toolkits/apigateway -> internal/opranking
 pkg/toolkits/apigateway -> internal/outbound
 pkg/toolkits/apigateway -> internal/pagenext
 pkg/toolkits/apigateway -> internal/pagewalk
+pkg/toolkits/apigateway -> internal/pathtemplate
+pkg/toolkits/apigateway -> internal/secretref
+pkg/toolkits/apigateway -> internal/secretstore
 pkg/toolkits/apigateway -> internal/soap
 pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> internal/upstreamcall

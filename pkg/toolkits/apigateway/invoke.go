@@ -12,7 +12,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +22,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/inlinefit"
 	"github.com/txn2/mcp-data-platform/internal/listcut"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
@@ -354,7 +355,22 @@ func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput)
 // api_export path, and the raw passthrough path cannot drift apart on
 // any of those rules. The caller owns the timeout context (the read can
 // outlive request construction), so ctx is passed in already scoped.
+//
+// It is also where a request's {{secret:<name>}} placeholders are filled in
+// (#2051): last, on a copy, so nothing built from the caller's input holds a
+// value, and every error raised after the fill has the values redacted.
 func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, cat catalogView, in InvokeInput) (*http.Request, error) {
+	filled, err := fillSecrets(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	req, err := buildFilledRequest(ctx, cfg, auth, cat, filled)
+	return req, redactedError(ctx, err)
+}
+
+// buildFilledRequest is buildUpstreamRequest after the placeholders are
+// filled.
+func buildFilledRequest(ctx context.Context, cfg Config, auth Authenticator, cat catalogView, in InvokeInput) (*http.Request, error) {
 	method, err := validateMethod(in.Method)
 	if err != nil {
 		return nil, err
@@ -819,10 +835,10 @@ func findMostSpecificPathMatch(st *specState, path string) *openapi3.PathItem {
 			continue
 		}
 		template := st.effectiveBasePath + rawPath
-		if !pathMatchesTemplate(path, template) {
+		if !pathtemplate.Match(path, template) {
 			continue
 		}
-		holes := countTemplatePlaceholders(template)
+		holes := pathtemplate.CountPlaceholders(template)
 		if bestItem == nil || holes < bestHoles {
 			bestItem = item
 			bestHoles = holes
@@ -857,128 +873,6 @@ func sortedContentTypes(content openapi3.Content) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// pathMatchesTemplate reports whether concrete (e.g. "/v1/users/42")
-// matches an OpenAPI path template (e.g. "/v1/users/{id}"). Both
-// strings are split on "/" and compared segment-by-segment; bracketed
-// placeholder segments match any non-empty segment, literal segments
-// must match exactly. Trailing slashes are normalized away so
-// "/v1/users/" and "/v1/users" both match the same template.
-func pathMatchesTemplate(concrete, template string) bool {
-	cs := splitPathTemplate(concrete)
-	ts := splitPathTemplate(template)
-	if len(cs) != len(ts) {
-		return false
-	}
-	for i, seg := range ts {
-		if !segmentMatches(cs[i], seg) {
-			return false
-		}
-	}
-	return true
-}
-
-// splitPathTemplate splits a leading-slash path or template into segments
-// after trimming a single trailing slash, so "/a/b/" and "/a/b" both
-// yield ["", "a", "b"] and align with template segment counts. Shared by
-// pathMatchesTemplate and the WebDAV route matcher so both derive
-// segments identically (issue #876).
-func splitPathTemplate(p string) []string {
-	return strings.Split(strings.TrimSuffix(p, pathSep), pathSep)
-}
-
-// placeholderPattern matches one OpenAPI path-template placeholder.
-// The name class excludes braces so a segment carrying two placeholders
-// ("{latitude},{longitude}") yields two matches rather than one spanning
-// both, which is what made such a segment resolve to a parameter named
-// "latitude},{longitude" that no caller could supply (issue #1297).
-//
-//nolint:gochecknoglobals // compiled once; matched on every path resolve
-var placeholderPattern = regexp.MustCompile(`\{([^{}]+)\}`)
-
-// segmentMatches reports whether one concrete path segment satisfies one
-// template segment. Three cases, cheapest first: a literal ("users") must
-// match exactly; a whole-segment placeholder ("{id}") matches any
-// non-empty segment; a partially-templated segment ("{lat},{lon}",
-// "{name}.json") matches when the literal text around its placeholders
-// lines up. The single per-segment rule shared by the exact-length
-// matcher (pathMatchesTemplate) and the catch-all-tail matcher
-// (webdavRoute.matches) so their placeholder/literal semantics cannot
-// drift (issues #876, #1297).
-func segmentMatches(concrete, template string) bool {
-	if !strings.Contains(template, "{") {
-		return concrete == template
-	}
-	if isPlaceholderSegment(template) {
-		return concrete != ""
-	}
-	return templatedSegmentMatches(concrete, template)
-}
-
-// templatedSegmentMatches matches a segment that carries at least one
-// placeholder alongside literal text. Splitting the template on its
-// placeholders yields the literal runs between them — "{lat},{lon}"
-// yields ["", ",", ""] — and the concrete segment must start with the
-// first run, end with the last, and contain the interior runs in order,
-// with every placeholder consuming at least one character. Each
-// placeholder takes the shortest run that still lets the next literal
-// match, mirroring leftmost router matching. A template whose braces
-// form no well-formed placeholder ("{", "{}") is compared literally.
-func templatedSegmentMatches(concrete, template string) bool {
-	lits := placeholderPattern.Split(template, -1)
-	if len(lits) < 2 {
-		return concrete == template
-	}
-	if !strings.HasPrefix(concrete, lits[0]) {
-		return false
-	}
-	rest := concrete[len(lits[0]):]
-	for _, lit := range lits[1 : len(lits)-1] {
-		if rest == "" {
-			return false
-		}
-		// rest[1:] skips the one character the preceding placeholder is
-		// required to consume, so an empty capture cannot satisfy it.
-		idx := strings.Index(rest[1:], lit)
-		if idx < 0 {
-			return false
-		}
-		rest = rest[1+idx+len(lit):]
-	}
-	tail := lits[len(lits)-1]
-	return len(rest) > len(tail) && strings.HasSuffix(rest, tail)
-}
-
-// isPlaceholderSegment reports whether a path-template segment is
-// entirely one OpenAPI parameter placeholder (e.g. "{datasetId}"). A
-// segment that merely contains a placeholder ("{name}.json") is not one:
-// it has literal text that must still match, so it routes through
-// templatedSegmentMatches instead. The interior brace check and the
-// three-character minimum reject the degenerate "{a}{b}" and "{}"
-// segments, which no spec generator emits but a hand-edited spec might.
-func isPlaceholderSegment(seg string) bool {
-	return len(seg) > 2 && seg[0] == '{' && seg[len(seg)-1] == '}' &&
-		!strings.ContainsAny(seg[1:len(seg)-1], "{}")
-}
-
-// segmentIsTemplated reports whether a path-template segment carries at
-// least one placeholder, whether or not it also carries literal text.
-// Distinct from isPlaceholderSegment: this is the "not a fixed segment"
-// test specificity ranking needs, where "{lat},{lon}" must count as
-// templated even though it is not a whole-segment placeholder.
-func segmentIsTemplated(seg string) bool {
-	return placeholderPattern.MatchString(seg)
-}
-
-// countTemplatePlaceholders returns the number of placeholders in an
-// OpenAPI path template; used by findMostSpecificPathMatch to prefer
-// literal paths over templated ones when both match the same concrete
-// path. Occurrences are counted rather than segments, so a template with
-// a two-placeholder segment ranks as less specific than one that spends
-// a whole segment per placeholder (issue #1297).
-func countTemplatePlaceholders(template string) int {
-	return len(placeholderPattern.FindAllStringIndex(template, -1))
 }
 
 func resolveTimeout(requested int, defaultTimeout time.Duration) time.Duration {
@@ -1115,7 +1009,16 @@ func isTimeoutErrorMessage(msg string) bool {
 // (see auth.go's Authenticator interface comment). We rebuild the
 // URL without RawQuery so the message keeps the operation, host,
 // and path useful for diagnostics, but drops the secret.
-func scrubTransportError(err error) string {
+//
+// A secret value the request carried is redacted from the message too
+// (#2051): a filled path is in the URL.
+func scrubTransportError(ctx context.Context, err error) string {
+	return secretref.FromContext(ctx).String(scrubURLError(err))
+}
+
+// scrubURLError is the message of err with the URL's query and userinfo
+// dropped.
+func scrubURLError(err error) string {
 	var ue *url.Error
 	if !errors.As(err, &ue) {
 		return err.Error()
@@ -1172,7 +1075,7 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 	resp, err := p.client.Do(p.req)
 	duration := time.Since(start).Milliseconds()
 	if err != nil {
-		return InvokeOutput{Status: 0, Error: scrubTransportError(err), DurationMs: duration}, nil
+		return InvokeOutput{Status: 0, Error: scrubTransportError(p.req.Context(), err), DurationMs: duration}, nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 

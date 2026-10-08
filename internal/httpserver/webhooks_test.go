@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
 // TestWithoutCORS_HooksAnswerTheirOwnOptions proves an OPTIONS to /hooks/
@@ -57,4 +58,17 @@ func TestWebhookSourceRefs(t *testing.T) {
 	assert.Contains(t, refs["esp"].Description, "/hooks/esp")
 	assert.False(t, refs["esp"].CanModify, "a source's table is removed with the source")
 	assert.NotContains(t, refs, "gone")
+}
+
+// TestSecretAdminAPIMountsOnlyWithADatabase: a secret is a database row, so
+// with no platform or no database the routes are not mounted.
+func TestSecretAdminAPIMountsOnlyWithADatabase(t *testing.T) {
+	mux := http.NewServeMux()
+	mountSecretAdminAPI(mux, nil)
+	p := newTestPlatform(t, &platform.Config{Server: platform.ServerConfig{Name: "test"}, Admin: platform.AdminConfig{Enabled: new(true), Persona: "admin"}})
+	defer func() { _ = p.Close() }()
+	mountSecretAdminAPI(mux, p)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/secrets", http.NoBody))
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

@@ -111,6 +111,11 @@ func TestCheck_EachRuleRefusesANewScript(t *testing.T) {
 		"call in loop":                     {"def main():\n    \"\"\"Doc.\"\"\"\n    for r in run.params[\"ids\"]:\n        platform.call(\"x\", {\"id\": r})\n", RuleCallInLoop, 4},
 		"call in comprehension":            {"def main():\n    \"\"\"Doc.\"\"\"\n    print([platform.query(\"SELECT :i\", params = {\"i\": i}) for i in run.params[\"ids\"]])\n", RuleCallInLoop, 3},
 		"save without read":                {"def main():\n    \"\"\"Doc.\"\"\"\n    platform.save_state({\"a\": 1})\n", RuleStateWithoutRead, 3},
+		"bad % format":                     {"def main():\n    \"\"\"Doc.\"\"\"\n    print(\"%y\" % 1)\n", RuleInvalidFormat, 3},
+		"bad .format spec":                 {"def main():\n    \"\"\"Doc.\"\"\"\n    print(\"{:q}\".format(1))\n", RuleInvalidFormat, 3},
+		"bad format constant":              {"FMT = \"{:{w}}\"\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    print(FMT.format(1, w = 2))\n", RuleInvalidFormat, 5},
+		"lookahead pattern":                {"def main():\n    \"\"\"Doc.\"\"\"\n    print(re.search(\"a(?=b)\", \"ab\"))\n", RuleInvalidPattern, 3},
+		"backreference pattern":            {"PAT = \"(a)\\\\1\"\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    print(re.compile(PAT))\n", RuleInvalidPattern, 5},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -142,6 +147,9 @@ func TestCheck_WhatIsNotAFinding(t *testing.T) {
 		"underscore names":       "def helper(_unused):\n    \"\"\"Doc.\"\"\"\n    return 1\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    for _ in [1]:\n        print(helper(2))\n",
 		"augmented assignment":   "def main():\n    \"\"\"Doc.\"\"\"\n    n = 0\n    n += 1\n",
 		"closure use":            "def main():\n    \"\"\"Doc.\"\"\"\n    n = 2\n    f = lambda x: x * n\n    print(f(1))\n",
+		"supported formats":      "def main():\n    \"\"\"Doc.\"\"\"\n    print(\"%%%02X %-5s\" % (10, \"a\"), \"{:>8.2f}\".format(1.5), date.format(\"2026-01-01\", \"YYYY\"))\n",
+		"computed formats":       "def main():\n    \"\"\"Doc.\"\"\"\n    f = run.params[\"f\"]\n    print(f % 1, f.format(1), re.search(f, \"a\"))\n",
+		"valid patterns":         "def main():\n    \"\"\"Doc.\"\"\"\n    print(re.sub(\"(?i)a(b)\", r\"\\1\", \"AB\"), re.split(\",\", \"a,b\"), re.escape(\"(\"))\n",
 		"constants and load":     "\"\"\"Doc.\"\"\"\n\nA = [1, -2, {\"k\": (3, 4)}]\nB = A[0] + 2 if True else 3\nC = lambda x: x\n\ndef main():\n    \"\"\"Doc.\"\"\"\n    print(A, B, C(1))\n",
 	} {
 		t.Run(name, func(t *testing.T) {

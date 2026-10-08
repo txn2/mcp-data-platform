@@ -803,7 +803,7 @@ func TestScrubTransportError_StripsQueryAndUserInfo(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := scrubTransportError(tc.in)
+			got := scrubTransportError(context.Background(), tc.in)
 			if got == "" {
 				t.Fatal("scrubTransportError returned empty string")
 			}

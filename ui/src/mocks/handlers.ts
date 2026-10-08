@@ -33,6 +33,7 @@ import { sessionHandlers } from "./handlers/sessions";
 import { callHandlers } from "./handlers/calls";
 import { assetRefHandlers, rewriteRefs } from "./handlers/assetRefs";
 import { producerHandlers } from "./handlers/producers";
+import { secretHandlers } from "./handlers/secrets";
 import { webhookHandlers } from "./handlers/webhooks";
 import {
   mockDataHubConnections,
@@ -4496,5 +4497,6 @@ export const handlers = [
   ...callHandlers,
   ...assetRefHandlers,
   ...producerHandlers,
+  ...secretHandlers,
   ...webhookHandlers,
 ];

@@ -10,9 +10,11 @@
 package apigwwiring
 
 import (
+	"database/sql"
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -98,5 +100,19 @@ func RoutePolicy(source ToolkitSource, policy apigatewaykit.RoutePolicy) {
 	}
 	for _, api := range Toolkits(source) {
 		api.SetRoutePolicy(policy)
+	}
+}
+
+// Secrets attaches the stored secrets a request's {{secret:<name>}}
+// placeholders are filled from (#2051), read from db through enc; admin is
+// the administrator persona, whom allow_personas does not limit. No-op
+// without a database: a placeholder is then refused, never sent.
+func Secrets(source ToolkitSource, db *sql.DB, enc secretstore.Encryptor, admin string) {
+	if db == nil {
+		return
+	}
+	store := secretstore.NewStore(db, enc).WithAdmin(admin)
+	for _, api := range Toolkits(source) {
+		api.SetSecrets(store)
 	}
 }

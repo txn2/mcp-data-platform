@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 )
 
 // webdavTestSpec mirrors the shape of a real Nextcloud WebDAV catalog
@@ -291,8 +293,8 @@ func TestWebdavVerbs_SubsetOfSupportedMethods(t *testing.T) {
 // branches the catalog fixtures do not all reach: a trailing-literal
 // template, a bare-trailing-slash tail, and a too-short path.
 func TestWebdavRouteMatches(t *testing.T) {
-	catchAll := webdavRoute{segments: splitPathTemplate("/dav/{user}/{path}")}
-	literalTail := webdavRoute{segments: splitPathTemplate("/dav/{user}/config")}
+	catchAll := webdavRoute{segments: pathtemplate.Split("/dav/{user}/{path}")}
+	literalTail := webdavRoute{segments: pathtemplate.Split("/dav/{user}/config")}
 
 	tests := []struct {
 		name string
@@ -314,7 +316,7 @@ func TestWebdavRouteMatches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.r.matches(splitPathTemplate(tt.path)); got != tt.want {
+			if got := tt.r.matches(pathtemplate.Split(tt.path)); got != tt.want {
 				t.Errorf("matches(%q) = %v; want %v", tt.path, got, tt.want)
 			}
 		})
@@ -357,7 +359,7 @@ func wdMethods(operationID string) map[string]webdavOp {
 // single PROPFIND->operationId method) for tests that exercise
 // resolveWebDAVRoute's specificity ranking directly.
 func wdRoute(template, operationID string) webdavRoute {
-	segs := splitPathTemplate(template)
+	segs := pathtemplate.Split(template)
 	return webdavRoute{segments: segs, literals: countLiteralSegments(segs), methods: wdMethods(operationID)}
 }
 

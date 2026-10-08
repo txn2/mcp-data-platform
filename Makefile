@@ -47,7 +47,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test \
-	tools-check dead-code mutate patch-coverage doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-lint verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -473,6 +473,13 @@ mutate:
 
 ## coverage-report: Print coverage summary (fails below COVERAGE_MIN)
 coverage-report: test
+	@$(MAKE) --no-print-directory coverage-summary
+
+## coverage-summary: Print the summary of the coverage.out already written (fails below COVERAGE_MIN)
+## coverage-report runs the tests first. verify-go runs `test` once and then
+## this, so a verify runs the race unit suite once rather than once per reader
+## of its profile (#2053).
+coverage-summary:
 	@echo ""
 	@echo "=== Coverage Summary ==="
 	@$(GO) tool cover -func=coverage.out | tail -1
@@ -491,6 +498,11 @@ coverage-report: test
 
 ## patch-coverage: Check coverage of changed lines vs main (fails below PATCH_COVERAGE_MIN)
 patch-coverage: test
+	@$(MAKE) --no-print-directory patch-coverage-check
+
+## patch-coverage-check: Check the changed lines against the coverage.out already written
+## The half of patch-coverage verify-go runs after its one `test` (#2053).
+patch-coverage-check:
 	@echo "Checking patch coverage..."
 	@PATCH_COVERAGE_THRESHOLD=$(PATCH_COVERAGE_MIN) ./scripts/patch-coverage.sh
 
@@ -746,7 +758,7 @@ verify:
 	@$(MAKE) --no-print-directory fmt
 	@$(MAKE) --no-print-directory embed-clean
 	@# Then the tagged build, before the lanes fan out. It is here rather than
-	@# inside verify-lint because the lanes start together under -j4: a failure
+	@# inside verify-static because the lanes start together under -j4: a failure
 	@# reported from a lane does not stop verify-docker from having already
 	@# brought up the daemon and replayed the migrations. One second of serial
 	@# wall clock buys a broken integration-tagged file being reported before
@@ -759,7 +771,7 @@ verify:
 	@# learn whether the rest of the lane passed.
 	@$(MAKE) --no-print-directory preverify-fast
 	@# Then lint, still serial and before any lane starts. It used to run in
-	@# the verify-lint lane beside the full unit run, so a lint finding was
+	@# the lint lane beside the full unit run, so a lint finding was
 	@# reported only after every lane had been started, and the run it cost
 	@# was the whole of verify. Two minutes here answers it first.
 	@$(MAKE) --no-print-directory lint
@@ -844,17 +856,21 @@ verify:
 ##     exceeded` while inspecting a starting container. Docker work gets one
 ##     group and nothing else in the schedule competes for the daemon.
 ##   - golangci-lint refuses to start while another instance is running, so the
-##     two lint steps share a group (see verify-lint).
+##     two lint steps share a group (see verify-static).
 ## CodeQL is not here at all: its extractor runs the Makefile's default goal,
 ## which rewrites generated files, so `verify` runs it before this phase.
 ##
 ## Run it directly to re-check without the formatting and generation steps.
-verify-checks: verify-go verify-lint verify-docker verify-ui
+verify-checks: verify-go verify-static verify-docker verify-ui
 	@:
 
 ## verify-go: the Go checks that read the tree and the coverage profile.
-## coverage-report and patch-coverage both read the coverage.out that `test`
-## writes, which is why this group is ordered rather than parallel.
+## coverage-summary and patch-coverage-check both read the coverage.out that
+## `test` writes, which is why this group is ordered rather than parallel. They
+## are the halves of coverage-report and patch-coverage that do not run the
+## tests again: each $(MAKE) line is its own invocation and does not know
+## `test` already ran, so naming the targets with `test` as a prerequisite ran
+## the race unit suite three times per verify (#2053).
 verify-go:
 	@echo "[lane start $$(date +%T)] verify-go"
 	@# The schedule lane runs first (#1856): it covers only the changed
@@ -862,10 +878,8 @@ verify-go:
 	@# after the whole module's unit run. The lane's length is unchanged.
 	@$(MAKE) --no-print-directory schedule-lane
 	@$(MAKE) --no-print-directory test
-	@$(MAKE) --no-print-directory coverage-report
-	@$(MAKE) --no-print-directory patch-coverage
-	@$(MAKE) --no-print-directory security
-	@$(MAKE) --no-print-directory semgrep
+	@$(MAKE) --no-print-directory coverage-summary
+	@$(MAKE) --no-print-directory patch-coverage-check
 	@$(MAKE) --no-print-directory bench-test
 	@$(MAKE) --no-print-directory bench-report-check
 	@echo "[lane done  $$(date +%T)] verify-go"
@@ -916,20 +930,25 @@ realdb-lane:
 preverify: preverify-fast
 	@$(MAKE) --no-print-directory lint
 
-## verify-lint: the two lint targets, in order.
+## verify-static: the static checks that read source and no coverage profile.
 ##
 ## golangci-lint refuses to start while another instance is running ("parallel
 ## golangci-lint is running", exit 3), so `lint` and `bench-lint` cannot be
-## scheduled side by side. They are chained here rather than made dependent on
-## each other, which would make a standalone `make bench-lint` pay for the main
-## module's two-minute lint. bench-lint runs second and therefore runs cold,
-## since `lint` cleans golangci-lint's cache; on this module that is two seconds.
-verify-lint:
-	@echo "[lane start $$(date +%T)] verify-lint"
-	@# `lint` itself runs in verify's serial preamble, before the lanes, so a
-	@# finding fails verify first; this lane keeps the bench module's lint.
+## scheduled side by side. `lint` itself runs in verify's serial preamble,
+## before the lanes, so bench-lint here runs after it, cold, in two seconds.
+## They are chained rather than made dependent on each other, which would make
+## a standalone `make bench-lint` pay for the main module's two-minute lint.
+##
+## security (gosec + govulncheck) and the whole-tree semgrep follow it. They
+## used to run in verify-go after the full race unit run, so a gosec finding
+## failed verify fifteen minutes in with every test lane green (#2053); here
+## they start with the other lanes and report in the first minutes.
+verify-static:
+	@echo "[lane start $$(date +%T)] verify-static"
 	@$(MAKE) --no-print-directory bench-lint
-	@echo "[lane done  $$(date +%T)] verify-lint"
+	@$(MAKE) --no-print-directory security
+	@$(MAKE) --no-print-directory semgrep
+	@echo "[lane done  $$(date +%T)] verify-static"
 
 ## verify-docker: everything that wants the Docker daemon, and nothing else.
 verify-docker:

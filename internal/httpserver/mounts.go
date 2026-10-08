@@ -9,9 +9,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
+	"github.com/txn2/mcp-data-platform/internal/secretstore"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -944,6 +946,17 @@ func citedScripts(lookup func(context.Context, string) (*scriptstore.Citation, e
 		}
 		return c.Label, true, nil
 	}
+}
+
+// mountSecretAdminAPI registers the stored-secret routes (#2051), behind the
+// admin API's authentication. A secret lives in the database, so there is
+// nothing to mount without one.
+func mountSecretAdminAPI(mux *http.ServeMux, p *platform.Platform) {
+	if p == nil || p.DB() == nil || !p.Config().Admin.IsEnabled() {
+		return
+	}
+	secretapi.Register(mux, buildAdminAuth(p), secretapi.Config{Store: secretstore.NewStore(p.DB(), p.RestEncryptor()), Author: adminEmail})
+	slog.Info("Stored secret admin API enabled on /api/v1/admin/secrets")
 }
 
 // mountWebhookAdminAPI registers the webhook source routes, behind the admin
