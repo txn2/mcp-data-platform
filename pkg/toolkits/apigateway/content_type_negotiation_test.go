@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 )
 
 // jsonOpSpec declares a single POST operation whose requestBody
@@ -164,9 +166,9 @@ func TestPathMatchesTemplate(t *testing.T) {
 		{"/v2/users/me", "/v1/users/me", false},
 	}
 	for _, tc := range cases {
-		got := pathMatchesTemplate(tc.concrete, tc.template)
+		got := pathtemplate.Match(tc.concrete, tc.template)
 		if got != tc.want {
-			t.Errorf("pathMatchesTemplate(%q, %q) = %v; want %v",
+			t.Errorf("pathtemplate.Match(%q, %q) = %v; want %v",
 				tc.concrete, tc.template, got, tc.want)
 		}
 	}

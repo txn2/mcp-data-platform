@@ -9724,6 +9724,51 @@ definitions:
       recording:
         type: string
     type: object
+  secretapi.SecretInput:
+    properties:
+      allow_connections:
+        items:
+          type: string
+        type: array
+      allow_personas:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      value:
+        type: string
+    type: object
+  secretapi.SecretList:
+    properties:
+      secrets:
+        items:
+          $ref: '#/definitions/secretstore.Secret'
+        type: array
+    type: object
+  secretstore.Secret:
+    properties:
+      allow_connections:
+        items:
+          type: string
+        type: array
+      allow_personas:
+        items:
+          type: string
+        type: array
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
   semantic.AssertionResult:
     properties:
       assertion_urn:
@@ -17011,6 +17056,121 @@ paths:
       summary: List script schedules
       tags:
       - Scripts
+  /admin/secrets:
+    get:
+      description: 'Returns every stored secret: its name, description, the connections
+        it may be sent through, the personas that may use it, and who wrote it when.
+        A value is never returned.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/secretapi.SecretList'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List stored secrets
+      tags:
+      - Secrets
+  /admin/secrets/{name}:
+    delete:
+      description: Deletes the secret. A request that still references it is refused
+        by name and sends nothing.
+      parameters:
+      - description: Secret name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a stored secret
+      tags:
+      - Secrets
+    get:
+      description: Returns one secret's name, description and scope. The value is
+        never returned.
+      parameters:
+      - description: Secret name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/secretstore.Secret'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a stored secret
+      tags:
+      - Secrets
+    put:
+      consumes:
+      - application/json
+      description: Creates the secret, or changes it. A caller references it as {{secret:<name>}}
+        in an api_invoke_endpoint or api_export request's body, query_params, path_params
+        or headers; the api gateway fills in the value as it sends the request and
+        redacts it from the response. allow_connections is required and names the
+        connections it may be sent through; allow_personas, when not empty, names
+        the personas that may use it besides the administrator persona. value is required
+        to create and may be omitted to change the rest and keep the stored value;
+        it must be at least 6 characters. It is encrypted at rest and never returned.
+      parameters:
+      - description: Secret name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The secret
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/secretapi.SecretInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Changed
+          schema:
+            $ref: '#/definitions/secretstore.Secret'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/secretstore.Secret'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create or change a stored secret
+      tags:
+      - Secrets
   /admin/sessions:
     get:
       description: 'Returns sessions derived from the audit log, most recently active
@@ -27720,6 +27880,8 @@ tags:
     description: "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."
   - name: "Scripts"
     description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
+  - name: "Secrets"
+    description: "Stored secrets a request references by placeholder: {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers is filled in as the gateway sends it and redacted from the response. Each secret names the connections it may be sent through and, optionally, the personas that may use it. Values are write-only."
   - name: "Webhooks"
     description: "Inbound webhook sources: the addresses external systems post events to at /hooks/{source}. Create, change, rotate the secret of, and delete a source, and read its status: request counts by outcome, when it last received an event, compaction progress, and its recently rejected requests. Secrets are write-only."
   - name: "System"
@@ -27780,6 +27942,7 @@ x-tagGroups:
       - "Notifications"
       - "Personas"
       - "Scripts"
+      - "Secrets"
       - "Sessions"
       - "Settings"
       - "System"

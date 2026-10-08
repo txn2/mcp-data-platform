@@ -59,6 +59,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/scripthash"
+	"github.com/txn2/mcp-data-platform/internal/scriptre"
 	"github.com/txn2/mcp-data-platform/internal/scriptsum"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 	"github.com/txn2/mcp-data-platform/internal/tablexlsx"
@@ -687,7 +689,7 @@ func (e *execError) Unwrap() error { return e.cause }
 // one and absent from the other is the defect that let the contract advertise
 // a built-in the environment did not have (#1414): validation would resolve a
 // name the run cannot bind, or refuse one it can.
-var PredeclaredNames = []string{"platform", "json", "xml", "date", "run", scriptsum.Name, "fail", TestingName, AssertName}
+var PredeclaredNames = []string{"platform", "json", "xml", "date", scripthash.Name, scriptre.Name, "run", scriptsum.Name, "fail", TestingName, AssertName}
 
 // TestingName and AssertName are the modules a test uses (#1939). A run binds
 // each to a value that refuses every use, so a test's body resolves in the
@@ -721,14 +723,16 @@ func predeclared(host *hostState) starlark.StringDict {
 				"result":       host.log.Bindings()["result"],
 			},
 		},
-		"json":         json.Module,
-		"xml":          scriptxml.Module,
-		"date":         scriptdate.Module,
-		"run":          host.runBinding(),
-		scriptsum.Name: scriptsum.Builtin,
-		"fail":         scriptguard.Fail, // the universe's, plus retryable= (#1935)
-		TestingName:    testOnly(TestingName),
-		AssertName:     testOnly(AssertName),
+		"json":          json.Module,
+		"xml":           scriptxml.Module,
+		"date":          scriptdate.Module,
+		scripthash.Name: scripthash.Module,
+		scriptre.Name:   scriptre.Module,
+		"run":           host.runBinding(),
+		scriptsum.Name:  scriptsum.Builtin,
+		"fail":          scriptguard.Fail, // the universe's, plus retryable= (#1935)
+		TestingName:     testOnly(TestingName),
+		AssertName:      testOnly(AssertName),
 	}
 	if host.opts.Test != nil {
 		maps.Copy(env, host.opts.Test.Env)

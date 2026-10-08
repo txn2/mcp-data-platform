@@ -13,37 +13,55 @@ import { folderAddress } from "@/pages/resources/parts/libraryUrl";
 // Admin pages (admin only)
 // The resources page serves both sections; `admin` is what changes its scope.
 const ResourcesPage = lazy(() =>
-  import("@/pages/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })),
+  import("@/pages/resources/ResourcesPage").then((m) => ({
+    default: m.ResourcesPage,
+  })),
 );
 const ResourceViewerPage = lazy(() =>
-  import("@/pages/resources/ResourceViewerPage").then((m) => ({ default: m.ResourceViewerPage })),
+  import("@/pages/resources/ResourceViewerPage").then((m) => ({
+    default: m.ResourceViewerPage,
+  })),
 );
 const AdminAssetsPage = lazy(() =>
-  import("@/pages/assets/AdminAssetsPage").then((m) => ({ default: m.AdminAssetsPage })),
+  import("@/pages/assets/AdminAssetsPage").then((m) => ({
+    default: m.AdminAssetsPage,
+  })),
 );
 const AdminAssetViewerPage = lazy(() =>
-  import("@/pages/viewer/AdminAssetViewerPage").then((m) => ({ default: m.AdminAssetViewerPage })),
+  import("@/pages/viewer/AdminAssetViewerPage").then((m) => ({
+    default: m.AdminAssetViewerPage,
+  })),
 );
 const AdminCollectionRoutes = lazy(() =>
-  import("@/pages/collections/AdminCollectionRoutes").then((m) => ({ default: m.AdminCollectionRoutes })),
+  import("@/pages/collections/AdminCollectionRoutes").then((m) => ({
+    default: m.AdminCollectionRoutes,
+  })),
 );
 const ToolsPage = lazy(() =>
   import("@/pages/tools/ToolsPage").then((m) => ({ default: m.ToolsPage })),
 );
 const AuditLogPage = lazy(() =>
-  import("@/pages/audit/AuditLogPage").then((m) => ({ default: m.AuditLogPage })),
+  import("@/pages/audit/AuditLogPage").then((m) => ({
+    default: m.AuditLogPage,
+  })),
 );
 const CallRoutes = lazy(() =>
   import("@/pages/calls/CallRoutes").then((m) => ({ default: m.CallRoutes })),
 );
 const SessionRoutes = lazy(() =>
-  import("@/pages/sessions/SessionRoutes").then((m) => ({ default: m.SessionRoutes })),
+  import("@/pages/sessions/SessionRoutes").then((m) => ({
+    default: m.SessionRoutes,
+  })),
 );
 const ConfigEditorPage = lazy(() =>
-  import("@/pages/settings/ConfigEditorPage").then((m) => ({ default: m.ConfigEditorPage })),
+  import("@/pages/settings/ConfigEditorPage").then((m) => ({
+    default: m.ConfigEditorPage,
+  })),
 );
 const CatalogsPanel = lazy(() =>
-  import("@/pages/settings/CatalogsPanel").then((m) => ({ default: m.CatalogsPanel })),
+  import("@/pages/settings/CatalogsPanel").then((m) => ({
+    default: m.CatalogsPanel,
+  })),
 );
 // The operation browser serves both sections; `scope` is what changes its
 // source, from the connections a caller reaches to the catalogs that exist.
@@ -59,31 +77,52 @@ const ApiReferencePage = lazy(() =>
   })),
 );
 const ConnectionsPanel = lazy(() =>
-  import("@/pages/settings/ConnectionsPanel").then((m) => ({ default: m.ConnectionsPanel })),
+  import("@/pages/settings/ConnectionsPanel").then((m) => ({
+    default: m.ConnectionsPanel,
+  })),
 );
 const PersonasPanel = lazy(() =>
-  import("@/pages/settings/PersonasPanel").then((m) => ({ default: m.PersonasPanel })),
+  import("@/pages/settings/PersonasPanel").then((m) => ({
+    default: m.PersonasPanel,
+  })),
 );
 const AdminPromptsPage = lazy(() =>
-  import("@/pages/prompts/AdminPromptsPage").then((m) => ({ default: m.AdminPromptsPage })),
+  import("@/pages/prompts/AdminPromptsPage").then((m) => ({
+    default: m.AdminPromptsPage,
+  })),
 );
 const AdminScriptRoutes = lazy(() =>
-  import("@/pages/scripts/AdminScriptRoutes").then((m) => ({ default: m.AdminScriptRoutes })),
+  import("@/pages/scripts/AdminScriptRoutes").then((m) => ({
+    default: m.AdminScriptRoutes,
+  })),
+);
+const AdminSecretRoutes = lazy(() =>
+  import("@/pages/secrets/AdminSecretRoutes").then((m) => ({
+    default: m.AdminSecretRoutes,
+  })),
 );
 const AdminWebhookRoutes = lazy(() =>
-  import("@/pages/webhooks/AdminWebhookRoutes").then((m) => ({ default: m.AdminWebhookRoutes })),
+  import("@/pages/webhooks/AdminWebhookRoutes").then((m) => ({
+    default: m.AdminWebhookRoutes,
+  })),
 );
 const KeysPage = lazy(() =>
   import("@/pages/settings/KeysPage").then((m) => ({ default: m.KeysPage })),
 );
 const UsersPanel = lazy(() =>
-  import("@/pages/settings/UsersPanel").then((m) => ({ default: m.UsersPanel })),
+  import("@/pages/settings/UsersPanel").then((m) => ({
+    default: m.UsersPanel,
+  })),
 );
 const ChangelogPage = lazy(() =>
-  import("@/pages/settings/ChangelogPage").then((m) => ({ default: m.ChangelogPage })),
+  import("@/pages/settings/ChangelogPage").then((m) => ({
+    default: m.ChangelogPage,
+  })),
 );
 const AdminSettingsPage = lazy(() =>
-  import("@/pages/settings/AdminSettingsPage").then((m) => ({ default: m.AdminSettingsPage })),
+  import("@/pages/settings/AdminSettingsPage").then((m) => ({
+    default: m.AdminSettingsPage,
+  })),
 );
 
 export interface AdminPagesProps {
@@ -110,40 +149,59 @@ export interface AdminPagesProps {
  * off the address bar, and an object would answer "/constructor" out of its
  * prototype.
  */
-const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map([
-  // The dashboard hosts the merged MCP / API Gateway / Events activity views
-  // (it was a separate Audit Log page), and answers at both names.
-  ["/admin", auditPage],
-  ["/admin/audit", auditPage],
-  ["/admin/assets", (p: PageContext) => <AdminAssetsPage onNavigate={p.navigate} />],
-  ["/admin/tools", (p: PageContext) => <ToolsPage key={p.currentPath} initialTab={p.initialTab} />],
-  ["/admin/description", () => (
-    <ConfigEditorPage
-      configKey="server.description"
-      label="Description"
-      description="Platform identity visible to MCP clients"
-    />
-  )],
-  ["/admin/agent-instructions", () => (
-    <ConfigEditorPage
-      configKey="server.agent_instructions"
-      label="Agent Instructions"
-      description="Guidance for AI agents using this platform"
-      showPlatformBaseline
-      sizeBounded
-    />
-  )],
-  ["/admin/api-catalogs", () => <CatalogsPanel />],
-  ["/admin/api-reference", () => <ApiReferencePage />],
-  ["/admin/apis", () => <ApisPage scope="admin" />],
-  ["/admin/connections", () => <ConnectionsPanel />],
-  ["/admin/personas", () => <PersonasPanel />],
-  ["/admin/prompts", (p: PageContext) => <AdminPromptsPage onNavigate={p.navigate} />],
-  ["/admin/keys", () => <KeysPage />],
-  ["/admin/users", () => <UsersPanel />],
-  ["/admin/changelog", () => <ChangelogPage />],
-  ["/admin/settings", () => <AdminSettingsPage />],
-]);
+const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
+  [
+    // The dashboard hosts the merged MCP / API Gateway / Events activity views
+    // (it was a separate Audit Log page), and answers at both names.
+    ["/admin", auditPage],
+    ["/admin/audit", auditPage],
+    [
+      "/admin/assets",
+      (p: PageContext) => <AdminAssetsPage onNavigate={p.navigate} />,
+    ],
+    [
+      "/admin/tools",
+      (p: PageContext) => (
+        <ToolsPage key={p.currentPath} initialTab={p.initialTab} />
+      ),
+    ],
+    [
+      "/admin/description",
+      () => (
+        <ConfigEditorPage
+          configKey="server.description"
+          label="Description"
+          description="Platform identity visible to MCP clients"
+        />
+      ),
+    ],
+    [
+      "/admin/agent-instructions",
+      () => (
+        <ConfigEditorPage
+          configKey="server.agent_instructions"
+          label="Agent Instructions"
+          description="Guidance for AI agents using this platform"
+          showPlatformBaseline
+          sizeBounded
+        />
+      ),
+    ],
+    ["/admin/api-catalogs", () => <CatalogsPanel />],
+    ["/admin/api-reference", () => <ApiReferencePage />],
+    ["/admin/apis", () => <ApisPage scope="admin" />],
+    ["/admin/connections", () => <ConnectionsPanel />],
+    ["/admin/personas", () => <PersonasPanel />],
+    [
+      "/admin/prompts",
+      (p: PageContext) => <AdminPromptsPage onNavigate={p.navigate} />,
+    ],
+    ["/admin/keys", () => <KeysPage />],
+    ["/admin/users", () => <UsersPanel />],
+    ["/admin/changelog", () => <ChangelogPage />],
+    ["/admin/settings", () => <AdminSettingsPage />],
+  ],
+);
 
 /**
  * Which of the two resource surfaces a route names, if either.
@@ -152,10 +210,16 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
  * library's browse routes start with (#1530), so the two shapes are disjoint
  * and neither can shadow the other.
  */
-function adminResourceRoute(route: string): { viewing?: string; browsing: boolean } {
+function adminResourceRoute(route: string): {
+  viewing?: string;
+  browsing: boolean;
+} {
   // The root and every folder mount the page in one place, so moving between
   // folders keeps the tree, the selection and the Back/Forward history (#1872).
-  if (route === "/admin/resources" || route.startsWith("/admin/resources/lib/")) {
+  if (
+    route === "/admin/resources" ||
+    route.startsWith("/admin/resources/lib/")
+  ) {
     return { browsing: true };
   }
   const id = route.match(/^\/admin\/resources\/([^/]+)$/)?.[1];
@@ -170,7 +234,13 @@ interface PageContext {
 }
 
 function auditPage(p: PageContext) {
-  return <AuditLogPage key={p.currentPath} initialTab={p.initialTab} onNavigate={p.navigate} />;
+  return (
+    <AuditLogPage
+      key={p.currentPath}
+      initialTab={p.initialTab}
+      onNavigate={p.navigate}
+    />
+  );
 }
 
 export function AdminPages({
@@ -191,19 +261,39 @@ export function AdminPages({
       {resource.browsing && (
         <ResourcesPage admin location={currentPath} onNavigate={navigate} />
       )}
-      {adminAssetId && <AdminAssetViewerPage assetId={adminAssetId} onNavigate={navigate} />}
+      {adminAssetId && (
+        <AdminAssetViewerPage assetId={adminAssetId} onNavigate={navigate} />
+      )}
       {resource.viewing && (
         <ResourceViewerPage
           resourceId={resource.viewing}
           onBack={() => onBack("/admin/resources")}
-          onOpenFolder={(tab, path) => navigate(folderAddress("/admin/resources", tab, path))}
+          onOpenFolder={(tab, path) =>
+            navigate(folderAddress("/admin/resources", tab, path))
+          }
           onNavigate={navigate}
           scriptPath={(id) => `/admin/automations/${encodeURIComponent(id)}`}
           sessionPath={(id) => `/admin/sessions/${encodeURIComponent(id)}`}
         />
       )}
-      {/* The three sections that own a subtree and match inside it. Guarded
-          here so mounting one does not fetch the other two (#1351). */}
+      <SubtreeSections route={route} navigate={navigate} onBack={onBack} />
+    </>
+  );
+}
+
+// SubtreeSections are the sections that own a subtree and match inside it.
+// Each is guarded here so mounting one does not fetch the others (#1351).
+function SubtreeSections({
+  route,
+  navigate,
+  onBack,
+}: {
+  route: string;
+  navigate: AdminPagesProps["onNavigate"];
+  onBack: AdminPagesProps["onBack"];
+}) {
+  return (
+    <>
       {isInSection(route, "/admin/collections") && (
         <AdminCollectionRoutes route={route} onNavigate={navigate} />
       )}
@@ -216,8 +306,19 @@ export function AdminPages({
       {isInSection(route, "/admin/automations") && (
         <AdminScriptRoutes route={route} onNavigate={navigate} />
       )}
+      {isInSection(route, "/admin/secrets") && (
+        <AdminSecretRoutes
+          route={route}
+          onNavigate={navigate}
+          onBack={onBack}
+        />
+      )}
       {isInSection(route, "/admin/webhooks") && (
-        <AdminWebhookRoutes route={route} onNavigate={navigate} onBack={onBack} />
+        <AdminWebhookRoutes
+          route={route}
+          onNavigate={navigate}
+          onBack={onBack}
+        />
       )}
     </>
   );

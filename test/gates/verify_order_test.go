@@ -2,6 +2,7 @@ package gates
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -76,9 +77,9 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 	if lint < fast || lint > lanes {
 		t.Errorf("verify runs lint at %d, preverify-fast at %d and the lanes at %d; lint must run between them", lint, fast, lanes)
 	}
-	for _, l := range recipe(t, makefile, "verify-lint") {
+	for _, l := range recipe(t, makefile, "verify-static") {
 		if strings.HasSuffix(l, "--no-print-directory lint") {
-			t.Errorf("verify-lint still runs lint inside the lanes")
+			t.Errorf("verify-static still runs lint inside the lanes")
 		}
 	}
 
@@ -136,6 +137,65 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 	if s, u := indexOf(goLane, "schedule-lane"), indexOf(goLane, "test"); s < 0 || u < 0 || s > u {
 		t.Errorf("verify-go runs schedule-lane at %d and test at %d; the changed packages must come first", s, u)
 	}
+	assertOneUnitRun(t, makefile)
+	assertStaticChecksInALane(t, makefile)
+}
+
+// assertOneUnitRun pins #2053's first ask: a verify prints "Running tests..."
+// once. Every $(MAKE) line is its own invocation, so a step whose target
+// lists `test` as a prerequisite runs the race unit suite again; verify-go
+// runs `test` once and only steps that read the coverage.out it wrote.
+func assertOneUnitRun(t *testing.T, makefile string) {
+	t.Helper()
+	runs := 0
+	for _, step := range recipe(t, makefile, "verify-go") {
+		target := step[strings.LastIndex(step, " ")+1:]
+		if target == "test" {
+			runs++
+			continue
+		}
+		if slices.Contains(prerequisites(makefile, target), "test") {
+			t.Errorf("verify-go runs %s, which runs the unit suite again through its test prerequisite", target)
+		}
+	}
+	if runs != 1 {
+		t.Errorf("verify-go runs test %d times; it must run once", runs)
+	}
+	for _, target := range []string{"coverage-report", "patch-coverage"} {
+		if !slices.Contains(prerequisites(makefile, target), "test") {
+			t.Errorf("make %s run alone no longer runs the tests first", target)
+		}
+	}
+}
+
+// assertStaticChecksInALane pins #2053's second ask: gosec, govulncheck and
+// the whole-tree semgrep run in a lane verify-checks starts with the others,
+// not after the unit run in verify-go.
+func assertStaticChecksInALane(t *testing.T, makefile string) {
+	t.Helper()
+	lanes := prerequisites(makefile, "verify-checks")
+	if !slices.Contains(lanes, "verify-static") {
+		t.Fatalf("verify-checks starts %v; the static checks need a lane of their own", lanes)
+	}
+	static := recipe(t, makefile, "verify-static")
+	for _, gate := range []string{"security", "semgrep"} {
+		if stepAt(static, gate) < 0 {
+			t.Errorf("verify-static does not run %s", gate)
+		}
+		if stepAt(recipe(t, makefile, "verify-go"), gate) >= 0 {
+			t.Errorf("verify-go still runs %s after the unit run", gate)
+		}
+	}
+}
+
+// prerequisites returns the names after a target's colon.
+func prerequisites(makefile, target string) []string {
+	for line := range strings.SplitSeq(makefile, "\n") {
+		if rest, ok := strings.CutPrefix(line, target+":"); ok {
+			return strings.Fields(rest)
+		}
+	}
+	return nil
 }
 
 // TestVerifyReleaseRunsInOneInvocation pins #1969: verify-release runs verify,

@@ -18,6 +18,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
 	"github.com/txn2/mcp-data-platform/internal/conncatchup"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
+	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -114,6 +116,9 @@ type Toolkit struct {
 	// exportDeps holds platform-side dependencies for api_export
 	// (nil = export disabled, tool not registered).
 	exportDeps *ExportDeps
+	// secrets fills a request's {{secret:<name>}} placeholders (#2051).
+	// nil refuses every request that names one.
+	secrets secretstore.Source
 
 	// metrics is the observability recorder wired by the platform.
 	// nil = metrics subsystem disabled; the instrumented transport
@@ -846,17 +851,26 @@ func (t *Toolkit) wireConnLocked(name string, c *conn) {
 // normal network client otherwise. An internal connection added
 // before SetInternalHandler wired a handler is refused — it could
 // never serve a request.
+//
+// Either client's transport redacts, from every response, the secret
+// values its request was filled with (#2051), so the buffered call, each
+// page of a walk, an export's stream and the raw passthrough all pass
+// through one redaction.
 func (t *Toolkit) newConnClient(name string, cfg Config) (*http.Client, error) {
+	var client *http.Client
 	if cfg.Handler != HandlerInternal {
-		return newHTTPClient(cfg), nil
+		client = newHTTPClient(cfg)
+	} else {
+		t.mu.RLock()
+		h := t.internalHandler
+		t.mu.RUnlock()
+		if h == nil {
+			return nil, fmt.Errorf("apigateway: %s: handler=internal requires SetInternalHandler before the connection is added", name)
+		}
+		client = newInternalHTTPClient(name, h)
 	}
-	t.mu.RLock()
-	h := t.internalHandler
-	t.mu.RUnlock()
-	if h == nil {
-		return nil, fmt.Errorf("apigateway: %s: handler=internal requires SetInternalHandler before the connection is added", name)
-	}
-	return newInternalHTTPClient(name, h), nil
+	client.Transport = secretref.Transport(client.Transport)
+	return client, nil
 }
 
 // specSummaryTitle resolves the title shown at api_discover's specs level and the
@@ -1095,6 +1109,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
+	ctx = t.withSecrets(ctx, in.Connection)
 	t.mu.RLock()
 	policy := t.routePolicy
 	budget := t.memBudget

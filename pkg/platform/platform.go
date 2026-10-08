@@ -643,6 +643,7 @@ func (p *Platform) WireGatewayIntegrations() {
 	p.WireAPIGatewayEmbeddingProvider()
 	p.WireAPIGatewayCatalogStoreFromDB()
 	p.WireAPIGatewayEmbedJobsFromDB()
+	apigwwiring.Secrets(p.toolkitRegistry, p.db, p.restEncryptor, p.config.Admin.Persona)
 }
 
 // WireGatewayTokenStore attaches the unified connoauth.Store to every

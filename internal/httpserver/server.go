@@ -210,6 +210,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	hooks := buildWebhooks(p, address)
 	hooks.Mount(mux)
 	mountWebhookAdminAPI(mux, p, hooks)
+	mountSecretAdminAPI(mux, p)
 
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by

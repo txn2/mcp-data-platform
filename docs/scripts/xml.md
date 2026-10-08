@@ -1,7 +1,7 @@
 # Reading XML in a Managed Script
 
-A managed script's globals are `platform`, `json`, `xml`, `date`, `run` and
-`sum`. This page covers `xml`: what it parses, the path language it searches
+A managed script's globals are `platform`, `json`, `xml`, `date`, `hash`,
+`re`, `run` and `sum`. This page covers `xml`: what it parses, the path language it searches
 with, and the bounds it refuses past. The rest of the dialect is
 `manage_script command=help`, and the security model is
 [Managed Scripts: Security Model](security.md).

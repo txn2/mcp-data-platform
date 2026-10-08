@@ -35,7 +35,8 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
     unused-variable / -parameter   a local or parameter nothing reads (name
                                    it with a leading _ when that is intended)
     shadowed-name                  a name that hides platform, json, xml,
-                                   date, run, sum, fail, testing or assert
+                                   date, hash, re, run, sum, fail, testing
+                                   or assert
     missing-docstring              a function whose body does not open with a
                                    """one-sentence docstring""" in plain words;
                                    the flow diagram shows it on the box
@@ -58,6 +59,9 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
                                    progress with platform.checkpoint
     test-called                    the script calls one of its test_*
                                    functions, which only the test runner does
+    invalid-format-string          a literal format string % or .format()
+                                   would refuse when the run reaches it
+    invalid-pattern                a literal re pattern RE2 cannot compile
     test-module-outside-test       testing or assert used outside a test_*
                                    function; a run fails where it is used
     constant-assertion             an assertion comparing only values written
@@ -436,12 +440,36 @@ WHAT IS AVAILABLE
   date.of, date.parse, date.format, date.add_days, date.add_months,
       date.diff_days, date.start_of_month, date.weekday  All dates are
       YYYY-MM-DD strings. date.format uses YYYY, MM and DD tokens.
+  hash.md5(s), hash.sha1(s), hash.sha256(s), hash.sha512(s)  The lowercase
+      hex digest of a string's (or bytes') bytes. hash.hmac_sha1(key, s),
+      hash.hmac_sha256(key, s), hash.hmac_sha512(key, s) are the hex HMAC,
+      for checking a webhook signature or signing a payload. hash.crc32(s)
+      and hash.fnv64(s) are ints for cheap bucketing. One call hashes a
+      megabyte; hash(x) is still Starlark's own hash of a value.
+  re.search(p, s), re.match(p, s), re.fullmatch(p, s)  A match or None.
+      A match has .group(n or name), .groups(), .groupdict(), .start(n),
+      .end(n), .span(n) and .string; offsets are byte offsets, as slicing
+      uses. re.findall(p, s) and re.finditer(p, s) list every match (findall
+      as Python shapes it). re.sub(p, repl, s, count=0) takes \1, \g<name>
+      or a function of the match; re.split(p, s, maxsplit=0) keeps captured
+      groups. re.compile(p) returns a pattern with the same methods;
+      re.escape(s) quotes a literal. Flags are inline -- (?i), (?m), (?s) --
+      or flags=re.I / re.IGNORECASE, re.M / re.MULTILINE, re.S / re.DOTALL.
+      re is RE2: matching is linear in the input, and there are no
+      backreferences in a pattern and no lookaround ((?=, (?<=); rewrite a
+      ported pattern that uses them. A pattern is compiled once per run.
   sum(iterable, start=0)  Adds numbers left to right. Starlark's own universe
       has no sum, so the platform predeclares it; a non-number element is
       refused by position rather than concatenated.
   The Starlark built-ins: len, range, sorted, min, max, enumerate, zip,
       str, int, float, dict, list, set, any, all, fail, and the string, list and
       dict methods (including "{}".format(x) and "%d" % x).
+  "..." % x  printf formatting as Python has it: the conversions s r d i o x X
+      e E f F g G c and %%, the flags - 0 + space #, a width, a .precision,
+      * for either, and %(key)s with a dict. "%02X" % 10 is "0A", "%5.2f" %
+      3.14159 is " 3.14", "%-4s|" % "a" is "a   |".
+  "...".format(...)  Python's format spec: {:02X}, {:>10}, {:.2f}, {:,},
+      {:*^9}, {:+.1%}, {name!r:>8}. A field with no spec is str() of the value.
   fail(msg, retryable=True)  fail as Starlark has it, plus retryable=: True
       records the failure as temporary (cause transient, retryable), for a
       condition outside the script that the next run may not meet, such as a
@@ -483,7 +511,8 @@ A FAILED CALL
   The run's deadline and its memory budget end the run however it asked.
 
 WHAT IS NOT, AND WHAT TO WRITE INSTEAD
-  import              There is no module system. json, xml and date are here.
+  import              There is no module system. json, xml, date, hash and
+                      re are here.
   try / except        Errors fail the run by design, so the failure is recorded
                       rather than swallowed. Check first, or call fail("why").
                       A failed call can be handed back as data instead:
@@ -507,7 +536,13 @@ WHAT IS NOT, AND WHAT TO WRITE INSTEAD
                       API through a configured connection with
                       platform.call("api_invoke_endpoint", {...}).
   credentials         Never in the source. Name a connection; the platform holds
-                      its credentials and authorizes the call.
+                      its credentials and authorizes the call. A credential the
+                      request itself must carry (a password typed into a login
+                      form, a key in a body field) is a stored secret: write
+                      "{{secret:<name>}}" where it goes in an
+                      api_invoke_endpoint body, query_params, path_params or
+                      headers; it is filled in as the request is sent and
+                      redacted from the response, so the run never holds it.
   a reserved word     These cannot name a function, a parameter, a variable or
   as a name           an attribute: and, as, async, await, break, class,
                       continue, def, del, elif, else, except, finally, for,

@@ -101,6 +101,13 @@ TAG_DESCRIPTIONS = {
         "for, and approve a version — which binds the capability grant it executes "
         "under and is the only thing that makes a script executable."
     ),
+    "Secrets": (
+        "Stored secrets a request references by placeholder: {{secret:<name>}} in an "
+        "api_invoke_endpoint or api_export request's body, query_params, path_params or "
+        "headers is filled in as the gateway sends it and redacted from the response. "
+        "Each secret names the connections it may be sent through and, optionally, the "
+        "personas that may use it. Values are write-only."
+    ),
     "Webhooks": (
         "Inbound webhook sources: the addresses external systems post events to at "
         "/hooks/{source}. Create, change, rotate the secret of, and delete a source, and "
@@ -198,6 +205,7 @@ TAG_GROUPS = [
             "Notifications",
             "Personas",
             "Scripts",
+            "Secrets",
             "Sessions",
             "Settings",
             "System",

@@ -118,7 +118,7 @@ func (*Toolkit) handleInvokeRaw(ctx context.Context, c *conn, in InvokeInput, ra
 	// constraint even on the streamed path.
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return toolkit.ErrorResult(scrubTransportError(err)), nil, nil
+		return toolkit.ErrorResult(scrubTransportError(callCtx, err)), nil, nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 

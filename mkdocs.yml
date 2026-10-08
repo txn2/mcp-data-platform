@@ -110,6 +110,7 @@ nav:
       - Automations:
         - Managed Scripts: scripts/running.md
         - Reading XML in a Script: scripts/xml.md
+        - Formatting, Patterns and Hashes: scripts/text.md
       - Knowledge Capture: knowledge/overview.md
       - Knowledge Governance: knowledge/governance.md
       - Memory Layer: memory/overview.md

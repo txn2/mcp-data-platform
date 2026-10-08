@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 )
 
 // extWebDAVMethod is the OpenAPI extension a catalog uses to declare the
@@ -82,7 +84,7 @@ func buildWebDAVRoutes(specs map[string]*specState) []webdavRoute {
 			if len(methods) == 0 {
 				continue // not a WebDAV-flavored path item
 			}
-			segments := splitPathTemplate(st.effectiveBasePath + rawPath)
+			segments := pathtemplate.Split(st.effectiveBasePath + rawPath)
 			routes = append(routes, webdavRoute{
 				segments: segments,
 				literals: countLiteralSegments(segments),
@@ -250,7 +252,7 @@ func resolveWebDAVRoute(routes []webdavRoute, upper, normPath string) (op webdav
 	if len(routes) == 0 {
 		return webdavOp{}, false
 	}
-	segs := splitPathTemplate(normPath)
+	segs := pathtemplate.Split(normPath)
 	var best webdavRoute
 	for i := range routes {
 		r := routes[i]
@@ -290,7 +292,7 @@ func moreSpecific(a webdavRoute, aID string, b webdavRoute, bID string) bool {
 func countLiteralSegments(segments []string) int {
 	n := 0
 	for _, s := range segments {
-		if !segmentIsTemplated(s) {
+		if !pathtemplate.IsTemplated(s) {
 			n++
 		}
 	}
@@ -313,7 +315,7 @@ func (r webdavRoute) matches(concrete []string) bool {
 		return false
 	}
 	last := len(t) - 1
-	catchAll := isPlaceholderSegment(t[last])
+	catchAll := pathtemplate.IsPlaceholderSegment(t[last])
 	// A trailing catch-all needs only the interior segments (it may consume
 	// zero tail segments); a trailing literal needs the exact segment count.
 	if catchAll {
@@ -324,7 +326,7 @@ func (r webdavRoute) matches(concrete []string) bool {
 		return false
 	}
 	for i := range last {
-		if !segmentMatches(concrete[i], t[i]) {
+		if !pathtemplate.SegmentMatches(concrete[i], t[i]) {
 			return false
 		}
 	}
@@ -336,5 +338,5 @@ func (r webdavRoute) matches(concrete []string) bool {
 	// Trailing non-catch-all: single-segment match under the same rule as
 	// the interior segments. len(concrete) == len(t) is guaranteed above,
 	// so concrete[last] is in bounds.
-	return segmentMatches(concrete[last], t[last])
+	return pathtemplate.SegmentMatches(concrete[last], t[last])
 }

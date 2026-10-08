@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 )
 
 // operationAddressing carries the two mutually-exclusive ways a caller
@@ -129,7 +131,7 @@ func substitutePathParams(template string, params map[string]string) (string, er
 func substituteSegment(seg string, params map[string]string, used map[string]bool) (
 	substituted string, missing []string, err error,
 ) {
-	matches := placeholderPattern.FindAllStringSubmatchIndex(seg, -1)
+	matches := pathtemplate.Placeholder.FindAllStringSubmatchIndex(seg, -1)
 	if len(matches) == 0 {
 		return seg, nil, nil
 	}
@@ -225,7 +227,7 @@ func operationTemplate(c *conn, method, path string) string {
 		if op.Path == path {
 			return op.Path
 		}
-		if templated == "" && pathMatchesTemplate(path, op.Path) {
+		if templated == "" && pathtemplate.Match(path, op.Path) {
 			templated = op.Path
 		}
 	}

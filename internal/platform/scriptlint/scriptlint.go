@@ -120,6 +120,7 @@ func lint(source string) []finding {
 	l.hostCalls()
 	l.stateBeforeFail()
 	l.tests()
+	l.literals()
 	slices.SortFunc(l.found, func(a, b finding) int {
 		if a.line != b.line {
 			return a.line - b.line

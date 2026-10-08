@@ -319,6 +319,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
+	ctx = t.withSecrets(ctx, in.Connection)
 	c, connOK := t.serving(ctx, in.Connection)
 	if !connOK {
 		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
@@ -463,7 +464,7 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	// SSRF guards as api_invoke_endpoint, same #nosec rationale.
 	resp, err := client.Do(req) //nolint:bodyclose // closed below
 	if err != nil {
-		return nil, &transportError{msg: "upstream request: " + scrubTransportError(err)}
+		return nil, &transportError{msg: "upstream request: " + scrubTransportError(ctx, err)}
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
@@ -493,7 +494,7 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	// replays it, so the body still streams to storage unbuffered.
 	contentType, body, err := contenttype.DetectStream(declaredType, resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading upstream response: %s", scrubTransportError(err))
+		return nil, fmt.Errorf("reading upstream response: %s", scrubTransportError(ctx, err))
 	}
 
 	if in.Resource != nil {

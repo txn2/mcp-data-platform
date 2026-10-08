@@ -13,6 +13,8 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
+	"github.com/txn2/mcp-data-platform/internal/scripthash"
+	"github.com/txn2/mcp-data-platform/internal/scriptre"
 	"github.com/txn2/mcp-data-platform/internal/scriptxml"
 )
 
@@ -111,7 +113,7 @@ func TestDialectContract_ExportStatesTheDocumentChoice(t *testing.T) {
 // moduleMemberPattern captures a `module.member` mention anywhere in the
 // contract. The trailing boundary keeps `json.encode / json.decode` and
 // `date.of, date.parse` both readable as mentions.
-var moduleMemberPattern = regexp.MustCompile(`\b(json|xml|date)\.([a-z_]+)`)
+var moduleMemberPattern = regexp.MustCompile(`\b(json|xml|date|hash|re)\.([A-Za-z0-9_]+)`)
 
 // TestDialectContract_EveryAdvertisedModuleMemberExists is the member-level
 // half of the check #1414 was missing. TestDialectContract_EveryAdvertisedBuiltinResolves
@@ -124,6 +126,8 @@ func TestDialectContract_EveryAdvertisedModuleMemberExists(t *testing.T) {
 		"json": memberSet(starlarkjson.Module.Members),
 		"xml":  memberSet(scriptxml.Module.Members),
 		"date": memberSet(scriptdate.Module.Members),
+		"hash": memberSet(scripthash.Module.Members()),
+		"re":   memberSet(scriptre.Module.Members),
 	}
 
 	matches := moduleMemberPattern.FindAllStringSubmatch(DialectContract, -1)
@@ -148,6 +152,8 @@ func TestDialectContract_AdvertisesEveryModuleMember(t *testing.T) {
 		"json": starlarkjson.Module.Members,
 		"xml":  scriptxml.Module.Members,
 		"date": scriptdate.Module.Members,
+		"hash": scripthash.Module.Members(),
+		"re":   scriptre.Module.Members,
 	}
 	for module, members := range modules {
 		for member := range members {
