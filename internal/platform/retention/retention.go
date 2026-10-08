@@ -16,11 +16,13 @@ package retention
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
@@ -94,17 +96,9 @@ func (l *Loop) Start() {
 	l.cancel, l.done = cancel, make(chan struct{})
 	go func() {
 		defer close(l.done)
-		l.RunOnce(ctx)
-		ticker := time.NewTicker(l.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				l.RunOnce(ctx)
-			}
-		}
+		bgloop.Run(ctx, bgloop.Loop{
+			Name: bgloop.NameRetention, Every: l.interval, Immediate: true, Body: l.RunOnce,
+		})
 	}()
 }
 
@@ -121,22 +115,41 @@ func (l *Loop) Close() error {
 	return nil
 }
 
-// RunOnce runs every sweep once, each under its lock. A sweep another replica
-// is running is skipped, and one that fails is logged and does not stop the
-// others.
-func (l *Loop) RunOnce(ctx context.Context) {
+// RunOnce runs every sweep once, each under its lock and as its own unit of
+// work, reported under "retention_" + the sweep's name: a sweep another
+// replica is running is counted as skipped, the rows one removed as purged,
+// and one that fails is logged, returned joined with the others' failures,
+// and does not stop them.
+func (l *Loop) RunOnce(ctx context.Context) error {
+	var errs []error
 	for _, s := range l.sweeps {
 		if ctx.Err() != nil {
-			return
+			break
 		}
-		removed, ran, err := l.runLocked(ctx, s)
-		switch {
-		case err != nil:
-			slog.WarnContext(ctx, "retention: sweep failed", "sweep", s.Name, "error", logsan.SanitizeForLog(err.Error()))
-		case ran && removed > 0:
-			slog.InfoContext(ctx, "retention: sweep removed rows", "sweep", s.Name, "removed", removed)
+		name := bgloop.NameRetention + "_" + s.Name
+		err := bgloop.Unit(ctx, name, func(ctx context.Context) error {
+			removed, ran, err := l.runLocked(ctx, s)
+			switch {
+			case err != nil:
+				slog.WarnContext(ctx, "retention: sweep failed", "sweep", s.Name, "error", logsan.SanitizeForLog(err.Error()))
+				return err
+			case !ran:
+				return bgloop.ErrSkipped
+			}
+			bgloop.Purged(ctx, name, removed)
+			if removed > 0 {
+				slog.InfoContext(ctx, "retention: sweep removed rows", "sweep", s.Name, "removed", removed)
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, bgloop.ErrSkipped) {
+			errs = append(errs, fmt.Errorf("sweep %s: %w", s.Name, err))
 		}
 	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("retention: %w", err)
+	}
+	return nil
 }
 
 // runLocked runs one sweep while holding its advisory lock on a dedicated

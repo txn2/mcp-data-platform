@@ -10,6 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
@@ -345,47 +349,66 @@ func drainWindow(ctx context.Context) time.Duration {
 // run is the poll/wakeup loop. A run finishing wakes it, since a freed slot
 // may admit the next one; adaptive admission also reads memory every
 // shedEvery, to stop a run before the container is killed with all of them.
+//
+// The memory reading is its own loop beside the poll, on the same goroutine
+// count as before plus one: a poll that is draining does not delay a shed, and
+// each reading is also exported as the admission's load.
 func (w *worker) run() {
 	defer w.wg.Done()
-	ticker := time.NewTicker(w.cfg.pollEvery)
-	defer ticker.Stop()
-	shed := time.NewTicker(shedEvery)
-	defer shed.Stop()
-	for {
-		w.drain()
-		select {
-		case <-w.stopCh:
-			return
-		case <-w.wakeup:
-		case <-ticker.C:
-		case <-shed.C:
-			w.maybeShed()
-		}
+	w.wg.Go(func() {
+		bgloop.Run(w.runCtx, bgloop.Loop{
+			Name: bgloop.NameScriptShed, Every: shedEvery, Stop: w.stopCh, SpanPerUnit: true,
+			Body: func(ctx context.Context) error {
+				w.recordLoad(ctx)
+				w.maybeShed(ctx)
+				return nil
+			},
+		})
+	})
+	bgloop.Run(w.runCtx, bgloop.Loop{
+		Name: bgloop.NameScriptWorker, Every: w.cfg.pollEvery, Immediate: true,
+		Wake: w.wakeup, Stop: w.stopCh, SpanPerUnit: true,
+		Body: w.drain,
+	})
+}
+
+// recordLoad exports the load admission decides on, as a share of each limit
+// the platform can measure.
+func (w *worker) recordLoad(ctx context.Context) {
+	s := w.admit.Load()
+	if s.MemoryKnown {
+		w.cfg.metrics.RecordScriptWorkerLoad(ctx, scriptadmit.RefusedMemory, s.MemoryPercent/percentScale)
+	}
+	if s.CPUKnown {
+		w.cfg.metrics.RecordScriptWorkerLoad(ctx, scriptadmit.RefusedCPU, s.CPUPercent/percentScale)
 	}
 }
 
+// percentScale turns procload's percentages into the 0-1 share the load gauge
+// reports.
+const percentScale = 100
+
 // drain claims due runs while admission allows, until none remain or the
 // worker stops. Each claimed run executes on its own goroutine.
-func (w *worker) drain() {
-	ctx := w.runCtx
+func (w *worker) drain(ctx context.Context) error {
 	w.maybePurge(ctx)
 	w.maybeFailAbandoned(ctx)
-	for {
-		select {
-		case <-w.stopCh:
-			return
-		default:
-		}
+	for !bgloop.Stopped(ctx, w.stopCh) {
 		if ok, reason := w.admit.Admit(int(w.inFlight.Load())); !ok {
 			if w.queueHadWork {
 				w.cfg.metrics.RecordScriptAdmissionRefused(ctx, reason)
 			}
-			return
+			return nil
 		}
-		if !w.processNext(ctx) {
-			return
+		more, err := w.processNext(ctx)
+		if err != nil {
+			return err
+		}
+		if !more {
+			return nil
 		}
 	}
+	return nil
 }
 
 // maybePurge runs the retention sweep at most once per purgeEvery.
@@ -399,6 +422,7 @@ func (w *worker) maybePurge(ctx context.Context) {
 		slog.WarnContext(ctx, "scripts: run retention sweep failed", logKeyError, err)
 		return
 	}
+	bgloop.Purged(ctx, bgloop.NameScriptWorker, purged)
 	if purged > 0 {
 		slog.InfoContext(ctx, "scripts: run retention sweep", "rows", purged, "retention", w.cfg.retention)
 	}
@@ -452,24 +476,27 @@ func (w *worker) maybeFailAbandoned(ctx context.Context) {
 		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
 			Script: scriptName(sc, run), Trigger: run.Trigger, Status: script.RunStatusFailed,
 		}, 0)
+		w.cfg.metrics.RecordScriptRunFailure(ctx, runstate.CauseWorkerLost)
 		w.notifyFailure(ctx, run, sc, result)
 	}
 }
 
-// processNext claims and executes one run, reporting whether more may remain.
-func (w *worker) processNext(ctx context.Context) bool {
+// processNext claims and executes one run, reporting whether more may remain
+// and a claim that failed.
+func (w *worker) processNext(ctx context.Context) (bool, error) {
 	run, err := w.cfg.runs.Claim(ctx, w.id, w.cfg.lease, w.cfg.maxReclaims)
 	w.queueHadWork = err == nil
 	if errors.Is(err, script.ErrNoWork) {
-		return false
+		return false, nil
 	}
 	if err != nil {
 		// A claim that failed because the worker is shutting down is not a fault
 		// worth reporting; every stop would log one.
-		if ctx.Err() == nil {
-			slog.WarnContext(ctx, "scripts: claiming a run failed", logKeyError, err)
+		if ctx.Err() != nil {
+			return false, nil
 		}
-		return false
+		slog.WarnContext(ctx, "scripts: claiming a run failed", logKeyError, err)
+		return false, fmt.Errorf("scripts: claiming a run: %w", err)
 	}
 	// A claim in flight when the stop landed hands back work this worker will
 	// not finish: the drain window belongs to the run already executing, not to
@@ -480,7 +507,7 @@ func (w *worker) processNext(ctx context.Context) bool {
 		releaseCtx, cancel := shutdownWrite(ctx)
 		defer cancel()
 		w.release(releaseCtx, run)
-		return false
+		return false, nil
 	default:
 	}
 	if run.Reclaimed {
@@ -491,7 +518,7 @@ func (w *worker) processNext(ctx context.Context) bool {
 	}
 	w.cfg.metrics.RecordScriptQueueWait(ctx, queueWait(run))
 	w.launch(run)
-	return true
+	return true, nil
 }
 
 // queueWait is how long a claimed run waited after it became due.
@@ -524,7 +551,12 @@ func (w *worker) launch(run *script.Run) {
 			cancel()
 			w.inFlight.Add(-1)
 		}()
-		w.processRun(ctx, run, s)
+		// The run is a unit of background work with its own root span, which
+		// every tool call it makes is a child of (scriptsession carries it).
+		_ = bgloop.Unit(ctx, bgloop.NameScriptRun, func(ctx context.Context) error {
+			trace.SpanFromContext(ctx).SetAttributes(attribute.String(spanAttrRunID, run.ID))
+			return w.processRun(ctx, run, s)
+		})
 	})
 }
 
@@ -540,7 +572,7 @@ func (w *worker) launch(run *script.Run) {
 // is failed instead (#1861), because the alternative is the kernel killing the
 // replica with every session on it -- and a failed run is recoverable where a
 // killed replica, whose run is then reclaimed onto the next one, is not.
-func (w *worker) maybeShed() {
+func (w *worker) maybeShed(ctx context.Context) {
 	w.slotsMu.Lock()
 	defer w.slotsMu.Unlock()
 	var (
@@ -562,7 +594,7 @@ func (w *worker) maybeShed() {
 	}
 	if live == 1 {
 		if over, reason := w.admit.OverShed(); over {
-			slog.Warn("scripts: stopping the only run executing; the replica is out of memory", logKeyRunID, newestID)
+			slog.WarnContext(ctx, "scripts: stopping the only run executing; the replica is out of memory", logKeyRunID, newestID)
 			newest.overMemory.Store(&reason)
 			newest.cancel()
 		}
@@ -571,14 +603,17 @@ func (w *worker) maybeShed() {
 	if !w.admit.Shed(live) {
 		return
 	}
-	slog.Warn("scripts: stopping a run to relieve memory", logKeyRunID, newestID)
+	slog.WarnContext(ctx, "scripts: stopping a run to relieve memory", logKeyRunID, newestID)
+	w.cfg.metrics.RecordScriptRunShed(ctx)
 	newest.shed.Store(true)
 	newest.cancel()
 }
 
 // processRun loads what the claimed run needs and executes it, then resolves
-// the run to a terminal state or back onto the queue. ctx is the run's own.
-func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) {
+// the run to a terminal state or back onto the queue. ctx is the run's own. A
+// run recorded as failed is counted by its cause and returned as an error,
+// so the run's unit is counted as one that failed.
+func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) error {
 	// Bracketing the execution rather than counting it at the end: a run that
 	// never finishes never records a terminal observation, and a worker wedged
 	// on one is exactly what this gauge exists to show.
@@ -621,12 +656,18 @@ func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) {
 	// A run released by a shutdown, or one returned to the queue for a retry,
 	// has not failed — mailing about either would report an outcome the run has
 	// not reached.
-	if w.resolve(run, outcome) {
-		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
-			Script: scriptName(sc, run), Trigger: run.Trigger, Status: outcome.result.Status,
-		}, time.Since(started))
-		w.notifyFailure(ctx, run, sc, outcome.result)
+	if !w.resolve(run, outcome) {
+		return nil
 	}
+	w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
+		Script: scriptName(sc, run), Trigger: run.Trigger, Status: outcome.result.Status,
+	}, time.Since(started))
+	w.notifyFailure(ctx, run, sc, outcome.result)
+	if outcome.result.Status != script.RunStatusFailed {
+		return nil
+	}
+	w.cfg.metrics.RecordScriptRunFailure(ctx, outcome.result.Cause)
+	return fmt.Errorf("scripts: run %s failed (%s)", run.ID, outcome.result.Cause)
 }
 
 // scriptName labels an observation with the script's name, falling back to its

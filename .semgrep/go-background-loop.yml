@@ -1,0 +1,49 @@
+rules:
+  # Every loop the platform runs in the background runs through
+  # internal/bgloop (#1897): its iterations are counted by result, timed and
+  # stamped on success (background_loop_*), each one gets a span, and its body
+  # logs with that span's context. Before it, a loop that stopped -- a wedged
+  # worker, a scheduler on a replica whose worker was off -- produced no signal
+  # at all, because the loops logged a failure and nothing else. The shapes
+  # refused are a ticker and an infinite loop around a select, which between
+  # them are how every one of the thirty-odd loops was written. Test code
+  # builds what it likes; so does the helper itself. The bench module is a
+  # load-test harness outside the platform.
+  - id: background-loop-outside-bgloop
+    languages: [go]
+    severity: ERROR
+    paths:
+      include:
+        - pkg
+        - internal
+        - cmd
+      exclude:
+        - "*_test.go"
+        - /internal/bgloop
+        - /bench
+    pattern-either:
+      - pattern: time.NewTicker(...)
+      - pattern: time.Tick(...)
+      - patterns:
+          - pattern: |
+              for {
+                ...
+              }
+          - pattern: |
+              for {
+                ...
+                select {
+                case <-$C:
+                  ...
+                }
+                ...
+              }
+    message: >-
+      A background loop runs through internal/bgloop: bgloop.Run(ctx, bgloop.Loop{Name: bgloop.Name...,
+      Every: ..., Wake: ..., Stop: ..., Body: ...}) for a timer or a wake channel, bgloop.Consume for a
+      channel of events, bgloop.Stopped for the stop check between units, and bgloop.Sleep for one wait.
+      The helper counts, times and stamps each iteration and gives it a span (#1897); a loop written here
+      has none of them, and stops without anyone being told.
+    metadata:
+      category: observability
+      issue: "#1897"

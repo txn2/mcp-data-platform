@@ -181,10 +181,14 @@ esac
 
 # reloc_free routes one relocatable port at one offset to the right probe. The
 # API port carries the second replica's port and the proxy's with it, so the
-# three move as one block.
+# three move as one block. The other relocatable ports are published by Docker
+# on 127.0.0.1, and Docker refuses that publish while another container holds
+# the port on the wildcard (`make e2e-up`'s Postgres and SeaweedFS take
+# *:5432 and *:9000) although the kernel would grant the loopback bind, so a
+# wildcard holder counts as busy for them too.
 reloc_free() {
   if [ "$1" != 8080 ]; then
-    port_free "$(( $1 + $2 ))"
+    port_free "$(( $1 + $2 ))" && probe_bind "" "$(( $1 + $2 ))"
     return
   fi
   api_port_free "$(( $1 + $2 ))" || return 1

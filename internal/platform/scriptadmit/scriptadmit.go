@@ -145,6 +145,10 @@ func (a Admitter) Admit(inFlight int) (ok bool, reason string) {
 	return true, ""
 }
 
+// Load is the replica's load as the admitter's source reports it now, the
+// reading the run worker exports beside its decisions (#1897).
+func (a Admitter) Load() procload.Sample { return a.load.Sample() }
+
 // Shed reports whether a run should be stopped to relieve memory while live
 // runs are executing. Only adaptive admission sheds, and never its last run: a
 // single run over the line is that script's own size, and stopping it would

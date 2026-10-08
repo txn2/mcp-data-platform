@@ -4,9 +4,13 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 )
 
@@ -22,6 +26,14 @@ func New(db *sql.DB) *Store {
 
 // Get returns a single config entry by key.
 func (s *Store) Get(ctx context.Context, key string) (*configstore.Entry, error) {
+	ctx, op := opsobs.Start(ctx, opsobs.OpConfigStoreRead)
+	e, err := s.readEntry(ctx, key)
+	op.End(ctx, notFoundIsAnswer(err))
+	return e, err
+}
+
+// readEntry is the read Get counts.
+func (s *Store) readEntry(ctx context.Context, key string) (*configstore.Entry, error) {
 	var e configstore.Entry
 	err := s.db.QueryRowContext(ctx,
 		`SELECT key, value_text, updated_by, updated_at FROM config_entries WHERE key = $1`,
@@ -38,6 +50,15 @@ func (s *Store) Get(ctx context.Context, key string) (*configstore.Entry, error)
 
 // Set creates or updates a config entry and logs the change atomically.
 func (s *Store) Set(ctx context.Context, key, value, author string) error {
+	ctx, op := opsobs.Start(ctx, opsobs.OpConfigStoreWrite)
+	err := s.writeEntry(ctx, key, value, author)
+	op.End(ctx, err)
+	logWrite(ctx, "set", key, author, err)
+	return err
+}
+
+// writeEntry is the write Set counts.
+func (s *Store) writeEntry(ctx context.Context, key, value, author string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -70,6 +91,19 @@ func (s *Store) Set(ctx context.Context, key, value, author string) error {
 
 // Delete removes a config entry and logs the change atomically.
 func (s *Store) Delete(ctx context.Context, key, author string) error {
+	ctx, op := opsobs.Start(ctx, opsobs.OpConfigStoreWrite)
+	err := s.removeEntry(ctx, key, author)
+	op.End(ctx, notFoundIsAnswer(err))
+	// Deleting a key that is not set changed nothing and failed at nothing:
+	// the metric reads it as an answer, and the log stays quiet the same way.
+	if !errors.Is(err, configstore.ErrNotFound) {
+		logWrite(ctx, "delete", key, author, err)
+	}
+	return err
+}
+
+// removeEntry is the write Delete counts.
+func (s *Store) removeEntry(ctx context.Context, key, author string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
@@ -107,6 +141,14 @@ func (s *Store) Delete(ctx context.Context, key, author string) error {
 
 // List returns all config entries, ordered by key.
 func (s *Store) List(ctx context.Context) ([]configstore.Entry, error) {
+	ctx, op := opsobs.Start(ctx, opsobs.OpConfigStoreRead)
+	entries, err := s.listEntries(ctx)
+	op.End(ctx, err)
+	return entries, err
+}
+
+// listEntries is the read List counts.
+func (s *Store) listEntries(ctx context.Context) ([]configstore.Entry, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT key, value_text, updated_by, updated_at FROM config_entries ORDER BY key`,
 	)
@@ -173,4 +215,27 @@ func (s *Store) Changelog(ctx context.Context, limit, offset int) ([]configstore
 // Mode returns "database".
 func (*Store) Mode() string {
 	return "database"
+}
+
+// notFoundIsAnswer is err with configstore.ErrNotFound read as a successful
+// answer: a key that is not set is not a failing store.
+func notFoundIsAnswer(err error) error {
+	if errors.Is(err, configstore.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+// logWrite records a config entry change. The config store had no log line
+// of its own (#1898); the changelog table holds the value, the log names who
+// changed which key and whether it took.
+func logWrite(ctx context.Context, action, key, author string, err error) {
+	if err != nil {
+		slog.WarnContext(ctx, "config store: write failed", "action", action,
+			"key", logsan.SanitizeForLog(key), "author", logsan.SanitizeForLog(author),
+			"error", logsan.SanitizeForLog(err.Error()))
+		return
+	}
+	slog.InfoContext(ctx, "config store: entry changed", "action", action,
+		"key", logsan.SanitizeForLog(key), "author", logsan.SanitizeForLog(author))
 }

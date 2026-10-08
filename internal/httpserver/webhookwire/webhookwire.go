@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
@@ -156,6 +157,7 @@ func assemble(pt parts) *Webhooks {
 	db := pt.db.DB()
 	sources := whsource.NewStore(db, pt.encryptor)
 	windows := whstore.New(db)
+	registerCompactionGauge(bgloop.Metrics(), windows)
 	wcfg := pt.cfg.Webhooks
 	w := &Webhooks{address: wcfg.Receiver.Address, observe: httpobs.Config{Route: receiver.PathPrefix, Metrics: pt.observe}}
 	if wcfg.ReceiverEnabled() {

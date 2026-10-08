@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
 
@@ -164,58 +165,56 @@ func (w *Worker) Stop() {
 // on wake drains the queue until ErrNoJob.
 func (w *Worker) run() {
 	defer w.wg.Done()
-	ticker := time.NewTicker(w.cfg.PollEvery)
-	defer ticker.Stop()
-	for {
-		w.drainQueue()
-		select {
-		case <-w.stopCh:
-			return
-		case <-w.wakeup:
-		case <-ticker.C:
-		}
-	}
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameIndexJobWorker, Every: w.cfg.PollEvery, Immediate: true,
+		Wake: w.wakeup, Stop: w.stopCh, SpanPerUnit: true,
+		Body: w.drainQueue,
+	})
 }
 
 // drainQueue claims and processes jobs until the queue is empty or
 // shutdown is signaled. Each iteration is bounded by
 // processSafetyBound only as a backstop; the DB lease is the
-// authoritative deadline for a normal run.
-func (w *Worker) drainQueue() {
-	for {
-		select {
-		case <-w.stopCh:
-			return
-		default:
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), processSafetyBound)
+// authoritative deadline for a normal run. Each job is a unit of work
+// with its own root span.
+func (w *Worker) drainQueue(parent context.Context) error {
+	for !bgloop.Stopped(parent, w.stopCh) {
+		ctx, cancel := context.WithTimeout(parent, processSafetyBound)
 		job, err := w.cfg.Store.Claim(ctx, w.cfg.WorkerID)
 		if errors.Is(err, ErrNoJob) {
 			cancel()
-			return
+			return nil
 		}
 		if err != nil {
-			slog.Warn("indexjobs: claim failed", logKeyWorkerID, w.cfg.WorkerID, logKeyError, err)
+			slog.WarnContext(ctx, "indexjobs: claim failed", logKeyWorkerID, w.cfg.WorkerID, logKeyError, err)
 			cancel()
-			return
+			return fmt.Errorf("indexjobs: claim: %w", err)
 		}
 		// A successful claim implies the queue had at least one
 		// runnable job; nudge a sibling goroutine in case there is
 		// more. Buffered to 1 so this coalesces with a pending wake.
 		w.Notify()
-		w.process(ctx, job)
+		_ = bgloop.Unit(ctx, bgloop.NameIndexJob, func(ctx context.Context) error {
+			return w.process(ctx, job)
+		})
 		cancel()
 	}
+	return nil
 }
 
 // process runs one claimed job and reports it to the observer: started
 // when claimed, finished with the outcome execute settled it on and the time
-// the pass took.
-func (w *Worker) process(ctx context.Context, job *Job) {
+// the pass took. A job that failed or could not be settled is returned as an
+// error, so the unit is counted as one that failed.
+func (w *Worker) process(ctx context.Context, job *Job) error {
 	w.obs.started(ctx, job)
 	began := time.Now()
 	outcome := w.execute(ctx, job)
 	w.obs.finished(ctx, job, outcome, time.Since(began))
+	if outcome == OutcomeFailed || outcome == OutcomeStoreError {
+		return fmt.Errorf("indexjobs: job %d: %s", job.ID, outcome)
+	}
+	return nil
 }
 
 // execute is the embedding pass for one job. The outcome flows through one
@@ -224,7 +223,7 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 // unregistered kind or a missing source row is terminal (retrying won't
 // help).
 func (w *Worker) execute(ctx context.Context, job *Job) string {
-	slog.Info("indexjobs: starting job",
+	slog.InfoContext(ctx, "indexjobs: starting job",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "trigger", string(job.Trigger),
 		"attempts", job.Attempts)
@@ -296,7 +295,7 @@ func (w *Worker) execute(ctx context.Context, job *Job) string {
 	// Best-effort: a failure logs but does not undo the embed; the
 	// reconciler re-detects and retries on the next tick.
 	if err := sink.StampExpected(ctx, key, len(rows)); err != nil {
-		slog.Warn("indexjobs: stamp expected failed",
+		slog.WarnContext(ctx, "indexjobs: stamp expected failed",
 			logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 			logKeySourceID, job.SourceID, "rows", len(rows), logKeyError, err)
 	}
@@ -310,16 +309,16 @@ func (w *Worker) execute(ctx context.Context, job *Job) string {
 func (w *Worker) complete(ctx context.Context, job *Job, source Source, rows int) string {
 	if err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			slog.Warn("indexjobs: complete after lease rotation",
+			slog.WarnContext(ctx, "indexjobs: complete after lease rotation",
 				logKeyJobID, job.ID, logKeyWorkerID, w.cfg.WorkerID)
 		} else {
-			slog.Error("indexjobs: complete failed", logKeyJobID, job.ID, logKeyError, err)
+			slog.ErrorContext(ctx, "indexjobs: complete failed", logKeyJobID, job.ID, logKeyError, err)
 		}
 		return settleOutcome(err, OutcomeSucceeded)
 	}
 
 	source.OnSucceeded(job.SourceID)
-	slog.Info("indexjobs: job complete",
+	slog.InfoContext(ctx, "indexjobs: job complete",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "rows", rows)
 	return OutcomeSucceeded
@@ -331,7 +330,7 @@ func (w *Worker) complete(ctx context.Context, job *Job, source Source, rows int
 func (w *Worker) progressFn(ctx context.Context, job *Job) func(int) {
 	return func(completed int) {
 		if err := w.cfg.Store.UpdateProgress(ctx, job.ID, w.cfg.WorkerID, completed); err != nil {
-			slog.Debug("indexjobs: update_progress failed",
+			slog.DebugContext(ctx, "indexjobs: update_progress failed",
 				logKeyJobID, job.ID, "items_done", completed, logKeyError, err)
 		}
 	}
@@ -362,25 +361,23 @@ func (w *Worker) heartbeat(ctx context.Context, job *Job) {
 	if interval <= 0 {
 		interval = DefaultLeaseDuration / heartbeatDivisor
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameIndexJobHeartbeat, Every: interval, Child: true,
+		Body: func(ctx context.Context) error {
 			err := w.cfg.Store.RenewLease(ctx, job.ID, w.cfg.WorkerID, w.cfg.LeaseDuration)
 			if errors.Is(err, ErrNotFound) {
-				slog.Info("indexjobs: heartbeat stopping; lease rotated",
+				slog.InfoContext(ctx, "indexjobs: heartbeat stopping; lease rotated",
 					logKeyJobID, job.ID, logKeyWorkerID, w.cfg.WorkerID)
-				return
+				return bgloop.ErrStop
 			}
 			if err != nil && !errors.Is(err, context.Canceled) {
-				slog.Warn("indexjobs: lease renewal failed; will retry next tick",
+				slog.WarnContext(ctx, "indexjobs: lease renewal failed; will retry next tick",
 					logKeyJobID, job.ID, logKeyWorkerID, w.cfg.WorkerID, logKeyError, err)
+				return fmt.Errorf("indexjobs: renew lease: %w", err)
 			}
-		}
-	}
+			return nil
+		},
+	})
 }
 
 // retryOrFail routes a job to Retry (with backoff) or Fail
@@ -394,7 +391,7 @@ func (w *Worker) heartbeat(ctx context.Context, job *Job) {
 // no probe because their retry re-enters LoadItems, which surfaces
 // ErrSourceGone itself.
 func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink Sink, errMsg string) string {
-	slog.Warn("indexjobs: job error",
+	slog.WarnContext(ctx, "indexjobs: job error",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "attempts", job.Attempts, logKeyError, errMsg)
 	if job.Attempts >= MaxAttempts {
@@ -404,7 +401,7 @@ func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink 
 		return w.terminate(ctx, job, errMsg)
 	}
 	if err := w.cfg.Store.Retry(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
-		slog.Error("indexjobs: retry release failed", logKeyJobID, job.ID, logKeyError, err)
+		slog.ErrorContext(ctx, "indexjobs: retry release failed", logKeyJobID, job.ID, logKeyError, err)
 		return settleOutcome(err, OutcomeRetried)
 	}
 	return OutcomeRetried
@@ -418,18 +415,18 @@ func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink 
 // StampExpected (the expected-count row belongs to the deleted
 // source) and no OnSucceeded (there is nothing left to reload).
 func (w *Worker) resolveGone(ctx context.Context, job *Job, sink Sink, cause error) string {
-	slog.Info("indexjobs: source gone; resolving unit",
+	slog.InfoContext(ctx, "indexjobs: source gone; resolving unit",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, logKeyError, cause)
 	key := Key{SourceKind: job.SourceKind, SourceID: job.SourceID}
 	if err := sink.Upsert(ctx, key, nil); err != nil {
-		slog.Warn("indexjobs: clear vectors for gone source failed",
+		slog.WarnContext(ctx, "indexjobs: clear vectors for gone source failed",
 			logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 			logKeySourceID, job.SourceID, logKeyError, err)
 	}
 	err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID)
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		slog.Error("indexjobs: complete for gone source failed",
+		slog.ErrorContext(ctx, "indexjobs: complete for gone source failed",
 			logKeyJobID, job.ID, logKeyError, err)
 	}
 	return settleOutcome(err, OutcomeSourceGone)
@@ -437,11 +434,11 @@ func (w *Worker) resolveGone(ctx context.Context, job *Job, sink Sink, cause err
 
 // terminate marks a job permanently failed.
 func (w *Worker) terminate(ctx context.Context, job *Job, errMsg string) string {
-	slog.Warn("indexjobs: job failed terminally",
+	slog.WarnContext(ctx, "indexjobs: job failed terminally",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "attempts", job.Attempts, logKeyError, errMsg)
 	if err := w.cfg.Store.Fail(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
-		slog.Error("indexjobs: fail-state write failed", logKeyJobID, job.ID, logKeyError, err)
+		slog.ErrorContext(ctx, "indexjobs: fail-state write failed", logKeyJobID, job.ID, logKeyError, err)
 		return settleOutcome(err, OutcomeFailed)
 	}
 	return OutcomeFailed

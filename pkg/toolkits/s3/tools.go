@@ -125,9 +125,9 @@ func (t *Toolkit) handleList(ctx context.Context, _ *mcp.CallToolRequest, in lis
 	if in.Bucket == "" {
 		op = toolList + ".buckets"
 	}
-	ctx, span, start := begin(ctx, op)
+	ctx, call := begin(ctx, op, in.Connection)
 	res, out := t.list(ctx, in)
-	t.observe(ctx, span, op, start, res)
+	t.observe(ctx, call, res)
 	return res, out, nil
 }
 
@@ -188,9 +188,9 @@ func listObjects(ctx context.Context, client s3tools.S3Client, in listInput) (re
 // handleObject is s3_object: one action over a (bucket, key).
 func (t *Toolkit) handleObject(ctx context.Context, _ *mcp.CallToolRequest, in objectInput) (*mcp.CallToolResult, any, error) {
 	op := toolObject + "." + operationLabel(in.Action)
-	ctx, span, start := begin(ctx, op)
+	ctx, call := begin(ctx, op, in.Connection)
 	res, out := t.object(ctx, in)
-	t.observe(ctx, span, op, start, res)
+	t.observe(ctx, call, res)
 	return res, out, nil
 }
 

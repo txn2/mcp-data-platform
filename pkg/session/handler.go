@@ -326,33 +326,57 @@ func writeSSEHeaders(w http.ResponseWriter, sessionID string) {
 // its session expire mid-stream — without the touch, the next
 // reconnect would 404 on a session that was actively in use.
 //
-// Method on AwareHandler so the store is reached via h.store rather
-// than another parameter (revive's argument-limit is 5).
+// The stream is the request's, not a background loop: it ends with the
+// connection and is observed as the request it is (internal/httpobs).
 func (h *AwareHandler) streamSSEEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, sub Subscription, sessionID string) {
-	heartbeat := time.NewTicker(sseHeartbeatInterval)
-	defer heartbeat.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
-			touchCtx, cancel := context.WithTimeout(context.Background(), touchTimeout)
-			if err := h.store.Touch(touchCtx, sessionID); err != nil {
-				slog.Debug("session: SSE touch failed",
-					sessionIDKey, logsan.SanitizeForLog(sessionID),
-					slogKeyError, err)
-			}
-			cancel()
-		case ev, ok := <-sub.Events():
-			if !ok || !deliver(w, flusher, ev, sessionID) {
-				return
-			}
-		}
+	s := &sseStream{
+		h: h, w: w, flusher: flusher, sub: sub, sessionID: sessionID,
+		heartbeat: time.NewTimer(sseHeartbeatInterval),
 	}
+	defer s.heartbeat.Stop()
+	for s.step(ctx) {
+	}
+}
+
+// sseStream is one SSE connection's forwarding state.
+type sseStream struct {
+	h         *AwareHandler
+	w         http.ResponseWriter
+	flusher   http.Flusher
+	sub       Subscription
+	sessionID string
+	heartbeat *time.Timer
+}
+
+// step waits for the next heartbeat or event and handles it, reporting
+// whether the stream continues.
+func (s *sseStream) step(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-s.heartbeat.C:
+		s.heartbeat.Reset(sseHeartbeatInterval)
+		return s.keepalive(ctx)
+	case ev, ok := <-s.sub.Events():
+		return ok && deliver(s.w, s.flusher, ev, s.sessionID)
+	}
+}
+
+// keepalive writes the heartbeat comment and touches the session, reporting
+// whether the stream is still writable.
+func (s *sseStream) keepalive(ctx context.Context) bool {
+	if _, err := fmt.Fprint(s.w, ": keepalive\n\n"); err != nil {
+		return false
+	}
+	s.flusher.Flush()
+	touchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), touchTimeout)
+	defer cancel()
+	if err := s.h.store.Touch(touchCtx, s.sessionID); err != nil {
+		slog.DebugContext(ctx, "session: SSE touch failed",
+			sessionIDKey, logsan.SanitizeForLog(s.sessionID),
+			slogKeyError, err)
+	}
+	return true
 }
 
 // deliver writes ev on the stream of sessionID when the stream carries it,

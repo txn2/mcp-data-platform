@@ -2,10 +2,10 @@ package platform
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"reflect"
@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/configenv"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/personacfg"
@@ -259,7 +260,7 @@ func decodeConfigStrict(expanded []byte) (*Config, error) {
 				"strict config parsing: %d unrecognized key(s): %s",
 				len(unknown), strings.Join(unknown, "; "))
 		}
-		slog.Warn("config contains unrecognized keys that are ignored; "+
+		configwarn.Warn(context.Background(), configwarn.CodeUnrecognizedKeys, "config contains unrecognized keys that are ignored; "+
 			"fix or remove them, or set config.strict: true to reject them "+
 			"(a future release will make rejection the default)",
 			"unknown_keys", unknown)
@@ -471,6 +472,10 @@ type ServerConfig struct {
 	// SlowRequestThreshold is how long an inbound HTTP request may take before
 	// it is logged at WARN with its route template (#1889). Defaults to 5s.
 	SlowRequestThreshold time.Duration `yaml:"slow_request_threshold"`
+	// StateProbeInterval is how often dependency_up and the connection-state
+	// gauge re-probe, at most once per interval and only when scraped (#1898).
+	// Defaults to 1m.
+	StateProbeInterval time.Duration `yaml:"state_probe_interval"`
 }
 
 // ShutdownConfig configures graceful shutdown timing.
@@ -1861,7 +1866,7 @@ func loadConfigWithRegistry(data []byte, reg *versionRegistry) (*Config, error) 
 
 	// Warn on deprecated versions
 	if info.Status == versionDeprecated {
-		slog.Warn("config apiVersion is deprecated",
+		configwarn.Warn(context.Background(), configwarn.CodeDeprecatedAPIVersion, "config apiVersion is deprecated",
 			"version", version,
 			"message", info.DeprecationMessage,
 		)
@@ -1912,7 +1917,7 @@ func applyEnrichmentCompat(cfg *Config) {
 	if cfg.EnrichmentDeprecated == nil {
 		return
 	}
-	slog.Warn("config key 'injection' is deprecated; rename it to 'enrichment'")
+	configwarn.Warn(context.Background(), configwarn.CodeDeprecatedKey, "config key 'injection' is deprecated; rename it to 'enrichment'")
 	if reflect.ValueOf(cfg.Enrichment).IsZero() {
 		cfg.Enrichment = *cfg.EnrichmentDeprecated
 	}

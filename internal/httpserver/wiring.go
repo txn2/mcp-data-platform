@@ -219,15 +219,10 @@ func buildTrinoQueryFunc(p *platform.Platform) sources.TrinoQueryFunc {
 		if !ok || trinoTk.Manager() == nil {
 			continue
 		}
-		mgr := trinoTk.Manager()
 		return func(ctx context.Context, connection, sql string) ([]map[string]any, error) {
-			c, err := mgr.Client(connection)
+			res, err := trinoTk.Query(ctx, connection, sql, trinoclient.DefaultQueryOptions())
 			if err != nil {
-				return nil, fmt.Errorf("trino manager: %w", err)
-			}
-			res, qerr := c.Query(ctx, sql, trinoclient.DefaultQueryOptions())
-			if qerr != nil {
-				return nil, fmt.Errorf("trino query: %w", qerr)
+				return nil, err //nolint:wrapcheck // Query names the engine and the connection
 			}
 			return res.Rows, nil
 		}
@@ -244,12 +239,11 @@ func buildDataHubFuncs(p *platform.Platform) (sources.DataHubGetEntityFunc, sour
 		if !ok || dhTk.Client() == nil {
 			continue
 		}
-		client := dhTk.Client()
 		getEntity := func(ctx context.Context, urn string) (any, error) {
-			return client.GetEntity(ctx, urn)
+			return dhTk.GetEntity(ctx, urn)
 		}
 		getTerm := func(ctx context.Context, urn string) (any, error) {
-			return client.GetGlossaryTerm(ctx, urn)
+			return dhTk.GetGlossaryTerm(ctx, urn)
 		}
 		return getEntity, getTerm
 	}

@@ -5,9 +5,11 @@ rules:
   # function that HAS a context is a record that can never be correlated.
   # Scoped to the packages the conversion covered; a package added here has
   # every covered call converted in the same change. A function with no
-  # context.Context parameter is out of scope: a background loop gets its
-  # span, and so its context, in a later observability ticket. The blank
-  # identifier (`_ context.Context`) is not a context the call could use.
+  # context.Context parameter is out of scope. The packages whose background
+  # loops run through internal/bgloop were added with #1897: each iteration's
+  # context carries the iteration's span, so their loop bodies log with it.
+  # The blank identifier (`_ context.Context`) is not a context the call could
+  # use.
   - id: slog-without-context-in-context-function
     languages: [go]
     severity: ERROR
@@ -24,6 +26,19 @@ rules:
         - pkg/auth
         - internal/httpobs
         - internal/mcpobs
+        - internal/bgloop
+        - internal/notification
+        - internal/webhook
+        - internal/pglisten
+        - pkg/indexjobs
+        - pkg/session
+        - pkg/connoauth
+        - pkg/memory
+        - pkg/audit
+        - pkg/authevents
+        - pkg/pkcestore
+        - pkg/ratelimit
+        - pkg/embedding
       exclude:
         - "*_test.go"
     patterns:

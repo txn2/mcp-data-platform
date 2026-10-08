@@ -85,7 +85,7 @@ func TestReconciler_DefersAParkedUnit(t *testing.T) {
 	}}}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"stuck"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Empty(t, store.enqueuedKeys(), "a parked unit must not be re-queued by the sweep")
 	assert.Equal(t, ParkThreshold, store.gotMin, "the scan must ask for the park population")
@@ -105,7 +105,7 @@ func TestReconciler_EnqueuesOnceTheParkWindowElapses(t *testing.T) {
 	}}}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"stuck"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Equal(t, []Key{{SourceKind: "k", SourceID: "stuck"}}, store.enqueuedKeys(),
 		"a unit past its park window must be re-queued")
@@ -123,7 +123,7 @@ func TestReconciler_ParksOnlyTheFailingUnit(t *testing.T) {
 	}}}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"stuck", "fine"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Equal(t, []Key{{SourceKind: "k", SourceID: "fine"}}, store.enqueuedKeys())
 }
@@ -141,7 +141,7 @@ func TestReconciler_ParkIsScopedToTheFailingKind(t *testing.T) {
 	}}}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"shared"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Equal(t, []Key{{SourceKind: "k", SourceID: "shared"}}, store.enqueuedKeys(),
 		"a failure under another kind must not park this one")
@@ -157,7 +157,7 @@ func TestReconciler_ParkScanFailureStillClosesGaps(t *testing.T) {
 	store := &parkStore{failErr: errors.New("db down")}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"u1"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Equal(t, []Key{{SourceKind: "k", SourceID: "u1"}}, store.enqueuedKeys())
 }
@@ -175,7 +175,7 @@ func TestReconciler_ParkDoesNotApplyBelowTheThreshold(t *testing.T) {
 	}}}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"blip"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Equal(t, []Key{{SourceKind: "k", SourceID: "blip"}}, store.enqueuedKeys())
 }
@@ -284,7 +284,7 @@ func TestReconciler_ParkScanErrorFallsBackToEnqueue(t *testing.T) {
 	}}}
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"u1"}})
 
-	NewReconciler(store, reg, time.Second).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second).reconcileOnce(context.Background())
 
 	assert.Equal(t, []Key{{SourceKind: "k", SourceID: "u1"}}, store.enqueuedKeys(),
 		"an unreadable scan must not be read as 'everything is parked'")

@@ -358,6 +358,16 @@ type Metrics struct {
 	// (#1895), metrics_outbound.go.
 	outbound outboundInstruments
 
+	// Authentication, configuration, platform-state and domain-operation
+	// instruments (#1898), metrics_domain.go and metrics_ops.go.
+	domain domainInstruments
+	// Background loop, queue and worker instruments (#1897),
+	// metrics_background.go.
+	bg backgroundInstruments
+	// Platform-owned object storage and PostgreSQL statement instruments
+	// (#1896), metrics_deps.go.
+	deps depInstruments
+
 	// DB connection-pool instruments, observed at scrape time from each
 	// registered pool's (*sql.DB).Stats(). The six instruments and the
 	// callback are registered exactly once at New(); RegisterDBPool only
@@ -513,11 +523,17 @@ func durationHistogramView() sdkmetric.View {
 		if isIndexJobHistogram(inst.Name) {
 			bounds = indexJobDurationBuckets
 		}
+		if inst.Name == instDBClientOperationDuration {
+			bounds = dbStatementDurationBuckets
+		}
 		return sdkmetric.Stream{
 			Name:        inst.Name,
 			Description: inst.Description,
 			Unit:        inst.Unit,
 			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{Boundaries: bounds},
+			// Nil (keep every attribute) except for the driver's statement
+			// histogram, which keeps only the operation (metrics_deps.go).
+			AttributeFilter: histogramAttributeFilter(inst.Name),
 		}, true
 	}
 }
@@ -642,6 +658,15 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	if err := m.registerOutboundInstruments(meter); err != nil {
 		return err
 	}
+	if err := m.registerDomainInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerBackgroundInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerDepInstruments(meter); err != nil {
+		return err
+	}
 	return m.registerDBPoolInstruments(meter)
 }
 
@@ -695,7 +720,7 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 		},
 		func() error {
 			v, err := meter.Int64Counter(instTrinoQueries,
-				metric.WithDescription("Total Trino statements the platform's query provider ran for cross-enrichment (table resolution, availability, schema), labeled by status and query_kind. A trino_query tool call is counted by mcp_tool_calls_total{toolkit_kind=\"trino\"}, not here."))
+				metric.WithDescription("Total Trino statements and metadata calls the platform sent to Trino, labeled by status and query_kind: the trino_* tools, the platform's own statements (table registration DDL, connection probes, exports, cost estimates) and the query provider's cross-enrichment reads. query_kind is the statement's leading keyword or the metadata call, never the SQL text."))
 			m.trinoQueriesTotal = v
 			return wrapReg(instTrinoQueries, err)
 		},
@@ -707,7 +732,7 @@ func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 		},
 		func() error {
 			v, err := meter.Int64Counter(instDataHubRequests,
-				metric.WithDescription("Total DataHub requests made by the semantic provider, labeled by operation and status."))
+				metric.WithDescription("Total DataHub requests the platform made, labeled by operation and status: the semantic provider's reads, the datahub_* tools (one per call, named by what the tool does) and the apply_knowledge writer's reads and writes."))
 			m.datahubRequestsTotal = v
 			return wrapReg(instDataHubRequests, err)
 		},
@@ -919,17 +944,28 @@ func (m *Metrics) RecordAPIGatewayInbound(ctx context.Context, attrs APIGatewayI
 	m.apigwInboundDuration.Record(ctx, duration.Seconds(), histSet)
 }
 
+// Audit drop reasons, as RecordAuditEventDropped labels them (#1897).
+const (
+	// AuditDropQueueFull is an event refused because the writer's queue was
+	// full or the writer was closing.
+	AuditDropQueueFull = "queue_full"
+	// AuditDropWriteFailed is an event whose store write returned an error.
+	AuditDropWriteFailed = "write_failed"
+	// AuditDropTimeout is an event whose store write was abandoned at the
+	// per-write timeout or at shutdown.
+	AuditDropTimeout = "timeout"
+)
+
 // RecordAuditEventDropped records one audit event lost by the bounded async
-// writer — a queue-full drop or a write that failed or was abandoned at the
-// per-write timeout (issue #884). Carries no labels — a single scalar is enough
-// to alert on audit loss, and tool/user dimensions live in the loss's slog
-// line, not in a high-cardinality metric. Nil-safe, so the writer records
-// unconditionally without an enabled check.
-func (m *Metrics) RecordAuditEventDropped(ctx context.Context) {
+// writer, by reason: a queue-full drop, a write that failed, or one abandoned
+// at the per-write timeout (issue #884, reason #1897). The tool and request
+// dimensions live in the loss's slog line, not in a high-cardinality metric.
+// Nil-safe, so the writer records unconditionally without an enabled check.
+func (m *Metrics) RecordAuditEventDropped(ctx context.Context, reason string) {
 	if m == nil {
 		return
 	}
-	m.auditEventsDropped.Add(ctx, 1)
+	m.auditEventsDropped.Add(ctx, 1, metric.WithAttributes(attribute.String(attrReason, reason)))
 }
 
 // RecordRateLimited records one authenticated tools/call refused by the

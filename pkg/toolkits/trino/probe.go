@@ -36,7 +36,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	if err != nil {
 		return connprobe.Failure(fmt.Sprintf("connection %q could not be opened", name), err)
 	}
-	if _, err := client.Query(ctx, probeStatement, trinoclient.QueryOptions{Limit: 1}); err != nil {
+	if _, err := t.telemetry.query(ctx, client, name, probeStatement, trinoclient.QueryOptions{Limit: 1}); err != nil {
 		return connprobe.Failure(
 			fmt.Sprintf("connection %q is configured but the query engine refused %s", name, probeStatement), err)
 	}
@@ -48,7 +48,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	if !ok {
 		return connprobe.Success(detail)
 	}
-	return probeScratch(ctx, client, name, target, detail)
+	return t.probeScratch(ctx, client, name, target, detail)
 }
 
 // probeTable is a table name no deployment holds. Each partition procedure is
@@ -66,10 +66,10 @@ const probeTable = "mcp_platform_connection_test_absent"
 //
 // It reports every missing setting at once rather than the first, because an
 // operator fixing a rules file wants the whole list before restarting anything.
-func probeScratch(ctx context.Context, client *trinoclient.Client, name string, target ScratchConfig, detail string) connprobe.Result {
+func (t *Toolkit) probeScratch(ctx context.Context, client *trinoclient.Client, name string, target ScratchConfig, detail string) connprobe.Result {
 	var remedies, answers []string
 	for _, procedure := range scratchcatalog.Procedures {
-		_, err := client.Query(ctx, probeCall(target, procedure), trinoclient.QueryOptions{Limit: 1})
+		_, err := t.telemetry.query(ctx, client, name, probeCall(target, procedure), trinoclient.QueryOptions{Limit: 1})
 		if err == nil || tableMissing(err) {
 			continue
 		}

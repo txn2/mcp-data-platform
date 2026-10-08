@@ -56,6 +56,7 @@ func (w *Worker) drawVariants(ctx context.Context, t target, variants []string) 
 			if retry {
 				return stored, "", err
 			}
+			recordDocumentFailure(ctx)
 			return stored, why, nil
 		}
 		key := t.keyFor(v)

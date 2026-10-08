@@ -82,9 +82,13 @@ func NewSyncWriter(logger Logger, opts ...SyncOption) *SyncWriter {
 func (w *SyncWriter) Log(_ context.Context, e Event) error {
 	ctx, cancel := context.WithTimeout(w.baseCtx, w.writeTimeout)
 	defer cancel()
-	if err := w.logger.Log(ctx, e); err != nil {
+	start := time.Now()
+	err := w.logger.Log(ctx, e)
+	reason := writeLossReason(ctx, err)
+	w.metrics.RecordAuditWrite(ctx, writeResult(reason), time.Since(start))
+	if err != nil {
 		n := w.lost.Add(1)
-		w.metrics.RecordAuditEventDropped(context.Background())
+		w.metrics.RecordAuditEventDropped(context.Background(), reason)
 		slog.Error("audit: sync write failed, event lost",
 			"error", err,
 			"tool", e.ToolName,

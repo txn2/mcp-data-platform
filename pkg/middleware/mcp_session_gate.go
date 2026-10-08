@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // ErrCategorySetupRequired is the error category for session gate violations.
@@ -107,19 +109,10 @@ func (g *SessionGate) StartCleanup(interval time.Duration) {
 	if interval == 0 {
 		interval = 1 * time.Minute
 	}
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-g.done:
-				return
-			case <-ticker.C:
-				g.cleanup()
-			}
-		}
-	}()
+	go bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameSessionGateCleanup, Every: interval, Stop: g.done,
+		Body: func(context.Context) error { g.cleanup(); return nil },
+	})
 }
 
 // Stop stops the background cleanup goroutine.

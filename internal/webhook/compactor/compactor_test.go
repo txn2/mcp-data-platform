@@ -558,7 +558,7 @@ func TestRawRetention(t *testing.T) {
 	r.segment(t, old.Add(time.Hour), segAt{"a", 2, 0}, "b")
 	r.segment(t, old.Add(2*time.Hour), segAt{"a", 3, 0}, "c")
 
-	r.w.Retention(ctx)
+	_ = r.w.Retention(ctx)
 	assert.True(t, compacted.rawDeleted)
 	assert.False(t, dirty.rawDeleted, "a dirty window's segments are never deleted")
 	assert.False(t, pending.rawDeleted, "an uncompacted window's segments are never deleted")
@@ -582,13 +582,13 @@ func TestCompactedRetentionResumes(t *testing.T) {
 
 	// The pass stops between unregistering and deleting.
 	r.resources.err["delete"] = errBoom
-	r.w.Retention(ctx)
+	_ = r.w.Retention(ctx)
 	assert.True(t, row.unregistered)
 	assert.Empty(t, r.tables.registered, "the view stops serving the window first")
 	assert.False(t, row.expired)
 
 	delete(r.resources.err, "delete")
-	r.w.Retention(ctx)
+	_ = r.w.Retention(ctx)
 	assert.True(t, row.expired, "the next pass finishes the job")
 	assert.Empty(t, r.resources.keys)
 	keys, _ := r.objects.ListKeys(ctx, "", "webhooks/")
@@ -600,15 +600,15 @@ func TestCompactedRetentionResumes(t *testing.T) {
 // unless configured, and a negative age keeps them.
 func TestRetentionDeletesExpiredWindowRecords(t *testing.T) {
 	r := newRig(t)
-	r.w.Retention(ctx)
+	_ = r.w.Retention(ctx)
 	assert.Equal(t, now.Add(-DefaultExpiredWindowsKept), r.windows.expiredBefore)
 
 	r.windows.err["delete_expired"] = errBoom
-	r.w.Retention(ctx) // a failure is logged and does not stop the pass
+	_ = r.w.Retention(ctx) // a failure is logged and does not stop the pass
 
 	kept := newRig(t)
 	kept.w.tuning.ExpiredWindowsKept = -1
-	kept.w.Retention(ctx)
+	_ = kept.w.Retention(ctx)
 	assert.True(t, kept.windows.expiredBefore.IsZero(), "a negative age keeps every record")
 }
 
@@ -619,7 +619,7 @@ func TestRetentionForeverKeepsHours(t *testing.T) {
 	src.Config.CompactedRetentionDays = &zero
 	r.sources.list = []whsource.Source{src}
 	row := r.windows.add("esp", window.Add(-5000*24*time.Hour), 1)
-	r.w.Retention(ctx)
+	_ = r.w.Retention(ctx)
 	assert.False(t, row.expired)
 }
 
@@ -647,7 +647,7 @@ func TestRetentionFailures(t *testing.T) {
 			raw.compacted, raw.compactedGen = true, 1
 			r.segment(t, raw.Start, segAt{"a", 1, 0}, "a")
 			breakIt(r)
-			r.w.Retention(ctx)
+			_ = r.w.Retention(ctx)
 		})
 	}
 }
@@ -731,4 +731,12 @@ func TestParquetRoundTripAcrossReadBatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out, 600, "every row is read, however many read batches it takes")
 	assert.Equal(t, "599", out[599].EventID)
+}
+
+// Pass compacts one batch of owed windows, applies retention when it is due, and
+// reports whether it found windows to compact, which is the caller's cue to run
+// again without waiting.
+func (w *Worker) Pass(ctx context.Context) bool {
+	busy, _ := w.compactPass(ctx)
+	return busy
 }

@@ -201,14 +201,14 @@ func TestWorker_ShedsTheNewestRunUnderMemoryPressure(t *testing.T) {
 	load := &switchLoad{}
 	g := newGateExecutor(2)
 	w, runs := queueWorker(t, 2, scriptadmit.Admission{}, load, g)
-	w.drain()
+	_ = w.drain(w.runCtx)
 	waitEntered(t, g, 2)
 
 	load.set(memory(95))
-	w.maybeShed()
+	w.maybeShed(context.Background())
 	require.Eventually(t, func() bool { return g.canceled.Load() == 1 }, 2*time.Second, 5*time.Millisecond)
 	load.set(memory(50))
-	w.maybeShed() // back under the threshold: the last run is left alone
+	w.maybeShed(context.Background()) // back under the threshold: the last run is left alone
 
 	close(g.open)
 	w.wg.Wait()
@@ -228,13 +228,13 @@ func TestWorker_FailsTheOnlyRunPastTheShedThreshold(t *testing.T) {
 	load := &switchLoad{}
 	g := newGateExecutor(1)
 	w, runs := queueWorker(t, 1, scriptadmit.Admission{Fixed: 1}, load, g)
-	w.drain()
+	_ = w.drain(w.runCtx)
 	waitEntered(t, g, 1)
 
 	load.set(memory(95))
-	w.maybeShed()
+	w.maybeShed(context.Background())
 	require.Eventually(t, func() bool { return g.canceled.Load() == 1 }, 2*time.Second, 5*time.Millisecond)
-	w.maybeShed() // already stopped: not counted again
+	w.maybeShed(context.Background()) // already stopped: not counted again
 
 	close(g.open)
 	w.wg.Wait()
@@ -257,9 +257,9 @@ func TestWorker_RecordsAdmissionAndQueueWait(t *testing.T) {
 	g := newGateExecutor(2)
 	w, _ := queueWorker(t, 2, scriptadmit.Admission{Fixed: 1}, fakeLoad{}, g)
 	w.cfg.metrics = m
-	w.drain()
+	_ = w.drain(w.runCtx)
 	waitEntered(t, g, 1)
-	w.drain() // at the ceiling with work queued
+	_ = w.drain(w.runCtx) // at the ceiling with work queued
 	close(g.open)
 	w.wg.Wait()
 

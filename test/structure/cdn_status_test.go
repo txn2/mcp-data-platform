@@ -30,6 +30,8 @@ var cdnReplacedStatusExempt = map[string]string{
 	"internal/platform/utilhandler/fetch.go": "POST /util/fetch is served on the built-in util connection " +
 		"and reached through api_invoke_endpoint and api_export, so its status is read by the gateway " +
 		"toolkit in-process and never crosses a CDN",
+	"internal/connstate/connstate.go": "answers no request: it reads the status an UPSTREAM answered " +
+		"a connection's call with, to record whether the connection is reachable (#1898)",
 	"internal/upstreamretry/upstreamretry.go": "answers no request: it reads the status an UPSTREAM answered " +
 		"the platform with, to decide whether a read is worth asking again (#1935)",
 }

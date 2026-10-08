@@ -5,10 +5,16 @@ import (
 	"fmt"
 
 	s3client "github.com/txn2/mcp-s3/pkg/client"
+
+	"github.com/txn2/mcp-data-platform/internal/objectobs"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // listPage is how many keys one listing request asks for.
 const listPage = 1000
+
+// purpose is what the webhook objects are reported as (internal/objectobs).
+const purpose = observability.StoragePurposeWebhooks
 
 // s3API is the part of the S3 client the webhook objects use.
 type s3API interface {
@@ -20,16 +26,21 @@ type s3API interface {
 
 // objects is what the receiver, the compactor and the source service do in
 // the managed-resources bucket: write a segment, read one back, list a
-// window's segments across every page, and delete them.
+// window's segments across every page, and delete them. Every request is
+// observed under the webhooks purpose.
 type objects struct {
 	c s3API
 }
 
 // PutObject writes one object.
 func (o objects) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {
-	if _, err := o.c.PutObject(ctx, &s3client.PutObjectInput{
-		Bucket: bucket, Key: key, Body: data, ContentType: contentType,
-	}); err != nil {
+	_, err := objectobs.Do(ctx, purpose, objectobs.OpPut, bucket, func(ctx context.Context) (int64, error) {
+		_, err := o.c.PutObject(ctx, &s3client.PutObjectInput{
+			Bucket: bucket, Key: key, Body: data, ContentType: contentType,
+		})
+		return int64(len(data)), err //nolint:wrapcheck // wrapped below, once
+	})
+	if err != nil {
 		return fmt.Errorf("s3 put: %w", err)
 	}
 	return nil
@@ -37,7 +48,12 @@ func (o objects) PutObject(ctx context.Context, bucket, key string, data []byte,
 
 // GetObject reads one object whole.
 func (o objects) GetObject(ctx context.Context, bucket, key string) ([]byte, error) {
-	obj, err := o.c.GetObject(ctx, bucket, key)
+	var obj *s3client.ObjectContent
+	_, err := objectobs.Do(ctx, purpose, objectobs.OpGet, bucket, func(ctx context.Context) (int64, error) {
+		var err error
+		obj, err = o.c.GetObject(ctx, bucket, key)
+		return 0, err //nolint:wrapcheck // wrapped below, once
+	})
 	if err != nil {
 		return nil, fmt.Errorf("s3 get: %w", err)
 	}
@@ -52,9 +68,9 @@ func (o objects) ListKeys(ctx context.Context, bucket, prefix string) ([]string,
 		token string
 	)
 	for {
-		out, err := o.c.ListObjects(ctx, bucket, prefix, "", listPage, token)
+		out, err := o.listPage(ctx, bucket, prefix, token)
 		if err != nil {
-			return nil, fmt.Errorf("s3 list: %w", err)
+			return nil, err
 		}
 		for _, obj := range out.Objects {
 			if obj.Key != prefix {
@@ -68,9 +84,26 @@ func (o objects) ListKeys(ctx context.Context, bucket, prefix string) ([]string,
 	}
 }
 
+// listPage reads one page of a listing.
+func (o objects) listPage(ctx context.Context, bucket, prefix, token string) (*s3client.ListObjectsOutput, error) {
+	var out *s3client.ListObjectsOutput
+	_, err := objectobs.Do(ctx, purpose, objectobs.OpList, bucket, func(ctx context.Context) (int64, error) {
+		var err error
+		out, err = o.c.ListObjects(ctx, bucket, prefix, "", listPage, token)
+		return 0, err //nolint:wrapcheck // wrapped below, once
+	})
+	if err != nil {
+		return nil, fmt.Errorf("s3 list: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteObject removes one object.
 func (o objects) DeleteObject(ctx context.Context, bucket, key string) error {
-	if err := o.c.DeleteObject(ctx, bucket, key); err != nil {
+	_, err := objectobs.Do(ctx, purpose, objectobs.OpDelete, bucket, func(ctx context.Context) (int64, error) {
+		return 0, o.c.DeleteObject(ctx, bucket, key) //nolint:wrapcheck // wrapped below, once
+	})
+	if err != nil {
 		return fmt.Errorf("s3 delete: %w", err)
 	}
 	return nil

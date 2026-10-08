@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/platform/embedyield"
 	"github.com/txn2/mcp-data-platform/internal/platform/memoryindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -171,7 +172,7 @@ func buildEmbedder(cfg Config) embedding.Provider {
 	if cfg.EmbeddingProvider == providerOllama {
 		return embedding.WithMetrics(embedding.NewOllamaProvider(cfg.Ollama), cfg.Metrics)
 	}
-	slog.Warn("memory.embedding.provider not configured; semantic ranking disabled (set memory.embedding.provider to 'ollama' to enable)",
+	configwarn.Warn(context.Background(), configwarn.CodeMemoryNoEmbedding, "memory.embedding.provider not configured; semantic ranking disabled (set memory.embedding.provider to 'ollama' to enable)",
 		"config_key", "memory.embedding.provider",
 		"current_value", cfg.EmbeddingProvider)
 	return embedding.NewNoopProvider(embedding.DefaultDimension)

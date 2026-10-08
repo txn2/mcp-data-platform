@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 )
 
@@ -54,6 +55,16 @@ type NewResource struct {
 // platform's own initiative is the same record as one a person uploaded --
 // same URI, same version trail, same retention.
 func CreateResource(ctx context.Context, deps Deps, claims *Claims, in NewResource) (*Resource, error) {
+	// Every new resource -- an upload, a write a tool or script made, an
+	// extracted member -- is one operation with a span under its call (#1898).
+	ctx, op := opsobs.Start(ctx, opsobs.OpResourceUpload)
+	res, err := insertResource(ctx, deps, claims, in)
+	op.End(ctx, err)
+	return res, err
+}
+
+// insertResource is the create CreateResource counts.
+func insertResource(ctx context.Context, deps Deps, claims *Claims, in NewResource) (*Resource, error) {
 	id, err := GenerateID()
 	if err != nil {
 		return nil, fmt.Errorf("generating ID: %w", err)

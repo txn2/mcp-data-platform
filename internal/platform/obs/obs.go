@@ -10,10 +10,14 @@
 package obs
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -39,6 +43,10 @@ func Assemble() (*Layer, error) {
 	l := &Layer{metrics: m, listener: observability.NewListener(m)}
 	// Every outbound HTTP client records through this recorder (#1895).
 	outbound.SetDefaultMetrics(m)
+	opsobs.SetMetrics(m)
+	configwarn.Flush(context.Background())
+	// So does every background loop (#1897).
+	bgloop.SetDefaultMetrics(m)
 	if m != nil {
 		slog.Info("observability: metrics recorder enabled", "listen", cfg.ListenAddr, "exporter", cfg.Exporter)
 	}
@@ -62,7 +70,7 @@ func Assemble() (*Layer, error) {
 // mcp_platform.deployment.id; without it their series and traces merge.
 func warnUnnamedDeployment(exportsOTLP bool) {
 	if exportsOTLP && !observability.DeploymentIDSet() {
-		slog.Warn("observability: an OTLP exporter is on and MCP_PLATFORM_DEPLOYMENT_ID is unset; " +
+		configwarn.Warn(context.Background(), configwarn.CodeDeploymentIDUnset, "observability: an OTLP exporter is on and MCP_PLATFORM_DEPLOYMENT_ID is unset; "+
 			"set it (or mcp_platform.deployment.id in OTEL_RESOURCE_ATTRIBUTES) so a shared backend can tell this deployment's signals from another's")
 	}
 }

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -73,7 +76,9 @@ func (w *Worker) drawBatch(ctx context.Context, jobs []job) bool {
 		}
 		wg.Go(func() {
 			defer func() { <-sem }()
-			w.attempt(ctx, j)
+			_ = bgloop.Unit(ctx, bgloop.NameThumbnailRender, func(ctx context.Context) error {
+				return w.attempt(ctx, j)
+			})
 		})
 	}
 	wg.Wait()
@@ -92,34 +97,91 @@ func (w *Worker) stopping(ctx context.Context) bool {
 	}
 }
 
-// attempt draws one claimed row and ends its claim.
-func (w *Worker) attempt(ctx context.Context, j job) {
+// attempt draws one claimed row and ends its claim. The attempt is timed by
+// the row's kind, and one that drew no tile is counted by why and returned.
+func (w *Worker) attempt(ctx context.Context, j job) error {
+	kind := j.kind()
+	ctx = withKind(ctx, kind)
+	m := bgloop.Metrics()
 	if j.attempts > w.cfg.MaxAttempts {
 		// The claim that would have been the last was never returned from.
 		w.giveUp(ctx, j, errNeverFinished)
-		return
+		m.RecordThumbnailFailure(ctx, kind, failUndrawable)
+		return errNeverFinished
 	}
+	start := time.Now()
 	err := j.draw(ctx)
+	m.RecordThumbnailRender(ctx, kind, time.Since(start))
 	if err == nil {
-		return
+		return nil
 	}
 	w.mu.Lock()
 	w.lastUnfinished = j.name
 	w.mu.Unlock()
 	if ctx.Err() != nil {
-		// The worker is stopping; this attempt is not the document's.
+		// The worker is stopping; this attempt is not the document's, and
+		// not a failure of the unit either.
 		w.handBack(ctx, j)
-		return
+		return nil //nolint:nilerr // a stop is not the attempt's failure
 	}
 	if j.attempts >= w.cfg.MaxAttempts {
 		w.giveUp(ctx, j, err)
-		return
+		m.RecordThumbnailFailure(ctx, kind, failUndrawable)
+		return err
 	}
+	m.RecordThumbnailFailure(ctx, kind, unfinishedReason(err))
 	hold := w.cfg.backoff(j.attempts)
 	slog.InfoContext(ctx, "thumbnails: an attempt did not finish; holding the document back",
 		logKeyDocument, logsan.SanitizeForLog(j.name), "attempt", j.attempts, "hold", hold.String(),
 		logKeyError, logsan.SanitizeForLog(err.Error()))
 	w.endClaim(ctx, j, hold, j.attempts)
+	return err
+}
+
+// Why an attempt drew no tile, as thumbnail_render_failures_total{reason}
+// counts it (#1897).
+const (
+	// failDocument is a failure the document owns: the page threw or did
+	// not finish drawing. It is recorded on the row.
+	failDocument = "document"
+	// failRenderer is an attempt the renderer did not finish.
+	failRenderer = "renderer"
+	// failStorage is an attempt whose stored file could not be read or
+	// whose tile could not be written.
+	failStorage = "storage"
+	// failUndrawable is a row recorded as not drawable once its attempts
+	// ran out.
+	failUndrawable = "undrawable"
+)
+
+// unfinishedReason classifies why an attempt did not finish.
+func unfinishedReason(err error) string {
+	if errors.Is(err, headless.ErrUnavailable) {
+		return failRenderer
+	}
+	return failStorage
+}
+
+// kind is the row's family (asset, resource, collection, script), the first
+// word of its name.
+func (j job) kind() string {
+	kind, _, _ := strings.Cut(j.name, " ")
+	return kind
+}
+
+// kindKey carries the family of the row an attempt is drawing, so the draw
+// that records a document's own failure can count it under that family.
+type kindKey struct{}
+
+func withKind(ctx context.Context, kind string) context.Context {
+	return context.WithValue(ctx, kindKey{}, kind)
+}
+
+// recordDocumentFailure counts a failure the document owns under the family
+// of the row being drawn.
+func recordDocumentFailure(ctx context.Context) {
+	kind, _ := ctx.Value(kindKey{}).(string)
+	bgloop.Metrics().RecordThumbnailFailure(ctx, kind, failDocument)
 }
 
 // handBack ends the claim on a row that was not tried, returning the attempt

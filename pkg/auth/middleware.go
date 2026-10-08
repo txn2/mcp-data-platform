@@ -71,11 +71,17 @@ const RoleAnonymous = "anonymous"
 type ChainedAuthenticator struct {
 	authenticators []middleware.Authenticator
 	allowAnonymous bool
+	observe        AttemptObserver
 }
 
 // ChainedAuthConfig configures the chained authenticator.
 type ChainedAuthConfig struct {
 	AllowAnonymous bool
+	// Observe, when set, is told the outcome of every request's validation
+	// (#1898): once per request, so a validation under WithAttemptCounted is
+	// not reported again. An anonymous fallback is not an attempt and is not
+	// reported.
+	Observe AttemptObserver
 }
 
 // NewChainedAuthenticator creates a new chained authenticator.
@@ -83,6 +89,7 @@ func NewChainedAuthenticator(cfg ChainedAuthConfig, authenticators ...middleware
 	return &ChainedAuthenticator{
 		authenticators: authenticators,
 		allowAnonymous: cfg.AllowAnonymous,
+		observe:        cfg.Observe,
 	}
 }
 
@@ -106,12 +113,24 @@ func NewChainedAuthenticator(cfg ChainedAuthConfig, authenticators ...middleware
 // distinguish "could not validate" from "invalid" and fail open rather than
 // hard-reject.
 func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
+	attempt := chainAttempt{token: GetToken(ctx)}
+	info, err := c.runChain(ctx, &attempt)
+	if c.observe != nil && !attemptCounted(ctx) && (attempt.token != "" || !c.allowAnonymous) {
+		method, result, reason := attempt.outcome(err)
+		c.observe(ctx, method, result, reason)
+	}
+	return info, err
+}
+
+// runChain is the chain itself, recording what it saw on attempt.
+func (c *ChainedAuthenticator) runChain(ctx context.Context, attempt *chainAttempt) (*middleware.UserInfo, error) {
 	var lastErr, transientErr error
 	reqID, tool := correlationFields(ctx)
 
 	for i, auth := range c.authenticators {
 		userInfo, err := auth.Authenticate(ctx)
 		if err == nil && userInfo != nil {
+			attempt.succeeded = auth
 			return userInfo, nil
 		}
 		if err == nil {
@@ -120,6 +139,7 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 		if errors.Is(err, ErrNotAJWT) {
 			continue
 		}
+		attempt.refusals = append(attempt.refusals, refusal{by: auth, err: err})
 		if errors.Is(err, middleware.ErrValidationUnavailable) {
 			transientErr = err
 			continue

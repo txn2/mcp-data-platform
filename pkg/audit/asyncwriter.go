@@ -118,6 +118,7 @@ func NewAsyncWriter(logger Logger, opts ...AsyncOption) *AsyncWriter {
 	if w.queue == nil {
 		w.queue = make(chan queued, DefaultAsyncQueueCapacity)
 	}
+	w.metrics.RegisterAuditQueueDepth(w.QueueDepth)
 	go w.run()
 	return w
 }
@@ -144,8 +145,12 @@ func (w *AsyncWriter) run() {
 func (w *AsyncWriter) write(e Event) {
 	ctx, cancel := context.WithTimeout(w.baseCtx, w.writeTimeout)
 	defer cancel()
-	if err := w.logger.Log(ctx, e); err != nil {
-		n := w.countLoss()
+	start := time.Now()
+	err := w.logger.Log(ctx, e)
+	reason := writeLossReason(ctx, err)
+	w.metrics.RecordAuditWrite(ctx, writeResult(reason), time.Since(start))
+	if err != nil {
+		n := w.countLoss(reason)
 		slog.Error("audit: async write failed, event lost",
 			"error", err,
 			"tool", e.ToolName,
@@ -214,16 +219,46 @@ func (w *AsyncWriter) Flush(ctx context.Context) error {
 // new cumulative total. Shared by the queue-full drop path and the
 // failed/abandoned write path so audit_events_dropped_total reflects every
 // lost event, not just queue overflow.
-func (w *AsyncWriter) countLoss() int64 {
+func (w *AsyncWriter) countLoss(reason string) int64 {
 	n := w.dropped.Add(1)
-	w.metrics.RecordAuditEventDropped(context.Background())
+	w.metrics.RecordAuditEventDropped(context.Background(), reason)
 	return n
+}
+
+// writeLossReason classifies a store write's error as the drop reason it
+// becomes: an attempt the deadline or Close cut off is a timeout, any other
+// error a failed write. Empty for a write that succeeded.
+func writeLossReason(ctx context.Context, err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		return observability.AuditDropTimeout
+	default:
+		return observability.AuditDropWriteFailed
+	}
+}
+
+// auditWriteResultError is the result label of a store write that failed.
+const auditWriteResultError = "error"
+
+// writeResult is the audit_write_duration_seconds result label for a write
+// that lost its event for reason: ok, error or timeout.
+func writeResult(reason string) string {
+	switch reason {
+	case "":
+		return observability.StatusOK
+	case observability.AuditDropTimeout:
+		return observability.AuditDropTimeout
+	default:
+		return auditWriteResultError
+	}
 }
 
 // recordDrop counts one event dropped because the queue was full (or the writer
 // was closing) and logs it once.
 func (w *AsyncWriter) recordDrop(e Event) {
-	n := w.countLoss()
+	n := w.countLoss(observability.AuditDropQueueFull)
 	slog.Error("audit: event dropped, queue full",
 		"tool", e.ToolName,
 		"request_id", e.RequestID,
@@ -237,8 +272,9 @@ func (w *AsyncWriter) Dropped() int64 {
 	return w.dropped.Load()
 }
 
-// QueueDepth returns the number of events currently queued. Exposed for tests
-// and diagnostics; it is a point-in-time snapshot with no ordering guarantee.
+// QueueDepth returns the number of events currently queued, the value
+// audit_writer_queue_depth reports on a scrape (#1897); it is a point-in-time
+// snapshot with no ordering guarantee.
 func (w *AsyncWriter) QueueDepth() int {
 	return len(w.queue)
 }

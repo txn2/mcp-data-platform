@@ -1,11 +1,18 @@
 package pglisten
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // countingNotifier records Notify calls.
@@ -83,5 +90,41 @@ func TestPGListen_ConsumeWakesOnEveryNotification(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("consume did not return after Stop")
+	}
+}
+
+// TestPGListen_AReconnectIsNotANotification: the nil lib/pq sends on a
+// reconnect wakes the workers but is not recorded as a notification, so a
+// connection that only ever reconnects shows no notification at all.
+func TestPGListen_AReconnectIsNotANotification(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+	bgloop.SetDefaultMetrics(m)
+	t.Cleanup(func() { bgloop.SetDefaultMetrics(nil) })
+
+	n := &countingNotifier{ch: make(chan struct{}, 1)}
+	l := New("dsn-unused", "probe-channel", n)
+	notifications := make(chan *pq.Notification, 1)
+	notifications <- nil
+	done := make(chan struct{})
+	go func() {
+		l.consume(notifications)
+		close(done)
+	}()
+	select {
+	case <-n.ch:
+	case <-time.After(time.Second):
+		t.Fatal("the reconnect did not wake the notifier")
+	}
+	l.Stop()
+	<-done
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", http.NoBody))
+	if strings.Contains(rec.Body.String(), "pg_listen_last_notification_age_seconds") {
+		t.Error("a reconnect was recorded as a notification")
 	}
 }

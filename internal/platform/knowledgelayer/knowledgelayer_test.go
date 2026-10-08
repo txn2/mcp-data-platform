@@ -104,7 +104,9 @@ func TestNew_ApplyGating(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, h)
 		require.NotNil(t, h.DataHubWriter())
-		_, ok := h.DataHubWriter().(*knowledgekit.DataHubClientWriter)
+		observed, ok := h.DataHubWriter().(observedWriter)
+		require.True(t, ok, "the writer is observed")
+		_, ok = observed.w.(*knowledgekit.DataHubClientWriter)
 		assert.True(t, ok, "a resolved DataHub config selects the real client writer")
 	})
 }
@@ -120,7 +122,9 @@ func TestBuildDataHubWriter(t *testing.T) {
 	t.Run("valid config yields the client writer", func(t *testing.T) {
 		w, err := buildDataHubWriter("primary", &DataHubConfig{URL: "http://datahub:8080", Token: "test-token"})
 		require.NoError(t, err)
-		_, ok := w.(*knowledgekit.DataHubClientWriter)
+		observed, ok := w.(observedWriter)
+		require.True(t, ok, "expected the client writer behind the observing decorator")
+		_, ok = observed.w.(*knowledgekit.DataHubClientWriter)
 		assert.True(t, ok, "expected DataHubClientWriter for a valid connection")
 	})
 

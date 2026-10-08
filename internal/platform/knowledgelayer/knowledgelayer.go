@@ -216,7 +216,7 @@ func buildDataHubWriter(connName string, dhCfg *DataHubConfig) (knowledgekit.Dat
 	}
 
 	slog.Info("knowledge apply: using datahub writer", "connection", connName)
-	return knowledgekit.NewDataHubClientWriter(c), nil
+	return observedWriter{w: knowledgekit.NewDataHubClientWriter(c)}, nil
 }
 
 // InsightStore returns the insight store, or nil on a nil Handle (knowledge

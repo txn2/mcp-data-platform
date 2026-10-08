@@ -11,9 +11,11 @@
 package iam
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -122,7 +124,7 @@ func NewIdentity(in Input) (Identity, error) {
 
 	return Identity{
 		Authenticator: auth.NewChainedAuthenticator(
-			auth.ChainedAuthConfig{AllowAnonymous: in.AllowAnonymous},
+			auth.ChainedAuthConfig{AllowAnonymous: in.AllowAnonymous, Observe: recordAttempt},
 			authenticators...,
 		),
 		APIKeyAuth: apiKeyAuth,
@@ -139,4 +141,10 @@ func NewAuthorizer(in Input) middleware.Authorizer {
 		Registry:       in.PersonaRegistry,
 	}
 	return persona.NewAuthorizer(in.PersonaRegistry, mapper)
+}
+
+// recordAttempt counts one credential validation in auth_attempts_total
+// (#1898), on the recorder the observability layer installed.
+func recordAttempt(ctx context.Context, method, result, reason string) {
+	opsobs.Metrics().RecordAuthAttempt(ctx, method, result, reason)
 }

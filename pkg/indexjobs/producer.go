@@ -117,7 +117,7 @@ func (p *Producer) NotifyWrite(ctx context.Context, sourceID string) {
 	enqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), enqueueTimeout)
 	defer cancel()
 	if _, err := b.enq.Enqueue(enqCtx, Key{SourceKind: p.kind, SourceID: sourceID}, TriggerWrite); err != nil {
-		slog.Warn("indexjobs: write-path enqueue failed; leaving the row to the reconciler",
+		slog.WarnContext(ctx, "indexjobs: write-path enqueue failed; leaving the row to the reconciler",
 			logKeySourceKind, p.kind, logKeySourceID, logsan.SanitizeForLog(sourceID), logKeyError, err)
 	}
 }

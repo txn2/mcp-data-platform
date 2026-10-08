@@ -19,6 +19,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
@@ -223,6 +224,7 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("OIDC callback error", // #nosec G706 -- values are sanitized above
 			logKeyError, safeErr,
 			"description", safeDesc)
+		signInRefused(r.Context(), opsobs.AuthReasonInvalidClaims)
 		f.redirectWithError(w, r, "access_denied")
 		return
 	}
@@ -230,6 +232,7 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get(paramCode)
 	state := r.URL.Query().Get(logKeyState)
 	if code == "" || state == "" {
+		signInRefused(r.Context(), opsobs.AuthReasonMalformed)
 		f.redirectWithError(w, r, "invalid_request")
 		return
 	}
@@ -237,6 +240,7 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Validate state and extract PKCE verifier + return_to.
 	verifier, returnTo, err := f.validateCallbackState(r, state)
 	if err != nil {
+		signInRefused(r.Context(), opsobs.AuthReasonMalformed)
 		f.redirectWithError(w, r, "invalid_state")
 		return
 	}
@@ -245,10 +249,13 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	f.clearStateCookie(w)
 
 	// Exchange code for tokens, parse identity, create session.
-	if err := f.completeLogin(r.Context(), w, code, verifier); err != nil {
+	if reason, err := f.completeLogin(r.Context(), w, code, verifier); err != nil {
+		signInRefused(r.Context(), reason)
 		f.redirectWithError(w, r, "auth_failed")
 		return
 	}
+	opsobs.Metrics().RecordAuthAttempt(r.Context(), opsobs.AuthMethodBrowser,
+		opsobs.AuthResultSuccess, opsobs.AuthReasonNone)
 
 	// dest is either the trusted config value or returnTo, which was
 	// passed through sanitizeReturnTo at both write (login) and read
@@ -347,18 +354,19 @@ func (f *Flow) clearStateCookie(w http.ResponseWriter) {
 
 // completeLogin exchanges the authorization code for tokens, parses the
 // id_token, and sets the session cookie. It writes HTTP errors directly
-// on failure and returns a non-nil error to signal the caller to stop.
-func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, verifier string) error {
+// on failure and returns a non-nil error to signal the caller to stop, with
+// the auth_attempts_total reason class the failure is counted under.
+func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, verifier string) (string, error) {
 	tokenResp, err := f.exchangeCode(ctx, code, verifier)
 	if err != nil {
 		slog.Error("OIDC token exchange failed", logKeyError, err)
-		return err
+		return exchangeFailureReason(err), err
 	}
 
 	claims, err := f.parseIDToken(tokenResp.IDToken)
 	if err != nil {
 		slog.Error("failed to parse id_token", logKeyError, err)
-		return err
+		return opsobs.AuthReasonMalformed, err
 	}
 
 	// Store raw id_token for logout id_token_hint.
@@ -367,7 +375,7 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 	sessionToken, err := SignSession(*claims, &f.cfg.Cookie)
 	if err != nil {
 		slog.Error("failed to create session", logKeyError, err)
-		return err
+		return opsobs.AuthReasonMalformed, err
 	}
 
 	SetCookie(w, &f.cfg.Cookie, sessionToken)
@@ -380,7 +388,12 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 	if f.cfg.OnLogin != nil {
 		f.cfg.OnLogin(claims.Email, claims.FirstName, claims.LastName, claims.UserID, claims.Roles)
 	}
-	return nil
+	return opsobs.AuthReasonNone, nil
+}
+
+// signInRefused counts one browser sign-in that did not complete (#1898).
+func signInRefused(ctx context.Context, reason string) {
+	opsobs.Metrics().RecordAuthAttempt(ctx, opsobs.AuthMethodBrowser, opsobs.AuthResultFailure, reason)
 }
 
 // LogoutHandler clears the session cookie and redirects to the OIDC end_session endpoint.
@@ -455,6 +468,26 @@ type tokenResponse struct {
 }
 
 // exchangeCode exchanges an authorization code for tokens.
+// tokenEndpointError is the token endpoint answering the code exchange with a
+// status other than 200.
+type tokenEndpointError struct{ status int }
+
+func (e *tokenEndpointError) Error() string {
+	return fmt.Sprintf("token endpoint returned %d", e.status)
+}
+
+// exchangeFailureReason is the auth_attempts_total reason a failed code
+// exchange is counted under: a 4xx is the provider refusing the code
+// (code_rejected), anything else -- a 5xx, no answer, an unreadable one -- is
+// the provider being unavailable.
+func exchangeFailureReason(err error) string {
+	var te *tokenEndpointError
+	if errors.As(err, &te) && te.status >= http.StatusBadRequest && te.status < http.StatusInternalServerError {
+		return opsobs.AuthReasonCodeRejected
+	}
+	return opsobs.AuthReasonIDPUnavailable
+}
+
 func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenResponse, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -483,7 +516,7 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token endpoint returned %d", resp.StatusCode)
+		return nil, &tokenEndpointError{status: resp.StatusCode}
 	}
 
 	var tokenResp tokenResponse

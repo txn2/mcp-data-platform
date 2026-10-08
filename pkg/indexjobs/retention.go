@@ -2,10 +2,13 @@ package indexjobs
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // Retainer periodically purges finished job history so index_jobs stays
@@ -94,42 +97,38 @@ func (r *Retainer) Stop() {
 
 func (r *Retainer) run() {
 	defer r.wg.Done()
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
 	// Sweep once on start so a pod that just booted purges whatever
 	// backlog aged past the window while no replica was running.
-	r.sweepOnce()
-	for {
-		select {
-		case <-r.stopCh:
-			return
-		case <-ticker.C:
-			r.sweepOnce()
-		}
-	}
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameIndexJobRetention, Every: r.interval, Immediate: true, Stop: r.stopCh,
+		Body: r.sweepOnce,
+	})
 }
 
-func (r *Retainer) sweepOnce() {
-	ctx, cancel := context.WithTimeout(context.Background(), retentionSweepTimeout)
+func (r *Retainer) sweepOnce(parent context.Context) error {
+	ctx, cancel := context.WithTimeout(parent, retentionSweepTimeout)
 	defer cancel()
 	n, err := r.store.PurgeTerminal(ctx, r.days)
 	if err != nil {
-		slog.Warn("indexjobs: retention sweep failed", logKeyError, err)
-		return
+		slog.WarnContext(ctx, "indexjobs: retention sweep failed", logKeyError, err)
+		return fmt.Errorf("indexjobs: retention: %w", err)
 	}
+	bgloop.Purged(ctx, bgloop.NameIndexJobRetention, int64(n))
 	if n > 0 {
-		slog.Info("indexjobs: retention purged terminal jobs", "count", n, "retention_days", r.days)
+		slog.InfoContext(ctx, "indexjobs: retention purged terminal jobs", "count", n, "retention_days", r.days)
 	}
 	fp, ok := r.store.(FailedPurger)
 	if r.failedDays <= 0 || !ok {
-		return
+		return nil
 	}
 	n, err = fp.PurgeUnresolvedFailed(ctx, r.failedDays)
 	if err != nil {
-		slog.Warn("indexjobs: unresolved-failure retention sweep failed", logKeyError, err)
-		return
+		slog.WarnContext(ctx, "indexjobs: unresolved-failure retention sweep failed", logKeyError, err)
+		return fmt.Errorf("indexjobs: unresolved-failure retention: %w", err)
 	}
+	bgloop.Purged(ctx, bgloop.NameIndexJobRetention, int64(n))
 	if n > 0 {
-		slog.Info("indexjobs: retention purged unresolved failures", "count", n, "retention_days", r.failedDays)
+		slog.InfoContext(ctx, "indexjobs: retention purged unresolved failures", "count", n, "retention_days", r.failedDays)
 	}
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -181,21 +182,17 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 
 	go func() {
 		defer close(s.done)
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := s.Cleanup(ctx); err != nil {
-					slog.Warn("session cleanup failed", "error", err)
-				}
-			}
-		}
+		bgloop.Run(ctx, bgloop.Loop{Name: bgloop.NameSessionCleanup, Every: interval, Body: s.cleanupTick})
 	}()
+}
+
+// cleanupTick is one iteration of the cleanup routine.
+func (s *Store) cleanupTick(ctx context.Context) error {
+	if err := s.Cleanup(ctx); err != nil {
+		slog.WarnContext(ctx, "session cleanup failed", "error", err)
+		return err
+	}
+	return nil
 }
 
 // Close stops the cleanup goroutine and waits for it to exit.

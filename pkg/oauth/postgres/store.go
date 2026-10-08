@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 )
 
@@ -370,17 +371,10 @@ func (s *Store) StartCleanupRoutine(interval, dcrTTL time.Duration) {
 
 	go func() {
 		defer close(s.done)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.runPeriodicCleanup(ctx, dcrTTL)
-			}
-		}
+		bgloop.Run(ctx, bgloop.Loop{
+			Name: bgloop.NameOAuthStoreCleanup, Every: interval,
+			Body: func(ctx context.Context) error { s.runPeriodicCleanup(ctx, dcrTTL); return nil },
+		})
 	}()
 }
 

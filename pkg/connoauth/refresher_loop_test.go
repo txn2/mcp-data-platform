@@ -22,7 +22,7 @@ func TestRefresherTickListsRowsAndSkipsNoRefreshToken(t *testing.T) {
 	})
 	r := NewRefresher(store, stubConfigResolver{}, nil, NoopLocker{}, RefresherConfig{})
 	r.now = func() time.Time { return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC) }
-	r.tick(context.Background())
+	_ = r.tick(context.Background())
 	// reaching here without panic asserts the tick + processRow path.
 }
 
@@ -47,7 +47,7 @@ func TestRefresherTickProcessesRowWithRefreshToken(t *testing.T) {
 		cfg: Config{TokenURL: "http://127.0.0.1:1/never-listens"},
 	}, writer, NoopLocker{}, RefresherConfig{})
 	r.now = func() time.Time { return time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC) }
-	r.tick(context.Background())
+	_ = r.tick(context.Background())
 	// reaching here without panic asserts the tick+processRow+lock+
 	// Reacquire path. The Reacquire surfaces a transport error which
 	// processRow logs but doesn't propagate.

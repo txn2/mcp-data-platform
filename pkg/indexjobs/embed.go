@@ -243,7 +243,7 @@ func embedInBatches(ctx context.Context, run batchRun) error {
 			// just fires doomed sub-calls against a dead context.
 			if isEmbedTimeout(err) && end-start > 1 && ctx.Err() == nil {
 				size = (end - start) / 2
-				slog.Warn("indexjobs: embed batch timed out, shrinking batch size",
+				slog.WarnContext(ctx, "indexjobs: embed batch timed out, shrinking batch size",
 					"start", start, "failed_size", end-start, "next_size", size)
 				continue
 			}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // MemoryStore is an in-process map keyed by state token. It sweeps
@@ -73,18 +75,15 @@ func (s *MemoryStore) Close() error {
 }
 
 func (s *MemoryStore) gcLoop(interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NamePKCECleanup, Every: interval, Stop: s.stopCh,
+		Body: func(context.Context) error {
 			s.mu.Lock()
 			s.gcLocked()
 			s.mu.Unlock()
-		case <-s.stopCh:
-			return
-		}
-	}
+			return nil
+		},
+	})
 }
 
 func (s *MemoryStore) gcLocked() {

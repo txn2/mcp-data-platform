@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
 
@@ -648,7 +649,8 @@ func TestRunMaintenanceTick_SkipsWhenLockContended(t *testing.T) {
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").
 		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false))
 
-	store.runMaintenanceTick(context.Background())
+	err = store.runMaintenanceTick(context.Background())
+	assert.ErrorIs(t, err, bgloop.ErrSkipped, "a held lock is counted as a skip, not as silence (#1897)")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -665,7 +667,7 @@ func TestRunMaintenanceTick_LockAcquireError(t *testing.T) {
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").
 		WillReturnError(errors.New("connection reset"))
 
-	store.runMaintenanceTick(context.Background())
+	_ = store.runMaintenanceTick(context.Background())
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

@@ -22,6 +22,10 @@ server:
   # template (#1889). Low here so the acceptance suite can provoke one with
   # the fixture's slow tool; the shipped default is 5s.
   slow_request_threshold: 2s
+  # dependency_up re-pings at most this often when scraped (#1898). Low here
+  # so a dependency the acceptance suite breaks shows without waiting the
+  # shipped default of 1m.
+  state_probe_interval: 2s
   description: |
     ACME Corp's unified data platform providing governed access to the enterprise
     data warehouse (Trino/Iceberg), data catalog (DataHub), and object storage (S3).
@@ -206,6 +210,22 @@ personas:
       description_prefix: |
         You are an automated ingestion job pulling records from upstream APIs.
 
+  # Names, without a wildcard, a tool no toolkit registers, so the dev stack
+  # boots with one config_validation_warnings_total{code="persona_tool_unregistered"}
+  # for the acceptance suite to read (#1898). It grants no tool: the one name
+  # it allows matches none.
+  acceptance-stale-grant:
+    display_name: "Acceptance: stale tool grant"
+    roles:
+      - acceptance_stale_grant
+    tools:
+      allow:
+        - "trino_retired_tool"
+      deny: []
+    connections:
+      allow:
+        - "*"
+
   data-engineer:
     display_name: "Data Engineer"
     roles:
@@ -325,7 +345,11 @@ personas:
       allow:
         - "trino_query"
         - "trino_describe_table"
-        - "datahub_search"
+        # datahub_search was retired for the unified search (#1590); a grant
+        # naming it granted nothing, and is what persona_tool_unregistered
+        # reports (#1898). search and fetch are a unit.
+        - "search"
+        - "fetch"
         - "s3_object"
       deny: []
     connections:
@@ -617,6 +641,9 @@ calls:
 # the acceptance suite hold a run to it.
 scripts:
   worker:
+    # DEV_SCRIPT_WORKER_ENABLED=false make dev starts both replicas with no
+    # worker, which #1897's stopped-scheduler criterion needs.
+    enabled: ${DEV_SCRIPT_WORKER_ENABLED:-true}
     max_run_memory: 128MiB
 
 # Inbound webhooks (#1870). Sources are created in the portal (Admin >

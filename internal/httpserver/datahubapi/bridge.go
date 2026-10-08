@@ -13,6 +13,8 @@ import (
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/internal/dhobs"
+	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -180,6 +182,9 @@ func BuildConnection(client *dhclient.Client, semanticPlatform string, catalogMa
 	if err != nil {
 		return nil, nil, fmt.Errorf("building datahub reader: %w", err)
 	}
+	// The reads record datahub_requests_total and their spans through the
+	// adapter's own decorator, the writes through internal/dhobs (#1896).
+	reader.SetMetrics(outbound.Metrics())
 	if readOnly {
 		return reader, nil, nil
 	}
@@ -197,7 +202,9 @@ const errWriter = "datahub writer: %w"
 
 // UpdateDescription sets an entity's description.
 func (cw clientWriter) UpdateDescription(ctx context.Context, urn, description string) error {
-	if err := cw.w.UpdateDescription(ctx, urn, description); err != nil {
+	if err := dhobs.Call(ctx, "update_description", func(ctx context.Context) error {
+		return cw.w.UpdateDescription(ctx, urn, description)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -205,7 +212,9 @@ func (cw clientWriter) UpdateDescription(ctx context.Context, urn, description s
 
 // ApplyTagChanges applies a batched add/remove set of tags.
 func (cw clientWriter) ApplyTagChanges(ctx context.Context, urn string, add, remove []string) error {
-	if err := cw.w.ApplyTagChanges(ctx, urn, add, remove); err != nil {
+	if err := dhobs.Call(ctx, "apply_tag_changes", func(ctx context.Context) error {
+		return cw.w.ApplyTagChanges(ctx, urn, add, remove)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -213,7 +222,9 @@ func (cw clientWriter) ApplyTagChanges(ctx context.Context, urn string, add, rem
 
 // ApplyGlossaryTermChanges applies a batched add/remove set of glossary terms.
 func (cw clientWriter) ApplyGlossaryTermChanges(ctx context.Context, urn string, add, remove []string) error {
-	if err := cw.w.ApplyGlossaryTermChanges(ctx, urn, add, remove); err != nil {
+	if err := dhobs.Call(ctx, "apply_glossary_term_changes", func(ctx context.Context) error {
+		return cw.w.ApplyGlossaryTermChanges(ctx, urn, add, remove)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -225,7 +236,9 @@ func (cw clientWriter) ApplyOwnerChanges(ctx context.Context, urn string, add []
 	for i, o := range add {
 		changes[i] = knowledgekit.OwnerChange{OwnerURN: o.OwnerURN, OwnershipType: o.OwnershipType}
 	}
-	if err := cw.w.ApplyOwnerChanges(ctx, urn, changes, remove); err != nil {
+	if err := dhobs.Call(ctx, "apply_owner_changes", func(ctx context.Context) error {
+		return cw.w.ApplyOwnerChanges(ctx, urn, changes, remove)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -233,7 +246,9 @@ func (cw clientWriter) ApplyOwnerChanges(ctx context.Context, urn string, add []
 
 // SetDomain assigns a domain to an entity.
 func (cw clientWriter) SetDomain(ctx context.Context, entityURN, domainURN string) error {
-	if err := cw.w.SetDomain(ctx, entityURN, domainURN); err != nil {
+	if err := dhobs.Call(ctx, "set_domain", func(ctx context.Context) error {
+		return cw.w.SetDomain(ctx, entityURN, domainURN)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -241,7 +256,9 @@ func (cw clientWriter) SetDomain(ctx context.Context, entityURN, domainURN strin
 
 // UnsetDomain removes the domain from an entity.
 func (cw clientWriter) UnsetDomain(ctx context.Context, entityURN string) error {
-	if err := cw.w.UnsetDomain(ctx, entityURN); err != nil {
+	if err := dhobs.Call(ctx, "unset_domain", func(ctx context.Context) error {
+		return cw.w.UnsetDomain(ctx, entityURN)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -249,7 +266,9 @@ func (cw clientWriter) UnsetDomain(ctx context.Context, entityURN string) error 
 
 // CreateGlossaryNode creates a glossary node and returns its URN.
 func (cw clientWriter) CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error) {
-	urn, err := cw.w.CreateGlossaryNode(ctx, name, definition, parentNode)
+	urn, err := dhobs.Do(ctx, "create_glossary_node", func(ctx context.Context) (string, error) {
+		return cw.w.CreateGlossaryNode(ctx, name, definition, parentNode)
+	})
 	if err != nil {
 		return "", fmt.Errorf(errWriter, err)
 	}
@@ -258,7 +277,9 @@ func (cw clientWriter) CreateGlossaryNode(ctx context.Context, name, definition,
 
 // CreateGlossaryTerm creates a glossary term and returns its URN.
 func (cw clientWriter) CreateGlossaryTerm(ctx context.Context, name, definition, parentNode string) (string, error) {
-	urn, err := cw.w.CreateGlossaryTerm(ctx, name, definition, parentNode)
+	urn, err := dhobs.Do(ctx, "create_glossary_term", func(ctx context.Context) (string, error) {
+		return cw.w.CreateGlossaryTerm(ctx, name, definition, parentNode)
+	})
 	if err != nil {
 		return "", fmt.Errorf(errWriter, err)
 	}
@@ -267,7 +288,9 @@ func (cw clientWriter) CreateGlossaryTerm(ctx context.Context, name, definition,
 
 // DeleteGlossaryEntity removes a glossary term or node.
 func (cw clientWriter) DeleteGlossaryEntity(ctx context.Context, urn string) error {
-	if err := cw.w.DeleteGlossaryEntity(ctx, urn); err != nil {
+	if err := dhobs.Call(ctx, "delete_glossary_entity", func(ctx context.Context) error {
+		return cw.w.DeleteGlossaryEntity(ctx, urn)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -275,7 +298,9 @@ func (cw clientWriter) DeleteGlossaryEntity(ctx context.Context, urn string) err
 
 // CreateTag creates a tag definition and returns its URN.
 func (cw clientWriter) CreateTag(ctx context.Context, name, description string) (string, error) {
-	urn, err := cw.w.CreateTag(ctx, name, description)
+	urn, err := dhobs.Do(ctx, "create_tag", func(ctx context.Context) (string, error) {
+		return cw.w.CreateTag(ctx, name, description)
+	})
 	if err != nil {
 		return "", fmt.Errorf(errWriter, err)
 	}
@@ -284,7 +309,9 @@ func (cw clientWriter) CreateTag(ctx context.Context, name, description string) 
 
 // DeleteTag removes a tag definition.
 func (cw clientWriter) DeleteTag(ctx context.Context, tagURN string) error {
-	if err := cw.w.DeleteTag(ctx, tagURN); err != nil {
+	if err := dhobs.Call(ctx, "delete_tag", func(ctx context.Context) error {
+		return cw.w.DeleteTag(ctx, tagURN)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -292,7 +319,9 @@ func (cw clientWriter) DeleteTag(ctx context.Context, tagURN string) error {
 
 // CreateDomain creates a domain definition and returns its URN.
 func (cw clientWriter) CreateDomain(ctx context.Context, name, description string) (string, error) {
-	urn, err := cw.w.CreateDomain(ctx, name, description)
+	urn, err := dhobs.Do(ctx, "create_domain", func(ctx context.Context) (string, error) {
+		return cw.w.CreateDomain(ctx, name, description)
+	})
 	if err != nil {
 		return "", fmt.Errorf(errWriter, err)
 	}
@@ -301,7 +330,9 @@ func (cw clientWriter) CreateDomain(ctx context.Context, name, description strin
 
 // DeleteDomain removes a domain definition.
 func (cw clientWriter) DeleteDomain(ctx context.Context, domainURN string) error {
-	if err := cw.w.DeleteDomain(ctx, domainURN); err != nil {
+	if err := dhobs.Call(ctx, "delete_domain", func(ctx context.Context) error {
+		return cw.w.DeleteDomain(ctx, domainURN)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
@@ -309,11 +340,13 @@ func (cw clientWriter) DeleteDomain(ctx context.Context, domainURN string) error
 
 // UpsertContextDocument creates or updates a context document.
 func (cw clientWriter) UpsertContextDocument(ctx context.Context, in DocumentInput) (*semantic.DocumentResult, error) {
-	doc, err := cw.w.UpsertContextDocument(ctx, in.EntityURN, types.ContextDocumentInput{
-		ID:       in.ID,
-		Title:    in.Title,
-		Content:  in.Content,
-		Category: in.Category,
+	doc, err := dhobs.Do(ctx, "upsert_context_document", func(ctx context.Context) (*types.ContextDocument, error) {
+		return cw.w.UpsertContextDocument(ctx, in.EntityURN, types.ContextDocumentInput{
+			ID:       in.ID,
+			Title:    in.Title,
+			Content:  in.Content,
+			Category: in.Category,
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf(errWriter, err)
@@ -323,7 +356,9 @@ func (cw clientWriter) UpsertContextDocument(ctx context.Context, in DocumentInp
 
 // DeleteContextDocument removes a context document by id.
 func (cw clientWriter) DeleteContextDocument(ctx context.Context, documentID string) error {
-	if err := cw.w.DeleteContextDocument(ctx, documentID); err != nil {
+	if err := dhobs.Call(ctx, "delete_context_document", func(ctx context.Context) error {
+		return cw.w.DeleteContextDocument(ctx, documentID)
+	}); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil

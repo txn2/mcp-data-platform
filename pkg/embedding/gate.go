@@ -195,7 +195,7 @@ func (g *Gate) publish(ctx context.Context) {
 		err = g.signal.Clear(ctx)
 	}
 	if err != nil {
-		slog.Debug("embedding gate: shared signal not updated", "interactive", busy, "error", err)
+		slog.DebugContext(ctx, "embedding gate: shared signal not updated", "interactive", busy, "error", err)
 		return
 	}
 	g.published = busy
@@ -231,20 +231,26 @@ func (g *Gate) yieldShared(ctx context.Context, expired <-chan time.Time) error 
 	if g.signal == nil {
 		return nil
 	}
-	for {
-		if !g.sharedBusy(ctx) {
-			return nil
+	for g.sharedBusy(ctx) {
+		if done, err := g.pollWait(ctx, expired); done {
+			return err
 		}
-		wait := time.NewTimer(g.poll)
-		select {
-		case <-wait.C:
-		case <-expired:
-			wait.Stop()
-			return nil
-		case <-ctx.Done():
-			wait.Stop()
-			return fmt.Errorf("embedding gate: %w", ctx.Err())
-		}
+	}
+	return nil
+}
+
+// pollWait waits one poll interval, reporting done when expired fired (nil)
+// or ctx ended (its error) first.
+func (g *Gate) pollWait(ctx context.Context, expired <-chan time.Time) (bool, error) {
+	wait := time.NewTimer(g.poll)
+	defer wait.Stop()
+	select {
+	case <-wait.C:
+		return false, nil
+	case <-expired:
+		return true, nil
+	case <-ctx.Done():
+		return true, fmt.Errorf("embedding gate: %w", ctx.Err())
 	}
 }
 
@@ -254,7 +260,7 @@ func (g *Gate) sharedBusy(ctx context.Context) bool {
 	defer cancel()
 	busy, err := g.signal.Busy(ctx)
 	if err != nil {
-		slog.Debug("embedding gate: shared signal unreadable; not waiting", "error", err)
+		slog.DebugContext(ctx, "embedding gate: shared signal unreadable; not waiting", "error", err)
 		return false
 	}
 	return busy

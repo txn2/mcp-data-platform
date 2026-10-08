@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
@@ -129,13 +130,15 @@ func (w *Worker) Notify() {
 	}
 }
 
-// Start launches the worker loop. Idempotent.
-func (w *Worker) Start(_ context.Context) {
+// Start launches the worker loop. Idempotent. The loop carries ctx's values
+// but not its cancellation: it runs until Stop, however short-lived the
+// context that started it.
+func (w *Worker) Start(ctx context.Context) {
 	if !w.started.CompareAndSwap(false, true) {
 		return
 	}
 	w.wg.Add(1)
-	go w.run()
+	go w.run(context.WithoutCancel(ctx))
 }
 
 // Stop terminates the worker loop and waits for in-flight work. Idempotent.
@@ -146,24 +149,18 @@ func (w *Worker) Stop() {
 }
 
 // run is the poll/wakeup loop.
-func (w *Worker) run() {
+func (w *Worker) run(ctx context.Context) {
 	defer w.wg.Done()
-	ticker := time.NewTicker(w.cfg.PollEvery)
-	defer ticker.Stop()
-	for {
-		w.drain()
-		select {
-		case <-w.stopCh:
-			return
-		case <-w.wakeup:
-		case <-ticker.C:
-		}
-	}
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameNotifyWorker, Every: w.cfg.PollEvery, Immediate: true,
+		Wake: w.wakeup, Stop: w.stopCh, SpanPerUnit: true,
+		Body: w.drain,
+	})
 }
 
-// drain processes due rows until none remain or the worker stops.
-func (w *Worker) drain() {
-	ctx := context.Background()
+// drain processes due rows until none remain or the worker stops. Each
+// claimed batch is delivered as a unit of work with its own root span.
+func (w *Worker) drain(ctx context.Context) error {
 	// Retention runs before the deliverability gate so the table stays
 	// bounded even on deployments that never configure SMTP.
 	w.maybePurge(ctx)
@@ -173,18 +170,18 @@ func (w *Worker) drain() {
 		Channel: w.cfg.Channels != nil && w.cfg.ChannelSenders != nil,
 	}
 	if !filter.Deliverable() {
-		return
+		return nil
 	}
-	for {
-		select {
-		case <-w.stopCh:
-			return
-		default:
+	for !bgloop.Stopped(ctx, w.stopCh) {
+		more, err := w.processNext(ctx, settings, filter)
+		if err != nil {
+			return err
 		}
-		if !w.processNext(ctx, settings, filter) {
-			return
+		if !more {
+			return nil
 		}
 	}
+	return nil
 }
 
 // maybePurge runs the table-retention pass at most once per purgeEvery.
@@ -195,11 +192,12 @@ func (w *Worker) maybePurge(ctx context.Context) {
 	w.lastPurge = time.Now()
 	purged, err := w.cfg.Queue.PurgeOld(ctx, DefaultResolvedRetention, DefaultPendingTTL)
 	if err != nil {
-		slog.Warn("notification: retention purge failed", logKeyError, err)
+		slog.WarnContext(ctx, "notification: retention purge failed", logKeyError, err)
 		return
 	}
+	bgloop.Purged(ctx, bgloop.NameNotifyWorker, purged)
 	if purged > 0 {
-		slog.Info("notification: retention purge", "rows", purged)
+		slog.InfoContext(ctx, "notification: retention purge", "rows", purged)
 	}
 }
 
@@ -211,7 +209,7 @@ func (w *Worker) deliverableSettings(ctx context.Context) *smtp.Settings {
 		return nil
 	}
 	if err != nil {
-		slog.Warn("notification: reading smtp settings failed", logKeyError, err)
+		slog.WarnContext(ctx, "notification: reading smtp settings failed", logKeyError, err)
 		return nil
 	}
 	if !settings.Enabled || settings.Host == "" {
@@ -221,18 +219,21 @@ func (w *Worker) deliverableSettings(ctx context.Context) *smtp.Settings {
 }
 
 // processNext claims and delivers one unit of work (one immediate row or one
-// recipient's digest batch). It reports whether more work may remain.
-func (w *Worker) processNext(ctx context.Context, settings *smtp.Settings, filter notification.TransportFilter) bool {
+// recipient's digest batch). It reports whether more work may remain, and a
+// claim that failed.
+func (w *Worker) processNext(ctx context.Context, settings *smtp.Settings, filter notification.TransportFilter) (bool, error) {
 	batch, err := w.claimNext(ctx, filter)
 	if errors.Is(err, notification.ErrNoWork) {
-		return false
+		return false, nil
 	}
 	if err != nil {
-		slog.Warn("notification: claim failed", logKeyError, err)
-		return false
+		slog.WarnContext(ctx, "notification: claim failed", logKeyError, err)
+		return false, err
 	}
-	w.deliver(ctx, settings, batch)
-	return true
+	_ = bgloop.Unit(ctx, bgloop.NameNotifyDelivery, func(ctx context.Context) error {
+		return w.deliver(ctx, settings, batch)
+	})
+	return true, nil
 }
 
 // claimNext prefers immediate rows, then falls back to digest batches.
@@ -252,30 +253,53 @@ func (w *Worker) claimNext(ctx context.Context, filter notification.TransportFil
 	return batch, nil
 }
 
+// Delivery attempt results, as notification_delivery_attempts_total counts
+// them (#1897).
+const (
+	attemptDelivered = "delivered"
+	attemptRetry     = "retry"
+	attemptFailed    = "failed"
+)
+
+// kindEmail is the transport kind label of a delivery by SMTP; a channel
+// delivery is labeled by its channel's kind.
+const kindEmail = "email"
+
 // deliver sends one claimed batch over the transport its destination names,
-// then resolves its rows.
-func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []notification.Notification) {
+// then resolves its rows. The attempt is counted by the transport's kind and
+// what became of it; the send's error is returned so the unit is counted as
+// one that failed.
+func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []notification.Notification) error {
 	if len(batch) == 0 {
-		return
+		return nil
 	}
 	var (
+		kind     = kindEmail
 		terminal bool
 		err      error
 	)
 	if name, addressed := notification.ChannelName(batch[0].Recipient); addressed {
-		terminal, err = w.deliverToChannel(ctx, name, batch)
+		kind, terminal, err = w.deliverToChannel(ctx, name, batch)
 	} else {
 		terminal, err = w.deliverByEmail(ctx, settings, batch)
 	}
+	m := bgloop.Metrics()
 	if err != nil {
-		w.resolve(ctx, batch, err, terminal)
-		return
+		retried := w.resolve(ctx, batch, err, terminal)
+		result := attemptFailed
+		if retried {
+			result = attemptRetry
+		}
+		m.RecordNotificationAttempt(ctx, kind, result)
+		return err
 	}
+	m.RecordNotificationAttempt(ctx, kind, attemptDelivered)
 	if err := w.cfg.Queue.MarkSent(ctx, ids(batch)); err != nil {
-		slog.Error("notification: marking sent failed", logKeyError, err)
-		return
+		slog.ErrorContext(ctx, "notification: marking sent failed", logKeyError, err)
+		return fmt.Errorf("notification: marking sent: %w", err)
 	}
-	slog.Info("notification: sent", "recipient", batch[0].Recipient, "count", len(batch))
+	slog.InfoContext(ctx, "notification: sent", "recipient", batch[0].Recipient, "count", len(batch))
+	return nil
 }
 
 // deliverByEmail renders the batch as one branded email and sends it over
@@ -293,47 +317,52 @@ func (w *Worker) deliverByEmail(ctx context.Context, settings *smtp.Settings, ba
 }
 
 // deliverToChannel posts the batch to the destination it names, reporting the
-// failure and whether it is terminal.
+// channel's kind (channel when it could not be read), the failure and whether
+// it is terminal.
 //
 // A batch is one document per row. A digest batch for one channel is posted as
 // one message per document rather than as a bulletin: composing the bulletin
 // is the rendering stage's work, and until it exists a reader gets each
 // document whole instead of a summary that drops what it could not fit.
-func (w *Worker) deliverToChannel(ctx context.Context, name string, batch []notification.Notification) (terminal bool, err error) {
+func (w *Worker) deliverToChannel(ctx context.Context, name string, batch []notification.Notification) (kind string, terminal bool, err error) {
 	ch, err := w.cfg.Channels.Get(ctx, name)
 	if err != nil {
 		// A row naming a channel the operator has since deleted can never be
 		// delivered, so it fails rather than retrying five times first.
 		if errors.Is(err, notifychannel.ErrChannelNotFound) {
-			return true, fmt.Errorf("channel %q no longer exists", name)
+			return kindChannel, true, fmt.Errorf("channel %q no longer exists", name)
 		}
-		return false, fmt.Errorf("reading channel %q: %w", name, err)
+		return kindChannel, false, fmt.Errorf("reading channel %q: %w", name, err)
 	}
 	if !ch.Enabled {
-		return true, fmt.Errorf("channel %q is disabled", name)
+		return ch.Kind, true, fmt.Errorf("channel %q is disabled", name)
 	}
 	for _, n := range batch {
 		if n.Payload.Document == nil {
-			return true, fmt.Errorf("notification %d carries no document to post to channel %q", n.ID, name)
+			return ch.Kind, true, fmt.Errorf("notification %d carries no document to post to channel %q", n.ID, name)
 		}
 		d := notification.Delivery{ID: DeliveryID(n.ID), OccurredAt: n.CreatedAt, Document: *n.Payload.Document}
 		if err := w.cfg.ChannelSenders.Send(ctx, *ch, d); err != nil {
-			return errors.Is(err, notifypost.ErrTerminal), err
+			return ch.Kind, errors.Is(err, notifypost.ErrTerminal), err
 		}
 	}
-	return false, nil
+	return ch.Kind, false, nil
 }
 
-// resolve routes a failed batch to retry or permanent failure.
-func (w *Worker) resolve(ctx context.Context, batch []notification.Notification, sendErr error, terminal bool) {
+// kindChannel labels a channel delivery whose channel could not be read.
+const kindChannel = "channel"
+
+// resolve routes a failed batch to retry or permanent failure, reporting
+// whether it was retried.
+func (w *Worker) resolve(ctx context.Context, batch []notification.Notification, sendErr error, terminal bool) bool {
 	attempts := maxAttempts(batch)
 	if terminal || attempts >= w.cfg.MaxAttempts {
-		slog.Error("notification: delivery failed permanently",
+		slog.ErrorContext(ctx, "notification: delivery failed permanently",
 			"recipient", batch[0].Recipient, "attempts", attempts, logKeyError, sendErr)
 		if err := w.cfg.Queue.Fail(ctx, ids(batch), sendErr.Error()); err != nil {
-			slog.Error("notification: recording failure failed", logKeyError, err)
+			slog.ErrorContext(ctx, "notification: recording failure failed", logKeyError, err)
 		}
-		return
+		return false
 	}
 	backoff := computeBackoff(attempts)
 	var asked *notifypost.RetryAfterError
@@ -342,11 +371,12 @@ func (w *Worker) resolve(ctx context.Context, batch []notification.Notification,
 		// longest wait this queue's own schedule would make.
 		backoff = min(asked.After, maxBackoff)
 	}
-	slog.Warn("notification: delivery failed; will retry",
+	slog.WarnContext(ctx, "notification: delivery failed; will retry",
 		"recipient", batch[0].Recipient, "attempts", attempts, "backoff", backoff, logKeyError, sendErr)
 	if err := w.cfg.Queue.Retry(ctx, ids(batch), sendErr.Error(), backoff); err != nil {
-		slog.Error("notification: recording retry failed", logKeyError, err)
+		slog.ErrorContext(ctx, "notification: recording retry failed", logKeyError, err)
 	}
+	return true
 }
 
 // ids collects the row IDs of a batch.

@@ -180,7 +180,7 @@ func TestScheduler_ADueFireBecomesARun(t *testing.T) {
 	fire := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
 	s, store, woke := schedulerOver(t, fire, fire.Add(time.Minute), nil)
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	runs := store.materialized()
 	require.Len(t, runs, 1)
@@ -208,7 +208,7 @@ func TestScheduler_NothingDueDoesNothing(t *testing.T) {
 	fire := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
 	s, store, _ := schedulerOver(t, fire, fire.Add(-time.Hour), nil)
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	assert.Empty(t, store.materialized())
 	assert.Empty(t, store.advances)
@@ -223,7 +223,7 @@ func TestScheduler_MisfireFiresOnceForTheLatest(t *testing.T) {
 	now := fire.Add(5*time.Hour + 30*time.Minute)
 	s, store, _ := schedulerOver(t, fire, now, nil)
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	runs := store.materialized()
 	require.Len(t, runs, 1, "one run, not six")
@@ -242,7 +242,7 @@ func TestScheduler_AnOverlappingFireIsSkippedAndVisible(t *testing.T) {
 	s, store, woke := schedulerOver(t, fire, fire.Add(time.Minute), nil)
 	store.open["sched_1"] = true
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	runs := store.materialized()
 	require.Len(t, runs, 1)
@@ -276,7 +276,7 @@ func TestScheduler_ARefusedFireProducesNoRunAndCountsAsMissed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s, store, woke := schedulerOver(t, fire, fire.Add(time.Minute), tt.mutate)
 
-			s.pass(context.Background())
+			_ = s.pass(context.Background())
 
 			assert.Empty(t, store.materialized())
 			assert.Zero(t, *woke)
@@ -312,7 +312,7 @@ func TestScheduler_AMissingScriptOrVersionIsRefused(t *testing.T) {
 				schedules: store, scripts: tt.scripts, versions: tt.versions,
 				now: func() time.Time { return fire.Add(time.Minute) },
 			})
-			s.pass(context.Background())
+			_ = s.pass(context.Background())
 
 			assert.Empty(t, store.materialized())
 			require.Len(t, store.advances, 1)
@@ -335,7 +335,7 @@ func TestScheduler_AnUnparseableCadenceIsParked(t *testing.T) {
 		now: func() time.Time { return fire.Add(time.Minute) },
 	})
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	assert.Equal(t, []string{sc.ID}, store.disabled)
 	assert.Empty(t, store.materialized())
@@ -357,7 +357,7 @@ func TestScheduler_AZoneThisBuildCannotLoadIsNotParked(t *testing.T) {
 		now: func() time.Time { return fire.Add(time.Minute) },
 	})
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	assert.Empty(t, store.disabled, "the schedule is left alone; the build is what needs fixing")
 	assert.Empty(t, store.advances, "and it stays due, so the next pass tries again")
@@ -372,14 +372,14 @@ func TestScheduler_StoreFailuresAreSurvived(t *testing.T) {
 	t.Run("the due query failed", func(t *testing.T) {
 		s, store, _ := schedulerOver(t, fire, fire.Add(time.Minute), nil)
 		store.dueErr = errors.New("boom")
-		s.pass(context.Background())
+		_ = s.pass(context.Background())
 		assert.Empty(t, store.advances)
 	})
 
 	t.Run("the insert failed", func(t *testing.T) {
 		s, store, woke := schedulerOver(t, fire, fire.Add(time.Minute), nil)
 		store.insertErr = errors.New("boom")
-		s.pass(context.Background())
+		_ = s.pass(context.Background())
 		assert.Zero(t, *woke)
 		// The schedule is NOT advanced past a fire that failed to materialize:
 		// the next pass recomputes the same fire and tries again.
@@ -442,7 +442,7 @@ func TestScheduler_BookkeepingFailuresAreLoggedNotFatal(t *testing.T) {
 	t.Run("the advance failed", func(t *testing.T) {
 		s, store, _ := schedulerOver(t, fire, fire.Add(time.Minute), nil)
 		store.advanceErr = errors.New("boom")
-		s.pass(context.Background())
+		_ = s.pass(context.Background())
 		assert.Len(t, store.materialized(), 1, "the fire was still recorded")
 	})
 
@@ -456,7 +456,7 @@ func TestScheduler_BookkeepingFailuresAreLoggedNotFatal(t *testing.T) {
 			schedules: store, scripts: &fakeScripts{script: sc}, versions: &fakeVersions{version: v},
 			now: func() time.Time { return fire.Add(time.Minute) },
 		})
-		s.pass(context.Background())
+		_ = s.pass(context.Background())
 		assert.Empty(t, store.materialized())
 	})
 }
@@ -491,7 +491,7 @@ func TestScheduler_RecordsMissedFiresUnderTheScriptName(t *testing.T) {
 	s, _, _ := schedulerOver(t, fire, fire.Add(5*time.Hour+30*time.Minute), nil)
 	s.cfg.metrics = m
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	body := scrapeWorkerMetrics(t, m)
 	assert.Contains(t, body, "script_missed_fires_total")
@@ -510,7 +510,7 @@ func TestScheduler_RecordsNothingWhenNoFireIsMissed(t *testing.T) {
 	s, _, _ := schedulerOver(t, fire, fire.Add(time.Minute), nil)
 	s.cfg.metrics = m
 
-	s.pass(context.Background())
+	_ = s.pass(context.Background())
 
 	assert.NotContains(t, scrapeWorkerMetrics(t, m), "script_missed_fires_total")
 }

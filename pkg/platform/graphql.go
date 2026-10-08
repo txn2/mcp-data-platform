@@ -102,7 +102,7 @@ func (p *Platform) graphQLExportDeps() *graphqlkit.ExportDeps {
 	return &graphqlkit.ExportDeps{
 		AssetStore:     exporter,
 		VersionStore:   exporter,
-		S3Client:       p.portalStore.S3Client(),
+		S3Client:       p.portalStore.ExportS3Client(),
 		ShareCreator:   exporter,
 		ResourceLander: p.portalStore.ResourceLanding(),
 		S3Bucket:       p.config.Portal.S3Bucket,

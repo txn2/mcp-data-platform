@@ -364,7 +364,7 @@ func TestRefusalsStoreNothing(t *testing.T) {
 	assert.Zero(t, h.objects.count(), "no refused request writes an object")
 	assert.Zero(t, h.objects.puts.Load())
 
-	h.r.flushStats(context.Background())
+	_ = h.r.flushStats(context.Background())
 	assert.Equal(t, int64(2), h.recorder.counts["esp/unauthorized"])
 	assert.Equal(t, int64(1), h.recorder.counts["small/too_large"])
 	assert.Len(t, h.recorder.rejections, 5)
@@ -416,7 +416,7 @@ func TestUnknownAndDisabledAnswerTheSame(t *testing.T) {
 	assert.Equal(t, b1, b2)
 	assert.Equal(t, b1, b3)
 	assert.Equal(t, 5, h.metrics.requests["/unknown_source"], "an unknown name is never a label")
-	h.r.flushStats(context.Background())
+	_ = h.r.flushStats(context.Background())
 	assert.Empty(t, h.recorder.counts)
 }
 
@@ -638,9 +638,9 @@ func TestRefreshAndStats(t *testing.T) {
 
 	h.recorder.countErr = errors.New("db down")
 	h.r.count("good", OutcomeAccepted)
-	h.r.flushStats(context.Background())
+	_ = h.r.flushStats(context.Background())
 	h.recorder.countErr = nil
-	h.r.flushStats(context.Background())
+	_ = h.r.flushStats(context.Background())
 	assert.Equal(t, int64(1), h.recorder.counts["good/accepted"], "a failed write of counts keeps them for the next")
 
 	for range maxPendingRejections + 5 {

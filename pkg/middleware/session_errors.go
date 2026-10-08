@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // defaultMaxFailuresPerSession caps the pending failures retained per session so
@@ -197,18 +200,10 @@ func jaccardSimilarity(a, b map[string]struct{}) float64 {
 // StartCleanup starts a background goroutine that evicts idle sessions and
 // expired failures on the given interval.
 func (t *SessionErrorTracker) StartCleanup(interval time.Duration) {
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-t.done:
-				return
-			case <-ticker.C:
-				t.cleanup()
-			}
-		}
-	}()
+	go bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameSessionErrorsCleanup, Every: interval, Stop: t.done,
+		Body: func(context.Context) error { t.cleanup(); return nil },
+	})
 }
 
 // Stop halts the cleanup goroutine. It is idempotent.

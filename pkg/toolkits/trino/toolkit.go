@@ -190,6 +190,9 @@ type Toolkit struct {
 
 	// exportDeps holds portal dependencies for trino_export (nil = export disabled).
 	exportDeps *ExportDeps
+
+	// telemetry is the recorder every call to Trino reports to (telemetry.go).
+	telemetry queryTelemetry
 }
 
 // New creates a new Trino toolkit.
@@ -228,7 +231,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 	if cfg.ReadOnly {
 		t.readOnly = NewReadOnlyInterceptor()
 	}
-	t.trinoToolkit = createToolkit(client, cfg, t.elicitation, t.readOnly)
+	t.trinoToolkit = createToolkit(client, cfg, t.elicitation, t.readOnly, t.observerOptions()...)
 
 	return t, nil
 }
@@ -286,6 +289,7 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 
 	connRequired := buildConnectionRequired(defaultName, cfg.Instances)
 	opts := buildToolkitOptions(defaultCfg, nil, connRequired, t.readOnly) // elicitation not supported in multi-mode yet
+	opts = append(opts, t.observerOptions()...)
 	t.trinoToolkit = trinotools.NewToolkitWithManager(mgr, trinotools.Config{
 		DefaultLimit: defaultCfg.DefaultLimit,
 		MaxLimit:     defaultCfg.MaxLimit,
@@ -544,8 +548,9 @@ func createToolkit(
 	cfg Config,
 	elicit *ElicitationMiddleware,
 	readOnly *ReadOnlyInterceptor,
+	extra ...trinotools.ToolkitOption,
 ) *trinotools.Toolkit {
-	opts := buildToolkitOptions(cfg, elicit, nil, readOnly)
+	opts := append(buildToolkitOptions(cfg, elicit, nil, readOnly), extra...)
 	return trinotools.NewToolkit(client, trinotools.Config{
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,

@@ -76,7 +76,7 @@ func (t *Toolkit) Exec(ctx context.Context, connection, sql string) error {
 	// Limit is a row cap on the result set, which a DDL statement does not
 	// have; it is left at the client's default rather than set to something
 	// that would silently truncate a statement that does return rows.
-	if _, err := client.Query(ctx, sql, trinoclient.QueryOptions{}); err != nil {
+	if _, err := t.telemetry.query(ctx, client, connection, sql, trinoclient.QueryOptions{}); err != nil {
 		return fmt.Errorf("executing statement: %w", err)
 	}
 	return nil
@@ -99,7 +99,7 @@ func (t *Toolkit) TableExists(ctx context.Context, connection, catalog, schema, 
 	stmt := "SELECT 1 AS present FROM " + quoteIdentifier(catalog) +
 		".information_schema.tables WHERE table_schema = " + quoteLiteral(schema) +
 		" AND table_name = " + quoteLiteral(table)
-	res, err := client.Query(ctx, stmt, trinoclient.QueryOptions{Limit: 1})
+	res, err := t.telemetry.query(ctx, client, connection, stmt, trinoclient.QueryOptions{Limit: 1})
 	if err != nil {
 		return false, fmt.Errorf("looking up %s.%s.%s: %w", catalog, schema, table, err)
 	}
@@ -158,4 +158,20 @@ func (t *Toolkit) checkExecWritable(ctx context.Context, connection, sql string)
 		return err
 	}
 	return nil
+}
+
+// Query runs one read statement against a named connection (empty is the
+// default) and returns its result, recorded like every other statement the
+// toolkit sends (telemetry.go). It runs no read-only check: it is for a caller
+// that issues a SELECT of its own; a statement that writes goes through Exec.
+func (t *Toolkit) Query(ctx context.Context, connection, sql string, opts trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
+	client, err := t.execClient(connection)
+	if err != nil {
+		return nil, err
+	}
+	res, err := t.telemetry.query(ctx, client, connection, sql, opts)
+	if err != nil {
+		return nil, fmt.Errorf("trino query: %w", err)
+	}
+	return res, nil
 }

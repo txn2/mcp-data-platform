@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -111,17 +112,10 @@ func (rb *reloadBus) run(ctx context.Context) {
 	}
 	sub := rb.b.Subscribe(ctx, "reload-bus")
 	defer sub.Close()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-sub.Events():
-			if !ok {
-				return
-			}
-			rb.dispatch(ev)
-		}
-	}
+	bgloop.Consume(ctx, bgloop.Events[session.Event]{
+		Name: bgloop.NameReloadBus, C: sub.Events(),
+		Body: func(_ context.Context, ev session.Event) error { rb.dispatch(ev); return nil },
+	})
 }
 
 // dispatch routes one reload event to the matching local handler. Events

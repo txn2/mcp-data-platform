@@ -109,22 +109,6 @@ func TestInstrumentedClient_RecordsErrorStatus(t *testing.T) {
 	}
 }
 
-func TestQueryKind(t *testing.T) {
-	cases := map[string]string{
-		"SELECT * FROM t":      "select",
-		"  show schemas":       "show",
-		"INSERT INTO t VALUES": "insert",
-		"WITH x AS (...)":      "with",
-		"VACUUM t":             kindOther,
-		"":                     kindOther,
-	}
-	for sql, want := range cases {
-		if got := queryKind(sql); got != want {
-			t.Errorf("queryKind(%q) = %q, want %q", sql, got, want)
-		}
-	}
-}
-
 // TestSetMetrics_NilRecorderTransparent confirms the new contract:
 // SetMetrics installs the instrumenting decorator unconditionally (the
 // platform gates the CALL on whether metrics or tracing is enabled),

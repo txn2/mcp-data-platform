@@ -459,19 +459,15 @@ func (s *PostgresStore) PurgeTerminal(ctx context.Context, retentionDays int) (i
 	`
 	total := 0
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return total, nil // deadline between batches; committed work stands
-		default:
 		}
 		res, err := s.db.ExecContext(ctx, q, cutoff, purgeBatchSize)
 		if err != nil {
-			select {
-			case <-ctx.Done():
+			if ctx.Err() != nil {
 				return total, nil // deadline during a batch; committed work stands
-			default:
-				return total, fmt.Errorf("indexjobs: purge terminal: %w", err)
 			}
+			return total, fmt.Errorf("indexjobs: purge terminal: %w", err)
 		}
 		n, err := res.RowsAffected()
 		if err != nil {

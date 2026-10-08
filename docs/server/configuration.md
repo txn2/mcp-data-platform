@@ -209,6 +209,7 @@ server:
 | `tls.cert_file` | string | - | Path to TLS certificate |
 | `tls.key_file` | string | - | Path to TLS private key |
 | `slow_request_threshold` | duration | `5s` | An inbound HTTP request slower than this is logged at WARN with its route template, method, status and duration (`slow HTTP request`); see [Observability](observability.md#inbound-requests) |
+| `state_probe_interval` | duration | `1m` | How often `dependency_up` re-pings each dependency, at most once per interval and only when `/metrics` is scraped; a signal only, `/readyz` never reads it. `mcp_platform_connections` sends nothing: it reads the outcome of the last call through each connection. See [Observability](observability.md#authentication-configuration-and-platform-state) |
 
 !!! warning "HTTP Transport Security"
     When using HTTP transport without TLS, a warning is logged. For production deployments, always enable TLS to encrypt credentials in transit.

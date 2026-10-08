@@ -226,7 +226,7 @@ func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, r
 	idpHost := logsan.SanitizeForLog(urlHost(s.cfg.TokenURL))
 	s.emitRevokedLeadEvent(ctx, persisted, refreshErr, reason)
 	if delErr := s.store.Delete(ctx, s.key); delErr != nil {
-		slog.Warn("connoauth: delete revoked token row failed",
+		slog.WarnContext(ctx, "connoauth: delete revoked token row failed",
 			logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, delErr)
 		return
 	}
@@ -234,7 +234,7 @@ func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, r
 	// is factually true. The prior ordering emitted the INFO line
 	// before attempting the delete, which produced a misleading
 	// audit trail when the delete itself failed.
-	slog.Info("connoauth: connection token row deleted",
+	slog.InfoContext(ctx, "connoauth: connection token row deleted",
 		logKeyKind, logsan.SanitizeForLog(s.key.Kind), logKeyName, logsan.SanitizeForLog(s.key.Name),
 		"reason", reason, logKeyTokenURLHost, idpHost)
 	// persisted.AuthenticatedBy is read here rather than by the sink because the
@@ -464,7 +464,7 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*Refre
 			// loss for one-time-use-rotation IdPs. Emit at ERROR so
 			// operators see the page; emit the authevent so the
 			// History panel shows the spot where the connection died.
-			slog.Error("connoauth: rotated refresh token issued but persist failed (connection may be unrecoverable)",
+			slog.ErrorContext(ctx, "connoauth: rotated refresh token issued but persist failed (connection may be unrecoverable)",
 				logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, persistErr)
 			s.events.RotationPersistenceFailed(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
 				persistErr.Error())
@@ -472,7 +472,7 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*Refre
 			// Non-rotation persist failure: in-memory token works
 			// for this turn; next refresh re-persists. Warn so
 			// operators can spot DB issues.
-			slog.Warn("connoauth: persist refreshed token failed (in-memory token still valid)",
+			slog.WarnContext(ctx, "connoauth: persist refreshed token failed (in-memory token still valid)",
 				logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, persistErr)
 		}
 	} else {

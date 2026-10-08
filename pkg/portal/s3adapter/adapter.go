@@ -11,6 +11,9 @@ import (
 	"io"
 
 	s3client "github.com/txn2/mcp-s3/pkg/client"
+
+	"github.com/txn2/mcp-data-platform/internal/objectobs"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // API is the subset of the mcp-s3 *client.Client the adapter calls.
@@ -39,13 +42,24 @@ type ObjectEntry struct {
 // ClientAdapter wraps an mcp-s3 Client to satisfy portal.S3Client. It is
 // returned as a concrete type; callers assign it to a portal.S3Client-typed
 // field, which Go satisfies structurally (no import back into portal).
+//
+// Every operation is observed (internal/objectobs) under the purpose the
+// adapter was built for, unless the caller's context names another.
 type ClientAdapter struct {
-	client API
+	client  API
+	purpose string
 }
 
-// New creates a ClientAdapter backed by an mcp-s3 Client.
+// New creates a ClientAdapter backed by an mcp-s3 Client, reporting its
+// operations as the portal's assets.
 func New(client *s3client.Client) *ClientAdapter {
-	return &ClientAdapter{client: client}
+	return NewFor(client, observability.StoragePurposePortalAssets)
+}
+
+// NewFor creates a ClientAdapter reporting its operations under purpose (one
+// of the observability.StoragePurpose* values).
+func NewFor(client *s3client.Client, purpose string) *ClientAdapter {
+	return &ClientAdapter{client: client, purpose: purpose}
 }
 
 // PutObject uploads data to the given bucket and key.
@@ -57,11 +71,14 @@ func New(client *s3client.Client) *ClientAdapter {
 // under one part size as one PutObject and a larger one in parts, so a small
 // write costs what it did before.
 func (a *ClientAdapter) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {
-	_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
-		Bucket:      bucket,
-		Key:         key,
-		Body:        bytes.NewReader(data),
-		ContentType: contentType,
+	_, err := objectobs.Do(ctx, a.purpose, objectobs.OpPut, bucket, func(ctx context.Context) (int64, error) {
+		_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
+			Bucket:      bucket,
+			Key:         key,
+			Body:        bytes.NewReader(data),
+			ContentType: contentType,
+		})
+		return int64(len(data)), err //nolint:wrapcheck // wrapped below, once
 	})
 	if err != nil {
 		return fmt.Errorf("s3 put: %w", err)
@@ -78,11 +95,14 @@ func (a *ClientAdapter) PutObjectStream(ctx context.Context, bucket, key string,
 	// the transfer manager aborts the incomplete multipart upload on that
 	// read error.
 	counter := &countingReader{r: body}
-	_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
-		Bucket:      bucket,
-		Key:         key,
-		Body:        counter,
-		ContentType: contentType,
+	_, err := objectobs.Do(ctx, a.purpose, objectobs.OpPut, bucket, func(ctx context.Context) (int64, error) {
+		_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
+			Bucket:      bucket,
+			Key:         key,
+			Body:        counter,
+			ContentType: contentType,
+		})
+		return counter.n, err //nolint:wrapcheck // wrapped below, once
 	})
 	if err != nil {
 		return counter.n, fmt.Errorf("s3 put stream: %w", err)
@@ -104,7 +124,11 @@ func (c *countingReader) Read(p []byte) (int, error) {
 
 // GetObject fetches the object at the given bucket and key.
 func (a *ClientAdapter) GetObject(ctx context.Context, bucket, key string) (body []byte, contentType string, err error) {
-	obj, err := a.client.GetObject(ctx, bucket, key)
+	var obj *s3client.ObjectContent
+	_, err = objectobs.Do(ctx, a.purpose, objectobs.OpGet, bucket, func(ctx context.Context) (int64, error) {
+		obj, err = a.client.GetObject(ctx, bucket, key)
+		return 0, err //nolint:wrapcheck // wrapped below, once
+	})
 	if err != nil {
 		return nil, "", fmt.Errorf("s3 get: %w", err)
 	}
@@ -117,7 +141,11 @@ func (a *ClientAdapter) GetObject(ctx context.Context, bucket, key string) (body
 func (a *ClientAdapter) GetObjectRange(
 	ctx context.Context, bucket, key string, offset, length int64,
 ) (body []byte, size int64, err error) {
-	obj, err := a.client.GetObjectRange(ctx, bucket, key, offset, length)
+	var obj *s3client.ObjectContent
+	_, err = objectobs.Do(ctx, a.purpose, objectobs.OpGetRange, bucket, func(ctx context.Context) (int64, error) {
+		obj, err = a.client.GetObjectRange(ctx, bucket, key, offset, length)
+		return 0, err //nolint:wrapcheck // wrapped below, once
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("s3 get range: %w", err)
 	}
@@ -142,7 +170,11 @@ const maxDirectoryEntries = 100
 func (a *ClientAdapter) ListDirectory(
 	ctx context.Context, bucket, prefix string,
 ) (entries []ObjectEntry, truncated bool, err error) {
-	out, err := a.client.ListObjects(ctx, bucket, prefix, "/", maxDirectoryEntries, "")
+	var out *s3client.ListObjectsOutput
+	_, err = objectobs.Do(ctx, a.purpose, objectobs.OpList, bucket, func(ctx context.Context) (int64, error) {
+		out, err = a.client.ListObjects(ctx, bucket, prefix, "/", maxDirectoryEntries, "")
+		return 0, err //nolint:wrapcheck // wrapped below, once
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("s3 list: %w", err)
 	}
@@ -160,7 +192,10 @@ func (a *ClientAdapter) ListDirectory(
 
 // DeleteObject removes the object at the given bucket and key.
 func (a *ClientAdapter) DeleteObject(ctx context.Context, bucket, key string) error {
-	if err := a.client.DeleteObject(ctx, bucket, key); err != nil {
+	_, err := objectobs.Do(ctx, a.purpose, objectobs.OpDelete, bucket, func(ctx context.Context) (int64, error) {
+		return 0, a.client.DeleteObject(ctx, bucket, key) //nolint:wrapcheck // wrapped below, once
+	})
+	if err != nil {
 		return fmt.Errorf("s3 delete: %w", err)
 	}
 	return nil

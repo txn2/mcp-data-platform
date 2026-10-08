@@ -73,3 +73,43 @@ func TestSetMetrics_NilSafeToken(t *testing.T) {
 	srv.SetMetrics(nil)
 	_, _ = srv.Token(context.Background(), TokenRequest{GrantType: "refresh_token", RefreshToken: "x"})
 }
+
+// TestSetMetrics_RecordsRegistrationsAndUnsupportedGrants counts dynamic client
+// registration by result and an unsupported grant under one value, never the
+// grant_type the client sent (#1898).
+func TestSetMetrics_RecordsRegistrationsAndUnsupportedGrants(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true})
+	if err != nil {
+		t.Fatalf("observability.New: %v", err)
+	}
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+	srv, err := NewServer(ServerConfig{
+		Issuer: "http://localhost:8080",
+		DCR:    DCRConfig{Enabled: true, AllowedRedirectPatterns: []string{`^http://localhost.*`}},
+	}, &mockStorage{})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	srv.SetMetrics(m)
+
+	for _, body := range []string{testDCRRequestBody, `{"client_name":"x","redirect_uris":["https://elsewhere.example.com"]}`} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/register", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		srv.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	_, _ = srv.Token(context.Background(), TokenRequest{GrantType: "client_credentials_made_up"})
+
+	body := scrapeForTest(t, m.Handler())
+	for _, want := range []string{
+		`oauth_client_registrations_total{result="success"} 1`,
+		`oauth_client_registrations_total{result="failure"} 1`,
+		`oauth_token_issuance_total{grant_type="unsupported",status="client_err"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
+	if strings.Contains(body, "client_credentials_made_up") {
+		t.Error("a client-chosen grant_type became a label value")
+	}
+}

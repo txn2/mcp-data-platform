@@ -68,6 +68,28 @@ func TraceContext(ctx context.Context, req mcp.Request) context.Context {
 	return ctx
 }
 
+// WithTraceMeta writes ctx's trace context into meta as the traceparent and
+// tracestate entries TraceContext reads, so a request that crosses an
+// in-process transport, where no header and no context travel with it,
+// continues the caller's trace: a managed script's tool calls, each a child of
+// the run's span (#1897). meta is returned, allocated when it was nil and ctx
+// carries a trace, and unchanged when ctx carries none.
+func WithTraceMeta(ctx context.Context, meta mcp.Meta) mcp.Meta {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	for _, key := range []string{metaKeyTraceparent, metaKeyTracestate} {
+		v := carrier.Get(key)
+		if v == "" {
+			continue
+		}
+		if meta == nil {
+			meta = mcp.Meta{}
+		}
+		meta[key] = v
+	}
+	return meta
+}
+
 // metaTraceCarrier is the request's _meta read as a propagation carrier: the
 // traceparent and tracestate entries when they are strings, nil otherwise.
 // Guarded against a typed-nil params value, which GetMeta dereferences.

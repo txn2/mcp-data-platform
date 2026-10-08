@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/unarchive"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -124,6 +125,17 @@ type memberPlan struct {
 // that member's write, so nothing partial is stored, and the result carries the
 // members written before it alongside the error.
 func (e *Extractor) ExtractArchive(
+	ctx context.Context, req Extraction, claims resource.Claims,
+) (*Extracted, error) {
+	ctx, op := opsobs.Start(ctx, opsobs.OpResourceExtract)
+	out, err := e.extractMembers(ctx, req, claims)
+	op.End(ctx, err)
+	recordExtraction(ctx, out, err)
+	return out, err
+}
+
+// extractMembers is the extraction ExtractArchive counts.
+func (e *Extractor) extractMembers(
 	ctx context.Context, req Extraction, claims resource.Claims,
 ) (*Extracted, error) {
 	archive, err := e.lander.w.Get(ctx, req.ArchiveID, claims)
@@ -319,3 +331,40 @@ func (r refused) Error() string {
 }
 
 func (r refused) Unwrap() []error { return []error{ErrExtractRefused, r.err} }
+
+// recordExtraction counts what one extraction wrote and, when the archive was
+// refused, why (#1898). Members written before a failure are counted too: they
+// are stored.
+func recordExtraction(ctx context.Context, out *Extracted, err error) {
+	m := opsobs.Metrics()
+	if out != nil && len(out.Members) > 0 {
+		var bytes int64
+		for _, mem := range out.Members {
+			bytes += mem.Landing.SizeBytes
+		}
+		m.RecordArchiveExtraction(ctx, len(out.Members), bytes)
+	}
+	if errors.Is(err, ErrExtractRefused) {
+		m.RecordArchiveRefusal(ctx, refusalReason(err))
+	}
+}
+
+// refusalReason is the class of an archive's refusal: the unarchive sentinel,
+// or the extract limit it passed. The limits are the resources.managed.extract
+// keys, a closed set.
+func refusalReason(err error) string {
+	var le *unarchive.LimitError
+	if errors.As(err, &le) {
+		return le.Limit
+	}
+	for reason, sentinel := range map[string]error{
+		"unsafe_name": unarchive.ErrUnsafeName, "encrypted": unarchive.ErrEncrypted,
+		"unsupported": unarchive.ErrUnsupported, "corrupt": unarchive.ErrCorrupt,
+		"no_members": unarchive.ErrNoMembers,
+	} {
+		if errors.Is(err, sentinel) {
+			return reason
+		}
+	}
+	return "other"
+}

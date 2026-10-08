@@ -57,6 +57,9 @@ func recordToolCall(
 
 	attrs := toolCallAttrs(pc, result, err)
 	metrics.RecordToolCall(ctx, attrs, duration)
+	if pc.DenialReason != "" {
+		metrics.RecordToolDenial(ctx, pc.PersonaName, pc.DenialReason)
+	}
 
 	// Enrichment runs inner to this middleware, so pc.EnrichmentBytes is set
 	// on the shared PlatformContext by the time next() returns (issue #761).

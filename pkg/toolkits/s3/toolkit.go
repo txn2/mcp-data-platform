@@ -204,9 +204,12 @@ func createClient(cfg Config) (*s3client.Client, error) {
 	return client, nil
 }
 
+// kindS3 is the toolkit kind.
+const kindS3 = "s3"
+
 // Kind returns the toolkit kind.
 func (*Toolkit) Kind() string {
-	return "s3"
+	return kindS3
 }
 
 // Name returns the toolkit instance name.

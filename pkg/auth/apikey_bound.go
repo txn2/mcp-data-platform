@@ -66,7 +66,7 @@ func (a *APIKeyAuthenticator) Principals() PrincipalSource {
 // bound to, or the key itself.
 func (a *APIKeyAuthenticator) userInfo(ctx context.Context, key *APIKey) (*middleware.UserInfo, error) {
 	if key.IsExpired() {
-		return nil, fmt.Errorf("api key %q has expired", key.Name)
+		return nil, fmt.Errorf("api key %q %w", key.Name, errKeyExpired)
 	}
 	if key.UserEmail == "" {
 		return keyUserInfo(key), nil

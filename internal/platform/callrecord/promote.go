@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 )
 
 // ErrNotPromotable is returned when a record is not in a state a reviewer can
@@ -70,6 +72,14 @@ func NewPromoter(store Store, queries CuratedQueryWriter, examples ExampleWriter
 // reach the same code, so what promotion means does not depend on which page it
 // was started from.
 func (p *Promoter) Promote(ctx context.Context, scope Scope, actor string) (*Record, error) {
+	ctx, op := opsobs.Start(ctx, opsobs.OpCallPromote)
+	rec, err := p.promoteRecord(ctx, scope, actor)
+	op.End(ctx, err)
+	return rec, err
+}
+
+// promoteRecord is the promotion Promote counts.
+func (p *Promoter) promoteRecord(ctx context.Context, scope Scope, actor string) (*Record, error) {
 	rec, err := p.store.Get(ctx, scope)
 	if err != nil {
 		return nil, fmt.Errorf("reading call record: %w", err)

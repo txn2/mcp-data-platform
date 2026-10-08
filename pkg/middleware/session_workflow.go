@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/searchgate"
 )
 
@@ -249,22 +251,17 @@ func (t *SessionWorkflowTracker) QueryToolNames() []string {
 // StartCleanup starts a background goroutine that evicts expired store entries
 // and stale throttle stamps.
 func (t *SessionWorkflowTracker) StartCleanup(interval time.Duration) {
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-t.done:
-				return
-			case <-ticker.C:
-				if err := t.store.Cleanup(context.Background()); err != nil {
-					slog.Warn("search gate: store cleanup failed", "error", err)
-				}
-				t.evictStaleThrottle()
+	go bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameSearchGateCleanup, Every: interval, Stop: t.done,
+		Body: func(ctx context.Context) error {
+			t.evictStaleThrottle()
+			if err := t.store.Cleanup(ctx); err != nil {
+				slog.WarnContext(ctx, "search gate: store cleanup failed", "error", err)
+				return fmt.Errorf("search gate cleanup: %w", err)
 			}
-		}
-	}()
+			return nil
+		},
+	})
 }
 
 // Stop stops the background cleanup goroutine and closes the store. It is

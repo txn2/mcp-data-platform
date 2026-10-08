@@ -65,6 +65,9 @@ type Toolkit struct {
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
+
+	// telemetry is the recorder every DataHub call reports to (telemetry.go).
+	telemetry telemetry
 }
 
 // New creates a new DataHub toolkit.
@@ -80,14 +83,13 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		return nil, err
 	}
 
-	datahubToolkit := createToolkit(client, cfg)
-
-	return &Toolkit{
-		name:           name,
-		config:         cfg,
-		client:         client,
-		datahubToolkit: datahubToolkit,
-	}, nil
+	t := &Toolkit{
+		name:   name,
+		config: cfg,
+		client: client,
+	}
+	t.datahubToolkit = createToolkit(client, cfg, dhtools.WithMiddleware(toolObserver{tm: &t.telemetry}))
+	return t, nil
 }
 
 // validateConfig validates the required configuration fields.
@@ -164,7 +166,7 @@ var platformDescriptions = map[dhtools.ToolName]string{
 }
 
 // createToolkit creates the mcp-datahub toolkit.
-func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
+func createToolkit(client *dhclient.Client, cfg Config, last ...dhtools.ToolkitOption) *dhtools.Toolkit {
 	var opts []dhtools.ToolkitOption
 	if len(cfg.Titles) > 0 {
 		opts = append(opts, dhtools.WithTitles(toDataHubToolNames(cfg.Titles)))
@@ -173,6 +175,7 @@ func createToolkit(client *dhclient.Client, cfg Config) *dhtools.Toolkit {
 	if len(cfg.Annotations) > 0 {
 		opts = append(opts, dhtools.WithAnnotations(toDataHubAnnotations(cfg.Annotations)))
 	}
+	opts = append(opts, last...)
 	return dhtools.NewToolkit(client, dhtools.Config{
 		DefaultLimit:    cfg.DefaultLimit,
 		MaxLimit:        cfg.MaxLimit,

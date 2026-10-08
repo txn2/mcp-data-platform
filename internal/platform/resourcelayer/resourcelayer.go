@@ -37,9 +37,11 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/docread"
 	"github.com/txn2/mcp-data-platform/internal/pdftext"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -207,9 +209,9 @@ func New(db *sql.DB, cfg Config) (*Handle, error) {
 		return nil, err
 	}
 	if c != nil {
-		h.s3Client = s3adapter.New(c)
+		h.s3Client = s3adapter.NewFor(c, observability.StoragePurposeResources)
 	} else {
-		slog.Warn("managed resources: no s3_connection configured; blob storage disabled")
+		configwarn.Warn(context.Background(), configwarn.CodeResourcesNoObjectStorage, "managed resources: no s3_connection configured; blob storage disabled")
 	}
 
 	slog.Info("managed resources enabled",

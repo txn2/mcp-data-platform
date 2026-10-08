@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -66,6 +67,8 @@ func (h *Handle) useByID(ctx context.Context, id string, args map[string]string)
 // renders the resolved-prompt response. Every single-match resolution path
 // funnels through here so run counts see each of them.
 func (h *Handle) servePromptUse(ctx context.Context, pr *prompt.Prompt, args map[string]string) (*mcp.CallToolResult, any, error) {
+	ctx, op := opsobs.Start(ctx, opsobs.OpPromptServe)
+	defer op.End(ctx, nil)
 	h.auditPromptServe(ctx, pr, serveSurfaceUse, resolveEmail(ctx))
 	// The tool path has no resolved persona list of its own; PlatformContext's
 	// single persona is the caller's identity there.

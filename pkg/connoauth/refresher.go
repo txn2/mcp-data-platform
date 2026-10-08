@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // Default cadence and lead times for the refresher. Each one is
@@ -140,7 +142,7 @@ func (l *PostgresLocker) TryLock(ctx context.Context, k Key) (release func(), ok
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if _, err := conn.ExecContext(unlockCtx, `SELECT pg_advisory_unlock($1)`, keyID); err != nil {
-			slog.Warn("connoauth: advisory unlock failed (lock released on conn close)",
+			slog.WarnContext(ctx, "connoauth: advisory unlock failed (lock released on conn close)",
 				logKeyKind, k.Kind, logKeyName, k.Name, logKeyError, err)
 		}
 		_ = conn.Close()
@@ -214,6 +216,16 @@ type Refresher struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// revoked holds the connections whose credential the IdP refused on a
+	// pass. Their row is deleted when that happens, so no later List shows
+	// them; they are still counted as revoked until a credential is stored
+	// for the connection again or the connection stops resolving (deleted,
+	// or no longer OAuth). reported is every kind a pass has reported, so a
+	// kind left with no connections reads 0 rather than its last count.
+	// Both are touched only by tick, which runs on the loop's goroutine.
+	revoked  map[Key]bool
+	reported map[string]bool
 }
 
 // NewRefresher constructs a Refresher. Pass NoopLocker{} for single-
@@ -278,72 +290,145 @@ func (r *Refresher) Stop(ctx context.Context) error {
 
 func (r *Refresher) loop(ctx context.Context, done chan struct{}) {
 	defer close(done)
-	// Fire once immediately so an operator who just deployed sees
-	// the keepalive run without waiting a full interval. The ticker
-	// then drives subsequent ticks.
-	r.tick(ctx)
-	ticker := time.NewTicker(r.cfg.Interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			r.tick(ctx)
-		}
-	}
+	// Fire once immediately so an operator who just deployed sees the
+	// keepalive run without waiting a full interval.
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameConnOAuthRefresh, Every: r.cfg.Interval, Immediate: true, Body: r.tick,
+	})
 }
+
+// Credential states, as connection_oauth_credentials{state} reports a
+// connection after a refresher pass (#1897).
+const (
+	// CredentialOK is a credential the refresher found current or renewed.
+	CredentialOK = "ok"
+	// CredentialExpiring is one inside its renewal window that this pass did
+	// not renew: the attempt failed transiently, or another replica holds it.
+	CredentialExpiring = "expiring"
+	// CredentialRevoked is one the IdP refused to renew; the connection
+	// needs an administrator to authenticate it again.
+	CredentialRevoked = "revoked"
+	// CredentialMissing is one with no refresh token, which the refresher
+	// cannot renew.
+	CredentialMissing = "missing"
+)
+
+// Refresh results, as connection_oauth_refresh_total{result} counts them.
+const (
+	refreshResultOK      = "ok"
+	refreshResultFailed  = "failed"
+	refreshResultRevoked = "revoked"
+)
 
 // tick lists rows and processes each in turn. One per-row failure
 // does not abort the tick — operators have multiple connections and
 // a transient DB hiccup on one row must not stall keepalive on the
-// others.
-func (r *Refresher) tick(parent context.Context) {
+// others. It records each kind's connections by credential state.
+func (r *Refresher) tick(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, defaultRefreshTickTimeout)
 	defer cancel()
 	rows, err := r.store.List(ctx)
 	if err != nil {
-		slog.Warn("connoauth: refresher: list rows failed", logKeyError, err)
+		slog.WarnContext(ctx, "connoauth: refresher: list rows failed", logKeyError, err)
+		return fmt.Errorf("connoauth: refresher: list: %w", err)
+	}
+	counts := map[string]map[string]int{}
+	count := func(kind, state string) {
+		if counts[kind] == nil {
+			counts[kind] = map[string]int{}
+		}
+		counts[kind][state]++
+	}
+	listed := make(map[Key]bool, len(rows))
+	for _, row := range rows {
+		listed[row.Key] = true
+		state := r.processRow(ctx, row)
+		if state == "" {
+			continue
+		}
+		r.rememberRevoked(row.Key, state == CredentialRevoked)
+		count(row.Key.Kind, state)
+	}
+	for key := range r.revoked {
+		if listed[key] {
+			continue
+		}
+		if _, err := r.configs.ResolveConfig(ctx, key); err != nil {
+			delete(r.revoked, key)
+			continue
+		}
+		count(key.Kind, CredentialRevoked)
+	}
+	r.recordCredentialStates(ctx, bgloop.Metrics(), counts)
+	return nil
+}
+
+// rememberRevoked records whether the pass left key revoked: a refused
+// credential is remembered past the deletion of its row, and any other state
+// is a credential stored again, which forgets it.
+func (r *Refresher) rememberRevoked(key Key, revoked bool) {
+	if !revoked {
+		delete(r.revoked, key)
 		return
 	}
-	for _, row := range rows {
-		r.processRow(ctx, row)
+	if r.revoked == nil {
+		r.revoked = map[Key]bool{}
+	}
+	r.revoked[key] = true
+}
+
+// recordCredentialStates sets every state of every kind this pass or an
+// earlier one reported, zeros included, so a state no connection is in any
+// more -- and a kind with no connections left -- reads 0 rather than its last
+// value.
+func (r *Refresher) recordCredentialStates(ctx context.Context, m *observability.Metrics, counts map[string]map[string]int) {
+	if r.reported == nil {
+		r.reported = map[string]bool{}
+	}
+	for kind := range counts {
+		r.reported[kind] = true
+	}
+	for kind := range r.reported {
+		for _, state := range []string{CredentialOK, CredentialExpiring, CredentialRevoked, CredentialMissing} {
+			m.RecordConnectionOAuthCredentials(ctx, kind, state, counts[kind][state])
+		}
 	}
 }
 
 // processRow decides whether row needs refresh; if so, acquires the
 // advisory lock and calls connoauth.Source to perform it. The
 // per-row context is independent so a slow refresh on one row
-// doesn't blow the whole tick.
-func (r *Refresher) processRow(ctx context.Context, row PersistedToken) {
+// doesn't blow the whole tick. It returns the credential state the row
+// is left in, or "" for a row that is not a resolvable OAuth connection.
+func (r *Refresher) processRow(ctx context.Context, row PersistedToken) string {
 	if row.RefreshToken == "" {
 		// No refresh token persisted — nothing the refresher can do.
 		// Skip silently; an event is only emitted when the refresh
 		// path actually runs.
-		return
+		return CredentialMissing
 	}
 	cfg, err := r.configs.ResolveConfig(ctx, row.Key)
 	if err != nil {
 		if errors.Is(err, ErrConfigNotResolvable) {
-			return
+			return ""
 		}
-		slog.Warn("connoauth: refresher: resolve config failed",
+		slog.WarnContext(ctx, "connoauth: refresher: resolve config failed",
 			logKeyKind, row.Key.Kind, logKeyName, row.Key.Name, logKeyError, err)
-		return
+		return ""
 	}
 	maxLife := r.configs.MaxLifetime(ctx, row.Key)
 	if !r.shouldRefresh(row, maxLife) {
-		return
+		return CredentialOK
 	}
 	release, ok, err := r.locker.TryLock(ctx, row.Key)
 	if err != nil {
-		slog.Warn("connoauth: refresher: lock failed",
+		slog.WarnContext(ctx, "connoauth: refresher: lock failed",
 			logKeyKind, row.Key.Kind, logKeyName, row.Key.Name, logKeyError, err)
-		return
+		return CredentialExpiring
 	}
 	if !ok {
 		// Contended: another replica is handling this row. Skip.
-		return
+		return CredentialExpiring
 	}
 	defer release()
 
@@ -352,14 +437,24 @@ func (r *Refresher) processRow(ctx context.Context, row PersistedToken) {
 	src := NewSource(r.store, row.Key, cfg).
 		WithEvents(r.events).
 		WithActor(authevents.SystemBackgroundRefresh)
-	if err := src.Reacquire(lockedCtx); err != nil {
+	m := bgloop.Metrics()
+	err = src.Reacquire(lockedCtx)
+	switch {
+	case err == nil:
+		m.RecordConnectionOAuthRefresh(ctx, row.Key.Kind, refreshResultOK)
+		return CredentialOK
+	case errors.Is(err, ErrNeedsReauth):
 		// Reacquire's revoked path already emits its own events and
-		// log lines. Transient errors are noted here so operators
-		// can spot a systemic IdP outage across the cluster.
-		if !errors.Is(err, ErrNeedsReauth) {
-			slog.Warn("connoauth: refresher: reacquire failed (transient)",
-				logKeyKind, row.Key.Kind, logKeyName, row.Key.Name, logKeyError, err)
-		}
+		// log lines.
+		m.RecordConnectionOAuthRefresh(ctx, row.Key.Kind, refreshResultRevoked)
+		return CredentialRevoked
+	default:
+		// Transient errors are noted here so operators can spot a
+		// systemic IdP outage across the cluster.
+		m.RecordConnectionOAuthRefresh(ctx, row.Key.Kind, refreshResultFailed)
+		slog.WarnContext(ctx, "connoauth: refresher: reacquire failed (transient)",
+			logKeyKind, row.Key.Kind, logKeyName, row.Key.Name, logKeyError, err)
+		return CredentialExpiring
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -243,4 +244,44 @@ func TestTransport_WrapsAndCloseIdleConnections(t *testing.T) {
 	fresh, _ := Wraps(Transport(nil, Options{Kind: KindBranding}))
 	require.NotSame(t, http.DefaultTransport, fresh.Base)
 	require.IsType(t, &http.Transport{}, fresh.Base)
+}
+
+// A connection kind's answers are that connection's state (#1898): a refused
+// credential, an upstream that cannot answer and a healthy one each leave the
+// state the connection gauge reports. A platform-wide kind (oauth) has no
+// toolkit connection and records none.
+func TestTransport_RecordsTheConnectionsState(t *testing.T) {
+	status := http.StatusUnauthorized
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+
+	get := func(kind Kind, conn string) {
+		t.Helper()
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, http.NoBody)
+		resp, err := NewClient(Options{Kind: kind, Connection: conn}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+	for _, tc := range []struct {
+		status int
+		want   string
+	}{
+		{http.StatusUnauthorized, connstate.AuthFailed},
+		{http.StatusServiceUnavailable, connstate.Unreachable},
+		{http.StatusOK, connstate.Healthy},
+	} {
+		status = tc.status
+		get(KindAPI, "crm")
+		if got, _ := connstate.State(string(KindAPI), "crm"); got != tc.want {
+			t.Errorf("after HTTP %d the connection is %q, want %q", tc.status, got, tc.want)
+		}
+	}
+	get(KindOAuth, "crm")
+	if _, ok := connstate.State(string(KindOAuth), "crm"); ok {
+		t.Error("a token endpoint call recorded a connection state")
+	}
 }

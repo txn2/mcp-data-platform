@@ -2,6 +2,7 @@ package compactor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,21 +22,25 @@ import (
 // partition is unregistered first, so the view stops serving it, then its
 // resource and any raw segments are deleted, and the window is recorded as
 // expired. Each step is recorded in the platform database, so a pass that
-// stops part-way is finished by the next.
-func (w *Worker) Retention(ctx context.Context) {
+// stops part-way is finished by the next. Each failure is logged, does not
+// stop the steps after it, and is returned joined with the others.
+func (w *Worker) Retention(ctx context.Context) error {
 	sources, err := w.deps.Sources.List(ctx)
 	if err != nil {
-		w.warn("listing sources for retention", "", err)
-		return
+		w.warn(ctx, "listing sources for retention", "", err)
+		return fmt.Errorf("webhooks: listing sources for retention: %w", err)
 	}
+	var errs []error
 	for _, src := range sources {
 		src = src.WithDefaults()
 		if err := w.retainSource(ctx, src); err != nil {
-			w.warn("applying retention", src.Name, err)
+			w.warn(ctx, "applying retention", src.Name, err)
+			errs = append(errs, err)
 		}
 	}
 	if err := w.deps.Windows.PruneCounts(ctx, w.deps.Now().Add(-countsKept)); err != nil {
-		w.warn("pruning request counts", "", err)
+		w.warn(ctx, "pruning request counts", "", err)
+		errs = append(errs, err)
 	}
 	// An expired window's record outlives everything it described, and
 	// one is added per source per window; past this age it is removed
@@ -43,9 +48,14 @@ func (w *Worker) Retention(ctx context.Context) {
 	// no segment can land in one this old.
 	if keep := w.tuning.ExpiredWindowsKept; keep > 0 {
 		if _, err := w.deps.Windows.DeleteExpired(ctx, w.deps.Now().Add(-keep)); err != nil {
-			w.warn("deleting expired window records", "", err)
+			w.warn(ctx, "deleting expired window records", "", err)
+			errs = append(errs, err)
 		}
 	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("webhooks: retention: %w", err)
+	}
+	return nil
 }
 
 // retainSource applies one source's retention.

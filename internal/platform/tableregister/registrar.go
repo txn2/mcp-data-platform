@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/tablecsv"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -157,6 +158,16 @@ func (r *Registrar) objectsFor(kind string) ObjectReader {
 // created is worse than a table with no row -- the first is a lie a search hit
 // repeats, the second is an object in a scratch schema.
 func (r *Registrar) Register(ctx context.Context, caller Caller, src Source, req Request) (*Result, error) {
+	// One operation per registration, by result, with a span under the call
+	// or request that asked for it (#1898).
+	ctx, op := opsobs.Start(ctx, opsobs.OpTableRegister)
+	res, err := r.registerTable(ctx, caller, src, req)
+	op.End(ctx, err)
+	return res, err
+}
+
+// registerTable is the registration Register counts.
+func (r *Registrar) registerTable(ctx context.Context, caller Caller, src Source, req Request) (*Result, error) {
 	if !r.Available() {
 		return nil, ErrUnavailable
 	}

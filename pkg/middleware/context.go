@@ -104,6 +104,10 @@ type PlatformContext struct {
 	// Authorization
 	Authorized bool
 	IsAdmin    bool // user belongs to the platform's admin persona
+	// DenialReason is the class of the authorizer's refusal
+	// (observability.Denial*), set only when it refused the call; the
+	// metrics layer counts the refusal under it (#1898).
+	DenialReason string
 
 	// Transport metadata
 	Transport string // "stdio" or "http"

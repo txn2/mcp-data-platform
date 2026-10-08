@@ -160,7 +160,7 @@ func (a *OAuthJWTAuthenticator) parseAndValidateToken(tokenString string) (map[s
 	// Verify issuer
 	iss, ok := claims["iss"].(string)
 	if !ok || iss != a.cfg.Issuer {
-		return nil, fmt.Errorf("invalid issuer: got %q, want %q", iss, a.cfg.Issuer)
+		return nil, claimError(fmt.Sprintf("invalid issuer: got %q, want %q", iss, a.cfg.Issuer))
 	}
 
 	// Convert to map[string]any for compatibility
@@ -194,7 +194,7 @@ func (a *OAuthJWTAuthenticator) parseWithRing(tokenString string) (*jwt.Token, e
 		}
 		key, ok := a.ring.VerificationKey(kid)
 		if !ok {
-			return nil, fmt.Errorf("unknown key id %q", kid)
+			return nil, unknownKeyError(fmt.Sprintf("unknown key id %q", kid))
 		}
 		return key, nil
 	}, jwt.WithAudience(a.cfg.Audience))

@@ -1,9 +1,12 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,12 +185,22 @@ func TestPostgresStore_Delete_NotFound(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
 
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	err := store.Delete(context.Background(), "missing", "admin")
 	if !errors.Is(err, configstore.ErrNotFound) {
 		t.Errorf("Delete() error = %v, want ErrNotFound", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf(fmtUnmetExpect, err)
+	}
+	// Nothing was set and nothing failed: the delete is not logged as a
+	// failed write (#1898), which the metric already reads as an answer.
+	if strings.Contains(logs.String(), "write failed") {
+		t.Errorf("a delete of an unset key was logged as a failed write: %s", logs.String())
 	}
 }
 

@@ -708,7 +708,7 @@ func (t *Toolkit) executeExportQuery(
 		if err != nil {
 			return nil, fmt.Errorf("resolving trino connection: %w", err)
 		}
-		result, err := client.Query(ctx, sql, opts)
+		result, err := t.telemetry.query(ctx, client, connection, sql, opts)
 		if err != nil {
 			return nil, fmt.Errorf("executing export query: %w", err)
 		}
@@ -718,7 +718,7 @@ func (t *Toolkit) executeExportQuery(
 	if t.client == nil {
 		return nil, errors.New("no Trino client available")
 	}
-	result, err := t.client.Query(ctx, sql, opts)
+	result, err := t.telemetry.query(ctx, t.client, connection, sql, opts)
 	if err != nil {
 		return nil, fmt.Errorf("executing export query: %w", err)
 	}
