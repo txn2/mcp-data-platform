@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
@@ -673,6 +674,9 @@ func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 		SizeBytes:     int64(len(data)),
 		CreatedBy:     adminUserEmail(r),
 		ChangeSummary: fmt.Sprintf("Reverted from v%d (admin)", versionNum),
+		// The content comes back, so whether its export was cut comes with it
+		// (#2057).
+		Metadata: exporttrunc.Carry(targetVer.Metadata),
 	}
 	assignedVersion, err := h.deps.VersionStore.CreateVersion(r.Context(), av)
 	if err != nil {

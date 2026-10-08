@@ -155,3 +155,24 @@ func ScalarString(val any) string {
 		return fmt.Sprintf("%v", v)
 	}
 }
+
+// Bound is the page bound a walk runs under, and whether it is the caller's:
+// false when max_pages was left unset (the default bound) or set past the
+// ceiling (which the ceiling replaces). An export judges a walk stopped at
+// its bound by whose bound it was (#2057).
+func (p PaginateInput) Bound() (pages int, callerSet bool) {
+	switch {
+	case p.MaxPages <= 0:
+		return defaultMaxPages, false
+	case p.MaxPages > maxMaxPages:
+		return maxMaxPages, false
+	default:
+		return p.MaxPages, true
+	}
+}
+
+// PageBounds is the bound a walk runs under when max_pages is unset, and the
+// most max_pages may be, for platform_info to report (#2057).
+func PageBounds() (defaultPages, ceiling int) {
+	return defaultMaxPages, maxMaxPages
+}

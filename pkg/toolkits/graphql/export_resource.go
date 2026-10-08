@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -66,11 +67,13 @@ func exportDestinationOf(in exportInput) toolkit.ResourceDestination {
 // landExport writes the result into the destination and reports where it landed,
 // alongside what the document itself did: the operations it invoked, the errors
 // the endpoint returned in the body, and the pages walked.
-func landExport(
-	ctx context.Context, deps *ExportDeps, in exportInput, payload []byte, result *QueryOutput,
-) (*exportOutput, error) {
-	landing, err := deps.ResourceLander.LandResource(ctx, exportDestinationOf(in),
-		bytes.NewReader(payload), exportContentType)
+func landExport(ctx context.Context, deps *ExportDeps, in exportInput, res landedResult) (*exportOutput, error) {
+	result := res.result
+	dest := exportDestinationOf(in)
+	if r := reportOf(res.cut); r != nil {
+		dest.Metadata = r.Metadata()
+	}
+	landing, err := deps.ResourceLander.LandResource(ctx, dest, bytes.NewReader(res.payload), exportContentType)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the lander's sentence is written for whoever made the call
 	}
@@ -83,9 +86,18 @@ func landExport(
 		Errors:        result.Errors,
 		Pagination:    result.Pagination,
 		Resource:      landing,
-		Message: fmt.Sprintf("Exported %d bytes from connection %s. %s",
-			landing.SizeBytes, in.Connection, landing.Message),
+		Message: exporttrunc.Sentences(fmt.Sprintf("Exported %d bytes from connection %s.", landing.SizeBytes, in.Connection),
+			noteOf(res.cut), landing.Message),
+		Report: reportOf(res.cut),
 	}, nil
+}
+
+// landedResult is what a landing writes: the payload, the result it was
+// encoded from, and the walk's judgment (nil for one response).
+type landedResult struct {
+	payload []byte
+	result  *QueryOutput
+	cut     *exporttrunc.Outcome
 }
 
 // resourceDestinationUnavailable is what a resource destination is told on a

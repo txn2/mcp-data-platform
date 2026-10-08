@@ -23,10 +23,14 @@ package exportadapters
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -94,7 +98,9 @@ func (e *TrinoExporter) GetByIdempotencyKey(ctx context.Context, ownerID, key st
 	if err != nil {
 		return nil, fmt.Errorf("looking up export idempotency key: %w", err)
 	}
-	return &trinokit.ExportAssetRef{ID: asset.ID, SizeBytes: asset.SizeBytes}, nil
+	return &trinokit.ExportAssetRef{
+		ID: asset.ID, SizeBytes: asset.SizeBytes, Metadata: cutMetadata(ctx, e.versionStore, asset),
+	}, nil
 }
 
 func (e *TrinoExporter) CreateExportVersion(ctx context.Context, ver trinokit.ExportVersion) (int, error) { //nolint:revive // implements trino.ExportVersionStore
@@ -107,6 +113,7 @@ func (e *TrinoExporter) CreateExportVersion(ctx context.Context, ver trinokit.Ex
 		SizeBytes:     ver.SizeBytes,
 		CreatedBy:     ver.CreatedBy,
 		ChangeSummary: ver.ChangeSummary,
+		Metadata:      ver.Metadata,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("creating export version: %w", err)
@@ -189,7 +196,9 @@ func (e *APIExporter) GetByIdempotencyKey(ctx context.Context, ownerID, key stri
 	if err != nil {
 		return nil, fmt.Errorf("looking up export idempotency key: %w", err)
 	}
-	return &apigatewaykit.ExportAssetRef{ID: asset.ID, SizeBytes: asset.SizeBytes}, nil
+	return &apigatewaykit.ExportAssetRef{
+		ID: asset.ID, SizeBytes: asset.SizeBytes, Metadata: cutMetadata(ctx, e.versionStore, asset),
+	}, nil
 }
 
 func (e *APIExporter) CreateExportVersion(ctx context.Context, ver apigatewaykit.ExportVersion) (int, error) { //nolint:revive // implements apigateway.ExportVersionStore
@@ -202,6 +211,7 @@ func (e *APIExporter) CreateExportVersion(ctx context.Context, ver apigatewaykit
 		SizeBytes:     ver.SizeBytes,
 		CreatedBy:     ver.CreatedBy,
 		ChangeSummary: ver.ChangeSummary,
+		Metadata:      ver.Metadata,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("creating export version: %w", err)
@@ -347,4 +357,22 @@ func parseTimestamp(value string) time.Time {
 		return t.UTC()
 	}
 	return time.Now().UTC()
+}
+
+// cutMetadata is what an idempotency hit reports about the export that wrote
+// the asset (#2057): the current version's metadata when the asset carries the
+// truncated tag, and nil otherwise. The tag is on the asset row the lookup
+// already read, so a complete asset costs no second query. A failed read is
+// logged and reported as nil: the hit itself stands.
+func cutMetadata(ctx context.Context, versions portal.VersionStore, asset *portal.Asset) map[string]any {
+	if !slices.Contains(asset.Tags, exporttrunc.Tag) {
+		return nil
+	}
+	latest, err := versions.GetLatest(ctx, asset.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "export idempotency hit: reading the truncated asset's version failed",
+			"asset_id", asset.ID, "error", logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	return latest.Metadata
 }

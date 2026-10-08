@@ -121,3 +121,26 @@ describe("walking from an asset to the session that made it", () => {
     expect(onNavigate).toHaveBeenCalledWith(`/activity/sessions/${SESSION_ID}`);
   });
 });
+
+// #2057: an asset whose current version an export cut says so at the top of
+// its sidebar, with the limit its version records.
+describe("an incomplete export", () => {
+  it("states the cut the current version records", () => {
+    renderSidebar({
+      asset: asset({ tags: ["_sys-truncated"], current_version: 2 }),
+      versions: [
+        {
+          id: "v2", asset_id: "ast-001", version: 2, s3_key: "k2", s3_bucket: "b", content_type: "text/csv",
+          size_bytes: 10, created_by: "alice@example.com", change_summary: "", created_at: "2026-08-16T10:00:00Z",
+          metadata: { truncated: true, limit_applied: 100000, limit_unit: "rows", limit_source: "deployment" },
+        },
+      ],
+    });
+    expect(screen.getByTestId("incomplete-notice")).toHaveTextContent("Incomplete: truncated at 100,000 rows");
+  });
+
+  it("says nothing about a complete asset", () => {
+    renderSidebar();
+    expect(screen.queryByTestId("incomplete-notice")).toBeNull();
+  });
+});

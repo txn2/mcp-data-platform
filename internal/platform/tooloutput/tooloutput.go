@@ -33,6 +33,14 @@ func Of(tool string, args, result map[string]any) (script.RunOutput, bool) {
 	if out.Format == "" {
 		out.Format = stringField(args, "format")
 	}
+	// A cut the export wrote anyway is carried onto the run's record of the
+	// output, where a scheduled run's incomplete file is seen (#2057).
+	if truncated, _ := result["truncated"].(bool); truncated {
+		out.Truncated = true
+		out.LimitApplied = intField(result, "limit_applied")
+		out.LimitSource = stringField(result, "limit_source")
+		out.LimitUnit = stringField(result, "limit_unit")
+	}
 	if landing, ok := result["resource"].(map[string]any); ok {
 		out.Destination = script.DestinationResources
 		out.ResourceID = stringField(landing, "resource_id")

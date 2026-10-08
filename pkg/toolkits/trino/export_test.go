@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
@@ -490,7 +491,7 @@ func TestExtractSourceTableNames(t *testing.T) {
 }
 
 func TestExportInputSchema(t *testing.T) {
-	schema := exportInputSchema()
+	schema := exportInputSchema(applyExportDefaults(ExportConfig{}))
 	props, ok := schema["properties"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, props, "sql")
@@ -570,11 +571,16 @@ func TestResolveExportLimits(t *testing.T) {
 
 	timeout, limit := resolveExportLimits(exportInput{}, cfg)
 	assert.Equal(t, 5*time.Minute, timeout)
-	assert.Equal(t, 10000, limit)
+	assert.Equal(t, 10000, limit.Applied)
+	assert.Equal(t, exporttrunc.SourceDeployment, limit.Source, "no limit of the caller's leaves the deployment cap")
+	assert.Equal(t, MaxRowsKey, limit.Key)
+	assert.NotEmpty(t, limit.Remedy, "a refusal at the cap says what to do instead")
 
 	timeout, limit = resolveExportLimits(exportInput{Limit: 500, TimeoutSeconds: 30}, cfg)
 	assert.Equal(t, 30*time.Second, timeout)
-	assert.Equal(t, 500, limit)
+	assert.Equal(t, 500, limit.Applied)
+	assert.Equal(t, exporttrunc.SourceRequest, limit.Source)
+	assert.Equal(t, "limit", limit.Key)
 }
 
 func TestQueryRows(t *testing.T) {
@@ -737,7 +743,7 @@ func TestExecuteExportQuery_NoClient(t *testing.T) {
 }
 
 func TestExportInputSchema_HasCreatePublicLink(t *testing.T) {
-	schema := exportInputSchema()
+	schema := exportInputSchema(applyExportDefaults(ExportConfig{}))
 	props, ok := schema["properties"].(map[string]any)
 	require.True(t, ok)
 	cpl, ok := props["create_public_link"].(map[string]any)

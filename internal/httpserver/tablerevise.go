@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
@@ -113,8 +115,10 @@ func (r *resourceReviser) Revise(
 	claims := resource.BuildClaims(caller.UserID, caller.Email, caller.Persona, caller.Roles, caller.IsAdmin).
 		ActingFor(caller.OnBehalfOf, caller.OnBehalfOfSub)
 
-	updated, version, err := resource.ReviseContent(ctx, r.deps, res, &claims,
-		resource.RevisionUpload{Content: bytes.NewReader(content), MIMEType: contenttype.CSV, ChangeSummary: summary})
+	updated, version, err := resource.ReviseContent(ctx, r.deps, res, &claims, resource.RevisionUpload{
+		Content: bytes.NewReader(content), MIMEType: contenttype.CSV, ChangeSummary: summary,
+		Metadata: r.headCut(ctx, res),
+	})
 	if err != nil {
 		return tableregister.Revised{}, fmt.Errorf("recording the corrected revision: %w", err)
 	}
@@ -142,9 +146,10 @@ type (
 		Get(ctx context.Context, id string) (*portal.Asset, error)
 	}
 	// assetVersionWriter records the version that moves the asset's head onto
-	// the corrected object.
+	// the corrected object, and reads the version it corrects.
 	assetVersionWriter interface {
 		CreateVersion(ctx context.Context, version portal.AssetVersion) (int, error)
+		GetLatest(ctx context.Context, assetID string) (*portal.AssetVersion, error)
 	}
 	// assetBlobs stores the corrected object, and removes it again when no
 	// version row ends up pointing at it.
@@ -214,6 +219,7 @@ func (a *assetReviser) Revise(
 		SizeBytes:     size,
 		CreatedBy:     caller.Email,
 		ChangeSummary: summary,
+		Metadata:      a.currentCut(ctx, asset),
 	})
 	if err != nil {
 		// The version row is what makes the object the asset's content. Without
@@ -223,4 +229,26 @@ func (a *assetReviser) Revise(
 		return tableregister.Revised{}, fmt.Errorf("recording the corrected version: %w", err)
 	}
 	return tableregister.Revised{Bucket: a.bucket, Key: key, Version: version}, nil
+}
+
+// headCut is the cut the resource's current version records: a correction keeps
+// the same rows, so a cut file stays cut (#2057); a failed read carries nothing.
+func (r *resourceReviser) headCut(ctx context.Context, res *resource.Resource) map[string]any {
+	versions, err := r.deps.Versions.ListVersions(ctx, res.ID)
+	i := slices.IndexFunc(versions, func(v resource.Version) bool { return v.S3Key == res.S3Key })
+	if err != nil || i < 0 {
+		return nil
+	}
+	return exporttrunc.Carry(versions[i].Metadata)
+}
+
+// currentCut is headCut for an asset, read only when it is tagged as cut.
+func (a *assetReviser) currentCut(ctx context.Context, asset *portal.Asset) map[string]any {
+	if !slices.Contains(asset.Tags, exporttrunc.Tag) {
+		return nil
+	}
+	if latest, err := a.versions.GetLatest(ctx, asset.ID); err == nil && latest != nil {
+		return exporttrunc.Carry(latest.Metadata)
+	}
+	return nil
 }

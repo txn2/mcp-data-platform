@@ -2,10 +2,12 @@ import { useRef, useState } from "react";
 import { History, RotateCcw, Download, Upload, Loader2 } from "lucide-react";
 import { useResourceVersions, useReplaceContent, useRestoreVersion } from "@/api/resources/hooks";
 import { resourceFetchRaw } from "@/api/resources/client";
+import { IncompleteNotice } from "@/components/IncompleteBadge";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
+import { truncationLabel, truncationOf } from "@/lib/truncation";
 import type { Resource, ResourceVersion } from "@/api/resources/types";
 
 // downloadVersion pulls one revision's bytes and hands them to the browser
@@ -95,6 +97,11 @@ function VersionRow({
       {v.change_summary && (
         <p className="italic" data-testid={`resource-version-summary-${v.version}`}>
           {v.change_summary}
+        </p>
+      )}
+      {truncationOf(v.metadata) && (
+        <p className="text-amber-800 dark:text-amber-300" data-testid={`resource-version-incomplete-${v.version}`}>
+          {truncationLabel(truncationOf(v.metadata))}
         </p>
       )}
     </li>
@@ -301,4 +308,13 @@ function VersionsFooter({ canModify, error }: { canModify: boolean; error: strin
       )}
     </>
   );
+}
+
+/** HeadIncompleteNotice marks a file whose current version an export cut at a
+ * limit and wrote anyway (#2057), at the top of the sidebar. It reads the
+ * version list the panel above fetches, so it costs no second request. */
+export function HeadIncompleteNotice({ resourceId }: { resourceId: string }) {
+  const { data } = useResourceVersions(resourceId);
+  const head = truncationOf(data?.versions.find((v) => v.version === data.current)?.metadata);
+  return head ? <IncompleteNotice label={truncationLabel(head)} /> : null;
 }

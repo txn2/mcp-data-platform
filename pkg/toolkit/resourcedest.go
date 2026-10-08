@@ -47,6 +47,18 @@ type ResourceDestination struct {
 	DisplayName string   `json:"-"`
 	Description string   `json:"-"`
 	Tags        []string `json:"-"`
+
+	// Metadata is what the export records about the content it lands (#2057):
+	// whether a limit cut it. Recorded on the version the landing writes,
+	// unlike the labels above, because it describes the content and the
+	// content is what a replacement changes. Nil or empty for a complete
+	// result. Not a wire field: the export decides it, never the caller.
+	//
+	// It is read once the content has been read to its end, so a producer
+	// that learns it only as the stream ends (a page walk, whose last page
+	// says whether there was another) passes an empty map and fills it before
+	// it closes the stream.
+	Metadata map[string]any `json:"-"`
 }
 
 // ResourceDestinationSchema is the JSON Schema of the destination as an export

@@ -146,6 +146,16 @@ type RunOutput struct {
 	// registered. It is a change report rather than the `tables` a fetched
 	// reference carries (#1666).
 	TableChanges []string `json:"table_changes,omitempty"`
+	// Truncated marks an export tool's output that a row or page limit cut
+	// and that was written anyway under on_truncation "warn" (#2057):
+	// LimitApplied is the limit, LimitSource who set it ("request" or
+	// "deployment") and LimitUnit what it counts ("rows" or "pages"). A
+	// scheduled run's response is read by nobody, so the run's record of its
+	// outputs is where an incomplete file is seen. Absent on a complete one.
+	Truncated    bool   `json:"truncated,omitempty"`
+	LimitApplied int    `json:"limit_applied,omitempty"`
+	LimitSource  string `json:"limit_source,omitempty"`
+	LimitUnit    string `json:"limit_unit,omitempty"`
 }
 
 // destinationOf reads a recorded output's destination, treating an unset one as

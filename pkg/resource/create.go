@@ -42,6 +42,9 @@ type NewResource struct {
 	// DeclaredMIMEType is what the caller said the bytes were, kept so a
 	// detection that replaced it is recorded. Empty when nothing was declared.
 	DeclaredMIMEType string
+	// Metadata is what the writer records about the content on version 1
+	// (#2057). Nil records none.
+	Metadata map[string]any
 }
 
 // CreateResource stores the blob, inserts the metadata row, and records the
@@ -121,7 +124,7 @@ func insertResource(ctx context.Context, deps Deps, claims *Claims, in NewResour
 	}
 
 	saved := readBackCreated(ctx, deps, id, res)
-	recordInitialVersion(ctx, deps, saved, claims, stored.sha256)
+	recordInitialVersion(ctx, deps, saved, claims, initialVersion{sha: stored.sha256, metadata: in.Metadata})
 	noteProducer(ctx, deps, claims, producedby.Write{TargetID: saved.ID, Created: true, Version: 1})
 	return saved, nil
 }
@@ -154,7 +157,7 @@ func readBackCreated(ctx context.Context, deps Deps, id string, written Resource
 // surfaced: the upload succeeded and the resource is usable; the migration's
 // backfill shape (a v1 row derived from the resource row) is exactly what a
 // later repair would write.
-func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims *Claims, sha string) {
+func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims *Claims, v initialVersion) {
 	if deps.Versions == nil {
 		return
 	}
@@ -165,11 +168,19 @@ func recordInitialVersion(ctx context.Context, deps Deps, res *Resource, claims 
 		S3Key:         res.S3Key,
 		UploaderSub:   claims.Sub,
 		UploaderEmail: PersonAddress(*claims),
-		ContentSHA256: sha,
+		ContentSHA256: v.sha,
+		Metadata:      v.metadata,
 	}); err != nil {
 		slog.Warn("resource upload: recording initial version failed", msgError, err,
 			logKeyResourceID, res.ID) // #nosec G706 -- server-generated ID
 	}
+}
+
+// initialVersion is what version 1 records beyond the resource row: the
+// content hash the write took, and what the writer said about the content.
+type initialVersion struct {
+	sha      string
+	metadata map[string]any
 }
 
 // storedContent is what one write put in blob storage: how many bytes, and

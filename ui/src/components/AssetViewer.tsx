@@ -6,6 +6,7 @@ import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { isEditableContent } from "@/components/renderers/registry";
+import type { Asset } from "@/api/portal/types";
 import { type AssetViewerProps, type ViewMode } from "./assetviewer/types";
 import { AssetViewerActions } from "./assetviewer/AssetViewerActions";
 import { AssetContentView } from "./assetviewer/AssetContentView";
@@ -18,6 +19,8 @@ import {
 } from "./assetviewer/AssetRetentionField";
 import { AssetViewerModals } from "./assetviewer/AssetViewerModals";
 import { ViewerLayout } from "./viewer/ViewerLayout";
+import { IncompleteBadge } from "@/components/IncompleteBadge";
+import { isTruncated } from "@/lib/truncation";
 
 export type { AssetViewerProps } from "./assetviewer/types";
 
@@ -225,7 +228,7 @@ export function AssetViewer({
     <>
       <ViewerLayout
         onBack={onBack}
-        title={asset.name}
+        title={<AssetTitle asset={asset} />}
         actions={
           <AssetViewerActions
             toolbarExtra={toolbarExtra}
@@ -323,6 +326,18 @@ export function AssetViewer({
         onConfirmRevert={handleConfirmRevert}
         revertMutation={revertMutation}
       />
+    </>
+  );
+}
+
+/** AssetTitle is the asset's name, with the Incomplete mark beside it for a cut
+ * export: marked where the file is opened, not only in the details panel,
+ * which starts closed (#2057). */
+function AssetTitle({ asset }: { asset: Pick<Asset, "name" | "tags"> }) {
+  return (
+    <>
+      {asset.name}
+      {isTruncated(asset.tags) && <IncompleteBadge className="ml-2 align-middle" />}
     </>
   );
 }

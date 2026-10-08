@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -32,6 +33,9 @@ type landedResult struct {
 	// note is what a typed format could not keep of the query's columns
 	// (#1833), said beside the landing the way an asset export says it.
 	note string
+	// cut is whether the row limit cut the result (#2057): reported on the
+	// output and recorded on the version the landing writes.
+	cut exporttrunc.Outcome
 }
 
 // checkResourceDestination settles everything about a resource destination that
@@ -86,6 +90,7 @@ func (*Toolkit) landExport(
 ) (*exportOutput, *mcp.CallToolResult) {
 	dest := exportDestinationOf(input)
 	dest.Tags = res.tags
+	dest.Metadata = res.cut.Report.Metadata()
 	landing, err := deps.ResourceLander.LandResource(ctx, dest, bytes.NewReader(res.body), res.contentType)
 	if err != nil {
 		return nil, exportError(err.Error())
@@ -96,7 +101,8 @@ func (*Toolkit) landExport(
 		SizeBytes: landing.SizeBytes,
 		Resource:  landing,
 		Message: strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", res.rowCount, input.Format),
-			res.note, landing.Message), " "),
+			res.cut.Note, res.note, landing.Message), " "),
+		Report: &res.cut.Report,
 	}, nil
 }
 

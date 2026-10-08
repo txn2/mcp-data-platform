@@ -49,6 +49,7 @@ func (m *mockAdminAssetStore) Update(_ context.Context, _ string, u portal.Asset
 	m.lastUpdate = &u
 	return m.updateErr
 }
+
 func (*mockAdminAssetStore) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
 	return nil
 }
@@ -1198,6 +1199,33 @@ func TestRevertAdminVersionSuccess(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRevertAdminVersionCarriesTheTruncationMark: the admin revert brings a cut
+// export's content back with the cut recorded, and nothing else the old
+// version recorded (#2057).
+func TestRevertAdminVersionCarriesTheTruncationMark(t *testing.T) {
+	now := time.Now()
+	asset := &portal.Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2,
+		Tags: []string{}, Provenance: portal.Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	ver := &portal.AssetVersion{
+		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/csv",
+		Metadata: map[string]any{"truncated": true, "limit_applied": float64(100), "region": "west"},
+	}
+	versions := &mockAdminVersionStore{getVersion: ver, createVersion: 3}
+	h := newAdminTestHandlerWithVersions(&mockAdminAssetStore{getAsset: asset}, &mockAdminShareStore{}, versions,
+		&mockAdminS3Client{getData: []byte("id\n1\n"), getCT: "text/csv"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/admin/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NotNil(t, versions.lastCreated)
+	assert.Equal(t, true, versions.lastCreated.Metadata["truncated"])
+	assert.NotContains(t, versions.lastCreated.Metadata, "region")
 }
 
 func TestRevertAdminVersionDeleted(t *testing.T) {

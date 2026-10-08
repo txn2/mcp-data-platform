@@ -250,7 +250,9 @@ total, and most writes made by tool call are not one of the run's OUTPUTS: the r
 the run detail page. The exception is the export tools, the right tools once a result is past the row cap (#1854):
 a file `trino_export`, `api_export` or `graphql_export` writes inside a run is listed under the
 run's outputs with its name, asset (or managed resource) and version, format, rows and bytes,
-marked with the tool that wrote it. A named export inside a run takes `platform.export`'s
+marked with the tool that wrote it. An export a row or page limit cut fails the `platform.call`,
+and with it the run, unless the call passed `on_truncation: "warn"`; then the output is written
+and the run's page marks it Incomplete (see [Exports cut at a limit](../server/export-truncation.md)). A named export inside a run takes `platform.export`'s
 identity: the first run creates the script's asset for that name, and every later run writes
 its next version, so a nightly export is one asset with a version history rather than a new
 asset each night. Passing `resource` writes the next version of one managed file instead, and

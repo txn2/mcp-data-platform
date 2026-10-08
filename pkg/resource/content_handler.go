@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 )
@@ -203,6 +204,9 @@ type RevisionUpload struct {
 	// now. Bytes that hash the same are not recorded: the blob just written is
 	// removed and ReviseContent answers errContentUnchanged (#1862).
 	SkipIfSHA256 string
+	// Metadata is what the writer records about the content (#2057). Nil
+	// records none.
+	Metadata map[string]any
 }
 
 // errContentUnchanged reports a revision that was not recorded because its
@@ -251,6 +255,7 @@ func ReviseContent(
 		RestoredFrom:  up.RestoredFrom,
 		ChangeSummary: up.ChangeSummary,
 		ContentSHA256: stored.sha256,
+		Metadata:      up.Metadata,
 	})
 	if err != nil {
 		_ = deps.S3Client.DeleteObject(ctx, deps.S3Bucket, key)
@@ -500,8 +505,11 @@ func (h *Handler) handleRestoreVersion(w http.ResponseWriter, r *http.Request) {
 	// The restore writes the old bytes forward as a new revision rather than
 	// rewinding the head, so the trail stays append-only and the restored
 	// content is itself restorable.
-	revised, err := h.storeRevision(r.Context(), res, claims,
-		RevisionUpload{Content: bytes.NewReader(body), MIMEType: v.MIMEType, RestoredFrom: &version})
+	// Whether an export cut the restored content comes back with it (#2057).
+	revised, err := h.storeRevision(r.Context(), res, claims, RevisionUpload{
+		Content: bytes.NewReader(body), MIMEType: v.MIMEType, RestoredFrom: &version,
+		Metadata: exporttrunc.Carry(v.Metadata),
+	})
 	if err != nil {
 		// A storage refusal answers 503 here for the reason it does on the two
 		// write routes: the cause is outside the platform and nothing was

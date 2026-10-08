@@ -51,6 +51,10 @@ type Info struct {
 	FailingAutomationsTotal int                        `json:"failing_automations_total,omitempty"`
 	Features                Features                   `json:"features"`
 	ConfigVersion           ConfigVersionInfo          `json:"config_version"`
+	// Limits is the ceilings this deployment puts on what the caller's tools
+	// return or write, with the key that sets each (#2057). Absent when the
+	// caller reaches no bounded tool.
+	Limits *Limits `json:"limits,omitempty"`
 }
 
 // Notices is the caller's session-start digest, aliased so a library consumer
@@ -288,6 +292,7 @@ func (p *Platform) handleInfo(ctx context.Context, req *mcp.CallToolRequest) (*m
 		FailingAutomations:      failing,
 		FailingAutomationsTotal: failingTotal,
 		Features:                p.buildFeatures(ctx, accessibleTools),
+		Limits:                  p.buildLimits(accessibleTools),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
 			SupportedVersions: reg.ListSupported(),

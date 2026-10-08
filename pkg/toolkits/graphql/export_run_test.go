@@ -16,7 +16,7 @@ func TestPersist_ANamedExportInARunVersionsOneAsset(t *testing.T) {
 	uc := &ExportUserContext{UserID: "script:daily", RunOutputKey: func(n string) string { return "script:s1:" + n }}
 	in := exportInput{Name: "orders"}
 
-	first, err := (&Toolkit{}).persist(context.Background(), deps, uc, in, []byte(`{"data":{}}`))
+	first, err := (&Toolkit{}).persist(context.Background(), deps, uc, in, persisted{payload: []byte(`{"data":{}}`)})
 	require.NoError(t, err)
 	id := first.assetID
 	assert.Equal(t, 1, first.version)
@@ -24,7 +24,7 @@ func TestPersist_ANamedExportInARunVersionsOneAsset(t *testing.T) {
 	assert.Equal(t, "script:s1:orders", assets.inserted[0].IdempotencyKey)
 
 	assets.existing = &ExportAssetRef{ID: id}
-	again, err := (&Toolkit{}).persist(context.Background(), deps, uc, in, []byte(`{"data":{}}`))
+	again, err := (&Toolkit{}).persist(context.Background(), deps, uc, in, persisted{payload: []byte(`{"data":{}}`)})
 	require.NoError(t, err)
 	assert.Equal(t, id, again.assetID)
 	assert.Equal(t, 2, again.version)
@@ -51,7 +51,7 @@ func TestPersist_NoUploadIsLeftWithoutARow(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			blobs := newFakeBlobs()
 			deps := &ExportDeps{AssetStore: tc.assets, VersionStore: tc.assets, S3Client: blobs, S3Bucket: "b"}
-			_, err := (&Toolkit{}).persist(context.Background(), deps, tc.uc, exportInput{Name: "orders"}, []byte(`{"data":{}}`))
+			_, err := (&Toolkit{}).persist(context.Background(), deps, tc.uc, exportInput{Name: "orders"}, persisted{payload: []byte(`{"data":{}}`)})
 			assert.Equal(t, tc.wantErr, err != nil, "error: %v", err)
 			assert.Len(t, blobs.objects, tc.wantKept)
 		})

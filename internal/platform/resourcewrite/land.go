@@ -197,6 +197,7 @@ func (l *Lander) create(ctx context.Context, plan landing, w write) (*toolkit.Re
 		Content:          w.content,
 		MIMEType:         w.mimeType,
 		DeclaredMIMEType: w.declaredType,
+		Metadata:         w.dest.Metadata,
 	}, w.claims)
 	if err != nil {
 		return nil, w.content.refuseOr(err)
@@ -212,7 +213,7 @@ func (l *Lander) replace(ctx context.Context, plan landing, w write) (*toolkit.R
 		summary = defaultLandingSummary
 	}
 	res, version, err := l.w.Replace(ctx, plan.existing.ID, resource.RevisionUpload{
-		Content: w.content, MIMEType: w.mimeType, ChangeSummary: summary,
+		Content: w.content, MIMEType: w.mimeType, ChangeSummary: summary, Metadata: w.dest.Metadata,
 	}, w.claims)
 	if err != nil {
 		return nil, w.content.refuseOr(err)

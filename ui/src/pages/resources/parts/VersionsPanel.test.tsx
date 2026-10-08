@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { VersionsPanel } from "./VersionsPanel";
+import { HeadIncompleteNotice, VersionsPanel } from "./VersionsPanel";
 import type { Resource, ResourceVersionListResponse } from "@/api/resources/types";
 
 // A revision the platform wrote on the uploader's behalf -- a registration that
@@ -107,5 +107,55 @@ describe("the resource version trail", () => {
       expect(screen.getByTestId("resource-version-1")).toBeInTheDocument();
     });
     expect(screen.queryByTestId("resource-version-summary-1")).not.toBeInTheDocument();
+  });
+});
+
+describe("a version an export cut (#2057)", () => {
+  it("says the file is incomplete and at what limit", async () => {
+    stubVersions({
+      ...TRAIL,
+      versions: [
+        { ...TRAIL.versions[0]!, metadata: { truncated: true, limit_applied: 100000, limit_unit: "rows", limit_source: "deployment" } },
+        TRAIL.versions[1]!,
+      ],
+    });
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByTestId("resource-version-incomplete-2")).toHaveTextContent("Incomplete: truncated at 100,000 rows");
+    });
+    expect(screen.queryByTestId("resource-version-incomplete-1")).not.toBeInTheDocument();
+  });
+});
+
+describe("the notice at the top of the sidebar (#2057)", () => {
+  function renderNotice() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <HeadIncompleteNotice resourceId={RESOURCE.id} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("appears when the current version is a cut export", async () => {
+    stubVersions({
+      ...TRAIL,
+      versions: [{ ...TRAIL.versions[0]!, metadata: { truncated: true, limit_applied: 3, limit_unit: "pages" } }, TRAIL.versions[1]!],
+    });
+    renderNotice();
+    await waitFor(() => {
+      expect(screen.getByTestId("incomplete-notice")).toHaveTextContent("Incomplete: truncated at 3 pages");
+    });
+  });
+
+  it("does not appear when only an older version was cut", async () => {
+    stubVersions({
+      ...TRAIL,
+      versions: [TRAIL.versions[0]!, { ...TRAIL.versions[1]!, metadata: { truncated: true, limit_applied: 3 } }],
+    });
+    renderNotice();
+    await waitFor(() => {
+      expect(screen.queryByTestId("incomplete-notice")).not.toBeInTheDocument();
+    });
   });
 });

@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"path"
 	"strings"
@@ -16,6 +16,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exportstream"
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
@@ -127,6 +129,9 @@ type ExportProvenanceCall struct {
 type ExportAssetRef struct {
 	ID        string
 	SizeBytes int64
+	// Metadata records whether the export that wrote the asset was cut
+	// (#2057).
+	Metadata map[string]any
 }
 
 // ExportVersion is the row inserted into portal_asset_versions.
@@ -139,6 +144,9 @@ type ExportVersion struct {
 	SizeBytes     int64
 	CreatedBy     string
 	ChangeSummary string
+	// Metadata records a cut export on the version, and through it on the
+	// asset (#2057). Nil for a complete one.
+	Metadata map[string]any
 }
 
 // ExportConfig holds platform-level limits for api_export. MaxBytes
@@ -237,6 +245,9 @@ type exportInput struct {
 	// Resource, when set, lands the response in the managed resource at that
 	// path instead of in a new portal asset (#1663).
 	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
+	// Options decide what a walk stopped at its page bound, or an unexpected
+	// item count, does (#2057).
+	exporttrunc.Options
 }
 
 // exportOutput is the response returned to the model. Mirrors
@@ -265,6 +276,10 @@ type exportOutput struct {
 	Message string `json:"message"`
 	// WalkStats is set on a page walk; nil on a single-page export.
 	*WalkStats
+	// Report says whether the walk's page bound cut it and whose bound it was
+	// (#2057). Set on a page walk, and on an idempotency hit for an asset a
+	// cut walk wrote; nil otherwise, since one response has no bound to cut.
+	*exporttrunc.Report
 }
 
 // registerExportTool registers api_export on the MCP server. No-op
@@ -326,6 +341,9 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 	if in.Name == "" {
 		return toolkit.ErrorResult("name is required (the asset's download filename, or the display name of the managed resource a 'resource' destination lands in)"), nil, nil
+	}
+	if err := in.ValidateWalk(in.Paginate != nil); err != nil {
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	if in.Resource != nil {
 		if denial := checkResourceDestination(ctx, deps, in); denial != nil {
@@ -416,12 +434,17 @@ func checkExportIdempotency(ctx context.Context, deps *ExportDeps, uc *ExportUse
 	if err != nil || existing == nil {
 		return nil
 	}
-	return &exportOutput{
+	out := &exportOutput{
 		AssetID:   existing.ID,
 		PortalURL: buildExportPortalURL(deps.BaseURL, existing.ID),
 		SizeBytes: existing.SizeBytes,
 		Message:   "Asset already exists (idempotency key matched).",
+		Report:    exporttrunc.FromMetadata(existing.Metadata),
 	}
+	if out.Report != nil {
+		out.Message += fmt.Sprintf(" That export was truncated at %d %s; the file is incomplete.", out.LimitApplied, out.LimitUnit)
+	}
+	return out
 }
 
 // runExportArgs bundles the inputs runExport needs. Splitting into
@@ -562,6 +585,11 @@ type persistExportArgs struct {
 	// in provenance when detection replaced it.
 	declaredType string
 	status       int
+	// cut is a page walk's judgment (#2057): the asset is tagged and its
+	// version records it. Nil for a single response. meta is the same record
+	// for a resource destination, filled before the walk's stream ends.
+	cut  *exporttrunc.Report
+	meta map[string]any
 }
 
 // persistExportAsset streams the response body to S3 and inserts the
@@ -605,10 +633,10 @@ func putExportObject(ctx context.Context, p persistExportArgs) (exportObject, er
 		return exportObject{}, fmt.Errorf("generating asset id: %w", err)
 	}
 	s3Key := buildExportS3Key(deps.S3Prefix, p.uc.UserID, assetID, contentType)
-	capped := &cappedReader{r: p.body, max: p.maxBytes}
+	capped := exportstream.NewCappedReader(p.body, p.maxBytes)
 	size, err := deps.S3Client.PutObjectStream(ctx, deps.S3Bucket, s3Key, capped, contentType)
 	if err != nil {
-		if capped.exceeded {
+		if capped.Exceeded() {
 			return exportObject{}, fmt.Errorf("upstream response exceeded api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", p.maxBytes)
 		}
 		return exportObject{}, fmt.Errorf("streaming export to storage failed: %w", err)
@@ -639,8 +667,12 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 		SessionID:      uc.SessionID,
 		IdempotencyKey: in.IdempotencyKey,
 	}
+	var cutMeta map[string]any
+	if p.cut != nil {
+		asset.Tags, cutMeta = exporttrunc.WithTag(asset.Tags, *p.cut), p.cut.Metadata()
+	}
 	if key := runOutputKey(uc, in); key != "" {
-		assetID, version, err = recordRunVersion(ctx, deps, asset, key, uc.UserEmail)
+		assetID, version, err = recordRunVersion(ctx, deps, asset, key, runVersion{createdBy: uc.UserEmail, metadata: cutMeta})
 		if errors.Is(err, toolkit.ErrObjectUnreferenced) {
 			discardExport(ctx, deps, s3Key)
 		}
@@ -668,6 +700,7 @@ func recordExportAsset(ctx context.Context, p persistExportArgs, obj exportObjec
 		SizeBytes:     size,
 		CreatedBy:     uc.UserEmail,
 		ChangeSummary: "Exported from API endpoint",
+		Metadata:      cutMeta,
 	}); vErr != nil {
 		// Version-row failure is non-fatal: the asset row is
 		// already in place and the model has the id. Surface via
@@ -696,7 +729,7 @@ func discardExport(ctx context.Context, deps *ExportDeps, key string) {
 // recordRunVersion records a named export a script run made under the
 // script's output identity: the next version of the asset the key names, or
 // the new asset carrying it (#1854).
-func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, key, createdBy string) (assetID string, version int, err error) {
+func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, key string, rv runVersion) (assetID string, version int, err error) {
 	assetID, version, err = toolkit.PersistRunAsset(ctx, key, asset.ID, toolkit.RunAssetWrite{
 		Lookup: func(ctx context.Context, key string) (string, bool) {
 			ref, err := deps.AssetStore.GetByIdempotencyKey(ctx, asset.OwnerID, key)
@@ -717,7 +750,7 @@ func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, 
 			return deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
 				ID: versionID, AssetID: assetID, S3Key: asset.S3Key, S3Bucket: asset.S3Bucket,
 				ContentType: asset.ContentType, SizeBytes: asset.SizeBytes,
-				CreatedBy: createdBy, ChangeSummary: "Exported from API endpoint",
+				CreatedBy: rv.createdBy, ChangeSummary: "Exported from API endpoint", Metadata: rv.metadata,
 			})
 		},
 	})
@@ -752,37 +785,51 @@ func (*Toolkit) runExportWalk(ctx context.Context, a runExportArgs) (*exportOutp
 
 	inv := invocation{cfg: a.cfg, auth: a.auth, client: a.client, specs: a.specs, webdavRoutes: a.webdavRoutes, budget: a.budget}
 	pr, pw := io.Pipe()
-	arr := &jsonArrayWriter{w: pw}
-	walk, err := newPageWalk(inv, exportInvokeInput(in), a.authorize, arr.write)
+	arr := exportstream.NewJSONArrayWriter(pw)
+	walk, err := newPageWalk(inv, exportInvokeInput(in), a.authorize, arr.Write)
 	if err != nil {
 		return nil, err
 	}
+	// The walk is judged as it ends, before the document is closed: a cut the
+	// caller did not accept closes the stream with the refusal instead, so the
+	// upload or the landing aborts and nothing is written (#2057).
+	var cut exporttrunc.Outcome
+	meta := map[string]any{}
 	done := make(chan error, 1)
 	go func() {
 		walkErr := walk.Run(exportCtx)
 		if walkErr == nil {
-			walkErr = arr.close()
+			if cut = judgeWalk(walk, in); cut.Refusal != "" {
+				walkErr = errors.New("api_export: " + cut.Refusal)
+			}
+		}
+		if walkErr == nil {
+			maps.Copy(meta, cut.Report.Metadata())
+			walkErr = arr.Close()
 		}
 		_ = pw.CloseWithError(walkErr) // a pipe close never fails
 		done <- walkErr
 	}()
 
-	persist := persistExportArgs{deps: deps, uc: uc, in: in, body: pr, maxBytes: deps.Config.MaxBytes, contentType: applicationJSON}
+	persist := persistExportArgs{
+		deps: deps, uc: uc, in: in, body: pr, maxBytes: deps.Config.MaxBytes, contentType: applicationJSON,
+		cut: &cut.Report, meta: meta,
+	}
 	landed, consumeErr := consumeWalkOutput(ctx, persist)
 	// Unblock the walk if the consumer stopped reading first, then take its
 	// verdict: a failed page is the cause the caller should see; a walk that
 	// only stopped because its reader went away defers to the reader's error.
 	_ = pr.Close() // a pipe close never fails
-	if walkErr := <-done; walkErr != nil && !errors.Is(walkErr, errWalkConsumerStopped) {
+	if walkErr := <-done; walkErr != nil && !errors.Is(walkErr, exportstream.ErrConsumerStopped) {
 		return nil, walkErr
 	}
 	if consumeErr != nil {
 		return nil, consumeErr
 	}
 	if landed.landing != nil {
-		return walkResourceOutput(in, walk, landed.landing), nil
+		return walkResourceOutput(in, walk, landed.landing, cut), nil
 	}
-	return finishWalkAsset(ctx, persist, walk, landed.obj)
+	return finishWalkAsset(ctx, persist, walk, landed.obj, cut)
 }
 
 // walkConsumed is where a walk's merged document went: an object under a fresh
@@ -802,7 +849,9 @@ func consumeWalkOutput(ctx context.Context, p persistExportArgs) (walkConsumed, 
 		obj, err := putExportObject(ctx, p)
 		return walkConsumed{obj: obj}, err
 	}
-	landing, err := p.deps.ResourceLander.LandResource(ctx, exportDestinationOf(p.in), p.body, applicationJSON)
+	dest := exportDestinationOf(p.in)
+	dest.Metadata = p.meta
+	landing, err := p.deps.ResourceLander.LandResource(ctx, dest, p.body, applicationJSON)
 	if err != nil {
 		return walkConsumed{}, err //nolint:wrapcheck // the lander's sentence is written for whoever made the call
 	}
@@ -811,7 +860,7 @@ func consumeWalkOutput(ctx context.Context, p persistExportArgs) (walkConsumed, 
 
 // finishWalkAsset records the asset row and version row for a completed walk and
 // reports the asset the pages were merged into.
-func finishWalkAsset(ctx context.Context, persist persistExportArgs, walk *pagewalk.Walk, obj exportObject) (*exportOutput, error) {
+func finishWalkAsset(ctx context.Context, persist persistExportArgs, walk *pagewalk.Walk, obj exportObject, cut exporttrunc.Outcome) (*exportOutput, error) {
 	deps, uc, in := persist.deps, persist.uc, persist.in
 	prov := buildExportProvenance(uc, in, walk.Last.Status, "")
 	prov.ToolCalls[0].Parameters["paginate"] = in.Paginate
@@ -833,24 +882,27 @@ func finishWalkAsset(ctx context.Context, persist persistExportArgs, walk *pagew
 		ContentType:  applicationJSON,
 		Status:       walk.Last.Status,
 		SizeBytes:    obj.size,
-		Message:      fmt.Sprintf("Exported %d items from %d pages of %s %s (%d bytes).", walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, obj.size),
-		WalkStats:    &walk.Stats,
+		Message: exporttrunc.Sentences(fmt.Sprintf("Exported %d items from %d pages of %s %s (%d bytes).",
+			walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, obj.size), cut.Note),
+		WalkStats: &walk.Stats,
+		Report:    &cut.Report,
 	}, nil
 }
 
 // walkResourceOutput reports a walk that landed in a managed resource. It says
 // both halves of what happened: how much of the upstream was walked, and what
 // the write did to the file every reader of that path holds.
-func walkResourceOutput(in exportInput, walk *pagewalk.Walk, landing *toolkit.ResourceLanding) *exportOutput {
+func walkResourceOutput(in exportInput, walk *pagewalk.Walk, landing *toolkit.ResourceLanding, cut exporttrunc.Outcome) *exportOutput {
 	method, _ := validateMethod(in.Method)
 	return &exportOutput{
 		ContentType: landing.ContentType,
 		Status:      walk.Last.Status,
 		SizeBytes:   landing.SizeBytes,
 		Resource:    landing,
-		Message: fmt.Sprintf("Exported %d items from %d pages of %s %s. %s",
-			walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path, landing.Message),
+		Message: exporttrunc.Sentences(fmt.Sprintf("Exported %d items from %d pages of %s %s.",
+			walk.Stats.ItemsMerged, walk.Stats.PagesFetched, method, in.Path), cut.Note, landing.Message),
 		WalkStats: &walk.Stats,
+		Report:    &cut.Report,
 	}
 }
 
@@ -867,97 +919,6 @@ func exportInvokeInput(in exportInput) InvokeInput {
 		TimeoutSeconds: in.TimeoutSeconds,
 		Paginate:       in.Paginate,
 	}
-}
-
-// errWalkConsumerStopped marks a walk that ended because the reader of
-// its output went away (the storage stream failed or was capped). The
-// consumer's own error is the one to report; this one says the walk is
-// not the cause.
-var errWalkConsumerStopped = errors.New("walk output consumer stopped")
-
-// jsonArrayWriter is api_export's sink: it streams the merged array as
-// one JSON document, opening it on the first page, separating items
-// with commas, and closing it when the walk ends, so memory holds one
-// page at a time however many pages there are.
-type jsonArrayWriter struct {
-	w      io.Writer
-	opened bool
-	count  int
-}
-
-// write is the walk's sink.
-func (a *jsonArrayWriter) write(items []json.RawMessage) error {
-	if err := a.open(); err != nil {
-		return err
-	}
-	for _, it := range items {
-		if a.count > 0 {
-			if _, err := io.WriteString(a.w, ","); err != nil {
-				return consumerError(err)
-			}
-		}
-		if _, err := a.w.Write(it); err != nil {
-			return consumerError(err)
-		}
-		a.count++
-	}
-	return nil
-}
-
-func (a *jsonArrayWriter) open() error {
-	if a.opened {
-		return nil
-	}
-	a.opened = true
-	if _, err := io.WriteString(a.w, "["); err != nil {
-		return consumerError(err)
-	}
-	return nil
-}
-
-// close finishes the document. A walk that merged nothing still writes
-// an empty array.
-func (a *jsonArrayWriter) close() error {
-	if err := a.open(); err != nil {
-		return err
-	}
-	if _, err := io.WriteString(a.w, "]"); err != nil {
-		return consumerError(err)
-	}
-	return nil
-}
-
-// consumerError classifies a write failure on the walk's output. A
-// closed pipe means the reader stopped first, and its error is the one
-// to report.
-func consumerError(err error) error {
-	if errors.Is(err, io.ErrClosedPipe) {
-		return errWalkConsumerStopped
-	}
-	return fmt.Errorf("writing merged page: %w", err)
-}
-
-// cappedReader bounds a stream at max bytes. Once more than max have
-// been read it returns an error (so the S3 transfer manager aborts the
-// incomplete multipart upload) and sets exceeded, which the caller
-// checks to distinguish an over-cap body from a transient storage
-// error. A max <= 0 disables the cap. The over-cap error text is
-// internal — the caller substitutes the operator-facing message.
-type cappedReader struct {
-	r        io.Reader
-	max      int64
-	n        int64
-	exceeded bool
-}
-
-func (c *cappedReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
-	c.n += int64(n)
-	if c.max > 0 && c.n > c.max {
-		c.exceeded = true
-		return n, fmt.Errorf("export body exceeded cap of %d bytes", c.max)
-	}
-	return n, err //nolint:wrapcheck // transparent pass-through of the wrapped reader's error
 }
 
 // resolveExportTimeout picks the timeout for a single api_export

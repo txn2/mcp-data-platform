@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
@@ -1327,6 +1328,9 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageAssetInput) (*mc
 		SizeBytes:     int64(len(data)),
 		CreatedBy:     resolveOwnerEmail(ctx),
 		ChangeSummary: fmt.Sprintf("Reverted from v%d", input.Version),
+		// The content comes back, so whether its export was cut comes with it
+		// (#2057).
+		Metadata: exporttrunc.Carry(targetVer.Metadata),
 	}
 	assignedVersion, err := t.versionStore.CreateVersion(ctx, av)
 	if err != nil {

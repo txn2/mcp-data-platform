@@ -62,6 +62,9 @@ export interface AssetVersion {
   created_by: string;
   change_summary: string;
   created_at: string;
+  // What the writer recorded about this version (#1848); an export cut at a
+  // limit and written anyway records the cut here (#2057).
+  metadata?: Record<string, unknown>;
 }
 
 export type {

@@ -33886,6 +33886,11 @@
                 "created_at": {
                     "type": "string"
                 },
+                "metadata": {
+                    "description": "Metadata is what the writer recorded about this version's content\n(#2057): an export cut at a limit and written anyway records the cut\n(truncated, limit_applied, limit_source, limit_unit). Empty for a version\nnothing described.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "mime_type": {
                     "type": "string",
                     "example": "text/markdown"
@@ -34842,6 +34847,15 @@
                 "key": {
                     "type": "string"
                 },
+                "limit_applied": {
+                    "type": "integer"
+                },
+                "limit_source": {
+                    "type": "string"
+                },
+                "limit_unit": {
+                    "type": "string"
+                },
                 "metadata": {
                     "type": "object",
                     "additionalProperties": {}
@@ -34883,6 +34897,10 @@
                 "tool": {
                     "description": "Tool names the tool that wrote this output when a platform.call of an\nexport tool (trino_export, api_export) did, rather than platform.export\n(#1854). Empty for platform.export and platform.publish_data.",
                     "type": "string"
+                },
+                "truncated": {
+                    "description": "Truncated marks an export tool's output that a row or page limit cut\nand that was written anyway under on_truncation \"warn\" (#2057):\nLimitApplied is the limit, LimitSource who set it (\"request\" or\n\"deployment\") and LimitUnit what it counts (\"rows\" or \"pages\"). A\nscheduled run's response is read by nobody, so the run's record of its\noutputs is where an incomplete file is seen. Absent on a complete one.",
+                    "type": "boolean"
                 }
             }
         },

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -16,7 +17,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -137,6 +140,10 @@ type ExportAsset struct {
 	Provenance     ExportProvenance
 	SessionID      string
 	IdempotencyKey string
+	// VersionMetadata is what the export records about its content on the
+	// version written with the asset (#2057): the cut, nil for a complete
+	// result. The asset takes it from that version.
+	VersionMetadata map[string]any
 }
 
 // ExportProvenance records provenance for an exported asset.
@@ -150,6 +157,9 @@ type ExportProvenance struct {
 type ExportAssetRef struct {
 	ID        string
 	SizeBytes int64
+	// Metadata is the asset's metadata, which records whether the export
+	// that wrote it was cut (#2057).
+	Metadata map[string]any
 }
 
 // ExportVersion is the version data for creating a new version.
@@ -162,6 +172,9 @@ type ExportVersion struct {
 	SizeBytes     int64
 	CreatedBy     string
 	ChangeSummary string
+	// Metadata records a cut export on the version, and through it on the
+	// asset (#2057). Nil for a complete one.
+	Metadata map[string]any
 }
 
 // ExportConfig holds configuration for the trino_export tool.
@@ -187,6 +200,13 @@ func applyExportDefaults(cfg ExportConfig) ExportConfig {
 		cfg.MaxTimeout = defaultMaxExportTimeout
 	}
 	return cfg
+}
+
+// ResolveExportConfig is cfg with the defaults trino_export applies filled in,
+// for a reader that reports the limits the tool runs under (platform_info,
+// #2057).
+func ResolveExportConfig(cfg ExportConfig) ExportConfig {
+	return applyExportDefaults(cfg)
 }
 
 // ExportUserContext holds user identity extracted from the request context.
@@ -244,6 +264,8 @@ type exportInput struct {
 	// Resource, when set, lands the formatted result in the managed resource at
 	// that path instead of in a new portal asset (#1663).
 	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
+	// Options decide what a cut result or an unexpected row count does (#2057).
+	exporttrunc.Options
 }
 
 // exportOutput is the response returned to the agent.
@@ -263,6 +285,10 @@ type exportOutput struct {
 	// asset_id, never beside it.
 	Resource *toolkit.ResourceLanding `json:"resource,omitempty"`
 	Message  string                   `json:"message"`
+	// Report says whether the row limit cut the result, which limit applied
+	// and who set it (#2057). Nil only on an idempotency hit for an asset
+	// whose metadata records no cut.
+	*exporttrunc.Report
 }
 
 // SetExportDeps injects portal dependencies for trino_export.
@@ -292,7 +318,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 			"NAMING: keep `name` short and portable, using only ASCII letters, digits, spaces, hyphens, and dots. " +
 			"Avoid em/en dashes, smart quotes, ellipses, and other Unicode punctuation; they will be normalized to ASCII. " +
 			"The name doubles as the download filename.",
-		InputSchema: exportInputSchema(),
+		InputSchema: exportInputSchema(t.exportDeps.Config),
 		// An export lands a new asset, or the next version of a managed
 		// resource with the earlier versions kept, so it only adds.
 		Annotations: toolkit.WriteAnnotations(false),
@@ -368,14 +394,20 @@ func (*Toolkit) checkIdempotency(ctx context.Context, deps *ExportDeps, uc *Expo
 // existingExportOutput is the output for an asset an earlier call with the
 // same idempotency key already wrote.
 func existingExportOutput(deps *ExportDeps, existing *ExportAssetRef, input exportInput) *exportOutput {
-	return &exportOutput{
+	out := &exportOutput{
 		AssetID:   existing.ID,
 		PortalURL: buildPortalURL(deps.BaseURL, existing.ID),
 		Format:    input.Format,
 		RowCount:  0,
 		SizeBytes: existing.SizeBytes,
 		Message:   "Asset already exists (idempotency key matched).",
+		Report:    exporttrunc.FromMetadata(existing.Metadata),
 	}
+	if out.Report != nil {
+		out.Message += " That export was truncated at " + strconv.Itoa(out.LimitApplied) + " " + out.LimitUnit +
+			"; the file is incomplete."
+	}
+	return out
 }
 
 // executeAndPersist runs the query, formats, uploads to S3, and saves the asset
@@ -391,13 +423,23 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	// its microseconds and a VARBINARY its bytes (#1833).
 	typed := input.Format == formatParquet
 	result, err := t.executeExportQuery(queryCtx, input.SQL, input.Connection, trinoclient.QueryOptions{
-		Limit: limit, RawValues: typed,
+		Limit: limit.Applied, RawValues: typed,
 	})
 	if err != nil {
 		return nil, exportError(fmt.Sprintf("query execution failed: %v", err))
 	}
 
 	rows := queryRows(result)
+
+	// Judged before anything is formatted or written: a cut the caller did not
+	// accept writes nothing (#2057).
+	cut := exporttrunc.Judge(exporttrunc.Judgment{
+		Limit: limit, Truncated: result.Stats.Truncated, Written: len(rows), WrittenUnit: exporttrunc.UnitRows,
+		Options: input.Options, Unordered: !sqltables.HasTopLevelOrderBy(input.SQL),
+	})
+	if cut.Refusal != "" {
+		return nil, exportError(cut.Refusal)
+	}
 
 	out, errResult := formatQueryResult(input.Format, result, rows, deps.Config.MaxBytes)
 	if errResult != nil {
@@ -406,13 +448,14 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	formatted, formatter, note := out.body, out.formatter, out.note
 
 	sysTags := t.inheritSensitivityTags(ctx, input.SQL)
-	allTags := make([]string, 0, len(input.Tags)+len(sysTags))
+	allTags := make([]string, 0, len(input.Tags))
 	allTags = append(allTags, input.Tags...)
 	allTags = append(allTags, sysTags...)
 
 	if input.Resource != nil {
 		return t.landExport(ctx, deps, input, landedResult{
 			body: formatted, contentType: formatter.ContentType(), tags: allTags, rowCount: len(rows), note: note,
+			cut: cut,
 		})
 	}
 
@@ -439,19 +482,23 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	})
 
 	asset := ExportAsset{
-		ID:             assetID,
-		OwnerID:        uc.UserID,
-		OwnerEmail:     uc.UserEmail,
-		Name:           input.Name,
-		Description:    input.Description,
-		ContentType:    formatter.ContentType(),
-		S3Bucket:       deps.S3Bucket,
-		S3Key:          s3Key,
-		SizeBytes:      int64(len(formatted)),
-		Tags:           allTags,
-		Provenance:     prov,
-		SessionID:      uc.SessionID,
-		IdempotencyKey: input.IdempotencyKey,
+		ID:          assetID,
+		OwnerID:     uc.UserID,
+		OwnerEmail:  uc.UserEmail,
+		Name:        input.Name,
+		Description: input.Description,
+		ContentType: formatter.ContentType(),
+		S3Bucket:    deps.S3Bucket,
+		S3Key:       s3Key,
+		SizeBytes:   int64(len(formatted)),
+		// A resource is not tagged: its tags are set on create and left
+		// alone by a replacement, so a tag could outlive the cut. Its
+		// version's metadata carries the mark instead.
+		Tags:            exporttrunc.WithTag(allTags, cut.Report),
+		Provenance:      prov,
+		SessionID:       uc.SessionID,
+		IdempotencyKey:  input.IdempotencyKey,
+		VersionMetadata: cut.Report.Metadata(),
 	}
 
 	recorded, hit, errResult := t.storeAsset(ctx, deps, asset, input, uc)
@@ -473,7 +520,8 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 		Format:       input.Format,
 		RowCount:     len(rows),
 		SizeBytes:    int64(len(formatted)),
-		Message:      strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format), note), " "),
+		Message:      strings.Join(nonEmpty(fmt.Sprintf("Exported %d rows as %s.", len(rows), input.Format), cut.Note, note), " "),
+		Report:       &cut.Report,
 	}, nil
 }
 
@@ -485,6 +533,7 @@ func (t *Toolkit) storeAsset(ctx context.Context, deps *ExportDeps, asset Export
 ) {
 	version0 := ExportVersion{
 		S3Key: asset.S3Key, ContentType: asset.ContentType, SizeBytes: asset.SizeBytes, CreatedBy: uc.UserEmail,
+		Metadata: asset.VersionMetadata,
 	}
 	if key := runOutputKey(uc, input); key != "" {
 		id, version, err := toolkit.PersistRunAsset(ctx, key, asset.ID, toolkit.RunAssetWrite{
@@ -583,17 +632,31 @@ func (*Toolkit) maybeCreateShare(ctx context.Context, deps *ExportDeps, input ex
 	return url
 }
 
+// MaxRowsKey is the configuration key of the deployment's export row cap,
+// named wherever the cap is: the tool description, a cut's report, platform_info.
+const MaxRowsKey = "portal.export.max_rows"
+
+// deploymentCapRemedy is what a refusal at the deployment cap offers instead.
+const deploymentCapRemedy = "Set limit to export a chosen subset, or split the query by key range " +
+	"(one export per range) or aggregate it in SQL so each result fits under the cap."
+
 // resolveExportLimits resolves timeout and row limit from input and config.
 // Validation of max bounds is already done in validateExportInput; this
-// applies the values or falls back to defaults.
-func resolveExportLimits(input exportInput, cfg ExportConfig) (timeout time.Duration, limit int) { //nolint:gocritic // named returns for clarity
+// applies the values or falls back to defaults. The limit says who set it, so a
+// cut can be judged by it (#2057).
+func resolveExportLimits(input exportInput, cfg ExportConfig) (timeout time.Duration, limit exporttrunc.Limit) { //nolint:gocritic // named returns for clarity
 	timeout = cfg.DefaultTimeout
 	if input.TimeoutSeconds > 0 {
 		timeout = time.Duration(input.TimeoutSeconds) * time.Second
 	}
-	limit = cfg.MaxRows
+	limit = exporttrunc.Limit{
+		Applied: cfg.MaxRows, Source: exporttrunc.SourceDeployment, Unit: exporttrunc.UnitRows,
+		Key: MaxRowsKey, Remedy: deploymentCapRemedy,
+	}
 	if input.Limit > 0 {
-		limit = input.Limit
+		limit = exporttrunc.Limit{
+			Applied: input.Limit, Source: exporttrunc.SourceRequest, Unit: exporttrunc.UnitRows, Key: "limit",
+		}
 	}
 	return timeout, limit
 }
@@ -843,6 +906,9 @@ func validateExportInput(input exportInput, cfg ExportConfig) error {
 	if input.Limit > cfg.MaxRows {
 		return fmt.Errorf("limit %d exceeds deployment maximum of %d rows", input.Limit, cfg.MaxRows)
 	}
+	if err := input.Validate(); err != nil {
+		return err //nolint:wrapcheck // the sentence is written for the caller
+	}
 	if input.TimeoutSeconds > int(cfg.MaxTimeout.Seconds()) {
 		return fmt.Errorf("timeout_seconds %d exceeds maximum of %d", input.TimeoutSeconds, int(cfg.MaxTimeout.Seconds()))
 	}
@@ -996,8 +1062,9 @@ func exportSuccess(out *exportOutput) (*mcp.CallToolResult, any, error) {
 	}, out, nil
 }
 
-// exportInputSchema returns the JSON Schema for trino_export input.
-func exportInputSchema() map[string]any {
+// exportInputSchema returns the JSON Schema for trino_export input. The limit
+// and on_truncation descriptions state the deployment's own cap (#2057).
+func exportInputSchema(cfg ExportConfig) map[string]any {
 	return map[string]any{
 		schemaKeyType: schemaTypeObject,
 		// Closed to unknown arguments: a misnamed field is refused by name
@@ -1047,7 +1114,30 @@ func exportInputSchema() map[string]any {
 			},
 			"limit": map[string]any{
 				schemaKeyType: schemaTypeInteger,
-				schemaKeyDesc: "Maximum number of rows to export. Subject to deployment cap.",
+				schemaKeyDesc: fmt.Sprintf("Maximum number of rows to export. Maximum %s rows on this deployment (%s); "+
+					"a larger value is refused. A result your limit cuts is written and flagged truncated.",
+					exporttrunc.Thousands(cfg.MaxRows), MaxRowsKey),
+			},
+			"on_truncation": map[string]any{
+				schemaKeyType: schemaTypeString,
+				"enum":        []string{exporttrunc.PolicyFail, exporttrunc.PolicyWarn},
+				schemaKeyDesc: fmt.Sprintf("What a result cut at a row limit does. fail writes nothing and returns an error; "+
+					"warn writes the rows that fit and flags the response, the asset and its version as truncated. "+
+					"Default: warn when your own limit cut it, fail when the deployment cap of %s rows (%s) cut it. "+
+					"It also decides whether a missed expect_rows or expect_min_rows fails (the default) or is flagged.",
+					exporttrunc.Thousands(cfg.MaxRows), MaxRowsKey),
+			},
+			"expect_rows": map[string]any{
+				schemaKeyType: schemaTypeInteger,
+				"minimum":     0,
+				schemaKeyDesc: "The exact row count this export must write. Any other count fails the call, or is flagged under on_truncation warn. " +
+					"A guard for a recurring export, where a sudden change in count usually means an upstream feed broke.",
+			},
+			"expect_min_rows": map[string]any{
+				schemaKeyType: schemaTypeInteger,
+				"minimum":     0,
+				schemaKeyDesc: "The fewest rows this export may write. Fewer fails the call, or is flagged under on_truncation warn. " +
+					"Mutually exclusive with expect_rows.",
 			},
 			"idempotency_key": map[string]any{
 				schemaKeyType: schemaTypeString,

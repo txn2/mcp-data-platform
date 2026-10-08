@@ -118,8 +118,8 @@ func TestResourceAddRevisionEnqueuesIndexJob(t *testing.T) {
 	mock.ExpectQuery("INSERT INTO resource_versions").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"resource_id", "version", "mime_type", "size_bytes", "s3_key",
-			"uploader_sub", "uploader_email", "restored_from", "change_summary", "content_sha256", "created_at",
-		}).AddRow("res-1", 2, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, now))
+			"uploader_sub", "uploader_email", "restored_from", "change_summary", "content_sha256", "metadata", "created_at",
+		}).AddRow("res-1", 2, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
 	mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 

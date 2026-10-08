@@ -1016,36 +1016,6 @@ func TestExportWalk_StorageFailureIsReported(t *testing.T) {
 	}
 }
 
-func TestJSONArrayWriter(t *testing.T) {
-	var sb strings.Builder
-	a := &jsonArrayWriter{w: &sb}
-	if err := a.write([]json.RawMessage{json.RawMessage("1"), json.RawMessage(`{"a":2}`)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.write([]json.RawMessage{json.RawMessage("3")}); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.close(); err != nil || sb.String() != `[1,{"a":2},3]` {
-		t.Errorf("got %q err %v", sb.String(), err)
-	}
-	var empty strings.Builder
-	if err := (&jsonArrayWriter{w: &empty}).close(); err != nil || empty.String() != "[]" {
-		t.Errorf("empty walk = %q err %v", empty.String(), err)
-	}
-	pr, pw := io.Pipe()
-	_ = pr.Close()
-	b := &jsonArrayWriter{w: pw}
-	if err := b.write([]json.RawMessage{json.RawMessage("1")}); !errors.Is(err, errWalkConsumerStopped) {
-		t.Errorf("closed-pipe write classified as %v", err)
-	}
-	if err := (&jsonArrayWriter{w: pw}).close(); !errors.Is(err, errWalkConsumerStopped) {
-		t.Errorf("closed-pipe close classified as %v", err)
-	}
-	if err := consumerError(errors.New("disk full")); err == nil || errors.Is(err, errWalkConsumerStopped) {
-		t.Errorf("a storage error classified as the consumer stopping: %v", err)
-	}
-}
-
 // TestInvokeWalk_OverBudgetKeepsTheMergedArray: a walk expresses the inline
 // budget by refusing the page that would cross it, never by cutting what it
 // already merged. Cutting would replace the array with a prefix string, or

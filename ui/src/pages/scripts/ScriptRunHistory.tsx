@@ -32,6 +32,8 @@ import {
   summarize,
 } from "./runFormat";
 import { RunAttempts, RunHolder } from "./ScriptRunAttempts";
+import { IncompleteBadge } from "@/components/IncompleteBadge";
+import { truncationLabel } from "@/lib/truncation";
 
 // ScriptRunHistory is the refresh history of one script: every run, what
 // triggered it, how it ended, and what it produced. A recurring script writes
@@ -504,6 +506,16 @@ function RunOutputs({
               <span className="font-medium">{link.label}</span>
             )}
             <span className="text-muted-foreground">{link.detail}</span>
+            {output.truncated && (
+              <IncompleteBadge
+                className="px-1.5"
+                title={truncationLabel(
+                  output.limit_applied
+                    ? { limit: output.limit_applied, unit: output.limit_unit ?? "rows", source: output.limit_source ?? "" }
+                    : null,
+                )}
+              />
+            )}
           </li>
         );
       })}

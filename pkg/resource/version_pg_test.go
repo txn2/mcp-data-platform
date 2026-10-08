@@ -13,7 +13,7 @@ import (
 func versionRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"resource_id", "version", "mime_type", "size_bytes", "s3_key",
-		"uploader_sub", "uploader_email", "restored_from", "change_summary", "content_sha256", "created_at",
+		"uploader_sub", "uploader_email", "restored_from", "change_summary", "content_sha256", "metadata", "created_at",
 	})
 }
 
@@ -81,9 +81,9 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", "", sqlmock.AnyArg()).
+			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", "", sqlmock.AnyArg(), []byte(`{}`)).
 			WillReturnRows(versionRows().
-				AddRow("r1", 3, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, now))
+				AddRow("r1", 3, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
 		mock.ExpectExec("UPDATE resources").
 			WithArgs("text/csv", int64(12), "k/v/rev1/f.csv", sqlmock.AnyArg(), "r1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
@@ -117,7 +117,7 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "sub", "", nil, "", nil, time.Now()))
+			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "sub", "", nil, "", nil, []byte(`{}`), time.Now()))
 		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectRollback()
 
@@ -143,8 +143,8 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WithArgs("r1", "", int64(0), "", "", "", int64(2), "", "", sqlmock.AnyArg()).
-			WillReturnRows(versionRows().AddRow("r1", 5, "", int64(0), "", "", "", 2, "", nil, time.Now()))
+			WithArgs("r1", "", int64(0), "", "", "", int64(2), "", "", sqlmock.AnyArg(), []byte(`{}`)).
+			WillReturnRows(versionRows().AddRow("r1", 5, "", int64(0), "", "", "", 2, "", nil, []byte(`{}`), time.Now()))
 		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
 
@@ -170,8 +170,8 @@ func TestListAndGetVersion(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM resource_versions").
 		WithArgs("r1").
 		WillReturnRows(versionRows().
-			AddRow("r1", 2, "text/csv", int64(20), "k2", "sub", "u@example.com", 1, "", "abc123", now).
-			AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, "", nil, now))
+			AddRow("r1", 2, "text/csv", int64(20), "k2", "sub", "u@example.com", 1, "", "abc123", []byte(`{}`), now).
+			AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
 
 	versions, err := store.ListVersions(context.Background(), "r1")
 	if err != nil {
@@ -194,7 +194,7 @@ func TestListAndGetVersion(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM resource_versions").
 		WithArgs("r1", 1).
-		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, "", nil, now))
+		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "k1", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
 	v, err := store.GetVersion(context.Background(), "r1", 1)
 	if err != nil {
 		t.Fatalf("GetVersion: %v", err)
@@ -236,7 +236,7 @@ func TestPruneVersions(t *testing.T) {
 
 		mock.ExpectQuery("DELETE FROM resource_versions").
 			WithArgs("r1", 10).
-			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "old-key", "sub", "", nil, "", nil, time.Now()))
+			WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(10), "old-key", "sub", "", nil, "", nil, []byte(`{}`), time.Now()))
 
 		pruned, err := store.PruneVersions(context.Background(), "r1", 10)
 		if err != nil {
@@ -348,7 +348,7 @@ func TestListVersions_ReadFailures(t *testing.T) {
 		// loudly rather than yield a half-populated trail.
 		mock.ExpectQuery("SELECT .+ FROM resource_versions").
 			WillReturnRows(versionRows().
-				AddRow("r1", "not-a-number", "text/csv", int64(1), "k", "sub", "", nil, "", nil, time.Now()))
+				AddRow("r1", "not-a-number", "text/csv", int64(1), "k", "sub", "", nil, "", nil, []byte(`{}`), time.Now()))
 		if _, err := store.ListVersions(context.Background(), "r1"); err == nil {
 			t.Fatal("ListVersions returned rows it could not scan")
 		}
@@ -376,5 +376,62 @@ func TestAddRevision_MissingResourceIsRefusedBeforeAnyWrite(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("a version row was written for a missing resource: %v", err)
+	}
+}
+
+// TestVersionMetadataRoundTrips: what a writer records about a version's
+// content is stored as JSON and read back; a version with none reads as nil,
+// and a column that is not JSON is an error rather than an empty map (#2057).
+func TestVersionMetadataRoundTrips(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	store, _ := NewPostgresStore(db).(*postgresStore)
+	now := time.Now().UTC()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT id FROM resources").WithArgs("r1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
+	mock.ExpectQuery("INSERT INTO resource_versions").
+		WithArgs("r1", "text/csv", int64(1), "k", "", "", nil, "", "", sqlmock.AnyArg(), []byte(`{"truncated":true}`)).
+		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "", "", nil, "", nil, []byte(`{"truncated":true}`), now))
+	mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	v, err := store.AddRevision(context.Background(), Revision{
+		ResourceID: "r1", MIMEType: "text/csv", SizeBytes: 1, S3Key: "k", Metadata: map[string]any{"truncated": true},
+	})
+	if err != nil {
+		t.Fatalf("AddRevision: %v", err)
+	}
+	if truncated, _ := v.Metadata["truncated"].(bool); !truncated {
+		t.Errorf("metadata = %v, want the recorded cut", v.Metadata)
+	}
+
+	mock.ExpectQuery("SELECT .+ FROM resource_versions").WithArgs("r1", 1).
+		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "", "", nil, "", nil, []byte(`{}`), now))
+	v, err = store.GetVersion(context.Background(), "r1", 1)
+	if err != nil || v.Metadata != nil {
+		t.Errorf("GetVersion = %v, %v; want nil metadata for a version nothing described", v, err)
+	}
+
+	mock.ExpectQuery("SELECT .+ FROM resource_versions").WithArgs("r1", 1).
+		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "", "", nil, "", nil, []byte(`not json`), now))
+	if _, err := store.GetVersion(context.Background(), "r1", 1); err == nil {
+		t.Error("a metadata column that is not JSON must fail the read")
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT id FROM resources").WithArgs("r1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
+	mock.ExpectRollback()
+	if _, err := store.AddRevision(context.Background(), Revision{
+		ResourceID: "r1", Metadata: map[string]any{"bad": make(chan int)},
+	}); err == nil {
+		t.Error("metadata that cannot be encoded must fail the revision")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }

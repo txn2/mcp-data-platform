@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -47,8 +48,13 @@ type Version struct {
 	// streamed to storage. It is how an upload told to skip unchanged files
 	// knows a file is the one already held (#1862). Empty for a version
 	// written before hashes were recorded.
-	ContentSHA256 string    `json:"content_sha256,omitempty" example:"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"`
-	CreatedAt     time.Time `json:"created_at"`
+	ContentSHA256 string `json:"content_sha256,omitempty" example:"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"`
+	// Metadata is what the writer recorded about this version's content
+	// (#2057): an export cut at a limit and written anyway records the cut
+	// (truncated, limit_applied, limit_source, limit_unit). Empty for a version
+	// nothing described.
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 // Revision is a new content revision to record: the blob that was just written
@@ -71,6 +77,9 @@ type Revision struct {
 	ChangeSummary string
 	// ContentSHA256 is the hex SHA-256 of the blob, as the write computed it.
 	ContentSHA256 string
+	// Metadata is what the writer records about the content (#2057). Nil
+	// records none.
+	Metadata map[string]any
 }
 
 // VersionStore persists the content-revision trail of a resource and moves the
@@ -139,13 +148,13 @@ func NormalizeMaxVersions(configured int) int {
 // versionColumns is the projection every version read shares, in the order
 // scanVersion consumes.
 const versionColumns = `resource_id, version, mime_type, size_bytes, s3_key,
-	uploader_sub, uploader_email, restored_from, change_summary, content_sha256, created_at`
+	uploader_sub, uploader_email, restored_from, change_summary, content_sha256, metadata, created_at`
 
 // versionColumnsQualified is the same projection under the alias `v`, for the
 // prune statement, whose join with `resources` makes six of these column names
 // ambiguous on their own.
 const versionColumnsQualified = `v.resource_id, v.version, v.mime_type, v.size_bytes, v.s3_key,
-	v.uploader_sub, v.uploader_email, v.restored_from, v.change_summary, v.content_sha256, v.created_at`
+	v.uploader_sub, v.uploader_email, v.restored_from, v.change_summary, v.content_sha256, v.metadata, v.created_at`
 
 // lockResourceQuery takes the resource row's write lock for the duration of the
 // revision transaction. It is what makes the version number safe to derive: two
@@ -161,10 +170,10 @@ const lockResourceQuery = `SELECT id FROM resources WHERE id = $1 FOR UPDATE`
 const insertRevisionQuery = `
 	INSERT INTO resource_versions
 	(resource_id, version, mime_type, size_bytes, s3_key,
-	 uploader_sub, uploader_email, restored_from, change_summary, content_sha256, created_at)
+	 uploader_sub, uploader_email, restored_from, change_summary, content_sha256, metadata, created_at)
 	SELECT $1,
 	       COALESCE((SELECT MAX(version) FROM resource_versions WHERE resource_id = $1), 0) + 1,
-	       $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $10
+	       $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $11, $10
 	RETURNING ` + versionColumns
 
 // updateHeadQuery points the resource at the revision's blob. Both search-index
@@ -200,10 +209,14 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 		restoredFrom = sql.NullInt64{Int64: int64(*rev.RestoredFrom), Valid: true}
 	}
 	now := time.Now().UTC()
+	metadata, err := marshalVersionMetadata(rev.Metadata)
+	if err != nil {
+		return nil, err
+	}
 
 	v, err := scanVersion(tx.QueryRowContext(ctx, insertRevisionQuery,
 		rev.ResourceID, rev.MIMEType, rev.SizeBytes, rev.S3Key,
-		rev.UploaderSub, rev.UploaderEmail, restoredFrom, rev.ChangeSummary, rev.ContentSHA256, now))
+		rev.UploaderSub, rev.UploaderEmail, restoredFrom, rev.ChangeSummary, rev.ContentSHA256, now, metadata))
 	if err != nil {
 		return nil, fmt.Errorf("recording resource revision: %w", err)
 	}
@@ -310,16 +323,38 @@ func scanVersion(sc rowScanner) (*Version, error) {
 	var v Version
 	var restoredFrom sql.NullInt64
 	var sha sql.NullString
+	var metadata []byte
 	if err := sc.Scan(&v.ResourceID, &v.Version, &v.MIMEType, &v.SizeBytes, &v.S3Key,
-		&v.UploaderSub, &v.UploaderEmail, &restoredFrom, &v.ChangeSummary, &sha, &v.CreatedAt); err != nil {
+		&v.UploaderSub, &v.UploaderEmail, &restoredFrom, &v.ChangeSummary, &sha, &metadata, &v.CreatedAt); err != nil {
 		return nil, fmt.Errorf("scanning resource version: %w", err)
 	}
 	v.ContentSHA256 = sha.String
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &v.Metadata); err != nil {
+			return nil, fmt.Errorf("decoding resource version metadata: %w", err)
+		}
+		if len(v.Metadata) == 0 {
+			v.Metadata = nil
+		}
+	}
 	if restoredFrom.Valid {
 		n := int(restoredFrom.Int64)
 		v.RestoredFrom = &n
 	}
 	return &v, nil
+}
+
+// marshalVersionMetadata renders a version's metadata for its column, {} for
+// none.
+func marshalVersionMetadata(m map[string]any) ([]byte, error) {
+	if len(m) == 0 {
+		return []byte(`{}`), nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("encoding resource version metadata: %w", err)
+	}
+	return b, nil
 }
 
 // Verify interface compliance.

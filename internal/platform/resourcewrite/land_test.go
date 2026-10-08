@@ -106,6 +106,29 @@ func TestLandReplacesTheFileAlreadyAtThePath(t *testing.T) {
 	assert.Equal(t, "id,total\n1,10\n2,20\n", string(body), "the file serves the newest bytes")
 }
 
+// What an export records about the content it lands (#2057) is on the version
+// written, a create's first and a replacement's next; a landing that records
+// nothing leaves its version with nothing.
+func TestLandRecordsTheExportsMetadataOnTheVersion(t *testing.T) {
+	lf := newLandFixture(t)
+	cut := map[string]any{"truncated": true, "limit_applied": 100}
+	dest := orders()
+	dest.Metadata = cut
+	first, err := lf.lander.LandResource(context.Background(), dest, strings.NewReader("id\n1\n"), "text/csv")
+	require.NoError(t, err)
+	_, err = lf.lander.LandResource(context.Background(), orders(), strings.NewReader("id\n1\n2\n"), "text/csv")
+	require.NoError(t, err)
+	_, err = lf.lander.LandResource(context.Background(), dest, strings.NewReader("id\n3\n"), "text/csv")
+	require.NoError(t, err)
+
+	versions, err := lf.store.ListVersions(context.Background(), first.ResourceID)
+	require.NoError(t, err)
+	require.Len(t, versions, 3)
+	assert.Equal(t, cut, versions[2].Metadata, "the create records it on version 1")
+	assert.Nil(t, versions[1].Metadata, "a complete landing records nothing")
+	assert.Equal(t, cut, versions[0].Metadata, "a replacement records it on its version")
+}
+
 func mustGet(t *testing.T, lf *landFixture, id string) *resource.Resource {
 	t.Helper()
 	res, err := lf.store.Get(context.Background(), id)

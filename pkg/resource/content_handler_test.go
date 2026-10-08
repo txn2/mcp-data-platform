@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 )
 
 // --- fakes ---
@@ -61,6 +63,7 @@ func (f *fakeVersions) AddRevision(_ context.Context, rev Revision) (*Version, e
 		// every test went on passing.
 		ChangeSummary: rev.ChangeSummary,
 		ContentSHA256: rev.ContentSHA256,
+		Metadata:      rev.Metadata,
 		CreatedAt:     time.Now().UTC(),
 	}
 	f.byResource[rev.ResourceID] = append(f.byResource[rev.ResourceID], v)
@@ -509,6 +512,46 @@ func TestRestoreVersion_RoundTripsBytesAsANewHead(t *testing.T) {
 	}
 	if head.SizeBytes != int64(len("version one")) {
 		t.Errorf("head size = %d, want the restored byte count", head.SizeBytes)
+	}
+}
+
+// TestRestoreVersion_CarriesTheTruncationMark: a restore brings the old bytes
+// back, so whether an export cut them comes back too (#2057), and nothing else
+// the old version recorded does.
+func TestRestoreVersion_CarriesTheTruncationMark(t *testing.T) {
+	fx := newVersionedHandler(t, okExtractor)
+	h, store, s3, versions := fx.handler, fx.store, fx.s3, fx.versions
+	seedResource(store, s3, "res-1", ScopeGlobal, "", "user-123")
+	cut := map[string]any{
+		exporttrunc.MetaTruncated: true, exporttrunc.MetaLimitApplied: 100,
+		exporttrunc.MetaLimitSource: exporttrunc.SourceDeployment, exporttrunc.MetaLimitUnit: exporttrunc.UnitRows,
+		"other": "kept on the old version only",
+	}
+	if _, err := versions.AddRevision(context.Background(), Revision{
+		ResourceID: "res-1", MIMEType: "text/csv", S3Key: store.resources["res-1"].S3Key, Metadata: cut,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := buildMultipartRequest(t, nil, []byte("complete"), "f.csv")
+	req.URL.Path = "/api/v1/resources/res-1/content"
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/resources/res-1/versions/1/restore", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	all := versions.byResource["res-1"]
+	if all[1].Metadata != nil {
+		t.Errorf("an upload records no cut; got %v", all[1].Metadata)
+	}
+	newest := all[len(all)-1]
+	if exporttrunc.FromMetadata(newest.Metadata) == nil || newest.Metadata[exporttrunc.MetaLimitApplied] != 100 {
+		t.Errorf("restored version metadata = %v, want the cut carried forward", newest.Metadata)
+	}
+	if _, ok := newest.Metadata["other"]; ok {
+		t.Errorf("restored version metadata = %v, want only the truncation keys", newest.Metadata)
 	}
 }
 

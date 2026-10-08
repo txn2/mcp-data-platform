@@ -3,6 +3,7 @@ package graphql
 import (
 	"encoding/json"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -173,6 +174,7 @@ var exportSchema = json.RawMessage(`{
       "type": "boolean",
       "description": "When true, also create a public share link for the resulting asset. Returns share_url alongside the asset metadata."
     },
-    "resource": ` + toolkit.ResourceDestinationSchema + `,` + paginateSchemaProperty + `
+    "resource": ` + toolkit.ResourceDestinationSchema + `,` + paginateSchemaProperty + `,` +
+	exporttrunc.WalkSchemaProperties + `
   }
 }`)

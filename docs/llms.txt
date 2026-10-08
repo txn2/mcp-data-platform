@@ -122,6 +122,7 @@ Configuring and operating the platform. These are the pages under `docs` > Admin
 
 ## Docs: API Reference
 
+- [Exports Cut at a Limit](https://mcp-data-platform.txn2.com/server/export-truncation/): What trino_export, api_export and graphql_export do when a row limit or page bound cuts the result (#2057): refused by default at the deployment cap or default page bound, written and flagged when the caller's own limit cut it, on_truncation fail/warn, the truncated/limit_applied/limit_source/limit_unit response fields, the _sys-truncated asset tag and version metadata, the Incomplete mark in the portal, expect_rows/expect_min_rows, and the platform_info limits block
 - [Tools API](https://mcp-data-platform.txn2.com/reference/tools-api/): Complete tool specifications with parameters and responses; an empty list is [] in every result, never null (#1832)
 - [Configuration Reference](https://mcp-data-platform.txn2.com/reference/configuration/): Redirect page; the full YAML schema lives at [Configuration](https://mcp-data-platform.txn2.com/server/configuration/)
 - [Providers](https://mcp-data-platform.txn2.com/reference/providers/): Semantic, query, and storage provider interfaces

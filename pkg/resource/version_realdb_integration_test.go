@@ -277,3 +277,33 @@ func TestResourceVersions_RealDB_TouchReadStampsAndSorts(t *testing.T) {
 	assert.Equal(t, "res_read_b", listed[0].ID)
 	assert.Equal(t, "res_read_a", listed[len(listed)-1].ID, "never-read material sorts last")
 }
+
+// TestResourceVersions_RealDB_MetadataRoundTrips: what an export records about
+// a version's content (#2057) is written by the insert and read back by every
+// projection, and a version nothing described reads as none.
+func TestResourceVersions_RealDB_MetadataRoundTrips(t *testing.T) {
+	store, id := seedRevisableResource(t, "res_rev_metadata")
+	versions := store.(VersionStore)
+	ctx := context.Background()
+
+	_, err := versions.AddRevision(ctx, Revision{
+		ResourceID: id, MIMEType: "text/csv", SizeBytes: 10, S3Key: "k1", UploaderSub: "sub-1",
+	})
+	require.NoError(t, err)
+	cut, err := versions.AddRevision(ctx, Revision{
+		ResourceID: id, MIMEType: "text/csv", SizeBytes: 10, S3Key: "k2", UploaderSub: "sub-1",
+		Metadata: map[string]any{"truncated": true, "limit_applied": 100},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, true, cut.Metadata["truncated"], "the insert returns what it wrote")
+
+	trail, err := versions.ListVersions(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, trail, 2)
+	assert.InDelta(t, 100, trail[0].Metadata["limit_applied"], 0)
+	assert.Nil(t, trail[1].Metadata, "a version nothing described reads as none")
+
+	got, err := versions.GetVersion(ctx, id, 2)
+	require.NoError(t, err)
+	assert.Equal(t, true, got.Metadata["truncated"])
+}

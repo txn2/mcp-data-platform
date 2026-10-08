@@ -1543,6 +1543,31 @@ func TestHandleRevert(t *testing.T) {
 	assert.Equal(t, float64(2), parsed["version"])
 }
 
+// TestHandleRevertCarriesTheTruncationMark: manage_asset revert brings a cut
+// export's content back with the cut recorded, and nothing else the old
+// version recorded (#2057).
+func TestHandleRevertCarriesTheTruncationMark(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	s3 := &mockS3Client{getBody: []byte("id\n1\n"), getCT: "text/csv"}
+	tk := New(Config{Name: "test", AssetStore: store, VersionStore: vs, S3Client: s3, S3Bucket: "bucket", S3Prefix: "assets/"})
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 2}))
+	_, err := vs.CreateVersion(ctx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", S3Key: "k1", S3Bucket: "bucket", ContentType: "text/csv", SizeBytes: 6,
+		Metadata: map[string]any{"truncated": true, "limit_applied": float64(100), "run_id": "r1"},
+	})
+	require.NoError(t, err)
+
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	all := vs.versions["a1"]
+	reverted := all[len(all)-1]
+	assert.Equal(t, true, reverted.Metadata["truncated"])
+	assert.NotContains(t, reverted.Metadata, "run_id")
+}
+
 // TestHandleRevertAdminAnyOwner is the #1042 asset-side regression for the
 // revert verb: an admin reverts an asset they do not own.
 func TestHandleRevertAdminAnyOwner(t *testing.T) {

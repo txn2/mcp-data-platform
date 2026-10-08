@@ -72,7 +72,9 @@ func (e *GraphQLExporter) GetByIdempotencyKey(ctx context.Context, ownerID, key 
 	if err != nil {
 		return nil, fmt.Errorf("looking up export idempotency key: %w", err)
 	}
-	return &graphqlkit.ExportAssetRef{ID: asset.ID, SizeBytes: asset.SizeBytes}, nil
+	return &graphqlkit.ExportAssetRef{
+		ID: asset.ID, SizeBytes: asset.SizeBytes, Metadata: cutMetadata(ctx, e.versionStore, asset),
+	}, nil
 }
 
 func (e *GraphQLExporter) CreateExportVersion(ctx context.Context, ver graphqlkit.ExportVersion) (int, error) { //nolint:revive // implements graphql.ExportVersionStore
@@ -85,6 +87,7 @@ func (e *GraphQLExporter) CreateExportVersion(ctx context.Context, ver graphqlki
 		SizeBytes:     ver.SizeBytes,
 		CreatedBy:     ver.CreatedBy,
 		ChangeSummary: ver.ChangeSummary,
+		Metadata:      ver.Metadata,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("creating export version: %w", err)

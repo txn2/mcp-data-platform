@@ -606,6 +606,38 @@ describe("ScriptDetailPage: the run history", () => {
     expect(screen.getByText("1284 steps · 1 queries · 1 exports")).toBeInTheDocument();
   });
 
+  // #2057: an export a run wrote under on_truncation "warn" is incomplete, and a
+  // scheduled run's response is read by nobody, so the run's outputs say so.
+  it("marks an output an export limit cut", () => {
+    mockRun.mockReturnValue(
+      query({
+        ...runDetail,
+        outputs: [
+          {
+            name: "contacts",
+            tool: "trino_export",
+            destination: "portal",
+            asset_id: "asset-9",
+            asset_version: 1,
+            format: "csv",
+            row_count: 100_000,
+            bytes: 2_815_247,
+            truncated: true,
+            limit_applied: 100_000,
+            limit_source: "deployment",
+            limit_unit: "rows",
+          },
+          { ...runDetail.outputs![0]! },
+        ],
+      }),
+    );
+    renderPage();
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
+    const badges = screen.getAllByText("Incomplete");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveAttribute("title", "Incomplete: truncated at 100,000 rows");
+  });
+
   // #1405: the cross-script Runs listing links to one run, and that address
   // lands on the run it named rather than on a history the reader has to find
   // it in again.

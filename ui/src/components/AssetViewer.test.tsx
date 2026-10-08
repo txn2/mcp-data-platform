@@ -290,3 +290,17 @@ describe("AssetViewer content that failed to load (#1874)", () => {
     expect(screen.getByText("Too large to preview")).toBeInTheDocument();
   });
 });
+
+// #2057: the details panel starts closed, so a cut export is marked beside the
+// title, where whoever opens the file sees it.
+describe("AssetViewer: an incomplete export", () => {
+  it("marks the title of an asset carrying the truncated tag", () => {
+    renderViewer({ asset: markdownAsset({ tags: ["_sys-truncated"] }) });
+    expect(screen.getByText("Incomplete")).toBeInTheDocument();
+  });
+
+  it("leaves a complete asset's title alone", () => {
+    renderViewer({});
+    expect(screen.queryByText("Incomplete")).not.toBeInTheDocument();
+  });
+});

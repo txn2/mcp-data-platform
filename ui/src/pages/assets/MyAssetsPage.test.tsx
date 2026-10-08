@@ -435,3 +435,27 @@ describe("MyAssetsPage: ordering (#1295)", () => {
     expect(lastRequestedParams()).toMatchObject({ sort: "name", dir: "desc" });
   });
 });
+
+describe("MyAssetsPage: an incomplete export (#2057)", () => {
+  function listOne(tags: string[]) {
+    mockUseAssets.mockReturnValue({
+      data: { data: [makeAsset({ tags })], total: 1, limit: 50, offset: 0 },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+  }
+
+  it("marks an asset carrying the truncated tag on the card and in the table", () => {
+    listOne(["contacts", "_sys-truncated"]);
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    expect(screen.getByText("Incomplete")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Table view" }));
+    expect(screen.getByText("Incomplete")).toBeInTheDocument();
+  });
+
+  it("does not mark a complete asset", () => {
+    listOne(["contacts"]);
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    expect(screen.queryByText("Incomplete")).not.toBeInTheDocument();
+  });
+});
