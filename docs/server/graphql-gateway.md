@@ -238,4 +238,4 @@ A `graphql_query` or `graphql_export` call is recorded in the [call catalog](con
 
 - **Subscriptions.** Refused with a clear message: a subscription is a long-lived stream over a transport this kind does not open.
 - **A client-minted JWT auth mode.** An upstream that expects a short-lived token the client signs itself is not reachable through any of the modes above; that is a separate change on the shared upstream-auth seam.
-- **Cursor-following bulk export.** `graphql_export` walks pages exactly as `graphql_query` does, bounded by `max_pages`; there is no unbounded streaming export.
+- **Cursor-following bulk export.** `graphql_export` walks pages exactly as `graphql_query` does, bounded by `max_pages`; there is no unbounded streaming export. An export walk stopped at its page bound with another page to fetch is refused when the default bound stopped it, and written and flagged when your `max_pages` did; see [Exports cut at a limit](export-truncation.md).

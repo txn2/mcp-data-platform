@@ -22,10 +22,12 @@ const pathSep = "."
 // naming only the array is enough for them; an upstream that pages some
 // other way names its cursor explicitly.
 const (
-	relayEndCursor  = "pageInfo.endCursor"
-	relayHasNext    = "pageInfo.hasNextPage"
-	maxPagesCeiling = 1000
+	relayEndCursor = "pageInfo.endCursor"
+	relayHasNext   = "pageInfo.hasNextPage"
 )
+
+// MaxPagesCeiling is the most paginate.max_pages may be.
+const MaxPagesCeiling = 1000
 
 // PaginateInput is the walk a caller asks for. It names the array to
 // merge and the variable the next page's cursor is fed back into;
@@ -192,8 +194,8 @@ func (in PaginateInput) validate() error {
 	if strings.TrimSpace(in.CursorVariable) == "" {
 		return errors.New("graphql: paginate.cursor_variable is required: name the document variable the next page's cursor is bound to")
 	}
-	if in.MaxPages > maxPagesCeiling {
-		return fmt.Errorf("graphql: paginate.max_pages may not exceed %d", maxPagesCeiling)
+	if in.MaxPages > MaxPagesCeiling {
+		return fmt.Errorf("graphql: paginate.max_pages may not exceed %d", MaxPagesCeiling)
 	}
 	return nil
 }

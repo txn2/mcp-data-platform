@@ -99,8 +99,14 @@ func (a *reviseAssets) Get(_ context.Context, _ string) (*portal.Asset, error) {
 
 // reviseVersions records the version rows an asset correction writes.
 type reviseVersions struct {
-	created []portal.AssetVersion
-	err     error
+	created   []portal.AssetVersion
+	err       error
+	latest    *portal.AssetVersion
+	latestErr error
+}
+
+func (v *reviseVersions) GetLatest(context.Context, string) (*portal.AssetVersion, error) {
+	return v.latest, v.latestErr
 }
 
 func (v *reviseVersions) CreateVersion(_ context.Context, av portal.AssetVersion) (int, error) {
@@ -234,6 +240,9 @@ type reviseResourceVersions struct {
 	res   *resource.Resource
 	added []resource.Revision
 	err   error
+	// trail is what ListVersions answers.
+	trail   []resource.Version
+	listErr error
 }
 
 func (v *reviseResourceVersions) AddRevision(_ context.Context, rev resource.Revision) (*resource.Version, error) {
@@ -247,8 +256,8 @@ func (v *reviseResourceVersions) AddRevision(_ context.Context, rev resource.Rev
 	return &resource.Version{ResourceID: rev.ResourceID, Version: len(v.added) + 1, S3Key: rev.S3Key}, nil
 }
 
-func (*reviseResourceVersions) ListVersions(context.Context, string) ([]resource.Version, error) {
-	return nil, nil
+func (v *reviseResourceVersions) ListVersions(context.Context, string) ([]resource.Version, error) {
+	return v.trail, v.listErr
 }
 
 func (*reviseResourceVersions) GetVersion(context.Context, string, int) (*resource.Version, error) {
@@ -416,3 +425,52 @@ func TestAssetReviserFor(t *testing.T) {
 // storeWithoutTrail is a resource store that records no content revisions,
 // which is the shape a deployment with no database-backed store has.
 type storeWithoutTrail struct{ resource.Store }
+
+// TestRevisers_ACorrectionKeepsTheTruncationMark: a correction rewrites the
+// same rows, so a file an export cut stays marked as cut on the version the
+// correction writes (#2057); a file that was not cut stays unmarked, and a
+// read that fails marks nothing rather than failing the correction.
+func TestRevisers_ACorrectionKeepsTheTruncationMark(t *testing.T) {
+	cut := map[string]any{"truncated": true, "limit_applied": float64(100), "run_id": "r1"}
+	src := tableregister.Source{Kind: tableregister.KindAsset, ID: "asset_1", Bucket: "portal-assets"}
+	csv := []byte("id\n1\n")
+
+	h := newAssetReviserHarness()
+	h.assets.asset.Tags = []string{"_sys-truncated"}
+	h.versions.latest = &portal.AssetVersion{Metadata: cut}
+	_, err := h.reviser.Revise(context.Background(), src, tableregister.Caller{}, csv, "fix")
+	require.NoError(t, err)
+	assert.Equal(t, true, h.versions.created[0].Metadata["truncated"])
+	assert.NotContains(t, h.versions.created[0].Metadata, "run_id", "only the mark is carried")
+
+	untagged := newAssetReviserHarness()
+	untagged.versions.latest = &portal.AssetVersion{Metadata: cut}
+	_, err = untagged.reviser.Revise(context.Background(), src, tableregister.Caller{}, csv, "fix")
+	require.NoError(t, err)
+	assert.Nil(t, untagged.versions.created[0].Metadata, "an asset not tagged as cut carries nothing")
+
+	failing := newAssetReviserHarness()
+	failing.assets.asset.Tags = []string{"_sys-truncated"}
+	failing.versions.latestErr = errors.New("db down")
+	_, err = failing.reviser.Revise(context.Background(), src, tableregister.Caller{}, csv, "fix")
+	require.NoError(t, err)
+	assert.Nil(t, failing.versions.created[0].Metadata)
+
+	res := &resource.Resource{ID: "res_1", Scope: resource.ScopeGlobal, Filename: "f.csv", S3Key: "k-head"}
+	versions := &reviseResourceVersions{res: res, trail: []resource.Version{
+		{Version: 2, S3Key: "k-head", Metadata: cut}, {Version: 1, S3Key: "k-old"},
+	}}
+	reviser := &resourceReviser{deps: resource.Deps{
+		Store: &reviseResourceStore{res: res}, Versions: versions, S3Client: newReviseObjects(), S3Bucket: "b",
+	}}
+	_, err = reviser.Revise(context.Background(), tableregister.Source{Kind: tableregister.KindResource, ID: "res_1"},
+		tableregister.Caller{UserID: "u1"}, csv, "fix")
+	require.NoError(t, err)
+	assert.Equal(t, true, versions.added[0].Metadata["truncated"])
+
+	versions.added, versions.listErr = nil, errors.New("db down")
+	_, err = reviser.Revise(context.Background(), tableregister.Source{Kind: tableregister.KindResource, ID: "res_1"},
+		tableregister.Caller{UserID: "u1"}, csv, "fix")
+	require.NoError(t, err)
+	assert.Nil(t, versions.added[0].Metadata)
+}

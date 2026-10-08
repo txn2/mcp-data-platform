@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -102,6 +103,9 @@ type ExportProvenanceCall struct {
 type ExportAssetRef struct {
 	ID        string
 	SizeBytes int64
+	// Metadata records whether the export that wrote the asset was cut
+	// (#2057).
+	Metadata map[string]any
 }
 
 // ExportVersion is the row inserted into the portal's asset versions.
@@ -114,6 +118,9 @@ type ExportVersion struct {
 	SizeBytes     int64
 	CreatedBy     string
 	ChangeSummary string
+	// Metadata records a cut export on the version, and through it on the
+	// asset (#2057). Nil for a complete one.
+	Metadata map[string]any
 }
 
 // ExportConfig holds the platform-level limits for graphql_export.
@@ -195,6 +202,9 @@ type exportInput struct {
 	// Resource, when set, lands the result in the managed resource at that path
 	// instead of in a new portal asset (#1663).
 	Resource *toolkit.ResourceDestination `json:"resource,omitempty"`
+	// Options decide what a walk stopped at its page bound, or an unexpected
+	// item count, does (#2057).
+	exporttrunc.Options
 }
 
 // exportOutput is the asset metadata the model gets back. The data
@@ -226,6 +236,10 @@ type exportOutput struct {
 	// asset_id, never beside it.
 	Resource *toolkit.ResourceLanding `json:"resource,omitempty"`
 	Message  string                   `json:"message"`
+	// Report says whether the walk's page bound cut it and whose bound it was
+	// (#2057). Set on a page walk, and on an idempotency hit for an asset a
+	// cut walk wrote; nil otherwise, since one response has no bound to cut.
+	*exporttrunc.Report
 }
 
 // registerExportTool registers graphql_export, but only when the
@@ -270,6 +284,9 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 	if strings.TrimSpace(in.Name) == "" {
 		return toolkit.ErrorResult("name is required (it becomes the asset's download filename)"), nil, nil
+	}
+	if err := in.ValidateWalk(in.Paginate != nil); err != nil {
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	uc := resolveExportUser(ctx, deps)
 	if uc == nil {
@@ -318,6 +335,12 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 	if err != nil {
 		return nil, err
 	}
+	// Judged before anything is written: a cut the caller did not accept
+	// writes nothing (#2057).
+	cut := judgeWalk(result, in)
+	if cut != nil && cut.Refusal != "" {
+		return nil, errors.New("graphql_export: " + cut.Refusal)
+	}
 	payload, err := json.Marshal(exportPayload{Data: result.Data, Errors: result.Errors, Extensions: result.Extensions})
 	if err != nil {
 		return nil, fmt.Errorf("graphql: encoding the result: %w", err)
@@ -329,9 +352,9 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 			len(payload), deps.Config.MaxBytes)
 	}
 	if in.Resource != nil {
-		return landExport(ctx, deps, in, payload, result)
+		return landExport(ctx, deps, in, landedResult{payload: payload, result: result, cut: cut})
 	}
-	st, err := t.persist(ctx, deps, uc, in, payload)
+	st, err := t.persist(ctx, deps, uc, in, persisted{payload: payload, cut: reportOf(cut)})
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +371,8 @@ func (t *Toolkit) runExport(ctx context.Context, deps *ExportDeps, uc *ExportUse
 		UpstreamError: result.UpstreamError,
 		Errors:        result.Errors,
 		Pagination:    result.Pagination,
-		Message:       fmt.Sprintf("Exported %d bytes from connection %s.", size, in.Connection),
+		Message:       exporttrunc.Sentences(fmt.Sprintf("Exported %d bytes from connection %s.", size, in.Connection), noteOf(cut)),
+		Report:        reportOf(cut),
 	}, nil
 }
 
@@ -365,7 +389,8 @@ type exportPayload struct {
 // first version. A version-row failure is not fatal: the asset row is
 // already in place and the caller has an id, and failing the call would
 // orphan the stored object.
-func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserContext, in exportInput, payload []byte) (stored, error) {
+func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserContext, in exportInput, p persisted) (stored, error) {
+	payload := p.payload
 	assetID, err := generateExportAssetID()
 	if err != nil {
 		return stored{}, fmt.Errorf("graphql: generating asset id: %w", err)
@@ -382,8 +407,12 @@ func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserCon
 		Provenance: buildExportProvenance(uc, in), SessionID: uc.SessionID,
 		IdempotencyKey: in.IdempotencyKey,
 	}
+	var cutMeta map[string]any
+	if p.cut != nil {
+		asset.Tags, cutMeta = exporttrunc.WithTag(asset.Tags, *p.cut), p.cut.Metadata()
+	}
 	if key := runOutputKey(uc, in); key != "" && deps.VersionStore != nil {
-		id, version, err := recordRunVersion(ctx, deps, asset, key, uc.UserID)
+		id, version, err := recordRunVersion(ctx, deps, asset, key, runVersion{createdBy: uc.UserID, metadata: cutMeta})
 		if errors.Is(err, toolkit.ErrObjectUnreferenced) {
 			discardExport(ctx, deps, s3Key)
 		}
@@ -393,7 +422,7 @@ func (*Toolkit) persist(ctx context.Context, deps *ExportDeps, uc *ExportUserCon
 		discardExport(ctx, deps, s3Key)
 		return stored{}, fmt.Errorf("graphql: recording the asset failed: %w", err)
 	}
-	recordExportVersion(ctx, deps, asset, uc)
+	recordExportVersion(ctx, deps, asset, runVersion{createdBy: uc.UserID, metadata: cutMeta})
 	return stored{assetID: assetID, version: 1, size: size}, nil
 }
 
@@ -420,7 +449,7 @@ type stored struct {
 // recordRunVersion records a named export a script run made under the
 // script's output identity: the next version of the asset the key names, or
 // the new asset carrying it (#1854).
-func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, key, createdBy string) (assetID string, version int, err error) {
+func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, key string, rv runVersion) (assetID string, version int, err error) {
 	assetID, version, err = toolkit.PersistRunAsset(ctx, key, asset.ID, toolkit.RunAssetWrite{
 		Lookup: func(ctx context.Context, key string) (string, bool) {
 			ref, err := deps.AssetStore.GetByIdempotencyKey(ctx, asset.OwnerID, key)
@@ -441,7 +470,7 @@ func recordRunVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, 
 			return deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
 				ID: versionID, AssetID: assetID, S3Key: asset.S3Key, S3Bucket: asset.S3Bucket,
 				ContentType: asset.ContentType, SizeBytes: asset.SizeBytes,
-				CreatedBy: createdBy, ChangeSummary: "Exported from GraphQL",
+				CreatedBy: rv.createdBy, ChangeSummary: "Exported from GraphQL", Metadata: rv.metadata,
 			})
 		},
 	})
@@ -462,7 +491,7 @@ func runOutputKey(uc *ExportUserContext, in exportInput) string {
 }
 
 // recordExportVersion inserts the asset's first version row.
-func recordExportVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, uc *ExportUserContext) {
+func recordExportVersion(ctx context.Context, deps *ExportDeps, asset ExportAsset, rv runVersion) {
 	if deps.VersionStore == nil {
 		return
 	}
@@ -474,7 +503,7 @@ func recordExportVersion(ctx context.Context, deps *ExportDeps, asset ExportAsse
 	_, err = deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
 		ID: versionID, AssetID: asset.ID, S3Key: asset.S3Key, S3Bucket: asset.S3Bucket,
 		ContentType: asset.ContentType, SizeBytes: asset.SizeBytes,
-		CreatedBy: uc.UserID, ChangeSummary: "Initial export",
+		CreatedBy: rv.createdBy, ChangeSummary: "Initial export", Metadata: rv.metadata,
 	})
 	if err != nil {
 		slog.Warn("graphql_export: recording the asset version failed", "asset_id", asset.ID, logKeyError, err)
@@ -503,12 +532,17 @@ func checkExportIdempotency(ctx context.Context, deps *ExportDeps, uc *ExportUse
 	if err != nil || existing == nil {
 		return nil
 	}
-	return &exportOutput{
+	out := &exportOutput{
 		AssetID:   existing.ID,
 		PortalURL: buildExportPortalURL(deps.BaseURL, existing.ID),
 		SizeBytes: existing.SizeBytes,
 		Message:   "Asset already exists (idempotency key matched).",
+		Report:    exporttrunc.FromMetadata(existing.Metadata),
 	}
+	if out.Report != nil {
+		out.Message += fmt.Sprintf(" That export was truncated at %d %s; the file is incomplete.", out.LimitApplied, out.LimitUnit)
+	}
+	return out
 }
 
 // maybeCreateExportShare creates a public link when the caller asked

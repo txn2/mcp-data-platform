@@ -214,7 +214,10 @@ Requires portal to be enabled with S3 storage configured. Requires explicit pers
 | `connection` | string | No | default | Trino connection name |
 | `description` | string | No | - | Description of the exported asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization. Lowercase kebab-case, max 50 chars each, max 20 tags. Tags starting with `_sys-` are reserved for system use. |
-| `limit` | integer | No | deployment max | Maximum rows to export (subject to deployment cap) |
+| `limit` | integer | No | deployment max | Maximum rows to export. A value over `portal.export.max_rows` is refused; the tool description states this deployment's cap. A result your `limit` cuts is written and flagged |
+| `on_truncation` | string | No | see below | `fail` or `warn`. What a result cut at a row limit does: `fail` writes nothing, `warn` writes the rows that fit and flags the response, the asset and its version. Defaults to `warn` when your `limit` cut it and `fail` when the deployment cap did. See [Exports cut at a limit](export-truncation.md) |
+| `expect_rows` | integer | No | - | The exact row count the export must write; any other count fails, or is flagged under `on_truncation: "warn"` |
+| `expect_min_rows` | integer | No | - | The fewest rows the export may write. Mutually exclusive with `expect_rows` |
 | `idempotency_key` | string | No | - | Client-supplied key to prevent duplicate assets on retry |
 | `timeout_seconds` | integer | No | deployment default | Query execution timeout in seconds |
 | `create_public_link` | boolean | No | false | Generate a public share link for the exported asset. Useful for automation pipelines that need a shareable URL. |
@@ -225,6 +228,7 @@ Requires portal to be enabled with S3 storage configured. Requires explicit pers
 - Asset ID and portal URL, or the landed resource's reference, URI and version
 - Public share URL (if `create_public_link` is true)
 - Format, row count, and file size in bytes
+- `truncated`, `limit_applied`, `limit_source` (`request` or `deployment`) and `limit_unit`, and `arbitrary_subset` when a cut result's SQL has no top-level `ORDER BY` (see [Exports cut at a limit](export-truncation.md))
 - No query data (data is written to S3, not returned through the LLM)
 
 The response is one JSON object, returned as the tool's structured result and as a single text block. The platform's `call_reference` is merged into the same object, so a client that reads only the structured result sees `asset_id`, `portal_url`, `row_count`, `size_bytes` and `call_reference` together, as it does for `api_export`.
@@ -234,7 +238,7 @@ The response is one JSON object, returned as the tool's structured result and as
 - SQL runs through the same read-only interceptor as `trino_query`
 - CSV cells hold each value exactly as the query returned it. A value starting with `=`, `+`, `-` or `@` is not rewritten, because a stored CSV is a data file that tables are registered over and scripts read
 - Sensitivity tags inherited from source datasets (PII, confidential, etc.) are automatically applied as `_sys-classification:*` tags
-- Hard row and byte caps enforced per deployment
+- Hard row and byte caps enforced per deployment; a result the row cap cuts is refused unless `on_truncation` is `warn`, and a written one carries the `_sys-truncated` tag
 - No asset record created unless the S3 write fully succeeds
 
 ---

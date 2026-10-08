@@ -2,6 +2,7 @@ import { Eye, FolderOpen } from "lucide-react";
 import type { Asset, ShareSummary } from "@/api/portal/types";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
+import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { SortableHead } from "@/components/patterns/SortableHead";
 import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
@@ -11,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { isTruncated } from "@/lib/truncation";
 import { dateColumnFor, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 
@@ -138,7 +140,10 @@ function NameCell({
       <div className="flex items-center gap-2">
         <Icon className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <span className="block truncate font-medium">{asset.name}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="min-w-0 truncate font-medium">{asset.name}</span>
+            {isTruncated(asset.tags) && <IncompleteBadge className="px-1.5" />}
+          </span>
           {secondary && (
             <span className="block truncate text-xs text-muted-foreground">
               {share ? secondary : markdownToPlainText(secondary)}

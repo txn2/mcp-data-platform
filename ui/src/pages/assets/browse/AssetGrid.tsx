@@ -11,6 +11,8 @@ import { markdownToPlainText } from "@/lib/markdownText";
 import { assetThumbnailSrc } from "@/lib/thumbnailSupport";
 import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
+import { IncompleteBadge } from "@/components/IncompleteBadge";
+import { isTruncated } from "@/lib/truncation";
 
 /** The Assets list as a gallery of thumbnails. */
 export function AssetGrid({
@@ -86,6 +88,7 @@ function AssetCard({
       <div className="mb-2 flex w-full items-center gap-2">
         <Icon className="size-5 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate text-sm font-medium">{asset.name}</span>
+        {isTruncated(asset.tags) && <IncompleteBadge className="px-1.5" />}
         <FeedbackCountBadge count={threadCount} />
       </div>
       {asset.description && (

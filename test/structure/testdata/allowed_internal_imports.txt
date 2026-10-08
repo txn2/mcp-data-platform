@@ -87,6 +87,7 @@ internal/httpserver -> internal/agentinstructions
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/apikeyissue
 internal/httpserver -> internal/buildinfo
+internal/httpserver -> internal/exporttrunc
 internal/httpserver -> internal/httpobs
 internal/httpserver -> internal/httpserver/accessgate
 internal/httpserver -> internal/httpserver/adminwire
@@ -463,6 +464,8 @@ internal/platform/datasetindex -> pkg/knowledge
 internal/platform/datasetindex -> pkg/semantic
 internal/platform/dedup -> pkg/middleware
 internal/platform/embedyield -> pkg/embedding
+internal/platform/exportadapters -> internal/exporttrunc
+internal/platform/exportadapters -> internal/logsan
 internal/platform/exportadapters -> internal/platform/provenance
 internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
@@ -1122,6 +1125,7 @@ pkg/admin -> internal/apidocs
 pkg/admin -> internal/apikeyissue
 pkg/admin -> internal/buildinfo
 pkg/admin -> internal/connprobe
+pkg/admin -> internal/exporttrunc
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/httpobs
 pkg/admin -> internal/logsan
@@ -1283,6 +1287,7 @@ pkg/platform -> internal/apidocs
 pkg/platform -> internal/cfgmap
 pkg/platform -> internal/dbobs
 pkg/platform -> internal/mcpobs
+pkg/platform -> internal/pagewalk
 pkg/platform -> internal/platform/apigwwiring
 pkg/platform -> internal/platform/apikeystore
 pkg/platform -> internal/platform/auditwiring
@@ -1307,6 +1312,7 @@ pkg/platform -> internal/platform/graphqlwiring
 pkg/platform -> internal/platform/iam
 pkg/platform -> internal/platform/indexqueue
 pkg/platform -> internal/platform/knowledgelayer
+pkg/platform -> internal/platform/limitsinfo
 pkg/platform -> internal/platform/listchanged
 pkg/platform -> internal/platform/mcpapps
 pkg/platform -> internal/platform/memorylayer
@@ -1410,6 +1416,7 @@ pkg/platform/instructions -> internal/agentinstructions
 pkg/platform/instructions -> pkg/persona
 pkg/platform/personastore -> pkg/persona
 pkg/portal -> internal/contentviewer
+pkg/portal -> internal/exporttrunc
 pkg/portal -> internal/httpjson
 pkg/portal -> internal/httpobs
 pkg/portal -> internal/logsan
@@ -1476,6 +1483,7 @@ pkg/registry -> pkg/toolkits/gateway
 pkg/registry -> pkg/toolkits/graphql
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
+pkg/resource -> internal/exporttrunc
 pkg/resource -> internal/logsan
 pkg/resource -> internal/opsobs
 pkg/resource -> internal/producedby
@@ -1507,6 +1515,8 @@ pkg/toolkits/apigateway -> internal/apigwmetrics
 pkg/toolkits/apigateway -> internal/cfgmap
 pkg/toolkits/apigateway -> internal/conncatchup
 pkg/toolkits/apigateway -> internal/connprobe
+pkg/toolkits/apigateway -> internal/exportstream
+pkg/toolkits/apigateway -> internal/exporttrunc
 pkg/toolkits/apigateway -> internal/formdata
 pkg/toolkits/apigateway -> internal/inlinefit
 pkg/toolkits/apigateway -> internal/listcut
@@ -1562,6 +1572,7 @@ pkg/toolkits/graphql -> internal/apigwmetrics
 pkg/toolkits/graphql -> internal/cfgmap
 pkg/toolkits/graphql -> internal/conncatchup
 pkg/toolkits/graphql -> internal/connprobe
+pkg/toolkits/graphql -> internal/exporttrunc
 pkg/toolkits/graphql -> internal/gqlschema
 pkg/toolkits/graphql -> internal/inlinefit
 pkg/toolkits/graphql -> internal/listcut
@@ -1601,6 +1612,7 @@ pkg/toolkits/memory -> pkg/query
 pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
 pkg/toolkits/memory -> pkg/toolkit
+pkg/toolkits/portal -> internal/exporttrunc
 pkg/toolkits/portal -> internal/httpjson
 pkg/toolkits/portal -> internal/logsan
 pkg/toolkits/portal -> internal/portal/assetrefs
@@ -1639,6 +1651,7 @@ pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
 pkg/toolkits/trino -> internal/connprobe
 pkg/toolkits/trino -> internal/connstate
+pkg/toolkits/trino -> internal/exporttrunc
 pkg/toolkits/trino -> internal/inlinefit
 pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/scratchcatalog

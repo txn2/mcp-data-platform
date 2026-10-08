@@ -611,6 +611,12 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	}
 }
 
+// QueryLimits is trino_query's row limits and query timeout as this toolkit
+// configured them, for platform_info to report (#2057).
+func (t *Toolkit) QueryLimits() (defaultRows, maxRows int, timeout time.Duration) {
+	return t.config.DefaultLimit, t.config.MaxLimit, t.config.Timeout
+}
+
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{

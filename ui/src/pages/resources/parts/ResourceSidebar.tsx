@@ -11,7 +11,7 @@ import { UsagePanel } from "./UsagePanel";
 import { ProducersPanel } from "@/components/producers/ProducersPanel";
 import { UsedByAssets } from "@/components/references/UsedByAssets";
 import { UsedByPrompts } from "./UsedByPrompts";
-import { VersionsPanel } from "./VersionsPanel";
+import { HeadIncompleteNotice, VersionsPanel } from "./VersionsPanel";
 
 /** Everything about a managed resource that is not its content, for the
  * viewer sidebar: what it is, what reads it, what it has been, and what it is
@@ -32,6 +32,7 @@ export function ResourceSidebar({
 }) {
   return (
     <>
+      <HeadIncompleteNotice resourceId={r.id} />
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Details</h3>
         {r.description && (

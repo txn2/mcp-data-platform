@@ -7176,6 +7176,14 @@ definitions:
         type: string
       created_at:
         type: string
+      metadata:
+        additionalProperties: {}
+        description: |-
+          Metadata is what the writer recorded about this version's content
+          (#2057): an export cut at a limit and written anyway records the cut
+          (truncated, limit_applied, limit_source, limit_unit). Empty for a version
+          nothing described.
+        type: object
       mime_type:
         example: text/markdown
         type: string
@@ -8009,6 +8017,12 @@ definitions:
         type: string
       key:
         type: string
+      limit_applied:
+        type: integer
+      limit_source:
+        type: string
+      limit_unit:
+        type: string
       metadata:
         additionalProperties: {}
         type: object
@@ -8057,6 +8071,15 @@ definitions:
           export tool (trino_export, api_export) did, rather than platform.export
           (#1854). Empty for platform.export and platform.publish_data.
         type: string
+      truncated:
+        description: |-
+          Truncated marks an export tool's output that a row or page limit cut
+          and that was written anyway under on_truncation "warn" (#2057):
+          LimitApplied is the limit, LimitSource who set it ("request" or
+          "deployment") and LimitUnit what it counts ("rows" or "pages"). A
+          scheduled run's response is read by nobody, so the run's record of its
+          outputs is where an incomplete file is seen. Absent on a complete one.
+        type: boolean
     type: object
   script.RunProgress:
     properties:

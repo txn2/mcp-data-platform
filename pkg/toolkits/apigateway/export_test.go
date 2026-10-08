@@ -86,7 +86,7 @@ type s3Put struct {
 
 // PutObjectStream drains the streamed body so the captured Data matches
 // what a real upload would persist. The size cap is enforced by the
-// caller's cappedReader (the body it receives), which errors past the
+// caller's exportstream.CappedReader (the body it receives), which errors past the
 // cap exactly as the real transfer manager would see it — so a read
 // error here means "over cap" and no put is recorded, mirroring the
 // abort-on-error contract.

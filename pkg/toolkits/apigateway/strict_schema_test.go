@@ -273,8 +273,9 @@ func TestAPITools_ValidArgumentsUnaffected(t *testing.T) {
 		"body": map[string]any{"k": "v"}, "timeout_seconds": 5, "decode": "auto",
 		"name": "things", "description": "d", "tags": []any{"t"},
 		"idempotency_key": "k1", "create_public_link": false,
-		"paginate": map[string]any{"items": "data", "max_pages": 1},
-		"resource": map[string]any{"path": "datasets", "filename": "things.csv"},
+		"paginate":      map[string]any{"items": "data", "max_pages": 1},
+		"resource":      map[string]any{"path": "datasets", "filename": "things.csv"},
+		"on_truncation": "warn", "expect_rows": 1, "expect_min_rows": 1,
 	}
 
 	for _, tc := range strictSchemaCases() {

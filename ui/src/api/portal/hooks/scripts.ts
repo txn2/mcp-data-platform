@@ -132,6 +132,11 @@ export interface ScriptRunOutput {
   // payload spliced in, not the document.
   refresh?: boolean;
   bytes: number;
+  // An export a row or page limit cut, written under on_truncation "warn" (#2057).
+  truncated?: boolean;
+  limit_applied?: number;
+  limit_source?: string;
+  limit_unit?: string;
 }
 
 // ScriptContractOutput is the same output as the contract document reports it,

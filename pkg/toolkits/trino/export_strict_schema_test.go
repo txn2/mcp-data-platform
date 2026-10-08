@@ -14,7 +14,7 @@ import (
 // issue #1057 contract: the published schema refuses unknown top-level
 // arguments, and its properties are exactly the arguments exportInput decodes.
 func TestExportInputSchema_ClosedAndInSyncWithInputStruct(t *testing.T) {
-	raw, err := json.Marshal(exportInputSchema())
+	raw, err := json.Marshal(exportInputSchema(applyExportDefaults(ExportConfig{})))
 	if err != nil {
 		t.Fatalf("marshal schema: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestExportRegistration_AcceptsEveryPublishedProperty(t *testing.T) {
 		"sql": "SELECT 1", "connection": "primary", "format": "csv",
 		"name": "rows", "description": "d", "tags": []string{"t"},
 		"limit": 10, "idempotency_key": "k1", "timeout_seconds": 30,
-		"create_public_link": false,
+		"create_public_link": false, "on_truncation": "warn", "expect_min_rows": 0,
 	}
 	// The resource destination is walked separately: it is refused before the
 	// query by the destination check on a toolkit with no managed-resource
@@ -93,10 +93,12 @@ func TestExportRegistration_AcceptsEveryPublishedProperty(t *testing.T) {
 	resourceArgs := map[string]any{
 		"sql": "SELECT 1", "format": "csv", "name": "rows",
 		"resource": map[string]any{"path": "datasets", "filename": "rows.csv"},
+		// expect_rows excludes expect_min_rows, so it rides on this call.
+		"expect_rows": 1,
 	}
 	// Every published property must appear in one of the samples, or the walk
 	// proves nothing about the ones it skipped.
-	schemaRaw, err := json.Marshal(exportInputSchema())
+	schemaRaw, err := json.Marshal(exportInputSchema(applyExportDefaults(ExportConfig{})))
 	if err != nil {
 		t.Fatalf("marshal schema: %v", err)
 	}

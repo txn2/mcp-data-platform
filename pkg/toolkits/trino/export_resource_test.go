@@ -194,7 +194,7 @@ func TestExportPublishesTheSharedDestinationSchema(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(toolkit.ResourceDestinationSchema), &want))
 	assert.Equal(t, want, resourceDestinationSchema())
 
-	props, ok := exportInputSchema()[propProperties].(map[string]any)
+	props, ok := exportInputSchema(applyExportDefaults(ExportConfig{}))[propProperties].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, want, props[propResource])
 }

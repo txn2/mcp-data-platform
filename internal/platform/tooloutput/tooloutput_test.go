@@ -1,6 +1,7 @@
 package tooloutput
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,4 +49,32 @@ func TestOf(t *testing.T) {
 		_, ok := Of(tc.tool, nil, tc.result)
 		assert.False(t, ok, tc)
 	}
+}
+
+// TestOfCarriesACut: an export written under on_truncation "warn" is recorded
+// on the run as incomplete, whichever destination it landed in (#2057).
+func TestOfCarriesACut(t *testing.T) {
+	cut := map[string]any{"truncated": true, "limit_applied": float64(100000), "limit_source": "deployment", "limit_unit": "rows"}
+	asset, ok := Of(ToolTrinoExport, map[string]any{"name": "contacts"}, merged(cut, map[string]any{"asset_id": "a1"}))
+	assert.True(t, ok)
+	assert.True(t, asset.Truncated)
+	assert.Equal(t, 100000, asset.LimitApplied)
+	assert.Equal(t, "deployment", asset.LimitSource)
+	assert.Equal(t, "rows", asset.LimitUnit)
+
+	landed, ok := Of(ToolAPIExport, nil, merged(cut, map[string]any{"resource": map[string]any{"resource_id": "r1"}}))
+	assert.True(t, ok)
+	assert.True(t, landed.Truncated)
+
+	complete, ok := Of(ToolTrinoExport, nil, map[string]any{"asset_id": "a2", "truncated": false, "limit_applied": float64(5)})
+	assert.True(t, ok)
+	assert.False(t, complete.Truncated)
+	assert.Zero(t, complete.LimitApplied, "a complete output records no limit")
+}
+
+func merged(a, b map[string]any) map[string]any {
+	out := map[string]any{}
+	maps.Copy(out, a)
+	maps.Copy(out, b)
+	return out
 }

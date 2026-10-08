@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/exporttrunc"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
@@ -742,7 +744,8 @@ func TestEffectiveCap(t *testing.T) {
 }
 
 // A version's metadata is stored on it and on the asset (#1848); a version
-// that carries none leaves the asset's in place, and a column that is not
+// that carries none leaves the asset's in place but for the truncation keys
+// (#2057, TestCreateVersion_RealDB_MovesTheTruncatedMarkWithTheContent), and a column that is not
 // JSON is an error rather than a silent empty.
 func TestPostgresVersionStoreMetadata(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -758,7 +761,7 @@ func TestPostgresVersionStoreMetadata(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), 1, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), []byte(`{"region":"west"}`)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`metadata = CASE WHEN \$6::jsonb = '\{\}'::jsonb THEN metadata ELSE \$6::jsonb END`).
+	mock.ExpectExec(`metadata = CASE WHEN \$6::jsonb = '\{\}'::jsonb\s+THEN metadata - .*ELSE \$6::jsonb END`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	_, err = store.CreateVersion(context.Background(), version)
@@ -775,4 +778,16 @@ func TestPostgresVersionStoreMetadata(t *testing.T) {
 	var v portaldomain.AssetVersion
 	require.ErrorContains(t, unmarshalMetadata([]byte("not json"), &v), "decoding version metadata")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreateVersionNamesTheTruncationKeys holds the asset head statement to
+// exporttrunc's names (#2057): the statement spells the keys and the tag out so
+// it has text the SQL gate can plan, and a renamed key would otherwise leave a
+// mark on the asset that no version clears.
+func TestCreateVersionNamesTheTruncationKeys(t *testing.T) {
+	keys := []string{exporttrunc.MetaTruncated, exporttrunc.MetaLimitApplied, exporttrunc.MetaLimitSource, exporttrunc.MetaLimitUnit}
+	assert.Contains(t, updateAssetHeadSQL, "'{"+strings.Join(keys, ",")+"}'::text[]")
+	assert.Contains(t, updateAssetHeadSQL, `'{"`+exporttrunc.MetaTruncated+`": true}'::jsonb`)
+	assert.Contains(t, updateAssetHeadSQL, `(tags - '`+exporttrunc.Tag+`') || '["`+exporttrunc.Tag+`"]'::jsonb`)
+	assert.Contains(t, updateAssetHeadSQL, `ELSE tags - '`+exporttrunc.Tag+`' END`)
 }

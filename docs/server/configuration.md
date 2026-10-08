@@ -667,7 +667,7 @@ portal:
 | `rate_limit.burst_size` | int | `10` | Public portal viewer per-IP burst allowance |
 | `rate_limit.trusted_proxies` | list | `[]` | CIDRs whose `X-Forwarded-For` is trusted for client attribution. Empty trusts none: the direct peer address is used and forwarding headers are ignored. Set this to your ingress/load-balancer CIDRs so per-client limiting works behind a proxy without being spoofable. A global backstop bounds total throughput regardless of attribution |
 | `export.enabled` | bool | auto | Enable `trino_export` tool. Auto-enabled when portal and Trino are both configured. Set `false` to disable |
-| `export.max_rows` | int | `100000` | Hard row cap for exports |
+| `export.max_rows` | int | `100000` | Hard row cap for `trino_export`. A result it cuts is refused unless the call sets `on_truncation: "warn"`; see [Exports cut at a limit](export-truncation.md). `platform_info` reports it under `limits.export` |
 | `export.max_bytes` | int64 | `104857600` | Hard byte cap for formatted output (100 MB) |
 | `export.default_timeout` | string | `5m` | Default query timeout for exports |
 | `export.max_timeout` | string | `10m` | Maximum allowed query timeout for exports |

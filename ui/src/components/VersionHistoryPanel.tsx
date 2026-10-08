@@ -3,6 +3,7 @@ import { History, ChevronDown, ChevronUp } from "lucide-react";
 import type { AssetVersion } from "@/api/portal/types";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
+import { truncationLabel, truncationOf } from "@/lib/truncation";
 
 interface VersionHistoryPanelProps {
   versions: AssetVersion[];
@@ -76,6 +77,11 @@ export function VersionHistoryPanel({
             {v.change_summary && (
               <div className="text-muted-foreground mt-0.5 italic">
                 {v.change_summary}
+              </div>
+            )}
+            {truncationOf(v.metadata) && (
+              <div className="mt-0.5 text-amber-800 dark:text-amber-300" data-testid={`version-incomplete-${v.version}`}>
+                {truncationLabel(truncationOf(v.metadata))}
               </div>
             )}
             {v.created_by && (

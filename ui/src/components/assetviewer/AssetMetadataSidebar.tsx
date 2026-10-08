@@ -5,10 +5,12 @@ import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { TablesPanel } from "@/components/tables/TablesPanel";
 import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
+import { IncompleteNotice } from "@/components/IncompleteBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailRow } from "@/components/viewer/DetailRow";
 import { formatBytes } from "@/lib/format";
+import { isTruncated, truncationLabel, truncationOf } from "@/lib/truncation";
 import { assetSubject } from "@/lib/thumbnailSubject";
 import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
@@ -119,6 +121,7 @@ export function AssetMetadataSidebar({
         />
       ) : (
         <>
+          <AssetIncompleteNotice asset={asset} versions={versions} />
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Details</h3>
@@ -298,4 +301,15 @@ function SessionRow({
       </button>
     </DetailRow>
   );
+}
+
+/** AssetIncompleteNotice marks an asset whose current version an export cut at
+ * a limit (#2057). The asset carries the reserved tag while that holds; the
+ * version says at what limit. */
+function AssetIncompleteNotice({ asset, versions }: { asset: Asset; versions?: AssetVersion[] }) {
+  if (!isTruncated(asset.tags)) {
+    return null;
+  }
+  const current = versions?.find((v) => v.version === asset.current_version);
+  return <IncompleteNotice label={truncationLabel(truncationOf(current?.metadata))} />;
 }

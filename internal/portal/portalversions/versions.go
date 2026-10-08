@@ -86,6 +86,27 @@ func (s *store) noteProducer(ctx context.Context, assetID string, version int) {
 	})
 }
 
+// The asset takes the metadata of a version that carries any (#1848), and
+// keeps what it had through one that carries none: an edit made in the
+// portal to a script's output does not erase what the run recorded.
+//
+// Except whether an export was cut (#2057), which describes the content
+// and so goes with it: a version that does not record a cut strips the
+// truncation keys and the truncated tag, whoever wrote it, and one that
+// does adds the tag. The keys and the tag are exporttrunc's, written out
+// so the statement has text to check (TestCreateVersionNamesTheTruncationKeys).
+const updateAssetHeadSQL = `
+	UPDATE portal_assets
+	SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, updated_at = NOW(),
+	    metadata = CASE WHEN $6::jsonb = '{}'::jsonb
+	                    THEN metadata - '{truncated,limit_applied,limit_source,limit_unit}'::text[]
+	                    ELSE $6::jsonb END,
+	    tags = CASE WHEN $6::jsonb @> '{"truncated": true}'::jsonb
+	                THEN (tags - '_sys-truncated') || '["_sys-truncated"]'::jsonb
+	                ELSE tags - '_sys-truncated' END
+	WHERE id = $5
+`
+
 // createVersionTx records the version, moves the asset head, and prunes history
 // past the asset's effective cap -- all under the asset row lock, in one
 // transaction. It returns the assigned version number and the rows the prune
@@ -134,17 +155,7 @@ func (s *store) createVersionTx(ctx context.Context, version portaldomain.AssetV
 	// keeps the capture it has and records the version it came from
 	// (thumbnail_version, migration 000122), so it stays behind rather than
 	// blank and the refresh queue can find it (#1431).
-	//
-	// The asset takes the metadata of a version that carries any (#1848), and
-	// keeps what it had through one that carries none: an edit made in the
-	// portal to a script's output does not erase what the run recorded.
-	updateQuery := `
-		UPDATE portal_assets
-		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, updated_at = NOW(),
-		    metadata = CASE WHEN $6::jsonb = '{}'::jsonb THEN metadata ELSE $6::jsonb END
-		WHERE id = $5
-	`
-	_, err = tx.ExecContext(ctx, updateQuery,
+	_, err = tx.ExecContext(ctx, updateAssetHeadSQL,
 		nextVersion, version.S3Key, version.ContentType, version.SizeBytes, version.AssetID, metadata,
 	)
 	if err != nil {

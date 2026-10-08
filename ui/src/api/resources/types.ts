@@ -74,6 +74,9 @@ export interface ResourceVersion {
   // upload of the same file again is recognized and skipped (#1862). Absent on
   // a revision recorded before the platform kept it.
   content_sha256?: string;
+  // What the writer recorded about this version's content: an export cut at a
+  // limit and written anyway records the cut here (#2057).
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 

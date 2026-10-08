@@ -90,6 +90,7 @@ func (m *mockAssetStore) Update(_ context.Context, _ string, u AssetUpdate) erro
 	m.lastUpdate = &u
 	return m.updateErr
 }
+
 func (*mockAssetStore) AppendProvenanceCapture(context.Context, string, portaldomain.ProvenanceCapture) error {
 	return nil
 }
@@ -4102,6 +4103,29 @@ func TestRevertToVersionSuccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	assert.Equal(t, "reverted", result["status"])
 	assert.Equal(t, float64(3), result["version"])
+}
+
+// TestRevertToVersionCarriesTheTruncationMark: reverting to a version a cut
+// export wrote brings its content back, so the cut comes back with it; the
+// rest of what that version recorded does not (#2057).
+func TestRevertToVersionCarriesTheTruncationMark(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "u1", S3Bucket: "b", CurrentVersion: 2}
+	targetVer := &AssetVersion{
+		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "b", ContentType: "text/csv",
+		Metadata: map[string]any{"truncated": true, "limit_applied": float64(100), "run_id": "r1"},
+	}
+	versions := &mockVersionStore{getVersion: targetVer, createVersion: 3}
+	h := newTestHandlerWithVersions(&mockAssetStore{getAsset: asset}, &mockShareStore{}, versions,
+		&mockS3Client{getData: []byte("id\n1\n"), getCT: "text/csv"}, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/versions/1/revert", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NotNil(t, versions.lastCreated)
+	assert.Equal(t, true, versions.lastCreated.Metadata["truncated"])
+	assert.NotContains(t, versions.lastCreated.Metadata, "run_id")
 }
 
 func TestRevertToVersionNotFound(t *testing.T) {
