@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -184,6 +185,7 @@ type Worker struct {
 
 // New returns a worker. It does nothing until Start.
 func New(cfg Tuning, deps Deps) *Worker {
+	deps.AssetBlobs, deps.ResourceBlobs = thumbnailBlobs(deps.AssetBlobs), thumbnailBlobs(deps.ResourceBlobs)
 	return &Worker{cfg: cfg.withDefaults(), deps: deps, stop: make(chan struct{}), done: make(chan struct{})}
 }
 
@@ -193,6 +195,7 @@ func (w *Worker) Start(ctx context.Context) {
 	if w == nil {
 		return
 	}
+	w.registerBacklog(bgloop.Metrics())
 	go w.run(ctx)
 }
 
@@ -207,21 +210,21 @@ func (w *Worker) Stop() {
 
 func (w *Worker) run(ctx context.Context) {
 	defer close(w.done)
-	for {
-		busy := w.pass(ctx)
-		wait := w.cfg.Poll
-		if busy {
-			// A pass that found work drains the backlog without waiting.
-			wait = 0
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-w.stop:
-			return
-		case <-time.After(wait):
-		}
-	}
+	busy := false
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameThumbnailWorker, Immediate: true, Stop: w.stop, SpanPerUnit: true,
+		Next: func() time.Duration {
+			if busy {
+				// A pass that found work drains the backlog without waiting.
+				return 0
+			}
+			return w.cfg.Poll
+		},
+		Body: func(ctx context.Context) error {
+			busy = w.pass(ctx)
+			return nil
+		},
+	})
 }
 
 // pass claims and draws one batch of each kind and reports whether it found
@@ -288,6 +291,7 @@ func (w *Worker) claimCollections(ctx context.Context) []job {
 // with that document rather than down (#1868).
 func (w *Worker) rendererAnswers(ctx context.Context) bool {
 	err := w.deps.Drawer.Ping(ctx)
+	bgloop.Metrics().RecordThumbnailRenderer(ctx, err == nil)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	switch {

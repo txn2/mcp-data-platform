@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // Notifier is the worker hook a listener fires on every received NOTIFY. A
@@ -52,12 +54,18 @@ type Listener struct {
 	stopOnce  sync.Once
 	wg        sync.WaitGroup
 	started   atomic.Bool
+	state     *bgloop.Listen
 }
 
 // New constructs a Listener for the supplied DSN and channel. It does not
-// connect until Start is called.
+// connect until Start is called. Its connection reports on the pg_listen_*
+// series as "listen_" + channel; the channels are the platform's own
+// constants, which bounds the label.
 func New(dsn, channel string, notifiers ...Notifier) *Listener {
-	return &Listener{dsn: dsn, channel: channel, notifiers: notifiers, stopCh: make(chan struct{})}
+	return &Listener{
+		dsn: dsn, channel: channel, notifiers: notifiers, stopCh: make(chan struct{}),
+		state: bgloop.NewListen(bgloop.ListenPrefix + channel),
+	}
 }
 
 // Start opens the LISTEN connection and spawns the receive goroutine. An
@@ -98,16 +106,19 @@ func (l *Listener) run() {
 // consume is the receive loop, taking the channel as a parameter so it can be
 // driven without a live PostgreSQL connection.
 func (l *Listener) consume(ch <-chan *pq.Notification) {
-	for {
-		select {
-		case <-l.stopCh:
-			return
-		case <-ch:
-			// A nil notification signals a reconnect ("you may have missed
-			// events"); either way wake every notifier to re-query.
+	// A nil notification signals a reconnect ("you may have missed
+	// events"); either way wake every notifier to re-query.
+	bgloop.Consume(context.Background(), bgloop.Events[*pq.Notification]{
+		Name: l.state.Name(), C: ch, Stop: l.stopCh, SpanPerUnit: true,
+		Body: func(_ context.Context, n *pq.Notification) error {
+			if n != nil {
+				// A nil is the reconnect signal, not a notification.
+				l.state.Notified()
+			}
 			l.broadcast()
-		}
-	}
+			return nil
+		},
+	})
 }
 
 func (l *Listener) broadcast() {
@@ -119,6 +130,7 @@ func (l *Listener) broadcast() {
 // onEvent logs pq.Listener lifecycle changes for operator visibility; the
 // listener reconnects on its own.
 func (l *Listener) onEvent(ev pq.ListenerEventType, err error) {
+	l.state.Event(ev)
 	switch ev {
 	case pq.ListenerEventConnected:
 		slog.Info("pglisten: listener connected", logKeyChannel, l.channel)

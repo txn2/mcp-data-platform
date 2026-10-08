@@ -274,7 +274,7 @@ func TestReconciler_ObservesDeferredUnits(t *testing.T) {
 	reg := registryWith(&stubSource{kind: "k"}, &stubSink{kind: "k", gaps: []string{"a", "b", "c"}})
 	obs := &recordingObserver{}
 
-	NewReconciler(store, reg, time.Second, WithReconcilerObserver(obs)).reconcileOnce()
+	_ = NewReconciler(store, reg, time.Second, WithReconcilerObserver(obs)).reconcileOnce(context.Background())
 
 	assert.Equal(t, map[string]int{"k": 2}, obs.deferred)
 	assert.Equal(t, []string{"c"}, keyIDs(store.enqueuedKeys()))

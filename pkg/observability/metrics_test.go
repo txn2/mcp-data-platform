@@ -27,7 +27,7 @@ func TestNewDisabledReturnsNoOpRecorder(t *testing.T) {
 	m.DecInflightToolCalls(context.Background())
 	m.RecordAPIGatewayOutbound(context.Background(), APIGatewayAttrs{}, time.Millisecond)
 	m.RecordSessionResolution(context.Background(), "none")
-	m.RecordAuditEventDropped(context.Background())
+	m.RecordAuditEventDropped(context.Background(), AuditDropQueueFull)
 
 	if got := m.Enabled(); got {
 		t.Errorf("Enabled() on nil = %v, want false", got)
@@ -119,13 +119,16 @@ func TestRecordAuditEventDropped(t *testing.T) {
 	defer func() { _ = m.Shutdown(context.Background()) }()
 
 	ctx := context.Background()
-	m.RecordAuditEventDropped(ctx)
-	m.RecordAuditEventDropped(ctx)
-	m.RecordAuditEventDropped(ctx)
+	m.RecordAuditEventDropped(ctx, AuditDropQueueFull)
+	m.RecordAuditEventDropped(ctx, AuditDropQueueFull)
+	m.RecordAuditEventDropped(ctx, AuditDropTimeout)
 
 	body := scrapeMetrics(t, m.Handler())
-	if !strings.Contains(body, "audit_events_dropped_total 3") {
-		t.Errorf("expected audit_events_dropped_total 3 in scrape body:\n%s", body)
+	if !strings.Contains(body, `audit_events_dropped_total{reason="queue_full"} 2`) {
+		t.Errorf("expected two queue_full drops in scrape body:\n%s", body)
+	}
+	if !strings.Contains(body, `audit_events_dropped_total{reason="timeout"} 1`) {
+		t.Errorf("expected one timeout drop in scrape body:\n%s", body)
 	}
 }
 

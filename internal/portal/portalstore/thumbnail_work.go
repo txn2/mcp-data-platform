@@ -132,6 +132,28 @@ const collectionMosaicTiles = 4
 //
 // The lease and the limit are bound as $1 and $2 by the caller.
 func buildCollectionThumbnailClaim() string {
+	return collectionMosaicSources() + `,
+		owed AS (
+			SELECT c.id FROM portal_collections c
+			LEFT JOIN sources g ON g.collection_id = c.id
+			WHERE ` + collectionMosaicOwed + `
+			  AND (c.thumbnail_claimed_until IS NULL OR c.thumbnail_claimed_until < now())
+			ORDER BY c.updated_at DESC
+			LIMIT $2
+			FOR UPDATE OF c SKIP LOCKED
+		)
+		UPDATE portal_collections c
+		SET thumbnail_claimed_until = now() + make_interval(secs => $1),
+		    thumbnail_attempts = c.thumbnail_attempts + 1
+		FROM owed LEFT JOIN sources g ON g.collection_id = owed.id
+		WHERE c.id = owed.id
+		RETURNING c.id, c.thumbnail_s3_key, COALESCE(g.source, ''), c.thumbnail_attempts`
+}
+
+// collectionMosaicSources opens the WITH clause naming each collection's
+// mosaic source (the member tiles it is composed from), for the claim and the
+// backlog count to read the same thing.
+func collectionMosaicSources() string {
 	return `
 		WITH member_tiles AS (
 			SELECT s.collection_id, pa.id AS asset_id, pa.thumbnail_version, pa.thumbnail_dark_version, pa.thumbnail_renderer,
@@ -145,26 +167,15 @@ func buildCollectionThumbnailClaim() string {
 			       string_agg(asset_id || ':' || thumbnail_version || ':' || thumbnail_dark_version || ':' || thumbnail_renderer, ',' ORDER BY n) AS source
 			FROM member_tiles WHERE n <= ` + fmt.Sprint(collectionMosaicTiles) + `
 			GROUP BY collection_id
-		),
-		owed AS (
-			SELECT c.id FROM portal_collections c
-			LEFT JOIN sources g ON g.collection_id = c.id
-			WHERE c.deleted_at IS NULL
+		)`
+}
+
+// collectionMosaicOwed is when a collection c, joined to its source g, is owed
+// a mosaic, whoever holds it.
+const collectionMosaicOwed = `c.deleted_at IS NULL
 			  AND COALESCE(g.source, '') <> c.thumbnail_source
 			  AND (COALESCE(g.source, '') <> '' OR c.thumbnail_s3_key <> '')
-			  AND (c.thumbnail_failure = '' OR COALESCE(g.source, '') <> c.thumbnail_failed_source)
-			  AND (c.thumbnail_claimed_until IS NULL OR c.thumbnail_claimed_until < now())
-			ORDER BY c.updated_at DESC
-			LIMIT $2
-			FOR UPDATE OF c SKIP LOCKED
-		)
-		UPDATE portal_collections c
-		SET thumbnail_claimed_until = now() + make_interval(secs => $1),
-		    thumbnail_attempts = c.thumbnail_attempts + 1
-		FROM owed LEFT JOIN sources g ON g.collection_id = owed.id
-		WHERE c.id = owed.id
-		RETURNING c.id, c.thumbnail_s3_key, COALESCE(g.source, ''), c.thumbnail_attempts`
-}
+			  AND (c.thumbnail_failure = '' OR COALESCE(g.source, '') <> c.thumbnail_failed_source)`
 
 // ClaimCollectionThumbnailWork leases up to limit collections whose mosaic is
 // out of date and returns them with the source each should be composed from.

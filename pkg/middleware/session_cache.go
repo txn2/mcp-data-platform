@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // DedupMode controls what content is sent for previously-enriched tables.
@@ -131,19 +134,10 @@ func (c *SessionEnrichmentCache) TokensDeduped() int64 {
 
 // StartCleanup starts a background goroutine that evicts idle sessions.
 func (c *SessionEnrichmentCache) StartCleanup(interval time.Duration) {
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-c.done:
-				return
-			case <-ticker.C:
-				c.cleanup()
-			}
-		}
-	}()
+	go bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameSessionEnrichmentCleanup, Every: interval, Stop: c.done,
+		Body: func(context.Context) error { c.cleanup(); return nil },
+	})
 }
 
 // Stop stops the background cleanup goroutine. It is idempotent: multiple calls

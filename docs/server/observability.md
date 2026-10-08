@@ -170,6 +170,11 @@ query them; the tab is the at-a-glance read.
 | `datahub_request_duration_seconds` | histogram | `operation` |
 | `s3_operations_total` | counter | `operation` (`s3_list.buckets`, `s3_list.objects`, `s3_object.<action>`), `status` |
 | `s3_operation_duration_seconds` | histogram | `operation` |
+| `storage_operations_total` | counter | `purpose`, `operation`, `result`, `reason` (failures only) |
+| `storage_operation_duration_seconds` | histogram | `purpose`, `operation` |
+| `storage_bytes_written_total` | counter | `purpose` |
+| `db_client_operation_duration_seconds` | histogram | `operation` |
+| `db_client_slow_statements_total` | counter | `operation` |
 | `script_runs_total` | counter | `script`, `trigger`, `status` |
 | `script_run_duration_seconds` | histogram | `script` |
 | `script_runs_running` | gauge | (none) |
@@ -194,7 +199,27 @@ query them; the tab is the at-a-glance read.
 | `oauth_token_issuance_total` | counter | `grant_type`, `status` |
 | `oauth_token_refresh_total` | counter | `status` |
 | `oauth_token_refresh_duration_seconds` | histogram | (none) |
-| `audit_events_dropped_total` | counter | (none) |
+| `audit_events_dropped_total` | counter | `reason` (`queue_full`, `write_failed`, `timeout`) |
+| `background_loop_iterations_total` | counter | `loop`, `result` (`ok`, `error`, `skipped`) |
+| `background_loop_duration_seconds` | histogram | `loop` |
+| `background_loop_last_success_timestamp_seconds` | gauge | `loop` |
+| `retention_rows_purged_total` | counter | `loop` |
+| `background_queue_items` | gauge | `loop`, `kind`, `state` (`pending`, `running`, `waiting`) |
+| `background_queue_oldest_age_seconds` | gauge | `loop`, `kind` |
+| `script_run_failures_total` | counter | `cause` |
+| `script_runs_shed_total` | counter | (none) |
+| `script_worker_load_ratio` | gauge | `reason` (`memory`, `cpu`) |
+| `notification_delivery_attempts_total` | counter | `kind`, `result` (`delivered`, `retry`, `failed`) |
+| `connection_oauth_refresh_total` | counter | `kind`, `result` (`ok`, `failed`, `revoked`) |
+| `connection_oauth_credentials` | gauge | `kind`, `state` (`ok`, `expiring`, `revoked`, `missing`) |
+| `thumbnail_renderer_up` | gauge | (none) |
+| `thumbnail_render_duration_seconds` | histogram | `kind` |
+| `thumbnail_render_failures_total` | counter | `kind`, `reason` (`document`, `renderer`, `storage`, `undrawable`) |
+| `audit_writer_queue_depth` | gauge | (none) |
+| `audit_write_duration_seconds` | histogram | `result` (`ok`, `error`, `timeout`) |
+| `pg_listen_connected` | gauge | `loop` |
+| `pg_listen_reconnects_total` | counter | `loop` |
+| `pg_listen_last_notification_age_seconds` | gauge | `loop` |
 | `db_pool_open_connections` | gauge | `pool` |
 | `db_pool_in_use` | gauge | `pool` |
 | `db_pool_idle` | gauge | `pool` |
@@ -267,19 +292,99 @@ descriptions, visibility, schemas) as well as the handler.
 `0` when unlimited): `db_pool_open_connections` at that value is a pool every
 further query waits on, which `db_pool_wait_count_total` then counts.
 
-**Trino** rows are recorded for the statements the query provider runs for
-cross-enrichment (table resolution, availability, schema), and for nothing
-else: a `trino_query` or `trino_execute` tool call is counted by
-`mcp_tool_calls_total{toolkit_kind="trino"}` and is not in
-`trino_queries_total`. The same holds for `datahub_requests_total`, which
-measures the semantic provider, not the DataHub toolkit's tools.
-`query_kind` is the SQL verb (`select`, `show`, `insert`, ...) for SQL
-queries, or the metadata operation (`list_catalogs`, `list_schemas`,
-`list_tables`, `describe_table`) for catalog calls; unknown SQL maps to
-`other`. A `trino_bytes_scanned_total` metric was considered but is not
-implemented: the mcp-trino client (v1.3.0) does not expose a
-bytes-scanned figure in its query stats, so there is no honest source
-for it.
+**Trino** rows are recorded for every statement and metadata call the
+platform sends to Trino (#1896): the `trino_*` tools (`trino_query`,
+`trino_execute`, `trino_explain`, `trino_browse`, `trino_describe_table`,
+`trino_export`), the platform's own statements (table registration DDL and
+its existence lookup, the connection test, the prompt sources' queries) and the query provider's cross-enrichment reads.
+`query_kind` is the statement's leading keyword (`select`, `show`, `insert`,
+`create`, ...), `explain` for `trino_explain`, or the
+metadata call (`list_catalogs`, `list_schemas`, `list_tables`,
+`describe_table`); a keyword the platform does not know maps to `other`. The
+label is never the SQL text. A statement the read-only check refuses never
+reached Trino and is not counted. The tool call itself is still counted by
+`mcp_tool_calls_total{toolkit_kind="trino"}`; `trino_queries_total` is what
+Trino was asked, which is how a deployment sizes its coordinator. A
+`trino_bytes_scanned_total` metric was considered but is not implemented: the
+mcp-trino client does not expose a bytes-scanned figure (nor queued and
+running time) in its query stats, so there is no honest source for it.
+
+**DataHub** rows, `datahub_requests_total{operation,status}`, are the
+semantic provider's reads, one per `datahub_*` tool call under what the tool
+does (`get_lineage`, `browse`, `create`, `update`, `delete`), the two reads
+the prompt and resource sources make (`get_entity`, `get_glossary_term`), and
+every read and write `apply_knowledge` makes through its writer
+(`get_current_metadata`, `update_description`, `apply_tag_changes`,
+`create_curated_query`, `raise_incident`, ...), and the portal catalog's
+reads and edits (`get_glossary_term`, `search_documents`,
+`update_description`, `apply_owner_changes`, `set_domain`, `create_tag`,
+`upsert_context_document`, ...), each with a `datahub.<operation>` span.
+
+### Object storage and PostgreSQL
+
+**Object storage.** Every object the platform puts, gets, lists or deletes in
+a bucket it owns is counted by
+`storage_operations_total{purpose,operation,result}` and timed by
+`storage_operation_duration_seconds{purpose,operation}`, and the bytes a put
+stored by `storage_bytes_written_total{purpose}` (#1896). `purpose` is what
+the bucket is used for, whichever bucket a deployment named:
+`portal_assets` (an asset saved through the portal or a tool),
+`resources` (managed resources), `thumbnails` (the tile worker, its reads
+of a document's stored file included), `script_outputs` (a managed
+script's portal outputs), `exports` (`trino_export`, `api_export`,
+`graphql_export`) and `webhooks` (segments and compacted Parquet).
+`operation` is `put`, `get`, `get_range`, `list` or `delete`; `result` is `ok`
+or `error`. A failure also carries `reason`, read from the store's error
+code: `access_denied` (a refused credential or bucket policy),
+`bucket_missing`, `quota_exceeded` (a full store), `not_found` (an absent
+object) or `other` (a timeout, a refused connection, a server error), so a
+credential or policy mistake reads differently from an outage. The cleanup
+deletes that used to fail with only a log line (superseded tiles, deleted
+resource versions, replaced asset versions) are counted here as well. The
+S3 toolkit's own tools keep `s3_operations_total`, which counts what a caller
+asked of a bucket the caller named. Each operation is also a `storage.<operation>`
+client span under the calling span, with `storage.purpose`,
+`storage.operation`, `storage.bucket` and, on a failure,
+`storage.failure_reason`.
+
+```promql
+# object writes failing, by what they were for and why
+sum by (purpose, reason) (rate(storage_operations_total{result="error"}[5m]))
+# bytes stored per day, by purpose
+sum by (purpose) (increase(storage_bytes_written_total[1d]))
+```
+
+**PostgreSQL.** The platform's pool is opened through a driver wrapper
+(`otelsql`) that observes every statement (#1896).
+`db_client_operation_duration_seconds{operation}` is the OpenTelemetry
+database convention's histogram, labeled only by `operation`: the
+statement's leading keyword (`select`, `insert`, `update`, `delete`,
+`with`, ...), `vector_search` for a statement that ranks by a pgvector
+distance operator, or the step (`begin`, `commit`, `rollback`, `prepare`,
+`connect`, `ping`). A statement at or over
+`MCP_PLATFORM_DB_SLOW_STATEMENT_THRESHOLD` (a Go duration, default `1s`;
+`0` turns it off) is counted by `db_client_slow_statements_total{operation}`
+and logged at WARN, on the statement's trace when it has one:
+
+```json
+{"level":"WARN","msg":"slow database statement","operation":"vector_search","duration_ms":1840,"threshold_ms":1000,"trace_id":"...","span_id":"..."}
+```
+
+Inside a traced request each statement is a client span named
+`postgres.<operation>` (`postgres.select`, `postgres.vector_search`) with
+`db.system.name=postgresql`, `db.operation.name` and `db.query.summary`
+(the keyword and the tables the statement reads, never a literal). The SQL
+text is not on the span unless `OTEL_TRACES_INCLUDE_DB_STATEMENT=true`: a
+statement can quote the values it was built with, the same reason the
+caller's address is off by default. A statement made outside any traced
+request (a background sweep) opens no span; it is still measured.
+
+```promql
+# p95 statement latency by operation
+histogram_quantile(0.95, sum by (le, operation) (rate(db_client_operation_duration_seconds_bucket[5m])))
+# what vector search costs
+sum(rate(db_client_operation_duration_seconds_sum{operation="vector_search"}[5m]))
+```
 
 **Managed scripts** are measured where a run reaches a terminal state, not
 where it is enqueued, so the counter is of executions rather than intentions
@@ -328,9 +433,10 @@ to size the memory-enrichment budget (`enrichment.memory_context_budget_bytes`).
 **S3** `operation` is the S3 tool name (`list_buckets`, `list_objects`,
 `get_object`, `get_object_metadata`, `presign_url`, ...).
 
-**Audit drops**: `audit_events_dropped_total` counts audit events lost by the
-async audit writer: queue-full drops plus writes that failed or were abandoned
-at the per-write timeout. Audit writes run through a single background goroutine
+**Audit drops**: `audit_events_dropped_total{reason}` counts audit events lost
+by the audit writer: queue-full drops (`queue_full`), writes that failed
+(`write_failed`) and writes abandoned at the per-write timeout or at shutdown
+(`timeout`). Audit writes run through a single background goroutine
 with a per-write timeout, so a stalled database sheds audit load instead of
 blocking tool calls or leaking goroutines; a growing counter means the store
 cannot keep up and rows are being lost by design (audit delivery is
@@ -479,6 +585,154 @@ counts the re-dials after the upstream dropped the session (`ok`, `failed`).
 Before #1895 the gateway kept the last error in memory for
 `list_connections` and nothing else.
 
+### Authentication, configuration and platform state
+
+Most fleet problems are a misconfiguration rather than a crash, and before
+#1898 a misconfiguration was a log line. These series make it a signal.
+
+**Authentication.** `auth_attempts_total{method, result, reason}` counts
+every credential validation the platform's authenticator chain makes, and
+every browser sign-in at the OIDC callback. `method` is the authenticator
+that owns the credential: `oidc` (a JWT whose issuer is `auth.oidc.issuer`),
+`oauth` (a JWT the platform's own OAuth server issued), `api_key` (anything
+that is not a JWT), `browser` (portal sign-in), or `unknown` (no credential
+at all). `result` is `success` or `failure`; `reason` is a class, never the
+error text: `none`, `expired`, `revoked` (an API key the key store no longer
+holds), `bad_signature`, `unknown_key` (an API key, or a token signing key,
+the platform does not know), `idp_unavailable` (the identity provider did not
+answer, or answered with a 5xx), `invalid_claims` (wrong issuer or audience,
+not yet valid, too old), `code_rejected` (a browser sign-in whose
+authorization code the identity provider refused with a 4xx: expired, already
+used by a refreshed callback, or a client it does not accept) and
+`malformed`. Each request is counted once: an MCP request over HTTP is counted
+at the HTTP gate, and the tool-call middleware's re-validation of the same
+credential is not counted again.
+
+The HTTP gate passes a request through to the protocol layer when the
+identity provider cannot be reached to validate its token (the protocol
+layer then refuses its tool calls). That fail-open path was silent; it now
+logs `auth gate: identity provider unavailable` at WARN and increments
+`auth_fail_open_total`.
+
+The OIDC signing-key fetch (at startup and on a cache miss) is
+`oidc_jwks_fetches_total{result}`, `oidc_jwks_fetch_duration_seconds`, and
+`oidc_jwks_last_success_timestamp_seconds`: a timestamp that stops advancing
+while tokens keep arriving is an identity provider the platform can no
+longer reach. The OAuth server counts dynamic client registration under
+`oauth_client_registrations_total{result}` and a grant it does not implement
+under `oauth_token_issuance_total{grant_type="unsupported"}`; its 429s are
+`http_rate_limited_total{limiter="oauth_token"|"oauth_register"}`.
+
+**Refused tool calls.** `mcp_tool_call_denials_total{persona, reason}`
+counts the calls the persona authorizer refused: `tool_denied` (the
+persona's tool rules), `connection_denied` (its connection rules),
+`no_persona` (the caller's roles map to none, recorded under
+`persona="unknown"`). A spike right after a persona change is usually the
+change.
+
+**Configuration.** `mcp_platform_config_info{toolkit_kinds, auth_methods,
+tracing, metrics_exporter, sampler_ratio} 1` names what the process runs
+with; values are joined, sorted sets (`toolkit_kinds="datahub,s3,trino"`).
+It never carries a hostname, an address, a DSN or a secret: a value with a
+scheme separator, an `@`, a `/`, a `:` or a space is dropped before it can
+reach a label.
+
+`config_validation_warnings_total{code}` counts every configuration warning
+the platform logs, at boot and when a persona written through the admin API
+raises one; the log line carries the same `code`. The codes:
+
+| `code` | Raised when |
+|--------|-------------|
+| `persona_tool_unregistered` | a persona's `tools.allow` names, without a wildcard, a tool this deployment does not register (a retired name, or a toolkit not configured here) |
+| `persona_incoherent` | a persona grants a capability it cannot complete (search without fetch, ...) |
+| `unused_connection` | no persona's connection rules admit a configured connection |
+| `agent_instructions_unknown_tool` | the agent instructions name a tool this deployment does not register |
+| `unrecognized_keys` | the configuration file carries keys the platform ignores |
+| `deprecated_api_version`, `deprecated_key` | the configuration uses a deprecated `apiVersion` or a renamed key |
+| `placeholder_unexpanded` | a `${...}` placeholder named an unset variable |
+| `ephemeral_oauth_signing_key` | the OAuth server signs with a per-process key |
+| `portal_no_object_storage`, `resources_no_object_storage` | the portal or managed resources have no object storage |
+| `memory_no_embedding` | memory runs without an embedding provider |
+| `exclude_persona_unknown` | `calls.exclude_personas` names no persona |
+| `deployment_id_unset` | an OTLP exporter is on with no `MCP_PLATFORM_DEPLOYMENT_ID` |
+
+**Startup.** Initialization runs as named phases (`observability`, `data`,
+`providers`, `registries`, `prompts`, `oauth_signing_key`, `auth`,
+`api_keys`, `audit`, `sessions`, `oauth`, `tuning`, `workflow`,
+`session_gate`, `extensions`, `finalize`, `managed_resources`). One line,
+`platform initialized`, names the version, the total `duration_ms` and each
+`phase_<name>_ms`; a failed boot logs `platform initialization failed` with
+the phase. With tracing on, a `platform.startup` span carries a child
+`platform.startup.<phase>` per phase (a root span, so subject to the head
+sampler).
+
+**Dependencies.** `dependency_up{dependency}` is 1 when a dependency
+answered its last ping and 0 when it did not: `database` (a ping),
+`semantic` (DataHub's ping), `query` (Trino's ping), `object_storage` (a
+listing of an empty prefix of the portal bucket), `idp` (the issuer's
+discovery document) and `renderer` (the thumbnail renderer). A dependency
+this deployment does not configure has no series. Each replica pings for
+itself, at most once per `server.state_probe_interval` (default `1m`) and
+only when scraped; a scrape answers from the last result and starts the next
+ping in the background, so a dependency that hangs never holds a scrape.
+
+`/readyz` does **not** read these gauges. Readiness stays the process state
+(starting, ready, draining): gating it on DataHub or the identity provider
+would take every replica out of the load balancer at once during an
+upstream outage, including the routes that do not need that upstream. Alert
+on `dependency_up == 0` instead.
+
+**Connections and personas.** `mcp_platform_connections{kind, state}`
+counts the connections of every kind that lists them by the state the last
+call through each one found it in. Nothing is sent to an upstream to find
+out: the state is the outcome of the calls people and scripts already make.
+`healthy` is an upstream that answered (whatever it said about the request
+itself), `unreachable` one that could not be reached or answered 502, 503 or
+504, `auth_failed` one that refused the connection's credential (HTTP 401 or
+407 from an API, GraphQL or MCP upstream or from Trino; an S3 key or
+signature the store does not accept), and `configured` a connection no call
+has used on this replica since it started. The API, GraphQL and MCP kinds
+are read from the outbound HTTP chain, Trino from mcp-trino's classification
+of each failure, S3 from the store's error. Each replica reports the calls
+it served, so read the gauge with `max by (kind, state)`.
+`mcp_platform_personas` is the number of personas registered.
+
+**Search index age.** `search_index_last_indexed_age_seconds{kind}` is how
+long ago each search source last finished an index pass (read from the
+index-job history; every replica reports the same value, read with `max`).
+
+### Domain operations
+
+The work a tool call or an admin request sets off is counted and timed by
+`domain_operations_total{operation, result}` (`ok`, `error`) and
+`domain_operation_duration_seconds{operation}`, and each opens a span of the
+operation's name under the calling `tools/call` span:
+
+| `operation` | What it is |
+|-------------|------------|
+| `knowledge.apply` | one `apply_knowledge` call, any action |
+| `memory.capture` | one `memory_capture` write, or a capture the platform made |
+| `memory.manage` | one `memory_manage` command (update, forget, consolidate, the reviews) |
+| `search.query`, `search.fetch` | the router's fan-out for `search`, and a `fetch` dereference |
+| `calls.record`, `calls.reuse`, `calls.promote`, `calls.sweep` | the call catalog: a record written, a re-run credited, a promotion, a retention sweep |
+| `configstore.read`, `configstore.write` | the config store (a write also logs `config store: entry changed` with the key and author) |
+| `resource.upload`, `resource.extract` | a managed resource created, and an archive extraction |
+| `table.register` | a table registration |
+| `prompt.serve` | a database prompt served through `prompts/get` or `use_prompt` |
+
+`knowledge_changes_total{sink, result}` counts what `apply_knowledge`
+changed: an apply to `datahub`, `knowledge_page` or `agent_instructions` is
+`applied` or `failed` (a confirmation round-trip is not counted), and the
+captured insight itself (`sink="insight"`) is `created` by a reviewed
+`memory_capture`, `approved` or `rejected` by a review.
+`search_results_returned_total` sums the hits `search` returned. An archive
+extraction counts `archive_members_extracted_total` and
+`archive_extracted_bytes_total`, and a refused archive
+`archive_refusals_total{reason}` (`unsafe_name`, `encrypted`,
+`unsupported`, `corrupt`, `no_members`, or the
+`resources.managed.extract` limit it passed: `max_member_bytes`,
+`max_total_bytes`, `max_members`, `max_ratio`).
+
 ### Background indexing
 
 The background embedding queue (`pkg/indexjobs`) is measured as each job
@@ -539,6 +793,93 @@ The admin Indexing dashboard draws its Throughput and Embed latency panels from
 the first two; see [Admin dashboard](../portal/admin-dashboard.md#indexing).
 `kind` is the set of registered consumers (about a dozen) and every other label
 is a closed set, so the queue adds a few hundred series at most.
+
+### Background loops and queues
+
+Every loop the platform runs in the background -- the queue workers, the
+schedulers, the retention sweeps, the alert checkers, the OAuth refresher, the
+cache sweeps, the LISTEN consumers -- runs through one helper
+(`internal/bgloop`, #1897), so each reports the same three series:
+`background_loop_iterations_total{loop,result}` (`ok`, `error`, or `skipped`
+when another replica held the work's advisory lock),
+`background_loop_duration_seconds{loop}`, and
+`background_loop_last_success_timestamp_seconds{loop}`, the Unix time of the
+last iteration that succeeded on this replica. A loop that has stopped reads as
+a timestamp that stopped advancing. Read the timestamp with `max` across
+replicas for a loop that runs on one at a time (a sweep under a lock).
+
+Each iteration of a periodic loop starts a root span named `loop {name}`, and
+the iteration's log records carry its trace. A queue worker opens no span for a
+poll that found nothing; each unit it claims (an index job, a notification, a
+script run, a thumbnail, a compaction window) gets its own root span instead. A
+managed script's run is one trace: the run's span (`loop script_run`, with
+`mcp_platform.script.run_id`) is the parent of every `tools/call` span the run
+makes, carried in `params._meta` across its in-process session.
+
+`loop` is a name declared in `internal/bgloop/names.go`; a retention sweep
+reports as `retention_<sweep>` and a LISTEN connection as `listen_<channel>`,
+so the label is bounded by the code. `retention_rows_purged_total{loop}` counts
+the rows each sweep deleted.
+
+The queues are read from the database on each scrape, in parallel, cached ten
+seconds (the thumbnail backlog, whose counts scan whole tables, a minute), and
+reported as `background_queue_items{loop,kind,state}` and
+`background_queue_oldest_age_seconds{loop,kind}`; every replica reports the
+same value, so read them with `max`:
+
+| `loop` | What it counts | `kind` |
+|---|---|---|
+| `script_worker` | runs due (`pending`), executing (`running`), queued for later (`waiting`); age of the oldest due run | (none) |
+| `script_scheduler` | enabled schedules whose fire has passed and no pass has materialized; age of the oldest | (none) |
+| `notification_worker` | rows due, sending, scheduled for later; age of the oldest due | `email`, `channel` |
+| `webhook_compactor` | windows owed a compaction: ended, held, still open; how long ago the oldest ended | (none) |
+| `thumbnail_worker` | documents owed a tile: unclaimed (`pending`), held or held back (`waiting`) | `asset`, `resource`, `collection`, `script` |
+
+The schedule gauge is reported on every replica, the worker-off ones included:
+with every replica's worker off, nothing materializes a schedule and the
+oldest-due age grows while `background_loop_last_success_timestamp_seconds{loop="script_scheduler"}`
+stays where it was.
+
+Script runs add `script_run_failures_total{cause}` (`script`, `upstream`,
+`memory`, `worker_lost`, `platform`, `state_conflict`),
+`script_runs_shed_total` (runs stopped and requeued to relieve memory) and
+`script_worker_load_ratio{reason}`, the share of the memory and CPU limits the
+worker's admission reads. Notifications add
+`notification_delivery_attempts_total{kind,result}`, where `kind` is `email` or
+the channel's kind; the revocation, review-queue and failed-script alerts all
+travel this path. The connection OAuth refresher adds
+`connection_oauth_refresh_total{kind,result}` and
+`connection_oauth_credentials{kind,state}`, set for every state each pass. A
+credential the IdP refuses has its row deleted, and its connection is still
+counted `revoked` on every later pass until a credential is stored for it
+again or the connection is deleted; a kind with no connections left reads 0.
+Thumbnails add `thumbnail_renderer_up`, `thumbnail_render_duration_seconds{kind}`
+and `thumbnail_render_failures_total{kind,reason}`. The audit writer adds
+`audit_writer_queue_depth` and `audit_write_duration_seconds{result}`.
+
+The four LISTEN adapters (index jobs, notifications, script runs, the session
+broadcaster) report `pg_listen_connected{loop}`,
+`pg_listen_reconnects_total{loop}` and
+`pg_listen_last_notification_age_seconds{loop}`. A connection whose peer is gone
+without a reset is not pinged: `pq.Listener.Ping` holds the listener's lock for
+the round trip, so a ping on a dead connection would hold shutdown until the
+operating system gave up on the socket. A notification age that keeps growing on
+a busy deployment is that signal instead.
+
+```promql
+# a loop that has not succeeded for an hour
+time() - max by (loop) (background_loop_last_success_timestamp_seconds) > 3600
+
+# schedules due and not materialized for more than five minutes
+max(background_queue_oldest_age_seconds{loop="script_scheduler"}) > 300
+
+# failing notification deliveries
+sum by (kind) (rate(notification_delivery_attempts_total{result!="delivered"}[15m]))
+```
+
+A Semgrep rule (`.semgrep/go-background-loop.yml`) refuses `time.NewTicker`,
+`time.Tick` and an infinite loop around a `select` in non-test Go outside the
+helper, so a new loop cannot ship without these signals.
 
 ### Label semantics
 
@@ -759,6 +1100,8 @@ tool calls).
 | `OTEL_TRACES_SAMPLER_ARG` | `0.1` | Head-based sampling ratio in `[0,1]` applied to root spans. See [Sampling](#sampling): a deployment that tail-samples in its collector sets `1.0`. |
 | `OTEL_SERVICE_NAME` | `mcp-data-platform` | `service.name` on every signal; see [Resource attributes](#resource-attributes). |
 | `OTEL_TRACES_INCLUDE_USER_EMAIL` | `false` | Put the caller's email address on the tool-call span as `mcp.user_email`. The user id is always there; the address is personal data a trace backend would otherwise hold for every call. |
+| `OTEL_TRACES_INCLUDE_DB_STATEMENT` | `false` | Put a PostgreSQL statement's SQL text on its `postgres.<operation>` span as `db.query.text`. Off because a statement can quote the values it was built with (#1896). |
+| `MCP_PLATFORM_DB_SLOW_STATEMENT_THRESHOLD` | `1s` | A statement at or over this duration is counted by `db_client_slow_statements_total` and logged at WARN; `0` turns both off. Read whether or not tracing is on. |
 
 The OTLP exporter connects lazily: an unreachable or unconfigured collector
 never blocks or fails startup; spans are batched and dropped if undeliverable.
@@ -807,6 +1150,8 @@ graph TD
     Root --> Trino["trino.&lt;query_kind&gt;"]
     Root --> DataHub["datahub.&lt;operation&gt;"]
     Root --> S3["s3.&lt;operation&gt;"]
+    Root --> Storage["storage.&lt;operation&gt;"]
+    Root --> PG["postgres.&lt;operation&gt;"]
     Enrich --> DataHubE["datahub.&lt;operation&gt;"]
     Enrich --> TrinoE["trino.&lt;query_kind&gt;"]
 ```
@@ -851,10 +1196,14 @@ graph TD
   on the session store's rows.
 - **Child spans** nest under the root via context propagation: the cross-service
   `enrichment` fan-out, and one span per upstream call to Trino
-  (`trino.<query_kind>`), DataHub (`datahub.<operation>`), and S3
-  (`s3.<operation>`). The Trino/DataHub/S3 spans are emitted by the same
-  decorators that record the toolkit metrics, installed when **either** metrics
-  or tracing is enabled.
+  (`trino.<query_kind>`, with `db.system.name=trino`, `db.operation.name`,
+  `db.query.summary` and `trino.connection`; never the SQL text), DataHub
+  (`datahub.<operation>`), the S3 toolkit (`s3.<operation>`), the platform's
+  own buckets (`storage.<operation>`) and PostgreSQL
+  (`postgres.<operation>`, including `postgres.vector_search` for a pgvector
+  ranking). The Trino/DataHub/S3 spans are emitted by the same code that
+  records their metrics, installed when **either** metrics or tracing is
+  enabled.
 
 Span status is `Error` for any non-`ok` `status_category`, with the category
 as the status description and the error recorded as a span event, so error

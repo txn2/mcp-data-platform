@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whsource"
@@ -90,28 +91,37 @@ func (b *buffer) admit(events []whevent.Event, limit int) (*batch, error) {
 
 // run writes segments until ctx ends, then writes what is still pending so
 // every waiting request is answered.
+//
+// An admitted request wakes the loop; it writes when the pending events are
+// due and otherwise waits until they will be. Each segment write is a unit of
+// work with its own span, not every wake.
 func (b *buffer) run(ctx context.Context) {
 	defer b.r.wg.Done()
-	for {
-		wait, ready, empty := b.due()
-		switch {
-		case ready:
-			b.flush()
-			continue
-		case empty:
-			wait = time.Hour
-		}
-		timer := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			b.drain()
-			return
-		case <-b.kick:
-		case <-timer.C:
-		}
-		timer.Stop()
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameWebhookSegments, Immediate: true, Wake: b.kick, SpanPerUnit: true,
+		Next: b.nextWait,
+		Body: func(ctx context.Context) error {
+			if _, ready, _ := b.due(); !ready {
+				return nil
+			}
+			return bgloop.Unit(ctx, bgloop.NameWebhookSegmentWrite, func(context.Context) error { return b.flush() })
+		},
+		Final: func(context.Context) { b.drain() },
+	})
+}
+
+// nextWait is how long the loop waits before looking again: not at all when
+// the pending events are due, until they are otherwise, and an hour when
+// nothing is pending (an admitted request wakes it sooner).
+func (b *buffer) nextWait() time.Duration {
+	wait, ready, empty := b.due()
+	switch {
+	case ready:
+		return 0
+	case empty:
+		return time.Hour
 	}
+	return wait
 }
 
 // drain writes what is pending until nothing is, then closes the buffer in
@@ -126,7 +136,7 @@ func (b *buffer) drain() {
 			return
 		}
 		b.mu.Unlock()
-		b.flush()
+		_ = b.flush()
 	}
 }
 
@@ -153,8 +163,8 @@ func (b *buffer) due() (wait time.Duration, ready, empty bool) {
 }
 
 // flush takes everything pending, writes one segment per window its events
-// fall in, and answers every request in it.
-func (b *buffer) flush() {
+// fall in, and answers every request in it, returning the write's error.
+func (b *buffer) flush() error {
 	b.mu.Lock()
 	taken := b.pending
 	b.pending = nil
@@ -163,7 +173,7 @@ func (b *buffer) flush() {
 	b.pendingEvents, b.pendingBytes = 0, 0
 	b.mu.Unlock()
 	if len(taken) == 0 {
-		return
+		return nil
 	}
 
 	err := b.write(taken)
@@ -176,6 +186,7 @@ func (b *buffer) flush() {
 	held := b.pendingEvents + b.inflight
 	b.mu.Unlock()
 	b.r.metricBuffer(b.source, held)
+	return err
 }
 
 // write renders the batches' events as segments, one per window of the

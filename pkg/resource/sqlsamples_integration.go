@@ -72,6 +72,7 @@ func SQLSamples() map[string]string {
 	// predicate, an ILIKE ANY over a bound array, and the whole projection
 	// RETURNED. The tile writes are the statements the store runs, not copies.
 	claim, _ := buildThumbnailClaim(1, time.Minute, 25)
+	backlog, _ := buildThumbnailBacklog(1)
 	foldersAll, _ := buildFolders(Filter{AllScopes: true})
 	// A narrowed facet reads no stored folder, so the second arm is FALSE and
 	// binds nothing (#1872).
@@ -102,6 +103,7 @@ func SQLSamples() map[string]string {
 		"buildList/page.direct":   directPage,
 		"buildFolders":            folders,
 		"buildThumbnailClaim":     claim,
+		"buildThumbnailBacklog":   backlog,
 		"setThumbnailLight":       setThumbnailQuery(ThumbnailVariantLight),
 		"setThumbnailDark":        setThumbnailQuery(ThumbnailVariantDark),
 		"clearThumbnailLight":     clearThumbnailQuery(ThumbnailVariantLight),

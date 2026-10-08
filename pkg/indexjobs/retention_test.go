@@ -219,20 +219,20 @@ func (s *failedPurgeStore) PurgeUnresolvedFailed(_ context.Context, days int) (i
 func TestRetainer_PurgesUnresolvedFailuresWhenConfigured(t *testing.T) {
 	t.Parallel()
 	store := &failedPurgeStore{failedN: 3}
-	NewRetainer(store, 14, time.Hour, WithFailedRetention(90)).sweepOnce()
+	_ = NewRetainer(store, 14, time.Hour, WithFailedRetention(90)).sweepOnce(context.Background())
 	if store.failedDays != 90 {
 		t.Errorf("failed window = %d; want 90", store.failedDays)
 	}
 
 	store = &failedPurgeStore{failedErr: errors.New("db down")}
-	NewRetainer(store, 14, time.Hour, WithFailedRetention(90)).sweepOnce()
+	_ = NewRetainer(store, 14, time.Hour, WithFailedRetention(90)).sweepOnce(context.Background())
 
 	store = &failedPurgeStore{}
-	NewRetainer(store, 14, time.Hour).sweepOnce()
+	_ = NewRetainer(store, 14, time.Hour).sweepOnce(context.Background())
 	if store.failedDays != 0 {
 		t.Error("unresolved failures were purged without WithFailedRetention")
 	}
-	NewRetainer(&purgeStore{}, 14, time.Hour, WithFailedRetention(90)).sweepOnce() // a store that cannot purge them
+	_ = NewRetainer(&purgeStore{}, 14, time.Hour, WithFailedRetention(90)).sweepOnce(context.Background()) // a store that cannot purge them
 }
 
 func TestStore_PurgeUnresolvedFailed(t *testing.T) {

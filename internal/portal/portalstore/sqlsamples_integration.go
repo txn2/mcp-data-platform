@@ -82,6 +82,7 @@ func SQLSamples() map[string]string {
 	// The renderer's claim (#1787): the owed predicate under a locking
 	// subquery, with the listing projection RETURNED.
 	thumbnailClaim, _, _ := buildThumbnailClaim(1, time.Minute, 25)
+	thumbnailBacklog, _, _ := buildThumbnailBacklog(1)
 	// A managed script run's own inventory joins content_producers rather than
 	// reading either identifier on the row (#1579).
 	listFilterScript := portaldomain.AssetFilter{
@@ -129,6 +130,8 @@ func SQLSamples() map[string]string {
 	return map[string]string{
 		"buildThumbnailClaim":                      thumbnailClaim,
 		"buildCollectionThumbnailClaim":            buildCollectionThumbnailClaim(),
+		"buildThumbnailBacklog":                    thumbnailBacklog,
+		"collectionThumbnailBacklog":               collectionThumbnailBacklog(),
 		"recordCollectionThumbnailQuery":           recordCollectionThumbnailQuery,
 		"buildAssetCount":                          assetCount,
 		"buildAssetCount/idOnly":                   assetCountIDOnly,

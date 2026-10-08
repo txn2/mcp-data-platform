@@ -13,6 +13,9 @@ type contextKey int
 
 const (
 	userContextKey contextKey = iota
+	// attemptCountedKey marks a context whose request the HTTP gate already
+	// counted in auth_attempts_total (WithAttemptCounted).
+	attemptCountedKey
 )
 
 // UserContext holds authenticated user information.
@@ -65,4 +68,21 @@ func (uc *UserContext) HasAnyRole(roles ...string) bool {
 // InGroup checks if the user is in a specific group.
 func (uc *UserContext) InGroup(group string) bool {
 	return slices.Contains(uc.Groups, group)
+}
+
+// WithAttemptCounted marks ctx as carrying a request the HTTP gate already
+// validated and counted in auth_attempts_total (#1898). The protocol layer
+// validates the same credential again for every tool call; under this mark
+// that validation is not counted a second time, so the counter reads one
+// attempt per request. A streamable-HTTP connection's later calls inherit the
+// mark from the request it was built on, and each of their own requests is
+// counted by the gate it passes through.
+func WithAttemptCounted(ctx context.Context) context.Context {
+	return context.WithValue(ctx, attemptCountedKey, true)
+}
+
+// attemptCounted reports whether ctx carries a request already counted.
+func attemptCounted(ctx context.Context) bool {
+	counted, _ := ctx.Value(attemptCountedKey).(bool)
+	return counted
 }

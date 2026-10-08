@@ -13,6 +13,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -90,6 +91,7 @@ type Broadcaster struct {
 	closed         atomic.Bool
 	logger         *slog.Logger
 	reconnectEvent string
+	state          *bgloop.Listen
 }
 
 // Option configures a Broadcaster at construction.
@@ -125,8 +127,10 @@ func NewBroadcaster(dsn string, db *sql.DB, channel string, logger *slog.Logger,
 	if channel == "" {
 		channel = DefaultNotifyChannel
 	}
+	state := bgloop.NewListen(bgloop.NameListenSessions)
 	listener := pq.NewListener(dsn, listenerMinReconnect, listenerMaxReconnect,
 		func(ev pq.ListenerEventType, err error) {
+			state.Event(ev)
 			// Log all transitions, not just errors — operators need a
 			// signal when the LISTEN connection drops or reconnects so
 			// a flapping link is visible. lib/pq emits Connected at
@@ -160,6 +164,7 @@ func NewBroadcaster(dsn string, db *sql.DB, channel string, logger *slog.Logger,
 		local:    session.NewMemoryBroadcaster(logger),
 		done:     make(chan struct{}),
 		logger:   logger,
+		state:    state,
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -187,9 +192,12 @@ func (b *Broadcaster) consume(ch <-chan *pq.Notification) {
 			return
 		}
 		if n == nil {
+			// The reconnect signal, not a notification: it does not reset
+			// the connection's time since its last one.
 			b.reconnected()
 			continue
 		}
+		b.state.Notified()
 		b.dispatchPayload(n.Extra)
 	}
 }

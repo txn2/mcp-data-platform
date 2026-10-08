@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
@@ -93,6 +94,9 @@ const (
 const (
 	grantTypeAuthCode     = "authorization_code"
 	grantTypeRefreshToken = "refresh_token"
+	// grantTypeUnsupported is the grant_type label every grant the server does
+	// not implement is counted under.
+	grantTypeUnsupported = "unsupported"
 
 	tokenTypeBearer = "Bearer"
 
@@ -398,6 +402,9 @@ func (s *Server) Token(ctx context.Context, req TokenRequest) (*TokenResponse, e
 		s.metrics.RecordOAuthRefresh(ctx, grantStatus(err), time.Since(start))
 		return resp, err
 	default:
+		// Counted under one value, never the grant_type a client sent: that
+		// is the client's to choose (#1898).
+		s.metrics.RecordOAuthIssuance(ctx, grantTypeUnsupported, observability.StatusClientErr)
 		return nil, errors.New("unsupported grant_type")
 	}
 }
@@ -839,6 +846,7 @@ func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	resp, err := s.RegisterClient(r.Context(), req)
+	s.metrics.RecordOAuthRegistration(r.Context(), err)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
@@ -1262,19 +1270,10 @@ func (s *Server) writeUpstreamError(w http.ResponseWriter, code string, err erro
 // StartCleanupRoutine starts a background routine to clean up expired codes,
 // tokens, and in-flight authorization states.
 func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration) {
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.runCleanup(ctx)
-			}
-		}
-	}()
+	go bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameOAuthCleanup, Every: interval,
+		Body: func(ctx context.Context) error { s.runCleanup(ctx); return nil },
+	})
 }
 
 // runCleanup purges expired authorization codes, tokens, and authorization

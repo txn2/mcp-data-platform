@@ -89,6 +89,7 @@ func TestInstrumentedClient_AllOps(t *testing.T) {
 	_, _, _ = ic.GetRootGlossaryTerms(ctx, 0, 10)
 	_, _ = ic.GetGlossaryNodeChildren(ctx, "urn", 0, 10)
 	_, _ = ic.GetGlossaryParentChain(ctx, "urn")
+	_, _ = ic.GetDataProduct(ctx, "urn")
 
 	body := scrapeForTest(t, m.Handler())
 	for _, want := range []string{
@@ -100,6 +101,7 @@ func TestInstrumentedClient_AllOps(t *testing.T) {
 		`operation="get_document"`, `operation="list_tags"`, `operation="list_domains"`,
 		`operation="get_root_glossary_nodes"`, `operation="get_root_glossary_terms"`,
 		`operation="get_glossary_node_children"`, `operation="get_glossary_parent_chain"`,
+		`operation="get_data_product"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q\n%s", want, body)

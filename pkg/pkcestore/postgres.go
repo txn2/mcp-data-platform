@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
@@ -94,7 +95,7 @@ func (s *PostgresStore) Put(ctx context.Context, state string, val *State) error
 		// Either a real collision (negligible probability with 256-bit
 		// state) or the caller's state generator produced a duplicate.
 		// Refuse — the operator's flow is broken regardless of cause.
-		slog.Error("pkcestore: state token collision rejected",
+		slog.ErrorContext(ctx, "pkcestore: state token collision rejected",
 			"connection", val.Connection)
 		return ErrStateCollision
 	}
@@ -158,21 +159,25 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) sweepLoop(interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if _, err := s.db.ExecContext(ctx,
-				`DELETE FROM oauth_pkce_states WHERE expires_at <= NOW()`); err != nil {
-				slog.Warn("pkcestore: sweep failed", "err", err)
-			}
-			cancel()
-		case <-s.stopCh:
-			return
-		}
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NamePKCECleanup, Every: interval, Stop: s.stopCh,
+		Body: s.sweep,
+	})
+}
+
+// sweep deletes the expired PKCE states once.
+func (s *PostgresStore) sweep(parent context.Context) error {
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	res, err := s.db.ExecContext(ctx, `DELETE FROM oauth_pkce_states WHERE expires_at <= NOW()`)
+	if err != nil {
+		slog.WarnContext(ctx, "pkcestore: sweep failed", "err", err)
+		return fmt.Errorf("pkcestore: sweep: %w", err)
 	}
+	if n, err := res.RowsAffected(); err == nil {
+		bgloop.Purged(ctx, bgloop.NamePKCECleanup, n)
+	}
+	return nil
 }
 
 // passThroughEncryptor is the dev-mode "no encryption" stand-in. Used

@@ -2,10 +2,13 @@ package indexjobs
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // Reaper periodically releases expired leases so jobs whose holding
@@ -47,30 +50,24 @@ func (r *Reaper) Stop() {
 
 func (r *Reaper) run() {
 	defer r.wg.Done()
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
 	// Run once on start so a pod that just took over immediately
 	// sweeps any leases the outgoing pod's worker left in flight.
-	r.sweepOnce()
-	for {
-		select {
-		case <-r.stopCh:
-			return
-		case <-ticker.C:
-			r.sweepOnce()
-		}
-	}
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameIndexJobReaper, Every: r.interval, Immediate: true, Stop: r.stopCh,
+		Body: r.sweepOnce,
+	})
 }
 
-func (r *Reaper) sweepOnce() {
-	ctx, cancel := context.WithTimeout(context.Background(), r.interval/2)
+func (r *Reaper) sweepOnce(parent context.Context) error {
+	ctx, cancel := context.WithTimeout(parent, r.interval/2)
 	defer cancel()
 	n, err := r.store.ReleaseExpiredLeases(ctx)
 	if err != nil {
-		slog.Warn("indexjobs: reaper sweep failed", logKeyError, err)
-		return
+		slog.WarnContext(ctx, "indexjobs: reaper sweep failed", logKeyError, err)
+		return fmt.Errorf("indexjobs: reaper: %w", err)
 	}
 	if n > 0 {
-		slog.Info("indexjobs: reaper released expired leases", "count", n)
+		slog.InfoContext(ctx, "indexjobs: reaper released expired leases", "count", n)
 	}
+	return nil
 }

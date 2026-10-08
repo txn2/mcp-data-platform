@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -250,6 +251,7 @@ func TestPlatformOutputSchemasAreOpen(t *testing.T) {
 // TestRealDB_TrinoQueryResultWithCallReferenceValidatesAgainstAdvertisedSchema.
 func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T) {
 	s3Instance := map[string]any{"region": "us-east-1", "access_key_id": "a", "secret_access_key": "b"}
+	trinoInstance := map[string]any{"user": "t", "ssl": false}
 	cfg := &Config{
 		Server:   ServerConfig{Name: "test-platform"},
 		Semantic: SemanticConfig{Provider: testProviderNoop},
@@ -265,12 +267,24 @@ func TestThirdPartyToolResultsValidateAgainstTheirAdvertisedSchemas(t *testing.T
 		// runs; this gate is about what the toolkit's own result looks like.
 		Workflow: WorkflowConfig{RequireSearch: new(false)},
 		Toolkits: map[string]any{
-			"trino": map[string]any{"enabled": true, "instances": map[string]any{
-				"acme": map[string]any{"host": "127.0.0.1", "port": 1, "user": "t"},
-			}},
-			"s3": map[string]any{"enabled": true, "instances": map[string]any{"acme": s3Instance}},
+			"trino": map[string]any{"enabled": true, "instances": map[string]any{"acme": trinoInstance}},
+			"s3":    map[string]any{"enabled": true, "instances": map[string]any{"acme": s3Instance}},
 		},
 	}
+	// A Trino coordinator that refuses every request at once (#2047). The
+	// Trino client reports a 401 immediately, where a port nothing listens on
+	// was retried for two minutes per tool call: eight minutes of a verify
+	// spent waiting on a refusal the test only needed once.
+	refusingTrino := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"refused"}}`, http.StatusUnauthorized)
+	}))
+	t.Cleanup(refusingTrino.Close)
+	trinoHost, trinoPort, err := net.SplitHostPort(strings.TrimPrefix(refusingTrino.URL, "http://"))
+	require.NoError(t, err)
+	trinoInstance["host"] = trinoHost
+	trinoInstance["port"], err = strconv.Atoi(trinoPort)
+	require.NoError(t, err)
+
 	// An S3 endpoint that refuses every request at once, so the S3 client's
 	// retry schedule does not set the pace of the test.
 	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

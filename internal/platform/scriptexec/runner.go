@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
@@ -204,16 +205,10 @@ func newReporter(runs script.RunStore, lease script.RunLease, live *scriptlive.L
 // run reports on every tick until finish is called.
 func (p *reporter) run(ctx context.Context) {
 	defer close(p.done)
-	ticker := time.NewTicker(p.every)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-p.quit:
-			return
-		case <-ticker.C:
-			p.report(ctx)
-		}
-	}
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameScriptProgress, Every: p.every, Stop: p.quit, Child: true,
+		Body: func(ctx context.Context) error { p.report(ctx); return nil },
+	})
 }
 
 // finish stops reporting and waits for the last report to land.

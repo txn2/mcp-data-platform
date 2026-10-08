@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
@@ -421,10 +423,12 @@ func (h *Handler) revertToFilePersona(name string) {
 	h.warnIncoherentPersona(p)
 }
 
-// warnIncoherentPersona logs a warning per coherence finding for a persona
-// just written through the admin API (#1174), so an operator who narrows a
-// persona into a shape that cannot complete its own capability finds out at
-// write time rather than from an unauthorized audit row weeks later.
+// warnIncoherentPersona runs the persona checks a boot runs (#1174, #1898)
+// for a persona just written through the admin API, so an operator who narrows
+// a persona into a shape that cannot complete its own capability, or names a
+// tool this deployment does not register, finds out at write time rather than
+// from an unauthorized audit row weeks later. Each finding is logged and
+// counted in config_validation_warnings_total.
 //
 // Advisory only: the write has already succeeded and is never rolled back. A
 // restricted persona may be exactly what the operator intended, and the rules
@@ -436,15 +440,9 @@ func (h *Handler) warnIncoherentPersona(p *persona.Persona) {
 	if h.deps.ToolkitRegistry == nil {
 		return
 	}
-	for _, f := range persona.CheckCoherence(p, h.deps.ToolkitRegistry.AllTools()) {
-		slog.Warn("persona grants a capability it cannot complete",
-			"persona", logsan.SanitizeForLog(f.Persona),
-			"granted", f.Granted,
-			"missing", f.Missing,
-			"why", f.Why,
-			"remedy", logsan.SanitizeForLog(f.Remedy),
-		)
-	}
+	toolkitTools := h.deps.ToolkitRegistry.AllTools()
+	registered := platform.RegisteredToolNames(toolkitTools, h.deps.PlatformTools)
+	configwarn.CheckPersona(context.Background(), p, registered, toolkitTools)
 }
 
 // callSweeper is the part of the call catalog that starts a sweep on request.

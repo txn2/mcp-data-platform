@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // notifier is the worker hook the listener notifies on every
@@ -43,6 +45,7 @@ type Listener struct {
 	stopOnce  sync.Once
 	wg        sync.WaitGroup
 	started   atomic.Bool
+	state     *bgloop.Listen
 }
 
 // NewListener constructs a Listener for the supplied DSN. The
@@ -56,6 +59,7 @@ func NewListener(dsn, channel string, notifiers ...notifier) *Listener {
 		channel:   channel,
 		notifiers: notifiers,
 		stopCh:    make(chan struct{}),
+		state:     bgloop.NewListen(bgloop.NameListenIndexJobs),
 	}
 }
 
@@ -93,19 +97,19 @@ func (l *Listener) Stop() {
 
 func (l *Listener) run() {
 	defer l.wg.Done()
-	ch := l.listener.NotificationChannel()
-	for {
-		select {
-		case <-l.stopCh:
-			return
-		case n := <-ch:
-			// pq.Listener emits nil on a reconnect to signal "you may
-			// have missed events." Either way, wake every notifier so
-			// they re-query the table.
-			_ = n
+	// pq.Listener emits nil on a reconnect to signal "you may have missed
+	// events." Either way, wake every notifier so they re-query the table.
+	bgloop.Consume(context.Background(), bgloop.Events[*pq.Notification]{
+		Name: l.state.Name(), C: l.listener.NotificationChannel(), Stop: l.stopCh, SpanPerUnit: true,
+		Body: func(_ context.Context, n *pq.Notification) error {
+			if n != nil {
+				// A nil is the reconnect signal, not a notification.
+				l.state.Notified()
+			}
 			l.broadcast()
-		}
-	}
+			return nil
+		},
+	})
 }
 
 func (l *Listener) broadcast() {
@@ -117,7 +121,8 @@ func (l *Listener) broadcast() {
 // onEvent logs pq.Listener lifecycle changes. Non-fatal: the
 // listener reconnects on its own; this is for operator visibility
 // into how often the LISTEN connection bounced.
-func (*Listener) onEvent(ev pq.ListenerEventType, err error) {
+func (l *Listener) onEvent(ev pq.ListenerEventType, err error) {
+	l.state.Event(ev)
 	switch ev {
 	case pq.ListenerEventConnected:
 		slog.Info("indexjobs: listener connected")

@@ -41,25 +41,8 @@ func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query st
 		       thumbnail_attempts = thumbnail_attempts + 1
 		WHERE id IN (
 			SELECT id FROM resources
-			WHERE mime_type ILIKE ANY($2)
-			  AND ` + thumbtypes.SourceLimitExpr("size_bytes", "mime_type", "$3") + `
+			WHERE ` + thumbnailOwedWhere(owedParams{capturable: "$2", large: "$3", renderer: "$4", themeable: "$5", shadows: "$7"}) + `
 			  AND (thumbnail_claimed_until IS NULL OR thumbnail_claimed_until < now())
-			  AND (thumbnail_failed_at IS NULL OR thumbnail_failed_at < updated_at)
-			  AND (
-			        thumbnail_s3_key = ''
-			     OR thumbnail_captured_at IS NULL
-			     OR thumbnail_captured_at < updated_at
-			     OR thumbnail_renderer < $4
-			     OR (
-			          mime_type ILIKE ANY($5)
-			          AND NOT (mime_type ILIKE ANY($7))
-			          AND (
-			                thumbnail_dark_s3_key = ''
-			             OR thumbnail_dark_captured_at IS NULL
-			             OR thumbnail_dark_captured_at < updated_at
-			          )
-			        )
-			  )
 			ORDER BY updated_at DESC
 			LIMIT $6
 			FOR UPDATE SKIP LOCKED
@@ -75,6 +58,65 @@ func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (query st
 		pq.Array(thumbtypes.Patterns(thumbtypes.ThemeableShadows())),
 	}
 	return query, args
+}
+
+// owedParams names the placeholder each value of the owed predicate is bound
+// to, so the claim and the backlog count number them each their own way.
+type owedParams struct {
+	capturable, large, renderer, themeable, shadows string
+}
+
+// thumbnailOwedWhere is when a resource is owed a tile, whoever holds it: the
+// claim's predicate, without the lease.
+func thumbnailOwedWhere(p owedParams) string {
+	return `mime_type ILIKE ANY(` + p.capturable + `)
+			  AND ` + thumbtypes.SourceLimitExpr("size_bytes", "mime_type", p.large) + `
+			  AND (thumbnail_failed_at IS NULL OR thumbnail_failed_at < updated_at)
+			  AND (
+			        thumbnail_s3_key = ''
+			     OR thumbnail_captured_at IS NULL
+			     OR thumbnail_captured_at < updated_at
+			     OR thumbnail_renderer < ` + p.renderer + `
+			     OR (
+			          mime_type ILIKE ANY(` + p.themeable + `)
+			          AND NOT (mime_type ILIKE ANY(` + p.shadows + `))
+			          AND (
+			                thumbnail_dark_s3_key = ''
+			             OR thumbnail_dark_captured_at IS NULL
+			             OR thumbnail_dark_captured_at < updated_at
+			          )
+			        )
+			  )`
+}
+
+// buildThumbnailBacklog renders the count of resources owed a tile, split by
+// whether a replica holds the lease (#1897), with the claim's own predicate.
+func buildThumbnailBacklog(renderer int) (query string, args []any) {
+	query = `SELECT
+		COUNT(*) FILTER (WHERE thumbnail_claimed_until IS NULL OR thumbnail_claimed_until < now()),
+		COUNT(*) FILTER (WHERE thumbnail_claimed_until >= now())
+		FROM resources
+		WHERE ` + thumbnailOwedWhere(owedParams{capturable: "$1", large: "$2", renderer: "$3", themeable: "$4", shadows: "$5"})
+	args = []any{
+		pq.Array(thumbtypes.Patterns(thumbtypes.Capturable)),
+		pq.Array(thumbtypes.Patterns(thumbtypes.LargeSourceFamilies)),
+		renderer,
+		pq.Array(thumbtypes.Patterns(thumbtypes.Themeable)),
+		pq.Array(thumbtypes.Patterns(thumbtypes.ThemeableShadows())),
+	}
+	return query, args
+}
+
+// ThumbnailBacklog counts the resources the renderer owes a tile: the ones no
+// replica holds, and the ones held now or held back after an attempt that did
+// not finish.
+func (s *postgresStore) ThumbnailBacklog(ctx context.Context, renderer int) (pending, waiting int64, err error) {
+	query, args := buildThumbnailBacklog(renderer)
+	// #nosec G701 -- a constant statement; every value is bound
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&pending, &waiting); err != nil {
+		return 0, 0, fmt.Errorf("counting thumbnail work: %w", err)
+	}
+	return pending, waiting, nil
 }
 
 // ClaimThumbnailWork leases up to limit resources the renderer owes a tile

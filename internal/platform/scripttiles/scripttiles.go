@@ -81,8 +81,7 @@ WITH owed AS (
     SELECT s.id
       FROM scripts s
       LEFT JOIN script_tiles t ON t.script_id = s.id
-     WHERE (t.script_id IS NULL OR t.version < s.version OR t.renderer < $1 OR t.s3_key = '')
-       AND COALESCE(t.failed_version, 0) < s.version
+     WHERE ` + owedWhere + `
        AND (t.claimed_until IS NULL OR t.claimed_until < NOW())
      ORDER BY s.updated_at DESC
      LIMIT $3
@@ -93,6 +92,30 @@ SELECT id, NOW() + make_interval(secs => $2), 1 FROM owed
 ON CONFLICT (script_id) DO UPDATE
    SET claimed_until = EXCLUDED.claimed_until, attempts = script_tiles.attempts + 1, updated_at = NOW()
 RETURNING script_id`
+
+// owedWhere is when script s, joined to its tile row t, is owed a tile,
+// whoever holds it; the renderer generation is $1.
+const owedWhere = `(t.script_id IS NULL OR t.version < s.version OR t.renderer < $1 OR t.s3_key = '')
+       AND COALESCE(t.failed_version, 0) < s.version`
+
+// backlogSQL counts the scripts owed a tile, split by whether a worker holds
+// the lease (#1897), with the claim's own predicate.
+const backlogSQL = `SELECT
+    COUNT(*) FILTER (WHERE t.claimed_until IS NULL OR t.claimed_until < NOW()),
+    COUNT(*) FILTER (WHERE t.claimed_until >= NOW())
+  FROM scripts s
+  LEFT JOIN script_tiles t ON t.script_id = s.id
+ WHERE ` + owedWhere
+
+// Backlog counts the scripts owed a tile by renderer generation renderer:
+// the ones no worker holds, and the ones held now or held back after an
+// attempt that did not finish.
+func (s *Store) Backlog(ctx context.Context, renderer int) (pending, waiting int64, err error) {
+	if err := s.db.QueryRowContext(ctx, backlogSQL, renderer).Scan(&pending, &waiting); err != nil {
+		return 0, 0, fmt.Errorf("counting script tiles owed: %w", err)
+	}
+	return pending, waiting, nil
+}
 
 // readSQL reads what a claimed script's tile is drawn from.
 const readSQL = `

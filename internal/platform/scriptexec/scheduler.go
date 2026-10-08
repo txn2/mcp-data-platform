@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -101,18 +102,9 @@ func (s *scheduler) Start(ctx context.Context) {
 	}
 	s.started = true
 	s.wg.Go(func() {
-		ticker := time.NewTicker(s.cfg.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-s.stopCh:
-				return
-			case <-ticker.C:
-				s.pass(ctx)
-			}
-		}
+		bgloop.Run(ctx, bgloop.Loop{
+			Name: bgloop.NameScriptScheduler, Every: s.cfg.interval, Stop: s.stopCh, Body: s.pass,
+		})
 	})
 }
 
@@ -131,14 +123,14 @@ func (s *scheduler) Stop() {
 }
 
 // pass materializes every schedule that has come due.
-func (s *scheduler) pass(ctx context.Context) {
+func (s *scheduler) pass(ctx context.Context) error {
 	now := s.cfg.now()
 	due, err := s.cfg.schedules.DueSchedules(ctx, now, 0)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.WarnContext(ctx, "scripts: reading due schedules failed", logKeyError, err)
 		}
-		return
+		return fmt.Errorf("scripts: reading due schedules: %w", err)
 	}
 	if len(due) >= maxDuePerPass {
 		// The batch is full, so there are probably more. Nothing is lost — the
@@ -150,13 +142,12 @@ func (s *scheduler) pass(ctx context.Context) {
 			"schedules", len(due), "interval", s.cfg.interval)
 	}
 	for i := range due {
-		select {
-		case <-s.stopCh:
-			return
-		default:
+		if bgloop.Stopped(ctx, s.stopCh) {
+			return nil
 		}
 		s.materialize(ctx, &due[i], now)
 	}
+	return nil
 }
 
 // materialize walks one due schedule to its current fire and writes the run.

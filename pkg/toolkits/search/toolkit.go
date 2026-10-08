@@ -19,6 +19,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
@@ -368,6 +369,9 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 
 	caller := t.callerFromContext(ctx)
+	// The router's fan-out is one operation with a span under the call, and
+	// the hits it returned are counted (#1898).
+	ctx, op := opsobs.Start(ctx, opsobs.OpSearchQuery)
 	res, err := t.router.Search(ctx, knowledge.Query{
 		Intent:     searchText,
 		EntityURNs: input.EntityURNs,
@@ -376,6 +380,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		Caller:     caller,
 		Limit:      input.Limit,
 	})
+	op.End(ctx, err)
 	if err != nil {
 		return toolkit.ErrorResult("search failed: " + err.Error()), nil, nil
 	}
@@ -392,6 +397,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	for _, g := range groups {
 		shown += len(g.Hits)
 	}
+	opsobs.Metrics().RecordSearchResults(ctx, shown)
 	result, structured, err := structuredResult(searchOutput{
 		Groups:         groups,
 		Coverage:       coverage,
@@ -416,7 +422,14 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 		return toolkit.ErrorResult("fetch requires a reference"), nil, nil
 	}
 
+	ctx, op := opsobs.Start(ctx, opsobs.OpSearchFetch)
 	doc, err := t.router.Fetch(ctx, ref, t.callerFromContext(ctx))
+	if errors.Is(err, knowledge.ErrNotFound) {
+		// A stale reference is an answer, not a failure.
+		op.End(ctx, nil)
+	} else {
+		op.End(ctx, err)
+	}
 	if err != nil {
 		if errors.Is(err, knowledge.ErrNotFound) {
 			return structuredResult(fetchOutput{

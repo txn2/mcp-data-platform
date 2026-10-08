@@ -51,12 +51,12 @@ func (h *AwareHandler) announceToolsChanged(ctx context.Context, sess *Session, 
 		return
 	}
 	if err := h.store.UpdateState(ctx, sess.ID, map[string]any{toolsBuildKey: h.build, toolsPendingKey: !streaming}); err != nil {
-		slog.Warn("session: recording the announced build failed",
+		slog.WarnContext(ctx, "session: recording the announced build failed",
 			sessionIDKey, logsan.SanitizeForLog(sess.ID), slogKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	if err := h.broadcaster.Publish(ctx, Event{Method: toolsListChanged, SessionID: sess.ID}); err != nil {
-		slog.Warn("session: announcing a changed tool list failed",
+		slog.WarnContext(ctx, "session: announcing a changed tool list failed",
 			sessionIDKey, logsan.SanitizeForLog(sess.ID), slogKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }

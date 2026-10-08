@@ -2,10 +2,14 @@ package indexjobs
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // Reconciler is the gap-detection backstop. The producer path
@@ -87,61 +91,73 @@ func (r *Reconciler) Stop() {
 
 func (r *Reconciler) run() {
 	defer r.wg.Done()
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-	r.reconcileOnce()
-	for {
-		select {
-		case <-r.stopCh:
-			return
-		case <-ticker.C:
-			r.reconcileOnce()
-		}
-	}
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameIndexJobReconciler, Every: r.interval, Immediate: true, Stop: r.stopCh,
+		Body: r.reconcileOnce,
+	})
 }
 
 // reconcileOnce sweeps every registered Sink for gaps and enqueues
 // a reconciler job per gap. A Sink whose FindGaps errors is logged
 // and skipped; the other kinds still converge, and the next tick
-// retries the failed kind.
-func (r *Reconciler) reconcileOnce() {
-	ctx, cancel := context.WithTimeout(context.Background(), r.interval/2)
+// retries the failed kind. The failures are returned joined, so the
+// iteration is counted as one that failed.
+func (r *Reconciler) reconcileOnce(parent context.Context) error {
+	ctx, cancel := context.WithTimeout(parent, r.interval/2)
 	defer cancel()
 	parked := r.parkedUnits(ctx)
-	var total, deferred int
-	deferredByKind := map[string]int{}
+	t := &sweepTally{deferredByKind: map[string]int{}}
 	for _, sink := range r.registry.Sinks() {
-		ids, err := sink.FindGaps(ctx)
-		if err != nil {
-			slog.Warn("indexjobs: reconciler FindGaps failed",
-				logKeySourceKind, sink.Kind(), logKeyError, err)
+		r.reconcileSink(ctx, sink, parked, t)
+	}
+	if t.total > 0 {
+		slog.InfoContext(ctx, "indexjobs: reconciler enqueued gap jobs", "count", t.total)
+	}
+	if t.deferred > 0 {
+		slog.InfoContext(ctx, "indexjobs: reconciler deferred parked units", "count", t.deferred)
+	}
+	r.obs.deferred(ctx, t.deferredByKind)
+	if err := errors.Join(t.errs...); err != nil {
+		return fmt.Errorf("indexjobs: reconciler: %w", err)
+	}
+	return nil
+}
+
+// sweepTally is what one reconciler sweep did across its sinks.
+type sweepTally struct {
+	total, deferred int
+	deferredByKind  map[string]int
+	errs            []error
+}
+
+// reconcileSink enqueues a reconciler job for each of one sink's gaps that is
+// not parked, recording what it did on t.
+func (r *Reconciler) reconcileSink(ctx context.Context, sink Sink, parked map[Key]struct{}, t *sweepTally) {
+	ids, err := sink.FindGaps(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "indexjobs: reconciler FindGaps failed",
+			logKeySourceKind, sink.Kind(), logKeyError, err)
+		t.errs = append(t.errs, fmt.Errorf("finding the gaps of kind %s: %w", sink.Kind(), err))
+		return
+	}
+	for _, id := range ids {
+		key := Key{SourceKind: sink.Kind(), SourceID: id}
+		if _, ok := parked[key]; ok {
+			t.deferred++
+			t.deferredByKind[key.SourceKind]++
 			continue
 		}
-		for _, id := range ids {
-			key := Key{SourceKind: sink.Kind(), SourceID: id}
-			if _, ok := parked[key]; ok {
-				deferred++
-				deferredByKind[key.SourceKind]++
-				continue
-			}
-			created, err := r.store.Enqueue(ctx, key, TriggerReconciler)
-			if err != nil {
-				slog.Warn("indexjobs: reconciler enqueue failed",
-					logKeySourceKind, sink.Kind(), logKeySourceID, id, logKeyError, err)
-				continue
-			}
-			if created {
-				total++
-			}
+		created, err := r.store.Enqueue(ctx, key, TriggerReconciler)
+		if err != nil {
+			slog.WarnContext(ctx, "indexjobs: reconciler enqueue failed",
+				logKeySourceKind, sink.Kind(), logKeySourceID, id, logKeyError, err)
+			t.errs = append(t.errs, fmt.Errorf("enqueueing a gap of kind %s: %w", sink.Kind(), err))
+			continue
+		}
+		if created {
+			t.total++
 		}
 	}
-	if total > 0 {
-		slog.Info("indexjobs: reconciler enqueued gap jobs", "count", total)
-	}
-	if deferred > 0 {
-		slog.Info("indexjobs: reconciler deferred parked units", "count", deferred)
-	}
-	r.obs.deferred(ctx, deferredByKind)
 }
 
 // parkedUnits returns the units this sweep must not re-queue, keyed for
@@ -161,7 +177,7 @@ func (r *Reconciler) reconcileOnce() {
 func (r *Reconciler) parkedUnits(ctx context.Context) map[Key]struct{} {
 	candidates, err := r.store.ParkCandidates(ctx, ParkThreshold, parkScanLimit)
 	if err != nil {
-		slog.Warn("indexjobs: reconciler park scan failed; re-queueing every gap this sweep",
+		slog.WarnContext(ctx, "indexjobs: reconciler park scan failed; re-queueing every gap this sweep",
 			logKeyError, err)
 		return nil
 	}

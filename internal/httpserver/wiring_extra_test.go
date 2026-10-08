@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -77,8 +78,8 @@ func TestBuildTrinoQueryFunc(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected an error for an unregistered connection name")
 		}
-		if !strings.Contains(err.Error(), "trino manager:") {
-			t.Errorf("error %q missing the 'trino manager:' stage prefix", err.Error())
+		if !strings.Contains(err.Error(), "resolving trino connection:") {
+			t.Errorf("error %q missing the connection-lookup stage prefix", err.Error())
 		}
 		if strings.Contains(err.Error(), "trino query:") {
 			t.Errorf("error %q attributes a connection-lookup failure to the query stage", err.Error())
@@ -91,7 +92,11 @@ func TestBuildTrinoQueryFunc(t *testing.T) {
 	t.Run("resolved connection reaches the query stage", func(t *testing.T) {
 		// The host is unroutable, so the query fails — but it fails AFTER the
 		// manager resolved "primary", which is what distinguishes this branch.
-		rows, err := exec(context.Background(), "primary", "SELECT 1")
+		// The Trino client retries an unreachable coordinator for two minutes;
+		// the deadline ends the attempt, which is all this subtest needs.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		rows, err := exec(ctx, "primary", "SELECT 1")
 		if err == nil {
 			t.Fatal("expected an error against an unreachable trino host")
 		}

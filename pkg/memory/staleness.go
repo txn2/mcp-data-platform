@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
@@ -79,22 +80,18 @@ func (w *StalenessWatcher) Stop() {
 // run is the main loop that checks batches of records at the configured interval.
 func (w *StalenessWatcher) run() {
 	defer w.wg.Done()
-
-	ticker := time.NewTicker(w.cfg.Interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-w.stopCh:
-			return
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), w.cfg.Interval/2)
+	bgloop.Run(context.Background(), bgloop.Loop{
+		Name: bgloop.NameMemoryStaleness, Every: w.cfg.Interval, Stop: w.stopCh,
+		Body: func(parent context.Context) error {
+			ctx, cancel := context.WithTimeout(parent, w.cfg.Interval/2)
+			defer cancel()
 			if err := w.checkBatch(ctx); err != nil {
-				slog.Error("staleness check failed", "error", err)
+				slog.ErrorContext(ctx, "staleness check failed", "error", err)
+				return err
 			}
-			cancel()
-		}
-	}
+			return nil
+		},
+	})
 }
 
 // checkBatch checks one batch of the oldest-verified active memories.
@@ -131,7 +128,7 @@ func (w *StalenessWatcher) checkBatch(ctx context.Context) error {
 		reason := w.checkEntityStaleness(ctx, record)
 		if reason != "" {
 			staleIDs = append(staleIDs, record.ID)
-			slog.Info("memory flagged as stale",
+			slog.InfoContext(ctx, "memory flagged as stale",
 				"id", record.ID, "reason", reason,
 				"entity_urns", record.EntityURNs)
 		} else {
@@ -176,7 +173,7 @@ func (w *StalenessWatcher) checkEntityStaleness(ctx context.Context, record Reco
 			// (#1610). A read that failed for any other reason is still
 			// reported, which is the behavior this watcher has always had.
 			if errors.Is(err, semantic.ErrNotFound) {
-				slog.Debug("staleness: catalog holds no entity for a cited urn", "urn", urn)
+				slog.DebugContext(ctx, "staleness: catalog holds no entity for a cited urn", "urn", urn)
 				continue
 			}
 			reasons = append(reasons, fmt.Sprintf("entity %s: lookup failed", urn))

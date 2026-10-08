@@ -9,12 +9,13 @@
 package configenv
 
 import (
-	"log/slog"
+	"context"
 	"os"
 	"regexp"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 )
 
 // envVarPattern matches one ${VAR} or ${VAR:-default}. The class stops at the
@@ -55,7 +56,7 @@ var unexpandedPattern = regexp.MustCompile(`\$\{[^\n"]{0,64}`)
 // between reading that error and reading this one.
 func warnUnexpanded(expanded string) {
 	for _, frag := range Unexpanded(expanded) {
-		slog.Warn("config: a ${...} placeholder was not expanded; "+
+		configwarn.Warn(context.Background(), configwarn.CodePlaceholderUnexpanded, "config: a ${...} placeholder was not expanded; "+
 			"the value will be used literally (note that ${A:-${B}} does not nest)",
 			"fragment", logsan.SanitizeForLog(frag))
 	}

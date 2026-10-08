@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -34,6 +35,16 @@ const (
 // memory_capture tool (#633); this tool manages the lifecycle of existing
 // records.
 func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, input manageInput) (*mcp.CallToolResult, any, error) {
+	// Every lifecycle action (update, forget, consolidate, the reviews) is one
+	// operation with a span under the call (#1898).
+	ctx, op := opsobs.Start(ctx, opsobs.OpMemoryManage)
+	res, out, err := t.dispatchManage(ctx, input)
+	opsobs.EndTool(ctx, op, res, err)
+	return res, out, err
+}
+
+// dispatchManage routes a memory_manage command to its handler.
+func (t *Toolkit) dispatchManage(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	switch input.Command {
 	case cmdUpdate:
 		return t.handleUpdate(ctx, input)

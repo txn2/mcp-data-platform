@@ -99,6 +99,36 @@
       ]
     },
     {
+      "clientId": "mcp-acceptance-short-lived",
+      "name": "Acceptance: one-second tokens",
+      "description": "Issues access tokens that expire one second after issue, carrying the portal client's audience, so the acceptance suite can present a REAL expired token to the platform (#1898). Dev only.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "acceptance-short-lived-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "attributes": {
+        "access.token.lifespan": "1"
+      },
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "protocolMappers": [
+        {
+          "name": "portal audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "mcp-data-platform-portal",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "oauth-mcp-dev",
       "name": "MCP gateway fixture connection",
       "description": "OAuth client used by the oauth-mcp-dev connection (MCP gateway → upstream MCP server).",

@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -38,10 +39,10 @@ func TestObserve_RecordsOperation(t *testing.T) {
 	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
 
 	tk := &Toolkit{metrics: m}
-	ctx, span, start := begin(context.Background(), "s3_object.get")
-	tk.observe(ctx, span, "s3_object.get", start, nil)
-	ctx, span, start = begin(ctx, "s3_list.objects")
-	tk.observe(ctx, span, "s3_list.objects", start, &mcp.CallToolResult{IsError: true})
+	ctx, call := begin(context.Background(), "s3_object.get", "")
+	tk.observe(ctx, call, nil)
+	ctx, call = begin(ctx, "s3_list.objects", "")
+	tk.observe(ctx, call, &mcp.CallToolResult{IsError: true})
 
 	body := scrapeForTest(t, m.Handler())
 	for _, want := range []string{
@@ -68,8 +69,8 @@ func TestObserve_NilRecorder(t *testing.T) {
 	if tk.metrics != nil {
 		t.Error("SetMetrics(nil) must not store a (non-nil) recorder")
 	}
-	ctx, span, start := begin(context.Background(), "s3_object.put")
-	tk.observe(ctx, span, "s3_object.put", start, nil)
+	ctx, call := begin(context.Background(), "s3_object.put", "")
+	tk.observe(ctx, call, nil)
 }
 
 // TestSetMetrics_StoresRecorder confirms the recorder the handlers report to
@@ -84,5 +85,35 @@ func TestSetMetrics_StoresRecorder(t *testing.T) {
 	tk.SetMetrics(m)
 	if tk.metrics != m {
 		t.Error("SetMetrics did not store the recorder")
+	}
+}
+
+// Each call leaves its connection in the state its result reads as (#1898): a
+// refused key is auth_failed, a lost network unreachable, any answer healthy.
+// A call that names no connection is the default one's.
+func TestObserve_RecordsTheConnectionsState(t *testing.T) {
+	tk := &Toolkit{name: "lake"}
+	failed := func(text string) *mcp.CallToolResult {
+		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+	}
+	for _, tc := range []struct {
+		conn   string
+		result *mcp.CallToolResult
+		want   string
+	}{
+		{"", nil, connstate.Healthy},
+		{"archive", failed("failed to list buckets: api error InvalidAccessKeyId: The AWS Access Key Id does not exist"), connstate.AuthFailed},
+		{"archive", failed("failed to list objects: dial tcp 10.1.1.1:9000: connect: connection refused"), connstate.Unreachable},
+		{"archive", failed("failed to get object: NoSuchKey"), connstate.Healthy},
+	} {
+		ctx, call := begin(context.Background(), "s3_list.buckets", tc.conn)
+		tk.observe(ctx, call, tc.result)
+		name := tc.conn
+		if name == "" {
+			name = "lake"
+		}
+		if got, _ := connstate.State(kindS3, name); got != tc.want {
+			t.Errorf("%s after %v: %q, want %q", name, tc.result, got, tc.want)
+		}
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oidcdiscovery"
@@ -317,7 +318,7 @@ func (a *OIDCAuthenticator) getPublicKey(ctx context.Context, kid string) (*rsa.
 	default:
 		// Fresh cache, but this kid is absent: a definitive miss (unknown/retired
 		// key, or a token from another issuer), not a transient failure.
-		return nil, fmt.Errorf("key not found: %s", kid)
+		return nil, unknownKeyError("key not found: " + kid)
 	}
 }
 
@@ -456,13 +457,13 @@ func (a *OIDCAuthenticator) validateTimeClaims(claims map[string]any) error {
 		return errors.New("missing exp claim")
 	}
 	if now > int64(exp)+skew {
-		return errors.New("token expired")
+		return errTokenExpired
 	}
 
 	// Check nbf (not before) if present
 	if nbf, ok := claims["nbf"].(float64); ok {
 		if now < int64(nbf)-skew {
-			return errors.New("token not yet valid")
+			return errNotYetValid
 		}
 	}
 
@@ -470,7 +471,7 @@ func (a *OIDCAuthenticator) validateTimeClaims(claims map[string]any) error {
 	if a.cfg.MaxTokenAge > 0 {
 		if iat, ok := claims["iat"].(float64); ok {
 			if now-int64(iat) > int64(a.cfg.MaxTokenAge.Seconds()) {
-				return errors.New("token too old")
+				return errTokenTooOld
 			}
 		}
 	}
@@ -483,13 +484,13 @@ func (a *OIDCAuthenticator) validateIdentityClaims(claims map[string]any) error 
 	// Check issuer
 	if !a.cfg.SkipIssuerVerification {
 		if iss, ok := claims["iss"].(string); !ok || iss != a.cfg.Issuer {
-			return errors.New("invalid issuer")
+			return errInvalidIssuer
 		}
 	}
 
 	// REQUIRE audience when configured
 	if a.cfg.Audience != "" && !a.checkAudience(claims) {
-		return errors.New("invalid audience")
+		return errInvalidAudience
 	}
 
 	return nil
@@ -518,8 +519,18 @@ func (a *OIDCAuthenticator) checkAudience(claims map[string]any) bool {
 	return false
 }
 
-// FetchJWKS fetches the JWKS from the issuer and parses RSA public keys.
+// FetchJWKS fetches the JWKS from the issuer and parses RSA public keys. Every
+// fetch is counted, timed and, on success, stamped as the last success
+// (oidc_jwks_*, #1898).
 func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
+	start := time.Now()
+	err := a.loadJWKS(ctx)
+	opsobs.Metrics().RecordJWKSFetch(ctx, err, time.Since(start))
+	return err
+}
+
+// loadJWKS is one discovery, fetch and cache replacement.
+func (a *OIDCAuthenticator) loadJWKS(ctx context.Context) error {
 	jwksURI, err := a.discoverJWKSURI(ctx)
 	if err != nil {
 		return err

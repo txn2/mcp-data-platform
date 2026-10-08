@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
@@ -629,6 +630,8 @@ func (h *Handle) GetByName(ctx context.Context, email string, personas []string,
 	if h == nil || h.store == nil {
 		return nil, false
 	}
+	ctx, op := opsobs.Start(ctx, opsobs.OpPromptServe)
+	defer op.End(ctx, nil)
 	pr := h.resolveByName(ctx, email, personas, name)
 	if pr == nil {
 		return nil, false

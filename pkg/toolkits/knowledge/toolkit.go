@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -299,7 +300,14 @@ func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolReque
 	if err := ValidateAction(input.Action); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
-	return t.dispatchApplyAction(ctx, input)
+	// One operation per call, with a span under the tool call (#1898).
+	ctx, op := opsobs.Start(ctx, opsobs.OpKnowledgeApply)
+	res, out, err := t.dispatchApplyAction(ctx, input)
+	opsobs.EndTool(ctx, op, res, err)
+	if input.Action == actionApply {
+		recordApplyOutcome(ctx, input.Sink, res, err)
+	}
+	return res, out, err
 }
 
 // dispatchApplyAction routes a validated apply_knowledge action to its handler.
@@ -1570,6 +1578,7 @@ func (t *Toolkit) handleApproveReject(ctx context.Context, input applyKnowledgeI
 		}
 		updated++
 	}
+	recordReviews(ctx, targetStatus, updated)
 
 	result := map[string]any{
 		"action":  input.Action,

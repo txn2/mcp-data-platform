@@ -16,19 +16,19 @@ import (
 	"os"
 	"time"
 
-	// PostgreSQL driver for database/sql.
-	_ "github.com/lib/pq"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
+	"github.com/txn2/mcp-data-platform/internal/dbobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/apigwwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
 	"github.com/txn2/mcp-data-platform/internal/platform/connrecords"
@@ -47,6 +47,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/notifywiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
+	"github.com/txn2/mcp-data-platform/internal/platform/platformstate"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
@@ -62,6 +63,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
+	"github.com/txn2/mcp-data-platform/internal/platform/startup"
 	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
@@ -342,54 +344,32 @@ func New(opts ...Option) (*Platform, error) {
 	return p, nil
 }
 
-// initializeComponents initializes all platform components.
+// initializeComponents initializes all platform components, in order, as
+// named phases the startup seam times and reports (#1898).
 func (p *Platform) initializeComponents(opts *Options) error {
-	// Observability has no deps; build it first so any later init
-	// step can record startup metrics or store a recorder reference.
-	if err := p.initObservability(); err != nil {
-		return err
-	}
-	// Initialize data infrastructure first (database + config store)
-	if err := p.initDataInfra(opts); err != nil {
-		return err
-	}
-	if err := p.initProviders(opts); err != nil {
-		return err
-	}
-	if err := p.initRegistries(opts); err != nil {
-		return err
-	}
-	// Prompt layer: assembled after the toolkit registry exists (it reads the
-	// registry for capability bullets and workflow gating) and before
-	// initExtensions, whose knowledge/search wiring reads the prompt store.
-	p.initPromptStore()
-	// Parse OAuth signing key early so auth can use it
-	if err := p.initOAuthSigningKey(); err != nil {
-		return err
-	}
-	if err := p.initAuth(opts); err != nil {
-		return err
-	}
-	p.loadDBAPIKeys()
-	// Initialize audit logging after auth
-	if err := p.initAudit(opts); err != nil {
-		return err
-	}
-	if err := p.initSessions(opts); err != nil {
-		return err
-	}
-	if err := p.initOAuth(); err != nil {
-		return err
-	}
-	p.initTuning(opts)
-	p.initWorkflow()
-	p.initSessionGate()
-	if err := p.initExtensions(); err != nil {
-		return err
-	}
-	p.finalizeSetup()
-	p.LoadManagedResources()
-	return nil
+	return startup.Run([]startup.Phase{ //nolint:wrapcheck // each phase returns its own wrapped error
+		// Observability has no deps; first, so later steps can record.
+		{Name: "observability", Run: p.initObservability},
+		{Name: "data", Run: func() error { return p.initDataInfra(opts) }},
+		{Name: "providers", Run: func() error { return p.initProviders(opts) }},
+		{Name: "registries", Run: func() error { return p.initRegistries(opts) }},
+		// After the toolkit registry (capability bullets, workflow gating) and
+		// before initExtensions, whose knowledge/search wiring reads it.
+		startup.Do("prompts", p.initPromptStore),
+		// The OAuth signing key is parsed before auth, which uses it.
+		{Name: "oauth_signing_key", Run: p.initOAuthSigningKey},
+		{Name: "auth", Run: func() error { return p.initAuth(opts) }},
+		startup.Do("api_keys", p.loadDBAPIKeys),
+		{Name: "audit", Run: func() error { return p.initAudit(opts) }},
+		{Name: "sessions", Run: func() error { return p.initSessions(opts) }},
+		{Name: "oauth", Run: p.initOAuth},
+		startup.Do("tuning", func() { p.initTuning(opts) }),
+		startup.Do("workflow", p.initWorkflow),
+		startup.Do("session_gate", p.initSessionGate),
+		{Name: "extensions", Run: p.initExtensions},
+		startup.Do("finalize", p.finalizeSetup),
+		startup.Do("managed_resources", p.LoadManagedResources),
+	})
 }
 
 // initDataInfra initializes the database and config store.
@@ -508,7 +488,7 @@ func (p *Platform) initDatabase() error {
 		return nil
 	}
 
-	db, err := sql.Open("postgres", p.config.Database.DSN)
+	db, err := dbobs.Open(p.config.Database.DSN, p.obs.Metrics())
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
@@ -1474,11 +1454,11 @@ func (p *Platform) parseOrGenerateSigningKey() ([]byte, error) {
 		return nil, fmt.Errorf("generating random key: %w", err)
 	}
 	if isHTTPTransport(p.config.Server.Transport) {
-		slog.Warn("OAuth signing key not configured; generated an ephemeral per-process key. " +
-			"UNSAFE for multi-replica deployments: replicas reject each other's tokens. " +
+		configwarn.Warn(context.Background(), configwarn.CodeEphemeralOAuthKey, "OAuth signing key not configured; generated an ephemeral per-process key. "+
+			"UNSAFE for multi-replica deployments: replicas reject each other's tokens. "+
 			"Configure oauth.signing_key for production.")
 	} else {
-		slog.Warn("OAuth signing key not configured, generated random key (tokens won't survive restart)")
+		configwarn.Warn(context.Background(), configwarn.CodeEphemeralOAuthKey, "OAuth signing key not configured, generated random key (tokens won't survive restart)")
 	}
 	return key, nil
 }
@@ -1733,7 +1713,7 @@ func (p *Platform) initPortal() error {
 			return fmt.Errorf("creating portal S3 client: %w", clientErr)
 		}
 	} else {
-		slog.Warn("portal: no s3_connection configured; assets will be saved to database only")
+		configwarn.Warn(context.Background(), configwarn.CodePortalNoObjectStorage, "portal: no s3_connection configured; assets will be saved to database only")
 	}
 
 	// Assemble the portal store layer (six stores + S3 client + asset
@@ -1866,7 +1846,7 @@ func (p *Platform) wireTrinoExport() {
 		trinoTk.SetExportDeps(trinokit.ExportDeps{
 			AssetStore:     trinoExporter,
 			VersionStore:   trinoExporter,
-			S3Client:       p.portalStore.S3Client(),
+			S3Client:       p.portalStore.ExportS3Client(),
 			ShareCreator:   trinoExporter,
 			ResourceLander: p.portalStore.ResourceLanding(),
 			S3Bucket:       p.config.Portal.S3Bucket,
@@ -2922,7 +2902,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	scriptRuns := scriptwiring.Wire(scriptwiring.Deps{
 		DB: p.db, DSN: p.config.Database.DSN, Server: p.mcpServer,
 		Assets: p.portalStore.AssetStore(), Versions: p.portalStore.VersionStore(),
-		S3: p.portalStore.S3Client(), Bucket: p.config.Portal.S3Bucket,
+		S3: p.portalStore.ScriptS3Client(), Bucket: p.config.Portal.S3Bucket,
 		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
 		Lander: p.portalStore.ResourceLanding(), Audit: p.audit.Logger(),
 		Subjects: p.users.Subjects(), Metrics: p.obs.Metrics(),
@@ -2958,11 +2938,19 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register resource templates (schema, glossary, availability)
 	p.registerResourceTemplates()
 
-	// Validate agent_instructions references against registered tools
-	p.validateAgentInstructions()
-
-	// Warn on personas that grant a capability they cannot complete (#1174).
-	p.validatePersonaCoherence()
+	// Boot configuration checks (#1174, #1898): each finding is logged and counted.
+	configwarn.CheckStartup(ctx, configwarn.Startup{
+		AgentInstructions: p.config.ServerAgentInstructions(ctx), Toolkits: p.toolkitRegistry,
+		Registered: RegisteredToolNames(p.toolkitRegistry.AllTools(), p.PlatformTools()), Personas: p.personaRegistry,
+	})
+	// Config info and the dependency/connection gauges; signals only, never readiness (#1898).
+	a := p.config.Auth
+	platformstate.Wire(p.obs.Metrics(), platformstate.Sources{
+		DB: p.db, Semantic: p.semanticProvider, Query: p.queryProvider,
+		Objects: p.portalStore.S3Client(), Bucket: p.config.Portal.S3Bucket, Thumbnails: p.config.Thumbnails,
+		Auth:     platformstate.Auth{OIDC: a.OIDC.Enabled, APIKeys: a.APIKeys.Enabled, OAuth: p.config.OAuth.Enabled, Browser: a.BrowserSession.Enabled, Issuer: a.OIDC.Issuer},
+		Toolkits: p.toolkitRegistry, Personas: p.personaRegistry, Tracer: p.obs.Tracer(), Interval: p.config.Server.StateProbeInterval,
+	})
 
 	// One-time knowledge-page reference backfill (#664 Phase 5), guarded by a
 	// sentinel and run in the background so it never delays startup.
@@ -3665,7 +3653,7 @@ func (p *Platform) wireAPIGatewayExport() {
 		apiTk.SetExportDeps(apigatewaykit.ExportDeps{
 			AssetStore:     apiExporter,
 			VersionStore:   apiExporter,
-			S3Client:       p.portalStore.S3Client(),
+			S3Client:       p.portalStore.ExportS3Client(),
 			ShareCreator:   apiExporter,
 			ResourceLander: p.portalStore.ResourceLanding(),
 			S3Bucket:       p.config.Portal.S3Bucket,

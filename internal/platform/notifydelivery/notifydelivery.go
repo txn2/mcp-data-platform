@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifypost"
@@ -143,6 +144,7 @@ func (h *Handle) Start(ctx context.Context) {
 		return
 	}
 	h.worker.Start(ctx)
+	registerQueueGauge(bgloop.Metrics(), h.queue)
 	if h.listener == nil {
 		return
 	}

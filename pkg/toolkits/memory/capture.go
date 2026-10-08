@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -229,6 +230,20 @@ type captureActor struct {
 // writes the embedding. Both the memory_capture tool and AutoCapture funnel
 // through here so server-initiated captures get identical semantics.
 func (t *Toolkit) applyCapture(ctx context.Context, rec *memstore.Record, sinkClass string, actor captureActor, threadIDs []string) (captureOutcome, error) {
+	// Both write paths converge here, so this is where a capture is counted,
+	// with a span under the call that made it (#1898). A reviewed class is a
+	// proposed insight: knowledge_changes_total{sink="insight",result="created"}.
+	ctx, op := opsobs.Start(ctx, opsobs.OpMemoryCapture)
+	out, err := t.writeCapture(ctx, rec, sinkClass, actor, threadIDs)
+	op.End(ctx, err)
+	if err == nil && !memstore.SinkClassIsLive(sinkClass) {
+		opsobs.Metrics().RecordKnowledgeChange(ctx, opsobs.SinkInsight, opsobs.KnowledgeCreated)
+	}
+	return out, err
+}
+
+// writeCapture is the write applyCapture counts.
+func (t *Toolkit) writeCapture(ctx context.Context, rec *memstore.Record, sinkClass string, actor captureActor, threadIDs []string) (captureOutcome, error) {
 	// Both write paths converge here, so this is where the record is made
 	// equal to what it means: a record is about an entity once, and a repeat
 	// would silently drop out of every list that keys on the URN.

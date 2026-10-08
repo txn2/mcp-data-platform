@@ -105,6 +105,15 @@ func NewTracerFromProvider(provider *sdktrace.TracerProvider, cfg TracingConfig)
 // expensive span attributes can gate on this; Start itself is nil-safe.
 func (t *Tracer) Enabled() bool { return t != nil }
 
+// SamplerRatio is the head-sampling ratio applied to root spans, or 0 when
+// tracing is off. Nil-safe.
+func (t *Tracer) SamplerRatio() float64 {
+	if t == nil {
+		return 0
+	}
+	return t.cfg.SamplerArg
+}
+
 // IncludeUserEmail reports whether the tool-call span may carry the caller's
 // email address (OTEL_TRACES_INCLUDE_USER_EMAIL, default false). The user id
 // is always on the span; the address is personal data a trace backend would

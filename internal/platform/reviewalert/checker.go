@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
@@ -85,22 +86,18 @@ func (c *Checker) Start(ctx context.Context) {
 		return
 	}
 	c.wg.Go(func() {
-		ticker := time.NewTicker(c.cfg.Interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-c.stopCh:
-				return
-			case <-ticker.C:
-				if err := c.Check(ctx); err != nil {
+		bgloop.Run(ctx, bgloop.Loop{
+			Name: bgloop.NameReviewQueueAlert, Every: c.cfg.Interval, Stop: c.stopCh,
+			Body: func(ctx context.Context) error {
+				err := c.Check(ctx)
+				if err != nil {
 					slog.WarnContext(ctx, "review queue alert check failed", // #nosec G706 -- structured slog call; error sanitized
 						"queue", c.cfg.Target.Queue,
 						logKeyError, logsan.SanitizeForLog(err.Error()))
 				}
-			}
-		}
+				return err
+			},
+		})
 	})
 }
 

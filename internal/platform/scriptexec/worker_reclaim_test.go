@@ -70,7 +70,7 @@ func TestWorker_FailsARunWhoseReclaimsAreSpent(t *testing.T) {
 
 	// The sweep runs at most once per poll interval.
 	abandonedRun(t, runs, runstate.DefaultMaxReclaims)
-	w.drain()
+	_ = w.drain(w.runCtx)
 	assert.Len(t, notifier.payloads, 1)
 }
 

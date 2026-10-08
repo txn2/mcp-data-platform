@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
@@ -382,6 +383,7 @@ func authenticateAndAuthorize(
 	params.pc.PersonaName = personaName
 	params.pc.IsAdmin = personaName != "" && personaName == params.adminPersona
 	if !authorized {
+		params.pc.DenialReason = denialReason(personaName, reason)
 		slog.WarnContext(ctx, "tool call authorization denied",
 			logKeyTool, params.toolName,
 			"user_id", params.pc.UserID,
@@ -688,4 +690,19 @@ func extractConnectionArg(req mcp.Request) string {
 	}
 	conn, _ := args["connection"].(string)
 	return conn
+}
+
+// denialReason classes an authorizer refusal for mcp_tool_call_denials_total
+// (#1898): no persona resolved for the caller, the persona's connection rules,
+// or its tool rules. The authorizer's reason text is free-form, so the class is
+// read from its fixed connection prefix rather than carried as a label.
+func denialReason(personaName, reason string) string {
+	switch {
+	case personaName == "":
+		return opsobs.DenialNoPersona
+	case strings.HasPrefix(reason, "connection not allowed"):
+		return opsobs.DenialConnectionDenied
+	default:
+		return opsobs.DenialToolDenied
+	}
 }

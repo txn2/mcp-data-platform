@@ -3,18 +3,18 @@ package trino
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // query_kind labels for Trino metadata operations (issue #461). SQL queries use
-// the SQL verb (see queryKind); the catalog/metadata calls the provider makes
+// the SQL verb (sqltables.StatementKind); the catalog/metadata calls the provider makes
 // during cross-enrichment use these fixed kinds so trino_queries reflects all
 // Trino traffic the query provider generates, not just COUNT estimates.
 const (
@@ -22,7 +22,6 @@ const (
 	kindListSchemas  = "list_schemas"
 	kindListTables   = "list_tables"
 	kindDescribe     = "describe_table"
-	kindOther        = "other"
 )
 
 // SetMetrics wraps the adapter's client in an instrumenting decorator
@@ -69,7 +68,7 @@ func (c *instrumentedClient) finish(ctx context.Context, span trace.Span, kind s
 
 // Query records a query observation (query_kind from the SQL verb) and delegates.
 func (c *instrumentedClient) Query(ctx context.Context, sql string, opts trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
-	kind := queryKind(sql)
+	kind := sqltables.StatementKind(sql)
 	ctx, span := c.startSpan(ctx, kind)
 	start := time.Now()
 	r, err := c.Client.Query(ctx, sql, opts)
@@ -106,21 +105,4 @@ func (c *instrumentedClient) DescribeTable(ctx context.Context, catalog, schema,
 	start := time.Now()
 	r, err := c.Client.DescribeTable(ctx, catalog, schema, table)
 	return r, c.finish(ctx, span, kindDescribe, start, err)
-}
-
-// queryKind extracts a bounded query_kind label from a SQL statement by taking
-// its leading keyword. Unknown or empty statements map to "other" so the label
-// can never grow unbounded from arbitrary SQL.
-func queryKind(sql string) string {
-	fields := strings.Fields(strings.TrimSpace(sql))
-	if len(fields) == 0 {
-		return kindOther
-	}
-	switch verb := strings.ToLower(fields[0]); verb {
-	case "select", "insert", "update", "delete", "merge",
-		"show", "describe", "desc", "explain", "create", "drop", "alter", "call", "with":
-		return verb
-	default:
-		return kindOther
-	}
 }

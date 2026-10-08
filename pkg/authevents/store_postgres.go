@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 )
 
 // PostgresStore writes connection_auth_events rows via the supplied
@@ -56,25 +58,22 @@ func (s *PostgresStore) Close() error {
 
 func (s *PostgresStore) pruneLoop(ctx context.Context, interval, retention time.Duration) {
 	defer close(s.pruneDone)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			cutoff := time.Now().Add(-retention)
-			n, err := s.Prune(ctx, cutoff)
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameAuthEventsPrune, Every: interval,
+		Body: func(ctx context.Context) error {
+			n, err := s.Prune(ctx, time.Now().Add(-retention))
 			if err != nil {
-				slog.Warn("authevents: prune failed", "error", err)
-				continue
+				slog.WarnContext(ctx, "authevents: prune failed", "error", err)
+				return err
 			}
+			bgloop.Purged(ctx, bgloop.NameAuthEventsPrune, n)
 			if n > 0 {
-				slog.Info("authevents: prune complete", "removed", n,
+				slog.InfoContext(ctx, "authevents: prune complete", "removed", n,
 					"retention", retention)
 			}
-		}
-	}
+			return nil
+		},
+	})
 }
 
 // Insert appends ev. RETURNING id populates ev.ID server-side so the

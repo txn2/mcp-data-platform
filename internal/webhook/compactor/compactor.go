@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
@@ -163,57 +164,66 @@ func (w *Worker) run(ctx context.Context) {
 		case <-ctx.Done():
 		}
 	}()
-	for {
-		busy := w.Pass(ctx)
-		wait := w.tuning.Poll
-		if busy {
-			wait = 0
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(wait):
-		}
-	}
+	busy := false
+	bgloop.Run(ctx, bgloop.Loop{
+		Name: bgloop.NameWebhookCompactor, Immediate: true, SpanPerUnit: true,
+		Next: func() time.Duration {
+			if busy {
+				return 0
+			}
+			return w.tuning.Poll
+		},
+		Body: func(ctx context.Context) error {
+			var err error
+			busy, err = w.compactPass(ctx)
+			return err
+		},
+	})
 }
 
-// Pass compacts one batch of owed windows, applies retention when it is due, and
-// reports whether it found windows to compact, which is the caller's cue to run
-// again without waiting.
-func (w *Worker) Pass(ctx context.Context) bool {
+// compactPass compacts one batch of owed windows, applies retention when it is
+// due, and reports whether it found windows to compact (the cue to run again
+// without waiting), returning a claim that failed so the iteration is counted
+// as one that did. A window that fails to compact is recorded on its
+// row and counted by webhook_compactions_total.
+func (w *Worker) compactPass(ctx context.Context) (bool, error) {
 	now := w.deps.Now()
 	windows, err := w.deps.Windows.ClaimOwed(ctx, now.Add(-w.tuning.Grace), w.tuning.Lease, w.tuning.Batch)
 	if err != nil {
-		w.warn("claiming windows", "", err)
-		return false
+		w.warn(ctx, "claiming windows", "", err)
+		return false, fmt.Errorf("webhooks: claiming windows: %w", err)
 	}
 	for _, h := range windows {
-		w.compactOne(ctx, h)
+		_ = bgloop.Unit(ctx, bgloop.NameWebhookCompaction, func(ctx context.Context) error {
+			return w.compactOne(ctx, h)
+		})
 	}
 	if now.Sub(w.lastRetention) >= w.tuning.RetentionEvery {
 		w.lastRetention = now
-		w.Retention(ctx)
+		_ = bgloop.Unit(ctx, bgloop.NameWebhookRetention, w.Retention)
 	}
-	return len(windows) > 0
+	return len(windows) > 0, nil
 }
 
-// compactOne compacts one claimed window and records the outcome.
-func (w *Worker) compactOne(ctx context.Context, h whstore.Window) {
+// compactOne compacts one claimed window and records the outcome, returning
+// the compaction's error.
+func (w *Worker) compactOne(ctx context.Context, h whstore.Window) error {
 	src, err := w.deps.Sources.Get(ctx, h.Source)
 	if errors.Is(err, whsource.ErrNotFound) {
-		return
+		return nil
 	}
 	if err == nil {
 		err = w.compact(ctx, src.WithDefaults(), h)
 	}
 	if err != nil {
-		w.warn("compacting a window", h.Source, err)
+		w.warn(ctx, "compacting a window", h.Source, err)
 		w.metric(ctx, h.Source, ResultFailed, 0)
 		hold := min(w.tuning.RetryBackoff*time.Duration(max(h.Attempts, 1)), maxBackoff)
 		if rerr := w.deps.Windows.RecordFailure(ctx, h, logsan.SanitizeForLog(err.Error()), hold); rerr != nil {
-			w.warn("recording a compaction failure", h.Source, rerr)
+			w.warn(ctx, "recording a compaction failure", h.Source, rerr)
 		}
 	}
+	return err
 }
 
 // compact rewrites one window from everything it holds.
@@ -346,7 +356,7 @@ func (w *Worker) metric(ctx context.Context, source, result string, dropped int6
 	}
 }
 
-func (w *Worker) warn(what, source string, err error) {
-	w.deps.Logger.Warn("webhooks: "+what, "source", logsan.SanitizeForLog(source),
+func (w *Worker) warn(ctx context.Context, what, source string, err error) {
+	w.deps.Logger.WarnContext(ctx, "webhooks: "+what, "source", logsan.SanitizeForLog(source),
 		"error", logsan.SanitizeForLog(err.Error()))
 }

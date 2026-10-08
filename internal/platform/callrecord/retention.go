@@ -2,12 +2,15 @@ package callrecord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -136,6 +139,14 @@ var sweepQuery = `
 // the sweep without an error: the batches already committed stand, and the
 // next sweep resumes.
 func (s *PostgresStore) Cleanup(ctx context.Context) (int64, error) {
+	ctx, op := opsobs.Start(ctx, opsobs.OpCallSweep)
+	total, err := s.sweep(ctx)
+	op.End(ctx, err)
+	return total, err
+}
+
+// sweep is the batched delete Cleanup counts.
+func (s *PostgresStore) sweep(ctx context.Context) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays)
 	personas := pq.Array(s.excluded.Personas())
 	var total int64
@@ -190,33 +201,28 @@ func (s *PostgresStore) StartCleanupRoutine(interval time.Duration) {
 		// deployment that has just declared a persona to be machinery restarts
 		// to apply it, and the rows that persona already wrote are removed at
 		// that restart instead of a day into it.
-		s.sweepTick(ctx)
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
+		//
 		// An asked-for sweep that finds another replica holding the lock is
 		// asked again until it gets it: the sweep in progress read its
 		// personas when it started, so it may not remove the ones just marked.
-		var retry <-chan time.Time
-		asked := func() {
-			retry = nil
-			if !s.sweepTick(ctx) {
-				retry = time.After(s.kickRetry)
-			}
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.sweepTick(ctx)
-			case <-s.kick:
-				asked()
-			case <-retry:
-				asked()
-			}
-		}
+		asking := false
+		bgloop.Run(ctx, bgloop.Loop{
+			Name: bgloop.NameCallCatalogSweep, Immediate: true, Wake: s.kick,
+			Next: func() time.Duration {
+				if asking {
+					return s.kickRetry
+				}
+				return interval
+			},
+			Body: func(ctx context.Context) error {
+				asking = asking || bgloop.Woken(ctx)
+				err := s.sweepTick(ctx)
+				if !errors.Is(err, bgloop.ErrSkipped) {
+					asking = false
+				}
+				return err
+			},
+		})
 	}()
 }
 
@@ -233,13 +239,13 @@ func (s *PostgresStore) Close() error {
 }
 
 // sweepTick runs one sweep, under an advisory lock so that only one replica
-// deletes per tick. It reports false when another replica held the lock, and
-// true otherwise, a sweep that failed included.
-func (s *PostgresStore) sweepTick(ctx context.Context) bool {
+// deletes per tick. It returns bgloop.ErrSkipped when another replica held
+// the lock, and the error of a sweep that failed.
+func (s *PostgresStore) sweepTick(ctx context.Context) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "call catalog: acquire connection for the retention lock", "error", err)
-		return true
+		return fmt.Errorf("call catalog: retention lock connection: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -247,11 +253,11 @@ func (s *PostgresStore) sweepTick(ctx context.Context) bool {
 	if err := conn.QueryRowContext(ctx,
 		"SELECT pg_try_advisory_lock($1)", sweepLockKey).Scan(&acquired); err != nil {
 		slog.WarnContext(ctx, "call catalog: try retention lock", "error", err)
-		return true
+		return fmt.Errorf("call catalog: try retention lock: %w", err)
 	}
 	if !acquired {
 		// Another replica is sweeping; this tick has nothing to do.
-		return false
+		return bgloop.ErrSkipped
 	}
 	defer func() {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
@@ -264,12 +270,13 @@ func (s *PostgresStore) sweepTick(ctx context.Context) bool {
 	removed, err := s.Cleanup(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "call catalog: sweep expired records", "error", err)
-		return true
+		return fmt.Errorf("call catalog: sweep: %w", err)
 	}
+	bgloop.Purged(ctx, bgloop.NameCallCatalogSweep, removed)
 	if removed > 0 {
 		slog.InfoContext(ctx, "call catalog: swept records that came to nothing",
 			"removed", removed, "retention_days", s.retentionDays,
 			"excluded_personas", len(s.excluded.Personas()))
 	}
-	return true
+	return nil
 }

@@ -1,11 +1,12 @@
 package callrecord
 
 import (
-	"log/slog"
+	"context"
 	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/configwarn"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
@@ -184,7 +185,7 @@ func WarnUnknownExcluded(configured, known []string) {
 	}
 	for _, name := range configured {
 		if !defined[normalizePersona(name)] {
-			slog.Warn("calls.exclude_personas names an unknown persona; its calls are still cataloged",
+			configwarn.Warn(context.Background(), configwarn.CodeExcludePersonaUnknown, "calls.exclude_personas names an unknown persona; its calls are still cataloged",
 				"persona", logsan.SanitizeForLog(name))
 		}
 	}

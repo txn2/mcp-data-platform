@@ -156,6 +156,15 @@ func (a *Adapter) LineageConfig() LineageConfig {
 	return a.cfg.Lineage
 }
 
+// Ping reports whether DataHub answers, for the platform's dependency_up
+// gauge (#1898).
+func (a *Adapter) Ping(ctx context.Context) error {
+	if err := a.client.Ping(ctx); err != nil {
+		return fmt.Errorf("pinging datahub: %w", err)
+	}
+	return nil
+}
+
 // notFoundOr maps a by-URN read failure onto the abstraction's own not-found
 // sentinel when the catalog reported that it holds no such entity, and wraps
 // anything else as the read failure it is. mcp-datahub v1.15.1 is the release

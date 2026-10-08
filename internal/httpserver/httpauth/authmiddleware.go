@@ -7,10 +7,14 @@
 package httpauth
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -161,7 +165,13 @@ func oauthGate(authenticator middleware.Authenticator, resourceMetadataURL, abse
 			ctx := auth.WithToken(r.Context(), token)
 
 			if authenticator != nil {
-				if _, err := authenticator.Authenticate(ctx); err != nil && !errors.Is(err, middleware.ErrValidationUnavailable) {
+				_, err := authenticator.Authenticate(ctx)
+				if errors.Is(err, middleware.ErrValidationUnavailable) {
+					// The fail-open half of the pair described below: counted
+					// and logged, since it is otherwise silent (#1898).
+					failOpen(ctx, err)
+				}
+				if err != nil && !errors.Is(err, middleware.ErrValidationUnavailable) {
 					// Fail closed on a definitive rejection (expired/invalid/unknown
 					// token). Fail OPEN on ErrValidationUnavailable — a transient
 					// dependency failure (e.g. OIDC JWKS unreachable) means validity
@@ -185,6 +195,11 @@ func oauthGate(authenticator middleware.Authenticator, resourceMetadataURL, abse
 				}
 			}
 
+			if authenticator != nil {
+				// This request is counted; the protocol layer's re-validation
+				// of the same credential is not counted again (#1898).
+				ctx = auth.WithAttemptCounted(ctx)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -193,4 +208,12 @@ func oauthGate(authenticator middleware.Authenticator, resourceMetadataURL, abse
 // OptionalAuth returns middleware that allows anonymous requests.
 func OptionalAuth() func(http.Handler) http.Handler {
 	return AuthMiddleware(false)
+}
+
+// failOpen records one request the gate passes through because its credential
+// could not be validated: auth_fail_open_total and a warning naming why.
+func failOpen(ctx context.Context, err error) {
+	opsobs.Metrics().RecordAuthFailOpen(ctx)
+	slog.WarnContext(ctx, "auth gate: identity provider unavailable; passing the request to the protocol layer, which refuses its tool calls until it recovers",
+		"error", logsan.SanitizeForLog(err.Error()))
 }

@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/txn2/mcp-data-platform/internal/connstate"
 	"github.com/txn2/mcp-data-platform/internal/egressguard"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
@@ -202,6 +203,12 @@ func (t *transport) recorder() *observability.Metrics {
 	return defaultMetrics.Load()
 }
 
+// connectionKinds are the kinds whose connection is a toolkit connection, so
+// what its upstream answered is that connection's state (#1898).
+//
+//nolint:gochecknoglobals // a read-only lookup set.
+var connectionKinds = map[Kind]bool{KindAPI: true, KindGraphQL: true, KindMCP: true}
+
 // RoundTrip sends the request through the chain and records it. The error
 // is returned as the layer below produced it, so a caller's errors.As on a
 // *url.Error, a *BlockedError or a timeout keeps working.
@@ -217,6 +224,9 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	m := t.recorder()
 	m.RecordHTTPClientRequest(ctx, string(t.kind), t.connection, observability.HTTPStatusClass(status), d)
+	if connectionKinds[t.kind] {
+		connstate.Observe(string(t.kind), t.connection, connstate.FromHTTP(status, err))
+	}
 	var blocked *egressguard.BlockedError
 	if errors.As(err, &blocked) {
 		m.RecordEgressBlocked(ctx, blocked.Class)

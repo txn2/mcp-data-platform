@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 )
 
@@ -73,6 +74,9 @@ func (c *SessionCaller) CallTool(ctx context.Context, name string, args map[stri
 	if site := scriptcallsite.From(ctx); site != nil {
 		params.Meta = mcp.Meta{scriptcallsite.MetaKey: site}
 	}
+	// The run's trace (#1897): the session is in-process, so the call's span
+	// finds its parent in _meta or not at all.
+	params.Meta = mcpobs.WithTraceMeta(ctx, params.Meta)
 	res, err := c.session.CallTool(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("calling %s: %w", name, err)

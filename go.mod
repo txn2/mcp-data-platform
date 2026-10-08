@@ -7,6 +7,7 @@ toolchain go1.26.6
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Masterminds/squirrel v1.5.4
+	github.com/XSAM/otelsql v0.44.0
 	github.com/aws/smithy-go v1.28.2
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423
 	github.com/coder/websocket v1.8.15

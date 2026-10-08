@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
 
@@ -469,9 +471,12 @@ func (s *Store) Close() error {
 func (s *Store) Cleanup(ctx context.Context) error {
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays)
 	query := `DELETE FROM audit_logs WHERE timestamp < $1`
-	_, err := s.db.ExecContext(ctx, query, cutoff)
+	res, err := s.db.ExecContext(ctx, query, cutoff)
 	if err != nil {
 		return fmt.Errorf("cleaning up audit logs: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil {
+		bgloop.Purged(ctx, bgloop.NameAuditMaintenance, n)
 	}
 	return nil
 }
@@ -508,26 +513,17 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 	// Best-effort: ensure upcoming partitions exist before the first tick so
 	// rows written between startup and the first tick land in named
 	// partitions when their month is covered.
-	s.runUnderMaintenanceLock(ctx, func(ctx context.Context) {
+	_ = s.runUnderMaintenanceLock(ctx, func(ctx context.Context) error {
 		if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
-			slog.Warn("audit cleanup: initial ensure partitions", slogKeyError, err)
+			slog.WarnContext(ctx, "audit cleanup: initial ensure partitions", slogKeyError, err)
+			return err
 		}
+		return nil
 	})
 
 	go func() {
 		defer close(s.done)
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.runMaintenanceTick(ctx)
-			}
-		}
+		bgloop.Run(ctx, bgloop.Loop{Name: bgloop.NameAuditMaintenance, Every: interval, Body: s.runMaintenanceTick})
 	}()
 }
 
@@ -536,17 +532,25 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 // per tick. Each step's error is logged and isolated so a failure in one does
 // not skip the others; the retention DELETE is the critical step and must
 // always run if reachable.
-func (s *Store) runMaintenanceTick(ctx context.Context) {
-	s.runUnderMaintenanceLock(ctx, func(ctx context.Context) {
+//
+// It returns bgloop.ErrSkipped when another replica held the lock, so the
+// skip is counted rather than silent, and the steps' errors joined.
+func (s *Store) runMaintenanceTick(ctx context.Context) error {
+	return s.runUnderMaintenanceLock(ctx, func(ctx context.Context) error {
+		var errs []error
 		if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
-			slog.Warn("audit cleanup: ensure partitions", slogKeyError, err)
+			slog.WarnContext(ctx, "audit cleanup: ensure partitions", slogKeyError, err)
+			errs = append(errs, err)
 		}
 		if err := s.Cleanup(ctx); err != nil {
-			slog.Warn("audit cleanup: expired logs", slogKeyError, err)
+			slog.WarnContext(ctx, "audit cleanup: expired logs", slogKeyError, err)
+			errs = append(errs, err)
 		}
 		if err := s.DropExpiredPartitions(ctx, s.retentionDays); err != nil {
-			slog.Warn("audit cleanup: drop expired partitions", slogKeyError, err)
+			slog.WarnContext(ctx, "audit cleanup: drop expired partitions", slogKeyError, err)
+			errs = append(errs, err)
 		}
+		return errors.Join(errs...)
 	})
 }
 
@@ -558,8 +562,8 @@ const unlockTimeout = 5 * time.Second
 
 // runUnderMaintenanceLock attempts to acquire the audit maintenance advisory
 // lock and, if successful, invokes fn. If another replica already holds the
-// lock or the database is unreachable, fn is not invoked and the call returns
-// silently. The next tick will retry.
+// lock, fn is not invoked and bgloop.ErrSkipped is returned; when the
+// database is unreachable, the error. The next tick will retry.
 //
 // The lock is taken on a dedicated connection so the acquire and release
 // happen on the same PostgreSQL session (advisory locks are session-scoped).
@@ -570,11 +574,11 @@ const unlockTimeout = 5 * time.Second
 // The unlock uses a detached context with a short timeout so a canceled
 // parent context (e.g. Close called during fn) cannot leave the advisory
 // lock held on the pooled connection.
-func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Context)) {
+func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Context) error) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		slog.Warn("audit cleanup: acquire connection for lock", slogKeyError, err)
-		return
+		slog.WarnContext(ctx, "audit cleanup: acquire connection for lock", slogKeyError, err)
+		return fmt.Errorf("audit cleanup: acquire connection for lock: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -582,12 +586,12 @@ func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Con
 	if err := conn.QueryRowContext(ctx,
 		"SELECT pg_try_advisory_lock($1)", auditMaintenanceLockKey,
 	).Scan(&got); err != nil {
-		slog.Warn("audit cleanup: try advisory lock", slogKeyError, err)
-		return
+		slog.WarnContext(ctx, "audit cleanup: try advisory lock", slogKeyError, err)
+		return fmt.Errorf("audit cleanup: try advisory lock: %w", err)
 	}
 	if !got {
 		// Another replica holds the lock; skip this tick.
-		return
+		return bgloop.ErrSkipped
 	}
 	defer func() {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
@@ -595,11 +599,11 @@ func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Con
 		if _, err := conn.ExecContext(unlockCtx,
 			"SELECT pg_advisory_unlock($1)", auditMaintenanceLockKey,
 		); err != nil {
-			slog.Warn("audit cleanup: advisory unlock", slogKeyError, err)
+			slog.WarnContext(ctx, "audit cleanup: advisory unlock", slogKeyError, err)
 		}
 	}()
 
-	fn(ctx)
+	return fn(ctx)
 }
 
 // Verify interface compliance.

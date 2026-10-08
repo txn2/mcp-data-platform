@@ -12,6 +12,7 @@ package receiver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whevent"
 	"github.com/txn2/mcp-data-platform/internal/webhook/whlayout"
@@ -157,8 +159,9 @@ func (r *Receiver) Start(ctx context.Context) {
 	if err := r.refresh(r.ctx); err != nil {
 		r.cfg.Logger.Warn("webhooks: loading sources", logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
-	r.wg.Add(1)
-	go r.background()
+	r.wg.Add(2)
+	go r.refreshLoop()
+	go r.statsLoop()
 }
 
 // Stop writes every pending buffer, answering the requests waiting on them,
@@ -172,7 +175,9 @@ func (r *Receiver) Stop() {
 	r.mu.Unlock()
 	r.cancel()
 	r.wg.Wait()
-	r.flushStats(context.Background())
+	if err := r.flushStats(context.Background()); err != nil {
+		slog.Warn("webhook receiver: writing request counts at shutdown failed", "error", logsan.SanitizeForLog(err.Error()))
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, l := range r.limiters {
@@ -193,27 +198,26 @@ func (r *Receiver) Reload() {
 	}
 }
 
-// background refreshes the sources and writes the counts until Stop.
-func (r *Receiver) background() {
+// refreshLoop re-reads the sources on the refresh interval and when an
+// administrator's change on this replica asks, until Stop.
+func (r *Receiver) refreshLoop() {
 	defer r.wg.Done()
-	refresh := time.NewTicker(r.cfg.Refresh)
-	stats := time.NewTicker(r.cfg.StatsFlush)
-	defer refresh.Stop()
-	defer stats.Stop()
-	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		case <-refresh.C:
-		case <-r.reload:
-		case <-stats.C:
-			r.flushStats(r.ctx)
-			continue
-		}
-		if err := r.refresh(r.ctx); err != nil {
-			r.cfg.Logger.Warn("webhooks: refreshing sources", logKeyError, logsan.SanitizeForLog(err.Error()))
-		}
-	}
+	bgloop.Run(r.ctx, bgloop.Loop{
+		Name: bgloop.NameWebhookRefresh, Every: r.cfg.Refresh, Wake: r.reload,
+		Body: func(ctx context.Context) error {
+			err := r.refresh(ctx)
+			if err != nil {
+				r.cfg.Logger.WarnContext(ctx, "webhooks: refreshing sources", logKeyError, logsan.SanitizeForLog(err.Error()))
+			}
+			return err
+		},
+	})
+}
+
+// statsLoop writes the request counts and rejections until Stop.
+func (r *Receiver) statsLoop() {
+	defer r.wg.Done()
+	bgloop.Run(r.ctx, bgloop.Loop{Name: bgloop.NameWebhookStats, Every: r.cfg.StatsFlush, Body: r.flushStats})
 }
 
 // refresh replaces the served sources with the stored ones. A source that
@@ -363,8 +367,10 @@ func (r *Receiver) reject(source, outcome, reason string) {
 }
 
 // flushStats writes the counts and rejections gathered since the last write.
-// A failed write puts the counts back to be written with the next.
-func (r *Receiver) flushStats(ctx context.Context) {
+// A failed write puts them back to be written with the next: the counts
+// summed into what arrived since, the rejections ahead of the newer ones, the
+// whole still bounded by maxPendingRejections.
+func (r *Receiver) flushStats(ctx context.Context) error {
 	r.statsMu.Lock()
 	counts := make([]whstore.Count, 0, len(r.counts))
 	for k, v := range r.counts {
@@ -375,17 +381,33 @@ func (r *Receiver) flushStats(ctx context.Context) {
 	r.rejections = nil
 	r.statsMu.Unlock()
 
+	var errs []error
 	if err := r.cfg.Recorder.RecordCounts(ctx, counts); err != nil {
-		r.cfg.Logger.Warn("webhooks: writing request counts", logKeyError, logsan.SanitizeForLog(err.Error()))
+		r.cfg.Logger.WarnContext(ctx, "webhooks: writing request counts", logKeyError, logsan.SanitizeForLog(err.Error()))
 		r.statsMu.Lock()
 		for _, c := range counts {
 			r.counts[countKey{source: c.Source, minute: c.Minute, outcome: c.Outcome}] += c.Count
 		}
 		r.statsMu.Unlock()
+		errs = append(errs, err)
 	}
 	if err := r.cfg.Recorder.RecordRejections(ctx, rejections); err != nil {
-		r.cfg.Logger.Warn("webhooks: writing rejections", logKeyError, logsan.SanitizeForLog(err.Error()))
+		r.cfg.Logger.WarnContext(ctx, "webhooks: writing rejections", logKeyError, logsan.SanitizeForLog(err.Error()))
+		r.statsMu.Lock()
+		kept := make([]whstore.Rejection, 0, maxPendingRejections)
+		kept = append(kept, rejections...)
+		kept = append(kept, r.rejections...)
+		if over := len(kept) - maxPendingRejections; over > 0 {
+			kept = kept[over:]
+		}
+		r.rejections = kept
+		r.statsMu.Unlock()
+		errs = append(errs, err)
 	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("webhooks: writing request stats: %w", err)
+	}
+	return nil
 }
 
 // ensureRawWindow registers a source's raw partition for the window starting

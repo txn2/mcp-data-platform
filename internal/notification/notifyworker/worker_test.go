@@ -102,7 +102,7 @@ func TestWorker_Drain_SendsImmediate(t *testing.T) {
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	sent := sender.sentCopy()
 	if len(sent) != 1 || sent[0].To != "a@b.io" {
@@ -129,7 +129,7 @@ func TestWorker_Drain_SendsDigestBatch(t *testing.T) {
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	sent := sender.sentCopy()
 	if len(sent) != 1 {
@@ -145,7 +145,7 @@ func TestWorker_Drain_SMTPUnconfiguredLeavesRowsPending(t *testing.T) {
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{}, sender)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if len(sender.sentCopy()) != 0 || len(queue.sent) != 0 || len(queue.failed) != 0 {
 		t.Error("unconfigured SMTP must not touch the queue")
@@ -161,7 +161,7 @@ func TestWorker_Drain_SMTPDisabledLeavesRowsPending(t *testing.T) {
 	queue := &fakeQueueStore{immediate: [][]notification.Notification{{{ID: 1}}}}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: disabled}, &fakeSender{})
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if len(queue.immediate) != 1 {
 		t.Error("row must remain unclaimed while SMTP is disabled")
@@ -172,7 +172,7 @@ func TestWorker_Drain_SettingsErrorLeavesRowsPending(t *testing.T) {
 	queue := &fakeQueueStore{immediate: [][]notification.Notification{{{ID: 1}}}}
 	w := testWorker(t, queue, &fakeSettingsStore{err: errors.New("db down")}, &fakeSender{})
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if len(queue.immediate) != 1 {
 		t.Error("row must remain unclaimed on settings error")
@@ -186,7 +186,7 @@ func TestWorker_Deliver_RetryOnSendFailure(t *testing.T) {
 	sender := &fakeSender{fails: 1}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if len(queue.retried) != 1 || queue.retried[0][0] != 5 {
 		t.Errorf("expected retry for row 5: %+v", queue.retried)
@@ -206,7 +206,7 @@ func TestWorker_Deliver_FailAfterMaxAttempts(t *testing.T) {
 	sender := &fakeSender{fails: 1}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if len(queue.failed) != 1 || queue.failed[0][0] != 6 {
 		t.Errorf("expected permanent failure for row 6: %+v", queue.failed)
@@ -223,7 +223,7 @@ func TestWorker_Deliver_EmptyBatchIsNoop(t *testing.T) {
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.deliver(context.Background(), enabledSettings(), nil)
+	_ = w.deliver(context.Background(), enabledSettings(), nil)
 
 	if len(queue.failed) != 0 || len(queue.retried) != 0 || len(sender.sentCopy()) != 0 {
 		t.Error("empty batch must be a no-op")
@@ -271,7 +271,7 @@ func TestWorker_Deliver_MarkSentError(t *testing.T) {
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain() // must log the MarkSent failure, not panic
+	_ = w.drain(context.Background()) // must log the MarkSent failure, not panic
 
 	if len(sender.sentCopy()) != 1 {
 		t.Fatal("email must still have been sent")
@@ -310,8 +310,8 @@ func TestWorker_Drain_PurgeRunsAndThrottles(t *testing.T) {
 	queue := &fakeQueueStore{}
 	w := testWorker(t, queue, &fakeSettingsStore{}, &fakeSender{})
 
-	w.drain()
-	w.drain()
+	_ = w.drain(context.Background())
+	_ = w.drain(context.Background())
 
 	if queue.purges != 1 {
 		t.Errorf("purges = %d; want 1 (run once, then throttled)", queue.purges)
@@ -328,7 +328,7 @@ func TestWorker_ClaimError(t *testing.T) {
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if got := sender.sentCopy(); len(got) != 0 {
 		t.Errorf("claim failure still sent %d email(s)", len(got))
@@ -402,7 +402,7 @@ func TestWorker_Drain_FooterAndReplyToFromBranding(t *testing.T) {
 		Renderer: r, Sender: sender,
 	})
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	sent := sender.sentCopy()
 	if len(sent) != 1 {

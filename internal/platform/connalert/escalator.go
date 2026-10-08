@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
@@ -64,21 +65,17 @@ func (e *Escalator) Start(ctx context.Context) {
 		return
 	}
 	e.wg.Go(func() {
-		ticker := time.NewTicker(e.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-e.stopCh:
-				return
-			case <-ticker.C:
-				if err := e.Sweep(ctx); err != nil {
+		bgloop.Run(ctx, bgloop.Loop{
+			Name: bgloop.NameRevocationEscalate, Every: e.interval, Stop: e.stopCh,
+			Body: func(ctx context.Context) error {
+				err := e.Sweep(ctx)
+				if err != nil {
 					slog.WarnContext(ctx, "connection revocation escalation sweep failed", // #nosec G706 -- structured slog call; error sanitized
 						logKeyError, logsan.SanitizeForLog(err.Error()))
 				}
-			}
-		}
+				return err
+			},
+		})
 	})
 }
 

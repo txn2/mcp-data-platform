@@ -361,7 +361,7 @@ func newTestWorker(t *testing.T, mutate func(*script.Script, *script.Version), o
 // drainAll drains the queue and waits for every run it launched, which is the
 // synchronous view a test of one run's outcome needs.
 func drainAll(w *worker) {
-	w.drain()
+	_ = w.drain(w.runCtx)
 	w.wg.Wait()
 }
 
@@ -672,7 +672,9 @@ func TestWorker_AClaimThatRacedTheStopIsReleasedNotExecuted(t *testing.T) {
 	w, runs, exec := newTestWorker(t, nil, succeeded)
 	close(w.stopCh)
 
-	assert.False(t, w.processNext(w.runCtx), "the drain is over; nothing more is claimed")
+	more, err := w.processNext(w.runCtx)
+	require.NoError(t, err)
+	assert.False(t, more, "the drain is over; nothing more is claimed")
 	assert.Zero(t, exec.called, "the drain window belongs to a run already executing")
 	require.Len(t, runs.retried, 1)
 	assert.Contains(t, runs.retried[0], "shut down")

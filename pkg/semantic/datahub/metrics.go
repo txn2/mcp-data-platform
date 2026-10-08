@@ -24,6 +24,7 @@ const (
 	opGetColumnLineage = "get_column_lineage"
 	opGetGlossaryTerm  = "get_glossary_term"
 	opGetQueries       = "get_queries"
+	opGetDataProduct   = "get_data_product"
 
 	opSearchAcross        = "search_across_entities"
 	opSemanticSearch      = "semantic_search"
@@ -249,4 +250,12 @@ func (c *instrumentedClient) GetGlossaryParentChain(ctx context.Context, urn str
 	began := time.Now()
 	chain, err := c.Client.GetGlossaryParentChain(ctx, urn)
 	return chain, c.finish(ctx, span, opGetGlossaryParentChain, began, err)
+}
+
+// GetDataProduct records a get_data_product observation and delegates (#1896).
+func (c *instrumentedClient) GetDataProduct(ctx context.Context, urn string) (*types.DataProduct, error) {
+	ctx, span := c.startSpan(ctx, opGetDataProduct)
+	start := time.Now()
+	p, err := c.Client.GetDataProduct(ctx, urn)
+	return p, c.finish(ctx, span, opGetDataProduct, start, err)
 }

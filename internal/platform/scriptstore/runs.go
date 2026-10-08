@@ -1010,3 +1010,57 @@ func (s *Store) openRunBlocking(ctx context.Context, scriptID, scheduleID string
 	}
 	return &o, nil
 }
+
+// QueueState is the run queue as the database holds it, read on a metrics
+// scrape (#1897): runs due and unclaimed, runs executing, runs queued for a
+// later time (a retry's backoff), and how long the oldest due run has waited.
+// Every replica reads the same rows, so a reader takes the max across them.
+type QueueState struct {
+	Pending   int64
+	Running   int64
+	Waiting   int64
+	OldestDue time.Duration
+}
+
+// runQueueStateQuery counts the open runs by state and ages the oldest due
+// one. The age is computed by the database clock, the one the claim compares
+// scheduled_for against.
+const runQueueStateQuery = `SELECT
+	COUNT(*) FILTER (WHERE status = 'pending' AND scheduled_for <= NOW()),
+	COUNT(*) FILTER (WHERE status = 'running'),
+	COUNT(*) FILTER (WHERE status = 'pending' AND scheduled_for > NOW()),
+	COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(scheduled_for)
+		FILTER (WHERE status = 'pending' AND scheduled_for <= NOW())), 0)::DOUBLE PRECISION
+	FROM script_runs
+	WHERE status IN ('pending', 'running')`
+
+// RunQueueState reads the run queue's state.
+func (s *Store) RunQueueState(ctx context.Context) (QueueState, error) {
+	var q QueueState
+	var oldest float64
+	if err := s.db.QueryRowContext(ctx, runQueueStateQuery).Scan(&q.Pending, &q.Running, &q.Waiting, &oldest); err != nil {
+		return QueueState{}, fmt.Errorf("reading the run queue state: %w", err)
+	}
+	q.OldestDue = time.Duration(oldest * float64(time.Second))
+	return q, nil
+}
+
+// dueScheduleStateQuery counts the enabled schedules whose next fire has
+// passed and ages the oldest. A schedule stays due until a scheduler pass
+// materializes its run, so a count that grows is a deployment where no
+// scheduler is running: every replica's worker is off, or the one running
+// is wedged.
+const dueScheduleStateQuery = `SELECT COUNT(*),
+	COALESCE(EXTRACT(EPOCH FROM NOW() - MIN(next_run_at)), 0)::DOUBLE PRECISION
+	FROM script_schedules
+	WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= NOW()`
+
+// DueScheduleState reads how many schedules are due and unmaterialized, and
+// how long the oldest has been.
+func (s *Store) DueScheduleState(ctx context.Context) (due int64, oldest time.Duration, err error) {
+	var secs float64
+	if err := s.db.QueryRowContext(ctx, dueScheduleStateQuery).Scan(&due, &secs); err != nil {
+		return 0, 0, fmt.Errorf("reading the due schedules: %w", err)
+	}
+	return due, time.Duration(secs * float64(time.Second)), nil
+}

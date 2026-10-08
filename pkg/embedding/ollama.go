@@ -237,7 +237,7 @@ func (o *ollamaProvider) Embed(ctx context.Context, text string) ([]float32, err
 		// Reports what was actually put on the wire, not the budget: for a
 		// text well inside an oversized budget those differ, and the sent
 		// figure is the one that locates the model's real limit.
-		slog.Warn("ollama: input refused as too long for the model context; retrying at a smaller bound",
+		slog.WarnContext(ctx, "ollama: input refused as too long for the model context; retrying at a smaller bound",
 			"sent_bytes", sent, "next_bytes", next, "model", o.model,
 		)
 		budget = next
@@ -259,7 +259,7 @@ func sentBytes(text string, budget int) int {
 func (o *ollamaProvider) embedOnce(ctx context.Context, text string, budget int) ([]float32, error) {
 	text, truncated := capForEmbedding(text, budget)
 	if truncated {
-		slog.Warn("ollama: embedding input truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
+		slog.WarnContext(ctx, "ollama: embedding input truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
 			"max_bytes", budget, "model", o.model,
 		)
 	}
@@ -331,7 +331,7 @@ func (o *ollamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 		// adaptive bound per text, so only the offending one is trimmed
 		// and the rest embed whole. batchUnsupported is deliberately NOT
 		// set -- the endpoint is healthy, this batch's contents were not.
-		slog.Warn("ollama: batch refused as too long for the model context; re-running it one input at a time",
+		slog.WarnContext(ctx, "ollama: batch refused as too long for the model context; re-running it one input at a time",
 			"batch_size", len(texts), "model", o.model,
 		)
 		return o.embedBatchSequential(ctx, texts)
@@ -374,7 +374,7 @@ func (o *ollamaProvider) embedBatchOnce(ctx context.Context, texts []string) (re
 
 	if resp.StatusCode == http.StatusNotFound {
 		o.batchUnsupported.Store(true)
-		slog.Warn("ollama: /api/embed not available, falling back to sequential /api/embeddings calls (recommend upgrading the ollama server for substantially faster batch embedding)",
+		slog.WarnContext(ctx, "ollama: /api/embed not available, falling back to sequential /api/embeddings calls (recommend upgrading the ollama server for substantially faster batch embedding)",
 			"url", o.url, "model", o.model,
 		)
 		return nil, true, nil
@@ -382,7 +382,7 @@ func (o *ollamaProvider) embedBatchOnce(ctx context.Context, texts []string) (re
 	// Warn only once we know we are not falling back: the sequential
 	// path warns per item itself, so warning here too would double-log.
 	if truncatedCount > 0 {
-		slog.Warn("ollama: embedding inputs truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
+		slog.WarnContext(ctx, "ollama: embedding inputs truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
 			"truncated", truncatedCount, "batch_size", len(texts), "max_bytes", o.maxInputBytes, "model", o.model,
 		)
 	}

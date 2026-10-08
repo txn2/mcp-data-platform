@@ -262,7 +262,7 @@ func (a *APIKeyAuthenticator) confirmHeld(ctx context.Context, source HashedKeyS
 	}
 	if !held {
 		a.dropHashedKey(key)
-		return errInvalidAPIKey
+		return errKeyRevoked
 	}
 	return nil
 }

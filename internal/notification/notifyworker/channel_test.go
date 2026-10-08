@@ -104,7 +104,7 @@ func TestWorker_DeliversAChatRowWithNoMailServerConfigured(t *testing.T) {
 			"ops": {Name: "ops", Kind: notification.ChannelKindMattermost, Enabled: true, Connection: "c", Target: "C1"},
 		}}, snd)
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if snd.count() != 1 {
 		t.Fatalf("posted %d documents with no mail server; want 1", snd.count())
@@ -127,7 +127,7 @@ func TestWorker_LeavesChannelRowsAloneWithNoChannelTransport(t *testing.T) {
 	// and leaves its chat rows pending rather than failing them.
 	queue := &fakeQueueStore{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, &fakeSender{})
-	w.drain()
+	_ = w.drain(context.Background())
 	if len(queue.filters) == 0 {
 		t.Fatal("the worker made no claim at all")
 	}
@@ -144,7 +144,7 @@ func TestWorker_LeavesChannelRowsAloneWithNoChannelTransport(t *testing.T) {
 func TestWorker_DrainsNothingWhenNeitherTransportCanDeliver(t *testing.T) {
 	queue := &fakeQueueStore{immediate: [][]notification.Notification{{chatRow("ops", "t")}}}
 	w := testWorker(t, queue, &fakeSettingsStore{err: smtp.ErrNotFound}, &fakeSender{})
-	w.drain()
+	_ = w.drain(context.Background())
 	if len(queue.filters) != 0 {
 		t.Errorf("the worker issued %d claims with no usable transport", len(queue.filters))
 	}
@@ -196,7 +196,7 @@ func TestWorker_ChannelFailuresResolveByWhetherRetryingCouldHelp(t *testing.T) {
 			}}
 			w := channelWorker(t, queue, &fakeSettingsStore{err: smtp.ErrNotFound},
 				&fakeChannelStore{channels: tc.channels}, &recordingSender{err: tc.sendErr})
-			w.drain()
+			_ = w.drain(context.Background())
 
 			assertResolved(t, queue, tc.terminal)
 			if tc.wants != "" && !strings.Contains(queue.lastError, tc.wants) {
@@ -216,7 +216,7 @@ func TestWorker_ARowWithNoDocumentIsTerminal(t *testing.T) {
 		&fakeChannelStore{channels: map[string]notification.Channel{
 			"ops": {Name: "ops", Kind: notification.ChannelKindMattermost, Enabled: true, Connection: "c", Target: "C1"},
 		}}, &recordingSender{})
-	w.drain()
+	_ = w.drain(context.Background())
 	if len(queue.failed) != 1 {
 		t.Errorf("failed batches = %d, want 1", len(queue.failed))
 	}
@@ -238,7 +238,7 @@ func TestWorker_EmailChannelRowsGoThroughTheMailPath(t *testing.T) {
 	w.cfg.Channels = &fakeChannelStore{}
 	w.cfg.ChannelSenders = snd
 
-	w.drain()
+	_ = w.drain(context.Background())
 
 	if snd.count() != 0 {
 		t.Error("an email channel's row was handed to a chat transport")
@@ -277,7 +277,7 @@ func TestWorker_ChannelDeliveryCarriesTheRowsID(t *testing.T) {
 		&fakeChannelStore{channels: map[string]notification.Channel{
 			"ops": {Name: "ops", Kind: notification.ChannelKindWebhook, Enabled: true, Connection: "c"},
 		}}, snd)
-	w.drain()
+	_ = w.drain(context.Background())
 	if len(snd.ids) != 1 || snd.ids[0] != "ntf_4242" {
 		t.Fatalf("delivery ids = %v, want [ntf_4242]", snd.ids)
 	}
@@ -298,7 +298,7 @@ func TestWorker_RetryAfterIsHonoredWithinTheLongestBackoff(t *testing.T) {
 			&fakeChannelStore{channels: map[string]notification.Channel{
 				"ops": {Name: "ops", Kind: notification.ChannelKindWebhook, Enabled: true, Connection: "c"},
 			}}, &recordingSender{err: sendErr})
-		w.drain()
+		_ = w.drain(context.Background())
 		if len(queue.backoff) != 1 || queue.backoff[0] != tc.want {
 			t.Errorf("asked %s: backoff = %v, want %s", tc.asked, queue.backoff, tc.want)
 		}
