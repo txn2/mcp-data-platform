@@ -248,24 +248,50 @@ type reply struct {
 	Header     http.Header
 }
 
-// do sends req and closes the response body before returning its status and headers.
+// testClient keeps every connection a test opens idle rather than closing the
+// ones past http.DefaultClient's two per host. The side that closes a
+// connection holds its port in TIME_WAIT, so a burst of requests through the
+// default client left hundreds of client ports held after each run, and a
+// repeated run exhausted them ("can't assign requested address"). With the
+// connections idle, the test server closes them when it shuts down and no
+// client port is held.
+//
+//nolint:gochecknoglobals // one client for every test in the package, so their connections are pooled the same way.
+var testClient = &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 1024}}
+
+// send sends req and closes the response body before returning its status
+// and headers.
+func send(req *http.Request) (reply, error) {
+	resp, err := testClient.Do(req) // #nosec G704 -- the httptest server this test started
+	if err != nil {
+		return reply{}, fmt.Errorf("sending %s: %w", req.URL.Path, err)
+	}
+	_ = resp.Body.Close()
+	return reply{StatusCode: resp.StatusCode, Header: resp.Header}, nil
+}
+
+// do is send for a test's own goroutine, where a failed request fails the test.
 func do(t *testing.T, req *http.Request) reply {
 	t.Helper()
-	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- the httptest server this test started
+	r, err := send(req)
 	require.NoError(t, err)
-	_ = resp.Body.Close()
-	return reply{StatusCode: resp.StatusCode, Header: resp.Header}
+	return r
 }
 
 func (h *harness) post(t *testing.T, path, contentType, body string, hdr ...string) reply {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, h.srv.URL+path, strings.NewReader(body))
-	require.NoError(t, err)
+	req := h.request(t.Context(), path, contentType, body, hdr...)
+	return do(t, req)
+}
+
+// request builds a POST to the test server.
+func (h *harness) request(ctx context.Context, path, contentType, body string, hdr ...string) *http.Request {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.srv.URL+path, strings.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
 	for i := 0; i+1 < len(hdr); i += 2 {
 		req.Header.Set(hdr[i], hdr[i+1])
 	}
-	return do(t, req)
+	return req
 }
 
 func (h *harness) signed(t *testing.T, source, body string) reply {
@@ -498,23 +524,44 @@ func TestWriteFailureAnswers503(t *testing.T) {
 
 func TestStalledStoreBoundsTheBuffer(t *testing.T) {
 	src := hmacSource("burst")
-	src.Config.BufferLimit = 100
+	// Three times the limit is enough to show the bound: the limit's worth
+	// held while the store is stalled and the rest refused. A burst far
+	// larger only spends sockets, and a machine's ephemeral ports run out
+	// across repeated runs.
+	const limit = 20
+	src.Config.BufferLimit = limit
 	h := newHarness(t, src)
 	h.objects.stall = make(chan struct{})
 
-	const requests = 400
+	const requests = 3 * limit
 	statuses := make(chan reply, requests)
+	failures := make(chan error, requests)
 	var wg sync.WaitGroup
 	for i := range requests {
 		wg.Go(func() {
-			statuses <- h.signed(t, "burst", `{"id":"`+string(rune('a'+i%26))+`"}`)
+			body := `{"id":"` + string(rune('a'+i%26)) + `"}`
+			r, err := send(h.request(context.Background(), "/hooks/burst", "application/json", body, "X-Sig", sig(body)))
+			if err != nil {
+				failures <- err
+				return
+			}
+			statuses <- r
 		})
 	}
 	// Every request past the limit is answered while the store is stalled.
-	require.Eventually(t, func() bool { return len(statuses) >= requests-100 }, 5*time.Second, 10*time.Millisecond)
+	// The burst is released and waited for whatever this finds, so no request
+	// outlives the test.
+	answered := assert.Eventually(t, func() bool { return len(statuses) >= requests-limit }, 5*time.Second, 10*time.Millisecond)
 	close(h.objects.stall)
 	wg.Wait()
 	close(statuses)
+	close(failures)
+	for err := range failures {
+		t.Errorf("a request in the burst failed: %v", err)
+	}
+	if !answered {
+		t.FailNow()
+	}
 
 	var accepted, full int
 	for resp := range statuses {
@@ -528,9 +575,9 @@ func TestStalledStoreBoundsTheBuffer(t *testing.T) {
 			t.Fatalf("unexpected status %d", resp.StatusCode)
 		}
 	}
-	assert.LessOrEqual(t, accepted, 100)
+	assert.LessOrEqual(t, accepted, limit)
 	assert.Equal(t, requests, accepted+full)
-	assert.LessOrEqual(t, h.metrics.maxBuffer, 100, "the buffer never holds more than its limit")
+	assert.LessOrEqual(t, h.metrics.maxBuffer, limit, "the buffer never holds more than its limit")
 }
 
 func TestStopAnswersWaitingRequests(t *testing.T) {
