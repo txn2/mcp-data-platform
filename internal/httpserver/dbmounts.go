@@ -101,7 +101,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 		// The way back from hiding a built-in page (#1390); the seam no-ops on
 		// a store without the capability.
 		RestoreBuiltinPages: func(ctx context.Context) (int, error) {
-			return knowledgebuiltin.Restore(ctx, p.PortalKnowledgePageStore())
+			return knowledgebuiltin.Restore(ctx, p.PortalKnowledgePageStore(), knowledgebuiltin.MapsOf(p.DB()))
 		},
 		S3Client:      p.PortalS3Client(),
 		S3Bucket:      p.Config().Portal.S3Bucket,

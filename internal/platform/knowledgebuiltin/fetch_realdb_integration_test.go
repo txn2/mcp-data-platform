@@ -26,7 +26,7 @@ import (
 func TestBuiltinPages_RealDB_FetchBySlug(t *testing.T) {
 	ctx := context.Background()
 	store := knowledgepage.NewPostgresStore(testdb.New(t))
-	require.NoError(t, knowledgebuiltin.Reconcile(ctx, store))
+	require.NoError(t, knowledgebuiltin.Reconcile(ctx, store, nil))
 
 	searcher, ok := store.(knowledge.PageSearcher)
 	require.True(t, ok, "the postgres page store no longer satisfies the provider's capability")
@@ -64,7 +64,7 @@ func TestBuiltinPages_RealDB_FetchBySlug(t *testing.T) {
 	assert.True(t, owned)
 	assert.ErrorIs(t, err, knowledge.ErrNotFound)
 
-	require.NoError(t, knowledgebuiltin.Reconcile(ctx, store))
+	require.NoError(t, knowledgebuiltin.Reconcile(ctx, store, nil))
 	_, owned, err = provider.Fetch(ctx, knowledgepage.PageReference("platform-semi-dynamic-dashboards"), knowledge.Caller{})
 	assert.True(t, owned)
 	assert.ErrorIs(t, err, knowledge.ErrNotFound, "the reconcile resurrected a page an operator hid")

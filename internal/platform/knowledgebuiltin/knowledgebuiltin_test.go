@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/maps"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
@@ -105,28 +106,28 @@ func (f *fakeReconciler) RestoreHidden(_ context.Context) (int, error) {
 
 func TestReconcile_HandsTheShippedSetToTheStore(t *testing.T) {
 	store := &fakeReconciler{}
-	require.NoError(t, Reconcile(context.Background(), store))
+	require.NoError(t, Reconcile(context.Background(), store, nil))
 	assert.Len(t, store.got, len(pageMetas))
 }
 
 func TestReconcile_PropagatesAStoreFailure(t *testing.T) {
 	boom := errors.New("boom")
-	err := Reconcile(context.Background(), &fakeReconciler{err: boom})
+	err := Reconcile(context.Background(), &fakeReconciler{err: boom}, nil)
 	require.ErrorIs(t, err, boom)
 }
 
 // A store without the capability (any non-postgres Store) is a clean no-op.
 func TestReconcile_NoOpWithoutTheCapability(t *testing.T) {
 	type bare struct{ knowledgepage.Store }
-	require.NoError(t, Reconcile(context.Background(), bare{}))
-	require.NoError(t, Reconcile(context.Background(), nil))
+	require.NoError(t, Reconcile(context.Background(), bare{}, nil))
+	require.NoError(t, Reconcile(context.Background(), nil, nil))
 }
 
 // Restore un-hides and then reconciles, so a restored page is refreshed to the
 // running release rather than resurrected one release stale.
 func TestRestore_UnhidesThenReconciles(t *testing.T) {
 	store := &fakeReconciler{restored: 2}
-	n, err := Restore(context.Background(), store)
+	n, err := Restore(context.Background(), store, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 	assert.Len(t, store.got, len(pageMetas), "the restore must be followed by a reconcile")
@@ -134,16 +135,16 @@ func TestRestore_UnhidesThenReconciles(t *testing.T) {
 
 func TestRestore_PropagatesFailures(t *testing.T) {
 	boom := errors.New("boom")
-	_, err := Restore(context.Background(), &fakeReconciler{restoreErr: boom})
+	_, err := Restore(context.Background(), &fakeReconciler{restoreErr: boom}, nil)
 	require.ErrorIs(t, err, boom)
 
 	// A reconcile failure after a successful un-hide still reports the count.
-	n, err := Restore(context.Background(), &fakeReconciler{restored: 1, err: boom})
+	n, err := Restore(context.Background(), &fakeReconciler{restored: 1, err: boom}, nil)
 	require.ErrorIs(t, err, boom)
 	assert.Equal(t, 1, n)
 
 	type bare struct{ knowledgepage.Store }
-	n, err = Restore(context.Background(), bare{})
+	n, err = Restore(context.Background(), bare{}, nil)
 	require.NoError(t, err)
 	assert.Zero(t, n)
 }
@@ -163,7 +164,7 @@ func (s *signalingReconciler) ReconcileBuiltins(ctx context.Context, pages []kno
 // caller, on success and on failure alike.
 func TestStart_RunsTheReconcileInTheBackground(t *testing.T) {
 	ok := &signalingReconciler{done: make(chan struct{})}
-	Start(context.Background(), ok)
+	Start(context.Background(), ok, nil)
 	select {
 	case <-ok.done:
 	case <-time.After(5 * time.Second):
@@ -173,7 +174,7 @@ func TestStart_RunsTheReconcileInTheBackground(t *testing.T) {
 
 	failing := &signalingReconciler{done: make(chan struct{})}
 	failing.err = errors.New("boom")
-	Start(context.Background(), failing)
+	Start(context.Background(), failing, nil)
 	select {
 	case <-failing.done:
 	case <-time.After(5 * time.Second):
@@ -382,4 +383,9 @@ func TestPages_PresentationsPageNamesThePinnedRuntime(t *testing.T) {
 	} {
 		assert.Containsf(t, body, path, "the page does not name %s", path)
 	}
+}
+
+// Pages returns the shipped set as a deployment with maps turned off has it.
+func Pages() ([]knowledgepage.BuiltinPage, error) {
+	return PagesWith(&maps.State{Regions: []maps.Ready{}})
 }

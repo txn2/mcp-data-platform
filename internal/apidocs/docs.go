@@ -9135,6 +9135,280 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/maps": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns whether maps are enabled, the S3 connection and bucket basemap archives are written to, the maximum zoom a fetch extracts, the source build, every region with the state of its last fetch (queued, fetching with progress, ready, or failed with the reason) and the archive it serves, the regions offered by name, and the bucket prefix an archive is uploaded to by hand.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get the maps settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/maps.View"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Turns maps on or off and sets where archives are written (an empty s3_connection or bucket is the managed-resources one), the maximum zoom a fetch extracts (1 to 15; 14 by default), and the source a fetch reads (empty for the newest Protomaps daily build, or the URL of a .pmtiles archive the operator hosts). Turning maps off stops the archive routes answering and keeps the archives, so turning them on again serves them at once. A change to the zoom or the source applies to the next fetch; refresh a region to fetch it again. A change to the connection or the bucket leaves the archives already written where they are: refresh each region to write it to the new place.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update the maps settings",
+                "parameters": [
+                    {
+                        "description": "Maps settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/maps.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/maps.View"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/maps/estimate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reads the source build's directories for a preset or a bounding box at the zoom the settings name, and returns the exact size the archive would be, its tile count and the build it would come from, without writing anything. Seconds for a country; the extract itself copies that many bytes.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Estimate a basemap region",
+                "parameters": [
+                    {
+                        "description": "The region",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/maps.EstimateInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/maps.Estimate"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/maps/regions": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Saves a region and queues its fetch: a preset by id (its id and name are the preset's unless given), or an id, a name and a bounding box in degrees. The fetch extracts the region from the source build at the zoom the settings name and writes it to the bucket; its state moves from queued to fetching to ready, or to failed with the reason. The id is the archive's name at /portal/maps/{id}.pmtiles.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Add a basemap region",
+                "parameters": [
+                    {
+                        "description": "The region",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/maps.RegionInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/maps.Region"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/maps/regions/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Removes the region and its archive from the bucket. An uploaded region is removed by deleting its file, which this does; a map that names the region stops drawing its basemap.",
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Delete a basemap region",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/maps/regions/{id}/refresh": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Queues a fetch of the newest build at the zoom the settings name now. The archive being served keeps serving until the new one is complete, and stays if the fetch fails. A region being fetched, and an uploaded region, are refused.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Refresh a basemap region",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Region id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/maps.Region"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/review-queue-alert": {
             "get": {
                 "security": [
@@ -30966,6 +31240,229 @@ const docTemplate = `{
                 }
             }
         },
+        "maps.Archive": {
+            "type": "object",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/pmtiles.Bounds"
+                },
+                "build": {
+                    "description": "Build is the OpenStreetMap data the archive was built from, as the\nsource's metadata dates it (the replication time), or the source build's\nname when it carries none.",
+                    "type": "string"
+                },
+                "max_zoom": {
+                    "type": "integer"
+                },
+                "min_zoom": {
+                    "type": "integer"
+                },
+                "ready_at": {
+                    "type": "string"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "maps.Estimate": {
+            "type": "object",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/pmtiles.Bounds"
+                },
+                "build": {
+                    "type": "string"
+                },
+                "max_zoom": {
+                    "type": "integer"
+                },
+                "min_zoom": {
+                    "type": "integer"
+                },
+                "size_bytes": {
+                    "type": "integer"
+                },
+                "tiles": {
+                    "type": "integer"
+                }
+            }
+        },
+        "maps.EstimateInput": {
+            "type": "object",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/pmtiles.Bounds"
+                },
+                "preset": {
+                    "type": "string",
+                    "example": "united-states"
+                }
+            }
+        },
+        "maps.Preset": {
+            "type": "object",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/pmtiles.Bounds"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "maps.Region": {
+            "type": "object",
+            "properties": {
+                "archive": {
+                    "$ref": "#/definitions/maps.Archive"
+                },
+                "bounds": {
+                    "$ref": "#/definitions/pmtiles.Bounds"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "max_zoom": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "origin": {
+                    "type": "string"
+                },
+                "preset": {
+                    "type": "string"
+                },
+                "progress_bytes": {
+                    "type": "integer"
+                },
+                "requested_at": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "State is the last fetch's: queued, fetching, ready or failed. A failed\nrefresh of a region that was ready keeps serving Archive.",
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "maps.RegionInput": {
+            "type": "object",
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/pmtiles.Bounds"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "bay-area"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Bay Area"
+                },
+                "preset": {
+                    "type": "string",
+                    "example": "united-states"
+                }
+            }
+        },
+        "maps.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_zoom": {
+                    "type": "integer",
+                    "example": 14
+                },
+                "s3_connection": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "maps.SettingsView": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_zoom": {
+                    "type": "integer"
+                },
+                "resolved_bucket": {
+                    "description": "ResolvedBucket is the bucket archives are written to: Bucket, or the\nmanaged-resources bucket when that is empty.",
+                    "type": "string"
+                },
+                "s3_connection": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "maps.View": {
+            "type": "object",
+            "properties": {
+                "default_source": {
+                    "description": "DefaultSource is the source a fetch reads when source_url is empty.",
+                    "type": "string"
+                },
+                "presets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/maps.Preset"
+                    }
+                },
+                "regions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/maps.Region"
+                    }
+                },
+                "settings": {
+                    "$ref": "#/definitions/maps.SettingsView"
+                },
+                "upload_prefix": {
+                    "description": "UploadPrefix is where in the bucket an operator puts a .pmtiles file to\nserve it without a fetch.",
+                    "type": "string"
+                }
+            }
+        },
         "memory.Record": {
             "type": "object",
             "properties": {
@@ -31527,6 +32024,23 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string",
                     "example": "2026-01-15T14:30:00Z"
+                }
+            }
+        },
+        "pmtiles.Bounds": {
+            "type": "object",
+            "properties": {
+                "max_lat": {
+                    "type": "number"
+                },
+                "max_lon": {
+                    "type": "number"
+                },
+                "min_lat": {
+                    "type": "number"
+                },
+                "min_lon": {
+                    "type": "number"
                 }
             }
         },

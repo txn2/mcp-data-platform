@@ -332,7 +332,9 @@ the bucket is used for, whichever bucket a deployment named:
 `resources` (managed resources), `thumbnails` (the tile worker, its reads
 of a document's stored file included), `script_outputs` (a managed
 script's portal outputs), `exports` (`trino_export`, `api_export`,
-`graphql_export`) and `webhooks` (segments and compacted Parquet).
+`graphql_export`), `webhooks` (segments and compacted Parquet) and `maps`
+(basemap archives: written by a region's fetch, read by range for every map
+view).
 `operation` is `put`, `get`, `get_range`, `list` or `delete`; `result` is `ok`
 or `error`. A failure also carries `reason`, read from the store's error
 code: `access_denied` (a refused credential or bucket policy),
@@ -537,7 +539,7 @@ W3C `traceparent` to the upstream, and records the request under
 `http_client_requests_total{kind, connection, status_class}` and its
 duration histogram. `kind` is the closed set above (`api`, `graphql`, `mcp`,
 `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`,
-`promql`, `renderer`, `datahub`, `branding`); `connection` is the operator's
+`promql`, `renderer`, `datahub`, `branding`, `maps`); `connection` is the operator's
 connection name, empty for a kind that has none; a transport failure (DNS,
 dial, TLS, timeout) is `status_class="other"`. A Semgrep rule
 (`.semgrep/go-outbound-client.yml`) refuses an `http.Client` built anywhere

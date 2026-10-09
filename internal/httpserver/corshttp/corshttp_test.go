@@ -72,3 +72,52 @@ func TestCorsMiddleware(t *testing.T) {
 		}
 	})
 }
+
+// TestMiddleware_PublicReads: a map in a sandboxed asset frame reads its
+// basemap and runtime with Origin: null and a Range header (#2068). Those
+// paths answer any origin without credentials, accept Range, and expose the
+// headers a ranged read is checked by; every other path is unchanged.
+func TestMiddleware_PublicReads(t *testing.T) {
+	var served bool
+	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		served = true
+		w.WriteHeader(http.StatusPartialContent)
+	}))
+	for _, p := range []string{"/portal/maps/sf.pmtiles", "/portal/vendor/maplibre/fonts/x/0-255.pbf"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, p, http.NoBody)
+		req.Header.Set("Origin", "null")
+		w := httptest.NewRecorder()
+		served = false
+		handler.ServeHTTP(w, req)
+		if !served || w.Code != http.StatusPartialContent {
+			t.Errorf("%s: the read was not served: %d", p, w.Code)
+		}
+		if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("%s: Allow-Origin = %q, want *", p, got)
+		}
+		if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("%s: a public read carries no credentials, got %q", p, got)
+		}
+		if got := w.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "Content-Range") {
+			t.Errorf("%s: Content-Range is not exposed: %q", p, got)
+		}
+
+		pre := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, p, http.NoBody)
+		pre.Header.Set("Origin", "null")
+		pre.Header.Set("Access-Control-Request-Headers", "range")
+		w = httptest.NewRecorder()
+		served = false
+		handler.ServeHTTP(w, pre)
+		if served || w.Code != http.StatusNoContent || !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "Range") {
+			t.Errorf("%s: preflight = %d %q", p, w.Code, w.Header().Get("Access-Control-Allow-Headers"))
+		}
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/vendor/reveal/reveal.js", http.NoBody)
+	req.Header.Set("Origin", "https://example.com")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://example.com" {
+		t.Errorf("another path's policy changed: Allow-Origin = %q", got)
+	}
+}

@@ -18,28 +18,46 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 )
 
-// Get calls routes for one GET of path and returns the body and its content
-// type when the route answers 200. It carries no credentials, so only a route
-// that answers anonymously can answer it.
+// forwardedHeaders are the request headers Read passes to the route: the ones
+// that change what a public route answers. A ranged read is how a map reads
+// its basemap (#2068), and Origin is what a CORS answer is made for.
+var forwardedHeaders = []string{"Range", "If-Range", "If-None-Match", "Origin"}
+
+// Response is what a route answered a Read with.
+type Response struct {
+	Status int
+	Header http.Header
+	Body   []byte
+}
+
+// Read calls routes for one GET of path, passing on the headers of header
+// that change a public route's answer, and returns the response when the
+// route answered 200 or, for a ranged read, 206. It carries no credentials,
+// so only a route that answers anonymously can answer it.
 //
 // It is marked as the platform's own request, which the public viewer's rate
 // limiter admits without counting (#1791). Counted, every request presents the
 // one loopback address and shares one bucket, and the reference route in
 // front of a document's files ran it dry partway through a document.
-func Get(routes http.Handler, path string, timeout time.Duration) (body []byte, contentType string, ok bool) {
+func Read(routes http.Handler, path string, header http.Header, timeout time.Duration) (Response, bool) {
 	ctx, cancel := context.WithTimeout(viewerlimit.InProcess(context.Background()), timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, http.NoBody)
 	if err != nil {
-		return nil, "", false
+		return Response{}, false
+	}
+	for _, h := range forwardedHeaders {
+		if v := header.Get(h); v != "" {
+			req.Header.Set(h, v)
+		}
 	}
 	req.RemoteAddr = "127.0.0.1:0"
 	rec := NewRecorder()
 	routes.ServeHTTP(rec, req)
-	if rec.Code() != http.StatusOK {
-		return nil, "", false
+	if rec.Code() != http.StatusOK && rec.Code() != http.StatusPartialContent {
+		return Response{}, false
 	}
-	return rec.Body.Bytes(), rec.Header().Get("Content-Type"), true
+	return Response{Status: rec.Code(), Header: rec.Header(), Body: rec.Body.Bytes()}, true
 }
 
 // Recorder is a response a route writes into in-process.

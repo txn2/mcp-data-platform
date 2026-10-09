@@ -8,12 +8,49 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/maphttp"
 	whreceiver "github.com/txn2/mcp-data-platform/internal/webhook/receiver"
 )
+
+// publicReadPrefixes are the paths a map reads with no session (#2068): the
+// basemap archives and the map runtime the portal serves. A map runs in a
+// sandboxed asset frame, whose origin is opaque, so its reads arrive with
+// Origin: null; a credentialed answer that echoes that origin is one a
+// browser may refuse, and these paths carry nothing a credential unlocks.
+var publicReadPrefixes = []string{maphttp.PathPrefix, "/portal/vendor/maplibre/"}
+
+// publicRead answers a read of a public path for any origin, without
+// credentials, and lets the reader send Range and see the headers a ranged
+// read is checked by.
+func publicRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, If-Match, If-None-Match, If-Range")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, ETag, Accept-Ranges")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	next.ServeHTTP(w, r)
+}
+
+func isPublicRead(path string) bool {
+	for _, p := range publicReadPrefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // Middleware adds CORS headers for browser-based MCP clients.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPublicRead(r.URL.Path) {
+			publicRead(w, r, next)
+			return
+		}
 		origin := r.Header.Get("Origin")
 		if origin == "" {
 			origin = "*"

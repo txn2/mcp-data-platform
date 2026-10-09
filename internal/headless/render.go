@@ -104,10 +104,15 @@ const snapAnimations = `(()=>{for(const a of document.getAnimations()){try{const
 // sandboxed frame's animations the page's own world cannot.
 const snapWorld = "tile-snap"
 
-// File is one same-origin file a page loads.
+// File is one same-origin file a page loads. Status and Header are the
+// response a route gave beyond its body: a 206 with its Content-Range for a
+// ranged read, and the CORS headers a read from a sandboxed frame, whose
+// origin is opaque, is checked against. A zero Status is 200.
 type File struct {
 	Body        []byte
 	ContentType string
+	Status      int
+	Header      map[string]string
 }
 
 // Page is one document to draw and everything it may load from its own
@@ -115,10 +120,10 @@ type File struct {
 type Page struct {
 	// Document is served as the page itself.
 	Document []byte
-	// Files answers a request for a path on the page's own origin. A path it
-	// does not know is answered 404, which is what the document would see
-	// from a real server.
-	Files func(path string) (File, bool)
+	// Files answers a request for a path on the page's own origin, given the
+	// request's headers. A path it does not know is answered 404, which is
+	// what the document would see from a real server.
+	Files func(path string, header http.Header) (File, bool)
 	// Ready is a JavaScript expression evaluating to a Promise that resolves
 	// to "" once the page is drawn, or to the reason it cannot be.
 	Ready string

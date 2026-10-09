@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/instanceheader"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/mapwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/pdfhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
@@ -218,6 +219,12 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	mountWebhookAdminAPI(mux, p, hooks)
 	mountSecretAdminAPI(mux, p)
 
+	// Street maps (#2068): the basemap archives and their listing, served
+	// with no session ahead of the portal UI's catch-all, the settings routes,
+	// and the fetch, which starts once the mux is complete.
+	streetMaps := mapwire.Build(p)
+	streetMaps.Mount(mux, func() func(http.Handler) http.Handler { return buildAdminAuth(p) }, adminEmail)
+
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by
 	// p.WireRuntime (caller), after the gateway integrations it depends
@@ -254,14 +261,17 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	rootHandler := buildRootHandler(ctx, mcpServer, p, hcfg)
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
 
-	// The PDF routes and the tile worker read the complete mux; the worker stops after the drain.
+	// The PDF routes and the tile worker read the complete mux, through the CORS layer a browser's reads pass; the worker stops after the drain.
 	pdfhttp.MountFor(mux, p)
-	thumbs := thumbwire.Build(p, mux)
+	thumbs := thumbwire.Build(p, corshttp.Middleware(mux))
 	thumbs.Start(ctx)
 	defer thumbs.Stop()
 
 	hooks.Start(ctx)
 	defer hooks.Stop()
+
+	streetMaps.Start(ctx)
+	defer streetMaps.Stop()
 
 	hcfg.mcpServer = mcpServer
 	hcfg.observe.Mux = mux

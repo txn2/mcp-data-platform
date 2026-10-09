@@ -16,3 +16,4 @@ export * from "./sessions";
 export * from "./calls";
 export * from "./secrets";
 export * from "./webhooks";
+export * from "./maps";

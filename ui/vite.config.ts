@@ -112,42 +112,107 @@ const REVEAL_VENDOR_FILES = [
 ];
 const REVEAL_LICENSE = "LICENSE";
 
-function revealContentType(file: string): string {
-  return file.endsWith(".css") ? "text/css; charset=utf-8" : "application/javascript; charset=utf-8";
+function revealFiles(): Map<string, string> {
+  const pkgDir = path.resolve(__dirname, "node_modules/reveal.js");
+  const files = new Map(REVEAL_VENDOR_FILES.map((f) => [f, path.join(pkgDir, "dist", f)]));
+  files.set(REVEAL_LICENSE, path.join(pkgDir, REVEAL_LICENSE));
+  return files;
 }
 
-function revealVendor(): Plugin {
-  const pkgDir = path.resolve(__dirname, "node_modules/reveal.js");
+/**
+ * Serve the map runtime the platform ships (#2068), the way reveal.js is
+ * served: MapLibre GL JS, the pmtiles protocol, the Protomaps basemap style,
+ * the glyphs and sprites that style names, and the us-atlas boundaries with
+ * the TopoJSON client that reads them.
+ *
+ * MapLibre is the 5.x UMD build because it starts its worker from a blob: URL
+ * it makes itself. A map asset runs in a sandboxed frame whose origin is
+ * opaque, and the 6.x module build starts its worker from the file's own URL,
+ * which a frame with an opaque origin may not do.
+ *
+ * The glyphs and sprites are not on npm. They are checked in under
+ * ui/vendor/maplibre at a pinned commit by scripts/sync-map-assets.sh, which
+ * also copies the license texts the npm packages do not carry; every file in
+ * that directory is served, and that directory is the list.
+ */
+const MAP_VENDOR_PREFIX = "/portal/vendor/maplibre/";
+
+function mapFiles(): Map<string, string> {
+  const mod = (p: string) => path.resolve(__dirname, "node_modules", p);
+  const files = new Map<string, string>([
+    ["maplibre-gl.js", mod("maplibre-gl/dist/maplibre-gl.js")],
+    ["maplibre-gl.css", mod("maplibre-gl/dist/maplibre-gl.css")],
+    ["LICENSE-maplibre.txt", mod("maplibre-gl/LICENSE.txt")],
+    ["pmtiles.js", mod("pmtiles/dist/pmtiles.js")],
+    ["basemaps.js", mod("@protomaps/basemaps/dist/basemaps.js")],
+    ["topojson-client.js", mod("topojson-client/dist/topojson-client.min.js")],
+    ["LICENSE-topojson-client.txt", mod("topojson-client/LICENSE")],
+    ["LICENSE-us-atlas.txt", mod("us-atlas/LICENSE")],
+  ]);
+  for (const atlas of ["states", "counties", "nation"]) {
+    for (const projection of ["10m", "albers-10m"]) {
+      const file = `${atlas}-${projection}.json`;
+      files.set(`us-atlas/${file}`, mod(`us-atlas/${file}`));
+    }
+  }
+  const committed = path.resolve(__dirname, "vendor/maplibre");
+  for (const entry of fs.readdirSync(committed, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (!entry.isFile()) continue;
+    const abs = path.join(entry.parentPath, entry.name);
+    files.set(path.relative(committed, abs).split(path.sep).join("/"), abs);
+  }
+  return files;
+}
+
+const VENDOR_CONTENT_TYPES: Record<string, string> = {
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".pbf": "application/x-protobuf",
+  ".png": "image/png",
+  ".md": "text/markdown; charset=utf-8",
+};
+
+function vendorContentType(file: string): string {
+  return VENDOR_CONTENT_TYPES[path.extname(file)] ?? "text/plain; charset=utf-8";
+}
+
+/**
+ * A fixed set of third-party files served under one /portal/vendor/ path:
+ * answered from their sources by a middleware in dev and copied into the build
+ * output, so the path a document names is the one path in every mode. The map
+ * is served path to source file.
+ */
+function vendorFiles(name: string, prefix: string, list: () => Map<string, string>): Plugin {
   let outDir = "dist";
+  const files = list();
   return {
-    name: "reveal-vendor",
+    name,
     configResolved(config) {
       outDir = config.build.outDir;
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const url = (req.url ?? "").split("?")[0] ?? "";
-        if (!url.startsWith(REVEAL_VENDOR_PREFIX)) {
+        const url = decodeURIComponent((req.url ?? "").split("?")[0] ?? "");
+        const source = url.startsWith(prefix) ? files.get(url.slice(prefix.length)) : undefined;
+        if (!source) {
           next();
           return;
         }
-        const file = url.slice(REVEAL_VENDOR_PREFIX.length);
-        if (!REVEAL_VENDOR_FILES.includes(file)) {
-          next();
-          return;
-        }
-        res.setHeader("Content-Type", revealContentType(file));
-        res.end(fs.readFileSync(path.join(pkgDir, "dist", file)));
+        res.setHeader("Content-Type", vendorContentType(source));
+        res.end(fs.readFileSync(source));
       });
     },
     closeBundle() {
-      const dest = path.resolve(__dirname, outDir, "vendor/reveal");
-      for (const file of REVEAL_VENDOR_FILES) {
+      const dest = path.resolve(__dirname, outDir, prefix.replace(/^\/portal\//, ""));
+      for (const [file, source] of files) {
         const target = path.join(dest, file);
         fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.copyFileSync(path.join(pkgDir, "dist", file), target);
+        fs.copyFileSync(source, target);
       }
-      fs.copyFileSync(path.join(pkgDir, REVEAL_LICENSE), path.join(dest, REVEAL_LICENSE));
     },
   };
 }
@@ -156,7 +221,13 @@ export default defineConfig(({ mode }) => {
   const apiTarget = process.env.VITE_API_TARGET || "http://localhost:8080";
 
   return {
-    plugins: [react(), tailwindcss(), revealVendor(), ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : [])],
+    plugins: [
+      react(),
+      tailwindcss(),
+      vendorFiles("reveal-vendor", REVEAL_VENDOR_PREFIX, revealFiles),
+      vendorFiles("maplibre-vendor", MAP_VENDOR_PREFIX, mapFiles),
+      ...(mode === "development" ? [mswRootWorker(), mockRefRoute()] : []),
+    ],
     base: "/portal/",
     resolve: {
       alias: {

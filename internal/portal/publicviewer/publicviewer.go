@@ -65,8 +65,10 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //     are fetched by the same directive as it renders each family (#1355).
 //     On an https deployment `https:` already covered this; 'self' is what
 //     makes a plaintext deployment work too. It grants the server's own
-//     origin, which is where the page itself came from, and resolves to
-//     nothing inside an artifact frame, whose origin is opaque.
+//     origin, which is where the page itself came from. An HTML asset's frame
+//     is an srcdoc document, which inherits this policy with the viewer's
+//     origin as its 'self', so it grants the same origin there: that is how
+//     a deck loads the served slide runtime on a plaintext deployment.
 //   - script-src https: — assets legitimately load third-party script. The
 //     JSX renderer resolves react, react-dom, recharts and lucide-react from
 //     esm.sh through an import map, and stored HTML artifacts reference CDN
@@ -89,8 +91,10 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 //   - connect-src https: — no viewer path issues a request this directive
 //     governs; the page hands content URLs to elements instead. It is here
 //     for artifacts that call an API. 'self' rides along for the page's own
-//     origin, and resolves to nothing inside an artifact frame, whose origin
-//     is opaque.
+//     origin, and, inherited by an srcdoc asset frame as above, it is what
+//     lets a map read the basemap archive and the map runtime's glyphs from
+//     /portal/maps/ and /portal/vendor/maplibre/ on a plaintext deployment
+//     (#2068); a map on an https deployment is covered by `https:` too.
 //
 // 'unsafe-eval' is deliberately absent: Sucrase transforms JSX in the parent
 // page and the iframe runs the result as a module, so no viewer path

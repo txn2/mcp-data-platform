@@ -17,7 +17,8 @@ vi.mock("@/api/admin/hooks", () => ({
 // the alert sections are stubbed out: with all of them rendered, "the switch"
 // and "the loading indicator" would name several elements each. The alert
 // sections (and the page composing them) are covered in
-// ReviewAlertCard.test.tsx and ConnectionAlertCard.test.tsx.
+// ReviewAlertCard.test.tsx and ConnectionAlertCard.test.tsx, and the maps
+// section in MapsCard.test.tsx.
 vi.mock("./ReviewAlertCard", () => ({
   ReviewAlertCard: () => null,
 }));
@@ -28,6 +29,10 @@ vi.mock("./ConnectionAlertCard", () => ({
 
 vi.mock("./NotificationChannelsCard", () => ({
   NotificationChannelsCard: () => null,
+}));
+
+vi.mock("./MapsCard", () => ({
+  MapsCard: () => null,
 }));
 
 import {
