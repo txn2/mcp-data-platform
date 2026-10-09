@@ -39,7 +39,9 @@ jobs:
           # falls back to a full-repo scan that surfaces pre-existing issues. The
           # git-based diff has no size cap and matches `make verify` locally.
           # Base: the PR target tip on pull_request, the pre-push tip on push.
-          args: --timeout=5m --new-from-rev=${{ github.event.pull_request.base.sha || github.event.before }}
+          # The timeout is .golangci.yml's (10m), as it is locally: a toolchain bump
+          # invalidates the analysis cache and a cold run took 340s on #2064.
+          args: --new-from-rev=${{ github.event.pull_request.base.sha || github.event.before }}
 
   test:
     name: Test
