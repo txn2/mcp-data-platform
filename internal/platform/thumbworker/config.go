@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 // DefaultRendererURL is where the platform looks for its renderer when none is
@@ -50,6 +52,16 @@ type Config struct {
 	// attempt that did not finish; each later one waits four times longer,
 	// up to an hour.
 	RetryBackoff time.Duration `yaml:"retry_backoff"`
+
+	// MaxSourceBytes is the largest document a tile is drawn from, for
+	// every family but the ones drawn from part of the file. The renderer
+	// loads the whole document, so raising it asks the renderer for memory
+	// to match. Zero means 1 MB (thumbtypes.DefaultSourceLimit, #2072).
+	MaxSourceBytes int64 `yaml:"max_source_bytes"`
+	// LargeSourceBytes is the bound for the families whose tile is drawn
+	// from part of the file: page one of a PDF, the first rows of a CSV or
+	// TSV. Zero means 32 MB (thumbtypes.LargeSourceLimit).
+	LargeSourceBytes int64 `yaml:"large_source_bytes"`
 }
 
 // IsEnabled reports whether the platform draws tiles, defaulting to true.
@@ -67,6 +79,37 @@ func (c Config) EffectiveRendererURL() string {
 
 // errNegative is a pacing value below zero, which has no meaning.
 var errNegative = errors.New("thumbnails: concurrency, batch, max_attempts, render_timeout, lease, poll and retry_backoff cannot be negative")
+
+// errNegativeSource is a source bound below zero.
+var errNegativeSource = errors.New("thumbnails: max_source_bytes and large_source_bytes cannot be negative")
+
+// SourceLimits are the section's source bounds with every default applied,
+// or why they cannot be: a value below zero. The platform installs them with
+// thumbtypes.SetSourceLimits.
+func (c Config) SourceLimits() (thumbtypes.Limits, error) {
+	if c.MaxSourceBytes < 0 || c.LargeSourceBytes < 0 {
+		return thumbtypes.Limits{}, errNegativeSource
+	}
+	l := thumbtypes.Limits{Default: c.MaxSourceBytes, Large: c.LargeSourceBytes}
+	if l.Default == 0 {
+		l.Default = thumbtypes.DefaultSourceLimit
+	}
+	if l.Large == 0 {
+		l.Large = thumbtypes.LargeSourceLimit
+	}
+	return l, nil
+}
+
+// InstallSourceLimits makes the section's source bounds the ones every store
+// claim and every asset and resource read applies.
+func (c Config) InstallSourceLimits() error {
+	l, err := c.SourceLimits()
+	if err != nil {
+		return err
+	}
+	thumbtypes.SetSourceLimits(l)
+	return nil
+}
 
 // Tuning is the section as the worker paces itself, with every default
 // applied, or why it cannot be: a negative value, or a lease the batch it

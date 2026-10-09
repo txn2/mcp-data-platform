@@ -88,10 +88,10 @@ func TestWireTrinoExport_ToolAppearsInToolList(t *testing.T) {
 	// when portal + trino are both configured.
 
 	// Create a real trino toolkit
-	tk, err := trinokit.New("test", trinokit.Config{
+	tk, err := trinokit.NewMulti(trinokit.MultiConfig{DefaultConnection: "test", Instances: map[string]trinokit.Config{"test": {
 		Host: "localhost",
 		User: "test",
-	})
+	}}})
 	require.NoError(t, err)
 	defer tk.Close() //nolint:errcheck // test cleanup
 
@@ -175,7 +175,7 @@ func TestWireTrinoExport_WithMultiConnectionToolkit(t *testing.T) {
 }
 
 func TestWireTrinoExport_SkipsWhenExplicitlyDisabled(t *testing.T) {
-	tk, err := trinokit.New("test", trinokit.Config{Host: "localhost", User: "test"})
+	tk, err := trinokit.NewMulti(trinokit.MultiConfig{DefaultConnection: "test", Instances: map[string]trinokit.Config{"test": {Host: "localhost", User: "test"}}})
 	require.NoError(t, err)
 	defer tk.Close() //nolint:errcheck // test cleanup
 
@@ -196,7 +196,7 @@ func TestWireTrinoExport_SkipsWhenExplicitlyDisabled(t *testing.T) {
 }
 
 func TestWireTrinoExport_SkipsWhenNoPortalS3(t *testing.T) {
-	tk, err := trinokit.New("test", trinokit.Config{Host: "localhost", User: "test"})
+	tk, err := trinokit.NewMulti(trinokit.MultiConfig{DefaultConnection: "test", Instances: map[string]trinokit.Config{"test": {Host: "localhost", User: "test"}}})
 	require.NoError(t, err)
 	defer tk.Close() //nolint:errcheck // test cleanup
 

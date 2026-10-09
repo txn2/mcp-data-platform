@@ -1715,6 +1715,8 @@ thumbnails:
   poll: 5s                              # idle wait between passes
   max_attempts: 5                       # tries before a document that never finishes is recorded
   retry_backoff: 1m                     # hold after the first unfinished try; x4 each try, at most 1h
+  max_source_bytes: 1048576             # largest document a tile is drawn from (1 MB)
+  large_source_bytes: 33554432          # the bound for PDF, CSV and TSV (32 MB)
 ```
 
 | Field | Type | Default | Description |
@@ -1728,8 +1730,12 @@ thumbnails:
 | `poll` | duration | `5s` | How long an idle worker waits before asking for work again. |
 | `max_attempts` | int | `5` | How many times a document is tried before one whose attempt never finishes is recorded as not drawable. |
 | `retry_backoff` | duration | `1m` | How long a document is held back after its first unfinished attempt; four times longer after each one after, at most an hour. |
+| `max_source_bytes` | int | `1048576` (1 MB) | The largest document a tile is drawn from, for every family but the three below. The renderer loads the whole document to draw it. |
+| `large_source_bytes` | int | `33554432` (32 MB) | The bound for the families whose tile is drawn from part of the file: page one of a PDF, the header and first rows of a CSV or TSV. |
 
 A negative value for any of these is refused at startup.
+
+A file larger than its bound is never offered to the renderer and keeps its content-type icon. Every asset and resource read says so (#2072): the portal API, `manage_asset get`/`list` and `manage_resource` report `thumbnail_skipped: "over_source_limit"` and `thumbnail_source_limit` (the bound, in bytes), and the file's Thumbnail panel says the file is too large for a thumbnail, with both sizes. Without them a skipped file reads the same as one not drawn yet. Raising `max_source_bytes` is the fix for a scripted dashboard that carries its data inline; the renderer holds the whole document while it draws, so give it memory to match.
 
 Tiles are stored at 800×600. HTML, JSX, markdown, CSV, JSON and the text families get a light and a dark tile; SVG and raster images get one. A release that changes how tiles are drawn raises the renderer generation, and on upgrade the worker redraws every stored tile once in the background, newest first; each old tile keeps serving until its replacement lands.
 
@@ -1832,10 +1838,12 @@ elicitation:
 | `enabled` | `*bool` | `true` (nil = enabled) | Enable elicitation |
 | `cost_estimation.enabled` | `*bool` | `true` (nil = enabled) | Prompt before expensive queries |
 | `cost_estimation.row_threshold` | int | `1000000` | Row count threshold from `EXPLAIN` IO estimates |
-| `pii_consent.enabled` | `*bool` | `true` (nil = enabled) | Prompt when query accesses PII-tagged columns |
+| `pii_consent.enabled` | `*bool` | `true` (nil = enabled) | Prompt when a query reads a column or a table tagged PII |
 
 !!! note "Client support required"
     Elicitation uses the MCP `elicitation/create` capability. Clients that don't support elicitation will not receive prompts — queries proceed without confirmation.
+
+How a prompt reaches the client depends on the protocol revision it speaks (#2052). A client on 2026-07-28 is answered with the prompts as input requests on the `trino_query` result (`resultType: "input_required"`) and retries the call with its answers; one cost prompt and one PII prompt owed by the same statement come in one round. An older client is asked in band while the call waits, which needs a deployment that keeps sessions in process: with a database session store the platform serves MCP stateless, a stateless server can send no request to the client, and an older client is not prompted (the query runs as it would for a client without elicitation). Either way a declined or cancelled prompt ends the call with a `user_declined` error, and nothing is sent to Trino past the estimate. The prompts are a layer of the platform's `tools/call` chain, inside authorization, the session and search-first gates and the rate limiter, so a call that may not run is never estimated or prompted for. Each Trino connection carries its own settings: the platform's apply to every connection in `toolkits.trino.instances` that sets no `elicitation` block of its own, and a connection added through the admin API with none takes the default connection's. The estimate's `EXPLAIN (TYPE IO)` runs on the connection the query names and is measured as one: `trino_queries_total{query_kind="explain"}` and a `trino.explain` span under the tool call's. The PII prompt fires for a column the catalog tags PII and for a table it tags PII (a tag whose name contains "pii"), since a catalog commonly tags the dataset holding personal data rather than each column. Before #2052 neither prompt ran on any deployment: the middleware was built only by a single-connection constructor the platform never used.
 
 !!! warning "Behavior change for existing deployments"
     Elicitation is user-facing: with no `elicitation` block at all, cost-estimation and PII-consent prompts now fire out of the box. `cost_estimation` still respects `row_threshold` (default 1,000,000 rows), so it only prompts on large queries. Deployments that relied on the previous silent-off default should add `elicitation.enabled: false` (or disable the sub-features individually) to keep the prior behavior.

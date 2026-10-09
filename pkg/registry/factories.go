@@ -38,19 +38,6 @@ func TrinoAggregateFactory(defaultName string, instances map[string]map[string]a
 	return tk, nil
 }
 
-// TrinoFactory creates a Trino toolkit from configuration.
-func TrinoFactory(name string, cfg map[string]any) (Toolkit, error) {
-	config, err := trinokit.ParseConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("parsing trino config: %w", err)
-	}
-	tk, err := trinokit.New(name, config)
-	if err != nil {
-		return nil, fmt.Errorf("creating trino toolkit: %w", err)
-	}
-	return tk, nil
-}
-
 // DataHubFactory creates a DataHub toolkit from configuration.
 func DataHubFactory(name string, cfg map[string]any) (Toolkit, error) {
 	config, err := datahubkit.ParseConfig(cfg)

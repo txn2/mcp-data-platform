@@ -30544,6 +30544,13 @@ const docTemplate = `{
                     "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
                     "type": "string"
                 },
+                "thumbnail_skipped": {
+                    "description": "ThumbnailSkipped says why this file is never given a tile, and\nThumbnailSourceLimit the bound it is held to: \"over_source_limit\" when\nit is larger than thumbnails.max_source_bytes (or large_source_bytes\nfor its family). Empty when it is drawn, pending, or of a type no tile\nis drawn for, which is what tells \"skipped\" from \"not drawn yet\"\n(#2072). Derived on read, never stored.",
+                    "type": "string"
+                },
+                "thumbnail_source_limit": {
+                    "type": "integer"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -32161,6 +32168,15 @@ const docTemplate = `{
                     "type": "string",
                     "example": "assets/01HK7R8Z/thumb.png"
                 },
+                "thumbnail_skipped": {
+                    "description": "ThumbnailSkipped says why this asset is never given a tile, and\nThumbnailSourceLimit the bound it is held to: \"over_source_limit\" when\nit is larger than thumbnails.max_source_bytes (or large_source_bytes\nfor its family). Empty when it is drawn, pending, or of a type no tile\nis drawn for, which is what tells \"skipped\" from \"not drawn yet\"\n(#2072). Derived on read, never stored.",
+                    "type": "string",
+                    "example": "over_source_limit"
+                },
+                "thumbnail_source_limit": {
+                    "type": "integer",
+                    "example": 1048576
+                },
                 "thumbnail_version": {
                     "description": "ThumbnailVersion is the asset version ThumbnailS3Key was captured from,\nand ThumbnailDarkVersion the same for the dark variant. Below\nCurrentVersion means the capture has not caught up with the content: the\nimage still serves, and the asset is what a refresh queue looks for. Zero\nwith a key recorded cannot occur -- see migration 000122 -- so it means\nno capture has ever been taken.\n\nThe two variants are stamped independently because they are captured and\nuploaded independently, and a pass that lands one and throws on the other\nleaves exactly that state.",
                     "type": "integer",
@@ -32652,6 +32668,15 @@ const docTemplate = `{
                 "thumbnail_s3_key": {
                     "type": "string",
                     "example": "assets/01HK7R8Z/thumb.png"
+                },
+                "thumbnail_skipped": {
+                    "description": "ThumbnailSkipped says why this asset is never given a tile, and\nThumbnailSourceLimit the bound it is held to: \"over_source_limit\" when\nit is larger than thumbnails.max_source_bytes (or large_source_bytes\nfor its family). Empty when it is drawn, pending, or of a type no tile\nis drawn for, which is what tells \"skipped\" from \"not drawn yet\"\n(#2072). Derived on read, never stored.",
+                    "type": "string",
+                    "example": "over_source_limit"
+                },
+                "thumbnail_source_limit": {
+                    "type": "integer",
+                    "example": 1048576
                 },
                 "thumbnail_version": {
                     "description": "ThumbnailVersion is the asset version ThumbnailS3Key was captured from,\nand ThumbnailDarkVersion the same for the dark variant. Below\nCurrentVersion means the capture has not caught up with the content: the\nimage still serves, and the asset is what a refresh queue looks for. Zero\nwith a key recorded cannot occur -- see migration 000122 -- so it means\nno capture has ever been taken.\n\nThe two variants are stamped independently because they are captured and\nuploaded independently, and a pass that lands one and throws on the other\nleaves exactly that state.",
@@ -34594,6 +34619,13 @@ const docTemplate = `{
                     "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
                     "type": "string"
                 },
+                "thumbnail_skipped": {
+                    "description": "ThumbnailSkipped says why this file is never given a tile, and\nThumbnailSourceLimit the bound it is held to: \"over_source_limit\" when\nit is larger than thumbnails.max_source_bytes (or large_source_bytes\nfor its family). Empty when it is drawn, pending, or of a type no tile\nis drawn for, which is what tells \"skipped\" from \"not drawn yet\"\n(#2072). Derived on read, never stored.",
+                    "type": "string"
+                },
+                "thumbnail_source_limit": {
+                    "type": "integer"
+                },
                 "updated_at": {
                     "type": "string"
                 },
@@ -34810,6 +34842,13 @@ const docTemplate = `{
                 "thumbnail_s3_key": {
                     "description": "ThumbnailS3Key and ThumbnailDarkS3Key are the captured PNGs stored beside\nthe resource's own object, empty until one is taken (#1554). The library\nused to draw the original file scaled down instead, which meant a\nnon-image had no tile at all and an image cost its full size to show.",
                     "type": "string"
+                },
+                "thumbnail_skipped": {
+                    "description": "ThumbnailSkipped says why this file is never given a tile, and\nThumbnailSourceLimit the bound it is held to: \"over_source_limit\" when\nit is larger than thumbnails.max_source_bytes (or large_source_bytes\nfor its family). Empty when it is drawn, pending, or of a type no tile\nis drawn for, which is what tells \"skipped\" from \"not drawn yet\"\n(#2072). Derived on read, never stored.",
+                    "type": "string"
+                },
+                "thumbnail_source_limit": {
+                    "type": "integer"
                 },
                 "updated_at": {
                     "type": "string"

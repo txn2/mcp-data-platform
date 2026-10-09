@@ -234,12 +234,13 @@ func TestStampComplete_PreservesEveryExportedFieldAndTheStashedError(t *testing.
 	assert.Same(t, stashed, res.GetError(), "the stashed error still feeds GetError")
 	assert.True(t, res.IsError)
 
-	// A result already carrying input requests is the SDK's input_required
-	// answer and is left alone.
+	// A tool result carrying input requests is input_required, whether the
+	// SDK's handler typed it or a receiving middleware built it (#2052).
 	ir := &mcp.CallToolResult{InputRequests: mcp.InputRequestMap{"q": &mcp.ElicitParams{Message: "m"}}}
 	stampComplete(ir)
-	_, has := wireResultType(t, ir)
-	assert.False(t, has, "an input_required result is not retyped complete")
+	rt, has := wireResultType(t, ir)
+	assert.True(t, has && rt == "input_required", "an input-requests result is typed input_required, got %q", rt)
+	assert.Len(t, ir.InputRequests, 1, "the stamp keeps the input requests")
 
 	// Prompt and resource results are stamped the same way, and their
 	// input_required answers are left alone the same way.
@@ -254,7 +255,7 @@ func TestStampComplete_PreservesEveryExportedFieldAndTheStashedError(t *testing.
 	stampComplete(&mcp.ListToolsResult{}) // a result type the SDK never types is ignored
 	pr := &mcp.GetPromptResult{Description: "d", Messages: []*mcp.PromptMessage{{Role: "user", Content: &mcp.TextContent{Text: "m"}}}}
 	stampComplete(pr)
-	rt, has := wireResultType(t, pr)
+	rt, has = wireResultType(t, pr)
 	assert.True(t, has && rt == "complete")
 	assert.Equal(t, "d", pr.Description)
 	rr := &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: "u", Text: "t"}}}

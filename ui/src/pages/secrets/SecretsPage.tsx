@@ -76,19 +76,19 @@ export function SecretsPage({
                   className="cursor-pointer"
                   onClick={() => open(s.name)}
                 >
-                  <TableCell>
+                  <TableCell className="max-w-64 whitespace-normal break-words">
                     <div className="font-medium">{s.name}</div>
                     <div className="font-mono text-xs text-muted-foreground">
                       {placeholder(s.name, s.kind)}
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-80 text-sm text-muted-foreground">
+                  <TableCell className="max-w-80 whitespace-normal break-words text-sm text-muted-foreground">
                     {s.description}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-w-64 whitespace-normal">
                     <Names names={s.allow_connections} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="max-w-64 whitespace-normal">
                     {s.allow_personas.length === 0 ? (
                       <span className="text-sm text-muted-foreground">Any</span>
                     ) : (
@@ -115,7 +115,7 @@ function Names({ names }: { names: string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {names.map((n) => (
-        <Badge key={n} variant="secondary" className="font-mono">
+        <Badge key={n} variant="secondary" className="max-w-full font-mono" title={n}>
           {n}
         </Badge>
       ))}

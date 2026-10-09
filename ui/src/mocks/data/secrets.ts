@@ -41,4 +41,18 @@ export const mockSecrets: Secret[] = [
     created_at: "2026-10-07T16:20:00Z",
     updated_at: "2026-10-07T16:20:00Z",
   },
+  {
+    // A long description and many connections, the row the table must wrap
+    // rather than draw over its neighbours (#2070).
+    name: "marketing_service_account",
+    description:
+      "Service account reports-reader@acme-marketing.iam.gserviceaccount.com, key id 3f9a1c0be27d4a6f, backing the campaign manager, display and video, and display and video reports connections.",
+    kind: "value",
+    allow_connections: ["cm360", "dv360", "dv360-reports", "ga4-export", "search-ads-360"],
+    allow_personas: ["admin", "marketing-analyst"],
+    created_by: "admin@example.com",
+    updated_by: "ops@example.com",
+    created_at: "2026-10-08T11:05:00Z",
+    updated_at: "2026-10-09T08:30:00Z",
+  },
 ];

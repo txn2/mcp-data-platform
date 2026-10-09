@@ -17,21 +17,6 @@ export const THUMB_WIDTH = 400;
 export const THUMB_HEIGHT = 300;
 
 /**
- * Largest document a thumbnail is drawn from, in bytes, for every family held
- * to the default bound. The server applies the same bound when it picks what
- * to draw; above it a file keeps its content-type icon.
- */
-export const THUMBNAIL_SOURCE_LIMIT = 1024 * 1024; // 1 MB
-
-/**
- * The bound the families in LARGE_SOURCE_FAMILIES are held to instead.
- *
- * The Go definition of both bounds, and of which families take this one, is
- * internal/thumbtypes; a test there fails when the two languages disagree.
- */
-export const LARGE_THUMBNAIL_SOURCE_LIMIT = 32 * 1024 * 1024; // 32 MB
-
-/**
  * How the tile page draws one family. Its dispatch (components/thumbnail/Tile)
  * is over this rather than over its own list of content types, so a family
  * cannot be offered by a surface that nothing can draw (#1568).
@@ -120,19 +105,6 @@ const THEMEABLE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>([
   "text",
 ]);
 
-/**
- * The families held to LARGE_THUMBNAIL_SOURCE_LIMIT rather than to the default
- * bound.
- *
- * What the default bound protects against is the renderer holding a whole
- * document, and a family is here when its tile costs less of that than the
- * file's size suggests, because the tile is drawn from a part of the file.
- * Only page one of a PDF is decoded (#1794); a table's tile is its header row
- * and its first rows, which is all the platform hands the tile page of a large
- * one (#1802).
- */
-const LARGE_SOURCE_FAMILIES: ReadonlySet<CaptureFamily> = new Set<CaptureFamily>(["pdf", "csv"]);
-
 /** One capturable type, and the family it is drawn as. */
 interface CapturableType {
   /**
@@ -219,18 +191,6 @@ const CAPTURABLE_TYPES: CapturableType[] = [
 /** The family a content type is drawn as, or null when nothing draws it. */
 export function captureFamily(contentType: string): CaptureFamily | null {
   return matchType(contentType)?.family ?? null;
-}
-
-/**
- * The largest file of this content type a tile is drawn from. The families
- * drawn from part of the file have a bound of their own; every other family
- * shares the default.
- */
-export function thumbnailSourceLimit(contentType: string): number {
-  const family = captureFamily(contentType);
-  return family !== null && LARGE_SOURCE_FAMILIES.has(family)
-    ? LARGE_THUMBNAIL_SOURCE_LIMIT
-    : THUMBNAIL_SOURCE_LIMIT;
 }
 
 /** Returns true if the content type supports thumbnail generation. */
@@ -400,6 +360,13 @@ export interface ThumbnailState {
   thumbnail_renderer?: number;
   thumbnail_failure?: string;
   thumbnail_failed_version?: number;
+  /**
+   * Why no tile is ever drawn for this file ("over_source_limit"), and the
+   * bound it is past. The bound is the deployment's (thumbnails.max_source_bytes,
+   * #2072), so the server reports it rather than the browser keeping a copy.
+   */
+  thumbnail_skipped?: string;
+  thumbnail_source_limit?: number;
 }
 
 /** The same of a managed resource, which dates its captures rather than versioning them. */
@@ -414,6 +381,9 @@ export interface ResourceThumbnailState {
   thumbnail_renderer?: number;
   thumbnail_failure?: string;
   thumbnail_failed_at?: string;
+  /** As ThumbnailState's (#2072). */
+  thumbnail_skipped?: string;
+  thumbnail_source_limit?: number;
 }
 
 /** An asset's captures, under the field names an asset spells them with. */

@@ -257,18 +257,25 @@ func clientRequiresResultType(req mcp.Request) bool {
 // They are the only way to obtain the unexported field set, and a value copy of
 // one carries it.
 var (
-	completeCallToolResult     = mustDecodeComplete[mcp.CallToolResult]()
-	completeGetPromptResult    = mustDecodeComplete[mcp.GetPromptResult]()
-	completeReadResourceResult = mustDecodeComplete[mcp.ReadResourceResult]()
+	completeCallToolResult      = mustDecodeComplete[mcp.CallToolResult]()
+	inputRequiredCallToolResult = mustDecodeResultType[mcp.CallToolResult]("input_required")
+	completeGetPromptResult     = mustDecodeComplete[mcp.GetPromptResult]()
+	completeReadResourceResult  = mustDecodeComplete[mcp.ReadResourceResult]()
 )
 
 // mustDecodeComplete decodes the minimal complete-result wire form into T. A
 // failure is a programming error surfaced at package initialization and covered
 // by tests, mirroring regexp.MustCompile.
 func mustDecodeComplete[T any]() T {
+	return mustDecodeResultType[T]("complete")
+}
+
+// mustDecodeResultType decodes the minimal wire form carrying resultType rt
+// into T.
+func mustDecodeResultType[T any](rt string) T {
 	var v T
-	if err := json.Unmarshal([]byte(`{"resultType":"complete"}`), &v); err != nil {
-		panic(fmt.Sprintf("middleware: decoding complete %T: %v", v, err))
+	if err := json.Unmarshal([]byte(`{"resultType":"`+rt+`"}`), &v); err != nil {
+		panic(fmt.Sprintf("middleware: decoding %s %T: %v", rt, v, err))
 	}
 	return v
 }
@@ -296,8 +303,16 @@ func stampComplete(result mcp.Result) {
 // an unexported error the stamp must keep: it feeds GetError on the way out,
 // so it is re-stashed after the copy. Content is already populated, so
 // SetError leaves it untouched.
+//
+// A result carrying input requests is input_required. The SDK types the one
+// its own handler returns; one a receiving middleware returns -- a toolkit's
+// consent prompts (#2052) -- never passes it and is typed here.
 func stampCallToolResult(r *mcp.CallToolResult) {
-	if r == nil || len(r.InputRequests) > 0 {
+	if r == nil {
+		return
+	}
+	if len(r.InputRequests) > 0 {
+		restamp(inputRequiredCallToolResult, r)
 		return
 	}
 	err := r.GetError()

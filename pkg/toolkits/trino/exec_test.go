@@ -142,17 +142,18 @@ func TestExec_UnconfiguredConnectionRefuses(t *testing.T) {
 	assert.Contains(t, err.Error(), "resolving trino connection")
 }
 
-// TestExec_SingleConnectionReadOnlyRefuses covers the single-connection
-// toolkit, where the connection argument selects nothing and read_only holds
-// for every call. The interceptor is kept on the toolkit for exactly this.
+// TestExec_SingleConnectionReadOnlyRefuses covers a toolkit with one
+// read-only connection: a statement naming no connection runs on that one,
+// and its read_only holds. The interceptor is kept on the toolkit so Exec
+// runs the same check the MCP path runs.
 func TestExec_SingleConnectionReadOnlyRefuses(t *testing.T) {
-	tk, err := New("only", Config{Host: "trino.example.com", User: "u", ReadOnly: true})
+	tk, err := newSingle("only", Config{Host: "trino.example.com", User: "u", ReadOnly: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tk.Close() })
 
 	err = tk.Exec(context.Background(), "", `INSERT INTO a.b.c VALUES (1)`)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read-only mode")
+	assert.Contains(t, err.Error(), `connection "only" is read-only`)
 }
 
 // TestExec_NoClientAvailable is the unwired shape: a toolkit with neither a

@@ -83,7 +83,7 @@ func TestVerifyReportsTheCheapGatesFirst(t *testing.T) {
 		}
 	}
 
-	for _, gate := range []string{"semgrep-diff", "doc-check", "acceptance-check", "state-readers-check", "e2e-copy-check", "dead-code"} {
+	for _, gate := range []string{"semgrep-diff", "doc-check", "acceptance-check", "state-readers-check", "e2e-copy-check", "route-manifest-check", "dead-code"} {
 		if indexOf(recipe(t, makefile, "preverify-fast"), gate) < 0 {
 			t.Errorf("preverify-fast does not run %s", gate)
 		}

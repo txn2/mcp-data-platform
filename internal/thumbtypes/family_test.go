@@ -291,3 +291,59 @@ func TestIsTransparent(t *testing.T) {
 		}
 	}
 }
+
+// TestSkippedTellsAFileOverItsBoundFromOneNotDrawnYet pins #2072: a file past
+// its family's bound is never claimed, and without a reason it read exactly
+// like one the renderer had not reached.
+func TestSkippedTellsAFileOverItsBoundFromOneNotDrawnYet(t *testing.T) {
+	for _, tc := range []struct {
+		name, contentType string
+		size, wantLimit   int64
+		wantReason        string
+	}{
+		{"html at the bound", "text/html", DefaultSourceLimit, 0, ""},
+		{"html past the bound", "text/html", DefaultSourceLimit + 1, DefaultSourceLimit, SkippedOverSourceLimit},
+		{"pdf past the default, within its own", "application/pdf", DefaultSourceLimit + 1, 0, ""},
+		{"pdf past its own bound", "application/pdf", LargeSourceLimit + 1, LargeSourceLimit, SkippedOverSourceLimit},
+		{"a type no tile is drawn for", "application/zip", LargeSourceLimit + 1, 0, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reason, limit := Skipped(tc.contentType, tc.size)
+			if reason != tc.wantReason || limit != tc.wantLimit {
+				t.Errorf("Skipped(%q, %d) = (%q, %d), want (%q, %d)",
+					tc.contentType, tc.size, reason, limit, tc.wantReason, tc.wantLimit)
+			}
+		})
+	}
+}
+
+// TestConfiguredBoundsReachEveryReader: the claim statement, the per-type
+// bound and Skipped all read the installed bounds, so a deployment that raises
+// thumbnails.max_source_bytes has the larger documents claimed AND stops
+// reporting them skipped. A zero field keeps its default.
+func TestConfiguredBoundsReachEveryReader(t *testing.T) {
+	t.Cleanup(func() { SetSourceLimits(Limits{}) })
+	SetSourceLimits(Limits{Default: 4 << 20})
+
+	if got := SourceLimits(); got != (Limits{Default: 4 << 20, Large: LargeSourceLimit}) {
+		t.Errorf("SourceLimits() = %+v", got)
+	}
+	if got := SourceLimit("text/html"); got != 4<<20 {
+		t.Errorf("SourceLimit(text/html) = %d, want %d", got, 4<<20)
+	}
+	if reason, _ := Skipped("text/html", 2<<20); reason != "" {
+		t.Errorf("a 2 MB page under a 4 MB bound reports skipped %q", reason)
+	}
+	want := "size_bytes <= CASE WHEN mime_type ILIKE ANY($3) THEN 33554432::bigint ELSE 4194304::bigint END"
+	if got := SourceLimitExpr("size_bytes", "mime_type", "$3"); got != want {
+		t.Errorf("SourceLimitExpr = %q, want %q", got, want)
+	}
+
+	SetSourceLimits(Limits{Large: 64 << 20})
+	if got := SourceLimit("application/pdf"); got != 64<<20 {
+		t.Errorf("SourceLimit(application/pdf) = %d, want %d", got, 64<<20)
+	}
+	if got := SourceLimit("text/html"); got != DefaultSourceLimit {
+		t.Errorf("SourceLimit(text/html) = %d, want the default %d", got, DefaultSourceLimit)
+	}
+}

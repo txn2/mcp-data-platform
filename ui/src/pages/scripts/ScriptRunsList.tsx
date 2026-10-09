@@ -188,10 +188,10 @@ function RunRow({
       className="cursor-pointer"
       onClick={() => onNavigate(`${basePath}/${run.script_id}/runs/${run.id}`)}
     >
-      <TableCell className="max-w-md">
+      <TableCell className="max-w-md whitespace-normal">
         <button
           type="button"
-          className="text-left font-medium hover:underline"
+          className="text-left font-medium break-words hover:underline"
           onClick={(e) => {
             // The row opens the run; this opens the script it belongs to, which
             // is the other thing a reader wants from a listing that spans them.

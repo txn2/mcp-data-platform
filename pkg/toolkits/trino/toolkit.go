@@ -156,8 +156,7 @@ type PIIConsentConfig struct {
 type Toolkit struct {
 	name    string
 	config  Config
-	client  *trinoclient.Client
-	manager *multiserver.Manager // non-nil in multi-connection mode
+	manager *multiserver.Manager
 	// primary is the default connection's client settings, which a
 	// connection added at run time inherits what it leaves unset from.
 	primary      trinoclient.Config
@@ -193,47 +192,6 @@ type Toolkit struct {
 
 	// telemetry is the recorder every call to Trino reports to (telemetry.go).
 	telemetry queryTelemetry
-}
-
-// New creates a new Trino toolkit.
-func New(name string, cfg Config) (*Toolkit, error) {
-	if err := validateConfig(cfg); err != nil {
-		return nil, err
-	}
-
-	warnInertConnectionName(name, cfg.ConnectionName)
-	cfg = applyDefaults(name, cfg)
-
-	client, err := createClient(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	t := &Toolkit{
-		name:    name,
-		config:  cfg,
-		client:  client,
-		scratch: buildScratchTargets(map[string]Config{name: cfg}),
-	}
-
-	// Create elicitation middleware before toolkit so it can be passed as an option.
-	if cfg.Elicitation.Enabled {
-		t.elicitation = &ElicitationMiddleware{
-			client: client,
-			config: cfg.Elicitation,
-		}
-	}
-
-	// A single-connection toolkit routes every call to the one client whatever
-	// the connection argument says, so read_only holds for all of them. The
-	// interceptor is kept on the toolkit as well as handed to the tools so
-	// Exec runs the same check the MCP path runs.
-	if cfg.ReadOnly {
-		t.readOnly = NewReadOnlyInterceptor()
-	}
-	t.trinoToolkit = createToolkit(client, cfg, t.elicitation, t.readOnly, t.observerOptions()...)
-
-	return t, nil
 }
 
 // NewMulti creates a multi-connection Trino toolkit that routes requests
@@ -287,8 +245,13 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		scratch:                buildScratchTargets(cfg.Instances),
 	}
 
+	// Every connection's settings are held whether or not they enable a
+	// prompt, so a connection added later with one turned on is prompted
+	// for from its first call (#2052).
+	t.elicitation = newElicitationMiddleware(defaultName, cfg.Instances, t.explainClient, &t.telemetry)
+
 	connRequired := buildConnectionRequired(defaultName, cfg.Instances)
-	opts := buildToolkitOptions(defaultCfg, nil, connRequired, t.readOnly) // elicitation not supported in multi-mode yet
+	opts := buildToolkitOptions(defaultCfg, connRequired, t.readOnly)
 	opts = append(opts, t.observerOptions()...)
 	t.trinoToolkit = trinotools.NewToolkitWithManager(mgr, trinotools.Config{
 		DefaultLimit: defaultCfg.DefaultLimit,
@@ -428,7 +391,6 @@ func buildMultiserverConfig(
 // when no connection restricts writes.
 func buildToolkitOptions(
 	cfg Config,
-	elicit *ElicitationMiddleware,
 	connRequired *ConnectionRequiredMiddleware,
 	readOnly *ReadOnlyInterceptor,
 ) []trinotools.ToolkitOption {
@@ -461,9 +423,6 @@ func buildToolkitOptions(
 	}
 	if cfg.ProgressEnabled {
 		opts = append(opts, trinotools.WithMiddleware(&ProgressInjector{}))
-	}
-	if elicit != nil {
-		opts = append(opts, trinotools.WithMiddleware(elicit))
 	}
 
 	return opts
@@ -508,28 +467,6 @@ func defaultPort(ssl bool) int {
 	return defaultPlainPort
 }
 
-// createClient creates a new Trino client from the configuration.
-func createClient(cfg Config) (*trinoclient.Client, error) {
-	clientCfg := trinoclient.Config{
-		Host:      cfg.Host,
-		Port:      cfg.Port,
-		User:      cfg.User,
-		Password:  cfg.Password,
-		Catalog:   cfg.Catalog,
-		Schema:    cfg.Schema,
-		SSL:       cfg.IsSSLEnabled(),
-		SSLVerify: cfg.IsSSLVerifyEnabled(),
-		Timeout:   cfg.Timeout,
-		Source:    trinoSourceName,
-	}
-
-	client, err := trinoclient.New(clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating trino client: %w", err)
-	}
-	return client, nil
-}
-
 // toTrinoToolNames converts a generic string map to typed ToolName keys.
 func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 	if m == nil {
@@ -540,21 +477,6 @@ func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 		result[trinotools.ToolName(k)] = v
 	}
 	return result
-}
-
-// createToolkit creates the mcp-trino toolkit with appropriate options.
-func createToolkit(
-	client *trinoclient.Client,
-	cfg Config,
-	elicit *ElicitationMiddleware,
-	readOnly *ReadOnlyInterceptor,
-	extra ...trinotools.ToolkitOption,
-) *trinotools.Toolkit {
-	opts := append(buildToolkitOptions(cfg, elicit, nil, readOnly), extra...)
-	return trinotools.NewToolkit(client, trinotools.Config{
-		DefaultLimit: cfg.DefaultLimit,
-		MaxLimit:     cfg.MaxLimit,
-	}, opts...)
 }
 
 // toTrinoAnnotations converts config annotation overrides to mcp-trino ToolAnnotations.
@@ -759,6 +681,17 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 		t.readOnly.SetConnection(name, getBool(config, "read_only"))
 	}
 
+	// A connection that sets no elicitation block of its own takes the
+	// default connection's, which carries the platform's elicitation
+	// settings, as it inherits the default's client settings.
+	if t.elicitation != nil {
+		ec := t.elicitation.configFor(t.name)
+		if _, ok := config["elicitation"]; ok {
+			ec = getElicitationConfig(config)
+		}
+		t.elicitation.SetConnection(name, ec)
+	}
+
 	// Same reasoning for the registration target: without this the connection
 	// would register nothing until the next restart.
 	if scratch := getScratchConfig(config); scratch.Configured() {
@@ -790,6 +723,9 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if t.readOnly != nil {
 		t.readOnly.ForgetConnection(name)
 	}
+	if t.elicitation != nil {
+		t.elicitation.ForgetConnection(name)
+	}
 	return nil
 }
 
@@ -807,19 +743,26 @@ func (t *Toolkit) Close() error {
 		if err := t.manager.Close(); err != nil {
 			return fmt.Errorf("closing trino manager: %w", err)
 		}
-		return nil
-	}
-	if t.client != nil {
-		if err := t.client.Close(); err != nil {
-			return fmt.Errorf("closing trino client: %w", err)
-		}
 	}
 	return nil
 }
 
-// Client returns the underlying Trino client for direct use.
-func (t *Toolkit) Client() *trinoclient.Client {
-	return t.client
+// ConsentMiddleware is the tools/call layer that asks the caller to confirm a
+// trino_query estimated over its connection's row threshold, or reading a
+// column tagged PII (#2052). The platform places it in its receiving chain,
+// inside authorization and the gates.
+func (t *Toolkit) ConsentMiddleware() mcp.Middleware {
+	return t.elicitation.Middleware()
+}
+
+// explainClient is the client the elicitation estimate's EXPLAIN runs on for
+// a connection, the one the query itself will run on.
+func (t *Toolkit) explainClient(connection string) (queryExplainer, error) {
+	c, err := t.execClient(connection)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // Manager returns the multi-connection manager when the toolkit was

@@ -39,7 +39,7 @@ func exportWithStores(t *testing.T, assets ExportAssetStore, versions ExportVers
 	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 
 	s3 := &mockExportS3Client{}
-	tk := &Toolkit{name: "test", client: trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute}), config: Config{ReadOnly: true}}
+	tk := &Toolkit{name: "test", manager: singleClient(trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})), config: Config{ReadOnly: true}}
 	tk.SetExportDeps(ExportDeps{
 		AssetStore: assets, VersionStore: versions, S3Client: s3,
 		S3Bucket: "test-bucket", S3Prefix: "exports",

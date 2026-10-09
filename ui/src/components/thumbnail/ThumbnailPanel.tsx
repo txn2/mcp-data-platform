@@ -9,10 +9,10 @@ import { SectionCard } from "@/components/patterns/SectionCard";
 import { Button } from "@/components/ui/button";
 import { useResolvedDark } from "@/stores/theme";
 import type { FailedPart, ThumbnailSubject } from "@/lib/thumbnailSubject";
+import { formatBytes } from "@/lib/format";
 import {
   isThumbnailSupported,
   thumbnailSrc,
-  thumbnailSourceLimit,
   type ThumbnailTarget,
 } from "@/lib/thumbnailSupport";
 
@@ -63,6 +63,21 @@ export function ThumbnailPanel({
 
   if (!capturable(subject, canModify)) {
     return null;
+  }
+  if (subject.skippedLimit !== undefined) {
+    return (
+      <div className="border-t pt-4" data-testid="thumbnail-panel">
+        <SectionCard title="Thumbnail">
+          <SkippedBody
+            name={subject.name}
+            shown={shown && !failed ? shown : undefined}
+            sizeBytes={subject.sizeBytes}
+            limit={subject.skippedLimit}
+            onImageFailed={() => setFailed(true)}
+          />
+        </SectionCard>
+      </div>
+    );
   }
 
   return (
@@ -204,10 +219,52 @@ function useClearThumbnail(target: ThumbnailTarget) {
 
 /** Whether this reader has a tile to act on at all. */
 function capturable(subject: ThumbnailSubject, canModify: boolean): boolean {
+  return canModify && isThumbnailSupported(subject.contentType);
+}
+
+/**
+ * A file the renderer never draws because it is past the deployment's bound
+ * (#2072). It used to have no panel at all, which read the same as a tile not
+ * drawn yet; it says why instead, and offers no redraw the server will not do.
+ * A tile drawn while the file was smaller still serves, so it is shown.
+ */
+function SkippedBody({
+  name,
+  shown,
+  sizeBytes,
+  limit,
+  onImageFailed,
+}: {
+  name: string;
+  shown?: string;
+  sizeBytes: number;
+  limit: number;
+  onImageFailed: () => void;
+}) {
   return (
-    canModify &&
-    isThumbnailSupported(subject.contentType) &&
-    subject.sizeBytes <= thumbnailSourceLimit(subject.contentType)
+    <div className="space-y-2">
+      {shown ? (
+        <TileImg
+          src={shown}
+          alt={`Thumbnail for ${name}`}
+          className="w-full rounded border bg-muted object-cover"
+          loading="eager"
+          onError={onImageFailed}
+          onLoadFailed={onImageFailed}
+        />
+      ) : (
+        <div
+          className="flex h-24 items-center justify-center gap-2 rounded border border-dashed text-xs text-muted-foreground"
+          data-testid="thumbnail-placeholder"
+        >
+          <ImageOff className="size-4" aria-hidden />
+          Too large for a thumbnail
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground" data-testid="thumbnail-explanation">
+        {`This file is ${formatBytes(sizeBytes)}. Thumbnails are drawn only for files up to ${formatBytes(limit)}, which an administrator can raise.`}
+      </p>
+    </div>
   );
 }
 

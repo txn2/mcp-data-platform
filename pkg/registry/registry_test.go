@@ -294,14 +294,6 @@ func TestRegisterBuiltinFactories(t *testing.T) {
 	})
 }
 
-func TestTrinoFactory(t *testing.T) {
-	// Test with invalid config
-	_, err := TrinoFactory(regTestTest, map[string]any{})
-	if err == nil {
-		t.Error("TrinoFactory() expected error for missing host")
-	}
-}
-
 func TestRegisterAggregateFactory(t *testing.T) {
 	reg := NewRegistry()
 
@@ -635,5 +627,36 @@ func assertToolMatch(t *testing.T, got, want ToolkitMatch) {
 	}
 	if got.Connection != want.Connection {
 		t.Errorf("connection = %q, want %q", got.Connection, want.Connection)
+	}
+}
+
+// consentToolkit is a toolkit with a consent layer, which records that the
+// server it was installed on wrapped its handler with it.
+type consentToolkit struct {
+	mockToolkit
+	installed *int
+}
+
+func (c *consentToolkit) ConsentMiddleware() mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		*c.installed++
+		return next
+	}
+}
+
+// InstallConsentLayers adds the consent layer of every toolkit that has one
+// and skips the ones that do not (#2052).
+func TestRegistry_InstallConsentLayers(t *testing.T) {
+	reg := NewRegistry()
+	installed := 0
+	if err := reg.Register(&mockToolkit{kind: "s3", name: "files"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Register(&consentToolkit{mockToolkit: mockToolkit{kind: regTestTrino, name: regTestProd}, installed: &installed}); err != nil {
+		t.Fatal(err)
+	}
+	reg.InstallConsentLayers(mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil))
+	if installed != 1 {
+		t.Errorf("consent layers installed = %d, want 1", installed)
 	}
 }

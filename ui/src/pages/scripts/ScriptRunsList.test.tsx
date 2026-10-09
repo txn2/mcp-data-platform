@@ -67,6 +67,13 @@ describe("ScriptRunsList", () => {
     expect(onNavigate).toHaveBeenCalledWith("/automations/script-001");
   });
 
+  it("wraps a long script name inside its column (#2070)", () => {
+    owned();
+    const cell = screen.getByRole("button", { name: "Daily Sales Report" }).closest("td");
+    expect(cell!.className).toContain("whitespace-normal");
+    expect(cell!.className).not.toContain("whitespace-nowrap");
+  });
+
   // The reason a run failed decides which run anybody opens, so it is in the
   // row rather than behind it, and it wraps rather than being cut off.
   it("carries the reason a run failed", () => {

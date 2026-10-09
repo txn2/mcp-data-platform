@@ -47,7 +47,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release alert-rules-test \
-	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
+	tools-check dead-code mutate patch-coverage patch-coverage-check coverage-summary doc-check acceptance acceptance-release acceptance-check acceptance-release-check release-tag-check schedule-lane schedule-lane-ui realdb-lane state-readers-check e2e-copy-check route-manifest-check posture-check preverify preverify-fast swagger swagger-check verify-checks verify-go verify-static verify-docker verify-ui vet-tags \
 	semgrep semgrep-diff codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer content-viewer-embed \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -532,6 +532,14 @@ state-readers-check:
 e2e-copy-check:
 	@python3 scripts/e2e-copy-check.py
 
+## route-manifest-check: Fail when a portal route has no screenshot manifest entry (#2055)
+## route-sync.test.ts reads AppShell's pageTitles and the screenshot route
+## manifest and finishes in milliseconds, but the full vitest suite inside
+## verify's UI lane was the only thing running it, so a new portal section
+## missing its entry failed verify minutes in. This runs that one file.
+route-manifest-check:
+	cd $(UI_DIR) && npx vitest run e2e/screenshots/route-sync.test.ts
+
 ## schedule-lane: Run the tests the diff touched at -race -cpu=1,2 -count=5 (ordering-dependent tests, #1711, #2039)
 ## `test` runs each test once at this machine's CPU count, which is not the
 ## schedule a loaded CI runner chooses. TestWithRevocations_WiredLate passed
@@ -887,8 +895,8 @@ verify-go:
 ## preverify-fast: the cheap gates verify runs before its lanes (#1856, #2030)
 ## swagger-check and apidocs-openapi3-check (the API description is current and
 ## converts to OpenAPI 3), semgrep-diff, doc-check, acceptance-check,
-## state-readers-check, e2e-copy-check, dead-code and frontend-lint read the
-## change and the tree, not a coverage profile, so they answer in under a
+## state-readers-check, e2e-copy-check, route-manifest-check, dead-code and
+## frontend-lint read the change and the tree, not a coverage profile, so they answer in under a
 ## minute. verify runs them in its serial preamble. swagger-check runs first
 ## because it rewrites internal/apidocs, which state-readers-check reads.
 preverify-fast:
@@ -899,6 +907,7 @@ preverify-fast:
 	@$(MAKE) --no-print-directory acceptance-check
 	@$(MAKE) --no-print-directory state-readers-check
 	@$(MAKE) --no-print-directory e2e-copy-check
+	@$(MAKE) --no-print-directory route-manifest-check
 	@$(MAKE) --no-print-directory dead-code
 	@$(MAKE) --no-print-directory frontend-lint
 

@@ -2084,7 +2084,8 @@ func (c *Config) Validate() error {
 	_, admission := c.Scripts.Worker.Admission()
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
-	for _, err := range []error{admission, runBudget, thumbs, c.Webhooks.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
+	_, thumbSources := c.Thumbnails.SourceLimits()
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, c.Webhooks.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

@@ -96,6 +96,23 @@ describe("Secrets list", () => {
     expect(nav).toHaveBeenCalledWith("/admin/secrets/new");
   });
 
+  it("wraps a long description, name and connection list inside their columns (#2070)", () => {
+    at("/admin/secrets");
+    // TableCell sets whitespace-nowrap on every cell; a cell that holds free
+    // text must override it, or the text runs past its max-w under the next
+    // column. jsdom draws nothing, so the class is what can be asserted.
+    const wraps = (el: HTMLElement | null) => {
+      const cell = el?.closest("td");
+      expect(cell).toBeTruthy();
+      expect(cell!.className).toContain("whitespace-normal");
+      expect(cell!.className).not.toContain("whitespace-nowrap");
+    };
+    wraps(screen.getByText(/reports-reader@acme-marketing/));
+    wraps(screen.getByText("marketing_service_account"));
+    wraps(screen.getByText("dv360-reports"));
+    wraps(screen.getByText("marketing-analyst"));
+  });
+
   it("says when there is none, and when the list cannot be read", () => {
     h.list = { data: { secrets: [] }, isLoading: false, isError: false };
     at("/admin/secrets");

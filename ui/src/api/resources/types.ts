@@ -44,6 +44,11 @@ export interface Resource {
   // cleared (#1787).
   thumbnail_failure?: string;
   thumbnail_failed_at?: string;
+  // Why no tile is ever drawn for this file ("over_source_limit"), and the
+  // bound it is past, which is the deployment's thumbnails.max_source_bytes
+  // or large_source_bytes (#2072). Absent while a tile is drawn or pending.
+  thumbnail_skipped?: string;
+  thumbnail_source_limit?: number;
 }
 
 // ResourceUsage is the audit-derived read activity of a resource. Both counts

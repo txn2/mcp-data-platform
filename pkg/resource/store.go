@@ -11,6 +11,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -813,6 +814,7 @@ func (s *resourceScan) finish(r *Resource) {
 		t := s.failedAt.Time
 		r.ThumbnailFailedAt = &t
 	}
+	r.ThumbnailSkipped, r.ThumbnailSourceLimit = thumbtypes.Skipped(r.MIMEType, r.SizeBytes)
 }
 
 func (*postgresStore) scanOne(row *sql.Row) (*Resource, error) { //nolint:revive // interface-adjacent helper

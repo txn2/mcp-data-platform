@@ -52,7 +52,7 @@ func newFullFlowExportToolkit(t *testing.T) *Toolkit {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(1, "Alice").AddRow(2, "Bob"))
 
 	tk := newTestExportToolkit(&mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{})
-	tk.client = trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})
+	tk.manager = singleClient(trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute}))
 	tk.exportDeps.Config.DefaultTimeout = time.Minute
 	tk.exportDeps.Config.MaxTimeout = time.Minute
 	return tk

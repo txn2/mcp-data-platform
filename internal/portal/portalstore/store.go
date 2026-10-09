@@ -1071,6 +1071,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		if deletedAt.Valid {
 			sa.Asset.DeletedAt = &deletedAt.Time
 		}
+		applyThumbnailSkip(&sa.Asset)
 		if err := unmarshalAssetSummaryJSON(&sa.Asset, tags, summary); err != nil {
 			return nil, 0, err
 		}
@@ -1567,6 +1568,7 @@ func finishScannedListAsset(asset *portaldomain.Asset, tags, summary []byte, del
 }
 
 func applyScannedNullables(asset *portaldomain.Asset, deletedAt sql.NullTime, maxVersions sql.NullInt64) {
+	applyThumbnailSkip(asset)
 	if deletedAt.Valid {
 		asset.DeletedAt = &deletedAt.Time
 	}
@@ -1574,6 +1576,12 @@ func applyScannedNullables(asset *portaldomain.Asset, deletedAt sql.NullTime, ma
 		n := int(maxVersions.Int64)
 		asset.MaxVersions = &n
 	}
+}
+
+// applyThumbnailSkip fills the derived reason an asset is never given a tile
+// (#2072) on every read that scans one.
+func applyThumbnailSkip(asset *portaldomain.Asset) {
+	asset.ThumbnailSkipped, asset.ThumbnailSourceLimit = thumbtypes.Skipped(asset.ContentType, asset.SizeBytes)
 }
 
 func scanAssetRow(rows *sql.Rows) (portaldomain.Asset, error) {

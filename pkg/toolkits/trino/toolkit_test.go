@@ -35,7 +35,7 @@ const (
 
 func TestNew(t *testing.T) {
 	t.Run("missing host", func(t *testing.T) {
-		_, err := New("test", Config{
+		_, err := newSingle("test", Config{
 			User: "testuser",
 		})
 		if err == nil {
@@ -44,7 +44,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("missing user", func(t *testing.T) {
-		_, err := New("test", Config{
+		_, err := newSingle("test", Config{
 			Host: trinoTestHost,
 		})
 		if err == nil {
@@ -366,11 +366,8 @@ func TestToolkit_SetSemanticProviderWithElicitation(t *testing.T) {
 	}
 }
 
-func TestToolkit_ClientAndClose(t *testing.T) {
+func TestToolkit_Close(t *testing.T) {
 	tk := newTestTrinoToolkit()
-	if tk.Client() != nil {
-		t.Error("expected nil client")
-	}
 	if err := tk.Close(); err != nil {
 		t.Errorf("Close() error = %v", err)
 	}
@@ -500,14 +497,14 @@ func TestToolkit_RegisterTools(_ *testing.T) {
 }
 
 func TestToolkit_RegisterTools_WithRealToolkit(t *testing.T) {
-	// Create via New() to get a real trinoToolkit (non-nil).
-	tk, err := New("reg-test", Config{
+	// Built through the constructor to get a real trinoToolkit (non-nil).
+	tk, err := newSingle("reg-test", Config{
 		Host: trinoTestHost,
 		User: "testuser",
 		Port: trinoTestPort8080,
 	})
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewMulti() error = %v", err)
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
@@ -523,13 +520,13 @@ func TestToolkit_RegisterTools_WithRealToolkit(t *testing.T) {
 	}
 }
 
-func TestNew_Success(t *testing.T) {
+func TestNewSingleConnection_Success(t *testing.T) {
 	cfg := Config{
 		Host: "localhost",
 		User: "testuser",
 		Port: trinoTestPort8080,
 	}
-	tk, err := New("test-instance", cfg)
+	tk, err := newSingle("test-instance", cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -539,15 +536,17 @@ func TestNew_Success(t *testing.T) {
 	if tk.Name() != "test-instance" {
 		t.Errorf("Name() = %q, want 'test-instance'", tk.Name())
 	}
-	if tk.Client() == nil {
-		t.Error("expected non-nil client")
+	if tk.manager == nil {
+		t.Error("expected non-nil manager")
 	}
-	if tk.elicitation != nil {
-		t.Error("expected nil elicitation when not configured")
+	// The middleware is always installed, so a connection added later with
+	// prompts on is prompted for; this one has them off.
+	if tk.elicitation == nil || tk.elicitation.configFor("test-instance").Enabled {
+		t.Error("expected the elicitation middleware holding this connection's settings, off")
 	}
 }
 
-func TestNew_WithElicitation(t *testing.T) {
+func TestNewSingleConnection_WithElicitation(t *testing.T) {
 	cfg := Config{
 		Host: "localhost",
 		User: "testuser",
@@ -561,78 +560,19 @@ func TestNew_WithElicitation(t *testing.T) {
 			PIIConsent: PIIConsentConfig{Enabled: true},
 		},
 	}
-	tk, err := New("elicit-test", cfg)
+	tk, err := newSingle("elicit-test", cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if tk.elicitation == nil {
 		t.Fatal("expected non-nil elicitation middleware")
 	}
-	if !tk.elicitation.config.CostEstimation.Enabled {
+	got := tk.elicitation.configFor("elicit-test")
+	if !got.CostEstimation.Enabled {
 		t.Error("cost estimation should be enabled")
 	}
-	if tk.elicitation.config.CostEstimation.RowThreshold != 1000000 {
-		t.Errorf("row threshold = %d, want 1000000", tk.elicitation.config.CostEstimation.RowThreshold)
-	}
-}
-
-func TestCreateToolkit_WithElicitation(t *testing.T) {
-	// Create a client via the normal path
-	client, err := createClient(Config{
-		Host: "localhost",
-		User: "testuser",
-		Port: trinoTestPort8080,
-	})
-	if err != nil {
-		t.Fatalf("createClient error: %v", err)
-	}
-
-	em := &ElicitationMiddleware{
-		client: client,
-		config: ElicitationConfig{Enabled: true},
-	}
-
-	cfg := Config{
-		Host:         "localhost",
-		User:         "testuser",
-		Port:         trinoTestPort8080,
-		DefaultLimit: trinoTestDefLimit,
-		MaxLimit:     trinoTestDefMaxLimit,
-	}
-
-	tk := createToolkit(client, cfg, em, nil)
-	if tk == nil {
-		t.Fatal("expected non-nil toolkit")
-	}
-}
-
-func TestCreateToolkit_WithProgressAndElicitation(t *testing.T) {
-	client, err := createClient(Config{
-		Host: "localhost",
-		User: "testuser",
-		Port: trinoTestPort8080,
-	})
-	if err != nil {
-		t.Fatalf("createClient error: %v", err)
-	}
-
-	em := &ElicitationMiddleware{
-		client: client,
-		config: ElicitationConfig{Enabled: true},
-	}
-
-	cfg := Config{
-		Host:            "localhost",
-		User:            "testuser",
-		Port:            trinoTestPort8080,
-		DefaultLimit:    trinoTestDefLimit,
-		MaxLimit:        trinoTestDefMaxLimit,
-		ProgressEnabled: true,
-	}
-
-	tk := createToolkit(client, cfg, em, nil)
-	if tk == nil {
-		t.Fatal("expected non-nil toolkit")
+	if got.CostEstimation.RowThreshold != 1000000 {
+		t.Errorf("row threshold = %d, want 1000000", got.CostEstimation.RowThreshold)
 	}
 }
 
@@ -690,9 +630,6 @@ func TestNewMulti(t *testing.T) {
 		}
 		if tk.manager == nil {
 			t.Error("expected non-nil manager")
-		}
-		if tk.client != nil {
-			t.Error("expected nil client in multi-connection mode")
 		}
 
 		tools := tk.Tools()
@@ -910,14 +847,14 @@ func TestBuildToolkitOptions(t *testing.T) {
 	const baseline = 1
 
 	t.Run("empty config produces only the error sanitizer", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{}, nil, nil, nil)
+		opts := buildToolkitOptions(Config{}, nil, nil)
 		if len(opts) != baseline {
 			t.Errorf("expected %d option, got %d", baseline, len(opts))
 		}
 	})
 
 	t.Run("the unconditional interceptor adds no connection middleware", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{}, nil, nil, NewReadOnlyInterceptor())
+		opts := buildToolkitOptions(Config{}, nil, NewReadOnlyInterceptor())
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
@@ -925,7 +862,7 @@ func TestBuildToolkitOptions(t *testing.T) {
 
 	t.Run("a per-connection interceptor adds its connection middleware too", func(t *testing.T) {
 		ro := NewConnectionReadOnlyInterceptor("a", map[string]bool{"a": true})
-		opts := buildToolkitOptions(Config{}, nil, nil, ro)
+		opts := buildToolkitOptions(Config{}, nil, ro)
 		if len(opts) != baseline+2 {
 			t.Errorf("expected %d options, got %d", baseline+2, len(opts))
 		}
@@ -934,7 +871,7 @@ func TestBuildToolkitOptions(t *testing.T) {
 	t.Run("config read_only alone adds nothing", func(t *testing.T) {
 		// Enforcement is driven by the interceptor the caller builds, so a
 		// stray ReadOnly on the toolkit-level config must not install one.
-		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil, nil)
+		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil)
 		if len(opts) != baseline {
 			t.Errorf("expected %d option, got %d", baseline, len(opts))
 		}
@@ -943,7 +880,7 @@ func TestBuildToolkitOptions(t *testing.T) {
 	t.Run("titles adds option", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Titles: map[string]string{"trino_query": "Run Query"},
-		}, nil, nil, nil)
+		}, nil, nil)
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
@@ -953,14 +890,14 @@ func TestBuildToolkitOptions(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Descriptions: map[string]string{"trino_query": "custom"},
 			Annotations:  map[string]AnnotationConfig{"trino_query": {}},
-		}, nil, nil, nil)
+		}, nil, nil)
 		if len(opts) != baseline+2 {
 			t.Errorf("expected %d options, got %d", baseline+2, len(opts))
 		}
 	})
 
 	t.Run("progress adds middleware", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil, nil)
+		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil)
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
@@ -970,14 +907,13 @@ func TestBuildToolkitOptions(t *testing.T) {
 		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
 			{Name: "a"}, {Name: "b"},
 		})
-		opts := buildToolkitOptions(Config{}, nil, cr, nil)
+		opts := buildToolkitOptions(Config{}, cr, nil)
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
 	})
 
 	t.Run("all features combined", func(t *testing.T) {
-		em := &ElicitationMiddleware{}
 		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
 			{Name: "a"}, {Name: "b"},
 		})
@@ -986,10 +922,10 @@ func TestBuildToolkitOptions(t *testing.T) {
 			Descriptions:    map[string]string{"a": "b"},
 			Annotations:     map[string]AnnotationConfig{"a": {}},
 			ProgressEnabled: true,
-		}, em, cr, NewConnectionReadOnlyInterceptor("a", map[string]bool{"a": true}))
-		//nolint:mnd // readonly interceptor + its middleware + titles + descs + annots + connRequired + progress + elicit
-		if len(opts) != baseline+8 {
-			t.Errorf("expected %d options, got %d", baseline+8, len(opts))
+		}, cr, NewConnectionReadOnlyInterceptor("a", map[string]bool{"a": true}))
+		//nolint:mnd // readonly interceptor + its middleware + titles + descs + annots + connRequired + progress
+		if len(opts) != baseline+7 {
+			t.Errorf("expected %d options, got %d", baseline+7, len(opts))
 		}
 	})
 }

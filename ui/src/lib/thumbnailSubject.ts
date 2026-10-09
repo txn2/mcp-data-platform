@@ -42,6 +42,12 @@ export interface ThumbnailSubject {
   failedPart?: FailedPart;
   /** Which route this reader is entitled to read the tile through. */
   base: string;
+  /**
+   * The bound this file is past, when no tile is ever drawn for it because
+   * of its size (#2072). A skipped file is not being drawn, so it is never
+   * "behind".
+   */
+  skippedLimit?: number;
 }
 
 /**
@@ -80,6 +86,7 @@ export function assetSubject(
       return failedPart(current, !!light, asset.content_type);
     }),
     base,
+    ...skipped(asset),
   };
 }
 
@@ -100,6 +107,7 @@ export function resourceSubject(
       return failedPart(current, !!light, resource.mime_type);
     }),
     base: RESOURCE_THUMBNAIL_BASE,
+    ...skipped(resource),
   };
 }
 
@@ -113,4 +121,16 @@ function drawState(
   part: () => FailedPart,
 ): { behind: boolean; failure?: string; failedPart?: FailedPart } {
   return failure ? { behind: false, failure, failedPart: part() } : { behind };
+}
+
+/**
+ * A file the server says is past its tile bound: never behind, carrying the
+ * bound. The renderer never claims it, so reading its missing tile as "being
+ * drawn" would poll and say so forever (#2072).
+ */
+function skipped(
+  state: { thumbnail_skipped?: string; thumbnail_source_limit?: number },
+): { behind?: false; skippedLimit?: number } {
+  if (!state.thumbnail_skipped) return {};
+  return { behind: false, skippedLimit: state.thumbnail_source_limit ?? 0 };
 }

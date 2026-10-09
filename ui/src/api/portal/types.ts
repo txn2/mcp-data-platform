@@ -32,6 +32,11 @@ export interface Asset {
   // cleared (#1787).
   thumbnail_failure?: string;
   thumbnail_failed_version?: number;
+  // Why no tile is ever drawn for this file ("over_source_limit"), and the
+  // bound it is past, which is the deployment's thumbnails.max_source_bytes
+  // or large_source_bytes (#2072). Absent while a tile is drawn or pending.
+  thumbnail_skipped?: string;
+  thumbnail_source_limit?: number;
   size_bytes: number;
   tags: string[];
   /** Carried by a single asset read, bounded to its newest captures (#1623). */

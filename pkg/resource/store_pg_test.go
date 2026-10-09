@@ -9,6 +9,8 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 func TestPostgresStore_Insert(t *testing.T) {
@@ -386,6 +388,50 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 	}
 }
 
+// TestPostgresStore_GetReportsASkippedTile pins #2072 for resources: a
+// markdown file past the source bound is never claimed, and the read says so
+// with the bound. A CSV of the same size is within its own family's bound.
+func TestPostgresStore_GetReportsASkippedTile(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	store := NewPostgresStore(db)
+	for _, tc := range []struct {
+		mime       string
+		wantReason string
+		wantLimit  int64
+	}{
+		{"text/markdown", thumbtypes.SkippedOverSourceLimit, thumbtypes.DefaultSourceLimit},
+		{"text/csv", "", 0},
+	} {
+		row := resourceRow("id-1", "big")
+		row[7], row[8] = tc.mime, int64(2<<20)
+		mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
+			WithArgs("id-1").
+			WillReturnRows(sqlmock.NewRows(resourceColumns).AddRow(row...))
+		r, err := store.Get(context.Background(), "id-1")
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if r.ThumbnailSkipped != tc.wantReason || r.ThumbnailSourceLimit != tc.wantLimit {
+			t.Errorf("%s: skipped = (%q, %d), want (%q, %d)", tc.mime,
+				r.ThumbnailSkipped, r.ThumbnailSourceLimit, tc.wantReason, tc.wantLimit)
+		}
+	}
+}
+
+// resourceColumns are the column names resourceRow's values are in.
+var resourceColumns = []string{
+	"id", "scope", "scope_id", "path", "filename", "display_name", "description",
+	"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
+	"created_at", "updated_at", "last_read_at",
+	"thumbnail_s3_key", "thumbnail_dark_s3_key",
+	"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
+}
+
 // resourceRow builds one result row in the column order resourceScan expects,
 // so a bulk read scans the same shape a single read does.
 func resourceRow(id, name string) []driver.Value {
@@ -410,13 +456,7 @@ func TestPostgresStore_GetByIDs(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	cols := []string{
-		"id", "scope", "scope_id", "path", "filename", "display_name", "description",
-		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at", "last_read_at",
-		"thumbnail_s3_key", "thumbnail_dark_s3_key",
-		"thumbnail_captured_at", "thumbnail_dark_captured_at", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_at",
-	}
+	cols := resourceColumns
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = ANY").
 		WithArgs(pq.Array([]string{"id-1", "id-2", "gone"})).
 		WillReturnRows(sqlmock.NewRows(cols).

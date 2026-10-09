@@ -188,6 +188,18 @@ func (r *Registry) All() []Toolkit {
 	return out
 }
 
+// InstallConsentLayers adds to s, in registration order, the tools/call layers
+// the registered toolkits put in front of their calls to ask the caller first
+// (#2052): the Trino toolkit's cost estimate and PII consent. The platform
+// calls it at the chain position inside authorization and the gates.
+func (r *Registry) InstallConsentLayers(s *mcp.Server) {
+	for _, tk := range r.All() {
+		if c, ok := tk.(interface{ ConsentMiddleware() mcp.Middleware }); ok {
+			s.AddReceivingMiddleware(c.ConsentMiddleware())
+		}
+	}
+}
+
 // AllTools returns all tool names from all toolkits.
 func (r *Registry) AllTools() []string {
 	r.mu.RLock()
