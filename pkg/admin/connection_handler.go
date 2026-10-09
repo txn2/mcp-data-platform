@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
@@ -247,6 +248,15 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 	for _, key := range platformInternalKeys {
 		delete(req.Config, key)
 	}
+
+	// A Google key file sent as a JSON object is stored as its text, which
+	// is the form the at-rest encryption encrypts (#2061).
+	normalized, err := googlekey.Normalize(req.Config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
+	req.Config = normalized
 
 	// Fold any legacy oauth2_* key onto its canonical oauth_* sibling so
 	// one vocabulary, and only one, is ever persisted. Migration 000050
@@ -619,7 +629,16 @@ const (
 	sensKeyJWTPrivateKeyPEM   = "jwt_private_key_pem"  // #nosec G101 -- field name, not a credential
 	sensKeyPathSecret         = "path_secret"          // #nosec G101 -- field name, not a credential
 	sensKeySessionLoginSecret = "session_login_secret" // #nosec G101 -- field name, not a credential
+	// sensKeyGoogleServiceAccountJSON is a Google service account's whole
+	// key file (#2061).
+	sensKeyGoogleServiceAccountJSON = "google_service_account_json" // #nosec G101 -- field name, not a credential
 )
+
+// cfgKeyGoogleIdentity is the non-secret identity read out of a Google key
+// file and returned beside the redacted file: which account and which key the
+// connection uses, without the key (#2061). Derived on every read, never
+// stored.
+const cfgKeyGoogleIdentity = "google_service_account_identity"
 
 // connectionSensitiveKeys lists config keys that contain secrets and must be
 // redacted when returning connection instances via the API.
@@ -631,6 +650,7 @@ var connectionSensitiveKeys = []string{
 	sensKeyMTLSClientKeyPEM,
 	sensKeyJWTClientSecret, sensKeyJWTPrivateKeyPEM,
 	sensKeyPathSecret, sensKeySessionLoginSecret,
+	sensKeyGoogleServiceAccountJSON,
 }
 
 // nestedMapSensitiveKeys lists config keys whose value is itself a
@@ -646,7 +666,7 @@ var nestedMapSensitiveKeys = []string{
 // view of the leaf certificate's NotAfter, not operator config: a PUT must
 // never store it and a GET must always recompute it.
 var platformInternalKeys = []string{
-	"elicitation", "progress_enabled", "mtls_cert_not_after",
+	"elicitation", "progress_enabled", "mtls_cert_not_after", cfgKeyGoogleIdentity,
 }
 
 // redactConnectionConfig returns a copy of config with sensitive fields replaced
@@ -684,6 +704,9 @@ func redactConnectionConfig(config map[string]any) map[string]any {
 	}
 	if expiry := mtlsCertNotAfter(config); !expiry.IsZero() {
 		result["mtls_cert_not_after"] = expiry.UTC().Format(time.RFC3339)
+	}
+	if id, ok := googlekey.IdentityOf(config); ok {
+		result[cfgKeyGoogleIdentity] = id
 	}
 	return result
 }

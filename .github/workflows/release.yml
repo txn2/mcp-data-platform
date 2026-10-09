@@ -15,6 +15,7 @@ jobs:
       packages: write
       id-token: write  # Required for keyless signing with Cosign
       attestations: write  # Required for GitHub attestations
+      actions: read  # The E2E Nightly's last result, read by the tag rules (#2036)
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,7 +25,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.6'
+          go-version: '1.26.9'
           cache: true
 
       # goreleaser's before-hook builds the portal (make frontend-build) on the
@@ -83,11 +84,13 @@ jobs:
 
       # A final tag sits on the commit its last release candidate was built
       # from, and every release measures its changelog from the last FINAL
-      # release, never from a candidate (#2012).
+      # release, never from a candidate (#2012). A final tag is refused while
+      # the most recent E2E Nightly on main failed (#2036).
       - name: Release candidate rules
         id: tags
         env:
           TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 scripts/release-tag.py check "$TAG"
           echo "previous=$(python3 scripts/release-tag.py previous "$TAG")" >> "$GITHUB_OUTPUT"

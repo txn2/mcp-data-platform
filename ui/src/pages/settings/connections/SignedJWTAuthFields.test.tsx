@@ -124,7 +124,10 @@ describe("SignedJWTAuthFields — the jwt_bearer variant", () => {
     expect(screen.getByLabelText(/client secret/i)).toBeInTheDocument();
   });
 
-  it("names the token URL as the audience default and marks the identity claims required", () => {
+  // The subject is optional under jwt_bearer, as it is under signed_jwt
+  // (#2061): Google reads sub as a user to impersonate, and one of the two
+  // claims identifies the client.
+  it("names the token URL as the audience default and asks for one identity claim", () => {
     render(
       <SignedJWTAuthFields config={{}} onChange={vi.fn()} variant="jwt_bearer" />,
     );
@@ -134,10 +137,10 @@ describe("SignedJWTAuthFields — the jwt_bearer variant", () => {
       "(the token URL)",
     );
     expect(screen.getByLabelText(/issuer/i)).toHaveAccessibleDescription(
-      /^Required\./,
+      /One of issuer or subject must be set\./,
     );
     expect(screen.getByLabelText(/subject/i)).toHaveAccessibleDescription(
-      /^Required\./,
+      /Leave empty to omit the claim/,
     );
   });
 });

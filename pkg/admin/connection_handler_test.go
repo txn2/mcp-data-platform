@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -1407,4 +1408,64 @@ func TestDeleteConnectionInstanceLeavesAnAbsentConnectionUnmapped(t *testing.T) 
 		t.Fatalf("expected 204, got %d %s", w.Code, w.Body.String())
 	}
 	assert.Nil(t, sources.ForConnection("s3", "gone"))
+}
+
+// TestRedactConnectionConfig_GoogleKeyIdentity is #2061's read: the key file
+// is redacted like every secret, and the account, project and key id it names
+// are returned beside it so an administrator can tell which key a connection
+// uses. The identity is derived on every read: a stored copy is dropped.
+func TestRedactConnectionConfig_GoogleKeyIdentity(t *testing.T) {
+	file := `{"type":"service_account","project_id":"acme-analytics","private_key_id":"k1",` +
+		`"private_key":"-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----\n",` +
+		`"client_email":"reporting@acme-analytics.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}`
+	got := redactConnectionConfig(map[string]any{"google_service_account_json": file})
+	assert.Equal(t, "[REDACTED]", got["google_service_account_json"])
+	id, ok := got[cfgKeyGoogleIdentity].(googlekey.Identity)
+	require.True(t, ok, "the identity is returned beside the redacted file")
+	assert.Equal(t, googlekey.Identity{
+		ClientEmail: "reporting@acme-analytics.iam.gserviceaccount.com", ProjectID: "acme-analytics", PrivateKeyID: "k1",
+	}, id)
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "PRIVATE KEY")
+
+	stale := redactConnectionConfig(map[string]any{cfgKeyGoogleIdentity: map[string]any{"client_email": "old@example.com"}})
+	_, present := stale[cfgKeyGoogleIdentity]
+	assert.False(t, present, "a stored identity is not operator config")
+}
+
+// A Google key file sent as an object is stored as its text, the form the
+// at-rest encryption encrypts, and a value of another type is refused (#2061).
+func TestSetConnectionInstance_GoogleKeyFileForms(t *testing.T) {
+	put := func(t *testing.T, store *mockConnectionStore, key string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := strings.NewReader(`{"config": {"base_url": "https://displayvideo.googleapis.com", "oauth_scope": "https://www.googleapis.com/auth/display-video", "google_service_account_json": ` + key + `}}`)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/api/dv360", body)
+		req.SetPathValue("kind", "api")
+		req.SetPathValue("name", "dv360")
+		rr := httptest.NewRecorder()
+		connTestHandler(store, true).setConnectionInstance(rr, req)
+		return rr
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	file, err := json.Marshal(map[string]string{
+		"type": "service_account", "client_email": "a@b.iam.gserviceaccount.com", "token_uri": "https://oauth2.googleapis.com/token",
+		"private_key": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})),
+	})
+	require.NoError(t, err)
+	store := &mockConnectionStore{}
+	rr := put(t, store, string(file))
+	require.Len(t, store.setCalls, 1, "unexpected: %d %s", rr.Code, rr.Body.String())
+	text, ok := store.setCalls[0].Config["google_service_account_json"].(string)
+	require.True(t, ok, "the object was stored as %T", store.setCalls[0].Config["google_service_account_json"])
+	assert.Contains(t, text, `"client_email":"a@b.iam.gserviceaccount.com"`)
+
+	refused := &mockConnectionStore{}
+	rr = put(t, refused, `42`)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "must be the key file")
+	assert.Empty(t, refused.setCalls)
 }

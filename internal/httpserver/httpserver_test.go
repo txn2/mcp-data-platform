@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -346,6 +347,32 @@ func TestListenAndServe_BindFailureReturnsInsteadOfWaiting(t *testing.T) {
 	}
 }
 
+// A server that never came up drains nothing when its context ends later: the
+// drain goroutine went on waiting after the startup error and then marked the
+// checker draining, ran the background drain, and drained a server that never
+// served, reading shutdown state another test was writing.
+func TestListenAndServe_BindFailureLeavesNoDrainBehind(t *testing.T) {
+	ln := listenLocal(t)
+	defer func() { _ = ln.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	var drains atomic.Int32
+	hc := health.NewChecker()
+	err := listenAndServe(ctx, ln.Addr().String(), http.NewServeMux(), httpConfig{
+		drainBackground: func(context.Context) error { drains.Add(1); return nil },
+	}, hc)
+	if err == nil {
+		t.Fatal("expected an error for an address already in use")
+	}
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+	if n := drains.Load(); n != 0 {
+		t.Fatalf("a server that never came up ran %d background drain(s)", n)
+	}
+	if !hc.IsReady() {
+		t.Fatal("a server that never came up was marked draining")
+	}
+}
+
 func listenLocal(t *testing.T) net.Listener {
 	t.Helper()
 	var lc net.ListenConfig
@@ -383,71 +410,6 @@ func mcpServerWithLiveSession(t *testing.T) *mcp.Server {
 	}
 	t.Cleanup(func() { _ = clientSess.Close() })
 	return srv
-}
-
-func TestCloseMCPSessions(t *testing.T) {
-	closeMCPSessions(context.Background(), nil) // nil server is a no-op
-
-	srv := mcpServerWithLiveSession(t)
-	if got := sessionCount(srv); got != 1 {
-		t.Fatalf("expected 1 live session before close, got %d", got)
-	}
-
-	closeMCPSessions(context.Background(), srv)
-
-	deadline := time.After(2 * time.Second)
-	for sessionCount(srv) != 0 {
-		select {
-		case <-deadline:
-			t.Fatalf("session not closed: %d remain", sessionCount(srv))
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-}
-
-// TestCloseMCPSessions_BoundedByContext proves the close does not hang past the
-// grace deadline when a session has a long-running in-flight tool call (Close is
-// graceful and blocks on that call). With a short context it must return promptly.
-func TestCloseMCPSessions_BoundedByContext(t *testing.T) {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1.0"}, nil)
-	callStarted := make(chan struct{})
-	releaseCall := make(chan struct{})
-	var once sync.Once
-	mcp.AddTool(srv, &mcp.Tool{Name: "slow"}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
-		once.Do(func() { close(callStarted) })
-		<-releaseCall
-		return &mcp.CallToolResult{}, nil, nil
-	})
-
-	ctx := context.Background()
-	c1, c2 := mcp.NewInMemoryTransports()
-	serverSess, err := srv.Connect(ctx, c1, nil)
-	if err != nil {
-		t.Fatalf("server connect: %v", err)
-	}
-	defer func() { _ = serverSess.Close() }()
-	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "1.0"}, nil)
-	clientSess, err := client.Connect(ctx, c2, nil)
-	if err != nil {
-		t.Fatalf("client connect: %v", err)
-	}
-	defer func() { _ = clientSess.Close() }()
-
-	// Fire a tool call that hangs, so the session has an in-flight request.
-	go func() { _, _ = clientSess.CallTool(ctx, &mcp.CallToolParams{Name: "slow"}) }()
-	<-callStarted
-	defer close(releaseCall)
-
-	// closeMCPSessions must respect the short deadline rather than block on the call.
-	deadlineCtx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-	defer cancel()
-	returned := make(chan struct{})
-	go func() { closeMCPSessions(deadlineCtx, srv); close(returned) }()
-	select {
-	case <-returned:
-	case <-time.After(2 * time.Second):
-		t.Fatal("closeMCPSessions hung past the context deadline on an in-flight call")
-	}
 }
 
 func TestLogHTTPDrainResult(t *testing.T) {
@@ -1059,9 +1021,9 @@ func TestBuildAdminHandler(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	handler := buildAdminHandler(p, nil)
+	handler := AdminHandler(p, nil)
 	if handler == nil {
-		t.Fatal("buildAdminHandler() returned nil")
+		t.Fatal("AdminHandler() returned nil")
 	}
 
 	// The handler should respond to admin routes

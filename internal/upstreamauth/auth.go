@@ -527,3 +527,59 @@ func SetAuthEvents(a Authenticator, w *authevents.Writer) bool {
 	setter.SetAuthEvents(w)
 	return true
 }
+
+// SetKeySecrets wires the stored-secret read onto an authenticator whose key
+// is a stored secret (a Google service account named by
+// google_service_account_secret, #2061), and reports whether it took it. The
+// companion to SetAuthEvents: a kind calls it unconditionally after
+// NewAuthenticator, binding k to the connection.
+func SetKeySecrets(a Authenticator, k KeySecrets) bool {
+	setter, ok := a.(interface{ SetKeySecrets(KeySecrets) })
+	if !ok {
+		return false
+	}
+	setter.SetKeySecrets(k)
+	return true
+}
+
+// GrantDetail is the connection test's account of the token exchange it just
+// made, or "" for a mode that exchanges nothing: whose token the endpoint
+// issued and the scopes it carries (#2061), which is what tells an operator
+// whether the right account and the right scopes are in force.
+func GrantDetail(a Authenticator) string {
+	g, ok := GrantOf(a)
+	if !ok {
+		return ""
+	}
+	scopes := "no scope"
+	if len(g.Scopes) > 0 {
+		scopes = "scopes " + strings.Join(g.Scopes, " ")
+	}
+	return fmt.Sprintf("the token endpoint issued a token for %s with %s; ", g.Identity, scopes)
+}
+
+// ConnectionSecrets reads a stored secret on behalf of the connection that
+// names it in its own configuration (secretstore.Store.ConnectionValue).
+type ConnectionSecrets func(ctx context.Context, name, connection string) (string, error)
+
+// BindKeySecrets is SetKeySecrets with read bound to connection, which is
+// how a kind wires a connection it serves. A nil read is a no-op.
+func BindKeySecrets(a Authenticator, read ConnectionSecrets, connection string) bool {
+	if read == nil {
+		return false
+	}
+	return SetKeySecrets(a, func(ctx context.Context, name string) (string, error) {
+		return read(ctx, name, connection)
+	})
+}
+
+// GrantOf reports what a token-exchanging authenticator was issued on its last
+// exchange, for the connection test to show. ok is false for a mode that
+// exchanges nothing, and before the first exchange.
+func GrantOf(a Authenticator) (Grant, bool) {
+	g, ok := a.(interface{ Granted() (Grant, bool) })
+	if !ok {
+		return Grant{}, false
+	}
+	return g.Granted()
+}

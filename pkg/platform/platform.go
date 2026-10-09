@@ -2918,6 +2918,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Bind:     func(h *scriptlayer.Handle) { p.scripts = h },
 	})
 	p.lifecycle.OnComponent(scriptRuns.Start, scriptRuns.Stop)
+	p.lifecycle.OnDrain(scriptRuns.Drain)
 
 	// The notify tool: the one route a session, a script and the portal all
 	// reach an operator's channels through (#1723).
@@ -2961,6 +2962,14 @@ func (p *Platform) Start(ctx context.Context) error {
 
 	// Start lifecycle
 	return p.lifecycle.Start(ctx)
+}
+
+// Drain begins a shutdown: background work stops being taken on and what is in
+// flight is given until ctx's deadline to finish (#2058). The HTTP server calls
+// it the moment a shutdown signal arrives and drains its own connections beside
+// it; Stop follows and releases whatever did not finish.
+func (p *Platform) Drain(ctx context.Context) error {
+	return p.lifecycle.Drain(ctx)
 }
 
 // Stop stops the platform.

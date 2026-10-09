@@ -1,8 +1,10 @@
 package upstreamauth
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -43,8 +46,18 @@ var ErrAssertionRejected = errors.New("the upstream token endpoint rejected the 
 
 // validateOAuth2JWTBearer enforces the jwt_bearer grant's config rules:
 // a token endpoint to exchange at, signing material the algorithm can
-// use, the issuer and subject every upstream of this grant checks, and
-// assertion timings that mint a token which is not already expired.
+// use, an issuer or a subject to identify the client by, a scope
+// placement, and assertion timings that mint a token which is not already
+// expired.
+//
+// The subject is optional, as it is for signed_jwt (#2061): Google reads
+// sub as the Workspace user a service account impersonates under
+// domain-wide delegation, and issues a token for the account itself only
+// when the claim is absent.
+//
+// A connection whose Google key is a stored secret has no signing key or
+// issuer in its config: both are read from the secret when the first
+// assertion is minted.
 //
 // The client credential is optional. Most upstreams authenticate the
 // client by the assertion alone; one that also wants client
@@ -62,14 +75,16 @@ func (c Config) validateOAuth2JWTBearer() error {
 	if err := c.validateEndpointAuthStyle(); err != nil {
 		return err
 	}
-	if _, err := c.signedJWTSigningKey(); err != nil {
+	if err := c.validateScopePlacement(); err != nil {
 		return err
 	}
-	if c.SignedJWT.Issuer == "" {
-		return c.errf(errOAuthFieldRequired, cfgKeyJWTIssuer, c.oauthRequirement())
-	}
-	if c.SignedJWT.Subject == "" {
-		return c.errf(errOAuthFieldRequired, cfgKeyJWTSubject, c.oauthRequirement())
+	if c.Google.Secret == "" {
+		if _, err := c.signedJWTSigningKey(); err != nil {
+			return err
+		}
+		if c.SignedJWT.Issuer == "" && c.SignedJWT.Subject == "" {
+			return c.errf("one of %s or %s is required when %s", cfgKeyJWTIssuer, cfgKeyJWTSubject, c.oauthRequirement())
+		}
 	}
 	return c.validateAssertionTiming()
 }
@@ -88,10 +103,29 @@ type jwtBearerAuth struct {
 	cfg Config
 	src oauth2.TokenSource
 
-	// mu guards events, which the kind's platform-side wiring sets after
-	// construction while Apply may already be running.
-	mu     sync.RWMutex
-	events *authevents.Writer
+	// mu guards events and keySecrets, which the kind's platform-side
+	// wiring sets after construction while Apply may already be running,
+	// and granted, which each exchange records.
+	mu         sync.RWMutex
+	events     *authevents.Writer
+	keySecrets KeySecrets
+	granted    Grant
+}
+
+// KeySecrets reads a stored secret's value for the connection it is bound to.
+// A kind binds one per connection, so the secret's allow_connections is
+// checked against that connection and no other.
+type KeySecrets func(ctx context.Context, name string) (string, error)
+
+// Grant is what the token endpoint issued on the last exchange: whose token
+// it is and the scopes it carries, which the connection test reports.
+type Grant struct {
+	// Identity is the assertion's issuer, or its subject when it
+	// impersonates one.
+	Identity string
+	// Scopes are the scopes the endpoint reported granting, or those
+	// requested when it reported none.
+	Scopes []string
 }
 
 // newJWTBearerAuth re-runs the grant's validation and resolves the signing
@@ -101,14 +135,19 @@ func newJWTBearerAuth(c Config) (*jwtBearerAuth, error) {
 	if err := c.validateOAuth2JWTBearer(); err != nil {
 		return nil, err
 	}
-	signer, err := c.signedJWTSigningKey()
-	if err != nil {
-		return nil, err
+	var signer signedJWTSigner
+	if c.Google.Secret == "" {
+		var err error
+		if signer, err = c.signedJWTSigningKey(); err != nil {
+			return nil, err
+		}
 	}
 	a := &jwtBearerAuth{cfg: c}
 	exchange := &jwtBearerExchange{
 		cfg:    c,
-		minter: assertionMinter{cfg: c, signer: signer, mode: jwtBearerMode, withJTI: true},
+		minter: assertionMinter{cfg: c, signer: signer, mode: jwtBearerMode, withJTI: true, scope: c.assertionScope()},
+		keys:   a.keys,
+		issued: a.issued,
 		// The token request is bounded, refuses redirects and honors
 		// the connection's CA bundle, exactly as client_credentials'.
 		ctx:      context.WithValue(context.Background(), oauth2.HTTPClient, newTokenExchangeClient(c)),
@@ -132,6 +171,69 @@ func (a *jwtBearerAuth) writer() *authevents.Writer {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.events
+}
+
+// SetKeySecrets wires the stored-secret read a connection whose Google key is
+// a stored secret mints its assertions through. See the package-level
+// SetKeySecrets.
+func (a *jwtBearerAuth) SetKeySecrets(k KeySecrets) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.keySecrets = k
+}
+
+// Granted reports what the token endpoint issued on the last exchange, and
+// false before the first.
+func (a *jwtBearerAuth) Granted() (Grant, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.granted, a.granted.Identity != ""
+}
+
+func (a *jwtBearerAuth) issued(g Grant) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.granted = g
+}
+
+// keys returns the minter an assertion is signed with. A connection whose
+// Google key is a stored secret reads the secret for every exchange, so a key
+// rotated in the secret is the key the next token is minted with; every other
+// connection signs with the key its config carries.
+func (a *jwtBearerAuth) keys(ctx context.Context, static assertionMinter) (assertionMinter, error) {
+	name := a.cfg.Google.Secret
+	if name == "" {
+		return static, nil
+	}
+	a.mu.RLock()
+	read := a.keySecrets
+	a.mu.RUnlock()
+	if read == nil {
+		return assertionMinter{}, a.cfg.errf("%s: the Google service account key is the stored secret %q, and stored secrets are not available here", jwtBearerMode, name)
+	}
+	raw, err := read(ctx, name)
+	if err != nil {
+		return assertionMinter{}, a.cfg.errf("%s: reading the Google service account key: %w", jwtBearerMode, err)
+	}
+	sa, err := googlekey.Parse(raw)
+	if err != nil {
+		return assertionMinter{}, a.cfg.errf("%s: the stored secret %q: %w", jwtBearerMode, name, err)
+	}
+	c := a.cfg
+	c.SignedJWT.PrivateKeyPEM = sa.PrivateKey
+	if c.SignedJWT.KeyID == "" {
+		c.SignedJWT.KeyID = sa.PrivateKeyID
+	}
+	if c.SignedJWT.Issuer == "" {
+		c.SignedJWT.Issuer = sa.ClientEmail
+	}
+	signer, err := c.signedJWTAsymmetricKey()
+	if err != nil {
+		return assertionMinter{}, err
+	}
+	m := static
+	m.cfg, m.signer = c, signer
+	return m, nil
 }
 
 // Apply attaches the cached access token, exchanging a new assertion for
@@ -161,9 +263,20 @@ func (a *jwtBearerAuth) fetchError(ctx context.Context, err error) error {
 	}
 	var re *oauth2.RetrieveError
 	if !errors.As(err, &re) || !isAssertionRefusal(re.ErrorCode) {
-		return tokenFetchError(a.cfg, err)
+		scrubbed := tokenFetchError(a.cfg, err)
+		// Google answers an assertion whose scope claim names no access
+		// scope with a 200 that carries no access token (#2061).
+		if a.cfg.Google.Set && strings.Contains(err.Error(), "missing access_token") {
+			return fmt.Errorf("oauth jwt_bearer: Google issued no access token for these scopes (%w); %s", scrubbed, googlekey.TokenHint("invalid_scope", ""))
+		}
+		return scrubbed
 	}
 	description := boundedDescription(re.ErrorDescription)
+	if a.cfg.Google.Set {
+		if hint := googlekey.TokenHint(re.ErrorCode, description); hint != "" {
+			description = strings.TrimSuffix(cmp.Or(description, re.ErrorCode), ".") + ". " + hint
+		}
+	}
 	a.writer().AssertionRejected(ctx, authevents.AssertionRefusal{
 		Kind:        a.cfg.Kind,
 		Name:        a.cfg.ConnectionName,
@@ -189,12 +302,14 @@ func (a *jwtBearerAuth) accepted(ctx context.Context) {
 // isAssertionRefusal reports whether an RFC 6749 section 5.2 error code
 // is a refusal an operator fixes at the upstream: the assertion or its
 // user is not accepted (invalid_grant), the client is not recognized
-// (invalid_client), or the client may not use this grant
-// (unauthorized_client). Other codes describe a malformed request, which
+// (invalid_client), the client may not use this grant
+// (unauthorized_client), or a scope it names is not one the endpoint
+// issues (invalid_scope, which Google answers a misspelled scope URL
+// with). Other codes describe a malformed request, which
 // is the platform's fault rather than the connection's.
 func isAssertionRefusal(code string) bool {
 	switch code {
-	case "invalid_grant", "invalid_client", "unauthorized_client":
+	case "invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope":
 		return true
 	default:
 		return false
@@ -243,12 +358,24 @@ type jwtBearerExchange struct {
 	now func() time.Time
 	// accepted is told about every successful exchange.
 	accepted func(context.Context)
+	// keys resolves the minter for one exchange (jwtBearerAuth.keys).
+	// Nil signs with minter as built.
+	keys func(context.Context, assertionMinter) (assertionMinter, error)
+	// issued is told what each successful exchange granted. Nil-safe.
+	issued func(Grant)
 }
 
 // Token signs an assertion and exchanges it for an access token.
 func (e *jwtBearerExchange) Token() (*oauth2.Token, error) {
 	now := e.now()
-	assertion, _, err := e.minter.mint(now)
+	minter := e.minter
+	if e.keys != nil {
+		var err error
+		if minter, err = e.keys(e.ctx, minter); err != nil {
+			return nil, assertionMintError{err: err}
+		}
+	}
+	assertion, _, err := minter.mint(now)
 	if err != nil {
 		return nil, assertionMintError{err: err}
 	}
@@ -259,7 +386,29 @@ func (e *jwtBearerExchange) Token() (*oauth2.Token, error) {
 	// A refresh token is not used by this grant; it is not held.
 	tok.RefreshToken = ""
 	e.accepted(e.ctx)
+	if e.issued != nil {
+		e.issued(grantFrom(minter.cfg, tok))
+	}
 	return tok, nil
+}
+
+// assertionScope is the scope claim the assertion carries: the scopes, when
+// the connection places them in the claim.
+func (c Config) assertionScope() string {
+	if c.OAuth2.ScopePlacement != ScopePlacementClaim && c.OAuth2.ScopePlacement != ScopePlacementBoth {
+		return ""
+	}
+	return strings.Join(c.OAuth2.Scopes, " ")
+}
+
+// grantFrom reads what a token response granted: the scope field when the
+// endpoint reports one (RFC 6749 section 5.1), the requested scopes when not.
+func grantFrom(c Config, tok *oauth2.Token) Grant {
+	g := Grant{Identity: cmp.Or(c.SignedJWT.Subject, c.SignedJWT.Issuer), Scopes: c.OAuth2.Scopes}
+	if s, ok := tok.Extra("scope").(string); ok && strings.TrimSpace(s) != "" {
+		g.Scopes = strings.Fields(s)
+	}
+	return g
 }
 
 // request builds the token request for one assertion. It reuses
@@ -277,11 +426,15 @@ func (e *jwtBearerExchange) request(assertion string) *clientcredentials.Config 
 	if e.cfg.OAuth2.ClientSecret == "" || e.cfg.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
 		style = oauth2.AuthStyleInParams
 	}
+	var scopes []string
+	if e.cfg.OAuth2.ScopePlacement != ScopePlacementClaim {
+		scopes = e.cfg.OAuth2.Scopes
+	}
 	return &clientcredentials.Config{
 		ClientID:     e.cfg.OAuth2.ClientID,
 		ClientSecret: e.cfg.OAuth2.ClientSecret,
 		TokenURL:     e.cfg.OAuth2.TokenURL,
-		Scopes:       e.cfg.OAuth2.Scopes,
+		Scopes:       scopes,
 		AuthStyle:    style,
 		EndpointParams: url.Values{
 			"grant_type": {JWTBearerGrantType},

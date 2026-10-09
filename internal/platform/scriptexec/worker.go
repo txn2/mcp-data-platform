@@ -298,6 +298,30 @@ func (w *worker) Stop(ctx context.Context) {
 	w.wg.Wait()
 }
 
+// Drain stops claiming and waits until the runs in flight have finished or ctx
+// is done, reporting whether they finished. It is the shutdown's first half
+// (#2058): a run claimed seconds before the signal keeps the time the HTTP
+// server's drain takes rather than the short window Stop allows, and finishes
+// with its verdict recorded as it would have been. The runs keep their
+// contexts; Stop, which follows, cancels and releases what is still executing.
+func (w *worker) Drain(ctx context.Context) bool {
+	w.stopOnce.Do(func() { close(w.stopCh) })
+	if !w.started.Load() {
+		return true
+	}
+	idle := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(idle)
+	}()
+	select {
+	case <-idle:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // awaitIdle waits up to d for the worker loop to exit, reporting whether it
 // did. A worker that never started, or whose run finished inside the window,
 // returns immediately; an exhausted budget waits for nothing.

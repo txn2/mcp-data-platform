@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/pathtemplate"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -247,6 +248,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		connection:    inv.cfg.ConnectionName,
 		path:          in.Path,
 		decoder:       newResponseDecoder(in, inv.specs),
+		google:        inv.cfg.Google.Set,
 	})
 }
 
@@ -263,13 +265,18 @@ func callerLimits(ctx context.Context, inv *invocation) {
 }
 
 // steerToExport finishes an output's steer to api_export. With no
-// api_export registered the hint is cleared: the model must not be told
-// to use a tool this deployment lacks. With it, a cut body carries the arguments that stream the same call into an asset,
-// in the form the caller used (operation_id or method+path); the inline
-// timeout is dropped because api_export has its own.
+// api_export registered a cut body's hint is cleared: the model must not be
+// told to use a tool this deployment lacks. Every steer to api_export is the
+// hint of a cut body, so a hint on a whole one (a decode note, the step a
+// Google API refusal asks for, #2061) is kept. With api_export, a cut body
+// carries the arguments that stream the same call into an asset, in the form
+// the caller used (operation_id or method+path); the inline timeout is
+// dropped because api_export has its own.
 func steerToExport(out *InvokeOutput, in InvokeInput, hasExport bool) {
 	if !hasExport {
-		out.Hint = ""
+		if out.BodyTruncated {
+			out.Hint = ""
+		}
 		return
 	}
 	if !out.BodyTruncated {
@@ -465,74 +472,9 @@ func NormalizeMethodLabel(method string) string {
 	return "unknown"
 }
 
-func validatePath(p string) error {
-	if p == "" {
-		return errors.New("apigateway: path is required")
-	}
-	if !strings.HasPrefix(p, "/") {
-		return errors.New("apigateway: path must start with \"/\"")
-	}
-	// Reject path shapes that, when string-concatenated to a base
-	// URL, would let url.Parse interpret the result as a different
-	// host (SSRF). Without this check, path="//evil.com/foo" turns
-	// "https://api.example.com" + path into a protocol-relative URL
-	// pointing at evil.com, and path="@evil.com/foo" injects
-	// userinfo so the final Host becomes evil.com. The host pinning
-	// in buildURL is the primary defense; this rejection is the
-	// up-front diagnostic the model sees.
-	if strings.HasPrefix(p, "//") {
-		return errors.New("apigateway: path must not start with \"//\" (protocol-relative URLs are rejected)")
-	}
-	if strings.ContainsAny(p, "@\r\n\x00") {
-		return errors.New("apigateway: path contains a disallowed character (@, CR, LF, NUL)")
-	}
-	// Reject path segments that JoinPath or the upstream would
-	// normalize to something different from what filepath.Match
-	// sees. Without this check, persona APIRoutes globs do not
-	// reliably bound the model:
-	//
-	//   - Literal "." / "..": "/v1/users/.." matches "/v1/users/*"
-	//     but JoinPath resolves to "/v1".
-	//   - Empty interior segments ("//"): "/v1//admin/secret" does
-	//     NOT match a literal "/v1/admin/*" glob, but JoinPath
-	//     collapses the double slash and the upstream sees
-	//     "/v1/admin/secret" — bypassing a deny rule scoped to
-	//     "/v1/admin/*".
-	//   - Percent-encoded dot segments: "%2E%2E" passes a literal
-	//     "." / ".." string compare but RFC 3986 says servers MAY
-	//     decode %2E for path resolution; many do (Apache default,
-	//     several SaaS APIs).
-	//
-	// All three are refused here so the raw path the policy sees
-	// equals the path the upstream will see (after JoinPath but
-	// before any server-side decoding).
-	return checkPathSegments(p)
-}
-
-// checkPathSegments rejects literal "." / ".." segments, interior
-// empty segments (collapse vector), and percent-encoded dot
-// segments. See validatePath for the security rationale.
-func checkPathSegments(p string) error {
-	parts := strings.Split(p, "/")
-	for i, seg := range parts {
-		// Leading slash makes parts[0] == ""; allowed.
-		// A single trailing slash makes parts[last] == ""; allowed.
-		if seg == "" {
-			if i == 0 || i == len(parts)-1 {
-				continue
-			}
-			return errors.New("apigateway: path must not contain empty segments (\"//\")")
-		}
-		decoded, err := url.PathUnescape(seg)
-		if err != nil {
-			return errors.New("apigateway: path contains a malformed percent-escape")
-		}
-		if decoded == "." || decoded == ".." {
-			return errors.New("apigateway: path must not contain \".\" or \"..\" segments (literal or percent-encoded)")
-		}
-	}
-	return nil
-}
+// validatePath refuses a caller's path whose shape would reach another host
+// or slip past a route rule (pathtemplate.ValidateCallerPath).
+var validatePath = pathtemplate.ValidateCallerPath
 
 // buildURL composes the upstream URL from the connection's base
 // URL and the model-supplied path + query. Defense against SSRF:
@@ -1052,6 +994,9 @@ type execParams struct {
 	// It is resolved in invoke, where the caller's `decode` input and the
 	// parsed catalog are both in hand; executeRequest only applies it.
 	decoder responseDecoder
+	// google is set for a connection that authenticates as a Google service
+	// account, whose refused calls carry the step Google wants (#2061).
+	google bool
 }
 
 // executeRequest performs the upstream call and buffers the response.
@@ -1154,6 +1099,12 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		Hint:          dec.note,
 		DurationMs:    time.Since(start).Milliseconds(),
 		Advice:        upstreamretry.Advise(p.req.Method, resp.StatusCode, resp.Header, time.Now()),
+	}
+	// A Google API answers a valid token without access in words the model
+	// cannot act on, and an operator can: the API is not enabled in the
+	// account's project, or the account has no grant in the product.
+	if p.google && out.Hint == "" {
+		out.Hint = googlekey.APIHint(resp.StatusCode, out.Body)
 	}
 	if truncated {
 		if p.refuseOverCap {

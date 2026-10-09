@@ -330,6 +330,10 @@ type assertionMinter struct {
 	// signed_jwt mode leaves it off, because the upstreams it reaches
 	// validate a fixed claim set.
 	withJTI bool
+	// scope is the space-delimited "scope" claim, empty for none. The
+	// jwt_bearer exchange sets it when the connection places its scopes in
+	// the assertion (#2061): Google reads them nowhere else.
+	scope string
 	// rand is the jti source; crypto/rand in production.
 	rand io.Reader
 }
@@ -355,6 +359,9 @@ func (m assertionMinter) mint(now time.Time) (token string, expiresAt time.Time,
 	}
 	if j.Subject != "" {
 		claims["sub"] = j.Subject
+	}
+	if m.scope != "" {
+		claims["scope"] = m.scope
 	}
 	if m.withJTI {
 		id, idErr := m.jti()

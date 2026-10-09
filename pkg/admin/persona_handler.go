@@ -348,8 +348,17 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.deletePersonaFromStore(r, name); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete persona from database")
-		return
+		// A persona no row holds is one there is nothing to delete, unless
+		// this replica still serves it: another replica deleted the row, and
+		// the copy here is unregistered below.
+		if existing, _ := h.deps.PersonaRegistry.Get(name); errors.Is(err, personastore.ErrNotFound) && existing == nil {
+			writeError(w, http.StatusNotFound, "persona not found")
+			return
+		}
+		if !errors.Is(err, personastore.ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "failed to delete persona from database")
+			return
+		}
 	}
 
 	if err := h.deps.PersonaRegistry.Unregister(name); err != nil {
@@ -381,7 +390,8 @@ func (h *Handler) isFileOnlyPersona(name string) bool {
 
 // deletePersonaFromStore removes a persona from the database store.
 // Returns nil if no store is configured or if the persona has a file fallback
-// and the DB entry was already absent (ErrPersonaNotFound).
+// and the DB entry was already absent; an absent row otherwise comes back as
+// personastore.ErrNotFound, which the caller answers rather than logs.
 func (h *Handler) deletePersonaFromStore(r *http.Request, name string) error {
 	if h.deps.PersonaStore == nil {
 		return nil
@@ -392,8 +402,11 @@ func (h *Handler) deletePersonaFromStore(r *http.Request, name string) error {
 	}
 	// Tolerate "not found" when a file fallback exists — the DB entry
 	// may have already been removed or never existed.
-	if errors.Is(err, personastore.ErrNotFound) && h.deps.FilePersonaNames[name] {
-		return nil
+	if errors.Is(err, personastore.ErrNotFound) {
+		if h.deps.FilePersonaNames[name] {
+			return nil
+		}
+		return fmt.Errorf("deleting persona %q: %w", name, err)
 	}
 	slog.Warn("failed to delete persona from database", logKeyName, logsan.SanitizeForLog(name), logKeyError, err) // #nosec G706 -- name is sanitized
 	return fmt.Errorf("deleting persona %q: %w", name, err)

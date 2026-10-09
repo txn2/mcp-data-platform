@@ -55,6 +55,8 @@ var sensitiveConfigKeys = map[string]bool{
 	"jwt_private_key_pem":  true, // signed_jwt RS256/ES256 signing key
 	"path_secret":          true, // a secret the receiver reads from the request path
 	"session_login_secret": true, // session_login credential written into the sign-in body
+
+	"google_service_account_json": true, // a Google service account's key file (#2061)
 }
 
 // CfgKeyStaticHeaders is the connection-config key whose value is a

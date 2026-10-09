@@ -140,6 +140,7 @@ internal/httpserver -> internal/portal/producerapi
 internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
 internal/httpserver -> internal/secretstore
+internal/httpserver -> internal/shutdown
 internal/httpserver -> internal/toolanswer
 internal/httpserver -> internal/ui
 internal/httpserver -> internal/webhook/whsource
@@ -204,6 +205,7 @@ internal/httpserver/datahubapi -> pkg/portal
 internal/httpserver/datahubapi -> pkg/semantic
 internal/httpserver/datahubapi -> pkg/semantic/datahub
 internal/httpserver/datahubapi -> pkg/toolkits/knowledge
+internal/httpserver/gatewayhttp -> internal/inprocess
 internal/httpserver/gatewayhttp -> internal/wirejson
 internal/httpserver/gatewayhttp -> pkg/middleware
 internal/httpserver/gatewayhttp -> pkg/observability
@@ -388,6 +390,7 @@ internal/pagewalk -> internal/upstreamretry
 internal/pglisten -> internal/bgloop
 internal/platform/apigwwiring -> internal/logsan
 internal/platform/apigwwiring -> internal/secretstore
+internal/platform/apigwwiring -> internal/upstreamauth
 internal/platform/apigwwiring -> pkg/registry
 internal/platform/apigwwiring -> pkg/toolkits/apigateway
 internal/platform/apigwwiring -> pkg/toolkits/apigateway/catalog
@@ -854,6 +857,7 @@ internal/platform/scriptsave -> internal/platform/scriptrun
 internal/platform/scriptsave -> internal/platform/scripttest
 internal/platform/scriptsave -> internal/testreport
 internal/platform/scriptsave -> pkg/script
+internal/platform/scriptsession -> internal/inprocess
 internal/platform/scriptsession -> internal/mcpobs
 internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsql -> internal/platform/starlarkconv
@@ -955,6 +959,7 @@ internal/platform/thumbworker -> internal/thumbtypes
 internal/platform/thumbworker -> pkg/observability
 internal/platform/thumbworker -> pkg/resource
 internal/platform/toolargs -> pkg/middleware
+internal/platform/toolinventory -> internal/inprocess
 internal/platform/toolinventory -> internal/logsan
 internal/platform/toolinventory -> pkg/registry
 internal/platform/toolkitcfg -> internal/logsan
@@ -1052,6 +1057,7 @@ internal/secretstore -> internal/secretref
 internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
+internal/shutdown -> internal/inprocess
 internal/soap -> internal/xmltree
 internal/tableavail -> pkg/query
 internal/tableparquet -> internal/tabletype
@@ -1064,9 +1070,11 @@ internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
 internal/upstreamauth -> internal/outbound
+internal/upstreamauth -> internal/upstreamauth/googlekey
 internal/upstreamauth -> internal/upstreamauth/sessionlogin
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
+internal/upstreamauth/googlekey -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/useragent
 internal/upstreamcall -> internal/upstreamauth
@@ -1128,6 +1136,7 @@ pkg/admin -> internal/connprobe
 pkg/admin -> internal/exporttrunc
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/httpobs
+pkg/admin -> internal/inprocess
 pkg/admin -> internal/logsan
 pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/configenv
@@ -1137,6 +1146,7 @@ pkg/admin -> internal/platform/connsource
 pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/portal/assetrefs
 pkg/admin -> internal/portal/portaldomain
+pkg/admin -> internal/upstreamauth/googlekey
 pkg/admin -> internal/wirejson
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth
@@ -1286,6 +1296,7 @@ pkg/platform -> internal/agentinstructions
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/cfgmap
 pkg/platform -> internal/dbobs
+pkg/platform -> internal/inprocess
 pkg/platform -> internal/mcpobs
 pkg/platform -> internal/pagewalk
 pkg/platform -> internal/platform/apigwwiring
@@ -1356,6 +1367,7 @@ pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
 pkg/platform -> internal/portal/assetrefs
 pkg/platform -> internal/producedby
+pkg/platform -> internal/shutdown
 pkg/platform -> internal/swagger2
 pkg/platform -> internal/unarchive
 pkg/platform -> internal/webhook/whconfig
@@ -1531,6 +1543,7 @@ pkg/toolkits/apigateway -> internal/secretref
 pkg/toolkits/apigateway -> internal/secretstore
 pkg/toolkits/apigateway -> internal/soap
 pkg/toolkits/apigateway -> internal/upstreamauth
+pkg/toolkits/apigateway -> internal/upstreamauth/googlekey
 pkg/toolkits/apigateway -> internal/upstreamcall
 pkg/toolkits/apigateway -> internal/upstreamretry
 pkg/toolkits/apigateway -> internal/wirejson

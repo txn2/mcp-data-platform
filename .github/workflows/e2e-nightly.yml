@@ -30,6 +30,9 @@ jobs:
   e2e:
     name: Real-dependency E2E
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write  # the tracking issue a red night opens
     timeout-minutes: 45
     steps:
       - name: Checkout code
@@ -38,14 +41,30 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.6"
+          go-version: "1.26.9"
           cache: true
 
       - name: Start E2E environment
         run: make e2e-up
 
+      # The output is kept for the report below, which names the failing
+      # tests on the tracking issue. bash -o pipefail keeps tee from hiding
+      # the test exit code.
       - name: Run E2E tests
-        run: make e2e-test
+        id: tests
+        shell: bash
+        run: make e2e-test 2>&1 | tee e2e-test-output.txt
+
+      # A red night opens (or comments on) the one tracking issue, and a green
+      # one closes it (#2036): a failure nobody reads is how the suite stayed
+      # red for three weeks. Only main's runs report; a cancelled run says
+      # nothing about the suite.
+      - name: Report to the tracking issue
+        if: (success() || failure()) && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ steps.tests.outcome }}
+        run: python3 scripts/e2e_nightly.py report "$OUTCOME" e2e-test-output.txt
 
       - name: Collect compose logs
         if: always()

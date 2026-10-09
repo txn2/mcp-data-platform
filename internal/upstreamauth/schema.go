@@ -92,11 +92,24 @@ const ConfigSchemaPropertiesJSON = `{
   },
   "jwt_key_id": {"type": "string", "description": "kid header on the signed JWT."},
   "jwt_issuer": {"type": "string", "description": "iss claim on the signed JWT."},
-  "jwt_subject": {"type": "string", "description": "sub claim on the signed JWT."},
+  "jwt_subject": {"type": "string", "description": "sub claim on the signed JWT. With a Google service account, the Workspace user it impersonates under domain-wide delegation; unset, the account acts as itself."},
   "jwt_audience": {"type": "string", "description": "aud claim on the signed JWT."},
   "jwt_token_lifetime": {
     "type": ["string", "integer"],
     "description": "How long a minted JWT is valid, as a duration string or seconds."
+  },
+  "google_service_account_json": {
+    "type": "string",
+    "description": "A Google service account's JSON key file, whole, as Google Cloud issues it. Sets auth_mode oauth and oauth_grant jwt_bearer, and fills the signing key, key id, issuer and token endpoint from the file; set oauth_scope, and jwt_subject only to impersonate a Workspace user under domain-wide delegation. An explicit jwt_* or oauth_* key wins over the file. Encrypted at rest and read back as \"[REDACTED]\", beside google_service_account_identity (client_email, project_id, private_key_id)."
+  },
+  "google_service_account_secret": {
+    "type": "string",
+    "description": "The name of a stored secret holding a Google service account's key file, in place of google_service_account_json, so the key never travels in the connection's config. The secret's allow_connections must list this connection and it must set no allow_personas. It is read at every token exchange, so a key rotated in the secret is used from the next token on. The token endpoint defaults to https://oauth2.googleapis.com/token."
+  },
+  "oauth_scope_placement": {
+    "type": "string",
+    "enum": ["param", "claim", "both"],
+    "description": "Where oauth_grant=jwt_bearer carries oauth_scope: the scope form parameter (param, the default), a scope claim in the signed assertion (claim, which Google reads, and the default with a Google service account), or both."
   },
   "path_secret": {
     "type": "string",

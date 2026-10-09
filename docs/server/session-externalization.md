@@ -98,7 +98,7 @@ The shutdown sequence:
 SIGTERM received
   -> health check returns 503 (readiness probe fails)
   -> sleep(pre_shutdown_delay) for LB deregistration
-  -> drain HTTP connections (grace_period)
+  -> drain HTTP connections and in-flight script runs (grace_period)
   -> flush enrichment dedup state to session store
   -> close session store cleanup routine
   -> close remaining resources

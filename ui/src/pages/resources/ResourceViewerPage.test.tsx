@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore, type UserProfile } from "@/stores/auth";
@@ -113,6 +113,14 @@ function renderPage(props: { onBack?: () => void } = {}) {
     </QueryClientProvider>,
   );
 }
+
+// The CSV renderer is a lazily loaded chunk (ContentRenderer). The first
+// import of it transforms the module and its parser, which on a loaded machine
+// takes longer than a findBy waits, so the chunk is loaded before the page
+// renders it rather than inside the first test's wait.
+beforeAll(async () => {
+  await import("@/components/renderers/CsvRenderer");
+});
 
 beforeEach(() => {
   // jsdom has no matchMedia; the loading indicator reads it for theme detection.

@@ -31,7 +31,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	if err != nil {
 		return connprobe.Failure(upstreamauth.UnreachedSubject(name, c.cfg.EndpointURL, err), err)
 	}
-	detail := fmt.Sprintf("%s answered with HTTP %d", c.cfg.EndpointURL, res.status)
+	detail := upstreamauth.GrantDetail(c.auth) + fmt.Sprintf("%s answered with HTTP %d", c.cfg.EndpointURL, res.status)
 	if err := introspectionFailure(res); err != nil {
 		detail += fmt.Sprintf("; it declines introspection (%s), so this connection's schema comes "+
 			"from an upload or a catalog rather than from the endpoint", err.Error())

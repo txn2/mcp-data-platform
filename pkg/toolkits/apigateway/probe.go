@@ -55,7 +55,7 @@ func (t *Toolkit) ProbeConnection(ctx context.Context, name string) connprobe.Re
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	detail := fmt.Sprintf("%s answered GET %s with HTTP %d", c.cfg.BaseURL, probePath, resp.StatusCode)
+	detail := upstreamauth.GrantDetail(c.auth) + fmt.Sprintf("%s answered GET %s with HTTP %d", c.cfg.BaseURL, probePath, resp.StatusCode)
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return connprobe.Failure(detail+
 			", which is the upstream rejecting this connection's credential rather than the route", nil)

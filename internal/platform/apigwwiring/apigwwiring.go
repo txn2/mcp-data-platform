@@ -15,6 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -114,5 +115,14 @@ func Secrets(source ToolkitSource, db *sql.DB, enc secretstore.Encryptor, admin 
 	store := secretstore.NewStore(db, enc).WithAdmin(admin)
 	for _, api := range Toolkits(source) {
 		api.SetSecrets(store)
+	}
+	// The graphql kind takes no placeholders, only a connection's own key
+	// named by a stored secret (#2061).
+	for _, tk := range source.All() {
+		if k, ok := tk.(interface {
+			SetConnectionSecrets(upstreamauth.ConnectionSecrets)
+		}); ok {
+			k.SetConnectionSecrets(store.ConnectionValue)
+		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/inprocess"
 	"github.com/txn2/mcp-data-platform/internal/mcpobs"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 )
@@ -52,15 +53,19 @@ func Connect(ctx context.Context, server *mcp.Server, label string) (*SessionCal
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening a script session: %w", err)
 	}
+	// A shutdown's session close must leave this one to the run (#2058).
+	untrack := inprocess.Track(serverSession)
 	client := mcp.NewClient(&mcp.Implementation{Name: label, Version: "v1"}, nil)
 	session, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		_ = serverSession.Close()
+		untrack()
 		return nil, nil, fmt.Errorf("opening a script session: %w", err)
 	}
 	return &SessionCaller{session: session}, func() {
 		_ = session.Close()
 		_ = serverSession.Close()
+		untrack()
 	}, nil
 }
 

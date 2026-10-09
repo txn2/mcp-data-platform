@@ -25,6 +25,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/inprocess"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
@@ -160,6 +161,8 @@ func listServerTools(ctx context.Context, server *mcp.Server) ([]string, error) 
 	if err != nil {
 		return nil, fmt.Errorf("server connect: %w", err)
 	}
+	untrack := inprocess.Track(serverSession)
+	defer untrack()
 	defer func() { _ = serverSession.Close() }()
 
 	client := mcp.NewClient(&mcp.Implementation{Name: clientName, Version: "v1"}, nil)

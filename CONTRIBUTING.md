@@ -625,6 +625,17 @@ commit and push the tag. A final tag with no candidate passes the check.
 Once a version has a candidate, its final tag must be on the commit its
 latest candidate was built from.
 
+**The E2E Nightly** (#2036). A final tag is refused while the most recent E2E
+Nightly run on `main` that passed or failed was a failure; the refusal names the
+run and its failing tests. `make release-tag-check` reads it with `gh`, so it
+needs `gh` signed in, and the release workflow reads it with its own token. Fix
+the failure and dispatch the nightly again (`gh workflow run e2e-nightly.yml`).
+To release over it anyway, tag with an annotation carrying a line
+`release-without-nightly: <reason>`. A candidate is not held to the rule, since
+it may carry the fix. A red night opens one issue titled "E2E Nightly is
+failing" naming the failing tests, comments on it on each later red night, and
+a green night closes it.
+
 ## Getting Help
 
 - Open an issue for bugs or feature requests

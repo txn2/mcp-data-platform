@@ -150,6 +150,9 @@ type Config struct {
 	// straight from the shared seam rather than mirrored, because
 	// nothing in it is this kind's to define.
 	SignedJWT SignedJWTConfig
+	// Google is the connection's Google service account (#2061), when it
+	// authenticates as one. Zero otherwise.
+	Google upstreamauth.GoogleKeyConfig
 	// HMAC carries the signing convention used when AuthMode is
 	// AuthModeHMAC (#1996). Empty otherwise.
 	HMAC    HMACConfig
@@ -253,6 +256,10 @@ type OAuth2Config struct {
 	ClientSecret string
 	// Scopes is an optional list of scopes to request.
 	Scopes []string
+	// ScopePlacement is where the jwt_bearer grant carries Scopes: param
+	// (the default), claim (in the signed assertion, which Google reads)
+	// or both (#2061).
+	ScopePlacement string
 	// EndpointAuthStyle is "header" (default) or "params".
 	EndpointAuthStyle string
 	// AuthorizationURL is the upstream's authorization endpoint,

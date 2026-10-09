@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -380,4 +381,46 @@ func TestLifecycle_OnStartAfterStarted_ErrorIsLogged(t *testing.T) {
 	lc.OnStart(func(_ context.Context) error {
 		return errors.New("boom")
 	})
+}
+
+// TestLifecycle_Drain runs every drain concurrently under the caller's
+// context and joins their errors (#2058).
+func TestLifecycle_Drain(t *testing.T) {
+	l := NewLifecycle()
+	l.OnDrain(nil)
+	if err := l.Drain(context.Background()); err != nil {
+		t.Fatalf("no drains is no work, got %v", err)
+	}
+
+	release := make(chan struct{})
+	ran := make(chan string, 2)
+	l.OnDrain(func(context.Context) error {
+		// Waits for the other drain: the two run concurrently or never return.
+		<-release
+		ran <- "first"
+		return errors.New("first")
+	})
+	l.OnDrain(func(ctx context.Context) error {
+		close(release)
+		ran <- "second"
+		return ctx.Err()
+	})
+	err := l.Drain(context.Background())
+	if err == nil || !strings.HasSuffix(err.Error(), "first") {
+		t.Fatalf("Drain = %v, want the first drain's error", err)
+	}
+	if len(ran) != 2 {
+		t.Fatalf("%d drains ran, want 2", len(ran))
+	}
+}
+
+// Platform.Drain is the lifecycle's drain: what the HTTP server runs at the
+// shutdown signal (#2058).
+func TestPlatform_DrainRunsTheLifecycleDrains(t *testing.T) {
+	p := &Platform{lifecycle: NewLifecycle()}
+	ran := false
+	p.lifecycle.OnDrain(func(context.Context) error { ran = true; return nil })
+	if err := p.Drain(context.Background()); err != nil || !ran {
+		t.Fatalf("Drain = %v, ran %v", err, ran)
+	}
 }

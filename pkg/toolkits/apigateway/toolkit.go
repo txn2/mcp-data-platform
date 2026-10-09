@@ -844,6 +844,7 @@ func (t *Toolkit) wireConnLocked(name string, c *conn) {
 	if t.authEvents != nil {
 		upstreamauth.SetAuthEvents(c.auth, t.authEvents)
 	}
+	wireKeySecrets(c.auth, t.secrets, name)
 }
 
 // newConnClient builds the per-connection HTTP client: an in-process

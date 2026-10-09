@@ -12,6 +12,11 @@ final tag: a fix is another candidate.
                   A final tag with no candidate is a release cut straight from
                   main and passes: a candidate is how a release is judged when
                   one is cut, not a precondition of every release.
+                  - a final tag while the most recent E2E Nightly on main
+                  failed (#2036), naming the run and its failing tests;
+                  `release-without-nightly: <reason>` in the tag's annotation
+                  releases over it. A candidate is not held to this: it may be
+                  the fix the red night is waiting for.
   previous <tag>  print the last FINAL release before <tag>: what the changelog
                   and the release gates measure from, so neither a final tag's
                   notes nor its checks shrink to what changed since a candidate.
@@ -25,8 +30,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import e2e_nightly  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
+NIGHTLY_OVERRIDE_RE = re.compile(r"^release-without-nightly:\s*\S", re.MULTILINE)
 
 
 def git(*args: str) -> str:
@@ -55,7 +64,55 @@ def candidates(final: str) -> list[str]:
     return sorted(found, key=lambda t: parse(t)[3])  # type: ignore[index]
 
 
+def annotation(tag: str) -> str:
+    """The message of an annotated tag; empty for a lightweight or absent one."""
+    try:
+        if git("cat-file", "-t", f"refs/tags/{tag}") != "tag":
+            return ""
+        return git("tag", "-l", "--format=%(contents)", tag)
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def check_nightly(tag: str) -> int:
+    """Refuse a final tag while the most recent E2E Nightly on main failed."""
+    if NIGHTLY_OVERRIDE_RE.search(annotation(tag)):
+        print(f"release tag: {tag} is released over the E2E Nightly (release-without-nightly).")
+        return 0
+    override = "or annotate the tag with `release-without-nightly: <reason>`"
+    try:
+        run = e2e_nightly.latest_run()
+    except (OSError, subprocess.CalledProcessError) as err:
+        detail = getattr(err, "stderr", "") or str(err)
+        print(f"FAIL release tag: {tag}: the E2E Nightly's result could not be read ({detail.strip()}); "
+              f"fix gh access {override}.", file=sys.stderr)
+        return 1
+    if run is None:
+        print(f"FAIL release tag: {tag}: no E2E Nightly on main has finished; dispatch one {override}.",
+              file=sys.stderr)
+        return 1
+    if not run.failed:
+        print(f"release tag: the most recent E2E Nightly on main passed ({run.url}).")
+        return 0
+    try:
+        tests = e2e_nightly.run_failures(run)
+    except (OSError, subprocess.CalledProcessError):
+        tests = []
+    named = ", ".join(tests) if tests else "no test named in its log"
+    print(f"FAIL release tag: {tag}: the most recent E2E Nightly on main {run.conclusion} ({run.url}, "
+          f"{run.created}): {named}. Fix it and dispatch the nightly again, {override}.", file=sys.stderr)
+    return 1
+
+
 def check(tag: str) -> int:
+    if (code := check_candidates(tag)) != 0:
+        return code
+    if parse(tag)[3] is not None:  # type: ignore[index]
+        return 0
+    return check_nightly(tag)
+
+
+def check_candidates(tag: str) -> int:
     parsed = parse(tag)
     if parsed is None:
         print(f"FAIL release tag: {tag!r} is neither vX.Y.Z nor vX.Y.Z-rcN.", file=sys.stderr)

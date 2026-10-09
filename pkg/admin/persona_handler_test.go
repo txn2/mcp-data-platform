@@ -621,6 +621,39 @@ func TestDeletePersonaWithStoreError(t *testing.T) {
 	assert.True(t, exists, "analyst persona should still exist in registry")
 }
 
+// A persona no row holds is answered 404, as the registry-only path answers
+// it; a row already gone while this replica still serves the persona (another
+// replica deleted it) unregisters the local copy (#2037).
+func TestDeletePersonaRowAbsent(t *testing.T) {
+	newHandler := func() (*Handler, *mockPersonaRegistry) {
+		pReg := &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")}
+		return NewHandler(Deps{
+			PersonaRegistry: pReg,
+			Config:          testConfig(),
+			ConfigStore:     &mockConfigStore{mode: "database"},
+			PersonaStore:    &mockPersonaStore{deleteErr: personastore.ErrNotFound},
+		}, nil), pReg
+	}
+	del := func(h *Handler, name string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/"+name, http.NoBody)
+		req.SetPathValue("name", name)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+
+	h, _ := newHandler()
+	w := del(h, "nonexistent")
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "persona not found", decodeProblem(w.Body.Bytes()).Detail)
+
+	h, pReg := newHandler()
+	w = del(h, "analyst")
+	assert.Equal(t, http.StatusOK, w.Code)
+	_, exists := pReg.Get("analyst")
+	assert.False(t, exists, "the stale local copy should be unregistered")
+}
+
 func TestPersonaSourceTracking(t *testing.T) {
 	t.Run("create sets source to database", func(t *testing.T) {
 		pReg := &mockPersonaRegistry{allResult: testPersonas("admin")}
