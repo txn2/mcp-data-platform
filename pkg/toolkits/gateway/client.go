@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/txn2/mcp-data-platform/internal/outbound"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 )
 
 const (
@@ -175,6 +176,7 @@ func buildHTTPClient(cfg Config, tp tokenProvider) *http.Client {
 		base = &authRoundTripper{
 			mode:          cfg.AuthMode,
 			credential:    cfg.Credential,
+			connection:    cfg.ConnectionName,
 			tokenProvider: tp,
 			base:          base,
 		}
@@ -192,6 +194,9 @@ func buildHTTPClient(cfg Config, tp tokenProvider) *http.Client {
 type authRoundTripper struct {
 	mode       string
 	credential string
+	// connection is the connection a credential naming a stored secret
+	// must be allowed on (#2066).
+	connection string
 	// tokenProvider supplies the OAuth access token per request — for
 	// authorization_code that's a connoauth.Source read against the
 	// unified token store; for client_credentials it's an in-memory
@@ -220,10 +225,18 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 // upstream:<connection>: errors in the audit log.
 func (a *authRoundTripper) applyAuth(req *http.Request) error {
 	switch a.mode {
-	case AuthModeBearer:
-		req.Header.Set("Authorization", "Bearer "+a.credential)
-	case AuthModeAPIKey:
-		req.Header.Set("X-API-Key", a.credential)
+	case AuthModeBearer, AuthModeAPIKey:
+		// A credential naming a stored secret is read as each request is
+		// sent, so a rotated secret is used from the next one on (#2066).
+		credential, err := secretref.FillConnection(req.Context(), a.connection, a.credential, secretref.Raw)
+		if err != nil {
+			return fmt.Errorf("gateway: %w", err)
+		}
+		if a.mode == AuthModeBearer {
+			req.Header.Set("Authorization", "Bearer "+credential)
+		} else {
+			req.Header.Set("X-API-Key", credential)
+		}
 	case AuthModeOAuth:
 		if a.tokenProvider == nil {
 			return errors.New("oauth: token provider not configured")

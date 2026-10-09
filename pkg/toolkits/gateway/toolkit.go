@@ -302,6 +302,7 @@ func (t *Toolkit) tokenProviderFor(name string, cfg OAuthConfig) (tokenProvider,
 	switch cfg.Grant {
 	case OAuthGrantClientCredentials:
 		cc := newClientCredentialsTokenProvider(cfg)
+		cc.connection = name
 		return cc, cc
 	case OAuthGrantAuthorizationCode:
 		t.mu.RLock()

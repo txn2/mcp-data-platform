@@ -7,6 +7,7 @@ import { mockSecrets } from "../data/secrets";
 //   GET    /secrets/:name  (one)
 //   PUT    /secrets/:name  (create 201 or change 200)
 //   DELETE /secrets/:name  (delete)
+//   GET    /secrets/:name/code  (an authenticator seed's current code, #2065)
 // Like the server, nothing returned ever carries a value.
 
 const ADMIN_BASE = "/api/v1/admin";
@@ -44,9 +45,12 @@ export const secretHandlers = [
     }
     const now = new Date().toISOString();
     const prior = at >= 0 ? secrets[at]! : undefined;
+    const kind = body.kind ?? prior?.kind ?? "value";
     const saved: Secret = {
       name,
       description: body.description,
+      kind,
+      ...(kind === "totp" ? { totp: prior?.totp ?? { algorithm: "SHA1", digits: 6, period: 30 } } : {}),
       allow_connections: body.allow_connections,
       allow_personas: body.allow_personas,
       created_by: prior?.created_by ?? "admin@example.com",
@@ -57,6 +61,16 @@ export const secretHandlers = [
     if (at >= 0) secrets[at] = saved;
     else secrets.push(saved);
     return HttpResponse.json(saved, { status: at >= 0 ? 200 : 201 });
+  }),
+
+  http.get(`${ADMIN_BASE}/secrets/:name/code`, ({ params }) => {
+    const found = secrets.find((s) => s.name === params.name);
+    if (!found) return problem(404, "Not Found", "secret not found");
+    if (found.kind !== "totp" || !found.totp)
+      return problem(409, "Conflict", "this secret holds a value, not an authenticator seed, so it has no code");
+    const period = found.totp.period;
+    const left = period - (Math.floor(Date.now() / 1000) % period);
+    return HttpResponse.json({ code: "482913", seconds_left: left, totp: found.totp });
   }),
 
   http.delete(`${ADMIN_BASE}/secrets/:name`, ({ params }) => {

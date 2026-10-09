@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
@@ -164,6 +165,11 @@ func (*Toolkit) readExecution(resp *http.Response, sent http.Header, budget *mem
 // names a model may claim are already refused by the shared seam's
 // validation, and the model never reaches this function's inputs at all.
 func (*Toolkit) newRequest(ctx context.Context, c *conn, payload []byte) (*http.Request, error) {
+	// Each stored secret the connection's configuration fills in is
+	// recorded here, and redacted from the answer (#2066).
+	if secretref.FromContext(ctx) == nil {
+		ctx, _ = secretref.WithRedactor(ctx)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.EndpointURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("graphql: building request: %w", err)

@@ -14,6 +14,7 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -102,6 +103,19 @@ func RoutePolicy(source ToolkitSource, policy apigatewaykit.RoutePolicy) {
 	for _, api := range Toolkits(source) {
 		api.SetRoutePolicy(policy)
 	}
+}
+
+// ConnectionSecrets installs the stored secrets a connection's own
+// configuration names as {{secret:<name>}} are read from as it sends a
+// request (#2066), whichever kind the connection is. It runs as soon as the
+// database is open, before any toolkit is built: an mcp connection dials its
+// upstream as it is loaded. No-op without a database, where a configuration
+// naming a secret is refused when it is used.
+func ConnectionSecrets(db *sql.DB, enc secretstore.Encryptor) {
+	if db == nil {
+		return
+	}
+	secretref.SetConnectionSource(secretstore.NewStore(db, enc).ConnectionValue)
 }
 
 // Secrets attaches the stored secrets a request's {{secret:<name>}}

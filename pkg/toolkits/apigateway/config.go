@@ -254,6 +254,12 @@ type Config struct {
 	// PathSecret is appended to every request's path as it is sent, for an
 	// upstream that authenticates by a secret in the URL. Encrypted at rest.
 	PathSecret string
+	// FillSecrets fills a call's {{secret:<name>}} placeholders as the
+	// request is sent (#2051). On unless fill_secrets is false, which sends
+	// them as written: the built-in platform-admin connection, through which
+	// an administrator saves a connection whose configuration names a
+	// stored secret (#2066).
+	FillSecrets bool
 	// RequiredPathPrefix is the path every raw method+path call on the
 	// connection must start with; a path outside it is refused before it
 	// is sent, naming the prefixed path and the operation_id the catalog
@@ -397,6 +403,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.Description = cfgmap.String(cfg, cfgKeyDescription)
 	c.Handler = cfgmap.String(cfg, cfgKeyHandler)
 	c.RequiredPathPrefix = trimTrailingSlash(cfgmap.String(cfg, cfgKeyRequiredPathPrefix))
+	c.FillSecrets = cfgmap.BoolDefault(cfg, cfgKeyFillSecrets, true)
 	if c.Handler == HandlerInternal && c.BaseURL == "" {
 		c.BaseURL = internalBaseURL
 	}

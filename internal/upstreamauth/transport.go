@@ -60,13 +60,16 @@ func NewHTTPClient(cfg Config) *http.Client {
 	base := NewHTTPTransport(cfg)
 	var rt http.RoundTripper = base
 	if cfg.PathSecret != "" {
-		rt = pathSecretTransport{next: rt, secret: cfg.PathSecret}
+		rt = pathSecretTransport{next: rt, cfg: cfg}
 	}
 	if cfg.AuthMode == AuthModeSessionLogin {
 		// The sign-in goes to its own URL, so it takes the connection's
 		// TLS but not the path secret a call's path carries.
-		rt = sessionlogin.NewTransport(cfg.Session, prefixOr(cfg.ErrPrefix), rt, base)
+		session := cfg.Session
+		session.Connection = cfg.ConnectionName
+		rt = sessionlogin.NewTransport(session, prefixOr(cfg.ErrPrefix), rt, base)
 	}
+	rt = newSecretHeaderTransport(cfg, rt)
 	return outbound.NewClient(outbound.Options{
 		Kind:          outbound.Kind(cfg.Kind),
 		Connection:    cfg.ConnectionName,

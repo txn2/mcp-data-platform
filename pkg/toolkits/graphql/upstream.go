@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/membudget"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 )
 
@@ -116,9 +117,13 @@ func configFromUpstream(up upstreamauth.Config) Config {
 
 // newHTTPClient builds the per-connection HTTP client from the shared
 // transport policy: the call timeout, the connection's TLS material,
-// and a CheckRedirect that refuses 3xx.
+// and a CheckRedirect that refuses 3xx. Its transport redacts, from every
+// response, the stored secrets the connection's own configuration filled
+// into the request (#2066).
 func newHTTPClient(cfg Config) *http.Client {
-	return upstreamauth.NewHTTPClient(cfg.upstream())
+	client := upstreamauth.NewHTTPClient(cfg.upstream())
+	client.Transport = secretref.Transport(client.Transport)
+	return client
 }
 
 // readLimit is the most of a response to read given a configured limit,

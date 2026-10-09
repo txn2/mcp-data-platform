@@ -70,10 +70,13 @@ func TestAllowed(t *testing.T) {
 	assert.ErrorContains(t, Allowed(sec, "grid", ""), "persona (none)")
 }
 
-var metaCols = []string{"name", "description", "allow_connections", "allow_personas", "created_by", "updated_by", "created_at", "updated_at"}
+var metaCols = []string{
+	"name", "description", "allow_connections", "allow_personas", "created_by", "updated_by", "created_at", "updated_at",
+	"kind", "totp_algorithm", "totp_digits", "totp_period",
+}
 
 func metaRow(now time.Time) *sqlmock.Rows {
-	return sqlmock.NewRows(metaCols).AddRow("pw", "portal login", "{grid}", "{}", "admin@example.com", "admin@example.com", now, now)
+	return sqlmock.NewRows(metaCols).AddRow("pw", "portal login", "{grid}", "{}", "admin@example.com", "admin@example.com", now, now, "value", "", 0, 0)
 }
 
 func newMock(t *testing.T, enc Encryptor) (*Store, sqlmock.Sqlmock) {
@@ -129,7 +132,7 @@ func TestPutCreatesEncryptedAndUpdatesKeepingValue(t *testing.T) {
 
 	mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(`INSERT INTO gateway_secrets`).
-		WithArgs("pw", "portal login", "enc:hunter22", `{"grid"}`, "{}", "admin@example.com").
+		WithArgs("pw", "portal login", "enc:hunter22", `{"grid"}`, "{}", "admin@example.com", "value", "", 0, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnRows(metaRow(now))
 	sec, created, err := s.Put(ctx, Write{Name: "pw", Description: "portal login", Value: new("hunter22"), AllowConnections: []string{"grid"}, Actor: "admin@example.com"})
@@ -139,7 +142,7 @@ func TestPutCreatesEncryptedAndUpdatesKeepingValue(t *testing.T) {
 
 	mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnRows(metaRow(now))
 	mock.ExpectExec(`UPDATE gateway_secrets SET`).
-		WithArgs("pw", "rescoped", sql.NullString{}, `{"grid","vendor"}`, `{"admin"}`, "other@example.com").
+		WithArgs("pw", "rescoped", sql.NullString{}, `{"grid","vendor"}`, `{"admin"}`, "other@example.com", "value", "", 0, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`FROM gateway_secrets WHERE name`).WithArgs("pw").WillReturnRows(metaRow(now))
 	_, created, err = s.Put(ctx, Write{Name: "pw", Description: "rescoped", AllowConnections: []string{"grid", "vendor"}, AllowPersonas: []string{"admin"}, Actor: "other@example.com"})
@@ -165,7 +168,7 @@ func TestPutRefusals(t *testing.T) {
 
 	plain, mock2 := newMock(t, nil)
 	mock2.ExpectQuery(`FROM gateway_secrets WHERE name`).WillReturnError(sql.ErrNoRows)
-	mock2.ExpectExec(`INSERT INTO gateway_secrets`).WithArgs("pw", "", "hunter22", `{"g"}`, "{}", "").WillReturnError(errors.New("down"))
+	mock2.ExpectExec(`INSERT INTO gateway_secrets`).WithArgs("pw", "", "hunter22", `{"g"}`, "{}", "", "value", "", 0, 0).WillReturnError(errors.New("down"))
 	_, _, err = plain.Put(ctx, Write{Name: "pw", Value: new("hunter22"), AllowConnections: []string{"g"}})
 	require.ErrorContains(t, err, "writing secret")
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -186,7 +189,7 @@ func TestDelete(t *testing.T) {
 
 func valueRow(now time.Time, value, personas string) *sqlmock.Rows {
 	return sqlmock.NewRows(append(append([]string(nil), metaCols...), "value")).
-		AddRow("pw", "", "{grid}", personas, "", "", now, now, value)
+		AddRow("pw", "", "{grid}", personas, "", "", now, now, "value", "", 0, 0, value)
 }
 
 func TestLookup(t *testing.T) {

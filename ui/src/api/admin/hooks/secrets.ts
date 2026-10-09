@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
-import type { Secret, SecretInput, SecretList } from "../types";
+import type { CurrentCode, Secret, SecretInput, SecretList } from "../types";
 
 // Stored secrets (#2051).
 
@@ -18,6 +18,17 @@ export function useSecret(name: string) {
     queryKey: [...KEY, name],
     queryFn: () => apiFetch<Secret>(`/secrets/${encodeURIComponent(name)}`),
     enabled: !!name,
+  });
+}
+
+/** useSecretCode reads a totp secret's current code, only when enabled. */
+export function useSecretCode(name: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...KEY, name, "code"],
+    queryFn: () => apiFetch<CurrentCode>(`/secrets/${encodeURIComponent(name)}/code`),
+    enabled: enabled && !!name,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 

@@ -492,6 +492,49 @@ The placeholder works in `body` (an object, or a string of JSON or form text, wi
 - **What comes back.** Every occurrence of the value in the upstream's response headers and body, as written or JSON-, query- or path-escaped, is replaced with `[REDACTED:<name>]` before the response reaches the caller, so reading the field back (`GET .../element/{id}/property/value`) does not hand it over. An error message that would carry it (a filled path in a transport error) is redacted the same way. An `api_export` is redacted as it streams.
 - **Storage.** The value is encrypted at rest with the same field encryption as connection credentials, must be at least 6 characters (it is redacted wherever it appears, and a shorter one would rewrite ordinary text), and is never returned by the API or shown in the portal. Changing a secret without a `value` keeps the stored one. A rotated value is used from the next call, with no reload.
 
+### A secret in a connection's configuration
+
+A connection's own credential can name a stored secret too, so it is held in one place and rotated there. Write `{{secret:<name>}}` where the value goes, for example in a Tableau sign-in body:
+
+```json
+{
+  "auth_mode": "session_login",
+  "session_login_url": "auth/signin",
+  "session_login_body": "{\"credentials\":{\"personalAccessTokenName\":\"plexara-rest\",\"personalAccessTokenSecret\":\"{{secret:tableau-rest}}\",\"site\":{\"contentUrl\":\"acme\"}}}",
+  "session_token_source": "body:credentials.token",
+  "session_token_header": "X-Tableau-Auth"
+}
+```
+
+- **Where it may be written.** On an `api` or `graphql` connection: `credential`, `username`, `password`, `path_secret`, `session_login_body`, `session_login_secret`, the values of `static_headers` and `session_login_headers`, and `oauth_client_id` and `oauth_client_secret` under the `client_credentials` grant. On an `mcp` connection: `credential`, and the OAuth client id and secret under `client_credentials`. A reference anywhere else, a malformed one, and a `{{totp:<name>}}` are refused at save.
+- **Saving.** The portal and the admin API store the reference as written and read it back as written: a credential field holding only a reference is not shown as `[REDACTED]`. A body that names a stored secret needs no `session_login_secret`; one carried back from the portal as `[REDACTED]` is dropped. The built-in `platform-admin` connection sets `fill_secrets: false`, so a connection saved through it reaches the admin API with the reference intact. Any `api` connection can set the same key to send a call's placeholders as written.
+- **Scope.** The secret's `allow_connections` must list the connection and its `allow_personas` must be empty, since a connection's credential serves every persona that uses it. A save that names a missing secret, or one that may not be used by the connection, is refused naming both.
+- **When it is read.** Each time the connection sends a request of its own: every call's credential and headers, every sign-in, every client-credentials token exchange. Rotating the secret changes the next request or sign-in, with no connection save. The value is redacted from the response like a call's own secret.
+- **Not covered.** mTLS keys and signed-JWT private keys are read when the connection is built, so they are written in full. Trino and S3 connections take no references.
+
+### A one-time code in the request
+
+An automation that signs in as a person may meet a second factor: a six-digit code from an authenticator app that changes every 30 seconds. The code is a function of the app's seed and the time (RFC 6238), so the platform can produce it. Store the seed as a secret of kind `totp`, given as the `otpauth://totp/...` URI the provider's QR code encodes or as the bare base32 seed, and write `{{totp:<name>}}` where the code goes:
+
+```json
+{
+  "connection": "selenium-grid",
+  "method": "POST",
+  "path": "/session/4b1c/element/a71d/value",
+  "body": {"text": "{{totp:vendor_portal_mfa}}"}
+}
+```
+
+It is filled where `{{secret:<name>}}` is (`body`, `query_params`, `path_params`, `path`, `headers`, in `api_invoke_endpoint` and `api_export`), and the call's arguments, audit row, call record and a script's recording hold the placeholder.
+
+- **Parameters.** Algorithm (SHA1, SHA256, SHA512), digits (6 or 8) and period (default 30 seconds) come from the URI; a bare seed takes SHA1, 6 digits, 30 seconds. HOTP (counter-based) URIs are refused.
+- **Kinds do not cross.** `{{secret:<name>}}` naming a totp secret is refused, so the seed itself is never sent, and `{{totp:<name>}}` naming a value secret is refused. Scope is checked as for any secret.
+- **One code per period.** Providers refuse a code they already accepted in its period, so the period a code was issued for is recorded in the secret's row, which every replica shares. A second request in the same period waits for the next period and is sent its code; a third in that period is refused, naming when to try again.
+- **Redaction.** The seed is redacted from responses. The code is not: 6 to 8 digits would rewrite ordinary numbers, and it is useless once its period passes.
+- **Checking the setup.** The secret's page under **Admin > Secrets** has **Current code**, which shows the code for this moment and the seconds left in its period (`GET /api/v1/admin/secrets/{name}/code`), to compare with the phone app. Showing it does not use the code up.
+
+A `totp` secret puts both of an account's factors in the platform, limited by `allow_connections` and `allow_personas`. That is what an unattended sign-in requires.
+
 ### OAuth JWT bearer grant (RFC 7523)
 
 `oauth_grant: jwt_bearer` is the unattended server-to-server flow many OAuth providers recommend for integrations: the upstream registers a public key for an application and approves an integration user for it, and the client signs a short-lived assertion with the private key and exchanges it at the token endpoint for an access token. There is no browser, no refresh token, and no client secret on the wire unless the upstream also asks for one. It is available on every HTTP-based kind (`api`, `graphql`); an `mcp` connection saved with it is refused.

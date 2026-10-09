@@ -541,6 +541,7 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 		return err
 	}
 	p.restEncryptor = fieldcrypt.NewRestFieldEncryptor(encryptor)
+	apigwwiring.ConnectionSecrets(p.db, p.restEncryptor)
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
 	// The connection-OAuth token lifecycle (unified token store, durable

@@ -17,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/apigwtls"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -155,7 +156,11 @@ func (b bearerAuth) Apply(req *http.Request) error {
 	if b.credential == "" {
 		return b.cfg.err("bearer credential is empty")
 	}
-	req.Header.Set(AuthorizationHeader, "Bearer "+b.credential)
+	credential, err := b.cfg.fill(req.Context(), b.credential)
+	if err != nil {
+		return err
+	}
+	req.Header.Set(AuthorizationHeader, "Bearer "+credential)
 	return nil
 }
 
@@ -198,12 +203,16 @@ func newAPIKeyAuth(c Config) (apiKeyAuth, error) {
 // Apply attaches the API key as either a header or a query parameter,
 // per the connection's CredentialPlacement.
 func (a apiKeyAuth) Apply(req *http.Request) error {
+	credential, err := a.cfg.fill(req.Context(), a.credential)
+	if err != nil {
+		return err
+	}
 	switch a.placement {
 	case CredentialPlacementHeader:
-		req.Header.Set(a.header, a.credential)
+		req.Header.Set(a.header, credential)
 	case CredentialPlacementQuery:
 		q := req.URL.Query()
-		q.Set(a.param, a.credential)
+		q.Set(a.param, credential)
 		req.URL.RawQuery = q.Encode()
 	default:
 		return a.cfg.errf("invalid api_key_placement %q", a.placement)
@@ -216,9 +225,14 @@ func (a apiKeyAuth) Apply(req *http.Request) error {
 // header value is computed once at construction so each Apply call is
 // just a Header.Set (matching the cost profile of bearer/api_key) and
 // the plaintext password is not retained on the struct beyond
-// construction.
+// construction. A username or password naming a stored secret (#2066) is
+// kept as written instead and encoded on each Apply, after the secret is
+// read, so a rotated secret is sent from the next call on.
 type basicAuth struct {
-	header string
+	cfg      Config
+	header   string
+	username string
+	password string
 }
 
 // newBasicAuth constructs the authenticator with all validation
@@ -231,21 +245,42 @@ func newBasicAuth(c Config) (basicAuth, error) {
 	if c.Username == "" {
 		return basicAuth{}, c.err("basic auth requires a username")
 	}
-	if strings.Contains(c.Username, ":") {
+	if strings.Contains(secretref.WithoutPlaceholders(c.Username), ":") {
 		return basicAuth{}, c.err("basic auth username must not contain \":\"")
 	}
 	if strings.ContainsAny(c.Username, "\r\n\x00") || strings.ContainsAny(c.Password, "\r\n\x00") {
 		return basicAuth{}, c.err("basic auth credentials contain CR/LF/NUL")
 	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(c.Username + ":" + c.Password))
-	return basicAuth{header: "Basic " + encoded}, nil
+	if secretref.HasPlaceholder(c.Username) || secretref.HasPlaceholder(c.Password) {
+		return basicAuth{cfg: c, username: c.Username, password: c.Password}, nil
+	}
+	return basicAuth{cfg: c, header: basicHeader(c.Username, c.Password)}, nil
 }
 
-// Apply attaches the pre-encoded Basic credential as the Authorization
-// header. newBasicAuth has already validated the inputs and computed
-// the encoded value, so this hot path is just a Header.Set.
+// basicHeader is the Authorization value for a username and password.
+func basicHeader(username, password string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+}
+
+// Apply attaches the Basic credential as the Authorization header: the
+// pre-encoded one, or one encoded from the stored secrets it names.
 func (b basicAuth) Apply(req *http.Request) error {
-	req.Header.Set(AuthorizationHeader, b.header)
+	if b.header != "" {
+		req.Header.Set(AuthorizationHeader, b.header)
+		return nil
+	}
+	username, err := b.cfg.fill(req.Context(), b.username)
+	if err != nil {
+		return err
+	}
+	password, err := b.cfg.fill(req.Context(), b.password)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(username, ":") || strings.ContainsAny(username+password, "\r\n\x00") {
+		return b.cfg.err("basic auth credentials read from a stored secret contain \":\" in the username, or CR/LF/NUL")
+	}
+	req.Header.Set(AuthorizationHeader, basicHeader(username, password))
 	return nil
 }
 
@@ -353,7 +388,7 @@ func newOAuth2ClientCredentialsAuth(c Config, now func() time.Time) oauth2Client
 	// cfg.Token is the uncached fetch, which is what jwt_bearer exchanges
 	// through as well.
 	src := oauth2.ReuseTokenSource(nil, withBoundedExpiry(
-		tokenFunc(func() (*oauth2.Token, error) { return cfg.Token(ctx) }), now))
+		tokenFunc(func() (*oauth2.Token, error) { return exchangeClientCredentials(ctx, c, cfg) }), now))
 	return oauth2ClientCredentialsAuth{cfg: c, src: src}
 }
 
@@ -582,4 +617,40 @@ func GrantOf(a Authenticator) (Grant, bool) {
 		return Grant{}, false
 	}
 	return g.Granted()
+}
+
+// A connection's own configuration may name a stored secret where a
+// credential goes, as {{secret:<name>}} (#2066): saved and read back as
+// written, and filled each time the connection sends a request, from the
+// secret as it is stored at that moment. The secret's allow_connections must
+// list the connection, and its allow_personas must be empty, since the
+// connection's credential serves every caller (secretstore.Store.
+// ConnectionValue). Each value is recorded on the request's Redactor, so a
+// response that echoes it is redacted the way a tool call's own secret is.
+
+// fill fills the placeholders in one credential value as a request is sent.
+func (c Config) fill(ctx context.Context, value string) (string, error) {
+	out, err := secretref.FillConnection(ctx, c.ConnectionName, value, secretref.Raw)
+	if err != nil {
+		return "", c.errf("%w", err)
+	}
+	return out, nil
+}
+
+// exchangeClientCredentials makes one client_credentials token exchange, with
+// a client id or secret that names a stored secret read for this exchange: a
+// rotated secret is sent from the next exchange on, with no connection save.
+func exchangeClientCredentials(ctx context.Context, c Config, base *clientcredentials.Config) (*oauth2.Token, error) {
+	if !secretref.HasPlaceholder(base.ClientID) && !secretref.HasPlaceholder(base.ClientSecret) {
+		return base.Token(ctx) //nolint:wrapcheck // tokenFetchError scrubs it at Apply
+	}
+	cfg := *base
+	var err error
+	if cfg.ClientID, err = c.fill(ctx, base.ClientID); err != nil {
+		return nil, err
+	}
+	if cfg.ClientSecret, err = c.fill(ctx, base.ClientSecret); err != nil {
+		return nil, err
+	}
+	return cfg.Token(ctx) //nolint:wrapcheck // tokenFetchError scrubs it at Apply
 }

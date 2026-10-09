@@ -50,6 +50,13 @@ const REF_FIRST_REQUEST_GRACE_MS = 1_500;
  * count -- an artifact whose own analytics beacon fails still gets its picture
  * taken.
  *
+ * A font is not counted (#2062). A page whose referenced font did not load is
+ * drawn completely in its fallback face: the layout, the numbers and the images
+ * are all there, so the picture is of the page and not of an error branch.
+ * Withholding it left the card on its content-type icon until the asset changed.
+ * An image or a data file is different: the artifact draws something else when
+ * one of those fails.
+ *
  * It is a classic inline script so it runs before the module that renders the
  * artifact: fetch has to be wrapped before the artifact calls it.
  */
@@ -63,6 +70,7 @@ function refWatchScript(): string {
     return typeof u === 'string' && u.indexOf(PREFIX) !== -1;
   }
   document.addEventListener('securitypolicyviolation', function(e) {
+    if (e.effectiveDirective === 'font-src') return;
     if (isRef(e.blockedURI)) state.failed++;
   });
   window.addEventListener('error', function(e) {

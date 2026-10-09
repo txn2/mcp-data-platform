@@ -73,7 +73,11 @@ function DialogContent({
    * would scroll away with the body it is meant to head.
    *
    * The default keeps the panel's natural height and lets the backdrop scroll,
-   * which is right for a dialog that is one block of content.
+   * which is right for a dialog that is one block of content. Its one grid
+   * column is held to the panel's width (`minmax(0,1fr)`): a grid track
+   * otherwise grows to its widest item's min-content width, so one unbroken
+   * token (a JSON request body, an ID, a URL) widened every row past the panel
+   * and a block's own `overflow-auto` never engaged (#2063).
    */
   capped?: boolean
 }) {
@@ -89,7 +93,7 @@ function DialogContent({
                 ? modalPanelClass("max-w-lg")
                 : modalNaturalClass(
                     "max-w-lg",
-                    "grid gap-4 rounded-lg border bg-card p-6 shadow-lg"
+                    "grid grid-cols-[minmax(0,1fr)] gap-4 rounded-lg border bg-card p-6 shadow-lg"
                   ),
               className
             )}

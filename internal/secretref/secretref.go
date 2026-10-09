@@ -33,19 +33,47 @@ var nameRE = regexp.MustCompile(`^` + NamePattern + `$`)
 // ValidName reports whether name is one a secret can be stored under.
 func ValidName(name string) bool { return nameRE.MatchString(name) }
 
-// opener is how every placeholder starts. A string holding it that is not a
-// whole, well-formed placeholder is refused rather than sent as written.
-const opener = "{{secret:"
+// opener and totpOpener are how every placeholder starts: a secret's value,
+// or the current one-time code of an authenticator seed (#2065). A string
+// holding either that is not a whole, well-formed placeholder is refused
+// rather than sent as written.
+const (
+	opener     = "{{secret:"
+	totpOpener = "{{totp:"
+)
 
-// placeholderRE matches one placeholder.
-var placeholderRE = regexp.MustCompile(`\{\{secret:(` + NamePattern + `)\}\}`)
+// placeholderRE matches one placeholder: its kind, then its name.
+var placeholderRE = regexp.MustCompile(`\{\{(secret|totp):(` + NamePattern + `)\}\}`)
 
 // escapedPlaceholderRE matches a placeholder as path_params substitution
 // left it: braces percent-escaped.
-var escapedPlaceholderRE = regexp.MustCompile(`(?i)%7B%7Bsecret:(` + NamePattern + `)%7D%7D`)
+var escapedPlaceholderRE = regexp.MustCompile(`(?i)%7B%7B(secret|totp):(` + NamePattern + `)%7D%7D`)
+
+// TOTPPrefix qualifies the name a {{totp:<name>}} placeholder is looked up
+// by: Lookup is asked for "totp:<name>", which no secret can be called, so
+// one lookup answers both kinds and tells them apart.
+const TOTPPrefix = "totp:"
+
+// TOTPName is the name a lookup is asked for to fill {{totp:<name>}}.
+func TOTPName(name string) string { return TOTPPrefix + name }
+
+// IsTOTPName reports whether a lookup was asked for a one-time code, and
+// returns the secret's own name.
+func IsTOTPName(qualified string) (string, bool) {
+	return strings.CutPrefix(qualified, TOTPPrefix)
+}
+
+// lookupName is the name a lookup is asked for, for one placeholder match.
+func lookupName(kind, name string) string {
+	if strings.EqualFold(kind, "totp") {
+		return TOTPName(name)
+	}
+	return name
+}
 
 // Lookup returns a secret's value, or an error that names the secret and
-// says why it may not be used here.
+// says why it may not be used here. A {{totp:<name>}} placeholder is looked
+// up as TOTPName(name), and answered with the current code.
 type Lookup func(name string) (string, error)
 
 // ErrMalformed is wrapped by the refusal of text that opens a placeholder
@@ -57,7 +85,7 @@ var ErrMalformed = errors.New("malformed secret placeholder")
 // text that opens a placeholder without completing one: neither is ever
 // sent as written.
 func Fill(s string, lookup Lookup, escape func(string) string) (string, error) {
-	if !strings.Contains(s, opener) {
+	if !HasPlaceholder(s) {
 		return s, nil
 	}
 	var failed error
@@ -65,7 +93,8 @@ func Fill(s string, lookup Lookup, escape func(string) string) (string, error) {
 		if failed != nil {
 			return m
 		}
-		value, err := lookup(placeholderRE.FindStringSubmatch(m)[1])
+		sub := placeholderRE.FindStringSubmatch(m)
+		value, err := lookup(lookupName(sub[1], sub[2]))
 		if err != nil {
 			failed = err
 			return m
@@ -75,8 +104,8 @@ func Fill(s string, lookup Lookup, escape func(string) string) (string, error) {
 	if failed != nil {
 		return "", failed
 	}
-	if strings.Contains(placeholderRE.ReplaceAllString(s, ""), opener) {
-		return "", fmt.Errorf("write {{secret:<name>}}, where a name is lower case letters, digits, '.', '_' and '-': %w", ErrMalformed)
+	if Malformed(s) {
+		return "", fmt.Errorf("write {{secret:<name>}} or {{totp:<name>}}, where a name is lower case letters, digits, '.', '_' and '-': %w", ErrMalformed)
 	}
 	return out, nil
 }
@@ -88,7 +117,8 @@ func Fill(s string, lookup Lookup, escape func(string) string) (string, error) {
 func FillPath(path string, lookup Lookup) (string, error) {
 	var failed error
 	out := escapedPlaceholderRE.ReplaceAllStringFunc(path, func(m string) string {
-		value, err := lookup(escapedPlaceholderRE.FindStringSubmatch(m)[1])
+		sub := escapedPlaceholderRE.FindStringSubmatch(m)
+		value, err := lookup(lookupName(sub[1], sub[2]))
 		if err != nil && failed == nil {
 			failed = err
 		}

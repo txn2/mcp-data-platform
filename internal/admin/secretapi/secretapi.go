@@ -1,6 +1,7 @@
 // Package secretapi is the admin REST surface for stored secrets (#2051):
-// list, read, create or change, and delete. The value is write-only: a PUT
-// carries it, and no response ever does.
+// list, read, create or change, and delete, and an authenticator seed's
+// current code (#2065). The value is write-only: a PUT carries it, and no
+// response ever does.
 package secretapi
 
 import (
@@ -27,6 +28,7 @@ type Store interface {
 	Get(ctx context.Context, name string) (secretstore.Secret, error)
 	Put(ctx context.Context, w secretstore.Write) (secretstore.Secret, bool, error)
 	Delete(ctx context.Context, name string) error
+	Code(ctx context.Context, name string) (secretstore.CurrentCode, error)
 }
 
 // Config carries the store and the parent-owned helpers.
@@ -45,7 +47,11 @@ type SecretList struct {
 // SecretInput is a create or a change. Value is omitted on a change that
 // keeps the stored value.
 type SecretInput struct {
-	Description      string   `json:"description"`
+	Description string `json:"description"`
+	// Kind is "value" (the default on a create) or "totp", an authenticator
+	// seed given as its otpauth://totp URI or bare base32 seed. Omitted on a
+	// change, the stored kind is kept.
+	Kind             string   `json:"kind,omitempty" enums:"value,totp"`
 	Value            *string  `json:"value,omitempty"`
 	AllowConnections []string `json:"allow_connections"`
 	AllowPersonas    []string `json:"allow_personas"`
@@ -64,6 +70,7 @@ func Register(mux *http.ServeMux, wrap func(http.Handler) http.Handler, cfg Conf
 	mux.Handle("GET "+secretsPath+"/{name}", wrap(http.HandlerFunc(h.get)))
 	mux.Handle("PUT "+secretsPath+"/{name}", wrap(http.HandlerFunc(h.put)))
 	mux.Handle("DELETE "+secretsPath+"/{name}", wrap(http.HandlerFunc(h.remove)))
+	mux.Handle("GET "+secretsPath+"/{name}/code", wrap(http.HandlerFunc(h.code)))
 }
 
 // list handles GET /api/v1/admin/secrets.
@@ -110,7 +117,7 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 // put handles PUT /api/v1/admin/secrets/{name}.
 //
 // @Summary      Create or change a stored secret
-// @Description  Creates the secret, or changes it. A caller references it as {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers; the api gateway fills in the value as it sends the request and redacts it from the response. allow_connections is required and names the connections it may be sent through; allow_personas, when not empty, names the personas that may use it besides the administrator persona. value is required to create and may be omitted to change the rest and keep the stored value; it must be at least 6 characters. It is encrypted at rest and never returned.
+// @Description  Creates the secret, or changes it. A value secret (kind value, the default) is referenced as {{secret:<name>}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers, and in an api, graphql or mcp connection's credential fields; the platform fills in the value as it sends the request and redacts it from the response. An authenticator seed (kind totp) is given as value in the otpauth://totp URI form a provider's QR code encodes, or as the bare base32 seed, and a request references its current one-time code as {{totp:<name>}}; the seed is never sent. allow_connections is required and names the connections it may be used by; allow_personas, when not empty, names the personas that may use it besides the administrator persona. value is required to create and may be omitted to change the rest and keep the stored value; a value must be at least 6 characters. It is encrypted at rest and never returned.
 // @Tags         Secrets
 // @Accept       json
 // @Produce      json
@@ -136,7 +143,7 @@ func (h *handler) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sec, created, err := h.cfg.Store.Put(r.Context(), secretstore.Write{
-		Name: r.PathValue("name"), Description: in.Description, Value: in.Value,
+		Name: r.PathValue("name"), Description: in.Description, Kind: in.Kind, Value: in.Value,
 		AllowConnections: in.AllowConnections, AllowPersonas: in.AllowPersonas,
 		Actor: h.cfg.Author(r),
 	})
@@ -168,6 +175,32 @@ func (h *handler) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// code handles GET /api/v1/admin/secrets/{name}/code.
+//
+// @Summary      Get an authenticator seed's current code
+// @Description  Returns a totp secret's one-time code for this moment, the seconds left in its period, and its parameters, for an administrator to compare with the authenticator app before an automation depends on it. Showing it does not count as issuing a code: the next request that fills {{totp:<name>}} may send the same one. A value secret has no code and is answered 409.
+// @Tags         Secrets
+// @Produce      json
+// @Param        name  path  string  true  "Secret name"
+// @Success      200  {object}  secretstore.CurrentCode
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      409  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/secrets/{name}/code [get]
+func (h *handler) code(w http.ResponseWriter, r *http.Request) {
+	current, err := h.cfg.Store.Code(r.Context(), r.PathValue("name"))
+	if errors.Is(err, secretstore.ErrNotTOTP) {
+		httpjson.WriteError(w, http.StatusConflict, "this secret holds a value, not an authenticator seed, so it has no code")
+		return
+	}
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, current)
 }
 
 // writeStoreError maps the store's refusals to their status. A refusal's

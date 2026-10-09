@@ -193,7 +193,7 @@ function CallDetailModal({
             <p className="mb-1 text-xs font-medium text-muted-foreground">
               Stated purpose
             </p>
-            <p className="text-sm">{call.purpose}</p>
+            <p className="text-sm break-words">{call.purpose}</p>
           </div>
         )}
 
@@ -202,7 +202,7 @@ function CallDetailModal({
             <p className="mb-1 text-xs font-medium text-muted-foreground">
               Outcome
             </p>
-            <p className="text-sm text-red-700 dark:text-red-300">
+            <p className="text-sm break-words text-red-700 dark:text-red-300">
               Failed{call.error ? `: ${call.error}` : ""}
             </p>
           </div>

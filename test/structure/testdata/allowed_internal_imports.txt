@@ -70,6 +70,10 @@ internal/apikeyissue -> internal/platform/apikeystore
 internal/apikeyissue -> pkg/auth
 internal/bgloop -> pkg/observability
 internal/conncatchup -> internal/logsan
+internal/connsecretref -> internal/secretref
+internal/connsecretref -> internal/secretstore
+internal/connsecretref -> internal/upstreamauth/sessionlogin
+internal/connsecretref -> pkg/connoauth
 internal/dbobs -> internal/sqltables
 internal/dbobs -> pkg/observability
 internal/dhobs -> internal/outbound
@@ -179,6 +183,7 @@ internal/httpserver -> pkg/toolkits/trino
 internal/httpserver/accessgate -> internal/logsan
 internal/httpserver/accessgate -> internal/wirejson
 internal/httpserver/accessgate -> pkg/portal
+internal/httpserver/adminwire -> internal/secretstore
 internal/httpserver/adminwire -> pkg/admin
 internal/httpserver/adminwire -> pkg/platform
 internal/httpserver/apishttp -> internal/httpjson
@@ -389,6 +394,7 @@ internal/pagewalk -> internal/outbound
 internal/pagewalk -> internal/upstreamretry
 internal/pglisten -> internal/bgloop
 internal/platform/apigwwiring -> internal/logsan
+internal/platform/apigwwiring -> internal/secretref
 internal/platform/apigwwiring -> internal/secretstore
 internal/platform/apigwwiring -> internal/upstreamauth
 internal/platform/apigwwiring -> pkg/registry
@@ -1054,6 +1060,7 @@ internal/scriptdate -> pkg/script
 internal/scriptdest -> pkg/script
 internal/scriptxml -> internal/xmltree
 internal/secretstore -> internal/secretref
+internal/secretstore -> internal/totp
 internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
@@ -1070,12 +1077,14 @@ internal/upstreamauth -> internal/cfgmap
 internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
 internal/upstreamauth -> internal/outbound
+internal/upstreamauth -> internal/secretref
 internal/upstreamauth -> internal/upstreamauth/googlekey
 internal/upstreamauth -> internal/upstreamauth/sessionlogin
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
 internal/upstreamauth/googlekey -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/cfgmap
+internal/upstreamauth/sessionlogin -> internal/secretref
 internal/upstreamauth/sessionlogin -> internal/useragent
 internal/upstreamcall -> internal/upstreamauth
 internal/useragent -> internal/buildinfo
@@ -1133,6 +1142,7 @@ pkg/admin -> internal/apidocs
 pkg/admin -> internal/apikeyissue
 pkg/admin -> internal/buildinfo
 pkg/admin -> internal/connprobe
+pkg/admin -> internal/connsecretref
 pkg/admin -> internal/exporttrunc
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/httpobs
@@ -1573,6 +1583,7 @@ pkg/toolkits/gateway -> internal/cfgmap
 pkg/toolkits/gateway -> internal/connprobe
 pkg/toolkits/gateway -> internal/logsan
 pkg/toolkits/gateway -> internal/outbound
+pkg/toolkits/gateway -> internal/secretref
 pkg/toolkits/gateway -> pkg/authevents
 pkg/toolkits/gateway -> pkg/connoauth
 pkg/toolkits/gateway -> pkg/observability
@@ -1592,6 +1603,7 @@ pkg/toolkits/graphql -> internal/listcut
 pkg/toolkits/graphql -> internal/logsan
 pkg/toolkits/graphql -> internal/membudget
 pkg/toolkits/graphql -> internal/opranking
+pkg/toolkits/graphql -> internal/secretref
 pkg/toolkits/graphql -> internal/upstreamauth
 pkg/toolkits/graphql -> internal/useragent
 pkg/toolkits/graphql -> pkg/authevents

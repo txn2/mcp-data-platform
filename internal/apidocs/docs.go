@@ -8781,7 +8781,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates the secret, or changes it. A caller references it as {{secret:\u003cname\u003e}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers; the api gateway fills in the value as it sends the request and redacts it from the response. allow_connections is required and names the connections it may be sent through; allow_personas, when not empty, names the personas that may use it besides the administrator persona. value is required to create and may be omitted to change the rest and keep the stored value; it must be at least 6 characters. It is encrypted at rest and never returned.",
+                "description": "Creates the secret, or changes it. A value secret (kind value, the default) is referenced as {{secret:\u003cname\u003e}} in an api_invoke_endpoint or api_export request's body, query_params, path_params or headers, and in an api, graphql or mcp connection's credential fields; the platform fills in the value as it sends the request and redacts it from the response. An authenticator seed (kind totp) is given as value in the otpauth://totp URI form a provider's QR code encodes, or as the bare base32 seed, and a request references its current one-time code as {{totp:\u003cname\u003e}}; the seed is never sent. allow_connections is required and names the connections it may be used by; allow_personas, when not empty, names the personas that may use it besides the administrator persona. value is required to create and may be omitted to change the rest and keep the stored value; a value must be at least 6 characters. It is encrypted at rest and never returned.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8860,6 +8860,55 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/secrets/{name}/code": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a totp secret's one-time code for this moment, the seconds left in its period, and its parameters, for an administrator to compare with the authenticator app before an automation depends on it. Showing it does not count as issuing a code: the next request that fills {{totp:\u003cname\u003e}} may send the same one. A value secret has no code and is answered 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Secrets"
+                ],
+                "summary": "Get an authenticator seed's current code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Secret name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/secretstore.CurrentCode"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -36850,6 +36899,14 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "kind": {
+                    "description": "Kind is \"value\" (the default on a create) or \"totp\", an authenticator\nseed given as its otpauth://totp URI or bare base32 seed. Omitted on a\nchange, the stored kind is kept.",
+                    "type": "string",
+                    "enum": [
+                        "value",
+                        "totp"
+                    ]
+                },
                 "value": {
                     "type": "string"
                 }
@@ -36863,6 +36920,22 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/secretstore.Secret"
                     }
+                }
+            }
+        },
+        "secretstore.CurrentCode": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "example": "287082"
+                },
+                "seconds_left": {
+                    "type": "integer",
+                    "example": 17
+                },
+                "totp": {
+                    "$ref": "#/definitions/totp.Params"
                 }
             }
         },
@@ -36890,8 +36963,24 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "kind": {
+                    "description": "Kind is \"value\" or \"totp\".",
+                    "type": "string",
+                    "enum": [
+                        "value",
+                        "totp"
+                    ]
+                },
                 "name": {
                     "type": "string"
+                },
+                "totp": {
+                    "description": "TOTP is a totp secret's code parameters, read from the otpauth URI it\nwas saved as; absent for a value secret. The seed is never returned.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/totp.Params"
+                        }
+                    ]
                 },
                 "updated_at": {
                     "type": "string"
@@ -38118,6 +38207,23 @@ const docTemplate = `{
                 },
                 "reachable": {
                     "type": "boolean"
+                }
+            }
+        },
+        "totp.Params": {
+            "type": "object",
+            "properties": {
+                "algorithm": {
+                    "type": "string",
+                    "example": "SHA1"
+                },
+                "digits": {
+                    "type": "integer",
+                    "example": 6
+                },
+                "period": {
+                    "type": "integer",
+                    "example": 30
                 }
             }
         },

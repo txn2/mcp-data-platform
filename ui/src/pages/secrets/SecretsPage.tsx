@@ -79,7 +79,7 @@ export function SecretsPage({
                   <TableCell>
                     <div className="font-medium">{s.name}</div>
                     <div className="font-mono text-xs text-muted-foreground">
-                      {placeholder(s.name)}
+                      {placeholder(s.name, s.kind)}
                     </div>
                   </TableCell>
                   <TableCell className="max-w-80 text-sm text-muted-foreground">
