@@ -6,14 +6,15 @@ import {
   usePersonas,
   usePutSecret,
   useSecret,
+  useSecretCode,
 } from "@/api/admin/hooks";
-import type { Secret } from "@/api/admin/types";
+import type { Secret, SecretKind } from "@/api/admin/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PageHeader } from "@/components/patterns/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { ConfigField, ConfigGroup } from "@/pages/settings/connections/fields";
+import { ConfigField, ConfigGroup, ConfigSelect } from "@/pages/settings/connections/fields";
 import {
   choices,
   EMPTY_FORM,
@@ -27,7 +28,13 @@ import {
 
 // SecretEditor creates a secret, or changes one (#2051). The value is
 // write-only: an edit shows an empty field, and leaving it empty keeps the
-// stored value.
+// stored value. A secret is a value, or an authenticator seed whose current
+// one-time code a request is sent (#2065).
+
+const KINDS = [
+  { value: "value", label: "Value" },
+  { value: "totp", label: "Authenticator seed" },
+];
 
 export function SecretEditor({
   name,
@@ -87,7 +94,7 @@ function EditorForm({
       setForm((f) => ({ ...f, [key]: value }));
 
   const save = () => {
-    const found = problems(form, creating);
+    const found = problems(form, creating, secret?.kind);
     setShown(found);
     if (found.length > 0) return;
     put.mutate(
@@ -103,8 +110,8 @@ function EditorForm({
         onBack={onBack}
         icon={KeySquare}
         title={secret ? secret.name : "New secret"}
-        urn={secret ? placeholder(secret.name) : undefined}
-        subtitle="A request names it as a placeholder; the platform fills in the value as the request is sent and redacts it from the response."
+        urn={secret ? placeholder(secret.name, secret.kind) : undefined}
+        subtitle="A request names it as a placeholder; the platform fills in the value, or an authenticator seed's current code, as the request is sent."
         actions={
           secret ? (
             <DeleteButton name={secret.name} onDeleted={onBack} />
@@ -121,7 +128,7 @@ function EditorForm({
             value={form.name}
             onChange={set("name")}
             placeholder="portal_password"
-            help={`A request references it as ${placeholder(form.name || "name")}.`}
+            help={`A request references it as ${placeholder(form.name || "name", form.kind)}.`}
           />
         )}
         <ConfigField
@@ -129,19 +136,12 @@ function EditorForm({
           value={form.description}
           onChange={set("description")}
         />
-        <ConfigField
-          label={creating ? "Value" : "New value"}
-          required={creating}
-          sensitive
-          value={form.value}
-          onChange={set("value")}
-          help={
-            creating
-              ? "Never shown again after it is saved."
-              : "Leave empty to keep the stored value."
-          }
-        />
+        <ValueFields form={form} creating={creating} set={set} />
       </ConfigGroup>
+
+      {secret?.kind === "totp" && secret.totp && (
+        <SeedGroup name={secret.name} params={secret.totp} />
+      )}
 
       <ConnectionsGroup
         chosen={form.connections}
@@ -157,6 +157,103 @@ function EditorForm({
         onSave={save}
       />
     </div>
+  );
+}
+
+/** ValueFields are the kind and the value or seed typed for it. */
+function ValueFields({
+  form,
+  creating,
+  set,
+}: {
+  form: SecretForm;
+  creating: boolean;
+  set: <K extends keyof SecretForm>(key: K) => (value: SecretForm[K]) => void;
+}) {
+  const seed = form.kind === "totp";
+  return (
+    <>
+      <ConfigSelect
+        label="Kind"
+        value={form.kind}
+        onChange={(v) => set("kind")(v as SecretKind)}
+        options={KINDS}
+        help={
+          seed
+            ? "The seed is never sent. A request writes {{totp:<name>}} and is sent the code for that moment, one request per period."
+            : "Sent where a request writes {{secret:<name>}}, and redacted from what comes back."
+        }
+      />
+      <ConfigField
+        label={valueLabel(seed, creating)}
+        required={creating}
+        sensitive
+        mono={seed}
+        value={form.value}
+        onChange={set("value")}
+        placeholder={seed ? "otpauth://totp/Vendor:ops@example.com?secret=..." : undefined}
+        help={valueHelp(seed, creating)}
+      />
+    </>
+  );
+}
+
+/** valueLabel names the field the value or seed is typed into. */
+function valueLabel(seed: boolean, creating: boolean): string {
+  if (seed) return creating ? "Seed" : "New seed";
+  return creating ? "Value" : "New value";
+}
+
+/** valueHelp says what the field takes and what saving it does. */
+function valueHelp(seed: boolean, creating: boolean): string {
+  const kept = creating ? "Never shown again after it is saved." : "Leave empty to keep the stored one.";
+  if (!seed) return creating ? kept : "Leave empty to keep the stored value.";
+  return `The otpauth://totp/... URI the provider's QR code holds, or the bare base32 seed. ${kept}`;
+}
+
+/** SeedGroup shows a stored seed's parameters, and its current code on request
+ * so an administrator can compare it with the authenticator app. Reading the
+ * code does not use it up: the next request may be sent the same one. */
+function SeedGroup({ name, params }: { name: string; params: { algorithm: string; digits: number; period: number } }) {
+  const [asked, setAsked] = useState(false);
+  const current = useSecretCode(name, asked);
+  return (
+    <ConfigGroup title="Authenticator seed">
+      <dl className="grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <dt className="text-xs text-muted-foreground">Algorithm</dt>
+          <dd className="font-mono">{params.algorithm}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Digits</dt>
+          <dd className="font-mono">{params.digits}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted-foreground">Period</dt>
+          <dd className="font-mono">{params.period} seconds</dd>
+        </div>
+      </dl>
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => (asked ? void current.refetch() : setAsked(true))}
+          disabled={current.isFetching}
+        >
+          Current code
+        </Button>
+        {current.data && (
+          <span className="text-sm" data-testid="current-code">
+            <span className="font-mono text-base font-semibold tracking-widest">{current.data.code}</span>{" "}
+            <span className="text-muted-foreground">{current.data.seconds_left} seconds left</span>
+          </span>
+        )}
+        {current.error && (
+          <span className="text-sm text-destructive">{(current.error as Error).message}</span>
+        )}
+      </div>
+    </ConfigGroup>
   );
 }
 
@@ -214,6 +311,11 @@ function Actions({
   );
 }
 
+// SECRET_KINDS are the connection kinds a stored secret can be used by: an
+// api connection's requests fill it (#2051), and an api, graphql or mcp
+// connection's own configuration may name it (#2066).
+const SECRET_KINDS = ["api", "graphql", "mcp"];
+
 function ConnectionsGroup({
   chosen,
   onChange,
@@ -223,20 +325,21 @@ function ConnectionsGroup({
 }) {
   const { data, isLoading } = useConnections();
   const known = (data?.connections ?? [])
-    .filter((c) => c.kind === "api")
+    .filter((c) => SECRET_KINDS.includes(c.kind))
     .map((c) => c.name);
   return (
     <ConfigGroup title="Connections">
       <p className="text-xs text-muted-foreground">
-        The API connections the secret may be sent through. A request on any
-        other connection is refused before it is sent.
+        The connections the secret may be used by: in an API connection&apos;s requests, and in the
+        configuration of an API, GraphQL or MCP connection that names it. Any other use is refused
+        before anything is sent.
       </p>
       <Checklist
         label="Connections"
         names={choices(known, chosen)}
         chosen={chosen}
         onChange={onChange}
-        empty={isLoading ? "Loading..." : "No API connection is configured."}
+        empty={isLoading ? "Loading..." : "No API, GraphQL or MCP connection is configured."}
       />
     </ConfigGroup>
   );

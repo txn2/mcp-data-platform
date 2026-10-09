@@ -10,6 +10,7 @@
 package adminwire
 
 import (
+	"github.com/txn2/mcp-data-platform/internal/secretstore"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -27,5 +28,8 @@ func StoreDeps(deps *admin.Deps, p *platform.Platform) {
 	}
 	if records := p.MemoryStore(); records != nil {
 		deps.MemoryRecords = records
+	}
+	if db := p.DB(); db != nil {
+		deps.Secrets = secretstore.NewStore(db, p.RestEncryptor())
 	}
 }

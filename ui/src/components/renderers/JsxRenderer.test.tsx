@@ -263,15 +263,21 @@ export default function Dashboard() {
 describe("buildCSP: the reference route", () => {
   const origin = "https://platform.example.com";
 
-  it("allows the reference route for images and requests", () => {
+  it("allows the reference route for images, fonts and requests", () => {
     const csp = buildCSP(origin);
     const img = csp.match(/img-src ([^;]*)/)?.[1] ?? "";
+    const font = csp.match(/font-src ([^;]*)/)?.[1] ?? "";
     const connect = csp.match(/connect-src ([^;]*)/)?.[1] ?? "";
     expect(img).toContain(`${origin}/portal/refs/`);
+    // An @font-face rule naming a managed-resource font is rewritten to the
+    // reference route like an image is (#2062).
+    expect(font).toContain(`${origin}/portal/refs/`);
     expect(connect).toContain(`${origin}/portal/refs/`);
     // The families that already worked are untouched.
     expect(img).toContain("data:");
     expect(img).toContain("blob:");
+    expect(font).toContain("data:");
+    expect(font).toContain("https://fonts.gstatic.com");
     expect(connect).toContain("https://esm.sh");
   });
 
@@ -287,6 +293,7 @@ describe("buildCSP: the reference route", () => {
   it("keeps the frame denied where there is no origin to grant", () => {
     const csp = buildCSP("");
     expect(csp).toContain("img-src data: blob:;");
+    expect(csp).toContain("font-src data: https://fonts.gstatic.com;");
     expect(csp).not.toContain("/portal/refs/");
     // An opaque origin serializes as the string "null" and grants nothing.
     expect(refSource("null")).toBe("");

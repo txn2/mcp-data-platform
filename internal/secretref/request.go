@@ -62,11 +62,14 @@ func fillBody(body any, contentType string, lookup Lookup) (any, error) {
 }
 
 // Recording returns lookup with every value it answers recorded on r, so
-// the response to the request it fills is redacted of them.
+// the response to the request it fills is redacted of them. A one-time code
+// is not recorded (#2065): six to eight digits would rewrite ordinary numbers
+// in a response, and the code is useless once its period passes. The seed it
+// was computed from is recorded by the lookup that read it.
 func (r *Redactor) Recording(lookup Lookup) Lookup {
 	return func(name string) (string, error) {
 		v, err := lookup(name)
-		if err == nil {
+		if _, code := IsTOTPName(name); err == nil && !code {
 			r.Add(name, v)
 		}
 		return v, err

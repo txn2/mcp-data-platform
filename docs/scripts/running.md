@@ -1819,6 +1819,39 @@ the security model's
 Each delivery is recorded on the run — destination, bucket, key, and bytes — and
 audited under the script's own principal like every other capability call.
 
+### Signing in with a password and a one-time code
+
+A script that signs in to a vendor portal as a person, through a WebDriver
+connection, types the password and the code from the account's authenticator
+app. Neither is written in the script: the password is a stored secret, named
+as `{{secret:<name>}}`, and the authenticator's seed is a stored secret of kind
+`totp`, whose current code is named as `{{totp:<name>}}` (see the api gateway's
+[one-time code section](../server/api-gateway.md#a-one-time-code-in-the-request)):
+
+```python
+def main():
+    """Signs in to the supplier portal with its password and one-time code."""
+    session = "4b1c"
+
+    def type_into(element, text):
+        """Types text into one field of the portal's sign-in form."""
+        platform.call("api_invoke_endpoint", {
+            "connection": "selenium-grid",
+            "method": "POST",
+            "path": "/session/%s/element/%s/value" % (session, element),
+            "body": {"text": text},
+            "purpose": "Signing in to the supplier portal for the invoice download.",
+        })
+
+    type_into("password-field", "{{secret:portal_password}}")
+    type_into("code-field", "{{totp:portal_mfa}}")
+```
+
+Both are filled as each request is sent, so the script's source, its run
+recording and the audit rows hold only the placeholders. A provider refuses a
+code it already accepted in the same period, so a second sign-in inside one
+period waits for the next code rather than sending the same one twice.
+
 ### Keeping a file in the resource library current
 
 The portal destination gives an output an identity only the script can name. When

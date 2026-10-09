@@ -13,6 +13,7 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 
 	"github.com/txn2/mcp-data-platform/internal/outbound"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -70,6 +71,9 @@ type tokenProvider interface {
 type clientCredentialsTokenProvider struct {
 	cc         *clientcredentials.Config
 	httpClient *http.Client
+	// connection is the connection a client id or secret naming a stored
+	// secret must be allowed on (#2066).
+	connection string
 
 	mu     sync.Mutex
 	cached *oauth2.Token
@@ -120,7 +124,11 @@ func (p *clientCredentialsTokenProvider) Reacquire(ctx context.Context) error {
 // the cache. Caller must hold p.mu.
 func (p *clientCredentialsTokenProvider) fetchLocked(ctx context.Context) (string, error) {
 	bound := context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
-	tok, err := p.cc.TokenSource(bound).Token()
+	cc, err := p.filled(ctx)
+	if err != nil {
+		return "", err
+	}
+	tok, err := cc.TokenSource(bound).Token()
 	if err != nil {
 		return "", fmt.Errorf("gateway: oauth client_credentials: %w", err)
 	}
@@ -129,6 +137,24 @@ func (p *clientCredentialsTokenProvider) fetchLocked(ctx context.Context) (strin
 	}
 	p.cached = tok
 	return tok.AccessToken, nil
+}
+
+// filled is the client configuration with a client id or secret that names
+// a stored secret read for this exchange, so a rotated secret is sent from
+// the next exchange on (#2066).
+func (p *clientCredentialsTokenProvider) filled(ctx context.Context) (*clientcredentials.Config, error) {
+	if !secretref.HasPlaceholder(p.cc.ClientID) && !secretref.HasPlaceholder(p.cc.ClientSecret) {
+		return p.cc, nil
+	}
+	cc := *p.cc
+	var err error
+	if cc.ClientID, err = secretref.FillConnection(ctx, p.connection, p.cc.ClientID, secretref.Raw); err != nil {
+		return nil, fmt.Errorf("gateway: oauth client_credentials: %w", err)
+	}
+	if cc.ClientSecret, err = secretref.FillConnection(ctx, p.connection, p.cc.ClientSecret, secretref.Raw); err != nil {
+		return nil, fmt.Errorf("gateway: oauth client_credentials: %w", err)
+	}
+	return &cc, nil
 }
 
 // Status returns an OAuthStatus snapshot derived from the in-memory

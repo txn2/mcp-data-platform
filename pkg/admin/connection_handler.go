@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/connsecretref"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
@@ -271,6 +272,8 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 	}
 	req.Config = canonical
 
+	connsecretref.DropCarriedSessionSecret(req.Config, redactedValue)
+
 	// If any sensitive field is "[REDACTED]", preserve the existing value from the store.
 	if hasRedactedValues(req.Config) {
 		existing, err := h.deps.ConnectionStore.Get(r.Context(), kind, name)
@@ -300,6 +303,10 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 	// Checked after the redaction merge, so a "[REDACTED]" placeholder that
 	// resolves to a stored value is judged on the value it resolves to.
 	if err := checkNoPlaceholders(req.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
+	if err := h.checkSecretReferences(r.Context(), kind, name, req.Config); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
 		return
 	}
@@ -682,7 +689,7 @@ func redactConnectionConfig(config map[string]any) map[string]any {
 	result := make(map[string]any, len(config))
 	maps.Copy(result, config)
 	for _, key := range connectionSensitiveKeys {
-		if _, ok := result[key]; ok {
+		if v, ok := result[key]; ok && !connsecretref.NamesStoredSecret(v) {
 			result[key] = redactedValue
 		}
 	}
@@ -744,7 +751,7 @@ func redactNestedMapValues(raw any) any {
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		for k, val := range v {
-			if _, isStr := val.(string); isStr {
+			if _, isStr := val.(string); isStr && !connsecretref.NamesStoredSecret(val) {
 				out[k] = redactedValue
 			} else {
 				out[k] = val
@@ -753,8 +760,12 @@ func redactNestedMapValues(raw any) any {
 		return out
 	case map[string]string:
 		out := make(map[string]any, len(v))
-		for k := range v {
-			out[k] = redactedValue
+		for k, val := range v {
+			if connsecretref.NamesStoredSecret(val) {
+				out[k] = val
+			} else {
+				out[k] = redactedValue
+			}
 		}
 		return out
 	}

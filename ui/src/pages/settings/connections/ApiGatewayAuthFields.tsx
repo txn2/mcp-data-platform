@@ -53,7 +53,7 @@ function ApiKeyFields({ config, onChange }: ConfigFormProps) {
     <ConfigGroup title="API key">
       <ConfigField
         label="Credential"
-        help="The API key value. Encrypted at rest. Use [REDACTED] to keep an existing value when re-saving."
+        help="The API key value. Encrypted at rest. Use [REDACTED] to keep an existing value when re-saving. Write {{secret:<name>}} to read it from a stored secret at each request."
         value={String(config.credential ?? "")}
         onChange={(v) => onChange(update(config, "credential", v))}
         sensitive
@@ -101,7 +101,7 @@ function BasicAuthFields({ config, onChange }: ConfigFormProps) {
       />
       <ConfigField
         label="Password"
-        help="Encrypted at rest. Use [REDACTED] when re-saving without changing it. May be empty for legacy 'token in userid' patterns."
+        help="Encrypted at rest. Use [REDACTED] when re-saving without changing it. May be empty for legacy 'token in userid' patterns. Write {{secret:<name>}} to read it from a stored secret at each request."
         value={String(config.password ?? "")}
         onChange={(v) => onChange(update(config, "password", v))}
         sensitive
@@ -248,7 +248,7 @@ export function ApiGatewayAuthFields({
       {mode === "bearer" && (
         <ConfigField
           label="Credential"
-          help="Bearer token. Encrypted at rest. Use [REDACTED] when re-saving without changing it."
+          help="Bearer token. Encrypted at rest. Use [REDACTED] when re-saving without changing it. Write {{secret:<name>}} to read it from a stored secret at each request."
           value={String(config.credential ?? "")}
           onChange={(v) => onChange(update(config, "credential", v))}
           sensitive

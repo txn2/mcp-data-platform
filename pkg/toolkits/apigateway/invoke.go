@@ -366,10 +366,15 @@ func invokeWalk(ctx context.Context, inv invocation, authorize func(InvokeInput)
 // It is also where a request's {{secret:<name>}} placeholders are filled in
 // (#2051): last, on a copy, so nothing built from the caller's input holds a
 // value, and every error raised after the fill has the values redacted.
+//
+// A connection with fill_secrets false sends them as written (#2066).
 func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, cat catalogView, in InvokeInput) (*http.Request, error) {
-	filled, err := fillSecrets(ctx, in)
-	if err != nil {
-		return nil, err
+	filled := in
+	if cfg.FillSecrets {
+		var err error
+		if filled, err = fillSecrets(ctx, in); err != nil {
+			return nil, err
+		}
 	}
 	req, err := buildFilledRequest(ctx, cfg, auth, cat, filled)
 	return req, redactedError(ctx, err)

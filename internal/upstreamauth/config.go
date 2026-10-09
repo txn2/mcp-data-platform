@@ -35,6 +35,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -559,7 +560,9 @@ func (c Config) validateBasicAuth() error {
 	if strings.ContainsAny(c.Password, "\r\n\x00") {
 		return c.err("password contains CR/LF/NUL header smuggling vector")
 	}
-	if strings.Contains(c.Username, ":") {
+	// A placeholder's own ':' is not the userid's; the value it names is
+	// checked when it is read.
+	if strings.Contains(secretref.WithoutPlaceholders(c.Username), ":") {
 		return c.err("username must not contain \":\" (RFC 7617 §2 forbids it in the userid)")
 	}
 	return nil

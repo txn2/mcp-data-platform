@@ -61,7 +61,7 @@ export function SessionLoginAuthFields({ config, onChange }: ConfigFormProps) {
       </div>
       <PEMTextarea
         label="Sign-in body"
-        help="The request body the sign-in sends, with {{secret}} where the secret goes. Not secret itself, so it reads back as written."
+        help="The request body the sign-in sends, with {{secret}} where the Secret below goes, or {{secret:<name>}} naming a stored secret allowed on this connection, read at each sign-in. Not secret itself, so it reads back as written."
         value={text("session_login_body")}
         onChange={set("session_login_body")}
         placeholder={'{"credentials":{"personalAccessTokenName":"platform","personalAccessTokenSecret":"{{secret}}","site":{"contentUrl":"acme"}}}'}
@@ -75,7 +75,7 @@ export function SessionLoginAuthFields({ config, onChange }: ConfigFormProps) {
         />
         <ConfigField
           label="Secret"
-          help="Written into the body at {{secret}}: a personal access token secret, an API key or a password. Encrypted at rest. Use [REDACTED] to keep the existing value."
+          help="Written into the body at {{secret}}: a personal access token secret, an API key or a password. Encrypted at rest. Use [REDACTED] to keep the existing value. Leave it blank when the body names a stored secret."
           value={text("session_login_secret")}
           onChange={set("session_login_secret")}
           sensitive

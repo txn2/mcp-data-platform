@@ -204,6 +204,10 @@ func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) erro
 		"connection_name":      adminSelfConnectionName,
 		"description":          adminSelfDescription,
 		"required_path_prefix": "/api/v1", // the loopback root also serves the portal and its SPA (#1707)
+		// A connection or secret saved through this connection may name a
+		// stored secret as {{secret:<name>}}, which the admin API stores as
+		// written; filling it here would save the value instead (#2066).
+		"fill_secrets": false,
 	}); err != nil {
 		return fmt.Errorf("adding connection: %w", err)
 	}

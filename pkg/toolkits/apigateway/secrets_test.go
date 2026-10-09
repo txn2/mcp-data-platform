@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +47,7 @@ func (fakeSecrets) Lookup(_ context.Context, connection, persona string) secretr
 type echoUpstream struct {
 	mu   sync.Mutex
 	seen []string
+	url  string
 }
 
 func (e *echoUpstream) serve(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +57,7 @@ func (e *echoUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	e.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Echo", r.Header.Get("X-Portal"))
-	_ = json.NewEncoder(w).Encode(map[string]any{"path": r.URL.Path, "query": r.URL.RawQuery, "body": string(body)})
+	_ = json.NewEncoder(w).Encode(map[string]any{"path": r.URL.Path, "query": r.URL.RawQuery, "body": string(body), "x_portal": r.Header.Get("X-Portal")})
 }
 
 func (e *echoUpstream) requests() []string {
@@ -69,6 +71,7 @@ func secretsToolkit(t *testing.T, src secretstore.Source) (*Toolkit, *echoUpstre
 	up := &echoUpstream{}
 	srv := httptest.NewServer(http.HandlerFunc(up.serve))
 	t.Cleanup(srv.Close)
+	up.url = srv.URL
 	tk := NewMulti(MultiConfig{})
 	if src != nil {
 		tk.SetSecrets(src)
@@ -251,5 +254,110 @@ func (fakeExportSecrets) Lookup(_ context.Context, connection, _ string) secretr
 			return "", errors.New("not allowed")
 		}
 		return `s3cr"et/pw`, nil
+	}
+}
+
+// A connection with fill_secrets false sends a call's placeholders as
+// written, in every place a call may put one (#2066): the built-in
+// platform-admin connection saves a connection or secret that names a
+// stored secret, and the admin API stores it as written.
+func TestFillSecretsFalseSendsPlaceholdersAsWritten(t *testing.T) {
+	tk, up := secretsToolkit(t, fakeSecrets{})
+	if err := tk.AddConnection("admin-self", map[string]any{"base_url": up.url, "fill_secrets": false}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := mcpcontext.WithPersona(context.Background(), "admin")
+	for name, in := range map[string]InvokeInput{
+		"body object":         {Connection: "admin-self", Method: "PUT", Path: "/c", Body: map[string]any{"credential": "{{secret:tableau-rest}}"}},
+		"body string of JSON": {Connection: "admin-self", Method: "PUT", Path: "/c", Body: `{"credential":"{{secret:tableau-rest}}"}`},
+		"query and header":    {Connection: "admin-self", Method: "GET", Path: "/q", Query: map[string]any{"v": "{{secret:tableau-rest}}"}, Headers: map[string]string{"X-Portal": "{{secret:tableau-rest}}"}},
+	} {
+		before := len(up.requests())
+		if _, refusal := invokeOut(ctx, t, tk, in); refusal != "" {
+			t.Fatalf("%s: refused: %s", name, refusal)
+		}
+		reqs := up.requests()
+		if len(reqs) != before+1 {
+			t.Fatalf("%s: nothing was sent", name)
+		}
+		sent, _ := url.QueryUnescape(reqs[before])
+		if !strings.Contains(sent, "{{secret:tableau-rest}}") {
+			t.Errorf("%s: the upstream received %q, not the placeholder as written", name, reqs[before])
+		}
+	}
+}
+
+// A connection whose own configuration names a stored secret sends its
+// value, and a response that echoes it reaches the caller redacted (#2066).
+func TestConnectionConfigSecretIsSentAndRedacted(t *testing.T) {
+	prev := secretref.SetConnectionSource(func(_ context.Context, name, connection string) (string, error) {
+		if name == "grid-key" && connection == "keyed" {
+			return "grid-key-value-77", nil
+		}
+		return "", fmt.Errorf("secret %q may not be used by connection %q", name, connection)
+	})
+	t.Cleanup(func() { secretref.SetConnectionSource(prev) })
+	tk, up := secretsToolkit(t, fakeSecrets{})
+	if err := tk.AddConnection("keyed", map[string]any{"base_url": up.url, "static_headers": map[string]any{"X-Portal": "{{secret:grid-key}}"}}); err != nil {
+		t.Fatal(err)
+	}
+	out, refusal := invokeOut(mcpcontext.WithPersona(context.Background(), "analyst"), t, tk, InvokeInput{Connection: "keyed", Method: "GET", Path: "/h"})
+	if refusal != "" {
+		t.Fatal(refusal)
+	}
+	reqs := up.requests()
+	if got := reqs[len(reqs)-1]; got != "/h grid-key-value-77 " {
+		t.Errorf("upstream received %q", got)
+	}
+	text, _ := json.Marshal(out)
+	if strings.Contains(string(text), "grid-key-value-77") || !strings.Contains(string(text), "[REDACTED:grid-key]") {
+		t.Errorf("the echoed header was not redacted: %s", text)
+	}
+}
+
+// codeSecrets answers {{totp:mfa}} with a fixed code, as the store answers it
+// with the code for the moment (#2065), and records the seed for redaction.
+type codeSecrets struct{}
+
+func (codeSecrets) Lookup(ctx context.Context, _, _ string) secretref.Lookup {
+	return func(name string) (string, error) {
+		if name != secretref.TOTPName("mfa") {
+			return "", fmt.Errorf("secret %q is an authenticator seed, which is never sent", name)
+		}
+		secretref.FromContext(ctx).Add("mfa", "GEZDGNBVGY3TQOJQ")
+		return "287082", nil
+	}
+}
+
+// TestOneTimeCodesAreFilledEverywhereAPlaceholderSits sends {{totp:<name>}}
+// in each place a request carries one; the code is sent, and it is not
+// redacted from the answer, while the seed would be.
+func TestOneTimeCodesAreFilledEverywhereAPlaceholderSits(t *testing.T) {
+	tk, up := secretsToolkit(t, codeSecrets{})
+	ctx := mcpcontext.WithPersona(context.Background(), "analyst")
+	for name, c := range map[string]struct {
+		in   InvokeInput
+		sent string
+	}{
+		"body object":         {InvokeInput{Connection: "grid", Method: "POST", Path: "/v", Body: map[string]any{"text": "{{totp:mfa}}"}}, `/v  {"text":"287082"}`},
+		"body string of JSON": {InvokeInput{Connection: "grid", Method: "POST", Path: "/v", Body: `{"text":"{{totp:mfa}}"}`}, `/v  {"text":"287082"}`},
+		"query and header":    {InvokeInput{Connection: "grid", Method: "GET", Path: "/q", Query: map[string]any{"code": "{{totp:mfa}}"}, Headers: map[string]string{"X-Portal": "{{totp:mfa}}"}}, `/q?code=287082 287082 `},
+	} {
+		out, refusal := invokeOut(ctx, t, tk, c.in)
+		if refusal != "" {
+			t.Fatalf("%s: refused: %s", name, refusal)
+		}
+		reqs := up.requests()
+		if got := reqs[len(reqs)-1]; got != c.sent {
+			t.Errorf("%s: upstream received %q, want %q", name, got, c.sent)
+		}
+		text, _ := json.Marshal(out)
+		if !strings.Contains(string(text), "287082") {
+			t.Errorf("%s: the code was redacted from the answer: %s", name, text)
+		}
+	}
+	_, refusal := invokeOut(ctx, t, tk, InvokeInput{Connection: "grid", Method: "GET", Path: "/q", Query: map[string]any{"pw": "{{secret:mfa}}"}})
+	if !strings.Contains(refusal, "never sent") {
+		t.Errorf("a seed named as a value was not refused: %q", refusal)
 	}
 }

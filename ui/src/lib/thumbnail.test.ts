@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 
 import { buildCSP, REF_PATH_PREFIX } from "@/components/renderers/JsxRenderer";
 import { buildJsxThumbnailHtml, injectCaptureScript } from "./thumbnail";
@@ -98,10 +98,11 @@ describe("the capture frame's policy", () => {
     expect(cspOf(buildJsxThumbnailHtml(CODE, "ast-1", ORIGIN))).toBe(buildCSP(ORIGIN));
   });
 
-  it("grants the reference route, which is how a referenced logo and data file load", () => {
+  it("grants the reference route, which is how a referenced logo, font and data file load", () => {
     const csp = cspOf(buildJsxThumbnailHtml(CODE, "ast-1", ORIGIN));
     const ref = ORIGIN + REF_PATH_PREFIX;
     expect(csp).toContain(`img-src data: blob: ${ref}`);
+    expect(csp).toContain(`font-src data: https://fonts.gstatic.com ${ref}`);
     expect(csp).toContain(`connect-src`);
     expect(csp.slice(csp.indexOf("connect-src"))).toContain(ref);
   });
@@ -155,5 +156,50 @@ describe("the capture frame's reference watch", () => {
   it("watches a fragment with no head or body", () => {
     const html = injectCaptureScript("<div>content</div>");
     expect(html.indexOf("window.__thumbnailRefs")).toBeLessThan(html.indexOf("<div>content</div>"));
+  });
+});
+
+// The watcher run for real against this document: what it counts decides
+// whether a tile is stored or the asset is recorded as not drawable.
+describe("the capture frame's reference watch, run", () => {
+  type Watched = { failed: number };
+  const win = window as unknown as { __thumbnailRefs?: Watched };
+
+  /** Runs the watcher script injectCaptureScript puts in a document. */
+  function runWatcher(): Watched {
+    const html = injectCaptureScript("<div>content</div>");
+    const body = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+    expect(body).toContain("__thumbnailRefs");
+    new Function(body)();
+    return win.__thumbnailRefs as Watched;
+  }
+
+  function violation(directive: string, blockedURI: string) {
+    const e = new Event("securitypolicyviolation");
+    Object.assign(e, { effectiveDirective: directive, blockedURI });
+    document.dispatchEvent(e);
+  }
+
+  afterEach(() => {
+    delete win.__thumbnailRefs;
+  });
+
+  it("counts a refused referenced image as a failure", () => {
+    const state = runWatcher();
+    violation("img-src", `https://platform.example.com${REF_PATH_PREFIX}ast-1/abc`);
+    expect(state.failed).toBe(1);
+  });
+
+  // A page drawn in its fallback face is a picture of the page (#2062).
+  it("does not count a refused referenced font", () => {
+    const state = runWatcher();
+    violation("font-src", `https://platform.example.com${REF_PATH_PREFIX}ast-1/abc`);
+    expect(state.failed).toBe(0);
+  });
+
+  it("does not count a refusal outside the reference route", () => {
+    const state = runWatcher();
+    violation("img-src", "https://beacon.example.com/pixel.gif");
+    expect(state.failed).toBe(0);
   });
 });

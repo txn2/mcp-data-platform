@@ -39,6 +39,10 @@ func wireKeySecrets(auth upstreamauth.Authenticator, src secretstore.Source, con
 	}
 }
 
+// cfgKeyFillSecrets turns off the fill of a call's placeholders on one
+// connection (Config.FillSecrets).
+const cfgKeyFillSecrets = "fill_secrets"
+
 // secretLookupKey carries a call's lookup on its context.
 type secretLookupKey struct{}
 

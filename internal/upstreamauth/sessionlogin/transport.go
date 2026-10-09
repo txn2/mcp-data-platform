@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/net/http/httpguts"
 
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
 )
 
@@ -209,7 +210,7 @@ func (t *sessionTransport) replay(req *http.Request) (*http.Response, error) {
 	t.mu.Lock()
 	t.rejectedUntil = t.now().Add(failureHold)
 	t.mu.Unlock()
-	excerpt := t.excerpt(resp.Body, state.token)
+	excerpt := t.excerpt(resp.Body, state.token, nil)
 	_ = resp.Body.Close()
 	return nil, t.errf("%w (HTTP %d%s)", ErrSessionRejected, resp.StatusCode, excerpt)
 }
@@ -306,9 +307,18 @@ func (t *sessionTransport) signIn(ctx context.Context) (token string, values map
 	s := t.cfg
 	ctx, cancel := context.WithTimeout(ctx, sessionLoginTimeout)
 	defer cancel()
+	// The stored secrets the sign-in names are read now, so a rotated one
+	// is sent from the next sign-in on (#2066), and recorded so an error
+	// quoting the upstream's answer cannot quote them.
+	sent := &secretref.Redactor{}
+	lookup := sent.Recording(secretref.ConnectionLookup(ctx, s.Connection))
 	var body io.Reader = http.NoBody
 	if s.LoginBody != "" {
-		body = strings.NewReader(s.renderBody())
+		rendered, err := s.signInBody(lookup)
+		if err != nil {
+			return "", nil, t.errf("%w: %w", ErrSessionLogin, err)
+		}
+		body = strings.NewReader(rendered)
 	}
 	req, err := http.NewRequestWithContext(ctx, s.LoginMethod, s.LoginURL, body)
 	if err != nil {
@@ -318,7 +328,11 @@ func (t *sessionTransport) signIn(ctx context.Context) (token string, values map
 		req.Header.Set("Content-Type", s.LoginContentType)
 	}
 	req.Header.Set("Accept", "application/json")
-	for name, value := range s.LoginHeaders {
+	headers, err := secretref.FillStrings(s.LoginHeaders, lookup)
+	if err != nil {
+		return "", nil, t.errf("%w: %w", ErrSessionLogin, err)
+	}
+	for name, value := range headers {
 		req.Header.Set(name, value)
 	}
 	// #nosec G107 G704 -- the sign-in URL is the operator's configured
@@ -330,7 +344,7 @@ func (t *sessionTransport) signIn(ctx context.Context) (token string, values map
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", nil, t.errf("%w: %s answered HTTP %d%s",
-			ErrSessionLogin, scrubbedURL(s.LoginURL), resp.StatusCode, t.excerpt(resp.Body, ""))
+			ErrSessionLogin, scrubbedURL(s.LoginURL), resp.StatusCode, t.excerpt(resp.Body, "", sent))
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSessionResponse))
 	if err != nil {
@@ -381,10 +395,11 @@ func (t *sessionTransport) expired(resp *http.Response) (bool, *http.Response) {
 }
 
 // excerpt is a short, credential-free quote of an upstream's error body, as
-// the tail of an error message.
-func (t *sessionTransport) excerpt(body io.Reader, token string) string {
+// the tail of an error message. sent holds the stored secrets the request
+// carried, which are redacted before the quote is cut.
+func (t *sessionTransport) excerpt(body io.Reader, token string, sent *secretref.Redactor) string {
 	raw, _ := io.ReadAll(io.LimitReader(body, maxExcerpt*4))
-	text := strings.Join(strings.Fields(string(raw)), " ")
+	text := strings.Join(strings.Fields(sent.String(string(raw))), " ")
 	for _, secret := range []string{t.cfg.Secret, token, escapeFor(t.cfg.LoginContentType, t.cfg.Secret)} {
 		if secret != "" {
 			text = strings.ReplaceAll(text, secret, redacted)

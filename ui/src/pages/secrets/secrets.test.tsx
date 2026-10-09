@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   put: vi.fn(),
   putError: null as unknown,
   remove: vi.fn(),
+  codeAsked: false,
 }));
 
 vi.mock("@/api/admin/hooks", async (importOriginal) => {
@@ -22,6 +23,15 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
     ...actual,
     useSecrets: () => h.list,
     useSecret: () => h.one,
+    useSecretCode: (_name: string, enabled: boolean) => {
+      h.codeAsked = enabled;
+      return {
+        data: enabled ? { code: "482913", seconds_left: 17, totp: { algorithm: "SHA1", digits: 6, period: 30 } } : undefined,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+    },
     usePutSecret: () => ({
       mutate: h.put,
       isPending: false,
@@ -40,6 +50,8 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
       data: {
         connections: [
           { kind: "api", name: "selenium-grid" },
+          { kind: "graphql", name: "tableau-meta" },
+          { kind: "mcp", name: "vendor-mcp" },
           { kind: "trino", name: "warehouse" },
         ],
       },
@@ -74,7 +86,9 @@ describe("Secrets list", () => {
   it("lists each secret with its placeholder and scope, and opens one on row click", () => {
     at("/admin/secrets");
     expect(screen.getByText("{{secret:portal_password}}")).toBeTruthy();
-    expect(screen.getByText("Any")).toBeTruthy();
+    expect(screen.getAllByText("Any").length).toBeGreaterThan(0);
+    // An authenticator seed is named by its code's placeholder (#2065).
+    expect(screen.getByText("{{totp:portal_mfa}}")).toBeTruthy();
     expect(screen.getByText("finance")).toBeTruthy();
     fireEvent.click(screen.getByText("billing_api_key"));
     expect(nav).toHaveBeenCalledWith("/admin/secrets/billing_api_key");
@@ -107,6 +121,10 @@ describe("Secret editor", () => {
       target: { value: "hunter22" },
     });
     fireEvent.click(screen.getByLabelText("selenium-grid"));
+    // A graphql or mcp connection's configuration may name a secret too
+    // (#2066); a trino connection fills nothing.
+    expect(screen.getByLabelText("tableau-meta")).toBeTruthy();
+    expect(screen.getByLabelText("vendor-mcp")).toBeTruthy();
     expect(screen.queryByLabelText("warehouse")).toBeNull();
     fireEvent.click(screen.getByLabelText("finance"));
     fireEvent.click(screen.getByRole("button", { name: "Create secret" }));
@@ -115,6 +133,7 @@ describe("Secret editor", () => {
         name: "portal_pw",
         body: {
           description: "",
+          kind: "value",
           value: "hunter22",
           allow_connections: ["selenium-grid"],
           allow_personas: ["finance"],
@@ -122,6 +141,36 @@ describe("Secret editor", () => {
       },
       expect.anything(),
     );
+  });
+
+  // #2065: the seed is typed where the value would be, the kind is sent, and
+  // a stored seed shows its parameters and, on request, its current code.
+  it("creates an authenticator seed", () => {
+    at("/admin/secrets/new");
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "vendor_mfa" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Kind" }));
+    fireEvent.click(screen.getByRole("option", { name: "Authenticator seed" }));
+    fireEvent.change(screen.getByLabelText(/^Seed/), {
+      target: { value: "otpauth://totp/V:ops?secret=GEZDGNBVGY3TQOJQ" },
+    });
+    fireEvent.click(screen.getByLabelText("selenium-grid"));
+    fireEvent.click(screen.getByRole("button", { name: "Create secret" }));
+    expect(h.put.mock.calls[h.put.mock.calls.length - 1]![0].body).toMatchObject({
+      kind: "totp",
+      value: "otpauth://totp/V:ops?secret=GEZDGNBVGY3TQOJQ",
+    });
+  });
+
+  it("shows a stored seed's parameters and its current code", () => {
+    h.one = { data: mockSecrets.find((m) => m.name === "portal_mfa"), isLoading: false, error: null };
+    at("/admin/secrets/portal_mfa");
+    expect(screen.getByText("{{totp:portal_mfa}}")).toBeTruthy();
+    expect(screen.getByText("30 seconds")).toBeTruthy();
+    expect(h.codeAsked).toBe(false);
+    expect(screen.queryByTestId("current-code")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Current code" }));
+    expect(screen.getByTestId("current-code").textContent).toContain("482913");
+    expect(screen.getByTestId("current-code").textContent).toContain("17 seconds left");
   });
 
   it("changes a secret without resending its value", () => {

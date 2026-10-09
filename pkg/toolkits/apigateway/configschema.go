@@ -19,7 +19,8 @@ const ownConfigSchemaProperties = `
     "catalog_id": {"type": "string", "description": "The api_catalogs row supplying this connection's OpenAPI specs. A catalog is shared: several connections to one vendor reference the same catalog rather than each carrying a copy. Empty means the connection has no spec surface, so api_discover answers with a note and no operations."},
     "trust_level": {"type": "string", "enum": ["untrusted", "trusted"], "description": "Whether responses from this upstream are treated as data only. Defaults to untrusted."},
     "handler": {"type": "string", "description": "Resolve this connection's operations with an in-process handler instead of dialing an upstream. Set by the platform's built-in connections; leave unset."},
-    "description": {"type": "string", "description": "What this connection is, as list_connections and search report it. Falls back to the base URL."}`
+    "description": {"type": "string", "description": "What this connection is, as list_connections and search report it. Falls back to the base URL."},
+    "fill_secrets": {"type": "boolean", "description": "Fill a call's {{secret:<name>}} placeholders from the stored secrets as the request is sent. Defaults to true. false sends them as written, for a connection to the platform's own admin API, through which a connection configuration naming a stored secret is saved; the built-in platform-admin connection sets it."}`
 
 // ConfigSchemaJSON declares what an api connection's config takes. See the same
 // constant on the trino kind for why a kind declares this at all (#1805).

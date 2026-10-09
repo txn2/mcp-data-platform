@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 )
 
 // AuthMode signs in to the upstream with a stored credential and
@@ -49,6 +50,14 @@ const (
 	cfgKeySessionCapture          = "session_capture"
 	cfgKeySessionExpiredStatuses  = "session_expired_statuses"
 	cfgKeySessionExpiredMarker    = "session_expired_marker"
+)
+
+// The keys whose values may name a stored secret as {{secret:<name>}}
+// (#2066), which the sign-in fills as it is sent.
+const (
+	ConfigKeyLoginBody    = cfgKeySessionLoginBody
+	ConfigKeyLoginSecret  = cfgKeySessionLoginSecret
+	ConfigKeyLoginHeaders = cfgKeySessionLoginHeaders
 )
 
 // SessionSecretPlaceholder is where session_login_secret is written into the
@@ -127,6 +136,9 @@ type Config struct {
 	// means the session is no longer accepted, for an upstream that
 	// answers an expired session with 200 or 403 and an error body.
 	ExpiredMarker string
+	// Connection is the connection's name, which a stored secret the
+	// sign-in names must be allowed on. Set by the transport's builder.
+	Connection string
 }
 
 // Parse reads a session_login connection's settings. endpointURL
@@ -314,9 +326,12 @@ func (v validator) validateSessionBody() error {
 	case s.LoginBody == "" && s.Secret == "":
 		return v.errf("%s or %s is required when auth_mode is %q",
 			cfgKeySessionLoginBody, cfgKeySessionLoginSecret, AuthMode)
+	case secretref.Malformed(s.LoginBody):
+		return v.errf("%s names a stored secret in a form that is not {{secret:<name>}}, where a name is lower case letters, digits, '.', '_' and '-'",
+			cfgKeySessionLoginBody)
 	case s.Secret != "" && !hasPlaceholder:
-		return v.errf("%s is set but %s does not contain %s, where it is written",
-			cfgKeySessionLoginSecret, cfgKeySessionLoginBody, SessionSecretPlaceholder)
+		return v.errf("%s is set but %s does not contain %s, where it is written; a body that names a stored secret as {{secret:<name>}} needs no %s, so clear it",
+			cfgKeySessionLoginSecret, cfgKeySessionLoginBody, SessionSecretPlaceholder, cfgKeySessionLoginSecret)
 	case hasPlaceholder && s.Secret == "":
 		return v.errf("%s contains %s but %s is empty",
 			cfgKeySessionLoginBody, SessionSecretPlaceholder, cfgKeySessionLoginSecret)
@@ -413,10 +428,33 @@ func parseSessionSource(source string) (where, what string, err error) {
 // body's media type so a secret holding a quote or an ampersand does not
 // change the body's shape.
 func (s Config) renderBody() string {
-	if !strings.Contains(s.LoginBody, SessionSecretPlaceholder) {
-		return s.LoginBody
+	return s.renderBodyWith(s.LoginBody, s.Secret)
+}
+
+// renderBodyWith is body with secret written in at SessionSecretPlaceholder.
+func (s Config) renderBodyWith(body, secret string) string {
+	if !strings.Contains(body, SessionSecretPlaceholder) {
+		return body
 	}
-	return strings.ReplaceAll(s.LoginBody, SessionSecretPlaceholder, escapeFor(s.LoginContentType, s.Secret))
+	return strings.ReplaceAll(body, SessionSecretPlaceholder, escapeFor(s.LoginContentType, secret))
+}
+
+// signInBody is the body a sign-in sends: every stored secret the body names
+// as {{secret:<name>}} read through lookup and escaped for the body's media
+// type (#2066), then session_login_secret, itself read through lookup when it
+// names one, written in at SessionSecretPlaceholder. The body's own
+// placeholders are filled first, so only text the operator wrote is read as
+// a reference.
+func (s Config) signInBody(lookup secretref.Lookup) (string, error) {
+	body, err := secretref.Fill(s.LoginBody, lookup, func(v string) string { return escapeFor(s.LoginContentType, v) })
+	if err != nil {
+		return "", err //nolint:wrapcheck // the lookup's refusal, which names the secret and the connection
+	}
+	secret, err := secretref.Fill(s.Secret, lookup, secretref.Raw)
+	if err != nil {
+		return "", err //nolint:wrapcheck // as above
+	}
+	return s.renderBodyWith(body, secret), nil
 }
 
 // escapeFor escapes a value for the body of the given media type.

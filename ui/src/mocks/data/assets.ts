@@ -72,7 +72,7 @@ export const mockAssets: Asset[] = [
           version: 4,
           session_id: agentSessions[0]!,
           explicit: true,
-          event_ids: ["evt-q4-3"],
+          event_ids: ["evt-q4-3", "evt-q4-4"],
           calls: [
             {
               event_id: "evt-q4-3",
@@ -86,6 +86,24 @@ export const mockAssets: Asset[] = [
               purpose: "Adding the enterprise account names the revenue split is broken out by.",
               outcome: "success",
               duration_ms: 640,
+              timestamp: daysAgo(1),
+            },
+            {
+              // A JSON body written on one line: the request's longest unbroken
+              // run is wider than the call dialog, which must still hold it
+              // (#2063).
+              event_id: "evt-q4-4",
+              kind: "api",
+              tool: "api_invoke_endpoint",
+              connection: "crm",
+              method: "POST",
+              path: "/v1/reports/query",
+              operation_id: "queryReport",
+              request:
+                'POST /v1/reports/query {"filters":[{"field":"segment","op":"eq","value":"enterprise"}],"metrics":["bookings","billings","arr","net_retention","gross_retention","expansion","contraction","churn","new_logos","pipeline_created","pipeline_closed","win_rate"]}',
+              purpose: "Pulling the retention metrics the board section of the dashboard reports.",
+              outcome: "success",
+              duration_ms: 910,
               timestamp: daysAgo(1),
             },
           ],

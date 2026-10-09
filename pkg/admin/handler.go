@@ -233,6 +233,10 @@ type Deps struct {
 	// with the apigateway toolkit's SetCatalogStore so admin writes
 	// and toolkit reads share one store.
 	APICatalogStore APICatalogStore
+	// Secrets reads the scope of the stored secrets a connection
+	// configuration names as {{secret:<name>}}, which a save checks
+	// (#2066). nil refuses a configuration that names one.
+	Secrets SecretScopes
 	// Embedder is the embedding provider used by the api-catalog
 	// admin path to compute per-operation vectors at spec-upsert
 	// time. Nil disables the compute-and-store step: spec writes

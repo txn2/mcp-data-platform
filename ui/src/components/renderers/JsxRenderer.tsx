@@ -37,8 +37,9 @@ export function refSource(origin: string): string {
  * viewer's page policy denies eval too, which is what keeps a shared artifact
  * rendering the same way it renders in this preview.
  *
- * `img-src` and `connect-src` carry the reference route because that is how a
- * JSX dashboard shows a referenced logo and loads a referenced CSV or JSON at
+ * `img-src`, `font-src` and `connect-src` carry the reference route because
+ * that is how a JSX dashboard shows a referenced logo, declares a referenced
+ * font in an `@font-face` rule (#2062), and loads a referenced CSV or JSON at
  * render time. A deployment whose portal.public_base_url names a DIFFERENT
  * host than the one the viewer is browsing is the one shape this does not
  * cover: the rewritten URL is then cross-origin to the page and outside this
@@ -48,6 +49,7 @@ export function refSource(origin: string): string {
 export function buildCSP(origin: string): string {
   const ref = refSource(origin);
   const img = ["data:", "blob:", ref].filter(Boolean).join(" ");
+  const font = ["data:", "https://fonts.gstatic.com", ref].filter(Boolean).join(" ");
   const connect = [
     "https://esm.sh",
     "https://fonts.googleapis.com",
@@ -61,7 +63,7 @@ export function buildCSP(origin: string): string {
     "script-src 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
     `img-src ${img}`,
-    "font-src data: https://fonts.gstatic.com",
+    `font-src ${font}`,
     `connect-src ${connect}`,
   ].join("; ");
 }

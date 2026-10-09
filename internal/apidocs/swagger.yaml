@@ -9759,6 +9759,15 @@ definitions:
         type: array
       description:
         type: string
+      kind:
+        description: |-
+          Kind is "value" (the default on a create) or "totp", an authenticator
+          seed given as its otpauth://totp URI or bare base32 seed. Omitted on a
+          change, the stored kind is kept.
+        enum:
+        - value
+        - totp
+        type: string
       value:
         type: string
     type: object
@@ -9768,6 +9777,17 @@ definitions:
         items:
           $ref: '#/definitions/secretstore.Secret'
         type: array
+    type: object
+  secretstore.CurrentCode:
+    properties:
+      code:
+        example: "287082"
+        type: string
+      seconds_left:
+        example: 17
+        type: integer
+      totp:
+        $ref: '#/definitions/totp.Params'
     type: object
   secretstore.Secret:
     properties:
@@ -9785,8 +9805,20 @@ definitions:
         type: string
       description:
         type: string
+      kind:
+        description: Kind is "value" or "totp".
+        enum:
+        - value
+        - totp
+        type: string
       name:
         type: string
+      totp:
+        allOf:
+        - $ref: '#/definitions/totp.Params'
+        description: |-
+          TOTP is a totp secret's code parameters, read from the otpauth URI it
+          was saved as; absent for a value secret. The seed is never returned.
       updated_at:
         type: string
       updated_by:
@@ -10781,6 +10813,18 @@ definitions:
         type: string
       reachable:
         type: boolean
+    type: object
+  totp.Params:
+    properties:
+      algorithm:
+        example: SHA1
+        type: string
+      digits:
+        example: 6
+        type: integer
+      period:
+        example: 30
+        type: integer
     type: object
   userkeyhttp.createRequest:
     properties:
@@ -17153,14 +17197,19 @@ paths:
     put:
       consumes:
       - application/json
-      description: Creates the secret, or changes it. A caller references it as {{secret:<name>}}
-        in an api_invoke_endpoint or api_export request's body, query_params, path_params
-        or headers; the api gateway fills in the value as it sends the request and
-        redacts it from the response. allow_connections is required and names the
-        connections it may be sent through; allow_personas, when not empty, names
-        the personas that may use it besides the administrator persona. value is required
-        to create and may be omitted to change the rest and keep the stored value;
-        it must be at least 6 characters. It is encrypted at rest and never returned.
+      description: Creates the secret, or changes it. A value secret (kind value,
+        the default) is referenced as {{secret:<name>}} in an api_invoke_endpoint
+        or api_export request's body, query_params, path_params or headers, and in
+        an api, graphql or mcp connection's credential fields; the platform fills
+        in the value as it sends the request and redacts it from the response. An
+        authenticator seed (kind totp) is given as value in the otpauth://totp URI
+        form a provider's QR code encodes, or as the bare base32 seed, and a request
+        references its current one-time code as {{totp:<name>}}; the seed is never
+        sent. allow_connections is required and names the connections it may be used
+        by; allow_personas, when not empty, names the personas that may use it besides
+        the administrator persona. value is required to create and may be omitted
+        to change the rest and keep the stored value; a value must be at least 6 characters.
+        It is encrypted at rest and never returned.
       parameters:
       - description: Secret name
         in: path
@@ -17192,6 +17241,40 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Create or change a stored secret
+      tags:
+      - Secrets
+  /admin/secrets/{name}/code:
+    get:
+      description: 'Returns a totp secret''s one-time code for this moment, the seconds
+        left in its period, and its parameters, for an administrator to compare with
+        the authenticator app before an automation depends on it. Showing it does
+        not count as issuing a code: the next request that fills {{totp:<name>}} may
+        send the same one. A value secret has no code and is answered 409.'
+      parameters:
+      - description: Secret name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/secretstore.CurrentCode'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get an authenticator seed's current code
       tags:
       - Secrets
   /admin/sessions:

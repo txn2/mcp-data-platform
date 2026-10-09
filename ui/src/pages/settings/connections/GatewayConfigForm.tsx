@@ -43,7 +43,7 @@ export function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
       {(config.auth_mode === "bearer" || config.auth_mode === "api_key") && (
         <ConfigField
           label="Credential"
-          help="Encrypted at rest. Use [REDACTED] when re-saving without changing it."
+          help="Encrypted at rest. Use [REDACTED] when re-saving without changing it. Write {{secret:<name>}} to read it from a stored secret at each request."
           value={String(config.credential ?? "")}
           onChange={(v) => onChange(update(config, "credential", v))}
           sensitive

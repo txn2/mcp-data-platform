@@ -49,8 +49,11 @@ func TestWiredSecretsFillARequestThroughTheRealTool(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	now := time.Now()
 	mock.ExpectQuery(`, value FROM gateway_secrets WHERE name`).WithArgs("portal_password").WillReturnRows(
-		sqlmock.NewRows([]string{"name", "description", "allow_connections", "allow_personas", "created_by", "updated_by", "created_at", "updated_at", "value"}).
-			AddRow("portal_password", "", "{grid}", "{}", "", "", now, now, "hunter22-pw"))
+		sqlmock.NewRows([]string{
+			"name", "description", "allow_connections", "allow_personas", "created_by", "updated_by", "created_at", "updated_at",
+			"kind", "totp_algorithm", "totp_digits", "totp_period", "value",
+		}).
+			AddRow("portal_password", "", "{grid}", "{}", "", "", now, now, "value", "", 0, 0, "hunter22-pw"))
 
 	Secrets(reg, nil, nil, "admin") // no database: nothing is wired
 	Secrets(reg, db, nil, "admin")
