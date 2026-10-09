@@ -14,6 +14,7 @@ import type {
 import type { Asset, Share } from "@/api/portal/types";
 import { http, HttpResponse } from "msw";
 import { agentSessions, mockAuditEvents } from "./data/audit";
+import { mockMaps } from "./data/maps";
 import { mockInsights, mockChangesets } from "./data/knowledge";
 import { mockAPIRouteConnections } from "./data/apis";
 import { mockPersonas, mockPersonaDetails } from "./data/personas";
@@ -4160,6 +4161,88 @@ export const handlers = [
     }
     return HttpResponse.json({ status: "sent", to: String(body.to ?? "") });
   }),
+
+  // =========================================================================
+  // Admin: Settings (notification channels, #1720). The settings page lists
+  // them; without a handler the request reached the backend, answered 401,
+  // and sent every capture of the page to the sign-in screen.
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/notification-channels`, () =>
+    HttpResponse.json({
+      channels: [
+        {
+          name: "ops-alerts", kind: "mattermost", description: "The ops-alerts channel on the team Mattermost",
+          enabled: true, connection: "mattermost", target: "ops-alerts", mode: "immediate",
+          repeat_after: "1h", max_per_hour: 20, created_by: "sarah.chen@example.com", updated_at: "2026-10-01T16:00:00Z",
+        },
+        {
+          name: "ops-email", kind: "email", description: "The operations mailing list", enabled: true,
+          recipients: ["ops@example.com"], mode: "daily", repeat_after: "24h", max_per_hour: 5,
+          created_by: "sarah.chen@example.com", updated_at: "2026-10-01T16:00:00Z",
+        },
+      ],
+      kinds: ["mattermost", "webhook", "email"],
+    }),
+  ),
+
+  // =========================================================================
+  // Admin: Settings (maps, #2068)
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/settings/maps`, () => HttpResponse.json(mockMaps)),
+
+  http.put(`${ADMIN_BASE}/settings/maps`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    mockMaps.settings = {
+      ...mockMaps.settings,
+      enabled: Boolean(body.enabled),
+      s3_connection: String(body.s3_connection ?? ""),
+      bucket: String(body.bucket ?? ""),
+      max_zoom: Number(body.max_zoom ?? 14),
+      source_url: String(body.source_url ?? ""),
+      updated_by: "sarah.chen@example.com",
+      updated_at: new Date().toISOString(),
+    };
+    return HttpResponse.json(mockMaps);
+  }),
+
+  http.post(`${ADMIN_BASE}/settings/maps/regions`, async ({ request }) => {
+    const body = (await request.json()) as { preset?: string; id?: string; name?: string };
+    const preset = mockMaps.presets.find((p) => p.id === body.preset);
+    const id = body.id || preset?.id || "";
+    if (mockMaps.regions.some((r) => r.id === id)) {
+      return HttpResponse.json({ detail: `a region with id "${id}" already exists` }, { status: 400 });
+    }
+    const region = {
+      id, name: body.name || preset?.name || id, origin: "fetch" as const,
+      bounds: preset?.bounds ?? { min_lon: 0, min_lat: 0, max_lon: 1, max_lat: 1 },
+      max_zoom: mockMaps.settings.max_zoom, state: "queued" as const, progress_bytes: 0, total_bytes: 0,
+      requested_at: new Date().toISOString(),
+    };
+    mockMaps.regions = [...mockMaps.regions, region];
+    return HttpResponse.json(region, { status: 201 });
+  }),
+
+  http.post(`${ADMIN_BASE}/settings/maps/regions/:id/refresh`, ({ params }) => {
+    const r = mockMaps.regions.find((x) => x.id === params.id);
+    if (!r) return HttpResponse.json({ detail: "region not found" }, { status: 404 });
+    r.state = "queued";
+    r.error = undefined;
+    return HttpResponse.json(r, { status: 202 });
+  }),
+
+  http.delete(`${ADMIN_BASE}/settings/maps/regions/:id`, ({ params }) => {
+    mockMaps.regions = mockMaps.regions.filter((x) => x.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${ADMIN_BASE}/settings/maps/estimate`, () =>
+    HttpResponse.json({
+      size_bytes: 8_830_000_000, tiles: 3_677_037, build: "2026-10-08", min_zoom: 0, max_zoom: 14,
+      bounds: { min_lon: -125, min_lat: 24.4, max_lon: -66.9, max_lat: 49.4 },
+    }),
+  ),
 
   // =========================================================================
   // Admin: Settings (connection-revocation alert, #1694)

@@ -234,7 +234,7 @@ func TestRendererIntegration_AnInsetShadowIsAHairlineNotAFill_RealDB(t *testing.
 func TestRendererIntegration_ServesItsOwnFilesAndAnswersTheRest404_RealDB(t *testing.T) {
 	r := New(startRenderer(t, nil, nil), nil)
 	page := tilePage(`<!DOCTYPE html><html><head><link rel="stylesheet" href="/theme.css"></head><body></body></html>`)
-	page.Files = func(path string) (File, bool) {
+	page.Files = func(path string, _ http.Header) (File, bool) {
 		if path == "/theme.css" {
 			return File{Body: []byte("html,body{margin:0;height:100%;background:#16a34a}"), ContentType: "text/css"}, true
 		}

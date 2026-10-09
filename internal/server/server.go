@@ -43,7 +43,7 @@ func New(cfg *platform.Config) (*mcp.Server, *platform.Platform, error) {
 	// background at every start so a release that changes them updates the
 	// deployment. Wired here, in the composition root, on both transports; the
 	// seam no-ops without a database and logs (never fails) on error.
-	knowledgebuiltin.Start(context.Background(), p.PortalKnowledgePageStore())
+	knowledgebuiltin.Start(context.Background(), p.PortalKnowledgePageStore(), knowledgebuiltin.MapsOf(p.DB()))
 
 	mcpSrv := p.MCPServer()
 	return mcpSrv, p, nil

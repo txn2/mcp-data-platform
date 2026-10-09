@@ -52,6 +52,7 @@ const (
 	StoragePurposeScriptOutputs = "script_outputs"
 	StoragePurposeExports       = "exports"
 	StoragePurposeWebhooks      = "webhooks"
+	StoragePurposeMaps          = "maps"
 )
 
 // The reason classes a failed object operation carries, so a credential or

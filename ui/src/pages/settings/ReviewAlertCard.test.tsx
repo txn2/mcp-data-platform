@@ -23,6 +23,13 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
   useTestNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
+  // The maps card likewise; it is covered in MapsCard.test.tsx.
+  useMaps: () => ({ data: undefined, isLoading: true, error: null, refetch: vi.fn() }),
+  useSetMapSettings: () => ({ mutate: vi.fn(), isPending: false }),
+  useAddMapRegion: () => ({ mutate: vi.fn(), isPending: false }),
+  useRefreshMapRegion: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteMapRegion: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useEstimateMapRegion: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false }),
 }));
 
 import {
@@ -320,6 +327,7 @@ describe("AdminSettingsPage composition", () => {
     render(<AdminSettingsPage />);
     expect(screen.getByText("Email (SMTP)")).toBeInTheDocument();
     expect(screen.getByText("Knowledge review queue alert")).toBeInTheDocument();
+    expect(screen.getByText("Maps")).toBeInTheDocument();
     expect(mockUseAlert).toHaveBeenCalledWith("review-queue-alert");
   });
 });

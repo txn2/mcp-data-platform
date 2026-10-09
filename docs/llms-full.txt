@@ -1429,7 +1429,7 @@ Plus the free Go runtime + process metrics (`go_*`, `process_*`).
 
 Every background loop runs through `internal/bgloop` (#1897): `background_loop_iterations_total{loop,result}` (`ok`, `error`, `skipped` for a lock held by another replica), `background_loop_duration_seconds{loop}` and `background_loop_last_success_timestamp_seconds{loop}`; each periodic iteration is a root span `loop {name}` whose context its log records carry, a queue worker opens a root span per claimed unit, and a managed script run is one trace (the `loop script_run` span parents every `tools/call` the run makes, through `params._meta`). `retention_rows_purged_total{loop}` counts each sweep's deletions. Queues are read on each scrape (in parallel, cached 10s, the thumbnail backlog 1m; read with max) as `background_queue_items{loop,kind,state}` (`pending`, `running`, `waiting`) and `background_queue_oldest_age_seconds{loop,kind}` for `script_worker`, `script_scheduler` (due schedules not materialized, reported even where the worker is off), `notification_worker` (`email`, `channel`), `webhook_compactor` and `thumbnail_worker` (`asset`, `resource`, `collection`, `script`). Scripts add `script_run_failures_total{cause}`, `script_runs_shed_total`, `script_worker_load_ratio{reason}`; notifications `notification_delivery_attempts_total{kind,result}`; the connection OAuth refresher `connection_oauth_refresh_total{kind,result}` and `connection_oauth_credentials{kind,state}` (`ok`, `expiring`, `revoked`, `missing`; a revoked credential's connection stays `revoked` after its row is deleted, until it is authenticated again or deleted, and a kind with none left reads 0); thumbnails `thumbnail_renderer_up`, `thumbnail_render_duration_seconds{kind}`, `thumbnail_render_failures_total{kind,reason}`; the four LISTEN adapters `pg_listen_connected{loop}`, `pg_listen_reconnects_total{loop}`, `pg_listen_last_notification_age_seconds{loop}` (no ping: `pq.Listener.Ping` holds the listener lock; the age starts at the first connect and only a notification resets it, never a reconnect). A Semgrep rule refuses `time.NewTicker`, `time.Tick` and an infinite loop around a `select` outside the helper.
 
-Every HTTP request the platform sends goes through one transport chain (`internal/outbound`, #1895): the platform's User-Agent, a client span named `{kind} {method}` under the calling span, the W3C `traceparent` carried to the upstream, and `http_client_requests_total{kind,connection,status_class}` with its duration histogram. `kind` is `api`, `graphql`, `mcp`, `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`, `promql`, `renderer`, `datahub` or `branding`; a transport failure is `status_class="other"`. `apigateway_outbound_*` stays as the API-kind view with `persona` and the body-level GraphQL verdict. `trace_propagation: false` on an `api`, `graphql` or `mcp` connection leaves the trace headers off its requests. An egress-guard refusal and a catalog spec fetch whose host the preflight refuses increment `egress_blocked_total{reason}` (`loopback`, `private`, `link_local`, `multicast`, `unspecified`, `cgnat`, `embedded_ipv4`, `internal_hostname`) and log `egress blocked` with the host sanitized. `upstream_retries_total{kind}` / `upstream_retries_exhausted_total{kind}` count a page walk's (`api`) and a script host's (`script`) retries. `embedding_calls_total{model,status}`, `embedding_call_duration_seconds{model}` and `embedding_fallbacks_total{model}` measure every embedding call and the searches that fell back to lexical ranking. `gateway_upstream_calls_total{connection,outcome}` (`ok`, `tool_error`, `transport_error`, `timeout`), `gateway_upstream_call_duration_seconds{connection}` and `gateway_session_redials_total{connection,result}` measure the MCP gateway's forwarded calls and re-dials. A Semgrep rule refuses an `http.Client` built outside the chain.
+Every HTTP request the platform sends goes through one transport chain (`internal/outbound`, #1895): the platform's User-Agent, a client span named `{kind} {method}` under the calling span, the W3C `traceparent` carried to the upstream, and `http_client_requests_total{kind,connection,status_class}` with its duration histogram. `kind` is `api`, `graphql`, `mcp`, `util`, `oauth`, `oidc`, `embedding`, `notification`, `spec_fetch`, `promql`, `renderer`, `datahub`, `branding` or `maps`; a transport failure is `status_class="other"`. `apigateway_outbound_*` stays as the API-kind view with `persona` and the body-level GraphQL verdict. `trace_propagation: false` on an `api`, `graphql` or `mcp` connection leaves the trace headers off its requests. An egress-guard refusal and a catalog spec fetch whose host the preflight refuses increment `egress_blocked_total{reason}` (`loopback`, `private`, `link_local`, `multicast`, `unspecified`, `cgnat`, `embedded_ipv4`, `internal_hostname`) and log `egress blocked` with the host sanitized. `upstream_retries_total{kind}` / `upstream_retries_exhausted_total{kind}` count a page walk's (`api`) and a script host's (`script`) retries. `embedding_calls_total{model,status}`, `embedding_call_duration_seconds{model}` and `embedding_fallbacks_total{model}` measure every embedding call and the searches that fell back to lexical ranking. `gateway_upstream_calls_total{connection,outcome}` (`ok`, `tool_error`, `transport_error`, `timeout`), `gateway_upstream_call_duration_seconds{connection}` and `gateway_session_redials_total{connection,result}` measure the MCP gateway's forwarded calls and re-dials. A Semgrep rule refuses an `http.Client` built outside the chain.
 
 Every inbound HTTP request is measured once, outside every handler, under the route TEMPLATE it matched (#1889): `http_server_request_duration_seconds{route="GET /api/v1/resources",method,status_class}`, never the path, so the series set is the size of the route table. The admin, portal, resources, REST gateway and PromQL proxy routes sit on nested muxes behind an authentication layer that clones the request; each nested mux resolves its template on arrival, so a refused request still reports the template rather than the mount prefix. An unmatched request (404, 405, CORS preflight, CONNECT) is `route="unmatched"`; the webhook receiver's own listener reports `/hooks/`. The MCP transport at `/` is split by `method` so the long-lived `GET` stream sits beside the `POST` messages. Each request carries a server span named `{method} {route}` (`http.request.method`, `http.route`, `http.response.status_code`) that continues the caller's `traceparent` and parents the `tools/call` span. Every 429 a platform rate limiter answers is counted by `http_rate_limited_total{limiter}` (`oauth_token`, `oauth_register`, `portal_viewer`, `portal_content`, `portal_refs`, `observability_proxy`, `pdf_export`, `webhook`, `unknown`). A request slower than `server.slow_request_threshold` (default `5s`) logs `slow HTTP request` at WARN with route, method, status and `duration_ms`; an event stream is never slow. MCP methods other than `tools/call` are counted and timed by `mcp_requests_total{method,status}` / `mcp_request_duration_seconds` (`status`: `ok`, `client_err`, `internal_err`) and each carries a server span named by the method with `mcp.method.name`, `mcp.session.id`, `mcp.protocol.version`; `initialize` is answered by the SDK before any middleware. `db_pool_max_open_connections{pool}` is the pool's ceiling (`database.max_open_conns`).
 
@@ -1468,7 +1468,7 @@ Beyond the MCP and apigateway chokepoints, the toolkit and provider call paths a
 
 - **Trino** (every statement and metadata call the platform sends, #1896: the `trino_*` tools, the platform's own statements such as table registration DDL, the connection test and the prompt sources' queries, and the query provider's cross-enrichment reads; a statement the read-only check refuses never reached Trino and is not counted): `trino_queries_total{status, query_kind}` and `trino_query_duration_seconds{query_kind}`. `query_kind` is the statement's leading keyword (`select`, `show`, `insert`, `create`, ...), `explain`, or the metadata call (`list_catalogs`, `list_schemas`, `list_tables`, `describe_table`); an unknown keyword maps to `other`; never the SQL text. Each call is a `trino.<query_kind>` client span under the tool call with `db.system.name=trino`, `db.operation.name`, `db.query.summary` (keyword plus the tables read, no literals) and `trino.connection`. (No `trino_bytes_scanned_total` and no queued/running time: the mcp-trino client exposes neither.)
 - **DataHub** (semantic provider, the `datahub_*` tools and the `apply_knowledge` writer, #1896): `datahub_requests_total{operation, status}` and `datahub_request_duration_seconds{operation}`, each with a `datahub.<operation>` span. The provider's `operation` ∈ `get_entity`, `get_schema`, `get_schemas`, `get_lineage`, `get_column_lineage`, `get_glossary_term`, `get_queries`, `list_tags`, `list_domains`, ...; a tool call is one observation under what the tool does (`get_lineage`, `browse`, `create`, `update`, `delete`); the writer's are its method names (`get_current_metadata`, `update_description`, `apply_tag_changes`, `create_curated_query`, `raise_incident`, ...); the portal catalog's reads and edits are recorded the same way (`apply_owner_changes`, `set_domain`, `create_tag`, `upsert_context_document`, ...).
-- **Platform object storage** (#1896): `storage_operations_total{purpose, operation, result, reason}`, `storage_operation_duration_seconds{purpose, operation}` and `storage_bytes_written_total{purpose}` for every put, get, get_range, list and delete on a bucket the platform owns. `purpose` ∈ `portal_assets`, `resources`, `thumbnails`, `script_outputs`, `exports`, `webhooks`; `result` is `ok` or `error`; a failure carries `reason` ∈ `access_denied`, `bucket_missing`, `quota_exceeded`, `not_found`, `other`, read from the store's error code. Spans are `storage.<operation>` with `storage.purpose`, `storage.bucket` and `storage.failure_reason`.
+- **Platform object storage** (#1896): `storage_operations_total{purpose, operation, result, reason}`, `storage_operation_duration_seconds{purpose, operation}` and `storage_bytes_written_total{purpose}` for every put, get, get_range, list and delete on a bucket the platform owns. `purpose` ∈ `portal_assets`, `resources`, `thumbnails`, `script_outputs`, `exports`, `webhooks`, `maps`; `result` is `ok` or `error`; a failure carries `reason` ∈ `access_denied`, `bucket_missing`, `quota_exceeded`, `not_found`, `other`, read from the store's error code. Spans are `storage.<operation>` with `storage.purpose`, `storage.bucket` and `storage.failure_reason`.
 - **PostgreSQL statements** (#1896): the pool is opened through `otelsql`. `db_client_operation_duration_seconds{operation}` (operation is the statement keyword, `vector_search` for a pgvector ranking, or `begin`/`commit`/`rollback`/`prepare`/`connect`/`ping`) and `db_client_slow_statements_total{operation}` for statements at or over `MCP_PLATFORM_DB_SLOW_STATEMENT_THRESHOLD` (default `1s`, `0` off), which also log `slow database statement` at WARN. Inside a traced request each statement is a `postgres.<operation>` span with `db.operation.name` and `db.query.summary`; the SQL text is added only with `OTEL_TRACES_INCLUDE_DB_STATEMENT=true`; a statement outside any trace opens no span.
 - **S3** (S3 toolkit): `s3_operations_total{operation, status}` and `s3_operation_duration_seconds{operation}`, recorded by an mcp-s3 `ToolMiddleware` installed before tool registration. `operation` is the S3 tool name (`list_buckets`, `get_object`, ...).
 - **OAuth** (authorization server): `oauth_token_issuance_total{grant_type, status}`, `oauth_token_refresh_total{status}`, and `oauth_token_refresh_duration_seconds`.
@@ -5229,3 +5229,189 @@ test double.
 # Data Retention
 
 Source: docs/server/data-retention.md (#1904). Every table the platform writes that grows with use is removed on age, bounded by count, or kept on purpose. Removed on age: soft-deleted assets/collections/threads/knowledge pages after `portal.deleted_retention_days` (30) with their objects, tiles and mosaics; archived `memory_records` after `memory.archived_retention_days` (90); `content_producers` rows whose asset or resource is gone after `portal.orphaned_producer_retention_days` (90); unresolved failed `index_jobs` after `apigateway.embed_jobs.failed_retention_days` (90); expired `webhook_windows` records after `webhooks.compactor.expired_window_retention_days` (90); plus the existing audit (90), call catalog (90), finished index jobs (14) and script runs (365). For each, `0` takes the default and a negative value keeps rows forever. The portal, memory, producer and GraphQL sweeps live in `internal/platform/retention`: every `retention.every` (default 24h) on every replica, first run at startup, each under its own advisory lock. Removed when superseded: `graphql_operation_embeddings` of a schema hash the connection no longer holds (`graphql_connection_schemas` is one row per connection). Bounded by count: asset versions (100), resource versions (10), script draft runs (20 per script and author). Kept on purpose: script, prompt and knowledge-page version history (product history), `config_changelog` and `knowledge_changesets` (administrative record, low volume).
+
+---
+
+# Street Maps
+
+A map an agent draws is an HTML asset that loads a map runtime and a street
+basemap from this deployment. The platform serves both: the runtime ships in
+the portal build, and the basemap is an extract of OpenStreetMap the platform
+cuts to the regions you choose and writes to your own bucket. No map view and
+no thumbnail calls a third party; the only outbound request is the fetch that
+builds a region, made when an administrator saves one.
+
+```mermaid
+flowchart LR
+  P["Protomaps daily build<br/>or your mirror"] -- "range reads<br/>(fetch only)" --> F["fetch<br/>one replica, under a lock"]
+  F -- "streamed write" --> B[("your bucket<br/>maps/regions/…")]
+  U["your .pmtiles file"] -- "upload by hand" --> B2[("your bucket<br/>maps/uploads/")]
+  B --> R["/portal/maps/{id}.pmtiles<br/>served by range"]
+  B2 --> R
+  V["/portal/vendor/maplibre/<br/>runtime, style, glyphs"] --> A["map asset<br/>asset page, share link, thumbnail"]
+  R --> A
+```
+
+State and county maps need none of this. The US boundaries ship with the
+runtime, and an agent draws a value by state or county from them with maps
+turned off.
+
+## Turning maps on
+
+Maps are off by default. Open **Admin > Settings > Maps**, or use the admin
+API:
+
+| Setting | Default | What it is |
+|---|---|---|
+| Enabled | off | Serve the regions, run the fetch, and list the regions on the maps knowledge page. Off, the archive routes answer 404 and the archives stay in the bucket. |
+| S3 connection | the managed-resources connection | The S3 toolkit instance archives are written through. |
+| Bucket | the managed-resources bucket | Where archives are written. |
+| Maximum zoom | 14 | The deepest zoom a fetch extracts, 0 to 15. |
+| Source | the newest Protomaps daily build | A URL of a `.pmtiles` archive to extract from instead, such as a mirror you host. |
+
+Then add a region: a preset (the contiguous United States is offered first,
+then Alaska, Hawaii, Puerto Rico, Canada, Mexico, the United Kingdom and
+Ireland, Europe and Australia) or a custom box with an id, a name and its
+west, south, east and north edges in degrees. More than one region may be
+kept. A region's id is its archive's name at `/portal/maps/{id}.pmtiles`.
+
+![The Maps settings section](../images/screenshots/light/admin-admin-settings-maps-light.webp#only-light)![The Maps settings section](../images/screenshots/dark/admin-admin-settings-maps-dark.webp#only-dark)
+
+Saving a region queues its fetch. The settings page shows its state as it
+moves: **Queued**, **Fetching** with how much of the archive is written,
+**Ready** with the build it came from, its zooms and its size, or **Failed**
+with the reason. **Estimate size** reports what a region would be before it
+is saved.
+
+## How large a region is
+
+An archive's size is known before a byte of tile data is copied, and the
+estimate is exact. Measured against the 2026-10-08 Protomaps build for the
+contiguous United States:
+
+| Maximum zoom | Archive size | Directory entries |
+|---|---|---|
+| 12 | 1.9 GB | 250,892 |
+| 14 | 8.8 GB | 3,677,037 |
+| 15 | 18.8 GB | 13,719,485 |
+
+Streets read clearly from zoom 14, and the runtime draws zoom-14 tiles at 15
+and beyond, which is why 14 is the default. A city at zoom 14 is a few
+megabytes.
+
+## What a fetch does
+
+A fetch never downloads the source build, which is about 140 GB. It reads the
+build's header and the directories that address the region's tiles by byte
+range, plans the extract, and then copies only those tiles, grouping
+neighbors into requests of up to 16 MiB with a few in flight. The archive is
+streamed straight into the bucket as a multipart upload; it needs no scratch
+disk.
+
+- **One replica fetches.** A pass takes a PostgreSQL advisory lock; a replica
+  that finds it held skips the pass. A fetch left behind by a replica that
+  died is queued again by the next pass.
+- **A refresh replaces the archive only when the new one is complete.** The
+  new archive is written beside the one being served, and the swap is the
+  region's row. A refresh that fails leaves the previous build serving and
+  records why.
+- **The source is fixed for the fetch.** The newest daily build is resolved
+  from `https://build-metadata.protomaps.dev/builds.json` when the fetch
+  starts, since Protomaps keeps a week of daily builds and does not promise
+  their URLs. Every read after the first asks for the same version of the
+  file (`If-Match`); a source replaced mid-fetch fails the fetch rather than
+  mixing two builds.
+- **A read that fails is retried** three times, after 1, 4 and 9 seconds,
+  when it timed out, was refused with 429, or got a 5xx.
+- **Planning holds the region's directory in memory.** For the contiguous
+  United States the fetch peaked at about 350 MB at zoom 14 and about 950 MB
+  at zoom 15, measured with `GOMEMLIMIT` set; give the platform's container
+  room for it, or fetch at 14.
+
+The fetch goes through the platform's outbound client, so it is traced and
+counted under `http_client_requests_total{kind="maps"}`, and its writes are
+counted under `storage_operations_total{purpose="maps"}`. The loop reports as
+`background_loop_*{loop="map_fetch"}`, and each region's fetch as
+`map_fetch_region`.
+
+## On a closed network
+
+Skip the fetch. Build or copy a PMTiles version 3 archive elsewhere and put
+it in the bucket under `maps/uploads/`, named `{id}.pmtiles`, where the id is
+lowercase letters, digits and dashes. The next pass, within 30 seconds, reads
+its header and lists it as a ready region with the bounds, zooms and build
+date the archive carries; a file that is not an archive is listed as failed
+with the reason. Replacing the file replaces the region; deleting it removes
+the region. To extract on a machine that can reach the internet, the
+[pmtiles CLI](https://docs.protomaps.com/pmtiles/cli) does the same extract:
+`pmtiles extract https://build.protomaps.com/20261008.pmtiles us.pmtiles
+--bbox=-125,24.4,-66.9,49.4 --maxzoom=14`.
+
+A mirror works too: set **Source** to the archive's URL on a host the
+platform can reach. It must answer byte ranges.
+
+## How a map reads it
+
+| Path | Session | What it answers |
+|---|---|---|
+| `/portal/maps/regions` | none | `{"enabled": ..., "regions": [...]}`: each ready region's id, name, url, bounds, zooms, build and size |
+| `/portal/maps/{id}.pmtiles` | none | the region's archive, by byte range, with an `ETag` that changes when a refresh replaces it; 404 when maps are off or the region has no archive |
+| `/portal/vendor/maplibre/...` | none | MapLibre GL JS 5.24.0, the PMTiles protocol 4.5.0, the Protomaps basemap style 5.7.2, its glyphs and sprites, TopoJSON client 3.1.0 and the us-atlas 3.0.1 boundaries, each with its license |
+
+The archive is public OpenStreetMap data and is read from a sandboxed asset
+frame, whose origin is opaque, and from public share links, so these paths
+need no session and answer CORS for any origin, without credentials, with
+`Range` allowed and `Content-Range` exposed. The share viewer's policy needs
+no change: an asset frame is an `srcdoc` document that inherits the viewer's
+`connect-src 'self'`, which grants the platform's own origin on a plaintext
+deployment too.
+
+The glyphs and sprites the style draws with are not published to npm; they
+are checked in under `ui/vendor/maplibre/` at a pinned commit of
+`protomaps/basemaps-assets` by `scripts/sync-map-assets.sh`. The style asks
+for a town hall icon that sheet does not have, so a town hall's label is
+drawn without an icon and the browser console notes the missing image once.
+
+## Thumbnails
+
+The tile worker draws a map asset like any HTML asset, in the platform's
+headless Chrome, which draws WebGL in software (SwiftShader). The page's
+reads of `/portal/vendor/maplibre/` and `/portal/maps/` are answered by the
+platform in-process, by range, so the tile shows the basemap and the data in
+light and dark with no outbound request. Export PDF reads them the same way,
+and prints a document that draws a map once every map on it has finished
+drawing (MapLibre's `idle`, bounded at 20 seconds), on one page the size of
+its screen layout, since a map fitted to the screen's width and printed on a
+narrower paper size would be cut at the page edge.
+
+## Telling agents
+
+The platform ships a knowledge page, `mcp:knowledge_page:platform-maps`, and
+`platform_info` names it to any caller that can save an asset. The page lists
+the regions this deployment serves, or says plainly that it has no basemap,
+and is rewritten whenever maps are turned on or off or a region becomes ready
+or is removed. It shows the document skeleton, how to draw points, a route
+and areas, how to fit the view, that the OpenStreetMap attribution stays on,
+what to do when no region covers the data, and a state choropleth from the
+served boundaries.
+
+## Admin API
+
+| Method and path | What it does |
+|---|---|
+| `GET /api/v1/admin/settings/maps` | the settings, every region with its state and archive, the presets, the upload prefix |
+| `PUT /api/v1/admin/settings/maps` | `enabled`, `s3_connection`, `bucket`, `max_zoom`, `source_url` |
+| `POST /api/v1/admin/settings/maps/regions` | `{"preset": "united-states"}`, or `{"id", "name", "bounds": {"min_lon", "min_lat", "max_lon", "max_lat"}}`; 201 with the queued region |
+| `POST /api/v1/admin/settings/maps/regions/{id}/refresh` | queue a fetch of the newest build at the current maximum zoom; 409 while the region is being fetched |
+| `DELETE /api/v1/admin/settings/maps/regions/{id}` | remove the region and its archive (an uploaded file included) |
+| `POST /api/v1/admin/settings/maps/estimate` | `{"preset"}` or `{"bounds"}`; the exact size, tile count and build, writing nothing |
+
+The settings live in the `maps` row of `platform_settings`; regions in the
+`map_regions` table (migration 000184).
+
+## Out of scope
+
+The platform draws the geometry the data has. Turning a list of stops into
+the streets between them is a routing engine, and turning addresses into
+coordinates is a geocoder; neither is part of this. Satellite imagery,
+terrain and hillshade are not served.

@@ -33,6 +33,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/inproc"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -93,10 +94,11 @@ const (
 )
 
 // ownPrefixes are the platform routes a printed document loads from: its
-// declared references and the served slide runtime. Each answers without a
-// session -- a reference is authorized by the token in its path -- so the
-// document gets what a reader's browser gets and nothing else.
-var ownPrefixes = []string{"/portal/refs/", "/portal/vendor/"}
+// declared references, the served slide and map runtimes, and the basemap
+// archives a map reads (#2068). Each answers without a session -- a reference
+// is authorized by the token in its path -- so the document gets what a
+// reader's browser gets and nothing else.
+var ownPrefixes = []string{"/portal/refs/", "/portal/vendor/", "/portal/maps/"}
 
 // Printer prints a page to PDF.
 type Printer interface {
@@ -159,7 +161,10 @@ func MountFor(mux *http.ServeMux, p *platform.Platform) {
 		return
 	}
 	limiter := ratelimit.NewHTTPLimiter(publicPerMinute, publicBurst, resolver)
-	New(Deps{Routes: mux, Printer: renderer, Limiter: limiter}).Mount(mux)
+	// The document reads the routes through the listener's CORS layer, as a
+	// reader's browser does: a map in a sandboxed frame reads its basemap
+	// cross-origin and is refused without it.
+	New(Deps{Routes: corshttp.Middleware(mux), Printer: renderer, Limiter: limiter}).Mount(mux)
 }
 
 // Mount registers every PDF route on mux.
@@ -418,12 +423,15 @@ func (h *Handler) page(doc []byte) headless.Page {
 
 // files answers the document's requests for its own origin from the
 // platform's anonymous routes.
-func (h *Handler) files(p string) (headless.File, bool) {
+func (h *Handler) files(p string, header http.Header) (headless.File, bool) {
 	clean := path.Clean(p)
 	for _, prefix := range ownPrefixes {
 		if strings.HasPrefix(clean, prefix) {
-			body, contentType, ok := inproc.Get(h.deps.Routes, clean, fileTimeout)
-			return headless.File{Body: body, ContentType: contentType}, ok
+			res, ok := inproc.Read(h.deps.Routes, clean, header, fileTimeout)
+			if !ok {
+				return headless.File{}, false
+			}
+			return headless.RouteFile(res.Status, res.Header, res.Body), true
 		}
 	}
 	return headless.File{}, false

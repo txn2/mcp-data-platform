@@ -1,0 +1,5 @@
+# Map glyph ranges and basemap archives (#2068) are binary. Some glyph files
+# carry no NUL byte early enough for git to tell, and a text diff of them is
+# not UTF-8, which the diff-scoped gates read as text.
+*.pbf binary
+*.pmtiles binary

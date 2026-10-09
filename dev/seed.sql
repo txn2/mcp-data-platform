@@ -571,6 +571,28 @@ INSERT INTO portal_assets (
   '{"tool": "save_asset", "session_id": "sess-207"}'::jsonb,
   'sess-207', 1,
   NOW() - interval '12 hours', NOW() - interval '12 hours'
+),
+(
+  'asset-008', 'apikey:admin', 'admin@apikey.local',
+  'Tuesday delivery route',
+  'A route map on the map runtime and basemap the platform serves (#2068): six stops drawn over the San Francisco region the dev stack uploads to maps/uploads/.',
+  'text/html',
+  'portal-assets', 'portal/apikey:admin/asset-008/v1/content.html', 3693,
+  '["map", "route", "example"]'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-208"}'::jsonb,
+  'sess-208', 1,
+  NOW() - interval '6 hours', NOW() - interval '6 hours'
+),
+(
+  'asset-009', 'apikey:admin', 'admin@apikey.local',
+  'Open accounts by state',
+  'A state choropleth drawn from the US boundaries the platform serves (#2068), which needs no basemap.',
+  'text/html',
+  'portal-assets', 'portal/apikey:admin/asset-009/v1/content.html', 2847,
+  '["map", "choropleth", "example"]'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-209"}'::jsonb,
+  'sess-209', 1,
+  NOW() - interval '5 hours', NOW() - interval '5 hours'
 )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
@@ -619,7 +641,9 @@ INSERT INTO portal_asset_versions (
 ('ver-004', 'asset-004', 1, 'portal/apikey:admin/asset-004/v1/content.md',   'portal-assets', 'text/markdown', 2890, 'apikey:admin', 'Initial version', NOW() - interval '3 days'),
 ('ver-005', 'asset-005', 1, 'portal/apikey:admin/asset-005/v1/content.svg',  'portal-assets', 'image/svg+xml', 8150, 'apikey:admin', 'Initial version', NOW() - interval '2 days'),
 ('ver-006', 'asset-006', 1, 'portal/apikey:admin/asset-006/v1/content.html', 'portal-assets', 'text/html',     5420, 'apikey:admin', 'Initial version', NOW() - interval '1 day'),
-('ver-007', 'asset-007', 1, 'portal/apikey:admin/asset-007/v1/content.html', 'portal-assets', 'text/html',     2012, 'apikey:admin', 'Initial version', NOW() - interval '12 hours')
+('ver-007', 'asset-007', 1, 'portal/apikey:admin/asset-007/v1/content.html', 'portal-assets', 'text/html',     2012, 'apikey:admin', 'Initial version', NOW() - interval '12 hours'),
+('ver-008', 'asset-008', 1, 'portal/apikey:admin/asset-008/v1/content.html', 'portal-assets', 'text/html',     3693, 'apikey:admin', 'Initial version', NOW() - interval '6 hours'),
+('ver-009', 'asset-009', 1, 'portal/apikey:admin/asset-009/v1/content.html', 'portal-assets', 'text/html',     2847, 'apikey:admin', 'Initial version', NOW() - interval '5 hours')
 ON CONFLICT (id) DO NOTHING;
 
 -- Shares (5 assets shared: one user share, four public links)
@@ -664,6 +688,16 @@ INSERT INTO portal_shares (
 (
   'share-007', 'asset-007', 'tok-intro-deck-public',
   'apikey:admin', NOW() + interval '30 days', NOW() - interval '12 hours',
+  NULL, NULL, 'viewer', 'public'
+),
+(
+  'share-008', 'asset-008', 'tok-route-map-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '6 hours',
+  NULL, NULL, 'viewer', 'public'
+),
+(
+  'share-009', 'asset-009', 'tok-choropleth-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '5 hours',
   NULL, NULL, 'viewer', 'public'
 )
 ON CONFLICT (id) DO UPDATE SET
@@ -2060,3 +2094,11 @@ INSERT INTO script_runs (
   '[{"name":"freshness","destination":"portal","asset_id":"asset-freshness","asset_version":12,"format":"csv","row_count":38,"bytes":4096}]'::jsonb,
   NOW() - interval '6 days', NOW() - interval '6 days'
 );
+
+-- Street maps (#2068): on in the dev stack, serving the San Francisco region
+-- seed-s3.sh puts under maps/uploads/, so the seeded route map draws its
+-- streets with no fetch and no internet. A deployment starts with maps off.
+-- DO NOTHING keeps a developer's own change to the section across restarts.
+INSERT INTO platform_settings (section, value, updated_by)
+VALUES ('maps', '{"enabled": true, "s3_connection": "", "bucket": "", "max_zoom": 14, "source_url": ""}', 'dev-seed')
+ON CONFLICT (section) DO NOTHING;

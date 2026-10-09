@@ -155,6 +155,7 @@ const (
 	PageContentTypes          = "platform-content-types-for-stored-files"
 	PageFitAnyScreen          = "platform-documents-that-fit-any-screen"
 	PagePresentations         = "platform-presentations"
+	PageMaps                  = "platform-maps"
 )
 
 // baselinePage is one entry of the page index: the tool whose capability the
@@ -191,11 +192,11 @@ var baselinePages = []baselinePage{
 	},
 	{
 		toolMemoryCapture, PageProvenanceCapture,
-		"naming sources so provenance is exact, and the loop from session knowledge to reviewed catalog knowledge",
+		"naming sources so provenance is exact, and the loop from session knowledge to the catalog",
 	},
 	{
 		toolSaveAsset, PageContentTypes,
-		"the media type a write must declare, and the families detection cannot name from bytes",
+		"the media type a write must declare",
 	},
 	{
 		toolSaveAsset, PageFitAnyScreen,
@@ -204,6 +205,10 @@ var baselinePages = []baselinePage{
 	{
 		toolSaveAsset, PagePresentations,
 		"a presentation, deck or PowerPoint: HTML on the served slide runtime",
+	},
+	{
+		toolSaveAsset, PageMaps,
+		"a map: HTML on the served map runtime",
 	},
 }
 

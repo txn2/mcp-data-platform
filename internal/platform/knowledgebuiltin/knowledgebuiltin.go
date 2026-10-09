@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/maps"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -114,6 +115,12 @@ var pageMetas = []pageMeta{
 		tags:    []string{"assets", "authoring", "presentations", "slides"},
 	},
 	{
+		file:    "maps.md",
+		slug:    "platform-maps",
+		summary: "Building a map as an HTML asset on the map runtime and basemap this deployment serves: which regions are ready and where each archive is, the document skeleton with light and dark styles, drawing points, a route and areas from GeoJSON, fitting the view, the attribution that stays on, what to do where no region covers the data, and state and county maps that need no basemap.",
+		tags:    []string{"assets", "authoring", "maps", "geospatial"},
+	},
+	{
 		file:    "content-types-for-stored-files.md",
 		slug:    knowledgepage.BuiltinSlugContentTypes,
 		summary: "The media type every stored file carries and why a write declares it: the families detection cannot name from bytes, the types to declare for text and for binary content, and what a replacement keeps.",
@@ -121,10 +128,12 @@ var pageMetas = []pageMeta{
 	},
 }
 
-// Pages returns the shipped set, bodies loaded from the embedded files with
-// the dialect contract substituted. It fails only on a malformed build (a
-// missing file or H1), which the tests catch before a release does.
-func Pages() ([]knowledgepage.BuiltinPage, error) {
+// PagesWith returns the shipped set, bodies loaded from the embedded files with
+// the dialect contract substituted and the maps page naming the basemap
+// regions state holds, or saying they could not be read when state is nil.
+// It fails only on a malformed build (a missing file or
+// H1), which the tests catch before a release does.
+func PagesWith(state *maps.State) ([]knowledgepage.BuiltinPage, error) {
 	pages := make([]knowledgepage.BuiltinPage, 0, len(pageMetas))
 	for _, m := range pageMetas {
 		raw, err := pagesFS.ReadFile("pages/" + m.file)
@@ -139,6 +148,7 @@ func Pages() ([]knowledgepage.BuiltinPage, error) {
 		body = strings.ReplaceAll(body, referencePlaceholder, referenceScript())
 		body = strings.ReplaceAll(body, textTypesPlaceholder, contentTypeTable(true))
 		body = strings.ReplaceAll(body, binaryTypesPlaceholder, contentTypeTable(false))
+		body = strings.ReplaceAll(body, mapRegionsPlaceholder, mapRegionsSection(state))
 		pages = append(pages, knowledgepage.BuiltinPage{
 			Slug: m.slug, Title: title, Summary: m.summary, Body: body, Tags: m.tags,
 		})
@@ -164,9 +174,9 @@ func splitTitle(raw string) (title, body string, err error) {
 // boot — a deployment that cannot reconcile still serves, one release staler.
 // It is called by the composition root (internal/server), not by pkg/platform,
 // whose size budget is at its cap.
-func Start(ctx context.Context, store knowledgepage.Store) {
+func Start(ctx context.Context, store knowledgepage.Store, ms MapState) {
 	go func() {
-		if err := Reconcile(ctx, store); err != nil {
+		if err := Reconcile(ctx, store, ms); err != nil {
 			slog.WarnContext(ctx, "built-in knowledge pages not reconciled", "error", err)
 		}
 	}()
@@ -183,12 +193,12 @@ func Start(ctx context.Context, store knowledgepage.Store) {
 // converges — transient version-history entries and re-embeds, bounded by the
 // upgrade window, and accepted rather than paid for with a stored release
 // counter no other reconciled content carries.
-func Reconcile(ctx context.Context, store knowledgepage.Store) error {
+func Reconcile(ctx context.Context, store knowledgepage.Store, ms MapState) error {
 	reconciler, ok := store.(knowledgepage.BuiltinReconciler)
 	if !ok {
 		return nil
 	}
-	pages, err := Pages()
+	pages, err := PagesWith(mapStateOf(ctx, ms))
 	if err != nil {
 		return err
 	}
@@ -207,7 +217,7 @@ func Reconcile(ctx context.Context, store knowledgepage.Store) error {
 // running release's content (and a restored page this release no longer ships
 // is pruned right back). It returns how many pages came back. A store without
 // the capability restores nothing.
-func Restore(ctx context.Context, store knowledgepage.Store) (int, error) {
+func Restore(ctx context.Context, store knowledgepage.Store, ms MapState) (int, error) {
 	reconciler, ok := store.(knowledgepage.BuiltinReconciler)
 	if !ok {
 		return 0, nil
@@ -216,7 +226,7 @@ func Restore(ctx context.Context, store knowledgepage.Store) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("knowledgebuiltin: restoring hidden built-in pages: %w", err)
 	}
-	if err := Reconcile(ctx, store); err != nil {
+	if err := Reconcile(ctx, store, ms); err != nil {
 		return restored, err
 	}
 	return restored, nil

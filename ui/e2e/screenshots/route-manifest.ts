@@ -515,6 +515,21 @@ export const routes: ScreenshotRoute[] = [
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
+  {
+    // The maps section (#2068), scrolled into view: the mock carries a region
+    // in each state a fetch moves through (fetching with progress, ready,
+    // failed while the previous build serves, queued).
+    slug: "admin-settings-maps",
+    path: "/portal/admin/settings",
+    category: "admin",
+    beforeCapture: async (page) => {
+      await page.locator("text=Add region").first().scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+    },
+    afterCapture: async (page) => {
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   ...adminScriptRoutes,
 
   // =========================================================================

@@ -49,12 +49,13 @@ const tileReady = `new Promise(function(resolve){
 })`
 
 // inProcessPrefixes are the platform routes a tile page loads from: a
-// document's declared references, the served slide runtime and the SPA's own
-// vendored files, and the viewer bundle's chunks. Each answers without a
-// session -- a reference is authorized by the token in its path -- so calling
-// them in-process gives the page exactly what a reader's browser gets, and
-// nothing else on the platform is reachable.
-var inProcessPrefixes = []string{"/portal/refs/", "/portal/vendor/", "/portal/view/_assets/"}
+// document's declared references, the served slide and map runtimes and the
+// SPA's own vendored files, the viewer bundle's chunks, and the basemap
+// archives a map reads (#2068). Each answers without a session -- a reference
+// is authorized by the token in its path -- so calling them in-process gives
+// the page exactly what a reader's browser gets, and nothing else on the
+// platform is reachable.
+var inProcessPrefixes = []string{"/portal/refs/", "/portal/vendor/", "/portal/view/_assets/", "/portal/maps/"}
 
 // tileSource is one document to draw one variant of.
 type tileSource struct {
@@ -143,8 +144,8 @@ func tileDocument(data map[string]any, dark, transparent bool, entryURL, css str
 
 // files answers a tile page's requests for its own origin: the bytes the page
 // was handed, then the platform's public routes under inProcessPrefixes.
-func (w *Worker) files(extra map[string]headless.File) func(string) (headless.File, bool) {
-	return func(p string) (headless.File, bool) {
+func (w *Worker) files(extra map[string]headless.File) func(string, http.Header) (headless.File, bool) {
+	return func(p string, header http.Header) (headless.File, bool) {
 		if f, ok := extra[p]; ok {
 			return f, true
 		}
@@ -152,7 +153,7 @@ func (w *Worker) files(extra map[string]headless.File) func(string) (headless.Fi
 		if w.deps.Routes == nil || !servedInProcess(clean) {
 			return headless.File{}, false
 		}
-		return serveInProcess(w.deps.Routes, clean)
+		return serveInProcess(w.deps.Routes, clean, header)
 	}
 }
 
@@ -165,12 +166,13 @@ func servedInProcess(p string) bool {
 	return false
 }
 
-// serveInProcess calls routes for one GET and returns the body when it answers
-// 200, through the same in-process call the PDF export makes.
-func serveInProcess(routes http.Handler, p string) (headless.File, bool) {
-	body, contentType, ok := inproc.Get(routes, p, storageTimeout)
+// serveInProcess calls routes for one GET and returns the answer when it is
+// 200, or 206 for a ranged read, through the same in-process call the PDF
+// export makes.
+func serveInProcess(routes http.Handler, p string, header http.Header) (headless.File, bool) {
+	res, ok := inproc.Read(routes, p, header, storageTimeout)
 	if !ok {
 		return headless.File{}, false
 	}
-	return headless.File{Body: body, ContentType: contentType}, true
+	return headless.RouteFile(res.Status, res.Header, res.Body), true
 }

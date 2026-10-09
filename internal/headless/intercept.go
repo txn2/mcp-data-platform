@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -58,7 +59,7 @@ func (rs *render) answer(m message) {
 	case err != nil:
 		rs.refuse(ctx, m.SessionID, p.RequestID)
 	case strings.EqualFold(u.Host, rs.host):
-		rs.serveOwn(ctx, m.SessionID, p.RequestID, u.Path)
+		rs.serveOwn(ctx, m.SessionID, p.RequestID, u.Path, requestHeader(p.Request.Headers))
 	case rs.r.public != nil && fetchable(u, p.Request.Method):
 		rs.servePublic(ctx, m.SessionID, p)
 	default:
@@ -75,18 +76,60 @@ func fetchable(u *url.URL, method string) bool {
 
 // serveOwn answers a request on the page's own origin: the document at the
 // root, a file the page declared, or a 404.
-func (rs *render) serveOwn(ctx context.Context, session, requestID, path string) {
+func (rs *render) serveOwn(ctx context.Context, session, requestID, path string, header http.Header) {
 	if path == "/" || path == "" {
 		rs.fulfill(ctx, session, requestID, reply{http.StatusOK, map[string]string{"Content-Type": "text/html; charset=utf-8"}, rs.page.Document})
 		return
 	}
 	if rs.page.Files != nil {
-		if f, ok := rs.page.Files(path); ok {
-			rs.fulfill(ctx, session, requestID, reply{http.StatusOK, map[string]string{"Content-Type": f.ContentType}, f.Body})
+		if f, ok := rs.page.Files(path, header); ok {
+			rs.fulfill(ctx, session, requestID, ownReply(f))
 			return
 		}
 	}
 	rs.fulfill(ctx, session, requestID, reply{http.StatusNotFound, map[string]string{"Content-Type": "text/plain; charset=utf-8"}, []byte("not found")})
+}
+
+// requestHeader is a paused request's headers as an http.Header.
+func requestHeader(h map[string]string) http.Header {
+	out := make(http.Header, len(h))
+	for k, v := range h {
+		out.Set(k, v)
+	}
+	return out
+}
+
+// routeResponseHeaders are the headers of a platform route's answer a page is
+// given beside its type: what a ranged read is checked by, and what a read
+// from a sandboxed frame, whose origin is opaque, needs to be allowed at all.
+var routeResponseHeaders = []string{
+	"Content-Range", "Accept-Ranges", "ETag", "Cache-Control",
+	"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials", "Access-Control-Expose-Headers",
+	"Access-Control-Allow-Headers", "Access-Control-Allow-Methods",
+}
+
+// RouteFile is a platform route's in-process answer as a file of the page's
+// own origin: its status, body and type, and the headers a page reads it by.
+func RouteFile(status int, header http.Header, body []byte) File {
+	f := File{Body: body, ContentType: header.Get("Content-Type"), Status: status, Header: map[string]string{}}
+	for _, h := range routeResponseHeaders {
+		if v := header.Get(h); v != "" {
+			f.Header[h] = v
+		}
+	}
+	return f
+}
+
+// ownReply is the response to a file of the page's own origin.
+func ownReply(f File) reply {
+	status := f.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	headers := make(map[string]string, len(f.Header))
+	maps.Copy(headers, f.Header)
+	headers["Content-Type"] = f.ContentType
+	return reply{status, headers, f.Body}
 }
 
 // servePublic fetches a public resource through the guarded client and hands

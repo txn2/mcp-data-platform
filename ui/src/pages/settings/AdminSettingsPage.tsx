@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
 import { ConnectionAlertCard } from "./ConnectionAlertCard";
+import { MapsCard } from "./MapsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
 import { SettingsCard } from "./panels";
@@ -305,7 +306,8 @@ function SaveFeedbackBanners({
 // delivery used by the notification mailer (#631), and the alerts that send
 // through it: the review queues (#803, #1287) and connection revocations
 // (#1694). The review-queue alerts are one card rendered per queue — same
-// mechanism, own thresholds and recipients.
+// mechanism, own thresholds and recipients. Maps (#2068) are the basemap a
+// map asset draws on.
 // ---------------------------------------------------------------------------
 
 export function AdminSettingsPage() {
@@ -324,6 +326,7 @@ export function AdminSettingsPage() {
       />
       <ConnectionAlertCard isReadOnly={isReadOnly} />
       <NotificationChannelsCard isReadOnly={isReadOnly} />
+      <MapsCard />
     </div>
   );
 }

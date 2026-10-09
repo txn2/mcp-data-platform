@@ -53,6 +53,7 @@ const (
 	KindRenderer     Kind = "renderer"     // the headless renderer's DevTools endpoint
 	KindDataHub      Kind = "datahub"      // the knowledge layer's DataHub REST writes
 	KindBranding     Kind = "branding"     // the portal's logo fetch
+	KindMaps         Kind = "maps"         // a basemap region's extract from its source build
 )
 
 // The span attribute keys a client span carries beside the HTTP semantic

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open accounts by state</title>
+<script src="/portal/vendor/maplibre/topojson-client.js"></script>
+<style>
+  :root { --bg: #fff; --fg: #111; --edge: #fff; --none: #e5e7eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1b; --fg: #eee; --edge: #1b1b1b; --none: #3a3a3a; } }
+  body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.1rem; margin: 0 0 12px; }
+  svg { width: 100%; height: auto; display: block; }
+  path.state { stroke: var(--edge); stroke-width: 0.75; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.85rem; margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+    vertical-align: -1px; background: var(--c); }
+</style>
+</head>
+<body>
+<h1>Open accounts by state</h1>
+<svg id="map" viewBox="0 0 975 610" role="img" aria-label="Open accounts by state"></svg>
+<div class="legend" id="legend"></div>
+<script>
+// Values keyed by the state's two-digit FIPS code, which is the feature id.
+const values = { "06": 4210, "48": 3120, "12": 2875, "36": 2650, "17": 1480, "53": 1190, "04": 860, "08": 790, "41": 640 };
+const steps = [[0, "#dbeafe"], [1000, "#93c5fd"], [2000, "#3b82f6"], [3000, "#1d4ed8"]];
+const colorOf = (v) => v === undefined ? "var(--none)" : steps.filter(([min]) => v >= min).pop()[1];
+
+// states-albers-10m.json is already projected to a 975 x 610 frame (Albers USA,
+// with Alaska and Hawaii inset), so a feature's coordinates are SVG coordinates.
+const pathOf = (geom) => (geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates)
+  .map((poly) => poly.map((ring) => "M" + ring.map((p) => p.join(",")).join("L") + "Z").join("")).join("");
+
+fetch("/portal/vendor/maplibre/us-atlas/states-albers-10m.json")
+  .then((r) => r.json())
+  .then((us) => {
+    const svg = document.getElementById("map");
+    for (const f of topojson.feature(us, us.objects.states).features) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("class", "state");
+      p.setAttribute("d", pathOf(f.geometry));
+      p.setAttribute("fill", colorOf(values[f.id]));
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      t.textContent = f.properties.name + ": " + (values[f.id] ?? "no accounts").toLocaleString();
+      p.appendChild(t);
+      svg.appendChild(p);
+    }
+    document.getElementById("legend").innerHTML = steps
+      .map(([min], i) => `<span style="--c:${steps[i][1]}">${min.toLocaleString()}${steps[i + 1] ? "–" + (steps[i + 1][0] - 1).toLocaleString() : "+"}</span>`)
+      .join("");
+  });
+</script>
+</body>
+</html>

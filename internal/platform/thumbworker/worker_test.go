@@ -1,6 +1,7 @@
 package thumbworker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -548,7 +549,7 @@ func TestDrawAsset_AnImageIsServedToThePageByURL(t *testing.T) {
 	if fromURL, _ := data["serveFromURL"].(bool); !fromURL || data["content"] != nil {
 		t.Fatalf("an image must reach the page by URL, not inline: %v", data)
 	}
-	f, ok := p.Files(contentPath)
+	f, ok := p.Files(contentPath, nil)
 	if !ok || string(f.Body) != "\x89PNG-bytes" || f.ContentType != "image/png" {
 		t.Fatalf("the page's content route served %v %q", ok, f.Body)
 	}
@@ -628,22 +629,50 @@ func TestFiles_OnlyThePublicPrefixesAreAnsweredInProcess(t *testing.T) {
 	w := &Worker{deps: Deps{Routes: routes}}
 	files := w.files(map[string]headless.File{"/content": {Body: []byte("c")}})
 
-	if f, ok := files("/content"); !ok || string(f.Body) != "c" {
+	if f, ok := files("/content", nil); !ok || string(f.Body) != "c" {
 		t.Error("the page's own bytes were not served")
 	}
-	if f, ok := files("/portal/refs/a1/tok"); !ok || string(f.Body) != "<svg/>" || f.ContentType != "image/svg+xml" {
+	if f, ok := files("/portal/refs/a1/tok", nil); !ok || string(f.Body) != "<svg/>" || f.ContentType != "image/svg+xml" {
 		t.Errorf("a reference was not answered in-process: %v %q", ok, f.Body)
 	}
-	if _, ok := files("/portal/vendor/reveal/reveal.js"); !ok {
+	if _, ok := files("/portal/vendor/reveal/reveal.js", nil); !ok {
 		t.Error("the served runtime was not answered")
 	}
 	for _, p := range []string{"/api/v1/admin/system/info", "/portal/refs/../../api/v1/admin/system/info", "/portal/refs/missing"} {
-		if _, ok := files(p); ok {
+		if _, ok := files(p, nil); ok {
 			t.Errorf("%s was answered; only the public prefixes may be", p)
 		}
 	}
-	if _, ok := (&Worker{}).files(nil)("/portal/refs/a1/tok"); ok {
+	if _, ok := (&Worker{}).files(nil)("/portal/refs/a1/tok", nil); ok {
 		t.Error("with no routes nothing but the page's own bytes can be answered")
+	}
+}
+
+// A map reads its basemap by byte range from a sandboxed frame (#2068): the
+// tile page's in-process answer carries the range the page asked for, the
+// 206 and Content-Range a ranged read is checked by, and the CORS header the
+// frame's opaque origin needs.
+func TestFiles_PassesARangedReadThrough(t *testing.T) {
+	archive := []byte("0123456789abcdef")
+	routes := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/portal/maps/sf.pmtiles" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		http.ServeContent(w, r, "sf.pmtiles", time.Time{}, bytes.NewReader(archive))
+	})
+	files := (&Worker{deps: Deps{Routes: routes}}).files(nil)
+
+	f, ok := files("/portal/maps/sf.pmtiles", http.Header{"Range": {"bytes=4-7"}, "Origin": {"null"}})
+	if !ok {
+		t.Fatal("a ranged read of a map archive was not answered")
+	}
+	if f.Status != http.StatusPartialContent || string(f.Body) != "4567" || f.Header["Content-Range"] != "bytes 4-7/16" {
+		t.Errorf("ranged read = %d %q %v, want 206 \"4567\" bytes 4-7/16", f.Status, f.Body, f.Header)
+	}
+	if f.Header["Access-Control-Allow-Origin"] != "*" {
+		t.Errorf("the CORS header was not passed on: %v", f.Header)
 	}
 }
 
@@ -748,7 +777,7 @@ func TestDrawCollection_AMosaicIsComposedFromItsMembersInEachScheme(t *testing.T
 			t.Fatalf("mosaic page = %s at %dx%d", p.Document, p.Width, p.Height)
 		}
 		for j, body := range want {
-			if f, ok := p.Files(fmt.Sprintf("/m/%d.png", j)); !ok || string(f.Body) != body {
+			if f, ok := p.Files(fmt.Sprintf("/m/%d.png", j), nil); !ok || string(f.Body) != body {
 				t.Errorf("mosaic %d member %d was %q, want %q", i, j, f.Body, body)
 			}
 		}
@@ -810,7 +839,7 @@ func TestMosaicPage_Layouts(t *testing.T) {
 		if !strings.Contains(string(p.Document), fmt.Sprintf(`class="m n%d"`, n)) || strings.Count(string(p.Document), "<img") != n {
 			t.Errorf("%d members: %s", n, p.Document)
 		}
-		if _, ok := p.Files("/elsewhere"); ok {
+		if _, ok := p.Files("/elsewhere", nil); ok {
 			t.Error("the mosaic page answered a path it was not given")
 		}
 	}
@@ -974,14 +1003,14 @@ func TestPass_AClaimThatFailsIsSurvived(t *testing.T) {
 }
 
 func TestServeInProcess_ARouteThatWritesNothingIsA200(t *testing.T) {
-	f, ok := serveInProcess(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "/portal/refs/a/b")
+	f, ok := serveInProcess(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "/portal/refs/a/b", nil)
 	if !ok || len(f.Body) != 0 {
 		t.Fatalf("an empty 200 = %v %q", ok, f.Body)
 	}
 	if _, ok := serveInProcess(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		w.WriteHeader(http.StatusOK)
-	}), "/portal/refs/a/b"); ok {
+	}), "/portal/refs/a/b", nil); ok {
 		t.Error("a second WriteHeader overrode the first")
 	}
 }
@@ -997,7 +1026,7 @@ func TestServeInProcess_IsNotCountedByTheViewerLimiter(t *testing.T) {
 		_, _ = w.Write([]byte("<svg/>"))
 	}))
 	for i := range 3 * assetrefs.DefaultMaxRefs {
-		if f, ok := serveInProcess(routes, "/portal/refs/a/b"); !ok || string(f.Body) != "<svg/>" {
+		if f, ok := serveInProcess(routes, "/portal/refs/a/b", nil); !ok || string(f.Body) != "<svg/>" {
 			t.Fatalf("in-process call %d was refused: ok=%v body=%q", i, ok, f.Body)
 		}
 	}
@@ -1020,7 +1049,7 @@ func TestDrawAsset_APDFIsServedToThePageByURLAndDrawnOnce(t *testing.T) {
 	if fromURL, _ := data["serveFromURL"].(bool); !fromURL || data["content"] != nil {
 		t.Fatalf("a PDF must reach the page by URL, not inline: %v", data)
 	}
-	f, ok := p.Files(contentPath)
+	f, ok := p.Files(contentPath, nil)
 	if !ok || string(f.Body) != "%PDF-1.4 bytes" || f.ContentType != "application/pdf" {
 		t.Fatalf("the page's content route served %v %q %q", ok, f.Body, f.ContentType)
 	}

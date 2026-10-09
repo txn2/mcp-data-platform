@@ -503,7 +503,7 @@ func harness(t *testing.T, reply func(call) answer, public *http.Client) (*rende
 	rs.own("page1")
 	rs.page = Page{
 		Document: []byte("<p>doc</p>"),
-		Files: func(path string) (File, bool) {
+		Files: func(path string, _ http.Header) (File, bool) {
 			if path == "/theme.css" {
 				return File{Body: []byte("css"), ContentType: "text/css"}, true
 			}
@@ -862,5 +862,34 @@ func TestArm_AFramesTimelineIsStoppedAndItIsSettledLater(t *testing.T) {
 	}
 	if got := rs.frameSessions(); len(got) != 1 || got[0] != "frame1" {
 		t.Errorf("sessions to settle = %v, want the frame alone", got)
+	}
+}
+
+// TestRouteFile_KeepsWhatAPageReadsARangeBy: a platform route's 206 reaches
+// the page with its Content-Range and CORS headers, and nothing else the
+// route set (#2068).
+func TestRouteFile_KeepsWhatAPageReadsARangeBy(t *testing.T) {
+	h := http.Header{}
+	h.Set("Content-Type", "application/vnd.pmtiles")
+	h.Set("Content-Range", "bytes 0-3/10")
+	h.Set("Access-Control-Allow-Origin", "*")
+	h.Set("Set-Cookie", "s=1")
+	f := RouteFile(http.StatusPartialContent, h, []byte("abcd"))
+	r := ownReply(f)
+	if r.status != http.StatusPartialContent || string(r.body) != "abcd" {
+		t.Fatalf("reply = %d %q", r.status, r.body)
+	}
+	if r.headers["Content-Range"] != "bytes 0-3/10" || r.headers["Access-Control-Allow-Origin"] != "*" ||
+		r.headers["Content-Type"] != "application/vnd.pmtiles" {
+		t.Errorf("headers = %v", r.headers)
+	}
+	if _, ok := r.headers["Set-Cookie"]; ok {
+		t.Error("a header outside the list reached the page")
+	}
+	if got := ownReply(File{Body: []byte("x"), ContentType: "text/css"}); got.status != http.StatusOK {
+		t.Errorf("a file with no status = %d, want 200", got.status)
+	}
+	if got := requestHeader(map[string]string{"range": "bytes=0-1"}); got.Get("Range") != "bytes=0-1" {
+		t.Errorf("requestHeader = %v", got)
 	}
 }

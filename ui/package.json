@@ -34,6 +34,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@protomaps/basemaps": "5.7.2",
     "@radix-ui/react-dialog": "^1.1.6",
     "@radix-ui/react-dropdown-menu": "^2.1.6",
     "@radix-ui/react-label": "^2.1.15",
@@ -63,9 +64,11 @@
     "hyparquet": "^1.31.1",
     "hyparquet-compressors": "^1.1.2",
     "lucide-react": "^0.469.0",
+    "maplibre-gl": "5.24.0",
     "mermaid": "^11.16.1",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^6.3.289",
+    "pmtiles": "4.5.0",
     "prettier": "3.9.8",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -76,6 +79,8 @@
     "reveal.js": "6.0.2",
     "sucrase": "^3.35.1",
     "tailwind-merge": "^3.3.0",
+    "topojson-client": "3.1.0",
+    "us-atlas": "3.0.1",
     "zustand": "^5.0.5"
   },
   "devDependencies": {

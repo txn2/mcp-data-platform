@@ -2,6 +2,7 @@ package thumbworker
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
@@ -43,7 +44,7 @@ func mosaicPage(tiles [][]byte) headless.Page {
 		fmt.Sprintf(`<div class="m n%d">`, len(tiles)) + strings.Join(imgs, "") + `</div></body></html>`
 	return headless.Page{
 		Document: []byte(doc),
-		Files: func(p string) (headless.File, bool) {
+		Files: func(p string, _ http.Header) (headless.File, bool) {
 			f, ok := files[p]
 			return f, ok
 		},

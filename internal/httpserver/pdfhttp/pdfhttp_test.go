@@ -115,13 +115,13 @@ func TestPDFRoutePrintsTheDocumentItsContentRouteServes(t *testing.T) {
 	if page.Ready != Ready || page.Width != pageWidth || page.Height != pageHeight {
 		t.Errorf("page = %+v", page)
 	}
-	if f, ok := page.Files("/portal/vendor/reveal/reveal.js"); !ok || string(f.Body) != "window.Reveal={}" {
+	if f, ok := page.Files("/portal/vendor/reveal/reveal.js", nil); !ok || string(f.Body) != "window.Reveal={}" {
 		t.Errorf("the served runtime was not answered: %v %q", ok, f.Body)
 	}
-	if _, ok := page.Files("/api/v1/admin/secret"); ok {
+	if _, ok := page.Files("/api/v1/admin/secret", nil); ok {
 		t.Error("the document reached a platform route outside its own files")
 	}
-	if _, ok := page.Files("/portal/vendor/../../api/v1/admin/secret"); ok {
+	if _, ok := page.Files("/portal/vendor/../../api/v1/admin/secret", nil); ok {
 		t.Error("a path that climbs out of the served files was answered")
 	}
 }

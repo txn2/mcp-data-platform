@@ -35,6 +35,18 @@ upload "asset-004" "$CONTENT_DIR/asset-004.md"
 upload "asset-005" "$CONTENT_DIR/asset-005.svg"
 upload "asset-006" "$CONTENT_DIR/asset-006.html"
 upload "asset-007" "$CONTENT_DIR/asset-007.html"
+upload "asset-008" "$CONTENT_DIR/asset-008.html"
+upload "asset-009" "$CONTENT_DIR/asset-009.html"
+
+# The basemap region the seeded route map draws on (#2068): a San Francisco
+# extract to zoom 12, put where an operator on a closed network puts one, in
+# the managed-resources bucket under maps/uploads/. The maps fetch pass lists
+# it as the ready region "san-francisco" with no fetch.
+if [ -n "${DEV_S3_TLS_PORT:-}" ]; then
+  AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
+    aws --endpoint-url "https://localhost:$DEV_S3_TLS_PORT" s3 cp --only-show-errors \
+    "$CONTENT_DIR/san-francisco.pmtiles" s3://managed-resources/maps/uploads/san-francisco.pmtiles
+fi
 
 # Content for the 120 generated demo assets (seed-0001..0120 from seed.sql).
 # Reuse the five content files, cycled by the same (n % 5) index used in the

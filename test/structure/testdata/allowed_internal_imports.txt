@@ -43,6 +43,9 @@ internal/admin/graphqlapi -> pkg/toolkits/graphql
 internal/admin/insightobs -> internal/tableavail
 internal/admin/insightobs -> pkg/query
 internal/admin/insightobs -> pkg/toolkits/knowledge
+internal/admin/mapsapi -> internal/httpjson
+internal/admin/mapsapi -> internal/logsan
+internal/admin/mapsapi -> internal/maps
 internal/admin/memoryapi -> internal/httpjson
 internal/admin/memoryapi -> pkg/memory
 internal/admin/notifyapi -> internal/httpjson
@@ -103,6 +106,7 @@ internal/httpserver -> internal/httpserver/gatewayhttp
 internal/httpserver -> internal/httpserver/health
 internal/httpserver -> internal/httpserver/httpauth
 internal/httpserver -> internal/httpserver/instanceheader
+internal/httpserver -> internal/httpserver/mapwire
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifywire
 internal/httpserver -> internal/httpserver/pdfhttp
@@ -200,6 +204,7 @@ internal/httpserver/attachhttp -> internal/wirejson
 internal/httpserver/attachhttp -> pkg/prompt
 internal/httpserver/attachhttp -> pkg/prompt/attachserve
 internal/httpserver/attachhttp -> pkg/resource
+internal/httpserver/corshttp -> internal/httpserver/maphttp
 internal/httpserver/corshttp -> internal/webhook/receiver
 internal/httpserver/datahubapi -> internal/dhobs
 internal/httpserver/datahubapi -> internal/logsan
@@ -220,6 +225,21 @@ internal/httpserver/httpauth -> internal/logsan
 internal/httpserver/httpauth -> internal/opsobs
 internal/httpserver/httpauth -> pkg/auth
 internal/httpserver/httpauth -> pkg/middleware
+internal/httpserver/maphttp -> internal/httpjson
+internal/httpserver/maphttp -> internal/logsan
+internal/httpserver/maphttp -> internal/maps
+internal/httpserver/maphttp -> pkg/blobserve
+internal/httpserver/mapwire -> internal/admin/mapsapi
+internal/httpserver/mapwire -> internal/httpserver/maphttp
+internal/httpserver/mapwire -> internal/logsan
+internal/httpserver/mapwire -> internal/maps
+internal/httpserver/mapwire -> internal/outbound
+internal/httpserver/mapwire -> internal/platform/knowledgebuiltin
+internal/httpserver/mapwire -> internal/platform/resourcelayer
+internal/httpserver/mapwire -> pkg/observability
+internal/httpserver/mapwire -> pkg/platform
+internal/httpserver/mapwire -> pkg/portal/knowledgepage
+internal/httpserver/mapwire -> pkg/portal/s3adapter
 internal/httpserver/mentionhttp -> internal/wirejson
 internal/httpserver/mentionhttp -> pkg/portal/mention
 internal/httpserver/mentionhttp -> pkg/portal/threads
@@ -243,6 +263,7 @@ internal/httpserver/notifywire -> pkg/registry
 internal/httpserver/notifywire -> pkg/toolkits/apigateway
 internal/httpserver/pdfhttp -> internal/headless
 internal/httpserver/pdfhttp -> internal/httpobs
+internal/httpserver/pdfhttp -> internal/httpserver/corshttp
 internal/httpserver/pdfhttp -> internal/httpserver/thumbwire
 internal/httpserver/pdfhttp -> internal/inproc
 internal/httpserver/pdfhttp -> internal/logsan
@@ -363,6 +384,10 @@ internal/httpserver/webhookwire -> pkg/resource
 internal/inlinefit -> pkg/toolkit
 internal/inproc -> internal/portal/viewerlimit
 internal/listcut -> internal/pagenext
+internal/maps -> internal/bgloop
+internal/maps -> internal/logsan
+internal/maps -> internal/pmtiles
+internal/maps -> pkg/portal/s3adapter
 internal/mcpobs -> pkg/observability
 internal/mcpobs -> pkg/session
 internal/notification/notifychannel -> pkg/notification
@@ -522,6 +547,8 @@ internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
 internal/platform/indexqueue -> pkg/toolkits/graphql
 internal/platform/indexqueue -> pkg/toolkits/tools/toolsindex
+internal/platform/knowledgebuiltin -> internal/logsan
+internal/platform/knowledgebuiltin -> internal/maps
 internal/platform/knowledgebuiltin -> internal/platform/scriptexamples
 internal/platform/knowledgebuiltin -> internal/platform/scriptlayer
 internal/platform/knowledgebuiltin -> pkg/contenttype
