@@ -65,7 +65,7 @@ func newTelemetryRig(t *testing.T) *telemetryRig {
 	server := mcp.NewServer(&mcp.Implementation{Name: "trino-test", Version: "v0"}, nil)
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if method != "tools/call" {
+			if method != methodToolsCall {
 				return next(ctx, method, req)
 			}
 			ctx, span := tr.Start(ctx, "tool_call")

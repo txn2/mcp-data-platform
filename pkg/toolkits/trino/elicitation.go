@@ -172,6 +172,9 @@ func (em *ElicitationMiddleware) configFor(conn string) ElicitationConfig {
 // answer (SEP-2322). The SDK keeps its copy of the constant unexported.
 const multiRoundTripVersion = "2026-07-28"
 
+// methodToolsCall is the MCP method a tool call arrives as.
+const methodToolsCall = "tools/call"
+
 // Input request ids, which a client echoes back with its answers.
 const (
 	inputCostEstimate = "trino_cost_estimate"
@@ -195,7 +198,7 @@ func (em *ElicitationMiddleware) Middleware() mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			ctr, ok := req.(*mcp.CallToolRequest)
-			if !ok || method != "tools/call" || ctr.Params == nil || ctr.Params.Name != string(trinotools.ToolQuery) {
+			if !ok || method != methodToolsCall || ctr.Params == nil || ctr.Params.Name != string(trinotools.ToolQuery) {
 				return next(ctx, method, req)
 			}
 			if res := em.gate(ctx, ctr); res != nil {

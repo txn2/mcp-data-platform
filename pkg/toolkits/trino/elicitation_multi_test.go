@@ -111,7 +111,7 @@ func newElicitRigAt(t *testing.T, instances map[string]Config, protocolVersion s
 	server.AddReceivingMiddleware(tk.ConsentMiddleware())
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-			if method != "tools/call" {
+			if method != methodToolsCall {
 				return next(ctx, method, req)
 			}
 			ctx, span := tr.Start(ctx, "tool_call")

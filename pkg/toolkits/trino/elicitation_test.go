@@ -233,11 +233,11 @@ func TestElicitationMiddleware_PassesThroughWhatItDoesNotGate(t *testing.T) {
 		req    mcp.Request
 	}{
 		{"another method", "tools/list", &mcp.ListToolsRequest{}},
-		{"another tool", "tools/call", call(string(trinotools.ToolExplain), `{"sql":"SELECT 1"}`)},
-		{"no statement", "tools/call", call(string(trinotools.ToolQuery), `{"sql":""}`)},
-		{"arguments that are not an object", "tools/call", call(string(trinotools.ToolQuery), `"SELECT 1"`)},
-		{"a connection with prompts off", "tools/call", call(string(trinotools.ToolQuery), `{"sql":"SELECT 1","connection":"other"}`)},
-		{"a client that declares no elicitation", "tools/call", call(string(trinotools.ToolQuery), `{"sql":"SELECT 1"}`)},
+		{"another tool", methodToolsCall, call(string(trinotools.ToolExplain), `{"sql":"SELECT 1"}`)},
+		{"no statement", methodToolsCall, call(string(trinotools.ToolQuery), `{"sql":""}`)},
+		{"arguments that are not an object", methodToolsCall, call(string(trinotools.ToolQuery), `"SELECT 1"`)},
+		{"a connection with prompts off", methodToolsCall, call(string(trinotools.ToolQuery), `{"sql":"SELECT 1","connection":"other"}`)},
+		{"a client that declares no elicitation", methodToolsCall, call(string(trinotools.ToolQuery), `{"sql":"SELECT 1"}`)},
 	} {
 		before := reached
 		res, err := h(context.Background(), tc.method, tc.req)
