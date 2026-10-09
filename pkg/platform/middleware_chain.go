@@ -40,6 +40,7 @@ const (
 	mwMetrics             mwName = "metrics"
 	mwAudit               mwName = "audit"
 	mwErrorContract       mwName = "error_contract"
+	mwConsent             mwName = "consent"
 	mwClientLogging       mwName = "client_logging"
 	mwManagedResource     mwName = "managed_resource"
 	mwCallReference       mwName = "call_reference"
@@ -161,6 +162,9 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// and reflexive capture so they observe the normalized {code, category}
 		// on the way out rather than the raw handler error.
 		{Name: mwErrorContract, Requires: []mwName{mwAudit, mwMetrics, mwReflexiveCapture}, Register: p.addErrorContractMiddleware},
+
+		// Consent (#2052): toolkits' prompts (Trino's cost and PII), inside authorization and the gates, inside the error contract.
+		{Name: mwConsent, Requires: []mwName{mwToolCall, mwWorkflowGate, mwRateLimit, mwErrorContract}, Register: func() { p.toolkitRegistry.InstallConsentLayers(p.mcpServer) }},
 
 		// Result budget (#1878): reads PlatformContext; outer to the call
 		// reference and enrichment so it measures what the client receives.

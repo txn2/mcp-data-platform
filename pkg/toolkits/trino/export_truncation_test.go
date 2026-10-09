@@ -43,7 +43,7 @@ func cutToolkit(t *testing.T, rows int) cutFixture {
 
 	assets, versions, s3 := &mockExportAssetStore{}, &mockExportVersionStore{}, &mockExportS3Client{}
 	tk := newTestExportToolkit(assets, versions, s3)
-	tk.client = trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute})
+	tk.manager = singleClient(trinoclient.NewWithDB(db, trinoclient.Config{Timeout: time.Minute}))
 	tk.exportDeps.Config.MaxRows = testCap
 	return cutFixture{tk: tk, assets: assets, versions: versions, s3: s3}
 }
@@ -249,7 +249,7 @@ func TestExportSchemaNamesTheConfiguredCap(t *testing.T) {
 // TestTheLimitsPlatformInfoReads: the values platform_info reports are the
 // ones this toolkit runs under, defaults applied (#2057).
 func TestTheLimitsPlatformInfoReads(t *testing.T) {
-	tk, err := New("warehouse", Config{Host: "localhost", User: "u", DefaultLimit: 500, MaxLimit: 5000, Timeout: 90 * time.Second})
+	tk, err := newSingle("warehouse", Config{Host: "localhost", User: "u", DefaultLimit: 500, MaxLimit: 5000, Timeout: 90 * time.Second})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tk.Close() })
 	defaultRows, maxRows, timeout := tk.QueryLimits()

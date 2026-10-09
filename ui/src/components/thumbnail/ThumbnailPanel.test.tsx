@@ -342,30 +342,51 @@ describe("ThumbnailPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // A PDF and a table are drawn from part of the file -- page one (#1794), the
-  // first rows (#1802) -- and are held to a bound of their own, so a document
-  // past the 1 MB every other family shares still has a panel.
-  it("is present for a PDF or a table past the bound every other family has", () => {
-    for (const ct of ["application/pdf", "text/csv", "text/tab-separated-values"]) {
-      const subject = { ...ASSET, content_type: ct } as Asset;
-      expect(renderPanel(subject).container).not.toBeEmptyDOMElement();
-      cleanup();
-      expect(renderPanel({ ...subject, size_bytes: 5 * 1024 * 1024 } as Asset).container).not.toBeEmptyDOMElement();
-      cleanup();
-    }
+  // The bound is the deployment's (thumbnails.max_source_bytes, #2072), so the
+  // panel reads whether a file is past it off the record rather than holding a
+  // copy: a 5 MB PDF the server will draw has the ordinary panel.
+  it("is the ordinary panel for a large file the server has not skipped", () => {
+    renderPanel({ ...ASSET, content_type: "application/pdf", size_bytes: 5 * 1024 * 1024 } as Asset);
+    expect(screen.getByRole("button", { name: /Recapture/ })).toBeTruthy();
   });
 
-  it("is absent past the raised bound those families have", () => {
-    for (const ct of ["application/pdf", "text/csv"]) {
-      const { container } = renderPanel({ ...ASSET, content_type: ct, size_bytes: 40 * 1024 * 1024 } as Asset);
-      expect(container).toBeEmptyDOMElement();
-      cleanup();
-    }
+  // A file past the bound used to have no panel, which read the same as a
+  // tile not drawn yet (#2072). It says why, and offers no redraw.
+  it("says a file past the bound is too large for a thumbnail, with both sizes", () => {
+    renderPanel({
+      ...ASSET,
+      content_type: "text/html",
+      thumbnail_s3_key: "",
+      thumbnail_version: 0,
+      size_bytes: 1_290_000,
+      thumbnail_skipped: "over_source_limit",
+      thumbnail_source_limit: 1024 * 1024,
+    } as Asset);
+    expect(screen.getByTestId("thumbnail-placeholder").textContent).toContain("Too large for a thumbnail");
+    expect(screen.getByTestId("thumbnail-explanation").textContent).toBe(
+      "This file is 1.2 MB. Thumbnails are drawn only for files up to 1 MB, which an administrator can raise.",
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText(/being drawn/)).toBeNull();
   });
 
-  it("is absent for a document too large to draw", () => {
-    const { container } = renderPanel({ ...ASSET, size_bytes: 5 * 1024 * 1024 } as Asset);
-    expect(container).toBeEmptyDOMElement();
+  it("keeps showing a tile drawn while a skipped file was smaller", () => {
+    renderPanel({ ...ASSET, thumbnail_skipped: "over_source_limit", thumbnail_source_limit: 1024 * 1024 } as Asset);
+    expect(screen.getByAltText("Thumbnail for Q4 dashboard")).toBeTruthy();
+    expect(screen.queryByTestId("thumbnail-placeholder")).toBeNull();
+  });
+
+  it("says a managed resource past the bound is too large for a thumbnail", () => {
+    renderResourcePanel({
+      ...RESOURCE,
+      thumbnail_s3_key: "",
+      thumbnail_captured_at: undefined,
+      size_bytes: 3 * 1024 * 1024,
+      thumbnail_skipped: "over_source_limit",
+      thumbnail_source_limit: 1024 * 1024,
+    });
+    expect(screen.getByTestId("thumbnail-explanation").textContent).toContain("This file is 3 MB");
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   // A managed resource's owner had no picture of their tile and no way to

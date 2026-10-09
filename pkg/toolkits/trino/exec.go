@@ -118,25 +118,22 @@ func quoteLiteral(s string) string {
 
 // execClient resolves the client a statement runs against.
 func (t *Toolkit) execClient(connection string) (*trinoclient.Client, error) {
-	if t.manager != nil {
-		var (
-			client *trinoclient.Client
-			err    error
-		)
-		if connection != "" {
-			client, err = t.manager.Client(connection)
-		} else {
-			client, err = t.manager.DefaultClient()
-		}
-		if err != nil {
-			return nil, fmt.Errorf("resolving trino connection: %w", err)
-		}
-		return client, nil
-	}
-	if t.client == nil {
+	if t.manager == nil {
 		return nil, errors.New("no Trino client available")
 	}
-	return t.client, nil
+	var (
+		client *trinoclient.Client
+		err    error
+	)
+	if connection != "" {
+		client, err = t.manager.Client(connection)
+	} else {
+		client, err = t.manager.DefaultClient()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolving trino connection: %w", err)
+	}
+	return client, nil
 }
 
 // checkExecWritable runs the statement past the read-only interceptor as the

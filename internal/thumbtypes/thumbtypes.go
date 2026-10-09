@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
@@ -110,15 +111,50 @@ var Capturable = slices.Concat(svgTypes, pdfTypes, documentTypes, markdownTypes,
 // In Capturable's order, which is what the parity test compares.
 var Themeable = slices.Concat(documentTypes, markdownTypes, tableTypes, jsonTypes, codeTypes)
 
-// DefaultSourceLimit is the largest document a tile is drawn from. A tile is
-// drawn by loading the whole document into the renderer beside the platform,
-// whose memory is sized for documents, not archives; above it a file keeps its
-// content-type icon (#1351).
+// DefaultSourceLimit is the largest document a tile is drawn from unless the
+// deployment sets thumbnails.max_source_bytes. A tile is drawn by loading the
+// whole document into the renderer beside the platform, whose memory is sized
+// for documents, not archives; above it a file keeps its content-type icon
+// (#1351) and is reported skipped (Skipped).
 const DefaultSourceLimit = 1 << 20 // 1 MB
 
 // LargeSourceLimit is the bound the families in LargeSourceFamilies are held
-// to instead.
+// to instead, unless the deployment sets thumbnails.large_source_bytes.
 const LargeSourceLimit = 32 << 20 // 32 MB
+
+// Limits are the two source bounds in force: Default for every family, Large
+// for LargeSourceFamilies. A zero field is that bound's constant.
+type Limits struct {
+	Default int64
+	Large   int64
+}
+
+// limits holds the bounds the deployment configured (#2072). The stores build
+// their claim statements and the read paths report Skipped from it, and none
+// of them is handed the thumbnails config, so the platform installs it once at
+// startup with SetSourceLimits, as internal/outbound's recorder is installed.
+var limits atomic.Pointer[Limits]
+
+// SetSourceLimits installs the deployment's bounds. A zero field keeps that
+// bound's default.
+func SetSourceLimits(l Limits) {
+	limits.Store(&l)
+}
+
+// SourceLimits are the bounds in force, with every default applied.
+func SourceLimits() Limits {
+	var l Limits
+	if p := limits.Load(); p != nil {
+		l = *p
+	}
+	if l.Default <= 0 {
+		l.Default = DefaultSourceLimit
+	}
+	if l.Large <= 0 {
+		l.Large = LargeSourceLimit
+	}
+	return l
+}
 
 // LargeSourceFamilies are the families whose source bound is LargeSourceLimit
 // rather than DefaultSourceLimit.
@@ -177,10 +213,32 @@ func DrawnFromHead(contentType string) bool {
 // everywhere else here, so a bound is raised for the family a type is actually
 // drawn as rather than for any entry it would also match.
 func SourceLimit(contentType string) int64 {
+	l := SourceLimits()
 	if slices.Contains(LargeSourceFamilies, family(contentType)) {
-		return LargeSourceLimit
+		return l.Large
 	}
-	return DefaultSourceLimit
+	return l.Default
+}
+
+// SkippedOverSourceLimit is the reason a file a tile could be drawn from is
+// never offered to the renderer: it is larger than its family's bound.
+const SkippedOverSourceLimit = "over_source_limit"
+
+// Skipped reports why a file of contentType and size is never given a tile,
+// and the bound it is held to, or "" when nothing keeps it from one. A file of
+// a family no tile is drawn for is not "skipped": it has no tile to skip.
+//
+// Without it, a document past the bound reads exactly like one not drawn yet:
+// no tile, no failure, no version (#2072).
+func Skipped(contentType string, size int64) (reason string, limit int64) {
+	if family(contentType) == "" {
+		return "", 0
+	}
+	limit = SourceLimit(contentType)
+	if size <= limit {
+		return "", 0
+	}
+	return SkippedOverSourceLimit, limit
 }
 
 // SourceLimitExpr is the same bound as a SQL predicate, over the column
@@ -191,9 +249,13 @@ func SourceLimit(contentType string) int64 {
 // The two limits are written into the expression rather than bound, so the
 // whole rule is one fragment: a caller that had to append them as arguments
 // could append them in the wrong order and still compile.
+//
+// The bounds are the ones in force when it is called, so a store renders it
+// with each statement rather than once.
 func SourceLimitExpr(sizeCol, typeCol, familiesPlaceholder string) string {
+	l := SourceLimits()
 	return fmt.Sprintf("%s <= CASE WHEN %s ILIKE ANY(%s) THEN %d::bigint ELSE %d::bigint END",
-		sizeCol, typeCol, familiesPlaceholder, LargeSourceLimit, DefaultSourceLimit)
+		sizeCol, typeCol, familiesPlaceholder, l.Large, l.Default)
 }
 
 // Patterns are the SQL ILIKE patterns that ask of a column what matches asks of

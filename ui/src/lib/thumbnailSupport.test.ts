@@ -7,9 +7,6 @@ import {
   collectionItemThumbnailSrc,
   collectionMosaicSrc,
   isThemeable,
-  thumbnailSourceLimit,
-  LARGE_THUMBNAIL_SOURCE_LIMIT,
-  THUMBNAIL_SOURCE_LIMIT,
   isThumbnailSupported,
   resourceThumbnailBehind,
   resourceThumbnailSrc,
@@ -146,29 +143,6 @@ describe("thumbnail support", () => {
     // A PDF page is drawn as the document looks, so one capture serves both
     // schemes (#1794).
     expect(isThemeable("application/pdf")).toBe(false);
-  });
-});
-
-// The bound on how big a file a tile is drawn from. It rises for the families
-// whose tile is drawn from part of the file: page one of a PDF, which a
-// scanned letter page already carries past the default (#1794), and the first
-// rows of a table, which is all the platform hands the tile page of a large
-// one (#1802).
-describe("thumbnailSourceLimit", () => {
-  it("raises the bound for a PDF and a table, and leaves every other family on the default", () => {
-    for (const ct of ["application/pdf", "text/csv", "text/tab-separated-values"]) {
-      expect(thumbnailSourceLimit(ct)).toBe(LARGE_THUMBNAIL_SOURCE_LIMIT);
-    }
-    expect(LARGE_THUMBNAIL_SOURCE_LIMIT).toBeGreaterThan(THUMBNAIL_SOURCE_LIMIT);
-    for (const ct of ["text/html", "image/png", "image/svg+xml", "text/markdown", "application/json"]) {
-      expect(thumbnailSourceLimit(ct)).toBe(THUMBNAIL_SOURCE_LIMIT);
-    }
-  });
-
-  // A type nothing draws has no tile to bound, and answering the raised bound
-  // for it would read as "this family is drawn, generously".
-  it("answers the default for a type that gets no tile at all", () => {
-    expect(thumbnailSourceLimit("application/zip")).toBe(THUMBNAIL_SOURCE_LIMIT);
   });
 });
 

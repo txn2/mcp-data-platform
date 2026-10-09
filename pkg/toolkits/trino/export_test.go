@@ -770,9 +770,9 @@ func TestHandleExport_FullFlow(t *testing.T) {
 	s3Client := &mockExportS3Client{}
 
 	tk := &Toolkit{
-		name:   "test",
-		client: client,
-		config: Config{ReadOnly: true},
+		name:    "test",
+		manager: singleClient(client),
+		config:  Config{ReadOnly: true},
 	}
 	tk.SetExportDeps(ExportDeps{
 		AssetStore:   assetStore,
@@ -840,7 +840,7 @@ func TestHandleExport_S3FailureNoAsset(t *testing.T) {
 	assetStore := &mockExportAssetStore{}
 	s3Client := &mockExportS3Client{putErr: fmt.Errorf("s3 down")}
 
-	tk := &Toolkit{name: "test", client: client, config: Config{ReadOnly: true}}
+	tk := &Toolkit{name: "test", manager: singleClient(client), config: Config{ReadOnly: true}}
 	tk.SetExportDeps(ExportDeps{
 		AssetStore:   assetStore,
 		VersionStore: &mockExportVersionStore{},
@@ -873,7 +873,7 @@ func TestHandleExport_WithCreatePublicLink(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"val"}).AddRow("x"))
 
 	shareMock := &mockExportShareCreator{shareURL: "https://example.com/portal/view/tok"}
-	tk := &Toolkit{name: "test", client: client}
+	tk := &Toolkit{name: "test", manager: singleClient(client)}
 	tk.SetExportDeps(ExportDeps{
 		AssetStore:   &mockExportAssetStore{},
 		VersionStore: &mockExportVersionStore{},
@@ -905,7 +905,7 @@ func TestHandleExport_ByteCapExceeded_WithClient(t *testing.T) {
 	mock.ExpectQuery("SELECT").
 		WillReturnRows(sqlmock.NewRows([]string{"big"}).AddRow("xxxxxxxxxx"))
 
-	tk := &Toolkit{name: "test", client: client}
+	tk := &Toolkit{name: "test", manager: singleClient(client)}
 	tk.SetExportDeps(ExportDeps{
 		AssetStore:   &mockExportAssetStore{},
 		VersionStore: &mockExportVersionStore{},

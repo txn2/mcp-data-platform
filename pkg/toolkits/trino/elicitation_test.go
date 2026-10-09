@@ -2,6 +2,7 @@ package trino
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -81,6 +82,20 @@ Fragment 1
 			want: 0,
 		},
 		{
+			// What Trino answers EXPLAIN (TYPE IO) with (#2052): the largest
+			// table's estimate, not the plan's output.
+			name: "IO plan JSON",
+			plan: `{"inputTableColumnInfos":[{"table":{"catalog":"memory"},"estimate":{"outputRowCount":1100000.0}},` +
+				`{"table":{"catalog":"memory"},"estimate":{"outputRowCount":40.0}}],"estimate":{"outputRowCount":12.0}}`,
+			want: 1_100_000,
+		},
+		{
+			// An unknown estimate is written NaN, which no decoder accepts.
+			name: "IO plan with NaN",
+			plan: `{"inputTableColumnInfos":[{"estimate":{"outputRowCount":2500000.0,"cpuCost":NaN}}]}`,
+			want: 2_500_000,
+		},
+		{
 			name: "empty plan",
 			plan: "",
 			want: 0,
@@ -120,39 +135,6 @@ func TestFormatRowCount(t *testing.T) {
 			got := formatRowCount(tt.n)
 			if got != tt.want {
 				t.Errorf("formatRowCount(%d) = %q, want %q", tt.n, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExtractSQLFromInput(t *testing.T) {
-	tests := []struct {
-		name  string
-		input any
-		want  string
-	}{
-		{
-			name:  "valid QueryInput",
-			input: trinotools.QueryInput{SQL: "SELECT 1"},
-			want:  "SELECT 1",
-		},
-		{
-			name:  "wrong type",
-			input: "not a QueryInput",
-			want:  "",
-		},
-		{
-			name:  "nil input",
-			input: nil,
-			want:  "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractSQLFromInput(tt.input)
-			if got != tt.want {
-				t.Errorf("extractSQLFromInput() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -232,86 +214,59 @@ func TestElicitationDeclinedError(t *testing.T) {
 	}
 }
 
-func TestElicitationMiddleware_Before_NonQueryTool(t *testing.T) {
-	em := &ElicitationMiddleware{
-		config: ElicitationConfig{
-			Enabled:        true,
-			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 100},
-		},
+// The gate lets through, untouched, every call it has nothing to ask about:
+// another method, another tool, no statement, a connection with prompts off,
+// a client that cannot be asked.
+func TestElicitationMiddleware_PassesThroughWhatItDoesNotGate(t *testing.T) {
+	em := &ElicitationMiddleware{configs: map[string]ElicitationConfig{"w": costPrompting(100)}, defaultConn: "w"}
+	reached := 0
+	h := em.Middleware()(func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		reached++
+		return &mcp.CallToolResult{}, nil
+	})
+	call := func(name, args string) *mcp.CallToolRequest {
+		return &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: name, Arguments: json.RawMessage(args)}}
 	}
-
-	tc := trinotools.NewToolContext(trinotools.ToolExplain, trinotools.ExplainInput{SQL: "SELECT 1"})
-	ctx, err := em.Before(context.Background(), tc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ctx == nil {
-		t.Fatal("context should not be nil")
-	}
-}
-
-func TestElicitationMiddleware_Before_EmptySQL(t *testing.T) {
-	em := &ElicitationMiddleware{
-		config: ElicitationConfig{
-			Enabled:        true,
-			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 100},
-		},
-	}
-
-	tc := trinotools.NewToolContext(trinotools.ToolQuery, trinotools.QueryInput{SQL: ""})
-	ctx, err := em.Before(context.Background(), tc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ctx == nil {
-		t.Fatal("context should not be nil")
+	for _, tc := range []struct {
+		name   string
+		method string
+		req    mcp.Request
+	}{
+		{"another method", "tools/list", &mcp.ListToolsRequest{}},
+		{"another tool", "tools/call", call(string(trinotools.ToolExplain), `{"sql":"SELECT 1"}`)},
+		{"no statement", "tools/call", call(string(trinotools.ToolQuery), `{"sql":""}`)},
+		{"arguments that are not an object", "tools/call", call(string(trinotools.ToolQuery), `"SELECT 1"`)},
+		{"a connection with prompts off", "tools/call", call(string(trinotools.ToolQuery), `{"sql":"SELECT 1","connection":"other"}`)},
+		{"a client that declares no elicitation", "tools/call", call(string(trinotools.ToolQuery), `{"sql":"SELECT 1"}`)},
+	} {
+		before := reached
+		res, err := h(context.Background(), tc.method, tc.req)
+		if err != nil || res == nil || reached != before+1 {
+			t.Errorf("%s: not passed through (res=%v err=%v)", tc.name, res, err)
+		}
 	}
 }
 
-func TestElicitationMiddleware_Before_NoSession(t *testing.T) {
-	em := &ElicitationMiddleware{
-		config: ElicitationConfig{
-			Enabled:        true,
-			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 100},
-		},
+// A retry's answers decide the call: a declined prompt is the refusal named
+// for it, with the user_declined category the audit row reads; an accepted
+// one runs the query.
+func TestDeclinedAnswer(t *testing.T) {
+	declined := declinedAnswer(mcp.InputResponseMap{
+		inputCostEstimate: &mcp.ElicitResult{Action: "accept"},
+		inputPIIConsent:   &mcp.ElicitResult{Action: "decline"},
+	})
+	if declined == nil || !declined.IsError {
+		t.Fatalf("a declined PII prompt did not refuse: %+v", declined)
 	}
-
-	tc := trinotools.NewToolContext(trinotools.ToolQuery, trinotools.QueryInput{SQL: "SELECT * FROM big_table"})
-	// No ServerSession in context
-	ctx, err := em.Before(context.Background(), tc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	var de *ElicitationDeclinedError
+	if !errors.As(declined.GetError(), &de) || de.Reason != declineReasons[inputPIIConsent] {
+		t.Errorf("refusal error = %v", declined.GetError())
 	}
-	if ctx == nil {
-		t.Fatal("context should not be nil")
+	if got := declinedAnswer(mcp.InputResponseMap{inputCostEstimate: &mcp.ElicitResult{Action: "accept"}}); got != nil {
+		t.Errorf("an accepted prompt refused: %+v", got)
 	}
-}
-
-func TestElicitationMiddleware_After_Passthrough(t *testing.T) {
-	em := &ElicitationMiddleware{}
-	result := &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
-	}
-
-	got, err := em.After(context.Background(), nil, result, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != result {
-		t.Error("After should pass through result unchanged")
-	}
-}
-
-func TestElicitationMiddleware_After_PassthroughError(t *testing.T) {
-	em := &ElicitationMiddleware{}
-	origErr := errors.New("handler error")
-
-	got, err := em.After(context.Background(), nil, nil, origErr)
-	if !errors.Is(err, origErr) {
-		t.Errorf("After should pass through error, got %v", err)
-	}
-	if got != nil {
-		t.Error("After should pass through nil result")
+	if got := declinedAnswer(mcp.InputResponseMap{inputCostEstimate: &mcp.ElicitResult{Action: "cancel"}}); got == nil {
+		t.Error("a canceled prompt ran the query")
 	}
 }
 
@@ -477,7 +432,7 @@ func TestClientSupportsElicitation(t *testing.T) {
 }
 
 func TestCheckPIIConsent_NoSemanticProvider(t *testing.T) {
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -492,7 +447,7 @@ func TestCheckPIIConsent_NoSemanticProvider(t *testing.T) {
 
 func TestCheckPIIConsent_NoTablesInSQL(t *testing.T) {
 	mock := &mockSemanticProvider{}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -515,7 +470,7 @@ func TestCheckPIIConsent_NoPIIColumns(t *testing.T) {
 			},
 		},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -542,7 +497,7 @@ func TestCheckPIIConsent_PIIFound_Accepted(t *testing.T) {
 		initParams:   elicitCapableParams(),
 		elicitResult: &mcp.ElicitResult{Action: "accept"},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -568,7 +523,7 @@ func TestCheckPIIConsent_PIIFound_Declined(t *testing.T) {
 		initParams:   elicitCapableParams(),
 		elicitResult: &mcp.ElicitResult{Action: "decline"},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -598,7 +553,7 @@ func TestCheckPIIConsent_PIIFound_ElicitFails(t *testing.T) {
 		initParams: elicitCapableParams(),
 		elicitErr:  errors.New("elicit failed"),
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -616,7 +571,7 @@ func TestCheckPIIConsent_PIIFound_ElicitFails(t *testing.T) {
 func TestCheckPIIConsent_ColumnsError(t *testing.T) {
 	// Mock that returns error for column lookup — should skip gracefully
 	errMock := &errSemanticProvider{}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:    true,
 			PIIConsent: PIIConsentConfig{Enabled: true},
@@ -670,7 +625,7 @@ func TestEstimateRows_Success(t *testing.T) {
     Estimates: {rows: 5000000 (47.68MB), cpu: ?, memory: ?, network: ?}`,
 		},
 	}
-	em := &ElicitationMiddleware{client: explainer}
+	em := &connElicitation{client: explainer}
 
 	rows, err := em.estimateRows(context.Background(), "SELECT * FROM big_table")
 	if err != nil {
@@ -685,7 +640,7 @@ func TestEstimateRows_ExplainError(t *testing.T) {
 	explainer := &mockExplainer{
 		err: errors.New("connection refused"),
 	}
-	em := &ElicitationMiddleware{client: explainer}
+	em := &connElicitation{client: explainer}
 
 	_, err := em.estimateRows(context.Background(), "SELECT 1")
 	if err == nil {
@@ -700,7 +655,7 @@ func TestCheckCostEstimation_BelowThreshold(t *testing.T) {
 		},
 	}
 	e := &mockElicitor{initParams: elicitCapableParams()}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			CostEstimation: CostEstimationConfig{
@@ -726,7 +681,7 @@ func TestCheckCostEstimation_AboveThreshold_Accepted(t *testing.T) {
 		initParams:   elicitCapableParams(),
 		elicitResult: &mcp.ElicitResult{Action: "accept"},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			CostEstimation: CostEstimationConfig{
@@ -752,7 +707,7 @@ func TestCheckCostEstimation_AboveThreshold_Declined(t *testing.T) {
 		initParams:   elicitCapableParams(),
 		elicitResult: &mcp.ElicitResult{Action: "decline"},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			CostEstimation: CostEstimationConfig{
@@ -774,7 +729,7 @@ func TestCheckCostEstimation_ExplainFails(t *testing.T) {
 		err: errors.New("explain failed"),
 	}
 	e := &mockElicitor{initParams: elicitCapableParams()}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			CostEstimation: CostEstimationConfig{
@@ -801,7 +756,7 @@ func TestCheckCostEstimation_ElicitFails(t *testing.T) {
 		initParams: elicitCapableParams(),
 		elicitErr:  errors.New("elicit failed"),
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			CostEstimation: CostEstimationConfig{
@@ -820,7 +775,7 @@ func TestCheckCostEstimation_ElicitFails(t *testing.T) {
 
 func TestBeforeWithSession_ClientNoElicitation(t *testing.T) {
 	e := &mockElicitor{initParams: noElicitParams()}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		config: ElicitationConfig{
 			Enabled:        true,
 			CostEstimation: CostEstimationConfig{Enabled: true, RowThreshold: 100},
@@ -851,7 +806,7 @@ func TestBeforeWithSession_CostAndPII(t *testing.T) {
 			},
 		},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			Enabled:        true,
@@ -878,7 +833,7 @@ func TestBeforeWithSession_CostDeclined(t *testing.T) {
 		initParams:   elicitCapableParams(),
 		elicitResult: &mcp.ElicitResult{Action: "decline"},
 	}
-	em := &ElicitationMiddleware{
+	em := &connElicitation{
 		client: explainer,
 		config: ElicitationConfig{
 			Enabled:        true,

@@ -44,6 +44,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwRateLimit,
 		mwReflexiveCapture,
 		mwErrorContract,
+		mwConsent,
 		mwResultBudget,
 		mwClientLogging,
 		mwManagedResource,

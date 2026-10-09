@@ -76,6 +76,14 @@ type Resource struct {
 	// visible.
 	ThumbnailFailure  string     `json:"thumbnail_failure,omitempty"`
 	ThumbnailFailedAt *time.Time `json:"thumbnail_failed_at,omitempty"`
+	// ThumbnailSkipped says why this file is never given a tile, and
+	// ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+	// it is larger than thumbnails.max_source_bytes (or large_source_bytes
+	// for its family). Empty when it is drawn, pending, or of a type no tile
+	// is drawn for, which is what tells "skipped" from "not drawn yet"
+	// (#2072). Derived on read, never stored.
+	ThumbnailSkipped     string `json:"thumbnail_skipped,omitempty"`
+	ThumbnailSourceLimit int64  `json:"thumbnail_source_limit,omitempty"`
 	// ThumbnailAttempts is how many claims the renderer has taken on this
 	// file since its last recorded tile or failure, counting the claim it
 	// was returned by. It is filled only by ThumbnailWork.ClaimThumbnailWork

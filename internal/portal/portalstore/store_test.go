@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/thumbtypes"
 )
 
 // --- AssetStore tests ---
@@ -160,6 +161,38 @@ func TestPostgresAssetStoreGet(t *testing.T) {
 	assert.Equal(t, "user1@example.com", asset.OwnerEmail)
 	assert.Equal(t, []string{"report"}, asset.Tags)
 	assert.Nil(t, asset.DeletedAt)
+	assert.Empty(t, asset.ThumbnailSkipped, "a page within the bound is not skipped")
+	assert.Zero(t, asset.ThumbnailSourceLimit)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresAssetStoreGetReportsASkippedTile pins #2072: an HTML page past
+// the source bound is never claimed, and the read says so, with the bound,
+// rather than reading like a tile not drawn yet.
+func TestPostgresAssetStoreGetReportsASkippedTile(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db, nil)
+	now := time.Now()
+	prov, _ := json.Marshal(portaldomain.Provenance{})
+
+	rows := sqlmock.NewRows([]string{
+		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key", "thumbnail_version", "thumbnail_dark_version", "thumbnail_renderer", "thumbnail_failure", "thumbnail_failed_version", "size_bytes", "tags", "provenance", "session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key", "max_versions",
+	}).AddRow(
+		"dash1", "user1", "user1@example.com", "Dashboard", "", "text/html", "portal", "key1",
+		"", "", 0, 0, 0, "", 0, int64(1_290_000), []byte("[]"), prov, "", 3, now, now, nil, "", nil,
+	)
+	mock.ExpectQuery("SELECT .+ FROM portal_assets WHERE id").
+		WithArgs("dash1").
+		WillReturnRows(rows)
+
+	asset, err := store.Get(context.Background(), "dash1")
+	require.NoError(t, err)
+	assert.Equal(t, thumbtypes.SkippedOverSourceLimit, asset.ThumbnailSkipped)
+	assert.Equal(t, int64(thumbtypes.DefaultSourceLimit), asset.ThumbnailSourceLimit)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

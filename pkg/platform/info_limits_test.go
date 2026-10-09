@@ -20,9 +20,9 @@ import (
 // the registered Trino toolkit, so an agent does not find them by hitting them
 // (#2057).
 func TestHandleInfo_ReportsTheLimits(t *testing.T) {
-	tk, err := trinokit.New("warehouse", trinokit.Config{
+	tk, err := trinokit.NewMulti(trinokit.MultiConfig{DefaultConnection: "warehouse", Instances: map[string]trinokit.Config{"warehouse": {
 		Host: "localhost", User: "test", DefaultLimit: 500, MaxLimit: 5000, Timeout: 90 * time.Second,
-	})
+	}}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tk.Close() })
 	// trino_export is listed only once it is wired, as on a deployment.

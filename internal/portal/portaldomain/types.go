@@ -80,6 +80,14 @@ type Asset struct {
 	// renderer cannot draw is not retried forever and the reason is visible.
 	ThumbnailFailure       string `json:"thumbnail_failure,omitempty" example:"the document did not finish drawing before the deadline"`
 	ThumbnailFailedVersion int    `json:"thumbnail_failed_version" example:"0"`
+	// ThumbnailSkipped says why this asset is never given a tile, and
+	// ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+	// it is larger than thumbnails.max_source_bytes (or large_source_bytes
+	// for its family). Empty when it is drawn, pending, or of a type no tile
+	// is drawn for, which is what tells "skipped" from "not drawn yet"
+	// (#2072). Derived on read, never stored.
+	ThumbnailSkipped     string `json:"thumbnail_skipped,omitempty" example:"over_source_limit"`
+	ThumbnailSourceLimit int64  `json:"thumbnail_source_limit,omitempty" example:"1048576"`
 	// ThumbnailAttempts is how many claims the renderer has taken on this
 	// asset since its last recorded tile or failure, counting the claim it
 	// was returned by. It is filled only by the thumbnail claim (#1868).

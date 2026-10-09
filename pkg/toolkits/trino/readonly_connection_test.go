@@ -308,20 +308,20 @@ func TestMultiToolkit_SingleInstanceReadOnly(t *testing.T) {
 	})
 }
 
-// TestSingleToolkit_ReadOnlyIgnoresConnectionArgument covers the one-client
-// toolkit, where the connection argument selects nothing: read_only holds for
-// every call regardless of what the caller names.
-func TestSingleToolkit_ReadOnlyIgnoresConnectionArgument(t *testing.T) {
-	tk, err := New("only", unreachableInstance(true))
+// TestSingleToolkit_ReadOnlyHoldsWhateverTheCallNames covers a toolkit with
+// one read-only connection: a write is refused whether the call names that
+// connection, names none, or names one the toolkit does not have.
+func TestSingleToolkit_ReadOnlyHoldsWhateverTheCallNames(t *testing.T) {
+	tk, err := newSingle("only", unreachableInstance(true))
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("newSingle: %v", err)
 	}
 	defer func() { _ = tk.Close() }()
 
 	execute := newExecCaller(t, tk)
 	for _, conn := range []string{"", "only", "somewhere-else"} {
-		if got := execute(conn, writeSQL); !isReadOnlyRefusal(got) {
-			t.Errorf("connection %q: write SQL was allowed: %q", conn, got)
+		if got := execute(conn, writeSQL); reachedEngine(got) || !strings.Contains(got, "write operations not allowed") {
+			t.Errorf("connection %q: write SQL was not refused: %q", conn, got)
 		}
 	}
 }

@@ -4280,6 +4280,17 @@ definitions:
           used to draw the original file scaled down instead, which meant a
           non-image had no tile at all and an image cost its full size to show.
         type: string
+      thumbnail_skipped:
+        description: |-
+          ThumbnailSkipped says why this file is never given a tile, and
+          ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+          it is larger than thumbnails.max_source_bytes (or large_source_bytes
+          for its family). Empty when it is drawn, pending, or of a type no tile
+          is drawn for, which is what tells "skipped" from "not drawn yet"
+          (#2072). Derived on read, never stored.
+        type: string
+      thumbnail_source_limit:
+        type: integer
       updated_at:
         type: string
       uploader_email:
@@ -5495,6 +5506,19 @@ definitions:
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
         type: string
+      thumbnail_skipped:
+        description: |-
+          ThumbnailSkipped says why this asset is never given a tile, and
+          ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+          it is larger than thumbnails.max_source_bytes (or large_source_bytes
+          for its family). Empty when it is drawn, pending, or of a type no tile
+          is drawn for, which is what tells "skipped" from "not drawn yet"
+          (#2072). Derived on read, never stored.
+        example: over_source_limit
+        type: string
+      thumbnail_source_limit:
+        example: 1048576
+        type: integer
       thumbnail_version:
         description: |-
           ThumbnailVersion is the asset version ThumbnailS3Key was captured from,
@@ -5884,6 +5908,19 @@ definitions:
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
         type: string
+      thumbnail_skipped:
+        description: |-
+          ThumbnailSkipped says why this asset is never given a tile, and
+          ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+          it is larger than thumbnails.max_source_bytes (or large_source_bytes
+          for its family). Empty when it is drawn, pending, or of a type no tile
+          is drawn for, which is what tells "skipped" from "not drawn yet"
+          (#2072). Derived on read, never stored.
+        example: over_source_limit
+        type: string
+      thumbnail_source_limit:
+        example: 1048576
+        type: integer
       thumbnail_version:
         description: |-
           ThumbnailVersion is the asset version ThumbnailS3Key was captured from,
@@ -7484,6 +7521,17 @@ definitions:
           used to draw the original file scaled down instead, which meant a
           non-image had no tile at all and an image cost its full size to show.
         type: string
+      thumbnail_skipped:
+        description: |-
+          ThumbnailSkipped says why this file is never given a tile, and
+          ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+          it is larger than thumbnails.max_source_bytes (or large_source_bytes
+          for its family). Empty when it is drawn, pending, or of a type no tile
+          is drawn for, which is what tells "skipped" from "not drawn yet"
+          (#2072). Derived on read, never stored.
+        type: string
+      thumbnail_source_limit:
+        type: integer
       updated_at:
         type: string
       uploader_email:
@@ -7662,6 +7710,17 @@ definitions:
           used to draw the original file scaled down instead, which meant a
           non-image had no tile at all and an image cost its full size to show.
         type: string
+      thumbnail_skipped:
+        description: |-
+          ThumbnailSkipped says why this file is never given a tile, and
+          ThumbnailSourceLimit the bound it is held to: "over_source_limit" when
+          it is larger than thumbnails.max_source_bytes (or large_source_bytes
+          for its family). Empty when it is drawn, pending, or of a type no tile
+          is drawn for, which is what tells "skipped" from "not drawn yet"
+          (#2072). Derived on read, never stored.
+        type: string
+      thumbnail_source_limit:
+        type: integer
       updated_at:
         type: string
       uploader_email:

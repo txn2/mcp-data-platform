@@ -331,6 +331,11 @@ func New(opts ...Option) (*Platform, error) {
 		return nil, errors.New("config is required")
 	}
 
+	// Read by the stores' claims and every asset and resource read (#2072).
+	if err := options.Config.Thumbnails.InstallSourceLimits(); err != nil {
+		return nil, err //nolint:wrapcheck // names the setting already
+	}
+
 	p := &Platform{
 		config:    options.Config,
 		lifecycle: NewLifecycle(),

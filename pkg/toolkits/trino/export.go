@@ -759,29 +759,11 @@ func (*Toolkit) createExportVersion(ctx context.Context, deps *ExportDeps, ver E
 func (t *Toolkit) executeExportQuery(
 	ctx context.Context, sql, connection string, opts trinoclient.QueryOptions,
 ) (*trinoclient.QueryResult, error) {
-	// In multi-connection mode, resolve the correct client
-	if t.manager != nil {
-		var client *trinoclient.Client
-		var err error
-		if connection != "" {
-			client, err = t.manager.Client(connection)
-		} else {
-			client, err = t.manager.DefaultClient()
-		}
-		if err != nil {
-			return nil, fmt.Errorf("resolving trino connection: %w", err)
-		}
-		result, err := t.telemetry.query(ctx, client, connection, sql, opts)
-		if err != nil {
-			return nil, fmt.Errorf("executing export query: %w", err)
-		}
-		return result, nil
+	client, err := t.execClient(connection)
+	if err != nil {
+		return nil, err
 	}
-
-	if t.client == nil {
-		return nil, errors.New("no Trino client available")
-	}
-	result, err := t.telemetry.query(ctx, t.client, connection, sql, opts)
+	result, err := t.telemetry.query(ctx, client, connection, sql, opts)
 	if err != nil {
 		return nil, fmt.Errorf("executing export query: %w", err)
 	}
