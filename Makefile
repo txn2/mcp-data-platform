@@ -599,7 +599,7 @@ acceptance-release-check:
 posture-check:
 	@./scripts/posture-check.sh
 
-## release-tag-check: Check a release tag against the release-candidate rules before pushing it (TAG=v1.139.0)
+## release-tag-check: Check a release tag against the release-candidate and E2E Nightly rules before pushing it (TAG=v1.139.0)
 release-tag-check:
 	@test -n "$(TAG)" || { echo "usage: make release-tag-check TAG=vX.Y.Z or TAG=vX.Y.Z-rcN"; exit 1; }
 	@python3 scripts/release-tag.py check "$(TAG)"

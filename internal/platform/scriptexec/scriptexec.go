@@ -423,6 +423,20 @@ func (h *Handle) Start(ctx context.Context) error {
 	return nil
 }
 
+// Drain stops the worker claiming runs and waits, bounded by ctx, for the runs
+// it is executing to finish (#2058). It is the first half of a shutdown, run
+// while the HTTP server drains; Stop follows and releases what is still
+// executing. Nil-safe.
+func (h *Handle) Drain(ctx context.Context) error {
+	if h == nil || h.worker == nil {
+		return nil
+	}
+	if !h.worker.Drain(ctx) {
+		slog.InfoContext(ctx, "scripts: runs still executing at the end of the drain; the stop releases them")
+	}
+	return nil
+}
+
 // Stop closes the listener and the materializer, then drains the worker inside
 // whatever budget ctx carries: the run in flight finishes if it can and is
 // released if it cannot.

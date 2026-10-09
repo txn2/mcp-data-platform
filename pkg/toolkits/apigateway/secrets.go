@@ -7,6 +7,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
@@ -17,6 +18,25 @@ func (t *Toolkit) SetSecrets(src secretstore.Source) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.secrets = src
+	for name, c := range t.connections {
+		wireKeySecrets(c.auth, src, name)
+	}
+}
+
+// connectionSecrets is the read of a secret a connection's own configuration
+// names, which the store answers (secretstore.Store.ConnectionValue).
+type connectionSecrets interface {
+	ConnectionValue(ctx context.Context, name, connection string) (string, error)
+}
+
+// wireKeySecrets binds the stored-secret read a connection whose Google
+// service account key is a stored secret mints its tokens through (#2061),
+// scoped to that connection. A source that cannot answer it leaves the
+// authenticator to refuse naming the secret.
+func wireKeySecrets(auth upstreamauth.Authenticator, src secretstore.Source, connection string) {
+	if cs, ok := src.(connectionSecrets); ok {
+		upstreamauth.BindKeySecrets(auth, cs.ConnectionValue, connection)
+	}
 }
 
 // secretLookupKey carries a call's lookup on its context.

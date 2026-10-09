@@ -16,6 +16,13 @@ import { AUTH_MODE_OAUTH } from "./oauthVocabulary";
 import { HMACAuthFields } from "./HMACAuthFields";
 import { SessionLoginAuthFields } from "./SessionLoginAuthFields";
 import { SignedJWTAuthFields } from "./SignedJWTAuthFields";
+import {
+  AUTH_MODE_GOOGLE,
+  GoogleServiceAccountFields,
+  fromGoogleServiceAccount,
+  isGoogleServiceAccount,
+  toGoogleServiceAccount,
+} from "./GoogleServiceAccountFields";
 
 // The auth half of an HTTP-based connection editor: the mode picker and the
 // credential fields each mode needs. Split from ApiGatewayConfigForm so the
@@ -32,6 +39,7 @@ const AUTH_MODES = [
   { value: "hmac", label: "HMAC signature" },
   { value: "session_login", label: "Session sign-in" },
   { value: AUTH_MODE_OAUTH, label: "OAuth 2.1" },
+  { value: AUTH_MODE_GOOGLE, label: "Google service account" },
   { value: "mtls", label: "mTLS (client certificate is the credential)" },
 ];
 
@@ -208,14 +216,28 @@ export function ApiGatewayAuthFields({
   isCreate: boolean;
   onOpenHelp: () => void;
 }) {
-  const mode = String(config.auth_mode ?? "none");
+  // A Google service account is not an auth_mode on the wire (the server
+  // derives oauth + jwt_bearer from the key), so the choice is held here until
+  // a key is set, and read off the key once one is.
+  const [googleChosen, setGoogleChosen] = useState(false);
+  const google = googleChosen || isGoogleServiceAccount(config);
+  const mode = google ? AUTH_MODE_GOOGLE : String(config.auth_mode ?? "none");
   const ModeFields = MODE_FIELDS[mode];
+  const chooseMode = (v: string) => {
+    if (v === AUTH_MODE_GOOGLE) {
+      setGoogleChosen(true);
+      onChange(toGoogleServiceAccount(config));
+      return;
+    }
+    setGoogleChosen(false);
+    onChange(update(fromGoogleServiceAccount(config), "auth_mode", v));
+  };
   return (
     <>
       <ConfigSelect
         label="Auth mode"
         value={mode}
-        onChange={(v) => onChange(update(config, "auth_mode", v))}
+        onChange={chooseMode}
         options={AUTH_MODES}
         action={
           <Button type="button" variant="link" size="xs" onClick={onOpenHelp}>
@@ -233,6 +255,9 @@ export function ApiGatewayAuthFields({
         />
       )}
       {ModeFields && <ModeFields config={config} onChange={onChange} />}
+      {mode === AUTH_MODE_GOOGLE && (
+        <GoogleServiceAccountFields config={config} onChange={onChange} />
+      )}
       {mode === AUTH_MODE_OAUTH && (
         <OAuthFields
           config={config}

@@ -54,9 +54,9 @@ const VARIANTS: Record<
     title: "Signed assertion (RFC 7523)",
     defaultAlgorithm: "RS256",
     issuerHelp:
-      "Required. Usually the client id (consumer key) of the application the upstream registered the key under.",
+      "Usually the client id (consumer key) of the application the upstream registered the key under. One of issuer or subject must be set.",
     subjectHelp:
-      "Required. The integration user the access token acts as. The upstream must have approved this user for the application.",
+      "The integration user the access token acts as, which the upstream must have approved for the application. Leave empty to omit the claim when the upstream identifies the client by the issuer alone.",
     audienceHelp:
       "Defaults to the token URL. Some upstreams register a different value (a login host rather than the token path); it must match byte for byte.",
     audiencePlaceholder: "(the token URL)",

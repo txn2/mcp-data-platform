@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/inprocess"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -278,17 +279,21 @@ func (h *Handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, f
 	if err != nil {
 		return nil, nil, fmt.Errorf("server connect: %w", err)
 	}
+	// The admin request this serves is drained on its own (#2058).
+	untrack := inprocess.Track(serverSession)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "admin-internal", Version: "v1"}, nil)
 	session, err := client.Connect(r.Context(), t2, nil)
 	if err != nil {
 		_ = serverSession.Close()
+		untrack()
 		return nil, nil, fmt.Errorf("client connect: %w", err)
 	}
 
 	cleanup := func() {
 		_ = session.Close()
 		_ = serverSession.Close()
+		untrack()
 	}
 	return session, cleanup, nil
 }

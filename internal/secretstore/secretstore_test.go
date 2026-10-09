@@ -241,3 +241,34 @@ func TestLookup(t *testing.T) {
 	assert.Equal(t, "hunter22", v)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// TestConnectionValue is the read a Google key secret goes through (#2061):
+// scoped to the connection that names it, and refused when it names personas,
+// since the one token it mints serves every persona on the connection.
+func TestConnectionValue(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	s, mock := newMock(t, prefixEncryptor{})
+
+	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("pw").WillReturnRows(valueRow(now, "enc:keyfile", "{}"))
+	v, err := s.ConnectionValue(ctx, "pw", "grid")
+	require.NoError(t, err)
+	assert.Equal(t, "keyfile", v)
+
+	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("pw").WillReturnRows(valueRow(now, "enc:keyfile", "{}"))
+	_, err = s.ConnectionValue(ctx, "pw", "elsewhere")
+	require.ErrorContains(t, err, `may not be used by connection "elsewhere"; it is allowed on grid`)
+
+	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("pw").WillReturnRows(valueRow(now, "enc:keyfile", "{finance}"))
+	_, err = s.ConnectionValue(ctx, "pw", "grid")
+	require.ErrorContains(t, err, "clear its allow_personas")
+
+	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("nope").WillReturnError(sql.ErrNoRows)
+	_, err = s.ConnectionValue(ctx, "nope", "grid")
+	require.ErrorContains(t, err, `secret "nope" does not exist`)
+
+	mock.ExpectQuery(`, value FROM gateway_secrets`).WithArgs("down").WillReturnError(errors.New("down"))
+	_, err = s.ConnectionValue(ctx, "down", "grid")
+	require.ErrorContains(t, err, `reading secret "down"`)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/inprocess"
 )
 
 // platformFindToolsName is the discovery tool's own name. It is
@@ -41,6 +43,8 @@ func (p *Platform) enumerateGlobalTools(ctx context.Context) ([]*mcp.Tool, error
 	if err != nil {
 		return nil, fmt.Errorf("tools index: server connect: %w", err)
 	}
+	untrack := inprocess.Track(serverSession)
+	defer untrack()
 	defer func() { _ = serverSession.Close() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "tools-index-internal", Version: "v1"}, nil)
 	cs, err := client.Connect(ctx, t2, nil)

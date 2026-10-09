@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/buildinfo"
+	"github.com/txn2/mcp-data-platform/internal/shutdown"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -69,6 +70,10 @@ type httpConfig struct {
 	// layer with 401 + WWW-Authenticate (#926). Nil when the platform is nil
 	// (tests) — the gate then stays presence-only.
 	authenticator middleware.Authenticator
+	// drainBackground is the platform's Drain: the background work in flight
+	// (a managed-script run) is given the HTTP drain's budget to finish, from
+	// the moment the shutdown signal arrives (#2058). Nil without a platform.
+	drainBackground func(context.Context) error
 }
 
 func extractHTTPConfig(p *platform.Platform) httpConfig {
@@ -82,6 +87,7 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
 		cfg.streamableCfg = c.Server.Streamable
 		cfg.shutdownCfg = c.Server.Shutdown
+		cfg.drainBackground = p.Drain
 		cfg.observe = httpobs.Config{Metrics: p.Metrics(), SlowThreshold: c.Server.SlowRequestThreshold}
 		cfg.authenticator = p.Authenticator()
 	}
@@ -340,9 +346,28 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 	// The documented shutdown budget (pre-shutdown delay, then the HTTP drain,
 	// then the lifecycle stop) describes exactly this order.
 	drained := make(chan struct{})
+	// failed ends the drain goroutine when the server never came up: left
+	// waiting on ctx it would drain a server that never served, after the
+	// caller had already returned the startup error.
+	failed := make(chan struct{})
 	go func() { // #nosec G118 -- ctx is the application-level shutdown context, not a request-scoped context
 		defer close(drained)
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-failed:
+			return
+		}
+		// Both may be ready by the time this runs, and select picks either.
+		select {
+		case <-failed:
+			return
+		default:
+		}
+
+		// Background work stops being taken on at the signal and is given until
+		// the HTTP drain's own deadline to finish (#2058).
+		background := shutdown.InBackground(hcfg.drainBackground, preDelay+gracePeriod)
+		defer func() { <-background }()
 
 		// Mark not-ready so K8s load balancer stops sending traffic.
 		if hc != nil {
@@ -363,8 +388,9 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 
 	err := listen(server, hcfg, addr)
 	if err != nil && ctx.Err() == nil {
-		// The server never came up, so no drain was started and nothing will
-		// ever close drained. Waiting here would hang on a startup failure.
+		// The server never came up, so there is nothing to drain. Waiting on
+		// drained would hang on a startup failure.
+		close(failed)
 		return err
 	}
 
@@ -414,47 +440,8 @@ func drainHTTPServer(server *http.Server, mcpServer *mcp.Server, gracePeriod tim
 	case err := <-done:
 		logHTTPDrainResult(err)
 	case <-time.After(settle):
-		closeMCPSessions(shutdownCtx, mcpServer)
+		shutdown.CloseSessions(shutdownCtx, mcpServer)
 		logHTTPDrainResult(<-done)
-	}
-}
-
-// closeMCPSessions closes every live MCP session so connected clients drop their
-// stale connection and reconnect to the new build (#675). Claude Code auto-reconnects
-// HTTP/SSE servers and re-handshakes (fresh tools/list); Claude Desktop requires an
-// app restart.
-//
-// ServerSession.Close is graceful: an idle session's long-lived SSE/streamable stream
-// drops immediately, but a session with an in-flight tool call blocks until that call
-// returns, and that wait is not bounded by the HTTP grace period. So the closes run in
-// a goroutine bounded by ctx (the shutdown deadline): if they do not all finish in
-// time, we return and let process exit drop the remaining connections rather than hang
-// past terminationGracePeriodSeconds and risk a SIGKILL mid-call.
-func closeMCPSessions(ctx context.Context, mcpServer *mcp.Server) {
-	if mcpServer == nil {
-		return
-	}
-	var sessions []*mcp.ServerSession
-	for s := range mcpServer.Sessions() {
-		sessions = append(sessions, s)
-	}
-	if len(sessions) == 0 {
-		return
-	}
-
-	closed := make(chan struct{})
-	go func() {
-		for _, s := range sessions {
-			_ = s.Close() // returns once the session's in-flight requests finish
-		}
-		close(closed)
-	}()
-
-	select {
-	case <-closed:
-		slog.InfoContext(ctx, "shutdown: closed live MCP sessions so clients reconnect to the new build", "count", len(sessions))
-	case <-ctx.Done():
-		slog.WarnContext(ctx, "shutdown: MCP session close did not finish before the grace deadline; process exit will drop remaining connections", "count", len(sessions))
 	}
 }
 

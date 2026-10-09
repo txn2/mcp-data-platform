@@ -317,7 +317,9 @@ func flattenNestedOAuth(cfg map[string]any) map[string]any {
 		"prompt":              connoauth.ConfigKeyPrompt,
 		"endpoint_auth_style": connoauth.ConfigKeyEndpointAuthStyle,
 	}
-	flat := make(map[string]any, len(cfg)+len(nested))
+	// Unsized: a hint summed from two caller-sized maps is an allocation
+	// size an overflowing sum could set (go/allocation-size-overflow).
+	flat := make(map[string]any)
 	for nestedKey, canonicalKey := range nestedToCanonical {
 		if v, present := nested[nestedKey]; present {
 			flat[canonicalKey] = v

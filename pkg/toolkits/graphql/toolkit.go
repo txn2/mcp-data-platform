@@ -69,14 +69,17 @@ type Toolkit struct {
 	routePolicy    RoutePolicy
 	connOAuthStore connoauth.Store
 	authEvents     *authevents.Writer
-	schemaStore    SchemaStore
-	catalogStore   CatalogStore
-	connStore      ConnectionStore
-	vectorReader   VectorReader
-	embedder       embedding.Provider
-	metrics        *observability.Metrics
-	memBudget      *membudget.Budget
-	exportDeps     *ExportDeps
+	// keySecrets reads a Google service account key a connection names as
+	// a stored secret (#2061). Nil without a database.
+	keySecrets   upstreamauth.ConnectionSecrets
+	schemaStore  SchemaStore
+	catalogStore CatalogStore
+	connStore    ConnectionStore
+	vectorReader VectorReader
+	embedder     embedding.Provider
+	metrics      *observability.Metrics
+	memBudget    *membudget.Budget
+	exportDeps   *ExportDeps
 
 	// changes serializes, per connection name, everything that replaces a
 	// served connection or changes the schema it holds.
@@ -196,6 +199,7 @@ func (t *Toolkit) serve(name string, c *conn) {
 	previous, held := t.connections[name]
 	upstreamauth.SetConnOAuthStore(c.auth, t.connOAuthStore)
 	upstreamauth.SetAuthEvents(c.auth, t.authEvents)
+	upstreamauth.BindKeySecrets(c.auth, t.keySecrets, name)
 	c.name = name
 	c.phase.Store(phaseServed)
 	t.connections[name] = c
@@ -287,6 +291,18 @@ func (t *Toolkit) ConnOAuthStore() connoauth.Store {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.connOAuthStore
+}
+
+// SetConnectionSecrets wires the stored-secret read a connection whose
+// Google service account key is a stored secret mints its tokens through
+// (#2061), into the toolkit and every served connection.
+func (t *Toolkit) SetConnectionSecrets(read upstreamauth.ConnectionSecrets) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.keySecrets = read
+	for name, c := range t.connections {
+		upstreamauth.BindKeySecrets(c.auth, read, name)
+	}
 }
 
 // SetAuthEvents wires the audit-event writer into the toolkit and into

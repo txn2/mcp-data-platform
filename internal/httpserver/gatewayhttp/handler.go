@@ -22,6 +22,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/inprocess"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -456,15 +457,19 @@ func (h *handler) connectSession(r *http.Request, decorate func(context.Context)
 	if err != nil {
 		return nil, nil, fmt.Errorf("server connect: %w", err)
 	}
+	// The HTTP request this serves is drained on its own (#2058).
+	untrack := inprocess.Track(serverSession)
 	client := mcp.NewClient(&mcp.Implementation{Name: "gateway-rest", Version: "v1"}, nil)
 	clientSession, err := client.Connect(r.Context(), t2, nil)
 	if err != nil {
 		_ = serverSession.Close()
+		untrack()
 		return nil, nil, fmt.Errorf("client connect: %w", err)
 	}
 	cleanup := func() {
 		_ = clientSession.Close()
 		_ = serverSession.Close()
+		untrack()
 	}
 	return clientSession, cleanup, nil
 }

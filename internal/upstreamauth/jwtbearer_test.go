@@ -233,12 +233,17 @@ func TestValidateJWTBearerRefusals(t *testing.T) {
 			`apigateway: jwt_private_key_pem is not a usable ES256 private key`,
 		},
 		{
-			"no issuer", func(c *Config) { c.SignedJWT.Issuer = "" },
-			"apigateway: jwt_issuer is required " + scope,
+			// Either alone identifies the client; neither does not (#2061).
+			"no issuer and no subject", func(c *Config) { c.SignedJWT.Issuer, c.SignedJWT.Subject = "", "" },
+			"apigateway: one of jwt_issuer or jwt_subject is required " + scope,
 		},
 		{
-			"no subject", func(c *Config) { c.SignedJWT.Subject = "" },
-			"apigateway: jwt_subject is required " + scope,
+			"an unknown scope placement", func(c *Config) { c.OAuth2.ScopePlacement = "header" },
+			`apigateway: invalid oauth_scope_placement "header"`,
+		},
+		{
+			"a Google key with no scope", func(c *Config) { c.Google.Set, c.OAuth2.Scopes = true, nil },
+			"apigateway: oauth_scope is required with a Google service account",
 		},
 		{
 			"a skew past the lifetime", func(c *Config) { c.SignedJWT.IssuedAtSkew = 5 * time.Minute },
@@ -559,8 +564,10 @@ func TestJWTBearerFailuresThatAreNotRefusals(t *testing.T) {
 
 func TestIsAssertionRefusal(t *testing.T) {
 	for code, want := range map[string]bool{
-		"invalid_grant": true, "invalid_client": true, "unauthorized_client": true,
-		"invalid_request": false, "invalid_scope": false, "server_error": false, "": false,
+		// invalid_scope is the connection's oauth_scope, which the operator
+		// fixes, and what Google answers a misspelled scope URL with (#2061).
+		"invalid_grant": true, "invalid_client": true, "unauthorized_client": true, "invalid_scope": true,
+		"invalid_request": false, "server_error": false, "": false,
 	} {
 		if got := isAssertionRefusal(code); got != want {
 			t.Errorf("isAssertionRefusal(%q) = %v, want %v", code, got, want)

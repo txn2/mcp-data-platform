@@ -514,11 +514,50 @@ The placeholder works in `body` (an object, or a string of JSON or form text, wi
 
 The assertion is signed with the `signed_jwt` keys, with two defaults of its own: `jwt_algorithm` defaults to `RS256` (`ES256` works the same way, and `HS256` over `jwt_client_secret` is accepted for the upstreams that take it), and `jwt_audience` defaults to `oauth_token_url` rather than the connection's endpoint URL. Some providers register a different audience, such as the login host rather than the token path, and match it byte for byte. The assertion carries `iss`, `sub`, `aud`, `iat`, `exp` and a random `jti`, so two replicas exchanging in the same second never present the same assertion to an upstream that refuses a replay.
 
-The platform POSTs `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` and `assertion=<jwt>` to `oauth_token_url`, with `scope` when `oauth_scope` is set. `oauth_client_id` and `oauth_client_secret` are optional: set them only for an upstream that also authenticates the client on the token request, and `oauth_endpoint_auth_style` places them. With no secret, a client id is sent as a form parameter and nothing else. The access token is cached in memory and a new assertion is signed and exchanged as it nears expiry, under the same [expiry rule](#auth-modes) `client_credentials` follows. A `refresh_token` in the response is ignored.
+The platform POSTs `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` and `assertion=<jwt>` to `oauth_token_url`. Where `oauth_scope` goes is `oauth_scope_placement`: `param` (the default) sends it as the `scope` form parameter, `claim` writes it as a `scope` claim inside the signed assertion and leaves it off the form, and `both` does both. Google reads scopes only from the claim, and several other RFC 7523 endpoints do too. `oauth_client_id` and `oauth_client_secret` are optional: set them only for an upstream that also authenticates the client on the token request, and `oauth_endpoint_auth_style` places them. With no secret, a client id is sent as a form parameter and nothing else. The access token is cached in memory and a new assertion is signed and exchanged as it nears expiry, under the same [expiry rule](#auth-modes) `client_credentials` follows. A `refresh_token` in the response is ignored.
 
-The save is refused, naming the key, when `oauth_token_url` is missing, `jwt_issuer` or `jwt_subject` is empty (both are required for this grant), the key material does not match `jwt_algorithm` or is not a usable key, `oauth_client_secret` is set without `oauth_client_id`, or the lifetime and skew rules of `signed_jwt` are broken. `jwt_token_lifetime` is the assertion's lifetime, not the access token's; providers commonly refuse one longer than a few minutes.
+The save is refused, naming the key, when `oauth_token_url` is missing, `jwt_issuer` and `jwt_subject` are both empty (one identifies the client; `sub` is omitted when `jwt_subject` is unset, which is what Google means by a service account acting as itself), `oauth_scope_placement` is not `param`, `claim` or `both`, the key material does not match `jwt_algorithm` or is not a usable key, `oauth_client_secret` is set without `oauth_client_id`, or the lifetime and skew rules of `signed_jwt` are broken. `jwt_token_lifetime` is the assertion's lifetime, not the access token's; providers commonly refuse one longer than a few minutes.
 
-When the token endpoint refuses the assertion with `invalid_grant`, `invalid_client` or `unauthorized_client`, the call fails with the upstream's code and `error_description`, for example `oauth jwt_bearer: the upstream token endpoint rejected the signed assertion: invalid_grant: user hasn't approved this consumer`, and the connection's alert is raised: the [connection alert recipients](notifications.md#connection-revocation-alerts), when the operator has named any, are emailed at once, because nobody signed in to authorize the connection. The usual causes are a key or an integration user the upstream has not approved, or clock skew, all fixed at the upstream. Nothing needs reconnecting: the next call signs and exchanges a new assertion, and the first exchange the upstream accepts clears the alert. Any other failure (a network error, a 5xx, another error code) raises no alert and is reported without the upstream's response body, as it is for `client_credentials`.
+When the token endpoint refuses the assertion with `invalid_grant`, `invalid_client`, `unauthorized_client` or `invalid_scope`, the call fails with the upstream's code and `error_description`, for example `oauth jwt_bearer: the upstream token endpoint rejected the signed assertion: invalid_grant: user hasn't approved this consumer`, and the connection's alert is raised: the [connection alert recipients](notifications.md#connection-revocation-alerts), when the operator has named any, are emailed at once, because nobody signed in to authorize the connection. The usual causes are a key or an integration user the upstream has not approved, or clock skew, all fixed at the upstream. Nothing needs reconnecting: the next call signs and exchanges a new assertion, and the first exchange the upstream accepts clears the alert. Any other failure (a network error, a 5xx, another error code) raises no alert and is reported without the upstream's response body, as it is for `client_credentials`.
+
+### Google service accounts
+
+A Google service account is how a server reaches Google APIs unattended: Display & Video 360, Bid Manager, Campaign Manager 360, the Google Analytics Data API, BigQuery, Sheets, Drive, Search Console, Cloud Storage and most other Google Cloud and Marketing Platform APIs. No person signs in and no consent screen is involved, so Google's OAuth app verification does not apply, which for Google's sensitive and restricted scopes is often why a service account is the only practical option. The platform takes the JSON key file Google issues as one value and fills the `jwt_bearer` grant from it.
+
+```json
+"config": {
+  "base_url": "https://displayvideo.googleapis.com",
+  "google_service_account_json": "{\"type\": \"service_account\", \"project_id\": \"acme-analytics\", ...}",
+  "oauth_scope": "https://www.googleapis.com/auth/display-video"
+}
+```
+
+From the file the platform sets `auth_mode: oauth` and `oauth_grant: jwt_bearer`, signs with `private_key` (RS256) under its `private_key_id`, issues as `client_email`, exchanges at `token_uri` (also the assertion's `aud`), and carries `oauth_scope` as a claim in the assertion (`oauth_scope_placement: claim`). Every key the operator sets explicitly wins over the value the file supplies, so an unusual setup stays possible. `oauth_scope` is required: Google issues no token without one, and each scope is its full URL. Set `jwt_subject` only under domain-wide delegation, where it names the Workspace user the account acts as; unset, no `sub` is sent and the token is the service account's own.
+
+The save is refused, naming the field and never a value, when the file is not JSON, its `type` is not `service_account` (an OAuth client's file is a different download), or it has no `private_key`, `client_email` or `token_uri`. `google_service_account_json` is encrypted at rest and reads back as `[REDACTED]`, beside `google_service_account_identity`: the `client_email`, `project_id` and `private_key_id` the file names. Nothing in those is secret, and they are how an administrator tells which account and which key a connection uses, for example after rotating the key in Google Cloud.
+
+**Keeping the key out of the connection.** `google_service_account_secret` names a [stored secret](#a-secret-in-the-request) whose value is the key file, in place of `google_service_account_json`. The private key then never enters a tool call, a conversation or the connection's config: an administrator or an agent creates the connection by the secret's name. The secret's `allow_connections` must list the connection, and it must set no `allow_personas`, because the token one key mints is cached and served to every persona that uses the connection. The secret is read at every token exchange, so a key rotated in the secret is the key the next token is minted with. With the key in a secret, the token endpoint is `https://oauth2.googleapis.com/token` unless `oauth_token_url` says otherwise. Setting both keys is refused.
+
+**One account, many connections.** One service account can back several connections to different Google APIs. Each connection requests only its own scope, and access is still decided by the grants inside each product. A stored secret listing every one of those connections is how they share the key without it being pasted again.
+
+**Setting one up.**
+
+1. In Google Cloud, create the service account and a JSON key for it (IAM & Admin > Service Accounts > Keys > Add key).
+2. Enable each API the connections call in the account's Cloud project (APIs & Services > Library). A call to an API that is not enabled is refused with `SERVICE_DISABLED`, naming the project and the API.
+3. Grant the account's `client_email` access inside each product, as you would a person: a Display & Video 360 or Campaign Manager 360 user, a Google Analytics property user, a Search Console user, a BigQuery or Cloud Storage IAM role.
+4. Create the connection with the key file (or the stored secret's name) and the scopes, then run the connection test (`POST /api/v1/admin/connection-instances/{kind}/{name}/test`, or **Test connection** in the portal). It performs a real token exchange and reports the account the token was issued for and the scopes Google granted, or Google's refusal.
+
+**When Google refuses.** Most of these are fixed outside the platform, so the error carries the step:
+
+| Google's answer | What it means | What the platform says |
+| --- | --- | --- |
+| Token `400 invalid_scope` | A scope is missing or is not a valid scope URL | check `oauth_scope` |
+| Token `400 invalid_grant` "Invalid JWT Signature" or "account not found" | The key was deleted or disabled, or the account was removed | create a new key, or check the account still exists |
+| Token `400 invalid_grant` "Token must be a short-lived token" | Clock skew | check the host clock and `jwt_issued_at_skew` |
+| API `403` with reason `SERVICE_DISABLED` | The API is not enabled in the account's Cloud project | enable it there |
+| API `403 PERMISSION_DENIED`, or `401` "cannot get profile" | The token is valid but the account has no access in the product | grant the account's email access inside the product |
+
+A token refusal raises the connection's alert like any `jwt_bearer` refusal. The two API refusals arrive on a data call rather than at the token endpoint, so they are the call's `hint` on an `api` connection, not an authentication failure.
 
 Pick `signed_jwt` when the upstream validates the client-minted JWT itself, and `jwt_bearer` when it exchanges the JWT for a token of its own; [Signed JWT upstreams](signed-jwt-auth.md#signed_jwt-or-the-jwt_bearer-grant) compares the two.
 
@@ -694,6 +733,8 @@ For each outbound request, headers are layered in this order (later wins):
 `Content-Type` is the one exception, and only for a [multipart body](#multipart-form-data) the platform assembled: its boundary is the only one that matches the bytes, so it replaces any `Content-Type` set at either layer above. Every other encoding yields to a `Content-Type` already present.
 
 ## Example: Google APIs
+
+For unattended access a [Google service account](#google-service-accounts) is usually the better fit: the key file and the scopes are the whole connection, and no person's sign-in is involved. The example below is the `authorization_code` form, which ties the connection to the account that signed in.
 
 Google APIs that bill quota against a separate project use the `x-goog-user-project` header alongside the OAuth bearer.
 

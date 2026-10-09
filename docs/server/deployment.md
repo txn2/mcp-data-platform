@@ -1046,13 +1046,17 @@ On `SIGTERM` (a rolling deploy), the server:
 
 1. Marks readiness draining so the load balancer stops routing new connections, then
    waits `server.shutdown.pre_shutdown_delay` for deregistration.
-2. Drains in-flight HTTP requests, and after a short settle **closes live MCP
-   sessions**. Long-lived SSE and streamable-HTTP streams never go idle on their own,
+2. Drains in-flight HTTP requests and, beside them, the managed-script runs
+   executing on this replica, which stops claiming new ones at the signal and lets
+   those finish inside the same grace period (#2058). After a short settle it
+   **closes live MCP sessions**. Long-lived SSE and streamable-HTTP streams never go idle on their own,
    so until the session is closed the agent stays on the old build. Closing it drops
    the stream so the client reconnects to a new pod and re-fetches the tool list. The
    close is graceful: an idle session drops immediately, a session with an in-flight
    tool call is allowed to finish, bounded by the grace period (after which process
-   exit drops what remains).
+   exit drops what remains). The in-process sessions a script run, the REST
+   gateway shim and the admin console call tools through are left open: they have
+   no client to reconnect, and closing one ends the work it is carrying.
 
 Relevant settings under `server.shutdown` are `pre_shutdown_delay` and
 `grace_period`; size them so the full sequence fits inside the pod's

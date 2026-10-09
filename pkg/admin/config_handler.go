@@ -165,6 +165,7 @@ var sensitiveKeys = []string{
 	sensKeyJWTPrivateKeyPEM,
 	sensKeyPathSecret,
 	sensKeySessionLoginSecret,
+	sensKeyGoogleServiceAccountJSON,
 }
 
 // configToMap converts a config struct to map[string]any via YAML round-trip.

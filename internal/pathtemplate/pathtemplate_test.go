@@ -106,3 +106,23 @@ func TestSegmentHelpers(t *testing.T) {
 		t.Error("a template with no well-formed placeholder is compared literally")
 	}
 }
+
+// TestValidateCallerPath holds the shapes a caller's path is refused for: one
+// that would reach another host once joined to the base URL, and one a route
+// rule would match differently from the path the upstream receives.
+func TestValidateCallerPath(t *testing.T) {
+	for _, ok := range []string{"/v1/users", "/v1/users/", "/v1/users/%20name"} {
+		if err := ValidateCallerPath(ok); err != nil {
+			t.Errorf("ValidateCallerPath(%q) = %v; want accepted", ok, err)
+		}
+	}
+	for _, bad := range []string{
+		"", "v1/users", "//evil.example/foo", "/foo@evil.example/bar", "/foo\rEvil: x", "/foo\nEvil: x", "/foo\x00bar",
+		"/v1/users/..", "/v1/users/.", "/v1/../etc/passwd", "/v1//admin/secret", "/v1///admin",
+		"/v1/users/%2E%2E", "/v1/users/%2e%2e", "/v1/users/%2E", "/v1/users/%2",
+	} {
+		if err := ValidateCallerPath(bad); err == nil {
+			t.Errorf("ValidateCallerPath(%q) accepted; want rejection", bad)
+		}
+	}
+}

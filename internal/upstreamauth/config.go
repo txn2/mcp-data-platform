@@ -28,12 +28,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 
 	"github.com/txn2/mcp-data-platform/internal/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/upstreamauth/googlekey"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
@@ -246,6 +248,9 @@ type Config struct {
 	// AuthModeSignedJWT, or AuthModeOAuth with the jwt_bearer grant.
 	// Empty otherwise.
 	SignedJWT SignedJWTConfig
+	// Google is the connection's Google service account (#2061), when it
+	// authenticates as one. Zero otherwise.
+	Google GoogleKeyConfig
 	// HMAC carries the signing convention used when AuthMode is
 	// AuthModeHMAC. Empty otherwise.
 	HMAC HMACConfig
@@ -329,6 +334,11 @@ type OAuth2Config struct {
 	ClientSecret string
 	// Scopes is an optional list of OAuth scopes to request.
 	Scopes []string
+	// ScopePlacement is where the jwt_bearer grant carries Scopes: the
+	// "scope" form parameter (ScopePlacementParam, the default), a "scope"
+	// claim in the signed assertion (ScopePlacementClaim, which Google
+	// reads and the default with a Google service account), or both.
+	ScopePlacement string
 	// EndpointAuthStyle controls how the client credentials are
 	// transmitted at token-fetch time. "header" (default) sends
 	// them as HTTP Basic auth on the token request; "params"
@@ -374,6 +384,11 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		MaxResponseBytes:    DefaultMaxResponseBytes,
 		TracePropagation:    true,
 	}
+	cfg, google, err := applyGoogleServiceAccount(cfg)
+	if err != nil {
+		return Config{}, errf(errPrefix, "%v", err)
+	}
+	c.Google = google
 	c.AuthMode = cfgmap.StringDefault(cfg, cfgKeyAuthMode, c.AuthMode)
 	c.Credential = cfgmap.String(cfg, cfgKeyCredential)
 	c.CredentialPlacement = cfgmap.StringDefault(cfg, cfgKeyAPIKeyPlacement, c.CredentialPlacement)
@@ -408,6 +423,7 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 		c.SignedJWT = parseSignedJWT(SignedJWTAlgHS256, endpointURL, cfg)
 	case c.AuthMode == AuthModeOAuth && c.OAuth2.Grant == connoauth.GrantJWTBearer:
 		c.SignedJWT = parseSignedJWT(SignedJWTAlgRS256, c.OAuth2.TokenURL, cfg)
+		c.OAuth2.ScopePlacement = cfgmap.StringDefault(cfg, cfgKeyOAuthScopePlacement, ScopePlacementParam)
 	case c.AuthMode == AuthModeHMAC:
 		c.HMAC = parseHMAC(cfg)
 	case c.AuthMode == AuthModeSessionLogin:
@@ -742,4 +758,100 @@ func (c Config) errf(format string, a ...any) error {
 // is the message itself.
 func errf(prefix, format string, a ...any) error {
 	return fmt.Errorf(prefixOr(prefix)+": "+format, a...)
+}
+
+// A Google service account is a credential an administrator downloads from
+// Google Cloud as one JSON key file (#2061). The platform takes the file as it
+// is issued, or the name of a stored secret holding it, and fills the
+// jwt_bearer grant from it: the signing key, its id, the issuer and the token
+// endpoint. The operator states only the scopes, and a subject when the account
+// impersonates a Workspace user under domain-wide delegation.
+const (
+	// cfgKeyGoogleServiceAccountSecret names a stored secret (#2051) holding
+	// the key file, so the private key never travels in the connection's own
+	// config: one secret serves every connection its allow_connections lists,
+	// and rotating it rotates them all.
+	cfgKeyGoogleServiceAccountSecret = "google_service_account_secret" // #nosec G101 -- map key, not a credential
+	// cfgKeyOAuthScopePlacement says where the jwt_bearer grant carries
+	// oauth_scope: a form parameter (param), a claim in the signed assertion
+	// (claim), or both.
+	cfgKeyOAuthScopePlacement = "oauth_scope_placement"
+)
+
+// The scope placements a jwt_bearer connection may name.
+const (
+	ScopePlacementParam = "param"
+	ScopePlacementClaim = "claim"
+	ScopePlacementBoth  = "both"
+)
+
+// GoogleKeyConfig is a connection's Google service account: the stored secret
+// that holds its key file, when the file is not in the config itself.
+type GoogleKeyConfig struct {
+	// Secret names the stored secret holding the key file. Empty when the
+	// file is in the config, whose fields Parse has already spread into the
+	// jwt_bearer grant.
+	Secret string
+	// Set is whether the connection authenticates as a Google service
+	// account at all, which is what the error hints read.
+	Set bool
+}
+
+// applyGoogleServiceAccount fills the jwt_bearer grant's keys from a key file
+// or a stored secret's name, under every key the operator left unset: an
+// explicit jwt_* or oauth_* value always wins. It returns cfg unchanged when the
+// connection names no Google key, and a copy otherwise.
+func applyGoogleServiceAccount(cfg map[string]any) (map[string]any, GoogleKeyConfig, error) {
+	cfg, err := googlekey.Normalize(cfg)
+	if err != nil {
+		return nil, GoogleKeyConfig{}, err //nolint:wrapcheck // Parse states it in the kind's voice
+	}
+	raw := cfgmap.String(cfg, googlekey.ConfigKey)
+	secret := strings.TrimSpace(cfgmap.String(cfg, cfgKeyGoogleServiceAccountSecret))
+	if raw == "" && secret == "" {
+		return cfg, GoogleKeyConfig{}, nil
+	}
+	if raw != "" && secret != "" {
+		return nil, GoogleKeyConfig{}, fmt.Errorf("set one of %s or %s: both name the key", googlekey.ConfigKey, cfgKeyGoogleServiceAccountSecret)
+	}
+	out := maps.Clone(cfg)
+	setDefault := func(key, value string) {
+		if cfgmap.String(out, key) == "" {
+			out[key] = value
+		}
+	}
+	setDefault(cfgKeyAuthMode, AuthModeOAuth)
+	setDefault(connoauth.ConfigKeyGrant, connoauth.GrantJWTBearer)
+	setDefault(cfgKeyJWTAlgorithm, SignedJWTAlgRS256)
+	setDefault(cfgKeyOAuthScopePlacement, ScopePlacementClaim)
+	if secret != "" {
+		setDefault(connoauth.ConfigKeyTokenURL, googlekey.TokenURL)
+		return out, GoogleKeyConfig{Secret: secret, Set: true}, nil
+	}
+	sa, err := googlekey.Parse(raw)
+	if err != nil {
+		return nil, GoogleKeyConfig{}, err //nolint:wrapcheck // Parse states it in the kind's voice
+	}
+	setDefault(connoauth.ConfigKeyTokenURL, sa.TokenURI)
+	setDefault(cfgKeyJWTPrivateKeyPEM, sa.PrivateKey)
+	setDefault(cfgKeyJWTKeyID, sa.PrivateKeyID)
+	setDefault(cfgKeyJWTIssuer, sa.ClientEmail)
+	return out, GoogleKeyConfig{Set: true}, nil
+}
+
+// validateScopePlacement refuses a placement outside the three, and a Google
+// connection that names no scope: Google issues no token without one.
+func (c Config) validateScopePlacement() error {
+	switch c.OAuth2.ScopePlacement {
+	// Empty is a Config built without Parse, which defaults to param.
+	case "", ScopePlacementParam, ScopePlacementClaim, ScopePlacementBoth:
+	default:
+		return c.errf("invalid %s %q (want %s, %s or %s)", cfgKeyOAuthScopePlacement, c.OAuth2.ScopePlacement,
+			ScopePlacementParam, ScopePlacementClaim, ScopePlacementBoth)
+	}
+	if c.Google.Set && len(c.OAuth2.Scopes) == 0 {
+		return c.errf("%s is required with a Google service account: name each scope by its full URL, such as https://www.googleapis.com/auth/cloud-platform",
+			connoauth.ConfigKeyScope)
+	}
+	return nil
 }

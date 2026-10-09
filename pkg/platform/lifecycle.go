@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/txn2/mcp-data-platform/internal/shutdown"
 )
 
 // component pairs a start callback with the stop callback that tears it
@@ -23,6 +25,10 @@ type Lifecycle struct {
 	mu sync.Mutex
 
 	components []component
+
+	// drains hold work in flight past a shutdown signal; Drain runs them
+	// while the HTTP server drains, before Stop (#2058).
+	drains shutdown.Drains
 
 	started bool
 }
@@ -138,6 +144,14 @@ func (l *Lifecycle) Stop(ctx context.Context) error {
 		return fmt.Errorf("errors during shutdown: %v", errs)
 	}
 	return nil
+}
+
+// OnDrain registers a component's drain (see shutdown.Drains).
+func (l *Lifecycle) OnDrain(drain func(context.Context) error) { l.drains.Add(drain) }
+
+// Drain runs every registered drain concurrently, each bounded by ctx.
+func (l *Lifecycle) Drain(ctx context.Context) error {
+	return l.drains.Run(ctx) //nolint:wrapcheck // the drains' own errors, joined
 }
 
 // IsStarted returns whether the lifecycle has been started.

@@ -2,7 +2,7 @@ module github.com/txn2/mcp-data-platform
 
 go 1.26.2
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -55,7 +55,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/text v0.42.0

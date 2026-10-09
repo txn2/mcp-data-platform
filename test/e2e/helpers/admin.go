@@ -18,8 +18,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/txn2/mcp-data-platform/internal/agentinstructions"
-	"github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/internal/httpserver"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -770,49 +769,14 @@ func BootstrapDBAdminConfig(pgDSN string) *platform.Config {
 
 // --- Handler builder ---
 
-// BuildAdminHandler replicates the production admin handler wiring from main.go.
+// BuildAdminHandler is the admin handler the production server mounts, built
+// by the same constructor (httpserver.AdminHandler) rather than a copy of its
+// wiring: the copy this replaced lacked the key store #1715 added, and the
+// nightly tested a server no deployment runs for three weeks (#2037). No
+// notification substrate is started, so its routes are absent here as they are
+// in a deployment without one.
 func BuildAdminHandler(p *platform.Platform) http.Handler {
-	platAuth := admin.NewPlatformAuthenticator(
-		p.Authenticator(),
-		p.Config().Admin.Persona,
-		p.PersonaRegistry(),
-	)
-
-	deps := admin.Deps{
-		Config:            p.Config(),
-		ConfigStore:       p.ConfigStore(),
-		PersonaRegistry:   p.PersonaRegistry(),
-		ToolkitRegistry:   p.ToolkitRegistry(),
-		MCPServer:         p.MCPServer(),
-		DatabaseAvailable: p.Config().Database.DSN != "",
-		PlatformTools:     p.PlatformTools(),
-		FilePersonaNames:  p.FilePersonaNames(),
-	}
-
-	if p.Audit().Store() != nil {
-		deps.AuditQuerier = p.Audit().Store()
-	}
-
-	if p.KnowledgeInsightStore() != nil {
-		deps.Knowledge = admin.NewKnowledgeHandler(
-			p.KnowledgeInsightStore(),
-			p.KnowledgeChangesetStore(),
-			p.KnowledgeDataHubWriter(),
-			p.PortalKnowledgePageStore(),
-			agentinstructions.New(p.ConfigStore(), p.FileDefaults(), platform.ConfigKeyServerAgentInstructions),
-			p.QueryProvider(),
-		)
-	}
-
-	if p.APIKeyAuthenticator() != nil {
-		deps.APIKeyManager = p.APIKeyAuthenticator()
-		deps.BoundPrincipals = p.APIKeyAuthenticator().Principals()
-	}
-	// Keys are issued into and answered from the key store (#1715), as the
-	// production admin routes are wired (internal/httpserver/mounts.go).
-	deps.APIKeyStore = p.APIKeyStore()
-
-	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
+	return httpserver.AdminHandler(p, nil)
 }
 
 // --- DB helper ---

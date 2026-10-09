@@ -60,7 +60,7 @@ import (
 // configs injected directly (via WithConfig) that never ran through
 // applyDefaults. Now that admin defaults to enabled, an empty prefix would mount
 // the admin API at "/" and collide with the root MCP handler, and an empty
-// persona would reject every admin request (buildAdminHandler compares the
+// persona would reject every admin request (AdminHandler compares the
 // caller's persona against it), locking admins out.
 const (
 	defaultAdminPathPrefix = "/api/v1/admin"
@@ -72,7 +72,7 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeliv
 	if p == nil || !p.Config().Admin.IsEnabled() {
 		return
 	}
-	adminHandler := buildAdminHandler(p, notify)
+	adminHandler := AdminHandler(p, notify)
 	prefix := p.Config().Admin.PathPrefix
 	if prefix == "" {
 		prefix = defaultAdminPathPrefix
@@ -351,7 +351,7 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	}
 	// A session is rolled up out of the audit log and joined to what it
 	// produced, so the read model needs the database rather than the audit
-	// store. buildAdminHandler builds the same store over the same handle for
+	// store. AdminHandler builds the same store over the same handle for
 	// the operator surface; the two differ only in the scope each read carries.
 	if db := p.DB(); db != nil {
 		deps.SessionViewer = sessionview.NewPostgresStore(db)
@@ -672,8 +672,11 @@ func buildAdminAuth(p *platform.Platform) func(http.Handler) http.Handler {
 	))
 }
 
-// buildAdminHandler constructs the admin REST API handler from the platform.
-func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
+// AdminHandler constructs the admin REST API handler from the platform: the one
+// assembly of admin.Deps, mounted by Serve and built by the E2E suite (#2037),
+// so a dependency the admin routes gain reaches both. notify may be nil, which
+// leaves the notification routes unregistered.
+func AdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
 	// The connection test takes on a connection another replica saved before
 	// the reload bus announces it, as a tool call does (#1888).
 	catchUp := callcatchup.New(p.ToolkitRegistry(), callcatchup.Reader(

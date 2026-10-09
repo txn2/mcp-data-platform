@@ -1312,10 +1312,13 @@ The two deployments are the same image and the same configuration bar that one
 key; the [deployment guide](../server/deployment.md#split-deployment-portal-and-script-workers)
 has the manifests.
 
-A worker shutting down stops claiming at once, gives the run it is holding a
-short window out of the shutdown budget to finish, and releases whatever does
-not finish back onto the queue rather than failing it — a shutdown decides
-nothing about a run. A released run is claimable immediately, so a rolling
+A worker shutting down stops claiming the moment SIGTERM arrives, and the runs
+it is executing keep going, their tool calls answered, for as long as the HTTP
+server's drain lasts (`server.shutdown.grace_period`, 25s by default), so a run
+claimed seconds before a rolling update finishes with its result recorded
+(#2058). What is still executing after that gets a few more seconds and is then
+released back onto the queue rather than failed: a shutdown decides nothing
+about a run. A released run is claimable immediately, so a rolling
 deploy costs a run at most the time it had already spent, not a wait for its
 lease to expire.
 

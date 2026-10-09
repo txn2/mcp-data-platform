@@ -822,3 +822,59 @@ func scrapeWorkerMetrics(t *testing.T, m *observability.Metrics) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 	return rec.Body.String()
 }
+
+// TestWorker_DrainStopsClaimingAndLeavesTheRunRunning is the shutdown's first
+// half (#2058): claiming stops at the signal, the run in flight keeps its
+// context however long the drain lasts, and it finishes with its verdict
+// recorded rather than released. A drain whose budget ends first reports so
+// and still cancels nothing; Stop is what releases.
+func TestWorker_DrainStopsClaimingAndLeavesTheRunRunning(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	finisher := &finishingExecutor{entered: make(chan struct{}), release: make(chan struct{})}
+	w.cfg.runner = finisher
+	startHolding(t, w, finisher.entered)
+
+	spent, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.False(t, w.Drain(spent), "a drain whose budget is spent reports the run still executing")
+	assert.NoError(t, w.runCtx.Err(), "a drain cancels nothing")
+
+	_, _, run := executableState()
+	run.ID = "dpx_2"
+	require.NoError(t, runs.Enqueue(context.Background(), run))
+	claims := runs.claimCount()
+	_ = w.drain(w.runCtx)
+	assert.Equal(t, claims, runs.claimCount(), "a draining worker claims nothing")
+
+	close(finisher.release)
+	assert.True(t, w.Drain(context.Background()))
+	assert.Empty(t, runs.retried, "a run that finished in the drain is not requeued")
+	require.Len(t, runs.results(), 1)
+	assert.Equal(t, script.RunStatusSucceeded, runs.results()[0].Status)
+	w.Stop(context.Background())
+}
+
+func TestWorker_DrainBeforeStartReturnsAtOnce(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	assert.True(t, w.Drain(context.Background()))
+	w.Start(context.Background())
+	w.Stop(context.Background())
+	assert.Zero(t, runs.claimCount(), "a worker drained before it started never claims")
+}
+
+func TestHandle_DrainReachesTheWorker(t *testing.T) {
+	require.NoError(t, (*Handle)(nil).Drain(context.Background()))
+	require.NoError(t, (&Handle{}).Drain(context.Background()))
+
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	blocker := &blockingExecutor{entered: make(chan struct{})}
+	w.cfg.runner = blocker
+	startHolding(t, w, blocker.entered)
+	h := &Handle{worker: w}
+	spent, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.NoError(t, h.Drain(spent))
+	assert.NoError(t, w.runCtx.Err(), "the drain leaves the run to Stop")
+	w.Stop(context.Background())
+	require.Len(t, runs.retried, 1, "Stop releases what the drain did not finish")
+}
