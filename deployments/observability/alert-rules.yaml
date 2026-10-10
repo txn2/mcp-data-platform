@@ -81,3 +81,191 @@ data:
             annotations:
               summary: "mcp-data-platform target is down"
               description: "Prometheus has not been able to scrape the mcp-data-platform target for 2m."
+
+      # Fleet, tool, connection, background-work and capacity alerts (#1901),
+      # the Prometheus form of the alerts the ClickStack bundle seeds into
+      # HyperDX (deployments/observability/clickstack/seed/alerts.json). The
+      # ones that read the substrate collector's receivers (PostgreSQL's
+      # longest transaction, ClickHouse) are HyperDX-only. Every replica
+      # reports the capacity gauges with the same value, so they are read
+      # with max, never sum.
+      - name: mcp-data-platform.fleet
+        rules:
+          - alert: ToolCallErrorRateHigh
+            expr: |
+              sum (rate(mcp_tool_calls_total{status_category!="ok"}[5m]))
+                /
+              sum (rate(mcp_tool_calls_total[5m]))
+                > 0.05
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tool call error rate over 5%"
+              description: "More than 5% of tool calls failed over the last 10m."
+
+          - alert: ToolErrorRateHigh
+            expr: |
+              (
+                sum by (tool) (rate(mcp_tool_calls_total{status_category!="ok"}[15m]))
+                  /
+                sum by (tool) (rate(mcp_tool_calls_total[15m]))
+              ) > 0.2
+              and sum by (tool) (increase(mcp_tool_calls_total[15m])) >= 10
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tool {{ $labels.tool }} failing over 20%"
+              description: "More than 20% of {{ $labels.tool }} calls failed over the last 15m (at least ten calls)."
+
+          - alert: ToolLatencyRegression
+            expr: |
+              histogram_quantile(0.95, sum by (tool, le) (rate(mcp_tool_call_duration_seconds_bucket[15m])))
+                > 2 * histogram_quantile(0.95, sum by (tool, le) (rate(mcp_tool_call_duration_seconds_bucket[15m] offset 1d)))
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tool {{ $labels.tool }} p95 latency regression"
+              description: "p95 latency of {{ $labels.tool }} is more than twice its value a day ago, sustained for 30m."
+
+          - alert: ConnectionCredentialFailing
+            expr: |
+              (max by (kind) (mcp_platform_connections{state="auth_failed"}) > 0)
+                or (max by (kind) (connection_oauth_credentials{state="revoked"}) > 0)
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "A {{ $labels.kind }} connection's credential is failing"
+              description: "A {{ $labels.kind }} connection's credential has been refused, or its OAuth grant revoked, for 15m."
+
+          - alert: ScriptMissedFires
+            expr: sum by (script) (increase(script_missed_fires_total[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "Script {{ $labels.script }} missed a scheduled fire"
+              description: "A schedule of {{ $labels.script }} came due and was not run in the last 15m."
+
+          - alert: ScriptAdmissionRefusals
+            expr: sum by (reason) (increase(script_run_admission_refusals_total[15m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "Script runs refused admission ({{ $labels.reason }})"
+              description: "The script worker refused to claim runs for {{ $labels.reason }} in the last 15m."
+
+          - alert: ScriptQueueBehind
+            expr: max (background_queue_oldest_age_seconds{loop=~"script.*"}) > 600
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "A due script run has waited over 10 minutes"
+              description: "The oldest due script run has waited more than 10m to be claimed, for 10m."
+
+          - alert: BackgroundLoopSilent
+            expr: time() - max by (loop) (background_loop_last_success_timestamp_seconds) > 93600
+            labels:
+              severity: warning
+            annotations:
+              summary: "Background loop {{ $labels.loop }} has not succeeded in a day"
+              description: "{{ $labels.loop }} has not finished an iteration in 26 hours; the daily sweeps run every 24."
+
+          - alert: AuditEventsDropped
+            expr: sum (increase(audit_events_dropped_total[5m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "Audit events are being dropped"
+              description: "The audit writer lost events in the last 5m."
+
+          - alert: DBPoolNearlyExhausted
+            expr: max by (pool) (db_pool_in_use) / max by (pool) (db_pool_max_open_connections) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Database pool {{ $labels.pool }} over 90% in use"
+              description: "More than 90% of the {{ $labels.pool }} pool's connections have been in use for 10m."
+
+          - alert: ConfigValidationWarnings
+            expr: sum by (code) (increase(config_validation_warnings_total[15m])) > 0
+            labels:
+              severity: info
+            annotations:
+              summary: "Configuration warning {{ $labels.code }}"
+              description: "The platform logged configuration warning {{ $labels.code }} in the last 15m (at startup or on a persona write)."
+
+          - alert: StorageBucketOverBudget
+            expr: |
+              sum by (bucket) (max by (bucket, purpose) (storage_bucket_bytes))
+                / max by (bucket) (storage_bucket_budget_bytes)
+                > 0.9
+            labels:
+              severity: warning
+            annotations:
+              summary: "Bucket {{ $labels.bucket }} over 90% of its budget"
+              description: "The platform holds more than 90% of the byte budget set for {{ $labels.bucket }}."
+
+          - alert: StorageBucketBudgetSoon
+            expr: |
+              predict_linear(sum by (bucket) (max by (bucket, purpose) (storage_bucket_bytes))[1d:1h], 14 * 86400)
+                > max by (bucket) (storage_bucket_budget_bytes)
+            for: 6h
+            labels:
+              severity: info
+            annotations:
+              summary: "Bucket {{ $labels.bucket }} reaches its budget within 14 days"
+              description: "At the last day's growth, {{ $labels.bucket }} fills its byte budget within two weeks."
+
+          - alert: PostgresVolumeLowFree
+            expr: |
+              kubelet_volume_stats_available_bytes{persistentvolumeclaim=~".*postgres.*"}
+                / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~".*postgres.*"}
+                < 0.10
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "PostgreSQL volume {{ $labels.persistentvolumeclaim }} under 10% free"
+              description: "The PostgreSQL volume has had less than 10% free for 15m."
+
+          - alert: TransactionIDAgeHigh
+            expr: max (db_transaction_id_age) > 1e9
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Transaction id age over one billion"
+              description: "The database's oldest unfrozen transaction id is over a billion transactions old; PostgreSQL stops accepting writes near 2^31."
+
+          - alert: StorageWritesRefused
+            expr: sum by (purpose, reason) (increase(storage_operations_total{operation="put",reason=~"access_denied|bucket_missing|quota_exceeded"}[5m])) > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "Object writes for {{ $labels.purpose }} refused: {{ $labels.reason }}"
+              description: "Writes to the {{ $labels.purpose }} bucket failed with {{ $labels.reason }}: a credential, policy or quota problem, not an outage."
+
+          - alert: StorageIntegrityRising
+            expr: |
+              (sum (max by (purpose) (storage_orphaned_objects)) + sum (max by (purpose) (storage_dangling_references)))
+                >
+              (sum (max by (purpose) (storage_orphaned_objects offset 1d)) + sum (max by (purpose) (storage_dangling_references offset 1d)))
+            for: 6h
+            labels:
+              severity: info
+            annotations:
+              summary: "Orphaned objects or dangling references rising"
+              description: "The reconcile counts more orphaned objects and dangling references than a day ago."
+
+          - alert: FleetVersionSpread
+            expr: count (count by (version) (mcp_platform_build_info)) > 2
+            for: 6h
+            labels:
+              severity: info
+            annotations:
+              summary: "More than two versions running"
+              description: "More than two platform versions have been running side by side for 6h."

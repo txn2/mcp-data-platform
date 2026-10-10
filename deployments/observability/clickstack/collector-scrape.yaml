@@ -1,0 +1,48 @@
+# The platform's metrics by scrape, for a deployment that keeps
+# OTEL_METRICS_EXPORTER=prometheus (the default) rather than sending them over
+# OTLP. Load it beside collector-edge.yaml:
+#
+#   otelcol-contrib --config=collector-edge.yaml --config=collector-scrape.yaml
+#
+# Leave it out when the platform sends metrics over OTLP
+# (OTEL_METRICS_EXPORTER=otlp or both): the series would arrive twice.
+#
+#   EDGE_PLATFORM_METRICS   host:port of the platform's metrics listener
+#                           (OTEL_METRICS_ADDR, default :9090)
+#
+# A scrape carries no resource of its own; resource/identity in the edge
+# config stamps the deployment id, environment and service name on it.
+#
+# The scrape reads the Prometheus names (mcp_tool_calls_total,
+# storage_bucket_bytes, mcp_tool_call_duration_seconds), and the dashboards,
+# saved searches and alerts read the names the OTLP push uses (mcp_tool_calls,
+# storage_bucket, mcp_tool_call_duration). transform/names takes the counter's
+# _total and the unit's _seconds or _bytes back off the platform's own series.
+# The Go runtime and process series keep their names: the OTLP push carries
+# them under their Prometheus names too.
+receivers:
+  prometheus/platform:
+    config:
+      scrape_configs:
+        - job_name: mcp-data-platform
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["${env:EDGE_PLATFORM_METRICS:-127.0.0.1:9090}"]
+
+processors:
+  transform/names:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        conditions:
+          - not IsMatch(metric.name, "^(go|process|promhttp|scrape|target)_")
+        statements:
+          - replace_pattern(metric.name, "_total$", "")
+          - replace_pattern(metric.name, "_(seconds|bytes)$", "")
+
+service:
+  pipelines:
+    metrics/scrape:
+      receivers: [prometheus/platform]
+      processors: [memory_limiter, transform/names, resource/identity, batch]
+      exporters: [otlp/central]

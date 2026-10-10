@@ -1,0 +1,96 @@
+# ClickStack all-in-one: EVALUATION ONLY. One pod runs ClickHouse, the HyperDX
+# UI and API, MongoDB (the UI's state) and ClickStack's own collector, with no
+# replication and no fault tolerance; upstream documents the image as not for
+# production. For production install ClickStack with upstream's Helm chart,
+# ClickHouse and the collector managed apart (see the README).
+#
+# Needs the Secret clickstack-secrets (README, "Kubernetes"):
+#   ingestion-key   the OTLP key the edge collector sends
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clickstack-clickhouse
+  labels: {app.kubernetes.io/name: clickstack, app.kubernetes.io/part-of: mcp-data-platform-observability}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clickstack-mongo
+  labels: {app.kubernetes.io/name: clickstack, app.kubernetes.io/part-of: mcp-data-platform-observability}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickstack
+  labels: {app.kubernetes.io/name: clickstack, app.kubernetes.io/part-of: mcp-data-platform-observability}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app.kubernetes.io/name: clickstack}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: clickstack, app.kubernetes.io/part-of: mcp-data-platform-observability}
+    spec:
+      containers:
+        - name: clickstack
+          image: clickhouse/clickstack-all-in-one:2.40.0@sha256:4e407998ac8a8189e0118da63c4df11afbd0bbaf0fd45a706b0138893e390841
+          env:
+            - name: INGESTION_API_KEY
+              valueFrom:
+                secretKeyRef: {name: clickstack-secrets, key: ingestion-key}
+            # Retention per signal (ClickStack's own default is 3 days); a
+            # changed value is applied to the existing tables at the next start.
+            - {name: HYPERDX_OTEL_EXPORTER_TRACES_TTL, value: "168h"}
+            - {name: HYPERDX_OTEL_EXPORTER_LOGS_TTL, value: "336h"}
+            - {name: HYPERDX_OTEL_EXPORTER_METRICS_TTL, value: "720h"}
+            - {name: HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL, value: "true"}
+          ports:
+            - {name: ui, containerPort: 8080}
+            - {name: api, containerPort: 8000}
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+            - {name: ch-metrics, containerPort: 9363}
+          readinessProbe:
+            httpGet: {path: /health, port: api}
+            periodSeconds: 10
+            failureThreshold: 30
+          resources:
+            requests: {cpu: "1", memory: 4Gi}
+            limits: {memory: 8Gi}
+          volumeMounts:
+            - {name: clickhouse, mountPath: /var/lib/clickhouse}
+            - {name: mongo, mountPath: /data/db}
+            - {name: clickhouse-prometheus, mountPath: /etc/clickhouse-server/config.d/prometheus.xml, subPath: prometheus.xml}
+      volumes:
+        - name: clickhouse
+          persistentVolumeClaim: {claimName: clickstack-clickhouse}
+        - name: mongo
+          persistentVolumeClaim: {claimName: clickstack-mongo}
+        - name: clickhouse-prometheus
+          configMap: {name: clickstack-clickhouse-prometheus}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickstack
+  labels: {app.kubernetes.io/name: clickstack, app.kubernetes.io/part-of: mcp-data-platform-observability}
+spec:
+  selector: {app.kubernetes.io/name: clickstack}
+  ports:
+    - {name: ui, port: 8080, targetPort: ui}
+    - {name: api, port: 8000, targetPort: api}
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}
+    - {name: ch-metrics, port: 9363, targetPort: ch-metrics}

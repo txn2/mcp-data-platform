@@ -1,0 +1,102 @@
+# ClickStack for mcp-data-platform: EVALUATION ONLY.
+#
+# One `docker compose up` gives an operator a self-hosted observability
+# backend with the platform's dashboards, saved searches and alerts already
+# in it:
+#
+#   clickstack       the upstream all-in-one image (ClickHouse, the HyperDX UI
+#                    and API, its own collector, and MongoDB for the UI's
+#                    state), referenced by digest and never vendored. Upstream
+#                    documents it as not for production; see the README for the
+#                    production layouts.
+#   edge-collector   collector-edge.yaml: what one deployment runs in front of
+#                    any backend (identity, privacy, tail sampling, export)
+#   seed             applies dashboards/, saved-searches.json and alerts.json
+#                    through the HyperDX API, idempotently by name (#1901)
+#
+# Point the platform at the edge collector with the variables in
+# platform.env, then open the UI on http://localhost:8080.
+#
+#   cp .env.example .env    # set CLICKSTACK_INGESTION_KEY and the seed login
+#   docker compose up -d
+#
+# With the substrate receivers (PostgreSQL, filesystem, SeaweedFS, ClickHouse):
+#
+#   docker compose -f compose.yaml -f compose.substrate.yaml up -d
+#
+# Retention per signal (ClickStack's own default is 3 days):
+# CLICKSTACK_TRACES_TTL, CLICKSTACK_LOGS_TTL, CLICKSTACK_METRICS_TTL, as Go
+# durations; 7, 14 and 30 days by default. A changed value is applied to the
+# existing tables at the next start.
+name: mcp-observability
+
+services:
+  clickstack:
+    image: clickhouse/clickstack-all-in-one:2.40.0@sha256:4e407998ac8a8189e0118da63c4df11afbd0bbaf0fd45a706b0138893e390841
+    restart: unless-stopped
+    environment:
+      # The OTLP ingestion key the edge collector sends; the all-in-one image
+      # accepts it in place of a team key.
+      INGESTION_API_KEY: ${CLICKSTACK_INGESTION_KEY:?set CLICKSTACK_INGESTION_KEY in .env}
+      HYPERDX_OTEL_EXPORTER_TRACES_TTL: ${CLICKSTACK_TRACES_TTL:-168h}
+      HYPERDX_OTEL_EXPORTER_LOGS_TTL: ${CLICKSTACK_LOGS_TTL:-336h}
+      HYPERDX_OTEL_EXPORTER_METRICS_TTL: ${CLICKSTACK_METRICS_TTL:-720h}
+      HYPERDX_OTEL_EXPORTER_RECONCILE_TABLE_TTL: "true"
+    ports:
+      - "127.0.0.1:${CLICKSTACK_UI_PORT:-8080}:8080"
+      - "127.0.0.1:${CLICKSTACK_API_PORT:-8000}:8000"
+      - "127.0.0.1:${CLICKSTACK_CLICKHOUSE_PORT:-8123}:8123"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - mongo-data:/data/db
+      - ./clickhouse-prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8000/health && curl -sf http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  edge-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/collector-edge.yaml"]
+    environment:
+      EDGE_DEPLOYMENT_ID: ${EDGE_DEPLOYMENT_ID:-local}
+      EDGE_ENVIRONMENT: ${EDGE_ENVIRONMENT:-evaluation}
+      EDGE_EXPORT_ENDPOINT: clickstack:4317
+      EDGE_EXPORT_INSECURE: "true"
+      EDGE_EXPORT_AUTHORIZATION: ${CLICKSTACK_INGESTION_KEY:?set CLICKSTACK_INGESTION_KEY in .env}
+      EDGE_TAIL_SAMPLE_PERCENT: ${EDGE_TAIL_SAMPLE_PERCENT:-10}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${EDGE_OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${EDGE_OTLP_HTTP_PORT:-4318}:4318"
+    volumes:
+      - ./collector-edge.yaml:/etc/otelcol/collector-edge.yaml:ro
+      - ./collector-substrate.yaml:/etc/otelcol/collector-substrate.yaml:ro
+      - ./collector-scrape.yaml:/etc/otelcol/collector-scrape.yaml:ro
+    depends_on:
+      clickstack:
+        condition: service_healthy
+
+  seed:
+    image: python:3.13.13-alpine3.22@sha256:e81548ac35b07a3bd4805f275107592ef458b1e893c0e04d45aedaa19416cca5
+    restart: "no"
+    command: ["python", "-I", "/seed/seed.py", "--bootstrap"]
+    environment:
+      HYPERDX_API_URL: http://clickstack:8000
+      HYPERDX_APP_URL: http://clickstack:8080
+      HYPERDX_SEED_EMAIL: ${HYPERDX_SEED_EMAIL:-admin@example.com}
+      HYPERDX_SEED_PASSWORD: ${HYPERDX_SEED_PASSWORD:?set HYPERDX_SEED_PASSWORD in .env}
+      HYPERDX_ALERT_WEBHOOK_URL: ${HYPERDX_ALERT_WEBHOOK_URL:-}
+    volumes:
+      - ./seed:/seed:ro
+    depends_on:
+      clickstack:
+        condition: service_healthy
+
+volumes:
+  clickhouse-data:
+  mongo-data:

@@ -1,0 +1,256 @@
+{
+  "name": "MCP Platform: Dependencies",
+  "tags": [
+    "dependencies"
+  ],
+  "tiles": [
+    {
+      "name": "Trino queries by status",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "trino_queries",
+        "label": "per_second",
+        "by": "Attributes['status']",
+        "by_name": "status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Trino p95 by query kind",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "trino_query_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['query_kind']",
+        "by_name": "query_kind"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 0
+    },
+    {
+      "name": "DataHub requests by status",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "datahub_requests",
+        "label": "per_second",
+        "by": "Attributes['status']",
+        "by_name": "status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 0
+    },
+    {
+      "name": "DataHub p95 by operation",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "datahub_request_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['operation']",
+        "by_name": "operation"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "Object storage by purpose and result",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "storage_operations",
+        "label": "per_second",
+        "by": "concat(Attributes['purpose'], ' ', Attributes['result'])",
+        "by_name": "purpose_result"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 4
+    },
+    {
+      "name": "Object storage failures by reason",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "storage_operations",
+        "label": "per_second",
+        "by": "concat(Attributes['purpose'], ' ', Attributes['reason'])",
+        "by_name": "purpose_reason",
+        "where": "Attributes['result'] != 'ok'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 4
+    },
+    {
+      "name": "Outbound HTTP by kind and status",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "http_client_requests",
+        "label": "per_second",
+        "by": "concat(Attributes['kind'], ' ', Attributes['status_class'])",
+        "by_name": "kind_status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Outbound HTTP 5xx share by connection",
+      "display": "line",
+      "query": {
+        "kind": "ratio",
+        "metric": "http_client_requests",
+        "match": "Attributes['status_class'] = '5xx'",
+        "label": "percent",
+        "by": "Attributes['connection']",
+        "by_name": "connection"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "API gateway failures: gateway or upstream",
+      "display": "stacked_bar",
+      "query": {
+        "kind": "rate",
+        "metric": "apigateway_outbound",
+        "label": "per_second",
+        "by": "Attributes['status_category']",
+        "by_name": "status_category",
+        "where": "Attributes['status_category'] != 'ok'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    },
+    {
+      "name": "Embedding calls by model and status",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "embedding_calls",
+        "label": "per_second",
+        "by": "concat(Attributes['model'], ' ', Attributes['status'])",
+        "by_name": "model_status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "name": "Embedding p95 by model",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "embedding_call_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['model']",
+        "by_name": "model"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 12
+    },
+    {
+      "name": "MCP gateway upstream calls by outcome",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "gateway_upstream_calls",
+        "label": "per_second",
+        "by": "concat(Attributes['connection'], ' ', Attributes['outcome'])",
+        "by_name": "connection_outcome"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 12
+    },
+    {
+      "name": "Postgres pool in use",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_pool_in_use",
+        "agg": "sum",
+        "label": "value",
+        "by": "Attributes['pool']",
+        "by_name": "pool"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 0,
+      "y": 16
+    },
+    {
+      "name": "Postgres pool max",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_pool_max_open_connections",
+        "agg": "sum",
+        "label": "value",
+        "by": "Attributes['pool']",
+        "by_name": "pool"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 6,
+      "y": 16
+    },
+    {
+      "name": "Postgres pool waits",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "db_pool_wait_count",
+        "label": "per_second",
+        "by": "Attributes['pool']",
+        "by_name": "pool"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 12,
+      "y": 16
+    },
+    {
+      "name": "Slow statements by operation",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "db_client_slow_statements",
+        "label": "per_second",
+        "by": "Attributes['operation']",
+        "by_name": "operation"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 18,
+      "y": 16
+    }
+  ]
+}

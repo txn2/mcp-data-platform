@@ -4,12 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/headless"
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
+	"github.com/txn2/mcp-data-platform/internal/platform/capacity"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/oidcdiscovery"
@@ -47,6 +50,26 @@ type Sources struct {
 	Tracer     *observability.Tracer
 	// Interval is server.state_probe_interval; zero is DefaultInterval.
 	Interval time.Duration
+	// Capacity is where the rest of the platform's objects live, for the
+	// capacity gauges (#1899); Objects and Bucket above are the portal's.
+	Capacity CapacitySources
+}
+
+// CapacitySources is what the capacity service needs beyond the portal's
+// client and bucket.
+type CapacitySources struct {
+	PortalPrefix string
+	// Resources is the managed-resources blob client and ResourceBucket its
+	// bucket; Resources is nil without one.
+	Resources      any
+	ResourceBucket string
+	// Toolkits is the toolkits configuration, and PortalConnection and
+	// ResourceConnection the S3 connections the portal and managed resources
+	// name (empty: the default), read for the endpoint each bucket is asked
+	// which object store it is on.
+	Toolkits           map[string]any
+	PortalConnection   string
+	ResourceConnection string
 }
 
 // Wire records mcp_platform_config_info and starts the sampler over src's
@@ -58,9 +81,44 @@ func Wire(m *observability.Metrics, src Sources) *Sampler {
 		Tracing:      src.Tracer.Enabled(),
 		SamplerRatio: src.Tracer.SamplerRatio(),
 	})
-	return Start(m, Deps{
+	s := Start(m, Deps{
 		DB: src.DB, Dependencies: dependencies(src), Toolkits: src.Toolkits, Personas: src.Personas, Interval: src.Interval,
 	})
+	s.capacity = startCapacity(m, src)
+	return s
+}
+
+// startCapacity starts the capacity service over the platform's buckets. A
+// malformed capacity variable is logged and its default used, keeping every
+// variable that parsed: a typo in a telemetry knob never stops the platform.
+func startCapacity(m *observability.Metrics, src Sources) *capacity.Service {
+	cfg, err := capacity.ConfigFromEnv()
+	if err != nil {
+		slog.Warn("capacity: configuration value ignored", "error", logsan.SanitizeForLog(err.Error()))
+	}
+	return capacity.Start(m, capacitySources(src), cfg)
+}
+
+// capacitySources is the layout of the platform's buckets and the client that
+// lists each: the portal's, and the managed resources' when they are on a
+// bucket of their own or the same one.
+func capacitySources(src Sources) capacity.Sources {
+	layout := capacity.Layout{PortalPrefix: src.Capacity.PortalPrefix}
+	walkers := map[string]capacity.Walker{}
+	if w, ok := src.Objects.(capacity.Walker); ok && src.Bucket != "" {
+		layout.PortalBucket, walkers[src.Bucket] = src.Bucket, w
+	}
+	if w, ok := src.Capacity.Resources.(capacity.Walker); ok && src.Capacity.ResourceBucket != "" {
+		layout.ResourceBucket, walkers[src.Capacity.ResourceBucket] = src.Capacity.ResourceBucket, w
+	}
+	endpoints := map[string]string{}
+	if layout.PortalBucket != "" {
+		endpoints[layout.PortalBucket], _ = capacity.Endpoint(src.Capacity.Toolkits, src.Capacity.PortalConnection)
+	}
+	if layout.ResourceBucket != "" {
+		endpoints[layout.ResourceBucket], _ = capacity.Endpoint(src.Capacity.Toolkits, src.Capacity.ResourceConnection)
+	}
+	return capacity.Sources{DB: src.DB, Layout: layout, Walkers: walkers, Endpoints: endpoints}
 }
 
 // methods is the configured methods as auth_attempts_total names them.

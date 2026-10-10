@@ -128,3 +128,42 @@ func TestReason(t *testing.T) {
 		})
 	}
 }
+
+// usageSpy records what DoObject reports.
+type usageSpy struct{ calls []string }
+
+func (u *usageSpy) RecordObject(bucket, key string, objects, bytes int64) {
+	u.calls = append(u.calls, fmt.Sprintf("%s/%s %+d %d", bucket, key, objects, bytes))
+}
+
+// DoObject tells the usage recorder of a put with its bytes and of a delete,
+// and of nothing that failed or only read; with no recorder it still records
+// the operation.
+func TestDoObject_TellsTheUsageRecorder(t *testing.T) {
+	m := installMetrics(t)
+	ctx := context.Background()
+	spy := &usageSpy{}
+	SetUsageRecorder(spy)
+	t.Cleanup(func() { SetUsageRecorder(nil) })
+
+	ok := func(n int64) func(context.Context) (int64, error) {
+		return func(context.Context) (int64, error) { return n, nil }
+	}
+	_, err := DoObject(ctx, observability.StoragePurposeResources, OpPut, Object{Bucket: "b", Key: "k1"}, ok(10))
+	require.NoError(t, err)
+	_, err = DoObject(ctx, observability.StoragePurposeResources, OpDelete, Object{Bucket: "b", Key: "k2"}, ok(0))
+	require.NoError(t, err)
+	_, err = DoObject(ctx, observability.StoragePurposeResources, OpGet, Object{Bucket: "b", Key: "k3"}, ok(0))
+	require.NoError(t, err)
+	_, err = DoObject(ctx, observability.StoragePurposeResources, OpPut, Object{Bucket: "b", Key: "k4"}, func(context.Context) (int64, error) {
+		return 0, errors.New("refused")
+	})
+	require.Error(t, err)
+	assert.Equal(t, []string{"b/k1 +1 10", "b/k2 -1 0"}, spy.calls)
+
+	SetUsageRecorder(nil)
+	_, err = DoObject(ctx, observability.StoragePurposeResources, OpPut, Object{Bucket: "b", Key: "k5"}, ok(1))
+	require.NoError(t, err)
+	assert.Len(t, spy.calls, 2)
+	assert.Contains(t, scrape(t, m), `storage_operations_total{operation="put",purpose="resources",result="ok"} 2`)
+}

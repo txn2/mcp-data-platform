@@ -34,7 +34,7 @@ type objects struct {
 
 // PutObject writes one object.
 func (o objects) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {
-	_, err := objectobs.Do(ctx, purpose, objectobs.OpPut, bucket, func(ctx context.Context) (int64, error) {
+	_, err := objectobs.DoObject(ctx, purpose, objectobs.OpPut, objectobs.Object{Bucket: bucket, Key: key}, func(ctx context.Context) (int64, error) {
 		_, err := o.c.PutObject(ctx, &s3client.PutObjectInput{
 			Bucket: bucket, Key: key, Body: data, ContentType: contentType,
 		})
@@ -100,7 +100,7 @@ func (o objects) listPage(ctx context.Context, bucket, prefix, token string) (*s
 
 // DeleteObject removes one object.
 func (o objects) DeleteObject(ctx context.Context, bucket, key string) error {
-	_, err := objectobs.Do(ctx, purpose, objectobs.OpDelete, bucket, func(ctx context.Context) (int64, error) {
+	_, err := objectobs.DoObject(ctx, purpose, objectobs.OpDelete, objectobs.Object{Bucket: bucket, Key: key}, func(ctx context.Context) (int64, error) {
 		return 0, o.c.DeleteObject(ctx, bucket, key) //nolint:wrapcheck // wrapped below, once
 	})
 	if err != nil {

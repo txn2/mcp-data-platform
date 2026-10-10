@@ -25,6 +25,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
+	"github.com/txn2/mcp-data-platform/internal/platform/capacity"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -80,6 +81,16 @@ type Sampler struct {
 	at      time.Time
 	running bool
 	done    chan struct{}
+	// capacity is the capacity service Wire started, stopped by Close.
+	capacity *capacity.Service
+}
+
+// Close stops what Wire started beside the sampler. Nil-safe.
+func (s *Sampler) Close(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	return s.capacity.Close(ctx) //nolint:wrapcheck // the service's error names its step
 }
 
 // New returns a sampler over deps. It has probed nothing until the first

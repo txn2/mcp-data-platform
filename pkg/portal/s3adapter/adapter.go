@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
@@ -71,7 +72,7 @@ func NewFor(client *s3client.Client, purpose string) *ClientAdapter {
 // under one part size as one PutObject and a larger one in parts, so a small
 // write costs what it did before.
 func (a *ClientAdapter) PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error {
-	_, err := objectobs.Do(ctx, a.purpose, objectobs.OpPut, bucket, func(ctx context.Context) (int64, error) {
+	_, err := objectobs.DoObject(ctx, a.purpose, objectobs.OpPut, objectobs.Object{Bucket: bucket, Key: key}, func(ctx context.Context) (int64, error) {
 		_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
 			Bucket:      bucket,
 			Key:         key,
@@ -95,7 +96,7 @@ func (a *ClientAdapter) PutObjectStream(ctx context.Context, bucket, key string,
 	// the transfer manager aborts the incomplete multipart upload on that
 	// read error.
 	counter := &countingReader{r: body}
-	_, err := objectobs.Do(ctx, a.purpose, objectobs.OpPut, bucket, func(ctx context.Context) (int64, error) {
+	_, err := objectobs.DoObject(ctx, a.purpose, objectobs.OpPut, objectobs.Object{Bucket: bucket, Key: key}, func(ctx context.Context) (int64, error) {
 		_, err := a.client.PutObjectStream(ctx, &s3client.PutObjectStreamInput{
 			Bucket:      bucket,
 			Key:         key,
@@ -190,9 +191,47 @@ func (a *ClientAdapter) ListDirectory(
 	return entries, out.IsTruncated, nil
 }
 
+// walkPageSize is how many keys one page of a Walk asks for, the most S3
+// returns.
+const walkPageSize = 1000
+
+// WalkedObject is one object a Walk read.
+type WalkedObject struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+}
+
+// Walk lists every object under prefix, page by page with no delimiter, and
+// calls fn for each. Each page is one observed list operation. It stops at the
+// first error, fn's included.
+func (a *ClientAdapter) Walk(ctx context.Context, bucket, prefix string, fn func(WalkedObject) error) error {
+	token := ""
+	for {
+		var out *s3client.ListObjectsOutput
+		_, err := objectobs.Do(ctx, a.purpose, objectobs.OpList, bucket, func(ctx context.Context) (int64, error) {
+			var err error
+			out, err = a.client.ListObjects(ctx, bucket, prefix, "", walkPageSize, token)
+			return 0, err //nolint:wrapcheck // wrapped below, once
+		})
+		if err != nil {
+			return fmt.Errorf("s3 walk: %w", err)
+		}
+		for _, obj := range out.Objects {
+			if err := fn(WalkedObject{Key: obj.Key, Size: obj.Size, LastModified: obj.LastModified}); err != nil {
+				return err
+			}
+		}
+		if !out.IsTruncated || out.NextContinueToken == "" {
+			return nil
+		}
+		token = out.NextContinueToken
+	}
+}
+
 // DeleteObject removes the object at the given bucket and key.
 func (a *ClientAdapter) DeleteObject(ctx context.Context, bucket, key string) error {
-	_, err := objectobs.Do(ctx, a.purpose, objectobs.OpDelete, bucket, func(ctx context.Context) (int64, error) {
+	_, err := objectobs.DoObject(ctx, a.purpose, objectobs.OpDelete, objectobs.Object{Bucket: bucket, Key: key}, func(ctx context.Context) (int64, error) {
 		return 0, a.client.DeleteObject(ctx, bucket, key) //nolint:wrapcheck // wrapped below, once
 	})
 	if err != nil {

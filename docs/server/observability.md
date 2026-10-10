@@ -45,6 +45,19 @@ the turn-key bundle ticket of the observability epic extends it, and a
 collector without the pipeline answers each push with an error the platform
 logs and drops.
 
+The Go runtime and process series the `/metrics` listener serves
+(`go_goroutines`, `go_memstats_*`, `go_gc_duration_seconds`,
+`process_cpu_seconds_total`, `process_open_fds`, `process_start_time_seconds`,
+...) are pushed over OTLP too, under the same names (#1901), so a deployment
+with `OTEL_METRICS_EXPORTER=otlp` and no listener still reports them. They are
+gathered from a registry of their own: the push carries each platform
+instrument once.
+
+A self-hosted backend with dashboards and alerts over all of this, ClickStack
+with a per-deployment edge collector, is in
+`deployments/observability/clickstack/` (#1900, #1901); its README covers
+evaluation with compose, fleets and Kubernetes.
+
 ### Resource attributes
 
 Every signal the platform emits, a metric, a span or a log record, carries
@@ -882,6 +895,84 @@ sum by (kind) (rate(notification_delivery_attempts_total{result!="delivered"}[15
 A Semgrep rule (`.semgrep/go-background-loop.yml`) refuses `time.NewTicker`,
 `time.Tick` and an infinite loop around a `select` in non-test Go outside the
 helper, so a new loop cannot ship without these signals.
+
+### Capacity and integrity
+
+How full the platform's database and buckets are, and whether objects and rows
+still agree (#1899). Every replica reports the same values, since the database
+is shared and the bucket counts are kept in it: read them with `max`, never
+`sum`.
+
+| Metric | What it is |
+|---|---|
+| `db_table_size_bytes{table}` | On-disk size of a growing platform table with its indexes and TOAST, summed over the partitions of `audit_logs`. |
+| `db_table_rows_estimate{table}` | The planner's row estimate (`pg_class.reltuples`); never a `COUNT(*)`, so it lags a burst until the next ANALYZE. |
+| `db_vector_index_size_bytes{index}` | Each pgvector HNSW index, which grows and bloats apart from its table's rows. |
+| `db_transaction_id_age` | `age(datfrozenxid)`: PostgreSQL refuses writes as it nears 2^31. |
+| `storage_bucket_bytes{bucket,purpose,backend}`, `storage_bucket_objects{...}` | What the platform holds in each bucket it owns, by purpose: the last full listing plus the puts and deletes recorded since. |
+| `storage_bucket_budget_bytes{bucket}` | The operator's byte budget for a bucket, where one is set. |
+| `storage_orphaned_objects{purpose}`, `storage_dangling_references{purpose}` | Objects under a platform prefix that no row references, and rows whose object is gone, as the last listing counted them. Counts only, never keys. |
+| `storage_scan_duration_seconds`, `storage_scan_objects` | The last full listing's duration and the objects it read. |
+| `mcp_platform_storage_backend_info{backend}` | 1 under each object store kind the buckets are on: `seaweedfs`, `s3`, `gcs` or `other`. |
+
+The table sampler reads the PostgreSQL catalog on every replica. The full
+listing walks every platform prefix once per interval across the deployment:
+each replica's timer takes an advisory lock and skips when another listed
+within the interval, so a rolling restart does not list once per replica. It
+sets each usage row to what it found plus what the row gained while it ran
+(it skips objects modified after it began, so a write made during it is
+counted once; when it began is read off the store's own clock, from a marker
+object it writes first at `_mcp_platform_capacity/listing-start` in each
+bucket, outside every platform prefix), removes the rows of a bucket the deployment no longer uses, and
+counts the orphans and dangling references, holding only the keys rows
+reference. Between listings, each put and delete the platform makes moves its
+bucket's row within seconds (each replica adds its writes every ten seconds),
+so an upload shows without waiting for the listing. A delete takes its object
+off the count but not its bytes, which the listing corrects. Tiles are counted
+by the listing alone: the thumbnail worker redraws a tile in place, so a put
+there is not a new object.
+
+A purpose is read from where an object sits: the managed-resources bucket's
+`resources/`, `webhooks/` and `maps/` prefixes; under the portal's prefix
+(and the older `portal/`), tile file names are `thumbnails`, a script's run
+outputs are `script_outputs`, GraphQL and API exports are `exports`, and
+everything else, Trino exports included (they are written in an asset's own
+shape), is `portal_assets`. The reconcile compares every object key a row
+records; a tile beside a referenced object belongs to it, as the purge treats
+it, an archive under `maps/uploads/` is the operator's, and webhook segments,
+which no row records one by one, are left out. An object written in the last
+`MCP_PLATFORM_STORAGE_ORPHAN_GRACE` is not yet an orphan, since a writer stores
+the object before the row.
+
+Each bucket's `backend` is read from its own S3 connection: no endpoint is
+`s3`, an amazonaws.com or googleapis.com host names itself, and anything else
+is asked for the `Server` header its root answers with, again every five
+minutes while it reads `other` (a store still starting when the platform did).
+A deployment may keep its portal and its managed resources on different
+stores.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_PLATFORM_CAPACITY_INTERVAL` | `15m` | How often each replica samples the tables. |
+| `MCP_PLATFORM_STORAGE_SCAN_INTERVAL` | `6h` | How often the full listing and reconcile runs. |
+| `MCP_PLATFORM_STORAGE_ORPHAN_GRACE` | `15m` | How recently an object may have been written and not be counted an orphan. |
+| `MCP_PLATFORM_STORAGE_BUDGETS` | none | `bucket=size,...`, sizes in bytes or with KiB, MiB, GiB, TiB (KB, MB, GB, TB). |
+| `MCP_PLATFORM_STORAGE_BACKEND` | asked | Names the store kind for every bucket instead of asking. |
+
+A malformed value is logged and its default used, keeping every variable that
+parsed; capacity reporting never stops the platform.
+
+```promql
+# a bucket over 90% of its budget
+sum by (bucket) (max by (bucket, purpose) (storage_bucket_bytes))
+  / max by (bucket) (storage_bucket_budget_bytes) > 0.9
+
+# the biggest tables
+topk(10, max by (table) (db_table_size_bytes))
+
+# rows whose object is missing
+max by (purpose) (storage_dangling_references) > 0
+```
 
 ### Label semantics
 

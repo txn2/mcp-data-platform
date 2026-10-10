@@ -1,0 +1,298 @@
+{
+  "name": "MCP Platform: Background work",
+  "tags": [
+    "background"
+  ],
+  "tiles": [
+    {
+      "name": "Script runs by status",
+      "display": "stacked_bar",
+      "query": {
+        "kind": "rate",
+        "metric": "script_runs",
+        "label": "per_second",
+        "by": "Attributes['status']",
+        "by_name": "status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Script run failures by cause",
+      "display": "stacked_bar",
+      "query": {
+        "kind": "rate",
+        "metric": "script_run_failures",
+        "label": "per_second",
+        "by": "Attributes['cause']",
+        "by_name": "cause"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 0
+    },
+    {
+      "name": "Script run p95 by script",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "script_run_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['script']",
+        "by_name": "script"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 0
+    },
+    {
+      "name": "Script queue wait p95",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "script_run_queue_wait",
+        "q": 0.95,
+        "label": "seconds"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "Script runs executing",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "script_runs_running",
+        "agg": "sum",
+        "label": "runs",
+        "table": "sum"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 6,
+      "y": 4
+    },
+    {
+      "name": "Background queue pending",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "background_queue_items",
+        "agg": "sum",
+        "label": "value",
+        "shared": true,
+        "by": "concat(Attributes['loop'], ' ', Attributes['kind'])",
+        "by_name": "loop_kind",
+        "where": "Attributes['state'] = 'pending'"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 12,
+      "y": 4
+    },
+    {
+      "name": "Oldest due age",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "background_queue_oldest_age",
+        "agg": "max",
+        "label": "seconds",
+        "shared": true,
+        "by": "concat(Attributes['loop'], ' ', Attributes['kind'])",
+        "by_name": "loop_kind"
+      },
+      "w": 6,
+      "h": 4,
+      "x": 18,
+      "y": 4
+    },
+    {
+      "name": "Missed fires by script",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "script_missed_fires",
+        "label": "per_second",
+        "by": "Attributes['script']",
+        "by_name": "script"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Admission refusals by reason",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "script_run_admission_refusals",
+        "label": "per_second",
+        "by": "Attributes['reason']",
+        "by_name": "reason"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "Reclaims by outcome",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "script_run_reclaims",
+        "label": "per_second",
+        "by": "Attributes['outcome']",
+        "by_name": "outcome"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    },
+    {
+      "name": "Index jobs by state",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "indexjob_queue_jobs",
+        "agg": "sum",
+        "label": "value",
+        "shared": true,
+        "by": "concat(Attributes['kind'], ' ', Attributes['state'])",
+        "by_name": "kind_state"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "name": "Oldest runnable index job wait",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "indexjob_oldest_runnable_wait",
+        "agg": "max",
+        "label": "seconds",
+        "shared": true,
+        "by": "Attributes['kind']",
+        "by_name": "kind"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 12
+    },
+    {
+      "name": "Index jobs by outcome",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "indexjob_jobs",
+        "label": "per_second",
+        "by": "concat(Attributes['kind'], ' ', Attributes['outcome'])",
+        "by_name": "kind_outcome"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 12
+    },
+    {
+      "name": "Webhook requests by outcome",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "webhook_requests",
+        "label": "per_second",
+        "by": "concat(Attributes['source'], ' ', Attributes['outcome'])",
+        "by_name": "source_outcome"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 16
+    },
+    {
+      "name": "Webhook compactions by result",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "webhook_compactions",
+        "label": "per_second",
+        "by": "concat(Attributes['source'], ' ', Attributes['result'])",
+        "by_name": "source_result"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 16
+    },
+    {
+      "name": "Notification delivery by kind",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "notification_delivery_attempts",
+        "label": "per_second",
+        "by": "concat(Attributes['kind'], ' ', Attributes['result'])",
+        "by_name": "kind_result"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 16
+    },
+    {
+      "name": "Audit writer queue depth",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "audit_writer_queue_depth",
+        "agg": "max",
+        "label": "events"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 20
+    },
+    {
+      "name": "Audit events dropped",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "audit_events_dropped",
+        "label": "per_second",
+        "by": "Attributes['reason']",
+        "by_name": "reason"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 20
+    },
+    {
+      "name": "Seconds since each loop last succeeded",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT Attributes['loop'] AS loop, round(dateDiff('second', toDateTime(argMax(Value, TimeUnix)), now())) AS seconds FROM otel_metrics_gauge WHERE MetricName = 'background_loop_last_success_timestamp' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY loop ORDER BY seconds DESC"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 20
+    }
+  ]
+}

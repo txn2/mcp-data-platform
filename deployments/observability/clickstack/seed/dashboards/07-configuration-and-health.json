@@ -1,0 +1,126 @@
+{
+  "name": "MCP Platform: Configuration and health",
+  "tags": [
+    "config"
+  ],
+  "tiles": [
+    {
+      "name": "Build per deployment",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['version'] AS version, Attributes['commit'] AS commit, Attributes['go_version'] AS go_version FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_build_info' AND TimeUnix >= now() - INTERVAL 10 MINUTE AND {{fleet}} GROUP BY deployment, version, commit, go_version ORDER BY deployment"
+      },
+      "w": 12,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Configuration per deployment",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['toolkit_kinds'] AS toolkits, Attributes['auth_methods'] AS auth, Attributes['tracing'] AS tracing, Attributes['metrics_exporter'] AS metrics, Attributes['sampler_ratio'] AS sampler FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_config_info' AND TimeUnix >= now() - INTERVAL 10 MINUTE AND {{fleet}} GROUP BY deployment, toolkits, auth, tracing, metrics, sampler ORDER BY deployment"
+      },
+      "w": 12,
+      "h": 4,
+      "x": 12,
+      "y": 0
+    },
+    {
+      "name": "Configuration warnings by code",
+      "display": "table",
+      "query": {
+        "kind": "rate",
+        "metric": "config_validation_warnings",
+        "label": "warnings",
+        "by": "Attributes['code']",
+        "by_name": "code"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "Personas",
+      "display": "table",
+      "query": {
+        "kind": "gauge",
+        "metric": "mcp_platform_personas",
+        "agg": "max",
+        "label": "personas",
+        "shared": true,
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 4
+    },
+    {
+      "name": "Dependency up",
+      "display": "table",
+      "query": {
+        "kind": "gauge",
+        "metric": "dependency_up",
+        "agg": "min",
+        "label": "up",
+        "by": "concat(ResourceAttributes['mcp_platform.deployment.id'], ' ', Attributes['dependency'])",
+        "by_name": "deployment_dependency"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 4
+    },
+    {
+      "name": "Dependency up over time",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "dependency_up",
+        "agg": "min",
+        "label": "up",
+        "by": "Attributes['dependency']",
+        "by_name": "dependency"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Search index age",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "search_index_last_indexed_age",
+        "agg": "max",
+        "label": "seconds",
+        "shared": true,
+        "by": "Attributes['kind']",
+        "by_name": "kind"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "Startup phases (latest start)",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT k AS phase, toFloat64OrZero(v) AS ms FROM (SELECT LogAttributes AS a FROM otel_logs WHERE Body = 'platform initialized' AND $__timeFilter(Timestamp) AND $__filter(ResourceAttributes['mcp_platform.deployment.id'], $deployment) ORDER BY Timestamp DESC LIMIT 1) ARRAY JOIN mapKeys(a) AS k, mapValues(a) AS v WHERE startsWith(k, 'phase_') ORDER BY ms DESC"
+      },
+      "source": "log",
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    }
+  ]
+}

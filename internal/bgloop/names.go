@@ -24,6 +24,12 @@ const (
 	NameIndexJobRetention = "indexjob_retention"
 	NameRetention         = "retention"
 
+	// Capacity: the table sampler, the shared bucket-usage flush and the
+	// full bucket listing (internal/platform/capacity).
+	NameCapacityTables    = "capacity_tables"
+	NameStorageUsageFlush = "storage_usage_flush"
+	NameStorageScan       = "storage_scan"
+
 	// Queue workers and their sub-loops.
 	NameIndexJobWorker      = "indexjob_worker"
 	NameIndexJobHeartbeat   = "indexjob_heartbeat"

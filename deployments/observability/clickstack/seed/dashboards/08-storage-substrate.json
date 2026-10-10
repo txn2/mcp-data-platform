@@ -1,0 +1,301 @@
+{
+  "name": "MCP Platform: Storage",
+  "tags": [
+    "storage"
+  ],
+  "tiles": [
+    {
+      "name": "Platform tables by size",
+      "display": "table",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_table_size",
+        "agg": "sum",
+        "label": "bytes",
+        "shared": true,
+        "by": "Attributes['table']",
+        "by_name": "table"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Vector indexes by size",
+      "display": "table",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_vector_index_size",
+        "agg": "sum",
+        "label": "bytes",
+        "shared": true,
+        "by": "Attributes['index']",
+        "by_name": "index"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 0
+    },
+    {
+      "name": "Transaction id age",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_transaction_id_age",
+        "agg": "max",
+        "label": "transactions",
+        "shared": true,
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 0
+    },
+    {
+      "name": "Largest tables over time",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_table_size",
+        "agg": "max",
+        "label": "bytes",
+        "shared": true,
+        "by": "Attributes['table']",
+        "by_name": "table",
+        "where": "Attributes['table'] IN ('audit_logs', 'call_records', 'script_runs', 'index_jobs', 'memory_records', 'portal_asset_versions')"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 12,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "Rows (estimate) over time",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "db_table_rows_estimate",
+        "agg": "max",
+        "label": "rows",
+        "shared": true,
+        "by": "Attributes['table']",
+        "by_name": "table",
+        "where": "Attributes['table'] IN ('audit_logs', 'call_records', 'script_runs', 'index_jobs', 'memory_records')"
+      },
+      "w": 12,
+      "h": 4,
+      "x": 12,
+      "y": 4
+    },
+    {
+      "name": "Bucket bytes by purpose",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "storage_bucket",
+        "agg": "max",
+        "label": "bytes",
+        "shared": true,
+        "by": "concat(Attributes['bucket'], ' ', Attributes['purpose'])",
+        "by_name": "bucket_purpose"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Bucket objects by purpose",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "storage_bucket_objects",
+        "agg": "max",
+        "label": "objects",
+        "shared": true,
+        "by": "concat(Attributes['bucket'], ' ', Attributes['purpose'])",
+        "by_name": "bucket_purpose"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "Bucket use against budget",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT u.deployment AS deployment, u.bucket AS bucket, u.used AS used_bytes, b.budget AS budget_bytes, round(100 * u.used / b.budget, 1) AS percent FROM (SELECT deployment, bucket, sum(v) AS used FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, Attributes['purpose'] AS purpose, max(v) AS v FROM (SELECT ResourceAttributes, Attributes, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket' AND TimeUnix >= now() - INTERVAL 10 MINUTE AND {{fleet}} GROUP BY ResourceAttributes, Attributes, sid) GROUP BY deployment, bucket, purpose) GROUP BY deployment, bucket) AS u INNER JOIN (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, max(Value) AS budget FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket_budget' AND TimeUnix >= now() - INTERVAL 10 MINUTE AND {{fleet}} GROUP BY deployment, bucket) AS b ON u.deployment = b.deployment AND u.bucket = b.bucket ORDER BY percent DESC"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    },
+    {
+      "name": "Orphaned objects by purpose",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "storage_orphaned_objects",
+        "agg": "max",
+        "label": "objects",
+        "shared": true,
+        "by": "Attributes['purpose']",
+        "by_name": "purpose"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "name": "Dangling references by purpose",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "storage_dangling_references",
+        "agg": "max",
+        "label": "rows",
+        "shared": true,
+        "by": "Attributes['purpose']",
+        "by_name": "purpose"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 12
+    },
+    {
+      "name": "Storage write failures by reason",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "storage_operations",
+        "label": "per_second",
+        "by": "concat(Attributes['purpose'], ' ', Attributes['reason'])",
+        "by_name": "purpose_reason",
+        "where": "Attributes['result'] != 'ok' AND Attributes['operation'] = 'put'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 12
+    },
+    {
+      "name": "Bucket listing duration",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "storage_scan_duration",
+        "agg": "max",
+        "label": "seconds",
+        "shared": true
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 16
+    },
+    {
+      "name": "Objects the last listing read",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "storage_scan_objects",
+        "agg": "max",
+        "label": "objects",
+        "shared": true
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 16
+    },
+    {
+      "name": "PostgreSQL database size",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "postgresql.db_size",
+        "agg": "max",
+        "label": "bytes",
+        "table": "sum"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 16
+    },
+    {
+      "name": "Volume available",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "k8s.volume.available",
+        "agg": "min",
+        "label": "bytes",
+        "by": "ResourceAttributes['k8s.persistentvolumeclaim.name']",
+        "by_name": "claim"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 20
+    },
+    {
+      "name": "ClickHouse disk available",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "ClickHouseAsyncMetrics_DiskAvailable",
+        "agg": "min",
+        "label": "bytes",
+        "where": "Attributes['disk'] = 'default'"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 20
+    },
+    {
+      "name": "ClickHouse rejected inserts",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "ClickHouseProfileEvents_RejectedInserts",
+        "label": "per_second"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 20
+    }
+  ]
+}

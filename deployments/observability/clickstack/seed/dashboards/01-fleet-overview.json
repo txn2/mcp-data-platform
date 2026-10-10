@@ -1,0 +1,164 @@
+{
+  "name": "MCP Platform: Fleet overview",
+  "tags": [
+    "fleet"
+  ],
+  "tiles": [
+    {
+      "name": "Deployments reporting (last 5 minutes)",
+      "display": "number",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT uniqExact(ResourceAttributes['mcp_platform.deployment.id']) AS deployments FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_build_info' AND TimeUnix >= now() - INTERVAL 5 MINUTE AND {{fleet}}"
+      },
+      "h": 3,
+      "w": 6,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Versions running",
+      "display": "number",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT uniqExact(Attributes['version']) AS versions FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_build_info' AND TimeUnix >= now() - INTERVAL 5 MINUTE AND {{fleet}}"
+      },
+      "h": 3,
+      "w": 6,
+      "x": 6,
+      "y": 0
+    },
+    {
+      "name": "Tool calls in range",
+      "display": "number",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "calls"
+      },
+      "h": 3,
+      "w": 6,
+      "x": 12,
+      "y": 0
+    },
+    {
+      "name": "Tool call errors",
+      "display": "number",
+      "query": {
+        "kind": "ratio",
+        "metric": "mcp_tool_calls",
+        "match": "Attributes['status_category'] != 'ok'",
+        "label": "percent"
+      },
+      "h": 3,
+      "format": {
+        "output": "number",
+        "mantissa": 2,
+        "unit": "%"
+      },
+      "w": 6,
+      "x": 18,
+      "y": 0
+    },
+    {
+      "name": "Deployments: version and last seen",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, ResourceAttributes['deployment.environment.name'] AS environment, argMax(Attributes['version'], TimeUnix) AS version, max(TimeUnix) AS last_seen, dateDiff('second', max(TimeUnix), now()) AS seconds_since FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_build_info' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY deployment, environment ORDER BY last_seen DESC"
+      },
+      "h": 5,
+      "w": 24,
+      "x": 0,
+      "y": 3
+    },
+    {
+      "name": "Tool call rate by deployment",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "per_second",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Tool call error rate by deployment",
+      "display": "line",
+      "query": {
+        "kind": "ratio",
+        "metric": "mcp_tool_calls",
+        "match": "Attributes['status_category'] != 'ok'",
+        "label": "percent",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "Tool call p95 by deployment",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "mcp_tool_call_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    },
+    {
+      "name": "Top 10 deployments by error rate",
+      "display": "table",
+      "query": {
+        "kind": "ratio",
+        "metric": "mcp_tool_calls",
+        "match": "Attributes['status_category'] != 'ok'",
+        "label": "percent",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment",
+        "limit": 10
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "name": "Connections by state",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT deployment, kind, state, max(v) AS connections FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['kind'] AS kind, Attributes['state'] AS state, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_connections' AND TimeUnix >= now() - INTERVAL 10 MINUTE AND {{fleet}} GROUP BY deployment, kind, state, sid) GROUP BY deployment, kind, state ORDER BY deployment, kind, state"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 12
+    },
+    {
+      "name": "Object store by deployment",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['backend'] AS backend FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_storage_backend_info' AND TimeUnix >= now() - INTERVAL 10 MINUTE AND {{fleet}} GROUP BY deployment, backend ORDER BY deployment"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 12
+    }
+  ]
+}

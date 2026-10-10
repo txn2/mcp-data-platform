@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	prombridge "go.opentelemetry.io/contrib/bridges/prometheus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
@@ -360,7 +361,8 @@ type Metrics struct {
 
 	// Authentication, configuration, platform-state and domain-operation
 	// instruments (#1898), metrics_domain.go and metrics_ops.go.
-	domain domainInstruments
+	domain   domainInstruments
+	capacity capacityInstruments
 	// Background loop, queue and worker instruments (#1897),
 	// metrics_background.go.
 	bg backgroundInstruments
@@ -475,9 +477,23 @@ func (m *Metrics) readers(cfg Config) ([]sdkmetric.Reader, error) {
 		if err != nil {
 			return nil, fmt.Errorf("observability: otlp metric exporter: %w", err)
 		}
-		readers = append(readers, sdkmetric.NewPeriodicReader(exporter))
+		readers = append(readers, sdkmetric.NewPeriodicReader(exporter,
+			sdkmetric.WithProducer(runtimeProducer())))
 	}
 	return readers, nil
+}
+
+// runtimeProducer is the Go runtime and process series (go_goroutines,
+// go_memstats_*, go_gc_duration_seconds, process_cpu_seconds_total,
+// process_open_fds, ...) for the OTLP push, under the names the Prometheus
+// listener serves them by, so one dashboard reads either path (#1901). It
+// gathers a registry of its own: the Prometheus exporter's registry also holds
+// every platform instrument, which the push already carries.
+func runtimeProducer() sdkmetric.Producer {
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	return prombridge.NewMetricProducer(prombridge.WithGatherer(reg))
 }
 
 // Build-info labels (#1893): the three values a fleet compares to find
@@ -665,6 +681,9 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 		return err
 	}
 	if err := m.registerDepInstruments(meter); err != nil {
+		return err
+	}
+	if err := m.registerCapacityInstruments(meter); err != nil {
 		return err
 	}
 	return m.registerDBPoolInstruments(meter)

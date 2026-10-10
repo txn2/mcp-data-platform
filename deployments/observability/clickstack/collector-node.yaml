@@ -1,0 +1,76 @@
+# The per-node collector in Kubernetes (k8s/collector-node.yaml runs it as a
+# DaemonSet): the platform's container logs from /var/log/pods, and every
+# volume's capacity from the kubelet, sent to the deployment's edge collector,
+# which stamps identity, applies the privacy defaults and exports them.
+#
+# The log receiver is needed only while the platform keeps its logs on stderr
+# (OTEL_LOGS_EXPORTER unset); with logs over OTLP they arrive with trace ids
+# and this half can be dropped. The volume half is what reports the database's
+# PVC filling up: k8s.volume.capacity, k8s.volume.available and the inode
+# figures, labeled by the claim (k8s_api_config resolves the claim behind each
+# pod volume, which the ClusterRole in k8s/collector-node.yaml allows).
+#
+#   K8S_NODE_NAME         the node, from the downward API
+#   NODE_EXPORT_ENDPOINT  the edge collector's OTLP endpoint
+#                         (default otel-edge-collector:4317)
+#   NODE_LOG_GLOB         the platform's pod log files
+#                         (default /var/log/pods/*_mcp-data-platform-*/*/*.log)
+receivers:
+  filelog/platform:
+    include: ["${env:NODE_LOG_GLOB:-/var/log/pods/*_mcp-data-platform-*/*/*.log}"]
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: container
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+        on_error: send_quiet
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+        severity:
+          parse_from: attributes.level
+      - type: move
+        if: attributes.msg != nil
+        from: attributes.msg
+        to: body
+      - type: trace_parser
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+
+  kubeletstats:
+    collection_interval: 60s
+    auth_type: serviceAccount
+    endpoint: https://${env:K8S_NODE_NAME}:10250
+    insecure_skip_verify: true
+    metric_groups: [volume]
+    k8s_api_config:
+      auth_type: serviceAccount
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+  batch:
+    timeout: 5s
+
+exporters:
+  otlp/edge:
+    endpoint: ${env:NODE_EXPORT_ENDPOINT:-otel-edge-collector:4317}
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog/platform]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/edge]
+    metrics:
+      receivers: [kubeletstats]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/edge]

@@ -1,0 +1,189 @@
+{
+  "name": "MCP Platform: Auth and connections",
+  "tags": [
+    "auth"
+  ],
+  "tiles": [
+    {
+      "name": "Auth failures by method and reason",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "auth_attempts",
+        "label": "per_second",
+        "by": "concat(Attributes['method'], ' ', Attributes['reason'])",
+        "by_name": "method_reason",
+        "where": "Attributes['result'] = 'failure'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Auth attempts by result",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "auth_attempts",
+        "label": "per_second",
+        "by": "Attributes['result']",
+        "by_name": "result"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 0
+    },
+    {
+      "name": "Requests passed while the IdP was unreachable",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "auth_fail_open",
+        "label": "per_second"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 0
+    },
+    {
+      "name": "OAuth tokens issued by grant",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "oauth_token_issuance",
+        "label": "per_second",
+        "by": "concat(Attributes['grant_type'], ' ', Attributes['status'])",
+        "by_name": "grant_status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "OAuth token refreshes by status",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "oauth_token_refresh",
+        "label": "per_second",
+        "by": "Attributes['status']",
+        "by_name": "status"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 4
+    },
+    {
+      "name": "Connection OAuth refreshes by result",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "connection_oauth_refresh",
+        "label": "per_second",
+        "by": "concat(Attributes['kind'], ' ', Attributes['result'])",
+        "by_name": "kind_result"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 4
+    },
+    {
+      "name": "Connection credentials by state",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "connection_oauth_credentials",
+        "agg": "sum",
+        "label": "value",
+        "shared": true,
+        "by": "concat(Attributes['kind'], ' ', Attributes['state'])",
+        "by_name": "kind_state"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Connections by state",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "mcp_platform_connections",
+        "agg": "sum",
+        "label": "value",
+        "shared": true,
+        "by": "concat(Attributes['kind'], ' ', Attributes['state'])",
+        "by_name": "kind_state"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "Outbound p95 by connection",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "http_client_request_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['connection']",
+        "by_name": "connection"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    },
+    {
+      "name": "Egress blocked by reason",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "egress_blocked",
+        "label": "per_second",
+        "by": "Attributes['reason']",
+        "by_name": "reason"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "name": "JWKS fetches by result",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "oidc_jwks_fetches",
+        "label": "per_second",
+        "by": "Attributes['result']",
+        "by_name": "result"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 12
+    },
+    {
+      "name": "Seconds since the last JWKS fetch",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, round(dateDiff('second', toDateTime(argMax(Value, TimeUnix)), now())) AS seconds FROM otel_metrics_gauge WHERE MetricName = 'oidc_jwks_last_success_timestamp' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY deployment ORDER BY seconds DESC"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 12
+    }
+  ]
+}
