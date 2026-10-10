@@ -1,0 +1,69 @@
+# The node collector (collector-node.yaml) as a DaemonSet: the platform's pod
+# logs and every volume's capacity, sent to the edge collector. The
+# ClusterRole is what the kubelet stats and the claim lookup need.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-node-collector
+  labels: {app.kubernetes.io/name: otel-node-collector, app.kubernetes.io/part-of: mcp-data-platform-observability}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-node-collector
+  labels: {app.kubernetes.io/name: otel-node-collector, app.kubernetes.io/part-of: mcp-data-platform-observability}
+rules:
+  - apiGroups: [""]
+    resources: [nodes/stats, nodes/proxy]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims, persistentvolumes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-node-collector
+  labels: {app.kubernetes.io/name: otel-node-collector, app.kubernetes.io/part-of: mcp-data-platform-observability}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-node-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-node-collector
+    namespace: observability
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-node-collector
+  labels: {app.kubernetes.io/name: otel-node-collector, app.kubernetes.io/part-of: mcp-data-platform-observability}
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: otel-node-collector}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: otel-node-collector, app.kubernetes.io/part-of: mcp-data-platform-observability}
+    spec:
+      serviceAccountName: otel-node-collector
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+          args: [--config=/etc/otelcol/collector-node.yaml]
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef: {fieldPath: spec.nodeName}
+            - {name: NODE_EXPORT_ENDPOINT, value: "otel-edge-collector:4317"}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol}
+            - {name: pods, mountPath: /var/log/pods, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: otel-node-collector}
+        - name: pods
+          hostPath: {path: /var/log/pods}

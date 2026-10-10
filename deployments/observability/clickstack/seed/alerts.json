@@ -1,0 +1,427 @@
+[
+  {
+    "name": "API gateway: inbound 5xx over 5%",
+    "interval": "5m",
+    "windows": 1,
+    "threshold": 5,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT max(percent) FROM ({a})",
+      "parts": {
+        "a": {
+          "kind": "ratio",
+          "metric": "apigateway_inbound_requests",
+          "match": "Attributes['status_class'] = '5xx'",
+          "label": "percent",
+          "by": "Attributes['connection']",
+          "by_name": "g"
+        }
+      }
+    }
+  },
+  {
+    "name": "API gateway: inbound p95 more than twice its last hour",
+    "interval": "5m",
+    "windows": 2,
+    "threshold": 2,
+    "thresholdType": "above",
+    "query": {
+      "kind": "regression",
+      "metric": "apigateway_inbound_duration",
+      "q": 0.95,
+      "by": "Attributes['connection']",
+      "baseline": "1 HOUR"
+    }
+  },
+  {
+    "name": "Auth failures over 1 per second",
+    "interval": "5m",
+    "windows": 1,
+    "threshold": 300,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT ifNull(({a}), 0) + ifNull(({b}), 0) + ifNull(({c}), 0)",
+      "parts": {
+        "a": {
+          "kind": "rate",
+          "metric": "mcp_tool_calls",
+          "label": "inc",
+          "where": "Attributes['status_category'] IN ('auth_err', 'authz_err')"
+        },
+        "b": {
+          "kind": "rate",
+          "metric": "oauth_token_issuance",
+          "label": "inc",
+          "where": "Attributes['status'] != 'ok'"
+        },
+        "c": {
+          "kind": "rate",
+          "metric": "oauth_token_refresh",
+          "label": "inc",
+          "where": "Attributes['status'] != 'ok'"
+        }
+      }
+    }
+  },
+  {
+    "name": "Postgres pool: connections waiting",
+    "interval": "5m",
+    "windows": 2,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "rate",
+      "metric": "db_pool_wait_count",
+      "label": "waits"
+    }
+  },
+  {
+    "name": "Deployment not reporting",
+    "interval": "5m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "message": "A deployment that reported in the last hour has sent nothing for five minutes.",
+    "query": {
+      "kind": "sql",
+      "sql": "SELECT count() FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS d, max(TimeUnix) AS last FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_build_info' AND TimeUnix >= $__fromTime - INTERVAL 1 HOUR AND TimeUnix <= $__toTime AND {{fleet}} GROUP BY d HAVING last < $__fromTime)"
+    }
+  },
+  {
+    "name": "Tool call error rate over 5% on a deployment",
+    "interval": "5m",
+    "windows": 2,
+    "threshold": 5,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT max(percent) FROM ({a})",
+      "parts": {
+        "a": {
+          "kind": "ratio",
+          "metric": "mcp_tool_calls",
+          "match": "Attributes['status_category'] != 'ok'",
+          "label": "percent",
+          "by": "ResourceAttributes['mcp_platform.deployment.id']",
+          "by_name": "g"
+        }
+      }
+    }
+  },
+  {
+    "name": "Tool error rate over 20% on a tool",
+    "interval": "15m",
+    "windows": 1,
+    "threshold": 20,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT max(percent) FROM ({a})",
+      "parts": {
+        "a": {
+          "kind": "ratio",
+          "metric": "mcp_tool_calls",
+          "match": "Attributes['status_category'] != 'ok'",
+          "label": "percent",
+          "by": "Attributes['tool']",
+          "by_name": "g"
+        }
+      }
+    }
+  },
+  {
+    "name": "Tool p95 more than twice its trailing day",
+    "interval": "15m",
+    "windows": 2,
+    "threshold": 2,
+    "thresholdType": "above",
+    "query": {
+      "kind": "regression",
+      "metric": "mcp_tool_call_duration",
+      "q": 0.95,
+      "by": "Attributes['tool']",
+      "baseline": "1 DAY"
+    }
+  },
+  {
+    "name": "Connection credentials failing",
+    "interval": "15m",
+    "windows": 2,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "message": "A connection's credential is refused (auth_failed) or its OAuth grant is revoked.",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT ifNull(({a}), 0) + ifNull(({b}), 0)",
+      "parts": {
+        "a": {
+          "kind": "gauge",
+          "metric": "mcp_platform_connections",
+          "agg": "sum",
+          "label": "v",
+          "where": "Attributes['state'] = 'auth_failed'",
+          "shared": true
+        },
+        "b": {
+          "kind": "gauge",
+          "metric": "connection_oauth_credentials",
+          "agg": "sum",
+          "label": "v",
+          "where": "Attributes['state'] = 'revoked'",
+          "shared": true
+        }
+      }
+    }
+  },
+  {
+    "name": "Scripts: missed fires",
+    "interval": "15m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "rate",
+      "metric": "script_missed_fires",
+      "label": "fires"
+    }
+  },
+  {
+    "name": "Scripts: admission refusals",
+    "interval": "15m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "rate",
+      "metric": "script_run_admission_refusals",
+      "label": "refusals"
+    }
+  },
+  {
+    "name": "Scripts: oldest due run over 10 minutes",
+    "interval": "5m",
+    "windows": 2,
+    "threshold": 600,
+    "thresholdType": "above",
+    "query": {
+      "kind": "gauge",
+      "metric": "background_queue_oldest_age",
+      "agg": "max",
+      "where": "Attributes['loop'] LIKE 'script%'"
+    }
+  },
+  {
+    "name": "Background loop silent for a day",
+    "interval": "1h",
+    "windows": 1,
+    "threshold": 93600,
+    "thresholdType": "above",
+    "message": "A background loop has not finished an iteration in 26 hours; the daily sweeps run every 24.",
+    "query": {
+      "kind": "sql",
+      "sql": "SELECT max(dateDiff('second', toDateTime(last), now())) FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS d, Attributes['loop'] AS loop, argMax(Value, TimeUnix) AS last FROM otel_metrics_gauge WHERE MetricName = 'background_loop_last_success_timestamp' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY d, loop)"
+    }
+  },
+  {
+    "name": "Audit events dropped",
+    "interval": "5m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "rate",
+      "metric": "audit_events_dropped",
+      "label": "dropped"
+    }
+  },
+  {
+    "name": "Postgres pool nearly exhausted",
+    "interval": "5m",
+    "windows": 2,
+    "threshold": 90,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT v FROM (SELECT 100 * ({a}) / nullIf(({b}), 0) AS v) WHERE v IS NOT NULL",
+      "parts": {
+        "a": {
+          "kind": "gauge",
+          "metric": "db_pool_in_use",
+          "agg": "sum",
+          "label": "v"
+        },
+        "b": {
+          "kind": "gauge",
+          "metric": "db_pool_max_open_connections",
+          "agg": "sum",
+          "label": "v"
+        }
+      }
+    }
+  },
+  {
+    "name": "Configuration warnings logged",
+    "interval": "15m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "message": "The platform logged configuration warnings (at startup or on a persona write); the saved search MCP: configuration warnings lists them.",
+    "query": {
+      "kind": "rate",
+      "metric": "config_validation_warnings",
+      "label": "warnings"
+    }
+  },
+  {
+    "name": "Bucket over 90% of its budget",
+    "interval": "1h",
+    "windows": 1,
+    "threshold": 90,
+    "thresholdType": "above",
+    "query": {
+      "kind": "sql",
+      "sql": "SELECT max(100 * u.used / b.budget) FROM (SELECT deployment, bucket, sum(v) AS used FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, Attributes['purpose'] AS purpose, max(v) AS v FROM (SELECT ResourceAttributes, Attributes, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY ResourceAttributes, Attributes, sid) GROUP BY deployment, bucket, purpose) GROUP BY deployment, bucket) AS u INNER JOIN (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, max(Value) AS budget FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket_budget' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY deployment, bucket) AS b USING (deployment, bucket) WHERE b.budget > 0"
+    }
+  },
+  {
+    "name": "Bucket reaches its budget within 14 days",
+    "interval": "6h",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "message": "At the last day's growth a bucket fills its budget within two weeks.",
+    "query": {
+      "kind": "sql",
+      "sql": "SELECT countIf((n.used - d.used) > 0 AND (b.budget - n.used) / (n.used - d.used) < 14) FROM (SELECT deployment, bucket, sum(v) AS used FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, Attributes['purpose'] AS purpose, max(v) AS v FROM (SELECT ResourceAttributes, Attributes, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY ResourceAttributes, Attributes, sid) GROUP BY deployment, bucket, purpose) GROUP BY deployment, bucket) AS n INNER JOIN (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, max(Value) AS budget FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket_budget' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY deployment, bucket) AS b USING (deployment, bucket) INNER JOIN (SELECT deployment, bucket, sum(v) AS used FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, Attributes['bucket'] AS bucket, Attributes['purpose'] AS purpose, max(v) AS v FROM (SELECT ResourceAttributes, Attributes, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName = 'storage_bucket' AND TimeUnix >= $__fromTime - INTERVAL 25 HOUR AND TimeUnix < $__fromTime - INTERVAL 23 HOUR AND {{fleet}} GROUP BY ResourceAttributes, Attributes, sid) GROUP BY deployment, bucket, purpose) GROUP BY deployment, bucket) AS d USING (deployment, bucket)"
+    }
+  },
+  {
+    "name": "Postgres volume over 90% full",
+    "interval": "15m",
+    "windows": 2,
+    "threshold": 90,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT v FROM (SELECT 100 * (({b}) - ({a})) / nullIf(({b}), 0) AS v) WHERE v IS NOT NULL",
+      "parts": {
+        "a": {
+          "kind": "gauge",
+          "metric": "k8s.volume.available",
+          "agg": "min",
+          "label": "v",
+          "where": "ResourceAttributes['k8s.persistentvolumeclaim.name'] LIKE '%postgres%'"
+        },
+        "b": {
+          "kind": "gauge",
+          "metric": "k8s.volume.capacity",
+          "agg": "min",
+          "label": "v",
+          "where": "ResourceAttributes['k8s.persistentvolumeclaim.name'] LIKE '%postgres%'"
+        }
+      }
+    },
+    "message": "The PostgreSQL volume is more than 90% full. HyperDX reads no data as 0, so the alert is written on use, not on free space."
+  },
+  {
+    "name": "Transaction id age over one billion",
+    "interval": "1h",
+    "windows": 1,
+    "threshold": 1000000000,
+    "thresholdType": "above",
+    "query": {
+      "kind": "gauge",
+      "metric": "db_transaction_id_age",
+      "agg": "max"
+    }
+  },
+  {
+    "name": "Postgres transaction open over an hour",
+    "interval": "15m",
+    "windows": 2,
+    "threshold": 3600,
+    "thresholdType": "above",
+    "query": {
+      "kind": "gauge",
+      "metric": "postgresql.transaction.longest",
+      "agg": "max"
+    }
+  },
+  {
+    "name": "Storage writes refused",
+    "interval": "5m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "message": "Object writes failed with access_denied, bucket_missing or quota_exceeded: a credential, policy or quota problem, not an outage.",
+    "query": {
+      "kind": "rate",
+      "metric": "storage_operations",
+      "label": "failures",
+      "where": "Attributes['operation'] = 'put' AND Attributes['reason'] IN ('access_denied', 'bucket_missing', 'quota_exceeded')"
+    }
+  },
+  {
+    "name": "Orphaned or dangling objects rising",
+    "interval": "6h",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "sql",
+      "sql": "SELECT v FROM (SELECT ((SELECT sumOrNull(v) FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, MetricName AS metric, Attributes['purpose'] AS purpose, max(v) AS v FROM (SELECT ResourceAttributes, MetricName, Attributes, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName IN ('storage_orphaned_objects', 'storage_dangling_references') AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY ResourceAttributes, MetricName, Attributes, sid) GROUP BY deployment, metric, purpose))) - ((SELECT sumOrNull(v) FROM (SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, MetricName AS metric, Attributes['purpose'] AS purpose, max(v) AS v FROM (SELECT ResourceAttributes, MetricName, Attributes, cityHash64(Attributes, ResourceAttributes) AS sid, argMax(Value, TimeUnix) AS v FROM otel_metrics_gauge WHERE MetricName IN ('storage_orphaned_objects', 'storage_dangling_references') AND TimeUnix >= $__fromTime - INTERVAL 25 HOUR AND TimeUnix < $__fromTime - INTERVAL 23 HOUR AND {{fleet}} GROUP BY ResourceAttributes, MetricName, Attributes, sid) GROUP BY deployment, metric, purpose))) AS v) WHERE v IS NOT NULL"
+    }
+  },
+  {
+    "name": "ClickHouse disk over 85% full",
+    "interval": "15m",
+    "windows": 2,
+    "threshold": 85,
+    "thresholdType": "above",
+    "query": {
+      "kind": "compose",
+      "expr": "SELECT v FROM (SELECT 100 * (({b}) - ({a})) / nullIf(({b}), 0) AS v) WHERE v IS NOT NULL",
+      "parts": {
+        "a": {
+          "kind": "gauge",
+          "metric": "ClickHouseAsyncMetrics_DiskAvailable",
+          "agg": "min",
+          "label": "v",
+          "where": "Attributes['disk'] = 'default'"
+        },
+        "b": {
+          "kind": "gauge",
+          "metric": "ClickHouseAsyncMetrics_DiskTotal",
+          "agg": "min",
+          "label": "v",
+          "where": "Attributes['disk'] = 'default'"
+        }
+      }
+    }
+  },
+  {
+    "name": "ClickHouse rejecting inserts",
+    "interval": "5m",
+    "windows": 1,
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "rate",
+      "metric": "ClickHouseProfileEvents_RejectedInserts",
+      "label": "rejected"
+    }
+  },
+  {
+    "name": "More than two versions across the fleet",
+    "interval": "6h",
+    "windows": 2,
+    "threshold": 2,
+    "thresholdType": "above_exclusive",
+    "query": {
+      "kind": "sql",
+      "sql": "SELECT uniqExact(Attributes['version']) FROM otel_metrics_gauge WHERE MetricName = 'mcp_platform_build_info' AND $__timeFilter(TimeUnix) AND {{fleet}}"
+    }
+  }
+]

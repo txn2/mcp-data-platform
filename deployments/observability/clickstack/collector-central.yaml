@@ -1,0 +1,89 @@
+# Optional central gateway in front of a shared ClickStack: every deployment's
+# edge collector (collector-edge.yaml) exports here instead of to ClickStack
+# directly. It gives the fleet one authenticated entry point, one place to fan
+# out to a second backend, and one memory limit in front of ClickHouse.
+#
+# Edges authenticate with a bearer token: each edge sets
+# EDGE_EXPORT_AUTHORIZATION="Bearer <token>". To give each deployment a token
+# of its own, so revoking one is removing its line, list them under tokens
+# below instead of the one variable. The gateway itself sends to ClickStack
+# with the ingestion key.
+#
+#   CENTRAL_EDGE_TOKEN          the token the edges send, from a Secret
+#   CENTRAL_TLS_CERT, _KEY      the gateway's serving certificate (edges verify it)
+#   CENTRAL_EXPORT_ENDPOINT     ClickStack's OTLP endpoint (default clickstack:4317)
+#   CENTRAL_EXPORT_AUTHORIZATION  ClickStack's ingestion key
+#
+# Sampling stays at the edge: each edge sees every span of its own
+# deployment's traces, which tail sampling requires. To sample centrally
+# instead (one sampling tier for the fleet, scaled to several replicas), every
+# span of a trace must reach the same replica: put a first tier in front that
+# routes by trace id with the load-balancing exporter, and run the
+# tail_sampling processor in the second tier:
+#
+#   exporters:
+#     loadbalancing:
+#       routing_key: traceID
+#       protocol:
+#         otlp:
+#           tls: { insecure: true }
+#       resolver:
+#         k8s:
+#           service: otel-sampling-tier.observability
+#
+# and turn tail_sampling off in collector-edge.yaml so traces are not thinned
+# twice.
+extensions:
+  bearertokenauth/edges:
+    tokens: ["${env:CENTRAL_EDGE_TOKEN}"]
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth/edges
+        tls:
+          cert_file: ${env:CENTRAL_TLS_CERT}
+          key_file: ${env:CENTRAL_TLS_KEY}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch:
+    timeout: 5s
+
+exporters:
+  otlp/clickstack:
+    endpoint: ${env:CENTRAL_EXPORT_ENDPOINT:-clickstack:4317}
+    tls:
+      insecure: ${env:CENTRAL_EXPORT_INSECURE:-true}
+    headers:
+      authorization: ${env:CENTRAL_EXPORT_AUTHORIZATION}
+    sending_queue:
+      enabled: true
+      queue_size: 20000
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 10m
+
+service:
+  extensions: [bearertokenauth/edges, health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/clickstack]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/clickstack]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/clickstack]

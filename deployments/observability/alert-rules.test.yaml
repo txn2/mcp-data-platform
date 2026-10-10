@@ -76,3 +76,86 @@ tests:
             exp_annotations:
               summary: "Authentication/authorization failure spike"
               description: "Combined auth/authz failure rate exceeded 1/s over the last 5m."
+
+  # A bucket holding 950 of a 1000-byte budget, reported by two replicas
+  # with the same value: read with max, it is 95% and fires; summed it would
+  # read 190%.
+  - interval: 1m
+    input_series:
+      - series: 'storage_bucket_bytes{bucket="managed-resources",purpose="resources",backend="seaweedfs",instance="a"}'
+        values: '900x10'
+      - series: 'storage_bucket_bytes{bucket="managed-resources",purpose="resources",backend="seaweedfs",instance="b"}'
+        values: '900x10'
+      - series: 'storage_bucket_bytes{bucket="managed-resources",purpose="maps",backend="seaweedfs",instance="a"}'
+        values: '50x10'
+      - series: 'storage_bucket_budget_bytes{bucket="managed-resources",instance="a"}'
+        values: '1000x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: StorageBucketOverBudget
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              bucket: managed-resources
+            exp_annotations:
+              summary: "Bucket managed-resources over 90% of its budget"
+              description: "The platform holds more than 90% of the byte budget set for managed-resources."
+
+  # Three versions side by side for six hours fires; two would not.
+  - interval: 1m
+    input_series:
+      - series: 'mcp_platform_build_info{version="1.140.0",commit="a",go_version="go1.26"}'
+        values: '1x420'
+      - series: 'mcp_platform_build_info{version="1.141.0",commit="b",go_version="go1.26"}'
+        values: '1x420'
+      - series: 'mcp_platform_build_info{version="1.142.0",commit="c",go_version="go1.26"}'
+        values: '1x420'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: FleetVersionSpread
+        exp_alerts:
+          - exp_labels:
+              severity: info
+            exp_annotations:
+              summary: "More than two versions running"
+              description: "More than two platform versions have been running side by side for 6h."
+
+  # A loop whose last success stopped advancing 27 hours ago fires; one that
+  # kept succeeding does not.
+  - interval: 1h
+    input_series:
+      - series: 'background_loop_last_success_timestamp_seconds{loop="retention"}'
+        values: '0x30'
+      - series: 'background_loop_last_success_timestamp_seconds{loop="storage_scan"}'
+        values: '0+3600x30'
+    alert_rule_test:
+      - eval_time: 27h
+        alertname: BackgroundLoopSilent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              loop: retention
+            exp_annotations:
+              summary: "Background loop retention has not succeeded in a day"
+              description: "retention has not finished an iteration in 26 hours; the daily sweeps run every 24."
+
+  # A tool failing half its calls fires; one failing every call but called
+  # only once in the window does not (the volume floor).
+  - interval: 1m
+    input_series:
+      - series: 'mcp_tool_calls_total{tool="trino_query",status_category="upstream_err",persona="analyst",source="mcp",toolkit_kind="trino"}'
+        values: '0+2x20'
+      - series: 'mcp_tool_calls_total{tool="trino_query",status_category="ok",persona="analyst",source="mcp",toolkit_kind="trino"}'
+        values: '0+2x20'
+      - series: 'mcp_tool_calls_total{tool="s3_list",status_category="upstream_err",persona="analyst",source="mcp",toolkit_kind="s3"}'
+        values: '0x15 1x5'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ToolErrorRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              tool: trino_query
+            exp_annotations:
+              summary: "Tool trino_query failing over 20%"
+              description: "More than 20% of trino_query calls failed over the last 15m (at least ten calls)."

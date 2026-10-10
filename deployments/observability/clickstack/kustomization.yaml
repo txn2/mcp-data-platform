@@ -1,0 +1,35 @@
+# kubectl apply -k deployments/observability/clickstack
+#
+# The collector configurations and the seed definitions are generated into
+# ConfigMaps from the files beside this one, so compose and Kubernetes run
+# the same files. Create the Secrets in the README's "Kubernetes" section
+# first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+resources:
+  - k8s/clickstack.yaml
+  - k8s/collector-edge.yaml
+  - k8s/collector-node.yaml
+  - k8s/seed-job.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: clickstack-clickhouse-prometheus
+    files: [prometheus.xml=clickhouse-prometheus.xml]
+  - name: otel-edge-collector
+    files: [collector-edge.yaml, collector-substrate.yaml]
+  - name: otel-node-collector
+    files: [collector-node.yaml]
+  - name: hyperdx-seed
+    files: [seed/seed.py, seed/saved-searches.json, seed/alerts.json]
+  - name: hyperdx-seed-dashboards
+    files:
+      - seed/dashboards/01-fleet-overview.json
+      - seed/dashboards/02-tool-calls.json
+      - seed/dashboards/03-dependencies.json
+      - seed/dashboards/04-auth-and-connections.json
+      - seed/dashboards/05-background-work.json
+      - seed/dashboards/06-runtime.json
+      - seed/dashboards/07-configuration-and-health.json
+      - seed/dashboards/08-storage-substrate.json

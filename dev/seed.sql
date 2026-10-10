@@ -2102,3 +2102,20 @@ INSERT INTO script_runs (
 INSERT INTO platform_settings (section, value, updated_by)
 VALUES ('maps', '{"enabled": true, "s3_connection": "", "bucket": "", "max_zoom": 14, "source_url": ""}', 'dev-seed')
 ON CONFLICT (section) DO NOTHING;
+
+-- The monitoring role the ClickStack bundle's substrate collector reads with
+-- (deployments/observability/clickstack, #1900): pg_monitor and nothing else,
+-- never the platform's own role.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'otel_monitor') THEN
+    CREATE ROLE otel_monitor LOGIN PASSWORD 'otel_monitor_dev';
+  END IF;
+END
+$$;
+GRANT pg_monitor TO otel_monitor;
+DO $$
+BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO otel_monitor', current_database());
+END
+$$;

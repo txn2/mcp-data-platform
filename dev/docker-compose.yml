@@ -233,12 +233,17 @@ services:
     # ~50 GB the default 1 GB limit would allow, and small volumes are the
     # right shape here: dev objects are kilobytes, and a volume is only ever a
     # container for them.
+    #
+    # -metricsPort serves every component's Prometheus metrics (volume
+    # capacity, per-bucket size and object count, S3 requests) for the
+    # ClickStack bundle's substrate collector (#1900).
     command: >
       server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data
-      -volume.max=50 -master.volumeSizeLimitMB=128
+      -volume.max=50 -master.volumeSizeLimitMB=128 -metricsPort=9327
     ports:
       # Loopback only, matching the other dev services (see postgres above).
       - "127.0.0.1:${DEV_S3_PORT:-9000}:8333"
+      - "127.0.0.1:${DEV_SEAWEEDFS_METRICS_PORT:-9327}:9327"
     volumes:
       - acme_seaweed_data:/data
       - ./seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro

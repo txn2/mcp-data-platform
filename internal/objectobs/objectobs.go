@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/smithy-go"
@@ -64,8 +65,40 @@ func purposeFrom(ctx context.Context, fallback string) string {
 
 // Do runs one object operation under a client span and records it. fn returns
 // the bytes it stored (zero for anything but a put) and its error, which Do
-// returns unchanged.
+// returns unchanged. A put or delete of one named object goes through
+// DoObject instead, so the bucket's usage moves with it.
 func Do(ctx context.Context, fallback, op, bucket string, fn func(context.Context) (int64, error)) (int64, error) {
+	return observe(ctx, fallback, op, bucket, fn)
+}
+
+// Object names one object: its bucket and key.
+type Object struct {
+	Bucket string
+	Key    string
+}
+
+// DoObject is Do for a put or delete of one object. Once it succeeds the usage
+// recorder SetUsageRecorder installed is told: a put adds one object and the
+// bytes it stored, a delete removes one object. A delete does not know the
+// size it freed; the next full listing corrects the bytes (#1899).
+func DoObject(ctx context.Context, fallback, op string, obj Object, fn func(context.Context) (int64, error)) (int64, error) {
+	written, err := observe(ctx, fallback, op, obj.Bucket, fn)
+	if err != nil {
+		return written, err
+	}
+	if r := usageRecorder(); r != nil {
+		switch op {
+		case OpPut:
+			r.RecordObject(obj.Bucket, obj.Key, 1, written)
+		case OpDelete:
+			r.RecordObject(obj.Bucket, obj.Key, -1, 0)
+		}
+	}
+	return written, nil
+}
+
+// observe is the span and the metric around one operation.
+func observe(ctx context.Context, fallback, op, bucket string, fn func(context.Context) (int64, error)) (int64, error) {
 	purpose := purposeFrom(ctx, fallback)
 	ctx, span := observability.ChildSpan(ctx, "storage."+op,
 		trace.WithSpanKind(trace.SpanKindClient),
@@ -88,6 +121,34 @@ func Do(ctx context.Context, fallback, op, bucket string, fn func(context.Contex
 	observability.SetSpanStatus(span, status, err)
 	span.End()
 	return written, err
+}
+
+// UsageRecorder is told of every object put or deleted through DoObject.
+// internal/platform/capacity installs the one that keeps each bucket's shared
+// usage row current between full listings.
+type UsageRecorder interface {
+	RecordObject(bucket, key string, objects, bytes int64)
+}
+
+//nolint:gochecknoglobals // the process's one recorder, installed at startup like outbound's metrics.
+var recorder struct {
+	sync.RWMutex
+	r UsageRecorder
+}
+
+// SetUsageRecorder installs r as the recorder DoObject reports to; nil removes
+// it.
+func SetUsageRecorder(r UsageRecorder) {
+	recorder.Lock()
+	defer recorder.Unlock()
+	recorder.r = r
+}
+
+// usageRecorder is the installed recorder, or nil.
+func usageRecorder() UsageRecorder {
+	recorder.RLock()
+	defer recorder.RUnlock()
+	return recorder.r
 }
 
 // Reason classifies a failed object operation: access_denied for a refused

@@ -1,0 +1,44 @@
+[
+  {
+    "name": "MCP: error spans",
+    "source": "trace",
+    "where": "StatusCode = 'Error'",
+    "select": "Timestamp, SpanName, SpanAttributes['gen_ai.tool.name'] AS tool, SpanAttributes['status_category'] AS status, ResourceAttributes['mcp_platform.deployment.id'] AS deployment, TraceId",
+    "orderBy": "Timestamp DESC"
+  },
+  {
+    "name": "MCP: tool calls over 2 seconds",
+    "source": "trace",
+    "where": "SpanName LIKE 'tools/call%' AND Duration > 2000000000",
+    "select": "Timestamp, SpanAttributes['gen_ai.tool.name'] AS tool, round(Duration / 1e6) AS ms, SpanAttributes['status_category'] AS status, ResourceAttributes['mcp_platform.deployment.id'] AS deployment, TraceId",
+    "orderBy": "Duration DESC"
+  },
+  {
+    "name": "MCP: logs with a trace",
+    "source": "log",
+    "where": "TraceId != ''",
+    "select": "Timestamp, TraceId, SeverityText, Body, ResourceAttributes['mcp_platform.deployment.id'] AS deployment",
+    "orderBy": "Timestamp DESC"
+  },
+  {
+    "name": "MCP: auth failures",
+    "source": "trace",
+    "where": "SpanName LIKE 'tools/call%' AND SpanAttributes['status_category'] IN ('auth_err', 'authz_err')",
+    "select": "Timestamp, SpanAttributes['status_category'] AS status, SpanAttributes['mcp.persona'] AS persona, SpanAttributes['mcp.transport'] AS transport, SpanAttributes['gen_ai.tool.name'] AS tool, ResourceAttributes['mcp_platform.deployment.id'] AS deployment",
+    "orderBy": "Timestamp DESC"
+  },
+  {
+    "name": "MCP: configuration warnings",
+    "source": "log",
+    "where": "LogAttributes['code'] != '' AND SeverityText = 'warn'",
+    "select": "Timestamp, LogAttributes['code'] AS code, Body, ResourceAttributes['mcp_platform.deployment.id'] AS deployment",
+    "orderBy": "Timestamp DESC"
+  },
+  {
+    "name": "MCP: API gateway upstream 5xx",
+    "source": "trace",
+    "where": "SpanKind = 'Client' AND SpanAttributes['upstream.kind'] = 'api' AND toUInt16OrZero(SpanAttributes['http.response.status_code']) >= 500",
+    "select": "Timestamp, SpanAttributes['mcp.connection'] AS connection, SpanAttributes['http.response.status_code'] AS status, SpanName, ResourceAttributes['mcp_platform.deployment.id'] AS deployment, TraceId",
+    "orderBy": "Timestamp DESC"
+  }
+]

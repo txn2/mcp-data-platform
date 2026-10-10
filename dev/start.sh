@@ -656,7 +656,10 @@ export OTEL_METRICS_ADDR=":9464"
 # so a criterion sees the span of the call it made; a one-second batch delay
 # so it sees it soon. Both replicas inherit these.
 export OTEL_TRACES_ENABLED=true
-export OTEL_EXPORTER_OTLP_ENDPOINT="localhost:$DEV_OTLP_PORT"
+# DEV_OTLP_ENDPOINT sends every signal to another collector instead, such as
+# the ClickStack bundle's edge collector (deployments/observability/clickstack,
+# #1900); the dev/.otel files stay empty while it is set.
+export OTEL_EXPORTER_OTLP_ENDPOINT="${DEV_OTLP_ENDPOINT:-localhost:$DEV_OTLP_PORT}"
 export OTEL_TRACES_SAMPLER_ARG=1.0
 export OTEL_BSP_SCHEDULE_DELAY=1000
 # Metrics go to the dev collector too, beside the /metrics scrape, every two
@@ -670,6 +673,12 @@ export OTEL_METRIC_EXPORT_INTERVAL=2000
 export OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=dev"
 export MCP_PLATFORM_DEPLOYMENT_ID=acme-dev
 export OTEL_LOGS_EXPORTER=otlp
+# Capacity (#1899): sample the tables and list the buckets every 30 seconds,
+# and count an object with no row as an orphan at once, so a criterion does not
+# wait out the production defaults (15m, 6h, 15m).
+export MCP_PLATFORM_CAPACITY_INTERVAL="${DEV_CAPACITY_INTERVAL:-30s}"
+export MCP_PLATFORM_STORAGE_SCAN_INTERVAL="${DEV_STORAGE_SCAN_INTERVAL:-30s}"
+export MCP_PLATFORM_STORAGE_ORPHAN_GRACE="${DEV_STORAGE_ORPHAN_GRACE:-0s}"
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 
@@ -694,6 +703,9 @@ if [ "$DEV_REPLICAS" = 2 ]; then
   # never replace each other's binary. It starts after the first is healthy,
   # so the migrations the first ran are in place.
   AIR_B_LOG="$DEV_AIR_B_LOG"
+  # DEV_DEPLOYMENT_ID_B names the second replica as a deployment of its own,
+  # for the fleet criterion of #1900; unset, both replicas are acme-dev.
+  MCP_PLATFORM_DEPLOYMENT_ID="${DEV_DEPLOYMENT_ID_B:-$MCP_PLATFORM_DEPLOYMENT_ID}" \
   DEV_API_PORT="$DEV_API_PORT_B" OTEL_METRICS_ADDR=":9465" air -c dev/.air.toml \
     -tmp_dir build/air-b \
     -build.cmd "go build -o ./build/air-b/mcp-data-platform ./cmd/mcp-data-platform" \

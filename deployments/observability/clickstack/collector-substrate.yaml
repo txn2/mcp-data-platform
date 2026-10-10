@@ -1,0 +1,171 @@
+# What mcp-data-platform stands on: its PostgreSQL, the volume under it, its
+# object store, and the observability backend's own ClickHouse. Load it as a
+# second config beside collector-edge.yaml:
+#
+#   otelcol-contrib --config=collector-edge.yaml --config=collector-substrate.yaml
+#
+# The collector merges the two; the pipelines below add receivers to the edge's
+# metrics pipeline and export through its otlp/central exporter, so they carry
+# the same deployment identity.
+#
+# The platform reports its own side of capacity itself (#1899):
+# db_table_size_bytes per platform table, db_vector_index_size_bytes,
+# db_transaction_id_age, storage_bucket_bytes and _objects per bucket and
+# purpose, the orphan and dangling counts. What is here is the substrate's
+# view: the whole database, the disk, the object store's own capacity.
+#
+# Environment:
+#
+#   SUBSTRATE_PG_HOST         the platform's PostgreSQL host
+#   SUBSTRATE_PG_PORT         its port (default 5432)
+#   SUBSTRATE_PG_USER         a role with pg_monitor (see "PostgreSQL role" in
+#                             the README); never the platform's own role
+#   SUBSTRATE_PG_PASSWORD     from a Secret
+#   SUBSTRATE_PG_DATABASE     the platform's database (default mcp_platform)
+#   SUBSTRATE_PG_SSLMODE      disable, require, verify-full (default require);
+#                             SUBSTRATE_PG_TLS_INSECURE=true for disable
+#   SUBSTRATE_SEAWEEDFS_METRICS  host:port of a SeaweedFS metrics port; add a
+#                             target below per component (master, volume,
+#                             filer, S3 gateway)
+#   SUBSTRATE_HOST_ROOT       where the host's root is mounted, for the
+#                             filesystem receiver (default /)
+#   SUBSTRATE_CLICKHOUSE_METRICS host:port of ClickHouse's Prometheus endpoint
+#                             (default clickstack:9363)
+#
+# A managed PostgreSQL (RDS, Cloud SQL, Azure) reports its free storage through
+# the provider's own monitoring (CloudWatch FreeStorageSpace, Cloud SQL
+# database/disk/bytes_used and quota); the hostmetrics filesystem receiver
+# below only sees a volume this collector's host mounts.
+receivers:
+  # The PostgreSQL receiver: database size, table and index size, rows by
+  # state (live, dead), backends against the connection limit, replication
+  # and WAL. Deadlocks and temp files are off by default and turned on here.
+  postgresql:
+    endpoint: ${env:SUBSTRATE_PG_HOST}:${env:SUBSTRATE_PG_PORT:-5432}
+    username: ${env:SUBSTRATE_PG_USER}
+    password: ${env:SUBSTRATE_PG_PASSWORD}
+    databases: ["${env:SUBSTRATE_PG_DATABASE:-mcp_platform}"]
+    collection_interval: 60s
+    tls:
+      insecure: ${env:SUBSTRATE_PG_TLS_INSECURE:-false}
+      insecure_skip_verify: false
+    metrics:
+      postgresql.deadlocks:
+        enabled: true
+      postgresql.temp_files:
+        enabled: true
+
+  # What the PostgreSQL receiver does not report: how close the database is to
+  # transaction id wraparound, when each table was last vacuumed and analyzed,
+  # the oldest open transaction, and sessions waiting on a lock. The platform
+  # reports db_transaction_id_age itself; this one also covers a database the
+  # platform does not run, and the per-table vacuum lag.
+  sqlquery/postgres:
+    driver: postgres
+    datasource: "host=${env:SUBSTRATE_PG_HOST} port=${env:SUBSTRATE_PG_PORT:-5432} user=${env:SUBSTRATE_PG_USER} password=${env:SUBSTRATE_PG_PASSWORD} dbname=${env:SUBSTRATE_PG_DATABASE:-mcp_platform} sslmode=${env:SUBSTRATE_PG_SSLMODE:-require}"
+    collection_interval: 60s
+    queries:
+      - sql: "SELECT datname, age(datfrozenxid) AS xid_age FROM pg_database WHERE datallowconn"
+        metrics:
+          - metric_name: postgresql.xid.age
+            value_column: xid_age
+            attribute_columns: [datname]
+            value_type: int
+            data_type: gauge
+      - sql: >-
+          SELECT relname,
+                 COALESCE(EXTRACT(EPOCH FROM now() - GREATEST(last_vacuum, last_autovacuum)), -1)::bigint AS vacuum_age,
+                 COALESCE(EXTRACT(EPOCH FROM now() - GREATEST(last_analyze, last_autoanalyze)), -1)::bigint AS analyze_age,
+                 n_dead_tup
+          FROM pg_stat_user_tables
+          ORDER BY n_dead_tup DESC
+          LIMIT 25
+        metrics:
+          - metric_name: postgresql.table.vacuum.age
+            value_column: vacuum_age
+            attribute_columns: [relname]
+            value_type: int
+            data_type: gauge
+            unit: s
+          - metric_name: postgresql.table.analyze.age
+            value_column: analyze_age
+            attribute_columns: [relname]
+            value_type: int
+            data_type: gauge
+            unit: s
+          - metric_name: postgresql.table.dead_tuples
+            value_column: n_dead_tup
+            attribute_columns: [relname]
+            value_type: int
+            data_type: gauge
+      - sql: >-
+          SELECT COALESCE(MAX(EXTRACT(EPOCH FROM now() - xact_start)), 0)::bigint AS longest_xact
+          FROM pg_stat_activity
+          WHERE xact_start IS NOT NULL AND state <> 'idle'
+        metrics:
+          - metric_name: postgresql.transaction.longest
+            value_column: longest_xact
+            value_type: int
+            data_type: gauge
+            unit: s
+      - sql: "SELECT COUNT(*) AS waiting FROM pg_stat_activity WHERE wait_event_type = 'Lock'"
+        metrics:
+          - metric_name: postgresql.locks.waiting
+            value_column: waiting
+            value_type: int
+            data_type: gauge
+
+  # The filesystem the collector's host mounts: the database volume when this
+  # collector runs on the database's node or mounts its path. In Kubernetes
+  # use the kubeletstats receiver instead (k8s/collector-logs.yaml), which
+  # reports every PVC's capacity and use.
+  hostmetrics/filesystem:
+    collection_interval: 60s
+    root_path: ${env:SUBSTRATE_HOST_ROOT:-/}
+    scrapers:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+        exclude_fs_types:
+          fs_types: [autofs, binfmt_misc, bpf, cgroup2, configfs, debugfs, devpts, devtmpfs, fusectl, hugetlbfs, mqueue, nsfs, overlay, proc, procfs, pstore, rpc_pipefs, securityfs, selinuxfs, squashfs, sysfs, tracefs, tmpfs]
+          match_type: strict
+
+  # The object store, SeaweedFS. Its metrics are off
+  # until each component is started with -metricsPort (master, volume, filer)
+  # and the S3 gateway with -s3.metricsPort (`weed server -metricsPort` serves
+  # them all on one port). Read from SeaweedFS 3.88: per-disk capacity is
+  # SeaweedFS_volumeServer_resource{name,type=all|used|free}, the disk's size
+  # SeaweedFS_volumeServer_total_disk_size, and S3 requests
+  # SeaweedFS_s3_request_total. What the platform holds in each of its
+  # buckets is the platform's own storage_bucket_bytes and _objects.
+  prometheus/seaweedfs:
+    config:
+      scrape_configs:
+        - job_name: seaweedfs
+          scrape_interval: 60s
+          static_configs:
+            - targets: ["${env:SUBSTRATE_SEAWEEDFS_METRICS:-seaweedfs:9327}"]
+
+  # ClickHouse watching itself: a backend that fills its own disk hides every
+  # other problem. Disk used and free, parts per table, merges in progress and
+  # inserts rejected for too many parts are all on ClickHouse's own Prometheus
+  # endpoint (<prometheus> in config.xml; port 9363 in the ClickStack image).
+  prometheus/clickhouse:
+    config:
+      scrape_configs:
+        - job_name: clickhouse
+          scrape_interval: 60s
+          static_configs:
+            - targets: ["${env:SUBSTRATE_CLICKHOUSE_METRICS:-clickstack:9363}"]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: "ClickHouse(AsyncMetrics_(DiskAvailable|DiskUsed|DiskTotal|TotalPartsOfMergeTreeTables|MaxPartCountForPartition).*|Metrics_(Merge|PartsActive)|ProfileEvents_(RejectedInserts|DelayedInserts|FailedInsertQuery))"
+              action: keep
+
+service:
+  pipelines:
+    metrics/substrate:
+      receivers: [postgresql, sqlquery/postgres, hostmetrics/filesystem, prometheus/seaweedfs, prometheus/clickhouse]
+      processors: [memory_limiter, resource/identity, batch]
+      exporters: [otlp/central]

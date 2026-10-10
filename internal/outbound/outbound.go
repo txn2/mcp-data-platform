@@ -54,6 +54,7 @@ const (
 	KindDataHub      Kind = "datahub"      // the knowledge layer's DataHub REST writes
 	KindBranding     Kind = "branding"     // the portal's logo fetch
 	KindMaps         Kind = "maps"         // a basemap region's extract from its source build
+	KindStorage      Kind = "storage"      // the object store asked which server it is (internal/platform/capacity)
 )
 
 // The span attribute keys a client span carries beside the HTTP semantic

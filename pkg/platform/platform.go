@@ -2953,12 +2953,13 @@ func (p *Platform) Start(ctx context.Context) error {
 	})
 	// Config info and the dependency/connection gauges; signals only, never readiness (#1898).
 	a := p.config.Auth
-	platformstate.Wire(p.obs.Metrics(), platformstate.Sources{
+	p.lifecycle.OnStop(platformstate.Wire(p.obs.Metrics(), platformstate.Sources{
 		DB: p.db, Semantic: p.semanticProvider, Query: p.queryProvider,
 		Objects: p.portalStore.S3Client(), Bucket: p.config.Portal.S3Bucket, Thumbnails: p.config.Thumbnails,
 		Auth:     platformstate.Auth{OIDC: a.OIDC.Enabled, APIKeys: a.APIKeys.Enabled, OAuth: p.config.OAuth.Enabled, Browser: a.BrowserSession.Enabled, Issuer: a.OIDC.Issuer},
 		Toolkits: p.toolkitRegistry, Personas: p.personaRegistry, Tracer: p.obs.Tracer(), Interval: p.config.Server.StateProbeInterval,
-	})
+		Capacity: platformstate.CapacitySources{PortalPrefix: p.config.Portal.S3Prefix, Resources: p.resources.S3Client(), ResourceBucket: p.config.Resources.Managed.S3Bucket, Toolkits: p.config.Toolkits, PortalConnection: p.config.Portal.S3Connection, ResourceConnection: p.config.Resources.Managed.S3Connection},
+	}).Close)
 
 	// One-time knowledge-page reference backfill (#664 Phase 5), guarded by a
 	// sentinel and run in the background so it never delays startup.

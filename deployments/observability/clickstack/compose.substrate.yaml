@@ -1,0 +1,25 @@
+# Adds the substrate receivers (collector-substrate.yaml) to the edge
+# collector: PostgreSQL, the host filesystem, SeaweedFS and ClickHouse itself.
+#
+#   docker compose -f compose.yaml -f compose.substrate.yaml up -d
+services:
+  clickstack:
+    expose:
+      - "9363"
+  edge-collector:
+    command:
+      - --config=/etc/otelcol/collector-edge.yaml
+      - --config=/etc/otelcol/collector-substrate.yaml
+    environment:
+      SUBSTRATE_PG_HOST: ${SUBSTRATE_PG_HOST:-host.docker.internal}
+      SUBSTRATE_PG_PORT: ${SUBSTRATE_PG_PORT:-5432}
+      SUBSTRATE_PG_USER: ${SUBSTRATE_PG_USER:?set SUBSTRATE_PG_USER in .env}
+      SUBSTRATE_PG_PASSWORD: ${SUBSTRATE_PG_PASSWORD:?set SUBSTRATE_PG_PASSWORD in .env}
+      SUBSTRATE_PG_DATABASE: ${SUBSTRATE_PG_DATABASE:-mcp_platform}
+      SUBSTRATE_PG_SSLMODE: ${SUBSTRATE_PG_SSLMODE:-require}
+      SUBSTRATE_PG_TLS_INSECURE: ${SUBSTRATE_PG_TLS_INSECURE:-false}
+      SUBSTRATE_SEAWEEDFS_METRICS: ${SUBSTRATE_SEAWEEDFS_METRICS:-host.docker.internal:9327}
+      SUBSTRATE_CLICKHOUSE_METRICS: clickstack:9363
+      SUBSTRATE_HOST_ROOT: /hostfs
+    volumes:
+      - /:/hostfs:ro

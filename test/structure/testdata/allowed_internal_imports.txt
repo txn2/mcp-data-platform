@@ -456,6 +456,13 @@ internal/platform/callrecord -> pkg/audit
 internal/platform/callrecord -> pkg/mcpcontext
 internal/platform/callrecord -> pkg/portal/knowledgepage
 internal/platform/callrecord -> pkg/script
+internal/platform/capacity -> internal/bgloop
+internal/platform/capacity -> internal/logsan
+internal/platform/capacity -> internal/objectobs
+internal/platform/capacity -> internal/outbound
+internal/platform/capacity -> internal/platform/toolkitcfg
+internal/platform/capacity -> pkg/observability
+internal/platform/capacity -> pkg/portal/s3adapter
 internal/platform/collectionindex -> pkg/indexjobs
 internal/platform/collectionindex -> pkg/portal
 internal/platform/completionlayer -> internal/platform/resourcetemplates
@@ -631,6 +638,7 @@ internal/platform/platformstate -> internal/headless
 internal/platform/platformstate -> internal/logsan
 internal/platform/platformstate -> internal/opsobs
 internal/platform/platformstate -> internal/outbound
+internal/platform/platformstate -> internal/platform/capacity
 internal/platform/platformstate -> internal/platform/thumbworker
 internal/platform/platformstate -> pkg/observability
 internal/platform/platformstate -> pkg/oidcdiscovery

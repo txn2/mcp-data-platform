@@ -1,0 +1,23 @@
+# Merge into the mcp-data-platform Deployment (kubectl patch --type=strategic,
+# or a kustomize patch) to point it at the edge collector. The same variables
+# as platform.env.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-data-platform
+  namespace: mcp-data-platform
+spec:
+  template:
+    spec:
+      containers:
+        - name: mcp-data-platform
+          env:
+            - {name: OTEL_TRACES_ENABLED, value: "true"}
+            - {name: OTEL_TRACES_SAMPLER_ARG, value: "1.0"}
+            - {name: OTEL_METRICS_ENABLED, value: "true"}
+            - {name: OTEL_METRICS_EXPORTER, value: otlp}
+            - {name: OTEL_LOGS_EXPORTER, value: otlp}
+            - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "otel-edge-collector.observability:4317"}
+            - {name: OTEL_EXPORTER_OTLP_INSECURE, value: "true"}
+            - {name: MCP_PLATFORM_DEPLOYMENT_ID, value: my-deployment}
+            - {name: OTEL_RESOURCE_ATTRIBUTES, value: "deployment.environment.name=production"}

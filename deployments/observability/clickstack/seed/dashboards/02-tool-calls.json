@@ -1,0 +1,218 @@
+{
+  "name": "MCP Platform: Tool calls",
+  "tags": [
+    "tools"
+  ],
+  "tiles": [
+    {
+      "name": "Calls by tool",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "per_second",
+        "by": "Attributes['tool']",
+        "by_name": "tool"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Error rate by tool",
+      "display": "line",
+      "query": {
+        "kind": "ratio",
+        "metric": "mcp_tool_calls",
+        "match": "Attributes['status_category'] != 'ok'",
+        "label": "percent",
+        "by": "Attributes['tool']",
+        "by_name": "tool"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 0
+    },
+    {
+      "name": "p95 by tool",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "mcp_tool_call_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['tool']",
+        "by_name": "tool"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 0
+    },
+    {
+      "name": "p50",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "mcp_tool_call_duration",
+        "q": 0.5,
+        "label": "seconds"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "p95",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "mcp_tool_call_duration",
+        "q": 0.95,
+        "label": "seconds"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 4
+    },
+    {
+      "name": "p99",
+      "display": "line",
+      "query": {
+        "kind": "quantile",
+        "metric": "mcp_tool_call_duration",
+        "q": 0.99,
+        "label": "seconds"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 4
+    },
+    {
+      "name": "Calls by toolkit kind",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "per_second",
+        "by": "Attributes['toolkit_kind']",
+        "by_name": "toolkit_kind"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    },
+    {
+      "name": "Errors by status category",
+      "display": "stacked_bar",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "per_second",
+        "by": "Attributes['status_category']",
+        "by_name": "status_category",
+        "where": "Attributes['status_category'] != 'ok'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 8
+    },
+    {
+      "name": "Calls by source",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "per_second",
+        "by": "Attributes['source']",
+        "by_name": "source"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 8
+    },
+    {
+      "name": "In flight",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "mcp_inflight_tool_calls",
+        "agg": "sum",
+        "label": "calls",
+        "table": "sum"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 12
+    },
+    {
+      "name": "Rate limited",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_rate_limited",
+        "label": "per_second"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 12
+    },
+    {
+      "name": "Refused by the persona authorizer",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_call_denials",
+        "label": "per_second",
+        "by": "concat(Attributes['persona'], ' ', Attributes['reason'])",
+        "by_name": "persona_reason"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 12
+    },
+    {
+      "name": "Slowest tools (p95)",
+      "display": "table",
+      "query": {
+        "kind": "quantile",
+        "metric": "mcp_tool_call_duration",
+        "q": 0.95,
+        "label": "seconds",
+        "by": "Attributes['tool']",
+        "by_name": "tool",
+        "limit": 10
+      },
+      "w": 12,
+      "h": 4,
+      "x": 0,
+      "y": 16
+    },
+    {
+      "name": "Calls by persona",
+      "display": "table",
+      "query": {
+        "kind": "rate",
+        "metric": "mcp_tool_calls",
+        "label": "calls",
+        "by": "Attributes['persona']",
+        "by_name": "persona"
+      },
+      "w": 12,
+      "h": 4,
+      "x": 12,
+      "y": 16
+    }
+  ]
+}

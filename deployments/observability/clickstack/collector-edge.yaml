@@ -1,0 +1,180 @@
+# Edge OpenTelemetry Collector for one mcp-data-platform deployment.
+#
+# Run one per deployment, beside the platform (a sidecar or a Deployment in the
+# same namespace; compose.yaml runs it as the `edge-collector` service). It is
+# what turns one deployment into a member of a fleet: it receives the
+# platform's OTLP, stamps the deployment's identity on everything, applies the
+# privacy defaults a second time, keeps every error and slow trace while thinning
+# the rest, and ships to a central backend (ClickStack, or anything that speaks
+# OTLP) over TLS with an auth header.
+#
+# Everything deployment-specific is an environment variable:
+#
+#   EDGE_DEPLOYMENT_ID          mcp_platform.deployment.id stamped on every signal
+#                               when the platform did not set it (required)
+#   EDGE_ENVIRONMENT            deployment.environment.name (default production)
+#   EDGE_EXPORT_ENDPOINT        the central OTLP/gRPC endpoint, host:port (required)
+#   EDGE_EXPORT_INSECURE        true to send without TLS (default false; the
+#                               compose profile sets true for its local backend)
+#   EDGE_EXPORT_AUTHORIZATION   the Authorization header value the backend
+#                               expects (ClickStack: its ingestion key), from a Secret
+#   EDGE_TAIL_SAMPLE_PERCENT    share of fast, successful traces kept (default 10)
+#   EDGE_SLOW_TRACE_MS          a trace at least this long is always kept (default 2000)
+#   EDGE_MEMORY_LIMIT_MIB       the collector's memory limit (default 400)
+#
+# The platform side is the env patch in k8s/platform-env-patch.yaml:
+# OTEL_TRACES_ENABLED=true, OTEL_TRACES_SAMPLER_ARG=1.0 (tail sampling below can
+# only keep what arrives), OTEL_METRICS_EXPORTER=otlp, OTEL_LOGS_EXPORTER=otlp,
+# and OTEL_EXPORTER_OTLP_ENDPOINT at this collector.
+#
+# A deployment that keeps OTEL_METRICS_EXPORTER=prometheus loads
+# collector-scrape.yaml beside this file, which scrapes the platform's
+# listener instead. Never both: with metrics over OTLP as well, every series
+# would be stored twice.
+#
+# The receivers for what the platform stands on (PostgreSQL, the database
+# volume, the object store) are in collector-substrate.yaml, loaded as a second
+# --config file so a deployment that does not want them leaves it out.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # The platform writes JSON logs to stderr. With OTEL_LOGS_EXPORTER=otlp the
+  # same records arrive over OTLP with their trace ids and this receiver is not
+  # needed; it is for a deployment that keeps logs on stderr only. In
+  # Kubernetes the k8s/collector-logs.yaml DaemonSet mounts /var/log/pods.
+  filelog/platform:
+    include: ["${env:EDGE_LOG_GLOB:-/var/log/pods/*mcp-data-platform*/*/*.log}"]
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: container
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+        on_error: send_quiet
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+        severity:
+          parse_from: attributes.level
+      - type: move
+        if: attributes.msg != nil
+        from: attributes.msg
+        to: body
+      - type: trace_parser
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: ${env:EDGE_MEMORY_LIMIT_MIB:-400}
+    spike_limit_mib: 100
+
+  # The deployment's identity. insert never overwrites what the platform set
+  # itself (MCP_PLATFORM_DEPLOYMENT_ID, OTEL_RESOURCE_ATTRIBUTES); it fills the
+  # gap for a scrape or a log file, which carry no resource of their own.
+  resource/identity:
+    attributes:
+      - key: mcp_platform.deployment.id
+        value: ${env:EDGE_DEPLOYMENT_ID}
+        action: insert
+      - key: deployment.environment.name
+        value: ${env:EDGE_ENVIRONMENT:-production}
+        action: insert
+      - key: service.name
+        value: mcp-data-platform
+        action: insert
+
+  # The privacy defaults, a second time. The platform never puts a tool's
+  # arguments or result, a statement's text or a user's email into telemetry
+  # unless an operator opts in (OTEL_TRACES_INCLUDE_DB_STATEMENT,
+  # OTEL_TRACES_INCLUDE_USER_EMAIL); these drop the opt-in attributes at the
+  # edge too, so a platform flag flipped by mistake does not reach a central
+  # store several deployments share. Remove a statement here to let an opt-in
+  # through.
+  transform/privacy:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - delete_key(span.attributes, "mcp.user_email")
+          - delete_key(span.attributes, "db.query.text")
+          - delete_key(span.attributes, "db.statement")
+    log_statements:
+      - context: log
+        statements:
+          - delete_key(log.attributes, "user_email")
+          - delete_key(log.attributes, "email")
+
+  # Any email address or bearer token left in an attribute value is masked.
+  redaction/values:
+    allow_all_keys: true
+    blocked_values:
+      - "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      - "(?i)bearer [a-z0-9._~+/=-]{16,}"
+    summary: silent
+
+  # Keep every error and every slow trace that arrives, and a share of the
+  # rest. A trace's spans must all reach one collector: this is per
+  # deployment, so they do. A scaled central sampling tier needs the
+  # load-balancing exporter in front of it (collector-central.yaml).
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code: { status_codes: [ERROR] }
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: ${env:EDGE_SLOW_TRACE_MS:-2000}
+      - name: sample-the-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: ${env:EDGE_TAIL_SAMPLE_PERCENT:-10}
+
+  batch:
+    timeout: 5s
+
+exporters:
+  otlp/central:
+    endpoint: ${env:EDGE_EXPORT_ENDPOINT}
+    tls:
+      insecure: ${env:EDGE_EXPORT_INSECURE:-false}
+    headers:
+      authorization: ${env:EDGE_EXPORT_AUTHORIZATION}
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 5m
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/identity, transform/privacy, redaction/values, tail_sampling, batch]
+      exporters: [otlp/central]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/identity, batch]
+      exporters: [otlp/central]
+    logs:
+      receivers: [otlp, filelog/platform]
+      processors: [memory_limiter, resource/identity, transform/privacy, redaction/values, batch]
+      exporters: [otlp/central]

@@ -318,3 +318,51 @@ func (s *Sampler) Wait(ctx context.Context) {
 	case <-ctx.Done():
 	}
 }
+
+// TestCapacitySources lays out the platform's buckets for the capacity
+// service: each bucket with a client that can walk it, the portal's prefix,
+// and the endpoint of the portal's S3 connection.
+func TestCapacitySources(t *testing.T) {
+	portal := s3adapter.NewFor(nil, observability.StoragePurposePortalAssets)
+	resources := s3adapter.NewFor(nil, observability.StoragePurposeResources)
+	got := capacitySources(Sources{
+		Objects: portal, Bucket: "portal-assets",
+		Capacity: CapacitySources{
+			PortalPrefix: "artifacts/", Resources: resources, ResourceBucket: "managed-resources",
+			Toolkits: map[string]any{"s3": map[string]any{"instances": map[string]any{
+				"store":  map[string]any{"endpoint": "http://seaweedfs:8333"},
+				"secure": map[string]any{"endpoint": "https://elsewhere:9443"},
+			}}},
+			PortalConnection: "store", ResourceConnection: "secure",
+		},
+	})
+	if got.Layout.PortalBucket != "portal-assets" || got.Layout.PortalPrefix != "artifacts/" || got.Layout.ResourceBucket != "managed-resources" {
+		t.Errorf("layout = %+v", got.Layout)
+	}
+	if len(got.Walkers) != 2 || got.Walkers["portal-assets"] != portal || got.Walkers["managed-resources"] != resources {
+		t.Errorf("walkers = %+v", got.Walkers)
+	}
+	if got.Endpoints["portal-assets"] != "http://seaweedfs:8333" || got.Endpoints["managed-resources"] != "https://elsewhere:9443" {
+		t.Errorf("each bucket's endpoint is its own connection's: %v", got.Endpoints)
+	}
+
+	none := capacitySources(Sources{Objects: listerFake{}, Bucket: "portal-assets"})
+	if len(none.Walkers) != 0 || none.Layout.PortalBucket != "" {
+		t.Errorf("a client that cannot walk is not listed: %+v", none)
+	}
+}
+
+// TestWire_CapacityConfigIgnoredWhenMalformed shows a malformed capacity
+// variable never stops the platform, and Close is safe with nothing started.
+func TestWire_CapacityConfigIgnoredWhenMalformed(t *testing.T) {
+	t.Setenv("MCP_PLATFORM_STORAGE_SCAN_INTERVAL", "often")
+	m, _ := enabledMetrics(t)
+	s := Wire(m, Sources{})
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var nilSampler *Sampler
+	if err := nilSampler.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

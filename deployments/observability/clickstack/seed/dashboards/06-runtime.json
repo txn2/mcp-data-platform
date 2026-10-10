@@ -1,0 +1,118 @@
+{
+  "name": "MCP Platform: Runtime",
+  "tags": [
+    "runtime"
+  ],
+  "tiles": [
+    {
+      "name": "Goroutines",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "go_goroutines",
+        "agg": "max",
+        "label": "goroutines",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment",
+        "where": "ServiceName = 'mcp-data-platform'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "name": "Heap in use",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "go_memstats_heap_inuse_bytes",
+        "agg": "max",
+        "label": "bytes",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment",
+        "where": "ServiceName = 'mcp-data-platform'"
+      },
+      "format": {
+        "output": "byte"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 0
+    },
+    {
+      "name": "Longest GC pause",
+      "display": "line",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT $__timeInterval(TimeUnix) AS ts, ResourceAttributes['mcp_platform.deployment.id'] AS deployment, round(max(ValueAtQuantiles.Value[indexOf(ValueAtQuantiles.Quantile, 1)]), 6) AS seconds FROM otel_metrics_summary WHERE MetricName = 'go_gc_duration_seconds' AND ServiceName = 'mcp-data-platform' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY ts, deployment ORDER BY ts"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 0
+    },
+    {
+      "name": "CPU seconds per second",
+      "display": "line",
+      "query": {
+        "kind": "rate",
+        "metric": "process_cpu_seconds_total",
+        "label": "cores",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment",
+        "where": "ServiceName = 'mcp-data-platform'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 0,
+      "y": 4
+    },
+    {
+      "name": "Open file descriptors",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "process_open_fds",
+        "agg": "max",
+        "label": "fds",
+        "by": "ResourceAttributes['mcp_platform.deployment.id']",
+        "by_name": "deployment",
+        "where": "ServiceName = 'mcp-data-platform'"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 8,
+      "y": 4
+    },
+    {
+      "name": "Script worker load against its limit",
+      "display": "line",
+      "query": {
+        "kind": "gauge",
+        "metric": "script_worker_load_ratio",
+        "agg": "max",
+        "label": "ratio",
+        "by": "Attributes['reason']",
+        "by_name": "resource"
+      },
+      "w": 8,
+      "h": 4,
+      "x": 16,
+      "y": 4
+    },
+    {
+      "name": "Restarts in range",
+      "display": "table",
+      "query": {
+        "kind": "sql",
+        "sql": "SELECT ResourceAttributes['mcp_platform.deployment.id'] AS deployment, uniqExact(Value) - 1 AS restarts FROM otel_metrics_gauge WHERE MetricName = 'process_start_time_seconds' AND ServiceName = 'mcp-data-platform' AND $__timeFilter(TimeUnix) AND {{fleet}} GROUP BY deployment ORDER BY restarts DESC"
+      },
+      "w": 24,
+      "h": 4,
+      "x": 0,
+      "y": 8
+    }
+  ]
+}

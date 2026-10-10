@@ -257,6 +257,36 @@ func TestNew_OTLPOnlyServesNoListener(t *testing.T) {
 	rcv.mu.Lock()
 	defer rcv.mu.Unlock()
 	assert.NotEmpty(t, rcv.metrics, "the push is the only path and it works")
+	names := map[string]int{}
+	for _, rm := range rcv.metrics {
+		names[rm.name]++
+	}
+	for _, want := range []string{"go_goroutines", "go_memstats_heap_alloc_bytes", "go_gc_duration_seconds"} {
+		assert.Contains(t, names, want, "with no listener the runtime series still reach the collector (#1901)")
+	}
+}
+
+// TestNew_BothPushesEachPlatformSeriesOnce: with the Prometheus exporter on as
+// well, the runtime series join the push from a registry of their own, and no
+// platform instrument is pushed twice through the Prometheus registry.
+func TestNew_BothPushesEachPlatformSeriesOnce(t *testing.T) {
+	rcv := startOTLPReceiver(t)
+	m, err := New(Config{Enabled: true, ListenAddr: ":0", Exporter: MetricsExporterBoth, OTLP: OTLPEndpoint{Endpoint: rcv.addr}})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+	m.RecordToolCall(context.Background(), ToolCallAttrs{Tool: "s3_list", ToolkitKind: "s3", Persona: "analyst", StatusCategory: StatusOK, Source: "mcp"}, time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, m.provider.ForceFlush(ctx))
+	rcv.mu.Lock()
+	defer rcv.mu.Unlock()
+	names := map[string]int{}
+	for _, rm := range rcv.metrics {
+		names[rm.name]++
+	}
+	assert.Equal(t, 1, names["mcp_tool_calls"], "pushed once, under its OTel name")
+	assert.Zero(t, names["mcp_tool_calls_total"], "not again under its Prometheus name")
+	assert.Equal(t, 1, names["go_goroutines"])
 }
 
 func TestParseMetricsExporter(t *testing.T) {
