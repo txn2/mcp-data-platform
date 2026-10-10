@@ -334,6 +334,8 @@ func (h *Handle) handleList(ctx context.Context) (*mcp.CallToolResult, any, erro
 // carries states what a kind can show.
 func carries(kind string) string {
 	switch kind {
+	case notification.ChannelKindSlack:
+		return "a title, a markdown body Slack renders (headings, tables, lists, code), files and a link"
 	case notification.ChannelKindMattermost:
 		return "a title, a markdown body, files and a link"
 	case notification.ChannelKindWebhook:

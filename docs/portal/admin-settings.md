@@ -67,7 +67,7 @@ listed, marked missing, so it can be unchecked; the server refuses to save a
 name no channel is stored under.
 
 A **Notification Channels** section comes last: the destinations a report or
-an alert is sent to that are not one person — a Mattermost channel,
+an alert is sent to that are not one person — a Slack channel, a Mattermost channel,
 an incoming webhook, or a named list of addresses. Each row opens its editor
 on click, showing only the fields its kind can use: the chat kinds ask for an
 api connection and a target channel id, a webhook asks for the connection

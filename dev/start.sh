@@ -1312,6 +1312,53 @@ print(json.dumps({
   fi
 fi
 
+# A Slack channel when the developer has put their own workspace's bot token
+# in dev/.slack-env (gitignored): SLACK_TEST_BOT_TOKEN and
+# SLACK_TEST_CHANNEL_ID. No Slack fixture can run locally, so without the file
+# there is no slack-dev channel (#1824).
+if [ -f dev/.slack-env ]; then
+  # shellcheck source=/dev/null
+  . dev/.slack-env
+  SLACK_CONN_BODY=$(SLACK_TOKEN="$SLACK_TEST_BOT_TOKEN" python3 -c '
+import json, os
+print(json.dumps({
+    "config": {
+        "base_url": "https://slack.com/api",
+        "auth_mode": "bearer",
+        "credential": os.environ["SLACK_TOKEN"],
+        "connection_name": "slack-dev",
+        "connect_timeout": "5s",
+        "call_timeout": "20s",
+    },
+    "description": "Dev: a Slack workspace of your own, from dev/.slack-env (#1824)",
+}))')
+  SLACK_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+    -H "X-API-Key: acme-dev-key-2024" \
+    -H "Content-Type: application/json" \
+    -d "$SLACK_CONN_BODY" \
+    http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/slack-dev || echo "000")
+  if [ "$SLACK_HTTP" = "200" ] || [ "$SLACK_HTTP" = "201" ]; then
+    SLACK_CH_BODY=$(SLACK_CHANNEL="$SLACK_TEST_CHANNEL_ID" python3 -c '
+import json, os
+print(json.dumps({
+    "kind": "slack",
+    "description": "Dev: a channel in a Slack workspace of your own",
+    "enabled": True,
+    "connection": "slack-dev",
+    "target": os.environ["SLACK_CHANNEL"],
+    "mode": "immediate",
+}))')
+    curl -s -o /dev/null -X PUT \
+      -H "X-API-Key: acme-dev-key-2024" \
+      -H "Content-Type: application/json" \
+      -d "$SLACK_CH_BODY" \
+      http://localhost:$DEV_API_PORT/api/v1/admin/notification-channels/slack-dev || true
+    ok "'slack-dev' notification channel registered (dev/.slack-env)"
+  else
+    echo -e "  ${YELLOW}⚠${NC} slack-dev connection register returned HTTP $SLACK_HTTP"
+  fi
+fi
+
 # An email channel needs no connection, so it exists wherever SMTP does.
 EMAIL_CH_BODY='{"kind":"email","description":"Dev fixture: the operations mailing list","enabled":true,"recipients":["ops@example.com"],"mode":"immediate"}'
 curl -s -o /dev/null -X PUT \

@@ -13,6 +13,10 @@ import (
 // Channel kinds. A kind decides what a channel needs to deliver and what a
 // document may carry through it.
 const (
+	// ChannelKindSlack posts through the Slack Web API (chat.postMessage,
+	// and the external upload sequence for files) with the bot token held by
+	// the connection.
+	ChannelKindSlack = "slack"
 	// ChannelKindMattermost posts through the Mattermost REST API
 	// (POST /api/v4/posts) with the bot token held by the connection.
 	ChannelKindMattermost = "mattermost"
@@ -225,15 +229,15 @@ func ValidateChannel(c Channel) error {
 		return err
 	}
 	switch c.Kind {
-	case ChannelKindMattermost:
+	case ChannelKindSlack, ChannelKindMattermost:
 		return validateChatChannel(c)
 	case ChannelKindWebhook:
 		return validateWebhookChannel(c)
 	case ChannelKindEmail:
 		return validateEmailChannel(c)
 	default:
-		return fmt.Errorf("channel kind %q must be one of %s, %s, %s",
-			c.Kind, ChannelKindMattermost, ChannelKindWebhook, ChannelKindEmail)
+		return fmt.Errorf("channel kind %q must be one of %s, %s, %s, %s",
+			c.Kind, ChannelKindSlack, ChannelKindMattermost, ChannelKindWebhook, ChannelKindEmail)
 	}
 }
 
@@ -318,7 +322,7 @@ func validateEmailChannel(c Channel) error {
 // the admin form and by the persona filter that authorizes a send.
 func ChannelNeedsConnection(kind string) bool {
 	switch kind {
-	case ChannelKindMattermost, ChannelKindWebhook:
+	case ChannelKindSlack, ChannelKindMattermost, ChannelKindWebhook:
 		return true
 	default:
 		return false
@@ -328,5 +332,5 @@ func ChannelNeedsConnection(kind string) bool {
 // ChannelCarriesFiles reports whether a kind delivers attachments as files.
 // The others name each attachment by its link.
 func ChannelCarriesFiles(kind string) bool {
-	return kind == ChannelKindMattermost || kind == ChannelKindEmail
+	return kind == ChannelKindSlack || kind == ChannelKindMattermost || kind == ChannelKindEmail
 }

@@ -233,8 +233,8 @@ func TestListChannels_NamesTheKindsAndTheChannels(t *testing.T) {
 	}
 	// The form offers what this deployment can deliver to, which is the set
 	// the API reports rather than a list the form carries of its own.
-	if len(out.Kinds) != 3 {
-		t.Errorf("kinds = %v, want the three kinds", out.Kinds)
+	if strings.Join(out.Kinds, ",") != "slack,mattermost,webhook,email" {
+		t.Errorf("kinds = %v, want the four kinds", out.Kinds)
 	}
 }
 

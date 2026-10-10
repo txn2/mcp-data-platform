@@ -101,7 +101,7 @@ export function NotificationChannelsCard({ isReadOnly }: { isReadOnly: boolean }
     <SettingsCard
       icon={Send}
       title="Notification Channels"
-      description="Where reports and alerts are sent: a Mattermost channel, an incoming webhook, or a list of email addresses. A channel holds no credential — the chat and webhook kinds name an api connection, and the token lives there."
+      description="Where reports and alerts are sent: a Slack channel, a Mattermost channel, an incoming webhook, or a list of email addresses. A channel holds no credential — the chat and webhook kinds name an api connection, and the token lives there."
       action={
         !isReadOnly && (
           <Button size="sm" variant="outline" onClick={openNew} data-testid="channel-new">

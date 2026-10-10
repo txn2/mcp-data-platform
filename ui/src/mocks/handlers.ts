@@ -4227,7 +4227,7 @@ export const handlers = [
           created_by: "sarah.chen@example.com", updated_at: "2026-10-01T16:00:00Z",
         },
       ],
-      kinds: ["mattermost", "webhook", "email"],
+      kinds: ["slack", "mattermost", "webhook", "email"],
     }),
   ),
 

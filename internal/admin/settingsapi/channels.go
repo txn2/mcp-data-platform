@@ -123,6 +123,7 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	out := ChannelListView{
 		Channels: make([]ChannelView, 0, len(channels)),
 		Kinds: []string{
+			notification.ChannelKindSlack,
 			notification.ChannelKindMattermost,
 			notification.ChannelKindWebhook,
 			notification.ChannelKindEmail,

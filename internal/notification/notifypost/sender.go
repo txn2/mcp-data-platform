@@ -110,6 +110,7 @@ type Senders struct {
 // fed by several can tell them apart.
 func NewSenders(upstream UpstreamFunc, deployment string) *Senders {
 	return &Senders{byKind: map[string]Sender{
+		notification.ChannelKindSlack:      &SlackSender{upstream: upstream},
 		notification.ChannelKindMattermost: &MattermostSender{upstream: upstream},
 		notification.ChannelKindWebhook:    &WebhookSender{upstream: upstream, deployment: deployment},
 	}}

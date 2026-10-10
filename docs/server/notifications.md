@@ -350,7 +350,7 @@ naming the channel here is the authorization, and no persona is consulted.
 ![Admin Settings: the scheduled run failure alert and the notification channels](../images/screenshots/light/admin-admin-settings-channels-light.webp#only-light)![Admin Settings: the scheduled run failure alert and the notification channels](../images/screenshots/dark/admin-admin-settings-channels-dark.webp#only-dark)
 
 A **channel** is an operator-configured destination that is not one person: a
-Mattermost channel, an incoming webhook, or a named list of email addresses. A managed script posts what it found to one, a person in a
+Slack channel, a Mattermost channel, an incoming webhook, or a named list of email addresses. A managed script posts what it found to one, a person in a
 session asks the agent to send to one, and the portal offers the same action
 on an asset.
 
@@ -362,6 +362,7 @@ YAML.
 
 | Kind | Delivers through | Needs | Carries |
 | --- | --- | --- | --- |
+| `slack` | `chat.postMessage`, with files through `files.getUploadURLExternal` and `files.completeUploadExternal` | an api connection with `base_url: https://slack.com/api`, `auth_mode: bearer` and the bot token as its `credential`; the target channel id; the bot invited to that channel | a title, a markdown body Slack renders, up to 5 files in the message's thread, and a link |
 | `mattermost` | `POST /api/v4/files`, then `POST /api/v4/posts` | an api connection holding the bot token, and the target channel id | a title, a markdown body, up to 5 files, and a link |
 | `webhook` | one POST to the connection's base URL: `{"text": ...}` (`format: text`, the default), or a JSON envelope (`format: json`) | an api connection whose base URL is the webhook URL, with any secret part as its `path_secret` | `text`: a title and a text body, each attachment and the link appended as a line. `json`: every field, the body whole, the attachments by link, and the sender's `data` |
 | `email` | the deployment's mail server | one to 20 recipient addresses | a subject, the body rendered from markdown, up to 5 files as attachments, and a link button, in the branded template |
@@ -396,6 +397,7 @@ truncation.
 | Kind | The body | Files | Cap |
 | --- | --- | --- | --- |
 | `email` | rendered to HTML (headings, tables, lists, code, links, strikethrough) in the branded template; the plain-text part carries the markdown as written | attached as MIME parts | the queue's 256 KiB |
+| `slack` | a header block with the title, a `markdown` block Slack renders into its own headings, tables, lists and code, and a context block with the link | uploaded, then shared into the message's thread | 12,000 bytes of markdown; a 150-character header |
 | `mattermost` | the title as a heading, then the markdown, which Mattermost renders | uploaded to the channel and attached to the post | 16,000 bytes |
 | `webhook` (`text`) | the title and the markdown as text | each named on its own line with its link | 12,000 bytes |
 | `webhook` (`json`) | the body whole in the envelope | named with their links in `attachments` | the queue's 256 KiB |
@@ -611,15 +613,23 @@ as them:
 A refusal from the tool answers 400 in the tool's own words, and its per-session
 rate limit answers 429.
 
-### Kinds not yet here
+#### Slack
 
-Slack is not a kind yet (#1824). Its transport is a small variation on the
-Mattermost one — a bot token on an api connection, `POST /chat.postMessage`,
-and an application-level `ok: false` to read — with its own rendering (a
-`markdown` block under Slack's 12,000-character cap) and file upload
-(`files.getUploadURLExternal`, then `files.completeUploadExternal`). It has no
-local upstream to be exercised against, so it ships when there is a workspace
-to prove it in rather than on the strength of a test double.
+The bot needs `chat:write`, and `files:write` for attachments, and must be
+invited to the channel (`/invite @<bot>`). Slack answers a refusal with HTTP
+200 and `ok: false`, so the platform reads that envelope: `ratelimited`,
+`internal_error`, `service_unavailable`, `fatal_error` and `request_timeout`
+retry, and every other code fails the message at once with the next step an
+operator takes (`not_in_channel` says to invite the bot, `missing_scope` names
+the scope, a revoked token says to reinstall the app). An answer that is not a
+Web API envelope means the connection's `base_url` is not
+`https://slack.com/api`.
+
+A message's files are uploaded before it is posted and shared into its thread
+after, so they sit with the message they belong to. The bytes go only to an
+upload address on the connection's own domain (`files.slack.com` for
+`slack.com`). A share that fails after the message was posted fails the
+delivery saying so, rather than retrying and posting the message twice.
 
 ### Local development
 
@@ -631,6 +641,10 @@ to prove it in rather than on the strength of a test double.
   `Dev-Password-1`) - seeded with a team, an `ops-alerts` channel and a token,
   and registered as the `mattermost-dev` api connection with an `ops-alerts`
   channel over it. An `ops-email` channel is registered too.
+- **Slack**, when `dev/.slack-env` (gitignored) holds `SLACK_TEST_BOT_TOKEN`
+  and `SLACK_TEST_CHANNEL_ID` for a workspace of your own: the stack registers
+  a `slack-dev` connection and channel over it. No Slack server runs locally,
+  so without the file there is no Slack channel.
 
 ## User notification preferences
 

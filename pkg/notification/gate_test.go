@@ -151,3 +151,18 @@ func TestChannelCarriesFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateChannel_Slack(t *testing.T) {
+	ok := Channel{Name: "ops", Kind: ChannelKindSlack, Mode: ChannelModeImmediate, Connection: "slack", Target: "C123"}
+	if err := ValidateChannel(ok); err != nil {
+		t.Errorf("a slack channel with a connection and a target was refused: %v", err)
+	}
+	noTarget := ok
+	noTarget.Target = ""
+	if err := ValidateChannel(noTarget); err == nil {
+		t.Error("a slack channel with no target was accepted")
+	}
+	if !ChannelNeedsConnection(ChannelKindSlack) || !ChannelCarriesFiles(ChannelKindSlack) {
+		t.Error("a slack channel names a connection and carries files")
+	}
+}

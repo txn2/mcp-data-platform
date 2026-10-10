@@ -405,12 +405,12 @@ WHAT IS AVAILABLE
       latest is written, every few seconds.
   platform.notify(channel, title, body="", link="", data=None, key="",
           repeat_after="", attachments=None)  Post a message to a
-      notification channel an administrator configured: a Mattermost channel,
+      notification channel an administrator configured: a Slack or Mattermost channel,
       an incoming webhook, or a named email list. Call
       platform.call("notify", {"action": "list"}) to see which channels this
       script reaches; a channel is reachable when the run's persona reaches
       the api connection behind it, and an email channel is reachable by any
-      script. body is markdown: an email renders it, Mattermost shows it, a
+      script. body is markdown: an email, Slack and Mattermost render it, a
       webhook receives it as text. link defaults to this run's own page, so a
       post leads back to the run that produced it. data is a dict or list a
       webhook channel whose format is json delivers verbatim beside the
@@ -420,8 +420,8 @@ WHAT IS AVAILABLE
       counted and not posted, and the next one that goes through says how many
       were held back. repeat_after (e.g. "6h") lengthens that window for this
       key, never shortens it. attachments is a list of up to 5 asset ids,
-      resource references or dicts naming asset_id or resource_id; email and
-      Mattermost carry them as files, a webhook as links. A channel refuses
+      resource references or dicts naming asset_id or resource_id; email,
+      Slack and Mattermost carry them as files, a webhook as links. A channel refuses
       posts past its hourly cap. Delivery is queued: the call returns when the
       message is accepted, not when it appears.
   platform.publish(channel, name, message="", key="", repeat_after="")  Post a

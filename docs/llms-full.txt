@@ -5157,15 +5157,30 @@ organization's own definitions rather than raw database columns.
 - MCP Specification: https://modelcontextprotocol.io/
 - Security Article: https://imti.co/mcp-defense/
 
-# Notification channels (#1720-#1724)
+# Notification channels (#1720-#1724, #1824)
 
 A notification channel is an operator-configured destination that is not one
-person: a Mattermost channel, an incoming webhook, or a named list of email
-addresses. Channels are configured under Admin > Settings >
+person: a Slack channel, a Mattermost channel, an incoming webhook, or a named
+list of email addresses. Channels are configured under Admin > Settings >
 Notification Channels, stored in the database, and never in YAML.
 
 Kinds and what each carries:
 
+- slack (#1824): posts through chat.postMessage with a header block (the
+  title, 150 characters), a markdown block Slack renders into its own
+  headings, tables, lists and code (12,000-byte cap, link lines kept), and a
+  context block with the link. Files are uploaded through
+  files.getUploadURLExternal and a POST to the returned address (only on the
+  connection's own domain), then shared into the message's thread with
+  files.completeUploadExternal; a share failing after the post fails the
+  delivery saying the message was posted. Needs an api connection with
+  base_url https://slack.com/api, auth_mode bearer and the bot token
+  (chat:write, files:write), the target channel id, and the bot invited.
+  Slack answers a refusal with HTTP 200 and ok: false: ratelimited,
+  internal_error, service_unavailable, fatal_error and request_timeout retry;
+  every other code fails at once with the operator's next step. make dev
+  registers a slack-dev channel when dev/.slack-env holds
+  SLACK_TEST_BOT_TOKEN and SLACK_TEST_CHANNEL_ID.
 - mattermost: uploads each file through POST /api/v4/files, then posts
   through POST /api/v4/posts with their file_ids. Needs an api connection
   holding the bot token and the site URL, and the target channel id. Carries
@@ -5293,10 +5308,7 @@ email the stack sends, and Mattermost (http://localhost:8065) seeded with a
 team, an ops-alerts channel and a token, registered as the mattermost-dev api
 connection.
 
-Slack is not a kind yet (#1824). Its transport is a small variation on the
-Mattermost one, with its own markdown-block rendering and file upload, but it
-has no local upstream to be exercised against, so it ships when there is a
-workspace to prove it in rather than on the strength of a test double.
+
 
 
 # Data Retention
