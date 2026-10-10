@@ -34,9 +34,12 @@ type fakeHyperDX struct {
 	calls      int
 }
 
-func newFakeHyperDX(t *testing.T) (*fakeHyperDX, *httptest.Server) {
+// newFakeHyperDX starts the fake. limitEvery is set before the server serves
+// a request: the seed reaches it from another process, which gives the race
+// detector no ordering between a write here and the handler's read.
+func newFakeHyperDX(t *testing.T, limitEvery int) (*fakeHyperDX, *httptest.Server) {
 	t.Helper()
-	f := &fakeHyperDX{objects: map[string][]map[string]any{}, writes: map[string]int{}, key: "fake-access-key"}
+	f := &fakeHyperDX{objects: map[string][]map[string]any{}, writes: map[string]int{}, key: "fake-access-key", limitEvery: limitEvery}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -194,6 +197,22 @@ func (f *fakeHyperDX) delete(w http.ResponseWriter, kind, id string) {
 	_, _ = w.Write([]byte(`{}`))
 }
 
+// wrote is how many writes of one kind ("POST dashboards") the fake took,
+// read under its lock: the handler writes the count on the server's
+// goroutine.
+func (f *fakeHyperDX) wrote(what string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.writes[what]
+}
+
+// allWrites is every write count, for a failure message and a comparison.
+func (f *fakeHyperDX) allWrites() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return fmt.Sprint(f.writes)
+}
+
 // asList is v as a list, or nil.
 func asList(v any) []any {
 	l, _ := v.([]any)
@@ -241,21 +260,21 @@ func definitionCounts(t *testing.T, dir string) (dashboards, searches, alerts in
 // over the same directory writes nothing, and a changed definition is
 // replaced in place, not created again.
 func TestSeed_IdempotentByName(t *testing.T) {
-	fake, srv := newFakeHyperDX(t)
+	fake, srv := newFakeHyperDX(t, 0)
 	dir := copySeed(t)
 	env := []string{"HYPERDX_API_URL=" + srv.URL, "HYPERDX_API_KEY=" + fake.key, "HYPERDX_ALERT_WEBHOOK_URL=http://hooks.example.com/alert"}
 	dashboards, searches, alerts := definitionCounts(t, dir)
 
 	out := runSeed(t, dir, env)
-	if fake.writes["POST dashboards"] != dashboards || fake.writes["POST saved-searches"] != searches ||
-		fake.writes["POST alerts"] != alerts || fake.writes["POST webhooks"] != 1 {
-		t.Fatalf("first run wrote %v, want %d dashboards, %d searches, %d alerts, 1 webhook\n%s", fake.writes, dashboards, searches, alerts, out)
+	if fake.wrote("POST dashboards") != dashboards || fake.wrote("POST saved-searches") != searches ||
+		fake.wrote("POST alerts") != alerts || fake.wrote("POST webhooks") != 1 {
+		t.Fatalf("first run wrote %v, want %d dashboards, %d searches, %d alerts, 1 webhook\n%s", fake.allWrites(), dashboards, searches, alerts, out)
 	}
 
-	before := fmt.Sprint(fake.writes)
+	before := fake.allWrites()
 	out = runSeed(t, dir, env)
-	if !strings.Contains(out, "seed: 0 writes") || fmt.Sprint(fake.writes) != before {
-		t.Fatalf("second run wrote: %v\n%s", fake.writes, out)
+	if !strings.Contains(out, "seed: 0 writes") || fake.allWrites() != before {
+		t.Fatalf("second run wrote: %v\n%s", fake.allWrites(), out)
 	}
 
 	path := filepath.Join(dir, "dashboards", "02-tool-calls.json")
@@ -264,8 +283,8 @@ func TestSeed_IdempotentByName(t *testing.T) {
 	edited := []byte(strings.Replace(string(b), `"Calls by tool"`, `"Calls per tool"`, 1))
 	require(t, os.WriteFile(path, edited, 0o600)) //nolint:gosec // the test's own copy
 	out = runSeed(t, dir, env)
-	if fake.writes["PUT dashboards"] != 1 || fake.writes["POST dashboards"] != dashboards {
-		t.Fatalf("an edited dashboard is replaced once: %v\n%s", fake.writes, out)
+	if fake.wrote("PUT dashboards") != 1 || fake.wrote("POST dashboards") != dashboards {
+		t.Fatalf("an edited dashboard is replaced once: %v\n%s", fake.allWrites(), out)
 	}
 	if !strings.Contains(out, "updated dashboards: MCP Platform: Tool calls") {
 		t.Fatalf("the report names the update:\n%s", out)
@@ -276,7 +295,7 @@ func TestSeed_IdempotentByName(t *testing.T) {
 // removed under its old name, and an object an operator made without the
 // seed's tag is left alone.
 func TestSeed_RemovesWhatItNoLongerDefines(t *testing.T) {
-	fake, srv := newFakeHyperDX(t)
+	fake, srv := newFakeHyperDX(t, 0)
 	dir := copySeed(t)
 	env := []string{"HYPERDX_API_URL=" + srv.URL, "HYPERDX_API_KEY=" + fake.key, "HYPERDX_ALERT_WEBHOOK_URL=http://hooks.example.com/alert"}
 	runSeed(t, dir, env)
@@ -286,8 +305,8 @@ func TestSeed_RemovesWhatItNoLongerDefines(t *testing.T) {
 		map[string]any{"id": "mine", "name": "An operator's own alert", "tags": []any{"team"}})
 	fake.mu.Unlock()
 	out := runSeed(t, dir, env)
-	if fake.writes["DELETE alerts"] != 1 || !strings.Contains(out, "removed alerts: An alert this bundle once shipped") {
-		t.Fatalf("deletes %v\n%s", fake.writes, out)
+	if fake.wrote("DELETE alerts") != 1 || !strings.Contains(out, "removed alerts: An alert this bundle once shipped") {
+		t.Fatalf("deletes %v\n%s", fake.allWrites(), out)
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -301,14 +320,13 @@ func TestSeed_RemovesWhatItNoLongerDefines(t *testing.T) {
 // TestSeed_WaitsOutTheRateLimit: a 429 is waited out and the call retried,
 // so a run larger than HyperDX's per-minute limit still completes.
 func TestSeed_WaitsOutTheRateLimit(t *testing.T) {
-	fake, srv := newFakeHyperDX(t)
-	fake.limitEvery = 7
+	fake, srv := newFakeHyperDX(t, 7)
 	dir := copySeed(t)
 	env := []string{"HYPERDX_API_URL=" + srv.URL, "HYPERDX_API_KEY=" + fake.key, "HYPERDX_ALERT_WEBHOOK_URL=http://hooks.example.com/alert"}
 	dashboards, _, alerts := definitionCounts(t, dir)
 	runSeed(t, dir, env)
-	if fake.writes["POST dashboards"] != dashboards || fake.writes["POST alerts"] != alerts {
-		t.Fatalf("a rate-limited run wrote %v", fake.writes)
+	if fake.wrote("POST dashboards") != dashboards || fake.wrote("POST alerts") != alerts {
+		t.Fatalf("a rate-limited run wrote %v", fake.allWrites())
 	}
 	if out := runSeed(t, dir, env); !strings.Contains(out, "seed: 0 writes") {
 		t.Fatalf("a refused write was counted or repeated:\n%s", out)
@@ -318,11 +336,11 @@ func TestSeed_WaitsOutTheRateLimit(t *testing.T) {
 // TestSeed_AlertsNeedAChannel: with no webhook URL the dashboards and saved
 // searches are applied and the alerts skipped, saying so.
 func TestSeed_AlertsNeedAChannel(t *testing.T) {
-	fake, srv := newFakeHyperDX(t)
+	fake, srv := newFakeHyperDX(t, 0)
 	dir := copySeed(t)
 	out := runSeed(t, dir, []string{"HYPERDX_API_URL=" + srv.URL, "HYPERDX_API_KEY=" + fake.key, "HYPERDX_ALERT_WEBHOOK_URL="})
-	if fake.writes["POST alerts"] != 0 || fake.writes["POST webhooks"] != 0 || fake.writes["POST dashboards"] == 0 {
-		t.Fatalf("writes %v", fake.writes)
+	if fake.wrote("POST alerts") != 0 || fake.wrote("POST webhooks") != 0 || fake.wrote("POST dashboards") == 0 {
+		t.Fatalf("writes %v", fake.allWrites())
 	}
 	if !strings.Contains(out, "HYPERDX_ALERT_WEBHOOK_URL is not set") {
 		t.Fatalf("the skip is reported:\n%s", out)
@@ -333,14 +351,14 @@ func TestSeed_AlertsNeedAChannel(t *testing.T) {
 // user, signs in, and reads its key, carrying the session cookie by hand
 // (HyperDX scopes it to Domain=localhost).
 func TestSeed_Bootstrap(t *testing.T) {
-	fake, srv := newFakeHyperDX(t)
+	fake, srv := newFakeHyperDX(t, 0)
 	dir := copySeed(t)
 	runSeed(t, dir, []string{
 		"HYPERDX_API_URL=" + srv.URL, "HYPERDX_API_KEY=", "HYPERDX_ALERT_WEBHOOK_URL=",
 		"HYPERDX_SEED_EMAIL=admin@example.com", "HYPERDX_SEED_PASSWORD=pw",
 	}, "--bootstrap")
-	if fake.writes["POST dashboards"] == 0 {
-		t.Fatalf("nothing applied after bootstrap: %v", fake.writes)
+	if fake.wrote("POST dashboards") == 0 {
+		t.Fatalf("nothing applied after bootstrap: %v", fake.allWrites())
 	}
 }
 
