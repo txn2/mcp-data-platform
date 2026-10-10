@@ -129,6 +129,10 @@ type workerConfig struct {
 	versions VersionReader
 	runner   executor
 	notifier Notifier
+	// channels posts a failed scheduled run's alert to the operator's
+	// channels; portalURL builds the run's page the alert links to.
+	channels  FailurePoster
+	portalURL string
 	// metrics records what the run queue is doing, so an operator watching the
 	// platform sees a failing or slowing automation without querying the run
 	// table (#1307). Nil is a no-op: every method on *observability.Metrics is

@@ -31,6 +31,10 @@ vi.mock("./NotificationChannelsCard", () => ({
   NotificationChannelsCard: () => null,
 }));
 
+vi.mock("./ScriptRunAlertCard", () => ({
+  ScriptRunAlertCard: () => null,
+}));
+
 vi.mock("./MapsCard", () => ({
   MapsCard: () => null,
 }));

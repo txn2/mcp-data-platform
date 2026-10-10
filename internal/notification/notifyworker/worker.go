@@ -71,11 +71,20 @@ type Config struct {
 	// own behavior -- which transport a row goes to, and how a failure
 	// resolves -- is testable without standing up an upstream for each kind.
 	ChannelSenders ChannelSender
+	// Attachments reads a document's files at delivery. nil sends every
+	// attachment as its link.
+	Attachments AttachmentLoader
 	// PollEvery, Lease, and MaxAttempts default to the package constants
 	// when zero.
 	PollEvery   time.Duration
 	Lease       time.Duration
 	MaxAttempts int
+}
+
+// AttachmentLoader reads one attachment's content. notifyattach.Loader
+// implements it.
+type AttachmentLoader interface {
+	Load(ctx context.Context, att notification.Attachment) (notification.File, error)
 }
 
 // ChannelSender posts one document to one channel, dispatching on its kind.
@@ -199,6 +208,14 @@ func (w *Worker) maybePurge(ctx context.Context) {
 	if purged > 0 {
 		slog.InfoContext(ctx, "notification: retention purge", "rows", purged)
 	}
+	keys, err := w.cfg.Queue.PurgeChannelKeys(ctx, DefaultResolvedRetention)
+	if err != nil {
+		slog.WarnContext(ctx, "notification: channel key purge failed", logKeyError, err)
+		return
+	}
+	if keys > 0 {
+		slog.InfoContext(ctx, "notification: channel key purge", "keys", keys)
+	}
 }
 
 // deliverableSettings returns SMTP settings ready for sending, or nil when
@@ -306,7 +323,7 @@ func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []n
 // SMTP, reporting whether a failure is terminal. A render failure is
 // deterministic, so retrying cannot fix it.
 func (w *Worker) deliverByEmail(ctx context.Context, settings *smtp.Settings, batch []notification.Notification) (terminal bool, err error) {
-	email, err := w.cfg.Renderer.Render(batch)
+	email, err := w.renderEmail(ctx, batch)
 	if err != nil {
 		return true, err //nolint:wrapcheck // the renderer's message is what the history records
 	}
@@ -316,14 +333,52 @@ func (w *Worker) deliverByEmail(ctx context.Context, settings *smtp.Settings, ba
 	return false, nil
 }
 
+// renderEmail renders a batch as one email. A single channel document carrying
+// attachments is rendered with its files read; everything else, a digest
+// included, is the ordinary rendering.
+func (w *Worker) renderEmail(ctx context.Context, batch []notification.Notification) (*notifyrender.Email, error) {
+	if len(batch) != 1 || batch[0].Payload.Document == nil || len(batch[0].Payload.Document.Attachments) == 0 {
+		return w.cfg.Renderer.Render(batch) //nolint:wrapcheck // the renderer's message is what the history records
+	}
+	files, linked := w.loadFiles(ctx, batch[0].Payload.Document.Attachments)
+	links := make([]notifyrender.AttachmentLink, 0, len(linked))
+	for _, a := range linked {
+		links = append(links, notifyrender.AttachmentLink{Name: a.Name, URL: a.Link})
+	}
+	return w.cfg.Renderer.RenderDocument(batch[0], files, links) //nolint:wrapcheck // as above
+}
+
+// loadFiles reads a document's attachments, returning the files read and the
+// attachments that travel as links instead: over the size a file may be, or
+// unreadable.
+//
+// An attachment that cannot be read does not fail the delivery. The message
+// still says what it was meant to, and its link still reaches the file, which
+// is better than a monitor's alert waiting on a report that was deleted.
+func (w *Worker) loadFiles(ctx context.Context, atts []notification.Attachment) (files []notification.File, linked []notification.Attachment) {
+	for _, a := range atts {
+		if w.cfg.Attachments == nil {
+			linked = append(linked, a)
+			continue
+		}
+		f, err := w.cfg.Attachments.Load(ctx, a)
+		if err != nil {
+			slog.WarnContext(ctx, "notification: attachment sent as a link", "attachment", a.Name, logKeyError, err)
+			linked = append(linked, a)
+			continue
+		}
+		files = append(files, f)
+	}
+	return files, linked
+}
+
 // deliverToChannel posts the batch to the destination it names, reporting the
 // channel's kind (channel when it could not be read), the failure and whether
 // it is terminal.
 //
-// A batch is one document per row. A digest batch for one channel is posted as
-// one message per document rather than as a bulletin: composing the bulletin
-// is the rendering stage's work, and until it exists a reader gets each
-// document whole instead of a summary that drops what it could not fit.
+// A batch is one document per row. A digest batch for one channel posts as one
+// bulletin (notifypost.Bulletin); a JSON webhook still receives each document
+// as its own delivery.
 func (w *Worker) deliverToChannel(ctx context.Context, name string, batch []notification.Notification) (kind string, terminal bool, err error) {
 	ch, err := w.cfg.Channels.Get(ctx, name)
 	if err != nil {
@@ -337,16 +392,33 @@ func (w *Worker) deliverToChannel(ctx context.Context, name string, batch []noti
 	if !ch.Enabled {
 		return ch.Kind, true, fmt.Errorf("channel %q is disabled", name)
 	}
+	deliveries := make([]notification.Delivery, 0, len(batch))
 	for _, n := range batch {
 		if n.Payload.Document == nil {
 			return ch.Kind, true, fmt.Errorf("notification %d carries no document to post to channel %q", n.ID, name)
 		}
-		d := notification.Delivery{ID: DeliveryID(n.ID), OccurredAt: n.CreatedAt, Document: *n.Payload.Document}
+		deliveries = append(deliveries, notification.Delivery{ID: DeliveryID(n.ID), OccurredAt: n.CreatedAt, Document: *n.Payload.Document})
+	}
+	if bulletin(*ch, batch) {
+		deliveries = []notification.Delivery{notifypost.Bulletin(*ch, deliveries)}
+	}
+	for _, d := range deliveries {
+		if notification.ChannelCarriesFiles(ch.Kind) {
+			d.Files, d.Linked = w.loadFiles(ctx, d.Attachments)
+		}
 		if err := w.cfg.ChannelSenders.Send(ctx, *ch, d); err != nil {
 			return ch.Kind, errors.Is(err, notifypost.ErrTerminal), err
 		}
 	}
 	return ch.Kind, false, nil
+}
+
+// bulletin reports whether a claimed batch posts as one bulletin: a digest
+// batch of more than one document, to a channel that shows text to people. A
+// JSON webhook is read by a system, which wants each event as its own
+// delivery.
+func bulletin(ch notification.Channel, batch []notification.Notification) bool {
+	return len(batch) > 1 && batch[0].Digest && ch.PayloadFormat() != notification.ChannelFormatJSON
 }
 
 // kindChannel labels a channel delivery whose channel could not be read.

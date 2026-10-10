@@ -99,6 +99,19 @@ func (*memQueue) PurgeOld(_ context.Context, _, _ time.Duration) (int64, error) 
 	return 0, nil
 }
 
+// EnqueueChannel writes the send's rows through Enqueue; this fake applies no
+// gate.
+func (q *memQueue) EnqueueChannel(ctx context.Context, rows []notification.Notification, _ notification.ChannelGate) (notification.ChannelOutcome, error) {
+	for _, n := range rows {
+		if err := q.Enqueue(ctx, n); err != nil {
+			return notification.ChannelOutcome{}, err
+		}
+	}
+	return notification.ChannelOutcome{}, nil
+}
+
+func (*memQueue) PurgeChannelKeys(context.Context, time.Duration) (int64, error) { return 0, nil }
+
 func (q *memQueue) setStatus(ids []int64, status string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

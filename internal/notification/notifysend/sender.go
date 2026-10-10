@@ -91,7 +91,25 @@ func buildMessage(settings smtp.Settings, email notifyrender.Email) (*mail.Msg, 
 	if len(email.LogoPNG) > 0 {
 		msg.EmbedReadSeeker(notifyrender.LogoContentID, bytes.NewReader(email.LogoPNG))
 	}
+	for _, f := range email.Attachments {
+		var opts []mail.FileOption
+		if f.ContentType != "" {
+			opts = append(opts, mail.WithFileContentType(mail.ContentType(f.ContentType)))
+		}
+		msg.AttachReadSeeker(attachmentName(f.Name), bytes.NewReader(f.Data), opts...)
+	}
 	return msg, nil
+}
+
+// attachmentName is the file name an attachment is sent under: its own, with
+// the path separators a mail client would read as directories removed, or a
+// neutral name when it has none.
+func attachmentName(name string) string {
+	name = strings.TrimSpace(strings.NewReplacer("/", "_", "\\", "_").Replace(name))
+	if name == "" {
+		return "attachment"
+	}
+	return name
 }
 
 // setAddresses applies the sender, recipient, and Reply-To headers. Every

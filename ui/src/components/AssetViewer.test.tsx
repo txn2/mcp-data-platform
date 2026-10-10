@@ -304,3 +304,11 @@ describe("AssetViewer: an incomplete export", () => {
     expect(screen.queryByText("Incomplete")).not.toBeInTheDocument();
   });
 });
+
+describe("AssetViewer Post to a channel (#1723)", () => {
+  it("offers the post to a reader who does not own the asset, and opens the dialog", () => {
+    renderViewer({ isOwner: false, sharePermission: "viewer" });
+    fireEvent.click(screen.getByRole("button", { name: /post to a channel/i }));
+    expect(screen.getByRole("dialog", { name: /post to a channel/i })).toBeInTheDocument();
+  });
+});

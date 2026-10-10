@@ -7,6 +7,7 @@ import {
 } from "@/api/admin/hooks";
 import { ConfigField, ConfigToggle } from "./connections/fields";
 import { SettingsCard } from "./panels";
+import { ChannelsPicker } from "./ChannelsPicker";
 import { RecipientsEditor } from "./RecipientsEditor";
 import {
   AlertStatusBanners,
@@ -30,12 +31,14 @@ interface FormState {
   enabled: boolean;
   escalate_after_hours: string;
   recipients: string[];
+  channels: string[];
 }
 
 const DEFAULT_FORM: FormState = {
   enabled: true,
   escalate_after_hours: "24",
   recipients: [],
+  channels: [],
 };
 
 function formFrom(settings: ConnectionAlertSettings): FormState {
@@ -43,6 +46,7 @@ function formFrom(settings: ConnectionAlertSettings): FormState {
     enabled: settings.enabled,
     escalate_after_hours: String(settings.escalate_after_hours || 24),
     recipients: settings.recipients ?? [],
+    channels: settings.channels ?? [],
   };
 }
 
@@ -75,6 +79,7 @@ export function ConnectionAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
         enabled: form.enabled,
         escalate_after_hours: parseInt(form.escalate_after_hours, 10) || 24,
         recipients: form.recipients,
+        channels: form.channels,
       },
       {
         onSuccess: () => {
@@ -144,6 +149,11 @@ export function ConnectionAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
             label="Escalation recipients"
             placeholder="platform-admin@example.com"
             help="Who to tell when a revoked connection has not been reauthorized. Leave it empty and only the person who authorized the connection is told. Each recipient's own notification preferences still apply."
+          />
+          <ChannelsPicker
+            selected={form.channels}
+            onChange={(channels) => handleChange({ channels })}
+            help="A revoked connection is posted to each channel chosen here as soon as it happens, and again when it escalates."
           />
         </div>
       )}

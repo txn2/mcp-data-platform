@@ -1,7 +1,9 @@
 package notifylayer
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"strings"
@@ -42,8 +44,9 @@ func (h *Handle) handlePublish(ctx context.Context, input notifyInput) (*mcp.Cal
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
+	doc.Key = strings.TrimSpace(input.Key)
 	stamp(ctx, &doc, notification.DocumentScriptPublished, notification.DocumentNotifyPublished)
-	return h.enqueue(ctx, *ch, c, doc)
+	return h.enqueue(ctx, *ch, c, doc, input.RepeatAfter)
 }
 
 // readableAsset resolves the asset a publish names and refuses one the caller
@@ -95,8 +98,9 @@ func assetID(in string) string {
 // would act on anyway: the page itself is the thing to open.
 func (h *Handle) documentFromAsset(ctx context.Context, asset *portaldomain.Asset, message string) (notification.Document, error) {
 	doc := notification.Document{
-		Title: asset.Name,
-		Link:  h.assetLink(asset.ID),
+		Title:       asset.Name,
+		Link:        h.assetLink(asset.ID),
+		Attachments: previewOf(asset),
 	}
 	var parts []string
 	if message = strings.TrimSpace(message); message != "" {
@@ -110,7 +114,11 @@ func (h *Handle) documentFromAsset(ctx context.Context, asset *portaldomain.Asse
 		if err != nil {
 			return doc, fmt.Errorf("reading the content of asset %q failed", asset.ID)
 		}
-		if excerpt := excerptOf(string(content)); excerpt != "" {
+		text := string(content)
+		if isCSV(asset.ContentType) {
+			text = csvTable(content)
+		}
+		if excerpt := excerptOf(text); excerpt != "" {
 			parts = append(parts, excerpt)
 		}
 	}
@@ -156,4 +164,70 @@ func excerptOf(content string) string {
 		cut = cut[:at]
 	}
 	return cut + "\n\n[truncated; open the asset for the rest]"
+}
+
+// previewOf attaches the asset's light tile, when it has one, so a chat reader
+// sees what the report looks like before opening it.
+func previewOf(asset *portaldomain.Asset) []notification.Attachment {
+	if asset.ThumbnailS3Key == "" {
+		return nil
+	}
+	return []notification.Attachment{{
+		AssetID: asset.ID,
+		Version: asset.CurrentVersion,
+		Preview: true,
+		Name:    previewName(asset.Name),
+	}}
+}
+
+// previewName names a preview image after its asset.
+func previewName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "preview"
+	}
+	return name + ".png"
+}
+
+// isCSV reports whether a content type is comma-separated values.
+func isCSV(contentType string) bool {
+	media, _, _ := strings.Cut(contentType, ";")
+	return strings.EqualFold(strings.TrimSpace(media), "text/csv")
+}
+
+// csvTableRows is how many data rows of a CSV asset a published message shows.
+const csvTableRows = 50
+
+// csvTable renders the head of a CSV file as a markdown table: the header and
+// up to csvTableRows rows, then a line saying how many more there are. A file
+// that does not parse is shown as written, which is still legible.
+func csvTable(content []byte) string {
+	r := csv.NewReader(bytes.NewReader(content))
+	r.FieldsPerRecord = -1
+	records, err := r.ReadAll()
+	if err != nil || len(records) == 0 {
+		return string(content)
+	}
+	header, rows := records[0], records[1:]
+	shown := rows[:min(len(rows), csvTableRows)]
+	var b strings.Builder
+	writeRow(&b, header)
+	_, _ = b.WriteString("|" + strings.Repeat(" --- |", len(header)) + "\n")
+	for _, row := range shown {
+		writeRow(&b, row)
+	}
+	if rest := len(rows) - len(shown); rest > 0 {
+		_, _ = fmt.Fprintf(&b, "\n%d more rows in the asset.\n", rest)
+	}
+	return b.String()
+}
+
+// writeRow writes one markdown table row, escaping the pipe a cell may hold.
+func writeRow(b *strings.Builder, cells []string) {
+	_, _ = b.WriteString("|")
+	for _, cell := range cells {
+		cell = strings.ReplaceAll(strings.ReplaceAll(cell, "|", "\\|"), "\n", " ")
+		_, _ = b.WriteString(" " + cell + " |")
+	}
+	_, _ = b.WriteString("\n")
 }

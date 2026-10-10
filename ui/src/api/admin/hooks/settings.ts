@@ -100,6 +100,8 @@ export interface ReviewQueueAlertSettings {
   oldest_pending_days: number;
   cooldown_hours: number;
   recipients: string[];
+  // channels names the notification channels the alert is also posted to.
+  channels: string[];
   updated_by?: string;
   updated_at?: string;
   warnings?: string[];
@@ -152,6 +154,8 @@ export interface ConnectionAlertSettings {
   enabled: boolean;
   escalate_after_hours: number;
   recipients: string[];
+  // channels names the notification channels a revocation is also posted to.
+  channels: string[];
   updated_by?: string;
   updated_at?: string;
   warnings?: string[];
@@ -183,6 +187,39 @@ export function useSetConnectionAlert() {
     // re-evaluated), so seed the cache from it rather than refetching.
     onSuccess: (data) => {
       qc.setQueryData(["settings", "connection-alert"], data);
+    },
+  });
+}
+
+// --- Scheduled-run failure alert (#1724) ---
+
+// ScriptRunAlertSettings names the channels a failed scheduled run of any
+// managed script is posted to, beside the email its owner receives.
+export interface ScriptRunAlertSettings {
+  channels: string[];
+  updated_by?: string;
+  updated_at?: string;
+}
+
+const scriptRunAlertKey = ["settings", "script-run-alert"];
+
+export function useScriptRunAlert() {
+  return useQuery({
+    queryKey: scriptRunAlertKey,
+    queryFn: () => apiFetch<ScriptRunAlertSettings>("/settings/script-run-alert"),
+  });
+}
+
+export function useSetScriptRunAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { channels: string[] }) =>
+      apiFetch<ScriptRunAlertSettings>("/settings/script-run-alert", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(scriptRunAlertKey, data);
     },
   });
 }
@@ -242,7 +279,32 @@ export interface NotificationChannelTestResult {
   detail: string;
 }
 
+// NotificationChannelStatus is what one channel has done recently, beside its
+// hourly cap.
+export interface NotificationChannelStatus {
+  name: string;
+  last_delivered_at?: string;
+  last_error?: string;
+  last_error_at?: string;
+  sent_last_hour: number;
+  max_per_hour: number;
+  pending: number;
+  suppressed: number;
+}
+
 const channelsKey = ["settings", "notification-channels"];
+
+// useNotificationChannelStatus reads one channel's recent activity. It is
+// refetched on the listing's key so a save or a test refreshes it too.
+export function useNotificationChannelStatus(name: string) {
+  return useQuery({
+    queryKey: [...channelsKey, name, "status"],
+    queryFn: () =>
+      apiFetch<NotificationChannelStatus>(
+        `/notification-channels/${encodeURIComponent(name)}/status`,
+      ),
+  });
+}
 
 export function useNotificationChannels() {
   return useQuery({

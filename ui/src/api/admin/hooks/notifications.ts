@@ -14,6 +14,12 @@ export interface NotificationRow {
   id: number;
   recipient: string;
   category: string;
+  // channel is the notification channel the row was sent to; absent for a
+  // row addressed to a person alone.
+  channel?: string;
+  // suppressed is how many repeats of the row's alert were held back by its
+  // key before this one went through.
+  suppressed?: number;
   subject: string;
   digest: boolean;
   status: NotificationStatus;
@@ -49,6 +55,7 @@ export interface NotificationQuery {
   recipient?: string;
   status?: string;
   category?: string;
+  channel?: string;
   page?: number;
   per_page?: number;
 }
@@ -61,6 +68,7 @@ function notificationParams(query: NotificationQuery): string {
   if (query.recipient) params.set("recipient", query.recipient);
   if (query.status) params.set("status", query.status);
   if (query.category) params.set("category", query.category);
+  if (query.channel) params.set("channel", query.channel);
   if (query.page && query.page > 1) params.set("page", String(query.page));
   if (query.per_page) params.set("per_page", String(query.per_page));
   const qs = params.toString();
@@ -77,7 +85,7 @@ export function useNotifications(query: NotificationQuery = {}) {
 // useNotificationStats reads the per-status breakdown. The status filter is
 // deliberately dropped: a list narrowed to failures still shows how many sent.
 export function useNotificationStats(query: NotificationQuery = {}) {
-  const scoped = { recipient: query.recipient, category: query.category };
+  const scoped = { recipient: query.recipient, category: query.category, channel: query.channel };
   return useQuery({
     queryKey: ["admin-notification-stats", scoped],
     queryFn: () => apiFetch<NotificationStats>(`/notifications/stats${notificationParams(scoped)}`),

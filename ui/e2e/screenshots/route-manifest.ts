@@ -1,4 +1,5 @@
 import { assetViewerRoutes } from "./route-assets";
+import { channelRoutes } from "./route-channels";
 import { adminResourceRoutes, userResourceRoutes } from "./route-resources";
 import { drawerRoutes } from "./route-drawers";
 import { scratchTableRoutes } from "./route-scratch-tables";
@@ -285,6 +286,7 @@ export const routes: ScreenshotRoute[] = [
   },
 
   ...assetViewerRoutes,
+  ...channelRoutes,
   {
     // Per-user settings: email notification preferences (#631).
     slug: "settings",

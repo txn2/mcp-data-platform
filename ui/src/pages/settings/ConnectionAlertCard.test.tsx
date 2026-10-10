@@ -8,6 +8,10 @@ import type { ConnectionAlertSettings } from "@/api/admin/hooks/settings";
 vi.mock("@/api/admin/hooks", () => ({
   useConnectionAlert: vi.fn(),
   useSetConnectionAlert: vi.fn(),
+  useNotificationChannels: vi.fn(() => ({
+    data: { channels: [{ name: "ops-alerts", enabled: true }, { name: "pager", enabled: false }], kinds: [] },
+    isLoading: false,
+  })),
 }));
 
 import { useConnectionAlert, useSetConnectionAlert } from "@/api/admin/hooks";
@@ -20,6 +24,7 @@ function makeAlert(overrides: Partial<ConnectionAlertSettings> = {}): Connection
     enabled: true,
     escalate_after_hours: 24,
     recipients: ["platform-admin@example.com"],
+    channels: [],
     updated_by: "admin@example.com",
     updated_at: "2026-09-11T16:40:00Z",
     ...overrides,
@@ -118,6 +123,7 @@ describe("ConnectionAlertCard: editing", () => {
         enabled: true,
         escalate_after_hours: 6,
         recipients: ["platform-admin@example.com", "oncall@example.com"],
+        channels: [],
       },
       expect.anything(),
     );
@@ -155,5 +161,28 @@ describe("ConnectionAlertCard: file config mode", () => {
 
     expect(screen.queryByRole("button", { name: /^Save/ })).not.toBeInTheDocument();
     expect(screen.getByText("platform-admin@example.com")).toBeInTheDocument();
+  });
+});
+
+describe("ConnectionAlertCard channels", () => {
+  afterEach(cleanup);
+
+  it("saves the channels chosen beside the recipients", () => {
+    mockUseAlert.mockReturnValue({
+      data: makeAlert({ channels: ["pager"] }),
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useConnectionAlert>);
+    mockUseSetAlert.mockReturnValue({ mutate: saveMutate, isPending: false } as unknown as ReturnType<
+      typeof useSetConnectionAlert
+    >);
+    render(<ConnectionAlertCard isReadOnly={false} />);
+    fireEvent.click(screen.getByLabelText("Post to ops-alerts"));
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    expect(saveMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ channels: ["pager", "ops-alerts"] }),
+      expect.anything(),
+    );
   });
 });

@@ -282,29 +282,32 @@ func joinURL(base, path string) string {
 }
 
 // plainText renders a document for a kind that shows no markup: the title,
-// the body, and the link on its own last line. It is what the webhook kind
-// sends, and what every kind falls back to before the richer rendering of
-// stage two exists.
-func plainText(doc notification.Document, limit int) string {
+// the suppression line, the body, the attachments as link lines, and the link
+// on its own last line. It is what the webhook kind sends.
+func plainText(d notification.Delivery, limit int) string {
 	// strings.Builder's writes cannot fail, which is why their errors are
 	// discarded explicitly rather than checked.
 	var b strings.Builder
-	_, _ = b.WriteString(doc.Title)
-	if doc.Body != "" {
+	_, _ = b.WriteString(d.Title)
+	if note := d.SuppressionNote(); note != "" {
+		_, _ = b.WriteString("\n\n" + note)
+	}
+	if d.Body != "" {
 		_, _ = b.WriteString("\n\n")
-		_, _ = b.WriteString(doc.Body)
+		_, _ = b.WriteString(d.Body)
 	}
-	text := b.String()
-	// The link is appended after the cut rather than before it, so the one
-	// line that lets a reader reach the whole thing is the line that always
-	// survives a document too long for the kind.
-	if doc.Link != "" {
-		room := limit - (len(doc.Link) + 1)
-		text = truncate(text, room)
-		text += "\n" + doc.Link
-		return text
+	// The tail is appended after the cut rather than before it, so the lines
+	// that let a reader reach the whole thing are the lines that always
+	// survive a document too long for the kind.
+	tail := linkLines(d)
+	if d.Link != "" {
+		tail = append(tail, d.Link)
 	}
-	return truncate(text, limit)
+	if len(tail) == 0 {
+		return truncate(b.String(), limit)
+	}
+	end := "\n\n" + strings.Join(tail, "\n")
+	return truncate(b.String(), limit-len(end)) + end
 }
 
 // cutBoundaryFraction is the reciprocal of how much of a cut message may be

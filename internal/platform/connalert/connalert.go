@@ -83,6 +83,9 @@ type Settings struct {
 	// makes the escalation a deliberate choice about who is accountable for a
 	// connection rather than a broadcast.
 	Recipients []string `json:"recipients"`
+	// Channels are the notification channels a revocation is also posted
+	// to, by name (#1724).
+	Channels []string `json:"channels,omitempty"`
 	// UpdatedBy and UpdatedAt describe the last admin write. They live in the
 	// platform_settings audit columns, which are authoritative, so they are
 	// excluded from the section value rather than written into it twice.

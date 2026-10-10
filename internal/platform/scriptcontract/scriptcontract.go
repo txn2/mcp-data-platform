@@ -403,25 +403,34 @@ WHAT IS AVAILABLE
       latest report is shown on the running run within a few seconds, beside
       the log printed so far; call it as often as you like, since only the
       latest is written, every few seconds.
-  platform.notify(channel, title, body="", link="", data=None)  Post a message to a
+  platform.notify(channel, title, body="", link="", data=None, key="",
+          repeat_after="", attachments=None)  Post a message to a
       notification channel an administrator configured: a Mattermost channel,
       an incoming webhook, or a named email list. Call
       platform.call("notify", {"action": "list"}) to see which channels this
       script reaches; a channel is reachable when the run's persona reaches
       the api connection behind it, and an email channel is reachable by any
-      script. body is markdown, shown as far as the destination can show it.
-      link defaults to this run's own page, so a post leads back to the run
-      that produced it. data is a dict or list a webhook channel whose format
-      is json delivers verbatim beside the message, for a system that
-      branches on fields rather than text (at most 64 KiB); every other
-      channel ignores it. Delivery is queued: the call returns when the
+      script. body is markdown: an email renders it, Mattermost shows it, a
+      webhook receives it as text. link defaults to this run's own page, so a
+      post leads back to the run that produced it. data is a dict or list a
+      webhook channel whose format is json delivers verbatim beside the
+      message, for a system that branches on fields rather than text (at most
+      64 KiB); every other channel ignores it. key names a repeating alert: a
+      second post with the same key inside the channel's repeat window is
+      counted and not posted, and the next one that goes through says how many
+      were held back. repeat_after (e.g. "6h") lengthens that window for this
+      key, never shortens it. attachments is a list of up to 5 asset ids,
+      resource references or dicts naming asset_id or resource_id; email and
+      Mattermost carry them as files, a webhook as links. A channel refuses
+      posts past its hourly cap. Delivery is queued: the call returns when the
       message is accepted, not when it appears.
-  platform.publish(channel, name, message="")  Post a portal asset to a
-      channel: the asset's name, an excerpt of its content and a link to it.
-      name is the name platform.export saved the asset under, so a script
-      that builds a report and posts it says the name twice rather than
+  platform.publish(channel, name, message="", key="", repeat_after="")  Post a
+      portal asset to a channel: the asset's name, its content (a CSV as a
+      table of its first rows) and a link to it, with its preview image when
+      it has one. name is the name platform.export saved the asset under, so a
+      script that builds a report and posts it says the name twice rather than
       carrying an id between the two calls. message is a line printed above
-      it.
+      it; key and repeat_after are as for notify.
       In a draft run both are refused unless the draft was started with
       allow_writes, like every other call that persists: a message in
       somebody else's chat client is not something a dry run may leave behind.

@@ -10,6 +10,7 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetNotificationChannel: vi.fn(),
   useDeleteNotificationChannel: vi.fn(),
   useTestNotificationChannel: vi.fn(),
+  useNotificationChannelStatus: vi.fn(),
 }));
 
 import {
@@ -17,12 +18,14 @@ import {
   useSetNotificationChannel,
   useDeleteNotificationChannel,
   useTestNotificationChannel,
+  useNotificationChannelStatus,
 } from "@/api/admin/hooks";
 
 const mockList = vi.mocked(useNotificationChannels);
 const mockSave = vi.mocked(useSetNotificationChannel);
 const mockDelete = vi.mocked(useDeleteNotificationChannel);
 const mockTest = vi.mocked(useTestNotificationChannel);
+const mockStatus = vi.mocked(useNotificationChannelStatus);
 
 function makeChannel(overrides: Partial<NotificationChannel> = {}): NotificationChannel {
   return {
@@ -52,9 +55,14 @@ function setChannels(channels: NotificationChannel[]) {
   } as unknown as ReturnType<typeof useNotificationChannels>);
 }
 
+function setStatus(data: unknown) {
+  mockStatus.mockReturnValue({ data } as unknown as ReturnType<typeof useNotificationChannelStatus>);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   setChannels([makeChannel()]);
+  setStatus(undefined);
   mockSave.mockReturnValue({ mutate: saveMutate, isPending: false } as unknown as ReturnType<
     typeof useSetNotificationChannel
   >);
@@ -230,3 +238,39 @@ describe("NotificationChannelsCard", () => {
   });
 });
 
+
+describe("NotificationChannelsCard status line", () => {
+  afterEach(cleanup);
+
+  it("states the last delivery and the hour's sends against the cap", () => {
+    setStatus({
+      name: "ops-alerts", last_delivered_at: "2026-10-10T09:14:03Z",
+      sent_last_hour: 12, max_per_hour: 60, pending: 0, suppressed: 0,
+    });
+    render(<NotificationChannelsCard isReadOnly={false} />);
+    const line = screen.getByTestId("channel-status-ops-alerts");
+    expect(line.textContent).toContain("Last delivered");
+    expect(line.textContent).toContain("Sent this hour 12 of 60");
+    expect(line.textContent).not.toContain("Waiting");
+    expect(line.textContent).not.toContain("Suppressed repeats");
+    expect(line.textContent).not.toContain("Last error");
+  });
+
+  it("names what is waiting, what is held back, and the last error", () => {
+    setStatus({
+      name: "ops-alerts", sent_last_hour: 0, max_per_hour: 60, pending: 2, suppressed: 3,
+      last_error: "upstream answered HTTP 403: not_in_channel", last_error_at: "2026-10-10T08:02:11Z",
+    });
+    render(<NotificationChannelsCard isReadOnly={false} />);
+    const line = screen.getByTestId("channel-status-ops-alerts");
+    expect(line.textContent).toContain("Last delivered never");
+    expect(line.textContent).toContain("Waiting 2");
+    expect(line.textContent).toContain("Suppressed repeats 3");
+    expect(line.textContent).toContain("Last error: upstream answered HTTP 403: not_in_channel");
+  });
+
+  it("shows nothing until the status has loaded", () => {
+    render(<NotificationChannelsCard isReadOnly={false} />);
+    expect(screen.queryByTestId("channel-status-ops-alerts")).toBeNull();
+  });
+});

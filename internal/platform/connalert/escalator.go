@@ -99,7 +99,7 @@ func (e *Escalator) Sweep(ctx context.Context) error {
 		return err
 	}
 	recipients := settings.EscalatesTo()
-	if !settings.Enabled || len(recipients) == 0 {
+	if !settings.Enabled || (len(recipients) == 0 && len(settings.Channels) == 0) {
 		// Nowhere to escalate. The rows stay unstamped, so naming a recipient
 		// later picks up the revocations that are still open rather than
 		// starting from the next one.
@@ -112,7 +112,7 @@ func (e *Escalator) Sweep(ctx context.Context) error {
 	}
 	esc := &escalation{afterHours: int(window / time.Hour)}
 	for _, alert := range due {
-		e.alerter.deliver(ctx, recipients, alert, esc)
+		e.alerter.deliver(ctx, recipients, settings.Channels, alert, esc)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
@@ -33,6 +34,9 @@ type Config struct {
 	Alerts AlertStore
 	// Enqueuer is the notification substrate's trigger-side entry point.
 	Enqueuer *notification.Enqueuer
+	// Channels posts the alert to the channels the settings name (#1724).
+	// nil sends it by email alone.
+	Channels *notifyalert.Sender
 	// BaseURL is the portal's public base URL, for the alert's deep link.
 	BaseURL string
 	// Interval overrides DefaultSweepInterval. Testing hook.
@@ -116,12 +120,17 @@ func (a *Alerter) Revoked(ctx context.Context, rev authevents.Revocation) {
 		// once per rejected call.
 		return
 	}
+	recipients := []string{}
 	if alert.AuthorizedBy == "" {
 		slog.WarnContext(ctx, "a connection's credential was discarded and the platform does not know who authorized it",
 			logKeyKind, logsan.SanitizeForLog(rev.Kind), logKeyName, logsan.SanitizeForLog(rev.Name))
-		return
+	} else {
+		recipients = append(recipients, alert.AuthorizedBy)
 	}
-	a.deliver(ctx, []string{alert.AuthorizedBy}, alert, nil)
+	// The operator's channels hear about it at once: they are where an
+	// operations team watches, and the person who authorized the connection
+	// may be exactly the one who is not reachable.
+	a.deliver(ctx, recipients, settings.Channels, alert, nil)
 }
 
 // announceRefusedAssertion opens the row for a refused jwt_bearer assertion and
@@ -136,8 +145,8 @@ func (a *Alerter) Revoked(ctx context.Context, rev authevents.Revocation) {
 // after that is announced.
 func (a *Alerter) announceRefusedAssertion(ctx context.Context, settings Settings, alert Alert) {
 	recipients := settings.EscalatesTo()
-	if len(recipients) == 0 {
-		slog.WarnContext(ctx, "a connection's signed assertion was refused and no connection alert recipients are configured",
+	if len(recipients) == 0 && len(settings.Channels) == 0 {
+		slog.WarnContext(ctx, "a connection's signed assertion was refused and no connection alert recipients or channels are configured",
 			logKeyKind, logsan.SanitizeForLog(alert.Kind), logKeyName, logsan.SanitizeForLog(alert.Name))
 		return
 	}
@@ -149,7 +158,7 @@ func (a *Alerter) announceRefusedAssertion(ctx context.Context, settings Setting
 	if !opened {
 		return
 	}
-	a.deliver(ctx, recipients, alert, nil)
+	a.deliver(ctx, recipients, settings.Channels, alert, nil)
 }
 
 // Restored forgets a connection's open alert once a jwt_bearer exchange has
@@ -195,7 +204,7 @@ func revokedAt(rev authevents.Revocation, now func() time.Time) time.Time {
 // A failure for one address is logged and the rest still go out: the row has
 // already been opened or stamped, so a caller that gave up here would silence
 // the whole incident over one bad entry.
-func (a *Alerter) deliver(ctx context.Context, recipients []string, alert Alert, esc *escalation) {
+func (a *Alerter) deliver(ctx context.Context, recipients, channels []string, alert Alert, esc *escalation) {
 	payload := notification.Payload{
 		Kind:      notification.KindConnectionAuth,
 		ItemID:    alert.Kind + "/" + alert.Name,
@@ -231,11 +240,15 @@ func (a *Alerter) deliver(ctx context.Context, recipients []string, alert Alert,
 	// queued is what was actually written, not what was attempted: a recipient
 	// who opted out, or whose enqueue failed, must not read as notified in the
 	// log an operator checks after a silent alert.
+	// The connection is the key: a credential revoked again soon after it was
+	// restored is the same alert to a channel's repeat window.
+	posted := a.cfg.Channels.Send(ctx, channels, "connection:"+alert.Kind+"/"+alert.Name, payload)
 	slog.InfoContext(ctx, "connection revocation alert enqueued",
 		logKeyKind, logsan.SanitizeForLog(alert.Kind),
 		logKeyName, logsan.SanitizeForLog(alert.Name),
 		"escalated", esc != nil,
-		"recipients", len(recipients), "queued", queued)
+		"recipients", len(recipients), "queued", queued,
+		"channels", len(channels), "channels_queued", posted)
 }
 
 // escalatedHours reads the window off an escalation, or zero when this is the

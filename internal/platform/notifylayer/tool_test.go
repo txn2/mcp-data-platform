@@ -45,7 +45,12 @@ func (*memChannels) Set(context.Context, notification.Channel) error { return ni
 func (*memChannels) Delete(context.Context, string) error            { return nil }
 
 // memQueue records what the tool enqueued.
-type memQueue struct{ rows []notification.Notification }
+type memQueue struct {
+	rows  []notification.Notification
+	gates []notification.ChannelGate
+	// suppress makes every keyed send read as absorbed by its window.
+	suppress bool
+}
 
 func (q *memQueue) Enqueue(_ context.Context, n notification.Notification) error {
 	q.rows = append(q.rows, n)
@@ -66,6 +71,23 @@ func (*memQueue) Fail(context.Context, []int64, string) error                 { 
 func (*memQueue) PurgeOld(context.Context, time.Duration, time.Duration) (int64, error) {
 	return 0, nil
 }
+
+// EnqueueChannel writes the send's rows through Enqueue; this fake applies no
+// gate.
+func (q *memQueue) EnqueueChannel(ctx context.Context, rows []notification.Notification, gate notification.ChannelGate) (notification.ChannelOutcome, error) {
+	q.gates = append(q.gates, gate)
+	if q.suppress && gate.Key != "" {
+		return notification.ChannelOutcome{Suppressed: true}, nil
+	}
+	for _, n := range rows {
+		if err := q.Enqueue(ctx, n); err != nil {
+			return notification.ChannelOutcome{}, err
+		}
+	}
+	return notification.ChannelOutcome{}, nil
+}
+
+func (*memQueue) PurgeChannelKeys(context.Context, time.Duration) (int64, error) { return 0, nil }
 
 // memPrefs answers with the platform defaults for everyone.
 type memPrefs struct{}

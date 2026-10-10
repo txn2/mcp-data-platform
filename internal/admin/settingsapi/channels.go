@@ -35,6 +35,9 @@ func registerChannels(mux *http.ServeMux, h *handler) {
 	}
 	mux.HandleFunc("GET "+channelsPath, h.listChannels)
 	mux.HandleFunc("GET "+channelsPath+"/{name}", h.getChannel)
+	if h.cfg.ChannelActivity != nil {
+		mux.HandleFunc("GET "+channelsPath+"/{name}/status", h.channelStatus)
+	}
 	if !h.cfg.Mutable {
 		mux.Handle("PUT "+channelsPath+"/{name}", h.cfg.ReadOnly)
 		mux.Handle("DELETE "+channelsPath+"/{name}", h.cfg.ReadOnly)

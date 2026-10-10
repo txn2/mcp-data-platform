@@ -2,7 +2,6 @@ package notification
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -186,51 +185,6 @@ func (c Channel) HourlyCap() int {
 	return c.MaxPerHour
 }
 
-// Document is what a channel carries: a title, a markdown body, and a link
-// back to whatever produced it. Every kind renders these three as far as it
-// can and falls back to an excerpt plus the link past its own cap, so a long
-// report always arrives as a summary and a pointer.
-type Document struct {
-	// Title is the message's subject line: the email subject, the Slack
-	// header block, the Mattermost first-line heading.
-	Title string `json:"title"`
-	// Body is markdown. What a reader sees of it depends on the kind.
-	Body string `json:"body,omitempty"`
-	// Link is the absolute URL a reader follows to the asset, the run, or
-	// whatever else produced the message.
-	Link string `json:"link,omitempty"`
-	// Type is one of the Document* types: what produced the document.
-	// Empty on a document queued before types existed.
-	Type string `json:"type,omitempty"`
-	// Source is who produced it.
-	Source *DocumentSource `json:"source,omitempty"`
-	// Data is the sender's structured payload, JSON, delivered verbatim by a
-	// JSON webhook channel and ignored by every other kind.
-	Data json.RawMessage `json:"data,omitempty"`
-}
-
-// DocumentSource is who produced a document: a managed script's run, or a
-// person.
-type DocumentSource struct {
-	// Kind is DocumentSourceScript, DocumentSourceUser or DocumentSourceAdmin.
-	Kind string `json:"kind"`
-	// Script is the producing script's reference, mcp:script:<id>.
-	Script string `json:"script,omitempty"`
-	// RunID is the producing run.
-	RunID string `json:"run_id,omitempty"`
-}
-
-// Delivery is one document as a channel transport sends it: the document, and
-// the identity of the queue row it came from, which is the same on every
-// attempt so a receiver can recognize a retry.
-type Delivery struct {
-	// ID is the delivery's stable id: "ntf_<row id>" for a queued row.
-	ID string
-	// OccurredAt is when the document was queued.
-	OccurredAt time.Time
-	Document
-}
-
 // ChannelStore persists the operator's channel records.
 // internal/notification/notifychannel holds the PostgreSQL implementation.
 type ChannelStore interface {
@@ -371,41 +325,8 @@ func ChannelNeedsConnection(kind string) bool {
 	}
 }
 
-// ValidateDocument bounds what may be enqueued for a channel. The body cap is
-// applied here, at enqueue, so an oversized document is refused to its sender
-// rather than discovered by the worker when nobody is listening.
-func ValidateDocument(d Document) error {
-	if strings.TrimSpace(d.Title) == "" {
-		return errors.New("a notification document needs a title")
-	}
-	if len(d.Title) > MaxDocumentTitleBytes {
-		return fmt.Errorf("a notification title is at most %d bytes, not %d", MaxDocumentTitleBytes, len(d.Title))
-	}
-	if len(d.Body) > MaxDocumentBytes {
-		return fmt.Errorf("a notification body is at most %d bytes, not %d; link to the asset instead", MaxDocumentBytes, len(d.Body))
-	}
-	if len(d.Link) > MaxDocumentLinkBytes {
-		return fmt.Errorf("a notification link is at most %d bytes, not %d", MaxDocumentLinkBytes, len(d.Link))
-	}
-	if len(d.Data) > MaxDocumentDataBytes {
-		return fmt.Errorf("notification data is at most %d bytes of JSON, not %d; link to an asset for more", MaxDocumentDataBytes, len(d.Data))
-	}
-	if len(d.Data) > 0 && !json.Valid(d.Data) {
-		return errors.New("notification data must be JSON")
-	}
-	return nil
+// ChannelCarriesFiles reports whether a kind delivers attachments as files.
+// The others name each attachment by its link.
+func ChannelCarriesFiles(kind string) bool {
+	return kind == ChannelKindMattermost || kind == ChannelKindEmail
 }
-
-// Document bounds. The body cap is what a queue row may carry; each kind's
-// own cap, which is smaller, decides how much of it a reader sees.
-const (
-	// MaxDocumentTitleBytes bounds a document title.
-	MaxDocumentTitleBytes = 512
-	// MaxDocumentBytes bounds the markdown body a queue row carries.
-	MaxDocumentBytes = 256 * 1024
-	// MaxDocumentLinkBytes bounds the link.
-	MaxDocumentLinkBytes = 2048
-	// MaxDocumentDataBytes bounds the structured data a document carries
-	// to a JSON webhook channel.
-	MaxDocumentDataBytes = 64 * 1024
-)

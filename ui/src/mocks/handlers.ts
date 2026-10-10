@@ -1022,6 +1022,7 @@ const reviewQueueAlert = {
   oldest_pending_days: 30,
   cooldown_hours: 24,
   recipients: ["sarah.chen@example.com"],
+  channels: [] as string[],
   updated_by: "sarah.chen@example.com",
   updated_at: "2026-07-28T09:15:00Z",
   warnings: [] as string[],
@@ -1032,9 +1033,9 @@ const reviewQueueAlert = {
 function reviewQueueAlertWarnings(): string[] {
   if (!reviewQueueAlert.enabled) return [];
   const out: string[] = [];
-  if (reviewQueueAlert.recipients.length === 0) {
+  if (reviewQueueAlert.recipients.length === 0 && reviewQueueAlert.channels.length === 0) {
     out.push(
-      "no recipients are configured, so no alert will be delivered; add at least one address",
+      "no recipients or channels are configured, so no alert will be delivered; add an address or a channel",
     );
   }
   if (reviewQueueAlert.pending_threshold <= 0 && reviewQueueAlert.oldest_pending_days <= 0) {
@@ -1052,17 +1053,28 @@ const connectionAlert = {
   enabled: true,
   escalate_after_hours: 24,
   recipients: ["platform-admin@example.com"],
+  channels: ["ops-alerts"],
   updated_by: "sarah.chen@example.com",
   updated_at: "2026-09-11T16:40:00Z",
   warnings: [] as string[],
 };
 
+// scriptRunAlert names the channels a failed scheduled run is posted to
+// (#1724).
+const scriptRunAlert = {
+  channels: ["ops-alerts"],
+  updated_by: "sarah.chen@example.com",
+  updated_at: "2026-10-10T09:00:00Z",
+};
+
 // connectionAlertWarnings mirrors the server's check for an enabled alert that
 // escalates nowhere.
 function connectionAlertWarnings(): string[] {
-  if (!connectionAlert.enabled || connectionAlert.recipients.length > 0) return [];
+  if (!connectionAlert.enabled || connectionAlert.recipients.length > 0 || connectionAlert.channels.length > 0) {
+    return [];
+  }
   return [
-    "no escalation recipients are configured, so only the person who authorized a " +
+    "no escalation recipients or channels are configured, so only the person who authorized a " +
       "connection is told when it is revoked",
   ];
 }
@@ -1071,6 +1083,39 @@ function connectionAlertWarnings(): string[] {
 // monitoring tab reads them whole, the user's own screen reads the subset a
 // recipient sees. One fixture keeps the two screenshots telling one story.
 const mockNotificationRows = [
+  {
+    id: 5123,
+    recipient: "channel:ops-alerts",
+    category: "channel",
+    channel: "ops-alerts",
+    suppressed: 3,
+    subject: "Orders feed is 41 minutes behind",
+    digest: false,
+    status: "sent",
+    attempts: 1,
+    item_title: "Orders feed is 41 minutes behind",
+    actor: "script:feed-monitor",
+    link: "https://platform.example.com/portal/automations/scr-7/runs/run-912",
+    scheduled_for: "2026-07-29T15:10:00Z",
+    sent_at: "2026-07-29T15:10:02Z",
+    created_at: "2026-07-29T15:10:00Z",
+  },
+  {
+    id: 5122,
+    recipient: "marcus.johnson@example.com",
+    category: "channel",
+    channel: "ops-email",
+    subject: "Weekly revenue report",
+    digest: false,
+    status: "sent",
+    attempts: 1,
+    item_title: "Weekly revenue report",
+    actor: "script:weekly-revenue",
+    link: "https://platform.example.com/portal/assets/ast-3",
+    scheduled_for: "2026-07-29T14:30:00Z",
+    sent_at: "2026-07-29T14:30:05Z",
+    created_at: "2026-07-29T14:30:00Z",
+  },
   {
     id: 5121,
     recipient: "marcus.johnson@example.com",
@@ -4186,6 +4231,22 @@ export const handlers = [
     }),
   ),
 
+  http.get(`${ADMIN_BASE}/notification-channels/:name/status`, ({ params }) =>
+    HttpResponse.json(
+      params.name === "ops-alerts"
+        ? {
+            name: "ops-alerts", last_delivered_at: "2026-10-10T09:14:03Z", sent_last_hour: 7,
+            max_per_hour: 20, pending: 0, suppressed: 3,
+          }
+        : {
+            name: String(params.name), last_delivered_at: "2026-10-09T13:00:00Z",
+            last_error: "dial tcp 10.0.4.12:587: connection refused",
+            last_error_at: "2026-10-10T08:02:11Z", sent_last_hour: 0, max_per_hour: 5, pending: 2,
+            suppressed: 0,
+          },
+    ),
+  ),
+
   // =========================================================================
   // Admin: Settings (maps, #2068)
   // =========================================================================
@@ -4260,10 +4321,30 @@ export const handlers = [
     // The server normalizes recipients to the bare, lowercased address.
     connectionAlert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
       .map((r) => String(r).trim().toLowerCase());
+    // An absent channels field keeps the stored list, as the server does.
+    if (Array.isArray(body.channels)) {
+      connectionAlert.channels = body.channels.map((c) => String(c).trim()).filter(Boolean);
+    }
     connectionAlert.updated_by = "sarah.chen@example.com";
     connectionAlert.updated_at = new Date().toISOString();
     connectionAlert.warnings = connectionAlertWarnings();
     return HttpResponse.json(connectionAlert);
+  }),
+
+  // =========================================================================
+  // Admin: Settings (scheduled-run failure alert, #1724)
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/settings/script-run-alert`, () => HttpResponse.json(scriptRunAlert)),
+
+  http.put(`${ADMIN_BASE}/settings/script-run-alert`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    if (Array.isArray(body.channels)) {
+      scriptRunAlert.channels = body.channels.map((c) => String(c).trim()).filter(Boolean);
+    }
+    scriptRunAlert.updated_by = "sarah.chen@example.com";
+    scriptRunAlert.updated_at = new Date().toISOString();
+    return HttpResponse.json(scriptRunAlert);
   }),
 
   // =========================================================================
@@ -4284,6 +4365,10 @@ export const handlers = [
     // The server normalizes recipients to the bare, lowercased address.
     reviewQueueAlert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
       .map((r) => String(r).trim().toLowerCase());
+    // An absent channels field keeps the stored list, as the server does.
+    if (Array.isArray(body.channels)) {
+      reviewQueueAlert.channels = body.channels.map((c) => String(c).trim()).filter(Boolean);
+    }
     reviewQueueAlert.updated_by = "sarah.chen@example.com";
     reviewQueueAlert.updated_at = new Date().toISOString();
     reviewQueueAlert.warnings = reviewQueueAlertWarnings();
@@ -4389,6 +4474,33 @@ export const handlers = [
   }),
 
   // =========================================================================
+  // Portal: Post to a channel (#1723)
+  // =========================================================================
+
+  http.get(`${PORTAL_BASE}/channels`, () =>
+    HttpResponse.json({
+      channels: [
+        {
+          name: "ops-alerts", kind: "mattermost", mode: "immediate",
+          description: "The ops-alerts channel on the team Mattermost",
+          carries: "a title, a markdown body, files and a link",
+        },
+        {
+          name: "ops-email", kind: "email", mode: "daily", description: "The operations mailing list",
+          carries: "a subject, a rendered body, files and a link button, in the deployment's branded template",
+        },
+      ],
+    }),
+  ),
+
+  http.post(`${PORTAL_BASE}/channels/:name/publish`, ({ params }) =>
+    HttpResponse.json({
+      channel: String(params.name), kind: "mattermost", queued: 1, delivered: false,
+      detail: `accepted for delivery to "${String(params.name)}"; an administrator can see the outcome in the platform's notification history`,
+    }),
+  ),
+
+  // =========================================================================
   // Portal + Admin: Notification delivery history (#1016)
   // =========================================================================
 
@@ -4396,11 +4508,14 @@ export const handlers = [
   // the mock returns the same rows regardless of who asks.
   http.get(`${PORTAL_BASE}/notifications`, () => {
     return HttpResponse.json({
-      data: mockNotificationRows.map(
-        ({ recipient: _recipient, attempts: _attempts, last_error: _lastError, scheduled_for: _scheduled, ...item }) =>
-          item,
-      ),
-      total: mockNotificationRows.length,
+      // A row addressed to a channel destination is nobody's own history.
+      data: mockNotificationRows
+        .filter((n) => !n.recipient.startsWith("channel:"))
+        .map(
+          ({ recipient: _recipient, attempts: _attempts, last_error: _lastError, scheduled_for: _scheduled, ...item }) =>
+            item,
+        ),
+      total: mockNotificationRows.filter((n) => !n.recipient.startsWith("channel:")).length,
       page: 1,
       per_page: 20,
       retention_days: 30,
@@ -4410,9 +4525,10 @@ export const handlers = [
   http.get(`${ADMIN_BASE}/notifications`, ({ request }) => {
     const params = new URL(request.url).searchParams;
     const status = params.get("status");
-    const rows = status
-      ? mockNotificationRows.filter((n) => n.status === status)
-      : mockNotificationRows;
+    const channel = params.get("channel");
+    const rows = mockNotificationRows.filter(
+      (n) => (!status || n.status === status) && (!channel || n.channel === channel),
+    );
     return HttpResponse.json({ data: rows, total: rows.length, page: 1, per_page: 20 });
   }),
 

@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -173,9 +174,9 @@ func TestBuildNotifications_RealDB(t *testing.T) {
 func TestBuildReviewAlert_RealDB(t *testing.T) {
 	p := newRealDBPlatform(t)
 
-	checker := notifywire.BuildReviewAlert(p, notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)}))
+	checker := alertwire.BuildReviewAlert(p, notifywire.BuildNotifications(p, notifywire.Brand{Name: portalBrandName(p), UnsubscribeURL: unsubscribeURLFn(p)}))
 	require.NotNil(t, checker, "database-backed platform must yield a review-queue checker")
-	require.NotNil(t, notifywire.ReviewAlertSettings(p, reviewalert.KnowledgeTarget()))
+	require.NotNil(t, alertwire.ReviewAlertSettings(p, reviewalert.KnowledgeTarget()))
 
 	ctx := context.Background()
 	require.NoError(t, checker.Check(ctx))

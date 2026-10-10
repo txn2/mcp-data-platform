@@ -1,7 +1,11 @@
 import { useState, useMemo } from "react";
 import { AlertCircle } from "lucide-react";
 
-import { useNotifications, useNotificationStats } from "@/api/admin/hooks";
+import {
+  useNotificationChannels,
+  useNotifications,
+  useNotificationStats,
+} from "@/api/admin/hooks";
 import type { NotificationRow } from "@/api/admin/hooks";
 import { Pager } from "@/components/patterns/Pager";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -26,6 +30,7 @@ export function NotificationsTab() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState("");
+  const [channel, setChannel] = useState("");
   const [recipientInput, setRecipientInput] = useState("");
   const [selected, setSelected] = useState<NotificationRow | null>(null);
   const recipient = useDebounced(recipientInput.trim(), 300);
@@ -37,12 +42,18 @@ export function NotificationsTab() {
       status: status || undefined,
       category: category || undefined,
       recipient: recipient || undefined,
+      channel: channel || undefined,
     }),
-    [page, status, category, recipient],
+    [page, status, category, recipient, channel],
   );
 
   const { data, isLoading, error } = useNotifications(query);
   const { data: stats } = useNotificationStats(query);
+  const { data: channelList } = useNotificationChannels();
+  const channelNames = useMemo(
+    () => (channelList?.channels ?? []).map((c) => c.name),
+    [channelList],
+  );
   const total = data?.total ?? 0;
 
   function reset(fn: () => void) {
@@ -68,9 +79,12 @@ export function NotificationsTab() {
         recipient={recipientInput}
         status={status}
         category={category}
+        channel={channel}
+        channels={channelNames}
         onRecipient={(v) => reset(() => setRecipientInput(v))}
         onStatus={(v) => reset(() => setStatus(v))}
         onCategory={(v) => reset(() => setCategory(v))}
+        onChannel={(v) => reset(() => setChannel(v))}
       />
 
       {error && (

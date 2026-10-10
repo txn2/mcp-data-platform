@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/admin/secretapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/webhookapi"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/connchoicehttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/webhookwire"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
@@ -24,14 +25,12 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
-	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/callcatchup"
 	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
-	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/internal/portal/producerapi"
@@ -786,29 +785,8 @@ func AdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Hand
 		deps.APIKeyManager = p.APIKeyAuthenticator()
 	}
 
-	// Email notification settings and monitoring surfaces (nil-safe: absent
-	// without a DB, which also leaves the monitoring routes unregistered).
-	deps.NotificationSettings = notify.Settings()
-	deps.SendTestEmail = notify.SendTest
-	deps.NotificationPrefs = notify.Prefs()
-	deps.NotificationHistory = notify.History()
-	deps.NotificationRetention = notifydelivery.HistoryRetention
-	deps.ReviewQueueAlert = notifywire.ReviewAlertSettings(p, reviewalert.KnowledgeTarget())
-	deps.ConnectionAlert = notifywire.ConnAlertSettings(p)
-	// Notification channels: the records, the test send, and the check that
-	// tells an operator their channel names a connection nothing serves
-	// (#1720).
-	if channels := notify.Channels(); channels != nil {
-		deps.NotificationChannels = channels
-	}
-	deps.SendChannelTest = notify.SendChannelTest
-	deps.APIConnectionExists = notifywire.APIConnectionExists(p.ToolkitRegistry())
-	// The OAuth callback forgets a connection's open revocation as it
-	// authorizes it again (#1694). Assigned through the same nil-guarded
-	// builder so a typed nil never reaches the interface.
-	if store := notifywire.ConnAlertStore(p); store != nil {
-		deps.ConnectionRevocations = store
-	}
+	// Email notification settings, monitoring, alerts and channels.
+	alertwire.AdminDeps(&deps, p, notify)
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
 }

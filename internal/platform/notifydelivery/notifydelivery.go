@@ -65,6 +65,9 @@ type Config struct {
 	// import the api gateway: the composition root, which already walks the
 	// live toolkit registry, resolves the name.
 	ChannelUpstream notifypost.UpstreamFunc
+	// Attachments reads a channel document's files at delivery. nil sends
+	// every attachment as its link.
+	Attachments notifyworker.AttachmentLoader
 }
 
 // listenerControl narrows the LISTEN adapter to the two calls the handle
@@ -82,7 +85,9 @@ type Handle struct {
 	// history is the same PostgreSQL queue store narrowed to its read
 	// contract, held separately so the accessor cannot hand a caller the
 	// worker's write path.
-	history  notification.HistoryStore
+	history notification.HistoryStore
+	// activity is the same store's per-channel activity read.
+	activity channelActivityReader
 	enqueuer *notification.Enqueuer
 	renderer *notifyrender.Renderer
 	sender   notifysend.Sender
@@ -114,6 +119,7 @@ func New(cfg Config) (*Handle, error) {
 		prefs:    notifyprefs.NewPostgresStore(cfg.DB),
 		queue:    queue,
 		history:  queue,
+		activity: queue,
 		renderer: renderer,
 		sender:   notifysend.NewSMTPSender(),
 	}
@@ -129,6 +135,7 @@ func New(cfg Config) (*Handle, error) {
 		Sender:         h.sender,
 		Channels:       h.channels,
 		ChannelSenders: h.channelSenders,
+		Attachments:    cfg.Attachments,
 	})
 	if cfg.DSN != "" {
 		h.listener = notifyqueue.NewListener(cfg.DSN, h.worker)

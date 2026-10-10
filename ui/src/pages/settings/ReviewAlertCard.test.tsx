@@ -6,6 +6,8 @@ import type { ReviewQueueAlertSettings } from "@/api/admin/hooks/settings";
 
 // Mock the admin hooks both surfaces consume. The form controls are real, so
 // the assertions exercise the rendered card.
+const scriptRunAlertQuery = { data: { channels: [] }, isLoading: false };
+
 vi.mock("@/api/admin/hooks", () => ({
   useSystemInfo: vi.fn(),
   useSMTPSettings: vi.fn(),
@@ -23,6 +25,12 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
   useTestNotificationChannel: () => ({ mutate: vi.fn(), isPending: false }),
+  useNotificationChannelStatus: () => ({ data: undefined }),
+  // The scheduled-run failure card is covered in ScriptRunAlertCard.test.tsx.
+  // One object for every render: a fresh one each time would re-run the
+  // card's settings effect on every render.
+  useScriptRunAlert: () => scriptRunAlertQuery,
+  useSetScriptRunAlert: () => ({ mutate: vi.fn(), isPending: false }),
   // The maps card likewise; it is covered in MapsCard.test.tsx.
   useMaps: () => ({ data: undefined, isLoading: true, error: null, refetch: vi.fn() }),
   useSetMapSettings: () => ({ mutate: vi.fn(), isPending: false }),
@@ -57,6 +65,7 @@ function makeAlert(
     oldest_pending_days: 30,
     cooldown_hours: 24,
     recipients: ["ops@example.com"],
+    channels: [],
     updated_by: "admin@example.com",
     updated_at: "2026-07-30T15:30:00Z",
     ...overrides,
@@ -281,6 +290,7 @@ describe("ReviewAlertCard: saving", () => {
         oldest_pending_days: 30,
         cooldown_hours: 6,
         recipients: ["ops@example.com"],
+        channels: [],
       },
       expect.anything(),
     );

@@ -15,132 +15,18 @@ import (
 	"net/http"
 	"net/mail"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/channelhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifyhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyattach"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
-	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
-	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
-
-// reviewAlertStore builds one review queue's alert persistence (#803, #1287),
-// or nil when the alert cannot exist in this deployment: no database, or
-// notifications turned off in YAML. The checker and the admin API each build
-// one; it is stateless over the pool, so there is nothing to share, and
-// threading a handle through the admin wiring would imply a lifecycle it does
-// not have.
-func reviewAlertStore(p *platform.Platform, target reviewalert.Target) *reviewalert.PostgresStore {
-	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
-		return nil
-	}
-	return reviewalert.NewPostgresStore(p.DB(), target)
-}
-
-// ReviewAlertSettings narrows one queue's store to the half the admin settings
-// surface needs, or nil when the alert cannot exist here. A nil result unmounts
-// the admin routes, matching what the SMTP section already does in the same
-// states: an operator must not be able to configure an alert nothing will
-// ever send. The explicit nil check keeps a typed nil out of the interface.
-func ReviewAlertSettings(p *platform.Platform, target reviewalert.Target) reviewalert.SettingsStore {
-	store := reviewAlertStore(p, target)
-	if store == nil {
-		return nil
-	}
-	return store
-}
-
-// BuildReviewAlert assembles the scheduled knowledge review-queue staleness
-// check. Returns nil (a no-op checker) when anything it needs is absent: no
-// database, notifications off, no knowledge insight store -- an alert with
-// nowhere to send is not an alert.
-func BuildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
-	target := reviewalert.KnowledgeTarget()
-	store := reviewAlertStore(p, target)
-	if store == nil {
-		return nil
-	}
-	var source reviewalert.Source
-	// A typed nil in the interface would read as a live source and the check
-	// would fail on every tick instead of never running.
-	if insights := p.KnowledgeInsightStore(); insights != nil {
-		source = reviewalert.InsightSource{Insights: insights}
-	}
-	checker := reviewalert.New(reviewalert.Config{
-		Target:   target,
-		Settings: store,
-		State:    store,
-		Source:   source,
-		Enqueuer: notify.Enqueuer(),
-		BaseURL:  p.Config().Portal.PublicBaseURL,
-	})
-	if checker != nil {
-		slog.Info("Knowledge review-queue staleness alert enabled")
-	}
-	return checker
-}
-
-// ConnAlertStore builds the connection-revocation alert's persistence (#1694),
-// or nil when the alert cannot exist in this deployment: no database, or
-// notifications turned off in YAML. Like the review alert's store it is
-// stateless over the pool, so the admin API and the sweep each build one rather
-// than sharing a handle whose lifecycle it does not have.
-func ConnAlertStore(p *platform.Platform) *connalert.PostgresStore {
-	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
-		return nil
-	}
-	return connalert.NewPostgresStore(p.DB())
-}
-
-// ConnAlertSettings narrows the store to the half the admin settings surface
-// needs, or nil when the alert cannot exist here. A nil result unmounts the
-// admin routes: an operator must not be able to name recipients for an alert
-// nothing will ever send. The explicit nil check keeps a typed nil out of the
-// interface.
-func ConnAlertSettings(p *platform.Platform) connalert.SettingsStore {
-	store := ConnAlertStore(p)
-	if store == nil {
-		return nil
-	}
-	return store
-}
-
-// buildConnAlertConfig assembles what the revocation alert and its escalation
-// both need, or the zero config when anything is absent.
-func buildConnAlertConfig(p *platform.Platform, notify *notifydelivery.Handle) connalert.Config {
-	store := ConnAlertStore(p)
-	if store == nil || notify == nil {
-		return connalert.Config{}
-	}
-	return connalert.Config{
-		Settings: store,
-		Alerts:   store,
-		Enqueuer: notify.Enqueuer(),
-		BaseURL:  p.Config().Portal.PublicBaseURL,
-	}
-}
-
-// WireConnRevocationAlert tells the auth-event writer where to announce a
-// discarded credential (#1694), and returns the sweep that escalates one nobody
-// has acted on. Both are nil when the alert cannot exist here.
-//
-// The writer is built with the token store, long before the notification
-// substrate exists, so the sink is attached here rather than at construction.
-// It is the one dependency every connoauth.Source already carries, which is why
-// the announcement rides it instead of being threaded a second time through
-// every toolkit that wires OAuth.
-func WireConnRevocationAlert(p *platform.Platform, notify *notifydelivery.Handle) *connalert.Escalator {
-	cfg := buildConnAlertConfig(p, notify)
-	alerter := connalert.NewAlerter(cfg)
-	if alerter == nil {
-		return nil
-	}
-	p.AuthEventWriter().WithRevocations(alerter)
-	slog.Info("Connection revocation alerts enabled")
-	return connalert.NewEscalator(cfg)
-}
 
 // Brand is what an email says it is from and where its footer links go. The
 // composition root resolves both -- the brand name has fallbacks that belong to
@@ -182,6 +68,7 @@ func BuildNotifications(p *platform.Platform, brand Brand) *notifydelivery.Handl
 		DigestHourUTC:   p.Config().Notifications.DigestHour(),
 		UnsubscribeURL:  brand.UnsubscribeURL,
 		ChannelUpstream: ChannelUpstream(p.ToolkitRegistry()),
+		Attachments:     attachmentLoader(p),
 	})
 	if err != nil {
 		// A renderer build failure means broken embedded templates — a build
@@ -305,8 +192,44 @@ func WirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	// Both surfaces are self-scoped to the same caller identity, so they
 	// resolve it through one function rather than two spellings of it.
+	// Post to a channel (#1723): the asset page's dialog, over the notify
+	// tool the signed-in person's agent would call.
+	channelAPI := &channelhttp.API{Server: p.MCPServer()}
 	deps.NotificationRegistrar = func(mux *http.ServeMux) {
 		prefsAPI.Register(mux)
 		historyAPI.Register(mux)
+		channelAPI.Register(mux)
 	}
+}
+
+// attachmentLoader reads a channel document's attachments from the stores the
+// platform holds: portal assets and their versions, and managed resources.
+// A store the deployment does not have leaves its kind of attachment sent as
+// a link.
+func attachmentLoader(p *platform.Platform) *notifyattach.Loader {
+	l := &notifyattach.Loader{
+		Resources:      p.ResourceStore(),
+		ResourceObjs:   p.ResourceS3Client(),
+		ResourceBucket: p.Config().Resources.Managed.S3Bucket,
+	}
+	if assets := p.PortalAssetStore(); assets != nil {
+		l.Assets = assets
+	}
+	if versions := p.PortalVersionStore(); versions != nil {
+		l.Versions = versions
+	}
+	if objs := p.PortalS3Client(); objs != nil {
+		l.AssetObjects = objs
+	}
+	return l
+}
+
+// RunPosts reads a managed-script run's posts from the notification queue
+// (#1723), or nil when this deployment has no notifications to read them
+// from. The explicit nil keeps a typed nil out of the interface.
+func RunPosts(p *platform.Platform) postshttp.PostReader {
+	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
+		return nil
+	}
+	return notifyqueue.NewPostgresStore(p.DB())
 }

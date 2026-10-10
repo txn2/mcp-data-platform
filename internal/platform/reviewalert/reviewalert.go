@@ -121,6 +121,9 @@ type Settings struct {
 	// Recipients are the addresses the alert is delivered to, in
 	// notification.NormalizeAddress form.
 	Recipients []string `json:"recipients"`
+	// Channels are the notification channels the alert is also sent to
+	// (#1724), by name.
+	Channels []string `json:"channels,omitempty"`
 	// UpdatedBy and UpdatedAt describe the last admin write. They live in the
 	// platform_settings audit columns, which are authoritative, so they are
 	// excluded from the section value rather than written into it twice.
@@ -163,8 +166,9 @@ func (s Settings) Crossed(pending, oldestAgeDays int) bool {
 }
 
 // Deliverable reports whether a crossing could actually reach anyone: the
-// check is on, at least one threshold can fire, and someone is listed.
+// check is on, at least one threshold can fire, and someone or some channel
+// is listed.
 func (s Settings) Deliverable() bool {
-	return s.Enabled && len(s.Recipients) > 0 &&
+	return s.Enabled && (len(s.Recipients) > 0 || len(s.Channels) > 0) &&
 		(s.PendingThreshold > 0 || s.OldestPendingDays > 0)
 }

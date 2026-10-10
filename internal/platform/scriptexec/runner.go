@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -402,8 +401,5 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 // its own public address. A link the reader cannot follow is worse than no
 // link, so an unconfigured portal address omits it rather than guessing one.
 func (r *runner) runURL(scriptID, runID string) string {
-	if r.portalURL == "" {
-		return ""
-	}
-	return strings.TrimRight(r.portalURL, "/") + "/portal/automations/" + scriptID + "/runs/" + runID
+	return runPage(r.portalURL, scriptID, runID)
 }

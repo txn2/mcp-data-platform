@@ -60,6 +60,9 @@ type Envelope struct {
 	Body   string                       `json:"body,omitempty"`
 	Link   string                       `json:"link,omitempty"`
 	Source *notification.DocumentSource `json:"source,omitempty"`
+	// Attachments name the files the notification carries, each with its
+	// link; a webhook carries no file content.
+	Attachments []notification.Attachment `json:"attachments,omitempty"`
 	// Data is the sender's structured payload, verbatim.
 	Data json.RawMessage `json:"data,omitempty"`
 }
@@ -71,13 +74,37 @@ func (s *WebhookSender) Send(ctx context.Context, ch notification.Channel, d not
 		return err
 	}
 	if ch.PayloadFormat() != notification.ChannelFormatJSON {
-		return postJSON(ctx, u, "", webhookRequest{Text: plainText(d.Document, WebhookMaxTextBytes)})
+		return postJSON(ctx, u, "", webhookRequest{Text: plainText(webhookDelivery(d), WebhookMaxTextBytes)})
 	}
 	var headers map[string]string
 	if carrier, ok := u.(DeliveryIDCarrier); ok && carrier.DeliveryIDHeader() != "" {
 		headers = map[string]string{carrier.DeliveryIDHeader(): d.ID}
 	}
 	return postJSONWith(ctx, u, "", s.envelope(ch, d), headers)
+}
+
+// webhookDelivery is the delivery as a webhook carries it: an incoming webhook
+// takes no files, so every attachment travels as its link.
+func webhookDelivery(d notification.Delivery) notification.Delivery {
+	d.Linked = append(append([]notification.Attachment{}, d.Linked...), filesAsLinks(d)...)
+	d.Files = nil
+	return d
+}
+
+// filesAsLinks returns the attachments that were read as files, which the
+// delivery's Linked list does not already name.
+func filesAsLinks(d notification.Delivery) []notification.Attachment {
+	linked := make(map[notification.Attachment]bool, len(d.Linked))
+	for _, a := range d.Linked {
+		linked[a] = true
+	}
+	out := make([]notification.Attachment, 0, len(d.Attachments))
+	for _, a := range d.Attachments {
+		if !linked[a] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // envelope builds the JSON body for one delivery.
@@ -87,16 +114,17 @@ func (s *WebhookSender) envelope(ch notification.Channel, d notification.Deliver
 		typ = notification.DocumentNotifySent
 	}
 	return Envelope{
-		ID:         d.ID,
-		Type:       typ,
-		OccurredAt: d.OccurredAt.UTC(),
-		Deployment: s.deployment,
-		Channel:    ch.Name,
-		Title:      d.Title,
-		Body:       d.Body,
-		Link:       d.Link,
-		Source:     d.Source,
-		Data:       d.Data,
+		ID:          d.ID,
+		Type:        typ,
+		OccurredAt:  d.OccurredAt.UTC(),
+		Deployment:  s.deployment,
+		Channel:     ch.Name,
+		Title:       d.Title,
+		Body:        d.Body,
+		Link:        d.Link,
+		Source:      d.Source,
+		Attachments: d.Attachments,
+		Data:        d.Data,
 	}
 }
 

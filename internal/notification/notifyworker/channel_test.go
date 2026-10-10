@@ -42,10 +42,11 @@ func (*fakeChannelStore) Delete(context.Context, string) error            { retu
 // replaces the dispatcher rather than one kind's transport, which is the seam
 // the worker actually holds.
 type recordingSender struct {
-	mu    sync.Mutex
-	posts []notification.Document
-	ids   []string
-	err   error
+	mu         sync.Mutex
+	posts      []notification.Document
+	ids        []string
+	deliveries []notification.Delivery
+	err        error
 }
 
 func (s *recordingSender) Send(_ context.Context, _ notification.Channel, d notification.Delivery) error {
@@ -56,6 +57,7 @@ func (s *recordingSender) Send(_ context.Context, _ notification.Channel, d noti
 	}
 	s.posts = append(s.posts, d.Document)
 	s.ids = append(s.ids, d.ID)
+	s.deliveries = append(s.deliveries, d)
 	return nil
 }
 
