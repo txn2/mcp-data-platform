@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { ListResponse, PortalScriptRow } from "./scripts";
 import { scriptsKey } from "./scriptKeys";
@@ -68,6 +68,10 @@ export function useScriptListing(filter: ScriptListFilter = {}) {
     // one of them are two cache entries and neither can serve the other.
     queryKey: [...scriptsKey, "list", ...LIST_AXES.map((axis) => filter[axis] ?? "")],
     queryFn: () => apiFetch<ScriptListResponse>(`/scripts${query}`),
+    // The rows already shown stay while a new order or filter loads, so a
+    // click on a column header does not replace the table it clicked with a
+    // loading line.
+    placeholderData: keepPreviousData,
   });
 }
 

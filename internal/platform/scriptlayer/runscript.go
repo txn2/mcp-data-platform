@@ -325,6 +325,11 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 		out["finished_at"] = run.FinishedAt.UTC()
 		out["duration_ms"] = run.Metrics.DurationMS
 	}
+	// The statement that ran longest against its timeout (#2073), so an owner
+	// sees one approaching its limit before a run fails on it.
+	if run.Metrics.SlowestStatement != nil {
+		out["slowest_statement"] = run.Metrics.SlowestStatement
+	}
 	// The latest platform.progress report (#1847): on a running run it is
 	// how far the run has got, on a finished one the last thing it said.
 	if run.Progress != nil {

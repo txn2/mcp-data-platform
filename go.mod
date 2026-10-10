@@ -33,7 +33,7 @@ require (
 	github.com/trinodb/trino-go-client v0.337.0
 	github.com/txn2/mcp-datahub v1.15.1
 	github.com/txn2/mcp-s3 v1.5.1
-	github.com/txn2/mcp-trino v1.7.0
+	github.com/txn2/mcp-trino v1.7.1
 	github.com/vektah/gqlparser/v2 v2.5.60
 	github.com/wneessen/go-mail v0.8.1
 	github.com/xuri/excelize/v2 v2.11.0

@@ -165,6 +165,10 @@ type Runner struct {
 	// platform run on this replica meets: a draft runs on a serving replica,
 	// where an out-of-memory kill costs every session on it. Zero sets none.
 	memoryBudget int64
+	// statementCeiling is the most a draft's statement may ask for with
+	// timeout_seconds (scripts.sql.max_timeout_seconds, #2073); zero is the
+	// tools' own cap.
+	statementCeiling time.Duration
 	// recordings keeps what each draft's host calls were answered, for the
 	// script's tests to replay (#1939). Nil keeps nothing.
 	recordings scriptrec.Store
@@ -193,6 +197,15 @@ func (r *Runner) WithRecordings(store scriptrec.Store) *Runner {
 func (r *Runner) WithMemoryBudget(budget int64) *Runner {
 	if r != nil {
 		r.memoryBudget = budget
+	}
+	return r
+}
+
+// WithStatementCeiling returns the Runner with the most a draft's statement
+// may ask for with timeout_seconds.
+func (r *Runner) WithStatementCeiling(ceiling time.Duration) *Runner {
+	if r != nil {
+		r.statementCeiling = ceiling
 	}
 	return r
 }
@@ -300,6 +313,8 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Outcome, error) {
 		Exporter:       r.exporterFor(req, runID, caller),
 		MaxMemoryBytes: r.memoryBudget,
 		Libraries:      r.libraries,
+
+		MaxStatementTimeout: r.statementCeiling,
 	}
 	rec := r.record(&opts)
 	result, runErr := scriptrun.Run(ctx, opts)

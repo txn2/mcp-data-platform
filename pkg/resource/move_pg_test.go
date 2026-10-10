@@ -32,7 +32,7 @@ func TestPostgresStore_MoveWritesTheRowAndTheAliasTogether(t *testing.T) {
 	m := movedRow()
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE resources SET scope").
-		WithArgs("res-1", "persona", sqlmock.AnyArg(), m.Path, m.URI, sqlmock.AnyArg()).
+		WithArgs("res-1", "persona", sqlmock.AnyArg(), m.Path, m.URI).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO resource_uri_aliases").
 		WithArgs(m.FromURI, "res-1").

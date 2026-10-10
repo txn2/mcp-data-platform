@@ -30,11 +30,15 @@ type Export struct {
 
 // Query bounds trino_query: the rows a result holds when the call names no
 // limit, the most it may name, and the query timeout. A result past the limit
-// is returned cut and says so in stats.truncated.
+// is returned cut and says so in stats.truncated. ScriptMaxTimeoutSeconds is
+// the most a managed script's statement may ask for with timeout_seconds
+// (#2073), set by ScriptMaxTimeoutKey.
 type Query struct {
-	DefaultRows    int `json:"default_rows"`
-	MaxRows        int `json:"max_rows"`
-	TimeoutSeconds int `json:"timeout_seconds"`
+	DefaultRows             int    `json:"default_rows"`
+	MaxRows                 int    `json:"max_rows"`
+	TimeoutSeconds          int    `json:"timeout_seconds"`
+	ScriptMaxTimeoutSeconds int    `json:"script_max_timeout_seconds,omitempty"`
+	ScriptMaxTimeoutKey     string `json:"script_max_timeout_key,omitempty"`
 }
 
 // PageWalk is the page bounds of a paginate walk, per tool family.

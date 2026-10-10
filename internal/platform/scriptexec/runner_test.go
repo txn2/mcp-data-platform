@@ -417,3 +417,10 @@ func TestRunURL_OpensTheRunUnderAutomations(t *testing.T) {
 	assert.Equal(t, "https://portal.example.com/portal/automations/s1/runs/run_1", r.runURL("s1", "run_1"))
 	assert.Empty(t, newRunner(&fakeRuns{}, Config{}).runURL("s1", "run_1"))
 }
+
+// scripts.run_retention_days as a duration, the default when unset.
+func TestRetentionDays(t *testing.T) {
+	assert.Equal(t, 30*24*time.Hour, RetentionDays(30))
+	assert.Equal(t, DefaultRunRetention, RetentionDays(0))
+	assert.Equal(t, DefaultRunRetention, RetentionDays(-3))
+}

@@ -18,7 +18,7 @@ var (
 		"message": "EXTERNAL: The connection attempt failed.",
 		"trino":   map[string]any{"error_type": "EXTERNAL", "error_name": "JDBC_ERROR", "sql_state": "08001"},
 	}
-	statementTimeout = map[string]any{
+	transportTimeout = map[string]any{
 		"code": "trino_query_failed", "category": "upstream_unavailable", "retryable": true,
 		"message": "context deadline exceeded", "transport": map[string]any{"kind": "timeout"},
 	}
@@ -35,7 +35,7 @@ func TestClass(t *testing.T) {
 		want string
 	}{
 		{externalConnection, "Trino failed for a reason outside the script (EXTERNAL / JDBC_ERROR, SQLSTATE 08001); expected to pass on its next run."},
-		{statementTimeout, "Trino could not be reached (timeout); expected to pass on its next run."},
+		{transportTimeout, "Trino could not be reached (timeout); expected to pass on its next run."},
 		{
 			map[string]any{"code": "trino_query_failed", "retryable": true, "transport": map[string]any{"kind": "http_status", "http_status": float64(504)}},
 			"Trino could not be reached (http_status, HTTP 504); expected to pass on its next run.",
@@ -53,6 +53,40 @@ func TestClass(t *testing.T) {
 		{
 			map[string]any{"code": "trino_query_failed", "retryable": false, "trino": map[string]any{"sql_state": "23505"}},
 			"Trino failed for a reason it does not report as temporary (SQLSTATE 23505); the next run is not expected to pass on its own.",
+		},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, Class(tc.env))
+	}
+}
+
+// TestClass_StatementTimeout covers a statement the coordinator accepted and
+// stopped at its timeout (#2073): the limit, how long it ran, the query id,
+// and what became of the abandoned query.
+func TestClass_StatementTimeout(t *testing.T) {
+	stopped := func(st map[string]any) map[string]any {
+		return map[string]any{
+			"code": "trino_query_failed", "category": "client_input", "retryable": false,
+			"query_id": "20261009_1", "statement_timeout": st,
+		}
+	}
+	const next = " The next run fails the same way until the statement does less work, is split, or is given a longer timeout_seconds."
+	cases := []struct {
+		env  map[string]any
+		want string
+	}{
+		{
+			stopped(map[string]any{"elapsed_ms": float64(300400), "limit_ms": int64(300000), "limit_source": "requested", "cancel_requested": true, "cancel_confirmed": true}),
+			"Trino stopped the statement at its 300s limit after 300.4s (statement timeout, query 20261009_1); the query was canceled." + next,
+		},
+		{
+			stopped(map[string]any{"elapsed_ms": float64(55000), "limit_ms": float64(55000), "limit_source": "run_remaining", "cancel_requested": true}),
+			"Trino stopped the statement at its 55s limit (the time left in the run) after 55s (statement timeout, query 20261009_1); " +
+				"a cancel was sent and not confirmed, so the query may still be running." + next,
+		},
+		{
+			map[string]any{"code": "trino_query_failed", "retryable": false, "statement_timeout": map[string]any{}},
+			"Trino stopped the statement at its timeout (statement timeout); the query had already finished, so no cancel was sent." + next,
 		},
 	}
 	for _, tc := range cases {
@@ -80,7 +114,7 @@ func TestClassify(t *testing.T) {
 
 func TestRetries(t *testing.T) {
 	assert.True(t, Retries(scriptsession.NewRefusal("x", externalConnection)), "Trino reported it temporary")
-	assert.False(t, Retries(scriptsession.NewRefusal("x", statementTimeout)), "the client already retried the connection")
+	assert.False(t, Retries(scriptsession.NewRefusal("x", transportTimeout)), "the client already retried the connection")
 	assert.False(t, Retries(scriptsession.NewRefusal("x", tableNotFound)))
 	assert.False(t, Retries(nil))
 }

@@ -1,7 +1,8 @@
 // Package runstate is the vocabulary of a managed-script run's queue history
 // (#1859, #1860): how each attempt ended, why a failed run failed and whether
 // running it again is expected to help, and what a running run's worker is
-// doing. It is its own package so the run record in pkg/script can carry it
+// doing, and how near its slowest statement came to its timeout (#2073). It is
+// its own package so the run record in pkg/script can carry it
 // without growing that package's public surface, and so the store, the worker,
 // the tool layer and the portal all spell it one way.
 package runstate
@@ -107,4 +108,25 @@ type Attempt struct {
 	Outcome string `json:"outcome"`
 	// Error is the failure or reason the attempt ended on, when it had one.
 	Error string `json:"error,omitempty"`
+}
+
+// StatementTiming is how long one trino_query or trino_execute call of a run
+// took against the timeout it ran under (#2073), so an owner sees a statement
+// approaching its limit before a run fails on it.
+type StatementTiming struct {
+	Tool      string `json:"tool"`
+	ElapsedMS int64  `json:"elapsed_ms"`
+	LimitMS   int64  `json:"limit_ms"`
+	// LimitSource is where the limit came from: default, requested, or
+	// run_remaining when the run's deadline was nearer.
+	LimitSource string `json:"limit_source"`
+	// Share is ElapsedMS over LimitMS, to two decimals. ElapsedMS spans every
+	// attempt of a read the host issued again, so a share over 1 without
+	// TimedOut is such a read rather than a statement stopped by its limit.
+	Share float64 `json:"share_of_limit"`
+	// TimedOut is true when the statement was stopped by its limit.
+	TimedOut bool `json:"timed_out,omitempty"`
+	// QueryID is the id Trino gave the statement, known for one that failed.
+	QueryID  string   `json:"query_id,omitempty"`
+	CallSite []string `json:"call_site,omitempty"`
 }

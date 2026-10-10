@@ -259,6 +259,8 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 			Exports:    len(result.Exports),
 			// What the run was measured holding at its peak (#1861).
 			PeakMemoryBytes: result.PeakMemory,
+			// The statement that came nearest its timeout (#2073).
+			SlowestStatement: result.SlowestStatement,
 		}
 		// Staged state travels with the result whatever the outcome; the store
 		// applies it only to a succeeded run, so a failed run leaves the state

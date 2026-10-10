@@ -204,6 +204,7 @@ func (h *Handle) handleRunDraft(ctx context.Context, input manageScriptInput) (*
 	}
 	outcome, err := scriptdraft.New(h.server, h.destinations).WithToolkits(h.toolkits).
 		WithExports(h.draftExports).WithMemoryBudget(h.runLimits.MaxMemoryBytes).
+		WithStatementCeiling(h.runLimits.MaxStatementTimeout).
 		WithRecordings(h.recordings).WithLibraries(h.gate.Libraries).Run(ctx, scriptdraft.Request{
 		Source: source, Name: sc.Name, Script: sc, Params: params,
 		// The live state, so the draft reads what a platform run created now
@@ -298,6 +299,9 @@ func draftResult(sc *script.Script, outcome *scriptdraft.Outcome) map[string]any
 		out["steps"] = result.Steps
 		out["duration_ms"] = result.Duration.Milliseconds()
 		out["queries"] = result.Queries
+		if result.SlowestStatement != nil {
+			out["slowest_statement"] = result.SlowestStatement
+		}
 		// How close the draft came to the memory budget, before a scheduled
 		// run finds out (#1861).
 		out["peak_memory_bytes"] = result.PeakMemory

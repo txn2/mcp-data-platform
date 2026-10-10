@@ -285,7 +285,7 @@ func TestNew_CarriesTheConfiguredLimitsToTheWorkerAndRunner(t *testing.T) {
 	sc, v, _ := executableState()
 	h := New(Config{
 		Runs: &fakeRuns{}, Scripts: &fakeScripts{script: sc}, Versions: &fakeVersions{version: v},
-		Limits:    scriptrun.PlatformLimits{Timeout: 40 * time.Minute, MaxSteps: 7, MaxRows: 9},
+		Limits:    scriptrun.PlatformLimits{Timeout: 40 * time.Minute, MaxSteps: 7, MaxRows: 9, MaxStatementTimeout: time.Minute},
 		Admission: scriptadmit.Admission{Fixed: 2},
 	})
 	require.NotNil(t, h)
@@ -295,6 +295,7 @@ func TestNew_CarriesTheConfiguredLimitsToTheWorkerAndRunner(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, scriptrun.PlatformLimits{
 		Timeout: 40 * time.Minute, MaxSteps: 7, MaxRows: 9, ResultMaxBytes: scriptlive.DefaultMaxResultBytes,
+		MaxStatementTimeout: time.Minute,
 	}, r.limits)
 
 	d := New(Config{Runs: &fakeRuns{}, Scripts: &fakeScripts{script: sc}, Versions: &fakeVersions{version: v}})

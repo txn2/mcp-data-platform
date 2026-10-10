@@ -34984,6 +34984,42 @@
                 }
             }
         },
+        "runstate.StatementTiming": {
+            "type": "object",
+            "properties": {
+                "call_site": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "elapsed_ms": {
+                    "type": "integer"
+                },
+                "limit_ms": {
+                    "type": "integer"
+                },
+                "limit_source": {
+                    "description": "LimitSource is where the limit came from: default, requested, or\nrun_remaining when the run's deadline was nearer.",
+                    "type": "string"
+                },
+                "query_id": {
+                    "description": "QueryID is the id Trino gave the statement, known for one that failed.",
+                    "type": "string"
+                },
+                "share_of_limit": {
+                    "description": "Share is ElapsedMS over LimitMS, to two decimals. ElapsedMS spans every\nattempt of a read the host issued again, so a share over 1 without\nTimedOut is such a read rather than a statement stopped by its limit.",
+                    "type": "number"
+                },
+                "timed_out": {
+                    "description": "TimedOut is true when the statement was stopped by its limit.",
+                    "type": "boolean"
+                },
+                "tool": {
+                    "type": "string"
+                }
+            }
+        },
         "script.Contract": {
             "type": "object",
             "properties": {
@@ -35405,6 +35441,14 @@
                 },
                 "queries": {
                     "type": "integer"
+                },
+                "slowest_statement": {
+                    "description": "SlowestStatement is the statement that ran longest against the timeout\nit ran under (#2073); absent when the run issued none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/runstate.StatementTiming"
+                        }
+                    ]
                 },
                 "steps": {
                     "type": "integer"

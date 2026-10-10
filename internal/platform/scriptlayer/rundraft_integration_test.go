@@ -51,6 +51,7 @@ type queryInput struct {
 	SQL        string `json:"sql"`
 	Limit      int    `json:"limit,omitempty"`
 	Connection string `json:"connection,omitempty"`
+	Timeout    int    `json:"timeout_seconds,omitempty"`
 }
 
 // recordingAudit collects audit events the chain emits. Audit is written off

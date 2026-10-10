@@ -3,6 +3,7 @@ package platform
 import (
 	"github.com/txn2/mcp-data-platform/internal/pagewalk"
 	"github.com/txn2/mcp-data-platform/internal/platform/limitsinfo"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
@@ -25,6 +26,7 @@ func (p *Platform) buildLimits(accessibleTools []string) *Limits {
 		if trinoTk, ok := tk.(*trinokit.Toolkit); ok {
 			defaultRows, maxRows, timeout := trinoTk.QueryLimits()
 			query = &limitsinfo.Query{DefaultRows: defaultRows, MaxRows: maxRows, TimeoutSeconds: int(timeout.Seconds())}
+			query.ScriptMaxTimeoutSeconds, query.ScriptMaxTimeoutKey = int(p.config.Scripts.SQL.MaxTimeout().Seconds()), scriptstmt.MaxTimeoutKey
 			break
 		}
 	}

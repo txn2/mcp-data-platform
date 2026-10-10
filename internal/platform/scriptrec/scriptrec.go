@@ -28,12 +28,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -216,8 +218,15 @@ func (r *Recorder) output(key string, res *scriptrun.ExportResult, err error) {
 // script writes carries it.
 const keySep = "\x00"
 
-// ToolKey is what a tool call is matched by: its tool and its arguments.
+// ToolKey is what a tool call is matched by: its tool and its arguments. A
+// statement's timeout_seconds is left out (#2073): it changes how long the
+// statement may run, not what it answers, and the host sets it from the time
+// left in the run, which differs between a run and its replay.
 func ToolKey(tool string, args map[string]any) string {
+	if _, timed := args[scriptstmt.ArgTimeout]; timed && scriptstmt.IsStatementTool(tool) {
+		args = maps.Clone(args)
+		delete(args, scriptstmt.ArgTimeout)
+	}
 	b, err := json.Marshal(args)
 	if err != nil {
 		b = fmt.Append(nil, args)

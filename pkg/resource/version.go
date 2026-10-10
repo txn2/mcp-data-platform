@@ -173,7 +173,7 @@ const insertRevisionQuery = `
 	 uploader_sub, uploader_email, restored_from, change_summary, content_sha256, metadata, created_at)
 	SELECT $1,
 	       COALESCE((SELECT MAX(version) FROM resource_versions WHERE resource_id = $1), 0) + 1,
-	       $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $11, $10
+	       $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $10, now()
 	RETURNING ` + versionColumns
 
 // updateHeadQuery points the resource at the revision's blob. Both search-index
@@ -186,11 +186,11 @@ const insertRevisionQuery = `
 // with none (#1868).
 const updateHeadQuery = `
 	UPDATE resources
-	   SET mime_type = $1, size_bytes = $2, s3_key = $3, updated_at = $4,
+	   SET mime_type = $1, size_bytes = $2, s3_key = $3, updated_at = now(),
 	       content_text = '', content_indexed_at = NULL,
 	       embedding = NULL, embedding_model = '', embedding_text_hash = NULL,
 	       thumbnail_attempts = 0
-	 WHERE id = $5`
+	 WHERE id = $4`
 
 func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version, error) { //nolint:revive // interface impl
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -208,7 +208,8 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 	if rev.RestoredFrom != nil {
 		restoredFrom = sql.NullInt64{Int64: int64(*rev.RestoredFrom), Valid: true}
 	}
-	now := time.Now().UTC()
+	// The revision's created_at and the head's updated_at are both now(): the
+	// database's clock, one value across the transaction.
 	metadata, err := marshalVersionMetadata(rev.Metadata)
 	if err != nil {
 		return nil, err
@@ -216,13 +217,13 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 
 	v, err := scanVersion(tx.QueryRowContext(ctx, insertRevisionQuery,
 		rev.ResourceID, rev.MIMEType, rev.SizeBytes, rev.S3Key,
-		rev.UploaderSub, rev.UploaderEmail, restoredFrom, rev.ChangeSummary, rev.ContentSHA256, now, metadata))
+		rev.UploaderSub, rev.UploaderEmail, restoredFrom, rev.ChangeSummary, rev.ContentSHA256, metadata))
 	if err != nil {
 		return nil, fmt.Errorf("recording resource revision: %w", err)
 	}
 
 	res, err := tx.ExecContext(ctx, updateHeadQuery,
-		rev.MIMEType, rev.SizeBytes, rev.S3Key, now, rev.ResourceID)
+		rev.MIMEType, rev.SizeBytes, rev.S3Key, rev.ResourceID)
 	if err != nil {
 		return nil, fmt.Errorf("pointing resource at revision: %w", err)
 	}

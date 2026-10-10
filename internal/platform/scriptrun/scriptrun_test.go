@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.starlark.net/starlark"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -246,7 +247,12 @@ print(res["rows"][0]["region"])
 	assert.Equal(t, "west\n", result.Log)
 	require.Len(t, caller.calls, 1)
 	assert.Equal(t, "trino_execute", caller.calls[0].name)
-	assert.Equal(t, map[string]any{"connection": "acme", "sql": "INSERT INTO t VALUES (1)"}, caller.calls[0].args)
+	// A draft's 60s leaves less than the tools' 120s default, so the host
+	// gives the statement the time left in the run less its margin (#2073).
+	args := caller.calls[0].args
+	assert.LessOrEqual(t, args[scriptstmt.ArgTimeout], 55)
+	delete(args, scriptstmt.ArgTimeout)
+	assert.Equal(t, map[string]any{"connection": "acme", "sql": "INSERT INTO t VALUES (1)"}, args)
 	assert.Zero(t, result.Queries, "a generic call is not a platform.query, and the query count says so")
 }
 
