@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/internal/upstreamretry"
 )
@@ -61,16 +62,23 @@ func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, 
 
 // callToolWith is callTool with what the binding asked of it.
 func (h *hostState) callToolWith(tool string, args map[string]any, opts callOpts) (map[string]any, error) {
+	stmt, err := scriptstmt.Begin(tool, args, h.opts.MaxStatementTimeout, h.remaining())
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the tool; the binding names itself around it
+	}
+	var out map[string]any
 	if h.opts.Test != nil {
 		// A test's answers are the ones a run was finally given, so there is
 		// nothing to pace or retry (#1939).
-		out, err := h.opts.Caller.CallTool(h.callCtx(), tool, args)
-		return out, scriptfail.Classify(tool, err) //nolint:wrapcheck // the tool's own failure, attributed; the calling binding names itself around it
+		out, err = h.opts.Caller.CallTool(h.callCtx(), tool, args)
+	} else {
+		out, err = h.pacedCall(tool, args, opts)
 	}
-	out, err := h.pacedCall(tool, args, opts)
-	// The recording keeps the failure as the tool answered it; a replay
-	// classifies it again on the way to the script.
-	if h.opts.OnCall != nil {
+	h.slowest = scriptstmt.Slowest(h.slowest, stmt.End(err, h.site))
+	// The recording keeps the failure as the tool answered it, with the limit
+	// a stopped statement ran under; a replay classifies it again on the way
+	// to the script.
+	if h.opts.Test == nil && h.opts.OnCall != nil {
 		h.opts.OnCall(tool, args, out, err)
 	}
 	return out, scriptfail.Classify(tool, err) //nolint:wrapcheck // the tool's own failure, attributed; the calling binding names itself around it

@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsql"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
@@ -25,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportmeta"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -35,7 +37,7 @@ import (
 // with a constant here, platform.call with the name the author wrote — so a
 // script's query is authorized, rate limited, and audited by exactly the
 // middleware an agent's query goes through.
-const ToolQuery = "trino_query"
+const ToolQuery = scriptstmt.ToolQuery
 
 // argSQL is the SQL argument of platform.query, platform.execute and the tool
 // calls they make.
@@ -43,7 +45,7 @@ const argSQL = "sql"
 
 // ToolExecute is the tool platform.execute names: the statement that changes
 // state, bound as platform.query binds (#1950).
-const ToolExecute = "trino_execute"
+const ToolExecute = scriptstmt.ToolExecute
 
 // Member names of the platform module.
 //
@@ -191,6 +193,8 @@ type hostState struct {
 	ctx     context.Context //nolint:containedctx // one run's context, bound for the life of that run and used only by its host bindings
 	log     *scriptlive.Live
 	queries int
+	// slowest is the statement call that took longest (#2073).
+	slowest *runstate.StatementTiming
 	exports []ExportRecord
 	// writes records the persisting platform.call calls the run made, in call
 	// order. It stays empty under the write barrier, which refuses them.
@@ -459,10 +463,11 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 		params     *starlark.Dict
 		onError    string
 		retry      = true
+		timeout    int
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		argSQL, &sql, "connection?", &connection, "params?", &params,
-		"on_error?", &onError, "retry?", &retry); err != nil {
+		"on_error?", &onError, "retry?", &retry, scriptstmt.ArgTimeout+"?", &timeout); err != nil {
 		return nil, argErr(b, err)
 	}
 	returnFailure, err := scriptfail.OnError(b.Name(), onError)
@@ -480,6 +485,9 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	call := map[string]any{argSQL: bound, "limit": h.opts.MaxRows}
 	if connection != "" {
 		call["connection"] = connection
+	}
+	if timeout != 0 {
+		call[scriptstmt.ArgTimeout] = timeout
 	}
 	out, err := h.callToolWith(ToolQuery, call, callOpts{noRetry: !retry})
 	if err != nil {
@@ -540,9 +548,11 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 		sql        string
 		params     *starlark.Dict
 		onError    string
+		timeout    int
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		argSQL, &sql, "connection?", &connection, "params?", &params, "on_error?", &onError); err != nil {
+		argSQL, &sql, "connection?", &connection, "params?", &params, "on_error?", &onError,
+		scriptstmt.ArgTimeout+"?", &timeout); err != nil {
 		return nil, argErr(b, err)
 	}
 	returnFailure, err := scriptfail.OnError(b.Name(), onError)
@@ -559,6 +569,9 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 	payload := map[string]any{argSQL: bound}
 	if connection != "" {
 		payload["connection"] = connection
+	}
+	if timeout != 0 {
+		payload[scriptstmt.ArgTimeout] = timeout
 	}
 	// No retry: a statement is never issued twice by the host.
 	return h.invoke(b, ToolExecute, payload, invokeOpts{returnFailure: returnFailure})

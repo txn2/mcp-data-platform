@@ -823,6 +823,7 @@ internal/platform/scriptlayer -> internal/platform/scriptrec
 internal/platform/scriptlayer -> internal/platform/scriptrec/recstore
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptsave
+internal/platform/scriptlayer -> internal/platform/scriptstmt
 internal/platform/scriptlayer -> internal/platform/scriptstore
 internal/platform/scriptlayer -> internal/platform/scripttest
 internal/platform/scriptlayer -> internal/runstate
@@ -857,6 +858,7 @@ internal/platform/scriptout/exportrecord -> internal/platform/starlarkconv
 internal/platform/scriptout/exportrecord -> internal/tablexlsx
 internal/platform/scriptrec -> internal/platform/scriptrun
 internal/platform/scriptrec -> internal/platform/scriptsession
+internal/platform/scriptrec -> internal/platform/scriptstmt
 internal/platform/scriptrec -> pkg/script
 internal/platform/scriptrec/recstore -> internal/platform/scriptrec
 internal/platform/scriptrun -> internal/outbound
@@ -873,10 +875,12 @@ internal/platform/scriptrun -> internal/platform/scriptout/exportmeta
 internal/platform/scriptrun -> internal/platform/scriptout/exportrecord
 internal/platform/scriptrun -> internal/platform/scriptsession
 internal/platform/scriptrun -> internal/platform/scriptsql
+internal/platform/scriptrun -> internal/platform/scriptstmt
 internal/platform/scriptrun -> internal/platform/starlarkconv
 internal/platform/scriptrun -> internal/platform/tooloutput
 internal/platform/scriptrun -> internal/platform/toolratelimit
 internal/platform/scriptrun -> internal/portal/contentrefs
+internal/platform/scriptrun -> internal/runstate
 internal/platform/scriptrun -> internal/scriptcallsite
 internal/platform/scriptrun -> internal/scriptconst
 internal/platform/scriptrun -> internal/scriptdate
@@ -902,6 +906,8 @@ internal/platform/scriptsession -> internal/inprocess
 internal/platform/scriptsession -> internal/mcpobs
 internal/platform/scriptsession -> internal/scriptcallsite
 internal/platform/scriptsql -> internal/platform/starlarkconv
+internal/platform/scriptstmt -> internal/platform/scriptsession
+internal/platform/scriptstmt -> internal/runstate
 internal/platform/scriptstore -> internal/libraryuse
 internal/platform/scriptstore -> internal/openrun
 internal/platform/scriptstore -> internal/platform/scriptindex
@@ -927,6 +933,7 @@ internal/platform/scriptwiring -> internal/platform/scriptlayer
 internal/platform/scriptwiring -> internal/platform/scriptrec
 internal/platform/scriptwiring -> internal/platform/scriptrec/recstore
 internal/platform/scriptwiring -> internal/platform/scriptrun
+internal/platform/scriptwiring -> internal/platform/scriptstmt
 internal/platform/scriptwiring -> pkg/middleware
 internal/platform/scriptwiring -> pkg/observability
 internal/platform/scriptwiring -> pkg/portal
@@ -1396,6 +1403,7 @@ pkg/platform -> internal/platform/scriptadmit
 pkg/platform -> internal/platform/scriptdraft
 pkg/platform -> internal/platform/scriptexec
 pkg/platform -> internal/platform/scriptlayer
+pkg/platform -> internal/platform/scriptstmt
 pkg/platform -> internal/platform/scriptstore
 pkg/platform -> internal/platform/scriptwiring
 pkg/platform -> internal/platform/searchfed

@@ -340,3 +340,14 @@ func TestAClassifiedFailureReplaysAsTheSameRefusal(t *testing.T) {
 	assert.Equal(t, "tool_error", refusal.Code)
 	assert.False(t, refusal.Retryable)
 }
+
+// A statement's timeout_seconds is not part of what a call is matched by
+// (#2073): the host sets it from the time left in the run, so a replay and a
+// recording made before the host set it still match. Another tool's argument
+// of the same name is.
+func TestToolKeyLeavesAStatementsTimeoutOut(t *testing.T) {
+	args := map[string]any{"sql": "SELECT 1", "timeout_seconds": 55}
+	assert.Equal(t, ToolKey("trino_query", map[string]any{"sql": "SELECT 1"}), ToolKey("trino_query", args))
+	assert.Equal(t, 55, args["timeout_seconds"], "the call's own arguments are not changed")
+	assert.NotEqual(t, ToolKey("api_invoke_endpoint", map[string]any{"sql": "SELECT 1"}), ToolKey("api_invoke_endpoint", args))
+}

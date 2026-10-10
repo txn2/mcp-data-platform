@@ -13,6 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
@@ -95,7 +97,10 @@ func Class(env map[string]any) string {
 	retryable, _ := env["retryable"].(bool)
 	category, _ := env["category"].(string)
 	_, transport := env["transport"].(map[string]any)
+	stopped, timedOut := env["statement_timeout"].(map[string]any)
 	switch {
+	case timedOut:
+		return timeoutClass(source, env, stopped)
 	case retryable && transport:
 		return fmt.Sprintf("%s could not be reached (%s); expected to pass on its next run.", source, detail)
 	case retryable:
@@ -108,6 +113,67 @@ func Class(env map[string]any) string {
 			source, detail)
 	}
 }
+
+// timeoutClass is the sentence for a statement the coordinator accepted and
+// stopped at its timeout (#2073): the limit, how long it ran, the query id,
+// and whether the abandoned statement is known to have stopped. It is not
+// retryable: the same statement against the same data runs as long again.
+func timeoutClass(source string, env, stopped map[string]any) string {
+	limit := "its timeout"
+	if ms, ok := number(stopped["limit_ms"]); ok && ms > 0 {
+		limit = "its " + seconds(ms) + " limit"
+		if src, _ := stopped["limit_source"].(string); src == "run_remaining" {
+			limit += " (the time left in the run)"
+		}
+	}
+	ran := ""
+	if ms, ok := number(stopped["elapsed_ms"]); ok {
+		ran = " after " + seconds(ms)
+	}
+	query := ""
+	if id, _ := env["query_id"].(string); id != "" {
+		query = ", query " + id
+	}
+	requested, _ := stopped["cancel_requested"].(bool)
+	confirmed, _ := stopped["cancel_confirmed"].(bool)
+	var cancel string
+	switch {
+	case confirmed:
+		cancel = "the query was canceled"
+	case requested:
+		cancel = "a cancel was sent and not confirmed, so the query may still be running"
+	default:
+		cancel = "the query had already finished, so no cancel was sent"
+	}
+	return fmt.Sprintf("%s stopped the statement at %s%s (statement timeout%s); %s. The next run fails the same way "+
+		"until the statement does less work, is split, or is given a longer timeout_seconds.", source, limit, ran, query, cancel)
+}
+
+// number reads a JSON number, which arrives as float64 once decoded and as
+// an integer when the host wrote it.
+func number(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int64:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+// seconds renders milliseconds as seconds to one decimal: "120s", "121.4s".
+func seconds(ms float64) string {
+	return strconv.FormatFloat(math.Round(ms/msPerTenth)/tenthsPerSecond, 'f', -1, float64Bits) + "s"
+}
+
+// Units seconds renders in.
+const (
+	msPerTenth      = 100
+	tenthsPerSecond = 10
+	float64Bits     = 64
+)
 
 // Detail names what the upstream reported: Trino's error type and name and
 // the SQLSTATE a connector passed through, or how the connection failed.

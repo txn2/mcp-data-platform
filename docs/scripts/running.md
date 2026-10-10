@@ -2284,7 +2284,8 @@ message:
 
 | What Trino reported | Run cause | Retryable |
 |---|---|---|
-| No answer: a timeout (including one while polling the statement), a refused or reset connection, a DNS failure, a 502, 503 or 504 | `upstream` | yes |
+| No answer: a timeout before the coordinator accepted the statement, a refused or reset connection, a DNS failure, a 502, 503 or 504 | `upstream` | yes |
+| A statement the coordinator accepted and stopped at its timeout (see [How long one statement may run](#how-long-one-statement-may-run)) | `script` | no |
 | `INSUFFICIENT_RESOURCES`, or `INTERNAL_ERROR` naming a node or transport fault | `upstream` | yes |
 | `EXTERNAL` with a SQLSTATE `08` connection error from the source | `upstream` | yes |
 | `USER_ERROR` (syntax, a missing table or column, a type mismatch, a permission) | `script` | no |
@@ -2349,6 +2350,62 @@ A test reaches that branch by declaring the failure:
 `testing.answer("trino_execute", {"connection": "warehouse"}, error = {"retryable": True, "category": "upstream_unavailable", "message": "...", "trino": {"error_type": "EXTERNAL", "sql_state": "08001"}})`.
 A recorded run keeps the classification of every call that failed, so a replay
 fails the way the run did.
+
+### How long one statement may run
+
+A statement runs under a timeout (#2073). `platform.query`, `platform.execute`
+and a `platform.call` to `trino_query` or `trino_execute` take
+`timeout_seconds`; left out, the statement has the tools' default of 120
+seconds.
+
+```python
+REBUILD_SQL = "CREATE TABLE warehouse.public.daily_totals AS SELECT day, sum(total) AS total FROM warehouse.public.orders GROUP BY day"
+
+def main():
+    """Rebuilds the daily totals, which takes longer than the default limit."""
+    platform.execute(REBUILD_SQL, connection = "warehouse", timeout_seconds = 300)
+```
+
+- The most a statement may ask for is `scripts.sql.max_timeout_seconds`, 300
+  unless the deployment lowers it. A request above it fails the run and names
+  the ceiling and the key; it is never cut to fit. A ceiling under 120 lowers
+  the default as well.
+- A statement never runs past the time left in the run: the host gives it the
+  run's remaining time less five seconds when that is shorter, so the statement
+  is stopped, and its cancel confirmed, before the run is. A draft's 60 seconds
+  is always shorter than the default, so a draft's statements run under the
+  draft's remaining time.
+- A statement the coordinator accepted and then stopped at its timeout is
+  canceled, and fails the run with cause `script`, not retryable: the same
+  statement over the same data runs as long again. The run's error names the
+  limit, how long the statement ran, the query id and what became of the
+  query:
+
+```text
+Trino stopped the statement at its 120s limit after 121.4s (statement timeout, query 20261009_120000_00001_abcde); the query was canceled. The next run fails the same way until the statement does less work, is split, or is given a longer timeout_seconds.
+```
+
+  When the cancel was sent and not confirmed it says the query may still be
+  running. A timeout before the coordinator accepted the statement is still a
+  failure to reach Trino, `upstream` and retryable.
+- With `on_error = "return"` the envelope carries `statement_timeout`
+  (`elapsed_ms`, `limit_ms`, `limit_source`, `cancel_requested`,
+  `cancel_confirmed`) and `query_id`.
+- `get_run` and a `run_draft` answer report `slowest_statement`: the tool, its
+  `elapsed_ms`, the `limit_ms` it ran under and where that came from
+  (`limit_source`: `default`, `requested` or `run_remaining`), its
+  `share_of_limit`, and `timed_out`. A statement whose share is close to 1 is
+  close to failing the run.
+
+```yaml
+scripts:
+  sql:
+    max_timeout_seconds: 300   # the most timeout_seconds may be; 1 to 300
+```
+
+`manage_script help` reports `statement_default_timeout_seconds`,
+`statement_max_timeout_seconds` and `statement_max_timeout_key`, and
+`platform_info`'s `limits.query` reports `script_max_timeout_seconds`.
 
 ### The owner's email
 

@@ -162,6 +162,40 @@ func TestHelp_ReportsTheMemoryBudget(t *testing.T) {
 	assert.Contains(t, note, "upstream_retryable")
 }
 
+// TestHelp_ReportsTheStatementTimeouts: the help names how long a statement
+// runs when it names no timeout and the most it may name (#2073), the
+// ceiling lowering the default when it is under it.
+func TestHelp_ReportsTheStatementTimeouts(t *testing.T) {
+	for ceiling, want := range map[time.Duration][2]int{300 * time.Second: {120, 300}, time.Minute: {60, 60}} {
+		h := New(Config{Store: newMemStore(), RunLimits: scriptrun.PlatformLimits{MaxStatementTimeout: ceiling}})
+		got := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdHelp}))
+		limits, _ := got["limits"].(map[string]any)
+		assert.EqualValues(t, want[0], limits["statement_default_timeout_seconds"])
+		assert.EqualValues(t, want[1], limits["statement_max_timeout_seconds"])
+		assert.Equal(t, "scripts.sql.max_timeout_seconds", limits["statement_max_timeout_key"])
+	}
+}
+
+// TestGetRun_ReportsTheSlowestStatement: get_run carries the statement that
+// came nearest its timeout (#2073), and a run that issued none carries none.
+func TestGetRun_ReportsTheSlowestStatement(t *testing.T) {
+	h, _, runs := runnableHandle(t)
+	run := queuedRun(t, h, runs)
+	got := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun, RunID: run.ID}))
+	assert.NotContains(t, got, "slowest_statement")
+
+	finished := time.Now()
+	run.Status, run.FinishedAt = script.RunStatusSucceeded, &finished
+	run.Metrics.SlowestStatement = &runstate.StatementTiming{
+		Tool: "trino_execute", ElapsedMS: 96000, LimitMS: 120000, LimitSource: "default", Share: 0.8,
+	}
+	got = resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdGetRun, RunID: run.ID}))
+	slowest, _ := got["slowest_statement"].(map[string]any)
+	assert.Equal(t, "trino_execute", slowest["tool"])
+	assert.EqualValues(t, 0.8, slowest["share_of_limit"])
+	assert.EqualValues(t, 120000, slowest["limit_ms"])
+}
+
 // TestHelp_ReportsTheOutputCeiling: the help names the size one export may
 // reach, so a script meets it as a stated limit rather than as a refusal
 // (#1863).

@@ -245,6 +245,19 @@ func TestWithExports_OnANilRunner(t *testing.T) {
 	var runner *Runner
 	assert.Nil(t, runner.WithExports(nil))
 	assert.Nil(t, runner.WithMemoryBudget(1))
+	assert.Nil(t, runner.WithStatementCeiling(time.Minute))
+}
+
+// TestRun_HoldsADraftToTheStatementCeiling holds #2073 on the draft path: a
+// draft's statement is refused above the deployment's ceiling, by name.
+func TestRun_HoldsADraftToTheStatementCeiling(t *testing.T) {
+	outcome, err := New(server(t), nil).WithStatementCeiling(30*time.Second).Run(context.Background(), Request{
+		Source: "platform.call(\"trino_query\", {\"sql\": \"SELECT 1\", \"timeout_seconds\": 45})\n",
+		Name:   "slow", Identity: jane,
+	})
+	require.NoError(t, err)
+	require.True(t, outcome.Failed())
+	assert.Contains(t, outcome.Err.Error(), "the most a statement may run on this deployment is 30 (scripts.sql.max_timeout_seconds)")
 }
 
 // TestRun_HoldsADraftToTheMemoryBudget holds #1861 on the draft path: a draft

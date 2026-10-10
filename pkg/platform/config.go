@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resultbudget"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
@@ -1383,6 +1384,8 @@ type ScriptsConfig struct {
 	// Worker decides whether this replica executes queued runs or only
 	// enqueues them for another deployment to execute.
 	Worker ScriptsWorkerConfig `yaml:"worker"`
+	// SQL bounds how long a script's statement may run (#2073).
+	SQL scriptstmt.Config `yaml:"sql"`
 }
 
 // ScriptDestinations returns the configured destinations normalized, with the
@@ -1419,16 +1422,10 @@ func (c *ScriptsConfig) IsWorkerEnabled() bool {
 	return !isExplicitlyDisabled(c.Worker.Enabled)
 }
 
-// hoursPerDay converts a retention expressed in days to a duration.
-const hoursPerDay = 24
-
 // RunRetention returns the configured run retention, applying the default when
 // unset.
 func (c *ScriptsConfig) RunRetention() time.Duration {
-	if c.RunRetentionDays <= 0 {
-		return scriptexec.DefaultRunRetention
-	}
-	return time.Duration(c.RunRetentionDays) * hoursPerDay * time.Hour
+	return scriptexec.RetentionDays(c.RunRetentionDays)
 }
 
 // CallsConfig configures the catalog of recorded data-access calls (#1321).
@@ -2085,7 +2082,7 @@ func (c *Config) Validate() error {
 	_, runBudget := c.Scripts.Worker.RunMemoryBudget(0)
 	_, thumbs := c.Thumbnails.Tuning()
 	_, thumbSources := c.Thumbnails.SourceLimits()
-	for _, err := range []error{admission, runBudget, thumbs, thumbSources, c.Webhooks.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
+	for _, err := range []error{admission, runBudget, thumbs, thumbSources, c.Scripts.SQL.Validate(), c.Webhooks.Validate(), c.Tools.ResultBudget.Validate(), c.Portal.AssetRefs.Validate()} {
 		if err != nil {
 			errs = append(errs, err.Error())
 		}

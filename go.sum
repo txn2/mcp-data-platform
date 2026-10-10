@@ -347,8 +347,8 @@ github.com/txn2/mcp-datahub v1.15.1 h1:VJkRH30stwqPqeRTHnznDxAaB+A50mRfwrkKgnUcn
 github.com/txn2/mcp-datahub v1.15.1/go.mod h1:nwnlwyYQ8Cjef76/iYA3+arSSK4dkRp8vKl7zBZQMBs=
 github.com/txn2/mcp-s3 v1.5.1 h1:Kix4axZvt8p1WsvMBD8AU0CxHF6mbxLzjrrb4MTgW3o=
 github.com/txn2/mcp-s3 v1.5.1/go.mod h1:x2iu4CDs1S7H2hyvUydMAJY5X0dnYF03XWURSyc3nUk=
-github.com/txn2/mcp-trino v1.7.0 h1:w7cGVrG3bGUSSC6cOHwG3Gpw+N2y+go67l1j6csP4JQ=
-github.com/txn2/mcp-trino v1.7.0/go.mod h1:z2oFgeACza9FYL6dMn467g1meu48E3Lc6MDrGpjVXcQ=
+github.com/txn2/mcp-trino v1.7.1 h1:kDlrQQ7KJRoLstj3bH2XAJs/o8gvlm2NRb3hH9JHTmo=
+github.com/txn2/mcp-trino v1.7.1/go.mod h1:RpodYXhhuapGCYolLZ9pJTxpCVaS+1aveDXP+xWdmyA=
 github.com/vektah/gqlparser/v2 v2.5.60 h1:2ML8Zwt/NFXzbW3kc+r7ecjfm9GdnwAjj2cFlKRcHJY=
 github.com/vektah/gqlparser/v2 v2.5.60/go.mod h1:JNK+plRwKdXLsF/qPFPe5tE0z4s1WeroD9S5LR8um/Q=
 github.com/wneessen/go-mail v0.8.1 h1:tVcncj02/QySVFw3zr/kXOzZcuFQqBNT6K+Rbgm/pcM=

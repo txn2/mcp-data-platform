@@ -72,7 +72,7 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={}, on_error="raise",
-                 retry=True)  Run read-only SQL. Returns
+                 retry=True, timeout_seconds=None)  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
       column name, in the SELECT's column order, so rows exported as they
       came keep the query's columns where it put them. It is the read tool, so a statement that modifies state —
@@ -92,7 +92,18 @@ WHAT IS AVAILABLE
       A query Trino itself fails for a temporary reason (see A FAILED CALL)
       is issued again by the host, at most 3 times; retry=False turns that
       off.
-  platform.execute(sql, connection=..., params={}, on_error="raise")
+      timeout_seconds is how long the statement may run: 120 when omitted,
+      at most the deployment's ceiling (300 unless scripts.sql
+      max_timeout_seconds lowers it; help reports it as
+      statement_max_timeout_seconds), and never past the time left in the
+      run. A value above the ceiling is refused, never cut. A statement
+      Trino stops at its timeout is canceled and fails the run as the
+      script's, naming the limit, how long it ran and the query id: the
+      next run fails the same way, so make the statement do less, split
+      it, or give it a longer timeout_seconds. get_run reports the
+      slowest statement and its share_of_limit.
+  platform.execute(sql, connection=..., params={}, on_error="raise",
+                   timeout_seconds=None)
       Run a statement that
       changes state -- INSERT, UPDATE, DELETE, CREATE, DROP -- through
       trino_execute, and return its answer as platform.call would. Values
@@ -106,7 +117,9 @@ WHAT IS AVAILABLE
                          connection = "scratch", params = {"src": out["table"]})
       It is a trino_execute call: authorized, audited and listed among a
       draft's writes as that call is, and a draft refuses it unless the draft
-      was run with allow_writes.
+      was run with allow_writes. timeout_seconds is platform.query's, and a
+      platform.call to trino_query or trino_execute is held to the same
+      ceiling.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,
                   append=False)
@@ -499,7 +512,10 @@ A FAILED CALL
   hands a failed call back as {"error": {...}} instead of ending the run:
   code, category (upstream_unavailable, client_input, internal), retryable,
   message, and from Trino trino {error_type, error_name, error_code,
-  sql_state} or transport {kind, http_status, detail}. Only "error" is in it,
+  sql_state} or transport {kind, http_status, detail}, or for a statement
+  stopped at its timeout statement_timeout {elapsed_ms, limit_ms,
+  limit_source, cancel_requested, cancel_confirmed} and query_id (category
+  client_input, retryable false). Only "error" is in it,
   so reading a result field without checking fails at that read:
     res = platform.execute(MERGE_SQL, connection = "warehouse", params = p,
                            on_error = "return")

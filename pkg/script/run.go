@@ -79,6 +79,9 @@ type RunMetrics struct {
 	// host call. It is an estimate of the interpreter's heap, not the
 	// process's, and is what a run's memory budget is enforced against.
 	PeakMemoryBytes int64 `json:"peak_memory_bytes,omitempty"`
+	// SlowestStatement is the statement that ran longest against the timeout
+	// it ran under (#2073); absent when the run issued none.
+	SlowestStatement *runstate.StatementTiming `json:"slowest_statement,omitempty"`
 }
 
 // RunOutput is one persisted output of a run: where it went, and what landed

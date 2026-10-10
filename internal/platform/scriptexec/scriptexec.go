@@ -376,6 +376,15 @@ type storeSet struct {
 	schedules script.ScheduleStore
 }
 
+// hoursPerDay converts a retention expressed in days to a duration.
+const hoursPerDay = 24
+
+// RetentionDays is scripts.run_retention_days as a duration, the default
+// when zero or less.
+func RetentionDays(days int) time.Duration {
+	return orDefaultRetention(time.Duration(days) * hoursPerDay * time.Hour)
+}
+
 // orDefaultRetention applies the default when a deployment names no retention.
 func orDefaultRetention(d time.Duration) time.Duration {
 	if d <= 0 {

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 )
 
 // TestScriptsWorker_FromYAML reads the #1843 settings the way an operator
@@ -83,4 +84,19 @@ scripts:
 	err = bad.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "scripts.worker.max_run_memory")
+}
+
+// TestScriptsSQL_FromYAML reads scripts.sql.max_timeout_seconds (#2073): an
+// unset ceiling is the tools' cap, a lower one is kept, and one above what
+// trino_query and trino_execute accept fails startup by name.
+func TestScriptsSQL_FromYAML(t *testing.T) {
+	cfg, err := LoadConfigFromBytes([]byte("scripts:\n  sql:\n    max_timeout_seconds: 90\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 90*time.Second, cfg.Scripts.SQL.MaxTimeout())
+	assert.Equal(t, 300*time.Second, (&Config{}).Scripts.SQL.MaxTimeout())
+
+	bad := &Config{Scripts: ScriptsConfig{SQL: scriptstmt.Config{MaxTimeoutSeconds: 600}}}
+	err = bad.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scripts.sql.max_timeout_seconds is 600")
 }

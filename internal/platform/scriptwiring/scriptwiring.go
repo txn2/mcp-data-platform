@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec/recstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -74,7 +75,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 		PortalURL:             deps.PortalURL,
 		RunRetention:          deps.RunRetention,
 		Recordings:            recordings,
-		Limits:                runLimits(deps.Worker),
+		Limits:                runLimits(deps.Worker, deps.SQL),
 		Admission:             admission(deps.Worker),
 		MaxReclaims:           deps.Worker.MaxReclaims,
 		WorkerDisabled:        !deps.WorkerEnabled,
@@ -89,7 +90,7 @@ func Wire(deps Deps) *scriptexec.Handle {
 		Destinations: deps.Destinations,
 		// The ceilings a platform run executes under, which the help reports
 		// beside the draft limits (#1843).
-		RunLimits: runLimits(deps.Worker),
+		RunLimits: runLimits(deps.Worker, deps.SQL),
 		// The live toolkits, so a draft's write barrier reads what an
 		// api_invoke_endpoint call sends and what a proxied tool's upstream
 		// declares, rather than refusing both (#1664).
@@ -153,7 +154,9 @@ type Deps struct {
 	RunRetention time.Duration
 	// Worker is the scripts.worker capacity settings: admission and a
 	// platform run's ceilings (#1843).
-	Worker               scriptadmit.Config
+	Worker scriptadmit.Config
+	// SQL is the scripts.sql section: the most a statement may run (#2073).
+	SQL                  scriptstmt.Config
 	WorkerEnabled        bool
 	NotificationsEnabled bool
 	DigestHourUTC        int
@@ -170,10 +173,11 @@ type Deps struct {
 // engine's defaults where the limits are applied. The memory budget is
 // resolved against this process's memory limit (#1861), which a draft on this
 // replica and a run on it share.
-func runLimits(c scriptadmit.Config) scriptrun.PlatformLimits {
+func runLimits(c scriptadmit.Config, sqlCfg scriptstmt.Config) scriptrun.PlatformLimits {
 	return scriptrun.PlatformLimits{
 		Timeout: c.RunTimeout, MaxSteps: uint64(max(c.MaxSteps, 0)), MaxRows: c.MaxQueryRows,
 		ResultMaxBytes: c.ResultMaxBytes, MaxMemoryBytes: c.ProcessRunMemoryBudget(),
+		MaxStatementTimeout: sqlCfg.MaxTimeout(),
 	}
 }
 

@@ -2916,6 +2916,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Destinations:         p.config.Scripts.ScriptDestinations(),
 		RunRetention:         p.config.Scripts.RunRetention(),
 		Worker:               p.config.Scripts.Worker.Config,
+		SQL:                  p.config.Scripts.SQL,
 		WorkerEnabled:        p.config.Scripts.IsWorkerEnabled(),
 		NotificationsEnabled: p.config.Notifications.IsEnabled(),
 		DigestHourUTC:        p.config.Notifications.DigestHour(),

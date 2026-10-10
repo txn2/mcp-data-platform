@@ -274,7 +274,7 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	deps.Connections = scriptConnectionEnumerator(lister)
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
-		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).
+		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
 		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries)
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)

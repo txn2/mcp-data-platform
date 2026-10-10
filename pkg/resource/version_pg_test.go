@@ -81,11 +81,11 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", "", sqlmock.AnyArg(), []byte(`{}`)).
+			WithArgs("r1", "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", "", []byte(`{}`)).
 			WillReturnRows(versionRows().
 				AddRow("r1", 3, "text/csv", int64(12), "k/v/rev1/f.csv", "sub", "u@example.com", nil, "", nil, []byte(`{}`), now))
 		mock.ExpectExec("UPDATE resources").
-			WithArgs("text/csv", int64(12), "k/v/rev1/f.csv", sqlmock.AnyArg(), "r1").
+			WithArgs("text/csv", int64(12), "k/v/rev1/f.csv", "r1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
 
@@ -143,7 +143,7 @@ func TestAddRevision(t *testing.T) {
 			WithArgs("r1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 		mock.ExpectQuery("INSERT INTO resource_versions").
-			WithArgs("r1", "", int64(0), "", "", "", int64(2), "", "", sqlmock.AnyArg(), []byte(`{}`)).
+			WithArgs("r1", "", int64(0), "", "", "", int64(2), "", "", []byte(`{}`)).
 			WillReturnRows(versionRows().AddRow("r1", 5, "", int64(0), "", "", "", 2, "", nil, []byte(`{}`), time.Now()))
 		mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectCommit()
@@ -395,7 +395,7 @@ func TestVersionMetadataRoundTrips(t *testing.T) {
 	mock.ExpectQuery("SELECT id FROM resources").WithArgs("r1").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("r1"))
 	mock.ExpectQuery("INSERT INTO resource_versions").
-		WithArgs("r1", "text/csv", int64(1), "k", "", "", nil, "", "", sqlmock.AnyArg(), []byte(`{"truncated":true}`)).
+		WithArgs("r1", "text/csv", int64(1), "k", "", "", nil, "", "", []byte(`{"truncated":true}`)).
 		WillReturnRows(versionRows().AddRow("r1", 1, "text/csv", int64(1), "k", "", "", nil, "", nil, []byte(`{"truncated":true}`), now))
 	mock.ExpectExec("UPDATE resources").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

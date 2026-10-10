@@ -58,6 +58,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/scripthash"
 	"github.com/txn2/mcp-data-platform/internal/scriptre"
@@ -128,6 +130,8 @@ type PlatformLimits struct {
 	// budget. It has no default here: the default is a share of the
 	// container's limit, which only the composition root can read.
 	MaxMemoryBytes int64
+	// MaxStatementTimeout is scripts.sql.max_timeout_seconds (#2073).
+	MaxStatementTimeout time.Duration
 }
 
 // WithDefaults fills every unset limit.
@@ -144,6 +148,9 @@ func (l PlatformLimits) WithDefaults() PlatformLimits {
 	if l.ResultMaxBytes <= 0 {
 		l.ResultMaxBytes = scriptlive.DefaultMaxResultBytes
 	}
+	if l.MaxStatementTimeout <= 0 {
+		l.MaxStatementTimeout = scriptstmt.ToolMaxTimeout
+	}
 	return l
 }
 
@@ -158,7 +165,7 @@ func RunLimits(l PlatformLimits) Options {
 		MaxRows:        l.MaxRows,
 		MaxResultBytes: RunMaxResultBytes,
 		MaxLogBytes:    MaxLogBytes,
-		MaxMemoryBytes: l.MaxMemoryBytes,
+		MaxMemoryBytes: l.MaxMemoryBytes, MaxStatementTimeout: l.MaxStatementTimeout,
 	}
 }
 
@@ -268,6 +275,8 @@ type Options struct {
 	// MaxMemoryBytes is the memory the run may hold, measured at every host
 	// call (#1861). Zero sets no budget; the peak is measured either way.
 	MaxMemoryBytes int64
+	// MaxStatementTimeout bounds timeout_seconds (#2073); zero is 300s.
+	MaxStatementTimeout time.Duration
 
 	// OnCall, when not nil, is told every tool call a host binding made and
 	// the answer the binding was finally given, after any pacing and retry:
@@ -515,6 +524,8 @@ type Result struct {
 	Duration time.Duration `json:"-"`
 	// Queries counts the platform.query calls the run issued.
 	Queries int `json:"queries"`
+	// SlowestStatement is the longest statement call (#2073), nil for none.
+	SlowestStatement *runstate.StatementTiming `json:"slowest_statement,omitempty"`
 	// Exports lists what every platform.export call did, in call order.
 	Exports []ExportRecord `json:"exports"`
 	// State is the object the script staged with platform.save_state, nil
@@ -616,19 +627,20 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	logText, logTruncated := log.Log()
 	result := &Result{
-		Log:          logText,
-		LogTruncated: logTruncated,
-		Return:       log.Result(),
-		Progress:     log.Progress(),
-		Steps:        thread.ExecutionSteps(),
-		Duration:     time.Since(started),
-		Queries:      host.queries,
-		Exports:      host.exports,
-		State:        host.state,
-		Checkpoint:   host.checkpointed,
-		Writes:       host.writes,
-		RefusedWrite: host.refused,
-		PeakMemory:   host.mem.Peak(),
+		Log:              logText,
+		LogTruncated:     logTruncated,
+		Return:           log.Result(),
+		Progress:         log.Progress(),
+		Steps:            thread.ExecutionSteps(),
+		Duration:         time.Since(started),
+		Queries:          host.queries,
+		SlowestStatement: host.slowest,
+		Exports:          host.exports,
+		State:            host.state,
+		Checkpoint:       host.checkpointed,
+		Writes:           host.writes,
+		RefusedWrite:     host.refused,
+		PeakMemory:       host.mem.Peak(),
 	}
 	return result, runErr //nolint:wrapcheck // the interpreter's failure, attributed; its backtrace is the message
 }
