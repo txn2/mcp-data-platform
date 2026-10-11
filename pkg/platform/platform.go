@@ -61,10 +61,12 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
+	"github.com/txn2/mcp-data-platform/internal/platform/servercaps"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/internal/platform/startup"
 	"github.com/txn2/mcp-data-platform/internal/platform/storeresync"
+	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
@@ -2548,43 +2550,24 @@ func convertIconDefs(defs map[string]IconDef) map[string]middleware.IconConfig {
 	return out
 }
 
-// buildServerCapabilities constructs explicit server capabilities from config.
-// This replaces the SDK's auto-inference, making the server's contract visible.
+// buildServerCapabilities states what the server declares (internal/platform/servercaps).
 func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
-	caps := &mcp.ServerCapabilities{
-		// Tools are always available — every platform deployment has at least platform_info.
-		Tools: &mcp.ToolCapabilities{ListChanged: true},
-		// Logging is always available for client logging support.
-		Logging: &mcp.LoggingCapabilities{},
-	}
+	return servercaps.Build(servercaps.Input{
+		Resources: p.config.Resources.IsEnabled() || p.resources.Store() != nil || len(p.config.Resources.Custom) > 0,
+		Prompts:   len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || !isExplicitlyDisabled(p.config.Knowledge.Enabled),
+		Tasks:     taskwiring.Offered(p.config.Tasks, p.db),
+	})
+}
 
-	// Resources are available when templates or managed resources are enabled.
-	resourcesOn := p.config.Resources.IsEnabled() || p.resources.Store() != nil || len(p.config.Resources.Custom) > 0
-	if resourcesOn {
-		caps.Resources = &mcp.ResourceCapabilities{ListChanged: true}
+// addTasks installs the MCP Tasks extension (#2009), which taskwiring owns.
+func (p *Platform) addTasks() {
+	if mw := taskwiring.Install(taskwiring.Deps{
+		DB: p.db, Config: p.config.Tasks, Server: p.mcpServer, Lifecycle: p.lifecycle,
+		Authenticator: p.authenticator, Personas: p.personaRegistry, AdminPersona: p.config.Admin.Persona,
+		Runs: func() *scriptlayer.RunTasks { return p.scripts.RunTasks(p.config.Scripts.RunRetention()) },
+	}); mw != nil {
+		p.mcpServer.AddReceivingMiddleware(mw)
 	}
-
-	// Prompts are available when configured. ListChanged is always true when
-	// prompts are advertised: prompts are DB-backed and runtime-mutable
-	// (create/update/delete/approve/promote via manage_prompt and the admin
-	// API), and the platform emits notifications/prompts/list_changed on every
-	// such write (see the prompt layer's notifying store), so the capability is
-	// honest in both directions (#927).
-	promptsOn := len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || !isExplicitlyDisabled(p.config.Knowledge.Enabled)
-	if promptsOn {
-		caps.Prompts = &mcp.PromptCapabilities{ListChanged: true}
-	}
-
-	// Completions serve argument autocompletion for prompts and resource
-	// templates, so the capability is advertised exactly when there is something
-	// to complete. New wires the CompletionHandler on the same condition (a
-	// non-nil caps.Completions), so the declared capability and the
-	// implementation stay in lockstep (#928).
-	if promptsOn || resourcesOn {
-		caps.Completions = &mcp.CompletionCapabilities{}
-	}
-
-	return caps
 }
 
 // addEnrichmentMiddleware adds the semantic enrichment middleware if any injection is configured.
@@ -2912,7 +2895,8 @@ func (p *Platform) Start(ctx context.Context) error {
 		S3: p.portalStore.ScriptS3Client(), Bucket: p.config.Portal.S3Bucket,
 		Prefix: p.config.Portal.S3Prefix, FollowTables: p.portalStore.FollowAssetTables,
 		Lander: p.portalStore.ResourceLanding(), Audit: p.audit.Logger(),
-		Subjects: p.users.Subjects(), Metrics: p.obs.Metrics(),
+		Authority: iam.Authority(p.authorizer, p.config.Admin.Persona),
+		Subjects:  p.users.Subjects(), Metrics: p.obs.Metrics(),
 		Destinations:         p.config.Scripts.ScriptDestinations(),
 		RunRetention:         p.config.Scripts.RunRetention(),
 		Worker:               p.config.Scripts.Worker.Config,

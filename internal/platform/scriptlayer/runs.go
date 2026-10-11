@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/pkg/script"
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // defaultRunsLimit caps a run listing that names no limit.
@@ -262,4 +265,142 @@ func (h *Handle) liveState(ctx context.Context, sc *script.Script) map[string]an
 		return nil
 	}
 	return st.Value
+}
+
+// RunTaskPollInterval is how often a client following a run as a task is asked
+// to read it again: often enough that a short run reads as finished soon after
+// it does, and no more often than the worker reports (#2009).
+const RunTaskPollInterval = 2 * time.Second
+
+// RunTasks is a managed-script run as an MCP task (#2009). The task is the
+// run: its id is the run id, its status is read from the run's row, and
+// canceling it is cancel_run. Nothing is stored beside the run, so a task
+// lives exactly as long as its run is kept (scripts.run_retention_days) and is
+// answered by any replica.
+type RunTasks struct {
+	h   *Handle
+	ttl time.Duration
+}
+
+// RunTasks returns the task Source over this layer's runs, or nil when the
+// deployment keeps no runs. ttl is how long a finished run is kept.
+func (h *Handle) RunTasks(ttl time.Duration) *RunTasks {
+	if h == nil || h.runs == nil {
+		return nil
+	}
+	return &RunTasks{h: h, ttl: ttl}
+}
+
+// Prefix is the run id prefix.
+func (*RunTasks) Prefix() string { return pkgsession.ScriptSessionPrefix }
+
+// Get reports a run as a task, under the run reading rule: the script's owner,
+// an administrator, and whoever requested the run.
+func (t *RunTasks) Get(ctx context.Context, id string) (*mcptask.Snapshot, error) {
+	sc, run, err := t.readable(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return t.snapshot(sc, run)
+}
+
+// Cancel asks the run to stop, as cancel_run does.
+func (t *RunTasks) Cancel(ctx context.Context, id string) error {
+	if _, _, err := t.readable(ctx, id); err != nil {
+		return err
+	}
+	if _, _, err := t.h.runs.CancelRun(ctx, id, resolveEmail(ctx)); err != nil {
+		return fmt.Errorf("canceling run %s: %w", id, err)
+	}
+	return nil
+}
+
+// readable reads a run and the script it belongs to, answering
+// mcptask.ErrNotFound for a run the caller may not read.
+func (t *RunTasks) readable(ctx context.Context, id string) (*script.Script, *script.Run, error) {
+	run, err := t.h.runs.GetRun(ctx, id)
+	if errors.Is(err, script.ErrRunNotFound) {
+		return nil, nil, mcptask.ErrNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading run %s: %w", id, err)
+	}
+	sc, err := t.h.store.GetByID(ctx, run.ScriptID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the script of run %s: %w", id, err)
+	}
+	if sc == nil || (!t.h.ownsScript(ctx, sc) && !requestedBy(run, resolveEmail(ctx))) {
+		return nil, nil, mcptask.ErrNotFound
+	}
+	return sc, run, nil
+}
+
+// snapshot renders a run as a task. A run that ended is completed with the
+// answer run_script would have given, its failure included: a script that
+// failed is a tool result that says so, not a protocol error. A canceled run
+// is the canceled task.
+func (t *RunTasks) snapshot(sc *script.Script, run *script.Run) (*mcptask.Snapshot, error) {
+	snap := &mcptask.Snapshot{
+		ID:           run.ID,
+		CreatedAt:    run.FireTime,
+		UpdatedAt:    runUpdatedAt(run),
+		TTL:          t.ttl,
+		PollInterval: RunTaskPollInterval,
+	}
+	switch run.Status {
+	case script.RunStatusPending, script.RunStatusRunning:
+		snap.Status = mcptask.StatusWorking
+		snap.StatusMessage = workingMessage(run)
+	case script.RunStatusCanceled:
+		snap.Status = mcptask.StatusCancelled
+		snap.StatusMessage = "The run was canceled. The outputs it wrote before it stopped are listed and stand."
+	default:
+		res, _, _ := jsonResult(runResult(sc, run))
+		raw, err := mcptask.EncodeResult(res)
+		if err != nil {
+			return nil, fmt.Errorf("rendering run %s as a task: %w", run.ID, err)
+		}
+		snap.Status = mcptask.StatusCompleted
+		snap.StatusMessage = "The run " + run.Status + "."
+		snap.Result = raw
+	}
+	return snap, nil
+}
+
+// workingMessage is what a run still going has to say: its latest
+// platform.progress report, or where it is in the queue.
+func workingMessage(run *script.Run) string {
+	if msg := livenessMessage(run, time.Now()); msg != "" {
+		return msg
+	}
+	if run.Progress != nil && run.Progress.Message != "" {
+		return run.Progress.Message
+	}
+	if run.Status == script.RunStatusPending {
+		return "The run is queued."
+	}
+	return "The run is executing."
+}
+
+// runUpdatedAt is the last time anything about the run changed.
+func runUpdatedAt(run *script.Run) time.Time {
+	latest := run.FireTime
+	for _, t := range []*time.Time{run.StartedAt, run.HeartbeatAt, run.FinishedAt} {
+		if t != nil && t.After(latest) {
+			latest = *t
+		}
+	}
+	if run.Progress != nil && run.Progress.At.After(latest) {
+		latest = run.Progress.At
+	}
+	return latest
+}
+
+// taskResult is run_script's answer to a call that became a task: the run as
+// queued, which is what the call did. The task carries the rest.
+func taskResult(ctx context.Context, sc *script.Script, run *script.Run) (*mcp.CallToolResult, any, error) {
+	if claim := mcptask.Requested(ctx); claim != nil {
+		claim.Accept(run.ID)
+	}
+	return jsonResult(pendingResult(sc, run, 0))
 }

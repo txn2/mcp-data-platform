@@ -183,7 +183,7 @@ function assetDetail(output: ScriptRunOutput): string {
 // outputLink describes one recorded output of a run. Which locator the record
 // carries decides the line: an asset, a file in the resource library, an object
 // in a bucket, or none of the three.
-export function outputLink(output: ScriptRunOutput): OutputLink {
+export function outputLink(output: LibraryOutput): OutputLink {
   const link = outputLocation(output);
   // An output an export tool wrote says which (#1854): a trino_export file is
   // a new asset every run, where a platform.export output is one asset
@@ -192,14 +192,14 @@ export function outputLink(output: ScriptRunOutput): OutputLink {
   return link;
 }
 
-function outputLocation(output: ScriptRunOutput): OutputLink {
+function outputLocation(output: LibraryOutput): OutputLink {
   if (output.asset_id) {
     return { label: output.name, detail: assetDetail(output), href: `/assets/${output.asset_id}` };
   }
   if (output.resource_id) {
     return {
       label: output.name,
-      detail: `library file ${output.key ?? ""}, version ${output.resource_version ?? 1}`,
+      detail: `library file ${output.key ?? ""}${libraryOf(output)}, version ${output.resource_version ?? 1}`,
       href: `/resources/${output.resource_id}`,
     };
   }
@@ -207,6 +207,22 @@ function outputLocation(output: ScriptRunOutput): OutputLink {
     return { label: output.name, detail: `delivered to ${output.bucket}/${output.key ?? ""}` };
   }
   return { label: output.name, detail: output.format || "output" };
+}
+
+// LibraryOutput is a library output with the library its file is in (#2080).
+type LibraryOutput = ScriptRunOutput & { landed_scope?: string; landed_scope_id?: string };
+
+// libraryOf names a shared library a library output is in (#2080); a file in
+// a person's own library reads as it always has.
+function libraryOf(output: LibraryOutput): string {
+  switch (output.landed_scope) {
+    case "global":
+      return " in the global library";
+    case "persona":
+      return ` in the ${output.landed_scope_id ?? ""} persona library`;
+    default:
+      return "";
+  }
 }
 
 // executionState is what a script is doing, in the one form both the listing

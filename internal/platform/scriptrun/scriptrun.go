@@ -445,6 +445,8 @@ type ExportRequest struct {
 	// Key is the object key the script asked for beneath the destination's
 	// configured prefix, empty when it named none and never set for the portal.
 	Key string
+	// Library is the library scope= names for "resources" (#2080); Key is the path in it.
+	Library ResourceLibrary
 	// Register is the table the script asked to register over the written
 	// file (#1820), nil when it asked for none. The host binding makes the
 	// registration once the Exporter has written the file; a writer ignores it.
@@ -501,6 +503,9 @@ type ExportResult struct {
 	ResourceRef     string
 	ResourceURI     string
 	ResourceVersion int
+	// Scope and ScopeID are the library the file landed in (#2080).
+	Scope   string
+	ScopeID string
 	// Bytes is the serialized size actually written.
 	Bytes int
 	// TableChanges is what the version did to the tables registered over the

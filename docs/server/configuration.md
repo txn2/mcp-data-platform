@@ -1804,6 +1804,25 @@ progress:
 
 When enabled, Trino query execution sends progress updates including rows scanned, bytes processed, and query stage information. Clients that don't send a `progressToken` receive no notifications (zero overhead).
 
+## MCP Tasks Configuration
+
+The MCP Tasks extension (#2009) answers a client that declares
+`io.modelcontextprotocol/tasks` on its `tools/call` with a task for `run_script`
+and the export tools (`trino_export`, `api_export`, `graphql_export`), followed
+with `tasks/get` and `tasks/cancel`. Enabled by default wherever a database is
+configured; see [MCP Tasks](tasks.md).
+
+```yaml
+tasks:
+  enabled: false     # only needed to opt out; defaults to true
+  retention_days: 7  # how long an export task is kept
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `*bool` | `true` (nil = enabled) | Offer the extension. Off, every call is answered directly, as for a client that does not declare it. |
+| `retention_days` | `int` | `7` | How long an export run as a task is kept for its caller to read the result. A `run_script` task is the run, kept by `scripts.run_retention_days`. |
+
 ## Client Logging Configuration
 
 Client logging sends server-to-client log messages via the MCP `logging/setLevel` protocol. Messages include enrichment decisions, timing data, and platform diagnostics. Enabled by default; set `enabled: false` to opt out.

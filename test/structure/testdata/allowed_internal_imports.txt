@@ -412,6 +412,8 @@ internal/maps -> internal/pmtiles
 internal/maps -> pkg/portal/s3adapter
 internal/mcpobs -> pkg/observability
 internal/mcpobs -> pkg/session
+internal/mcptask -> internal/logsan
+internal/mcptask -> internal/wirejson
 internal/notification/notifyalert -> internal/logsan
 internal/notification/notifyalert -> internal/notification/notifychannel
 internal/notification/notifyalert -> internal/notification/notifyrender
@@ -485,6 +487,11 @@ internal/platform/callrecord -> pkg/audit
 internal/platform/callrecord -> pkg/mcpcontext
 internal/platform/callrecord -> pkg/portal/knowledgepage
 internal/platform/callrecord -> pkg/script
+internal/platform/calltask -> internal/bgloop
+internal/platform/calltask -> internal/logsan
+internal/platform/calltask -> internal/mcptask
+internal/platform/calltask -> pkg/mcpcontext
+internal/platform/calltask -> pkg/middleware
 internal/platform/capacity -> internal/bgloop
 internal/platform/capacity -> internal/logsan
 internal/platform/capacity -> internal/objectobs
@@ -542,6 +549,7 @@ internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
 internal/platform/exportadapters -> pkg/toolkits/graphql
 internal/platform/exportadapters -> pkg/toolkits/trino
+internal/platform/exportlibrary -> pkg/resource
 internal/platform/exportrefs -> internal/portal/contentrefs
 internal/platform/exporttable -> pkg/portal/knowledgepage
 internal/platform/graphqlcatalog -> pkg/toolkits/apigateway/catalog
@@ -848,6 +856,7 @@ internal/platform/scriptindex -> internal/textchunk
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
 internal/platform/scriptlayer -> internal/libraryuse
+internal/platform/scriptlayer -> internal/mcptask
 internal/platform/scriptlayer -> internal/openrun
 internal/platform/scriptlayer -> internal/platform/notifylayer
 internal/platform/scriptlayer -> internal/platform/runcontrol
@@ -902,6 +911,7 @@ internal/platform/scriptrec -> internal/platform/scriptstmt
 internal/platform/scriptrec -> pkg/script
 internal/platform/scriptrec/recstore -> internal/platform/scriptrec
 internal/platform/scriptrun -> internal/outbound
+internal/platform/scriptrun -> internal/platform/exportlibrary
 internal/platform/scriptrun -> internal/platform/exportrefs
 internal/platform/scriptrun -> internal/platform/exporttable
 internal/platform/scriptrun -> internal/platform/scriptdialect
@@ -942,6 +952,7 @@ internal/platform/scriptsave -> internal/platform/scriptrec
 internal/platform/scriptsave -> internal/platform/scriptrun
 internal/platform/scriptsave -> internal/platform/scripttest
 internal/platform/scriptsave -> internal/testreport
+internal/platform/scriptsave -> pkg/resource
 internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsession -> internal/inprocess
 internal/platform/scriptsession -> internal/mcpobs
@@ -998,6 +1009,7 @@ internal/platform/searchfed -> pkg/script
 internal/platform/searchfed -> pkg/semantic
 internal/platform/searchfed -> pkg/toolkits/knowledge
 internal/platform/searchfed -> pkg/toolkits/search
+internal/platform/servercaps -> internal/mcptask
 internal/platform/sessionsync -> internal/bgloop
 internal/platform/sessionsync -> pkg/middleware
 internal/platform/sessionsync -> pkg/session
@@ -1035,6 +1047,14 @@ internal/platform/tableregister -> pkg/portal/knowledgepage
 internal/platform/tableregister -> pkg/toolkits/portal
 internal/platform/tableregister -> pkg/toolkits/trino
 internal/platform/tableregister/regstore -> internal/platform/tableregister
+internal/platform/taskwiring -> internal/mcptask
+internal/platform/taskwiring -> internal/platform/calltask
+internal/platform/taskwiring -> internal/platform/iam
+internal/platform/taskwiring -> internal/platform/scriptlayer
+internal/platform/taskwiring -> internal/platform/tooloutput
+internal/platform/taskwiring -> pkg/middleware
+internal/platform/taskwiring -> pkg/persona
+internal/platform/taskwiring -> pkg/session
 internal/platform/thumbworker -> internal/bgloop
 internal/platform/thumbworker -> internal/headless
 internal/platform/thumbworker -> internal/inproc
@@ -1343,6 +1363,7 @@ pkg/memory -> pkg/urnbuild
 pkg/middleware -> internal/bgloop
 pkg/middleware -> internal/logsan
 pkg/middleware -> internal/mcpobs
+pkg/middleware -> internal/mcptask
 pkg/middleware -> internal/opsobs
 pkg/middleware -> internal/producedby
 pkg/middleware -> internal/scriptcallsite
@@ -1449,10 +1470,12 @@ pkg/platform -> internal/platform/scriptstmt
 pkg/platform -> internal/platform/scriptstore
 pkg/platform -> internal/platform/scriptwiring
 pkg/platform -> internal/platform/searchfed
+pkg/platform -> internal/platform/servercaps
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/sessionview
 pkg/platform -> internal/platform/startup
 pkg/platform -> internal/platform/storeresync
+pkg/platform -> internal/platform/taskwiring
 pkg/platform -> internal/platform/thumbworker
 pkg/platform -> internal/platform/toolargs
 pkg/platform -> internal/platform/toolinventory

@@ -40,6 +40,24 @@ func PersonasForRoles(pr *persona.Registry) middleware.PersonasForRoles {
 	}
 }
 
+// Authority returns what a request presenting roles acts as: the persona the
+// authorizer resolves them to, and whether that persona is the
+// administrator's. It is how work the platform does on a person's behalf
+// outside a request, a managed-script run's library write (#2080), is held to
+// the authority that person's own request would have. Nil without an
+// authorizer.
+func Authority(authz middleware.Authorizer, adminPersona string) func(roles []string) (name string, admin bool) {
+	if authz == nil {
+		return nil
+	}
+	return func(roles []string) (string, bool) {
+		// The persona does not depend on the tool or connection asked for;
+		// the authorizer names it whether or not it would allow the call.
+		_, name, _ := authz.IsAuthorized(context.Background(), "", roles, "", "")
+		return name, name != "" && name == adminPersona
+	}
+}
+
 // Input holds the values NewIdentity and NewAuthorizer need. Callers build it
 // from their own config, keeping platform config types out of this package.
 type Input struct {

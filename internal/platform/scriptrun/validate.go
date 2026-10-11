@@ -12,6 +12,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exportlibrary"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdialect"
@@ -85,6 +86,8 @@ type Report struct {
 	// instead, because the connection is the only claim this report makes
 	// about what is inside those arguments.
 	DynamicTools bool `json:"dynamic_tools"`
+	// ResourceLibraries is where the "resources" exports file (#2080); {} is the run's own.
+	ResourceLibraries []ResourceLibrary `json:"resource_libraries"`
 	// Library is true when the source is a library: it defines no main()
 	// (#1941). Libraries is the library versions it loads, in source order.
 	Library   bool            `json:"library"`
@@ -111,6 +114,7 @@ func Validate(source string) Report {
 	report := Report{
 		Capabilities: []string{}, Connections: []string{}, Tools: []string{},
 		Destinations: []string{}, RefreshTargets: []string{}, Libraries: []scriptlib.Ref{},
+		ResourceLibraries: []ResourceLibrary{},
 	}
 	findings := scanSource(source)
 
@@ -134,6 +138,7 @@ func Validate(source string) Report {
 	report.Tools = sortedNames(found.tools)
 	report.Destinations = sortedNames(found.destinations)
 	report.RefreshTargets = sortedNames(found.refreshTargets)
+	report.ResourceLibraries = exportlibrary.Sorted(found.libraries)
 	report.DynamicConnections = found.dynamicConnections
 	report.DynamicDestinations = found.dynamicDestinations
 	report.DynamicRefreshTargets = found.dynamicRefreshTargets
@@ -317,6 +322,7 @@ type inspection struct {
 	destinations          map[string]bool
 	refreshTargets        map[string]bool
 	tools                 map[string]bool
+	libraries             map[ResourceLibrary]bool
 	dynamicConnections    bool
 	dynamicDestinations   bool
 	dynamicRefreshTargets bool
@@ -340,7 +346,7 @@ func inspect(file *syntax.File, consts scriptconst.Table) *inspection {
 	ins := &inspection{
 		capabilities: map[string]bool{}, connections: map[string]bool{},
 		destinations: map[string]bool{}, refreshTargets: map[string]bool{},
-		tools: map[string]bool{}, consts: consts,
+		tools: map[string]bool{}, libraries: map[ResourceLibrary]bool{}, consts: consts,
 	}
 	syntax.Walk(file, func(n syntax.Node) bool {
 		if call, dot, ok := platformCall(n); ok {
@@ -465,6 +471,7 @@ func (ins *inspection) visitExport(call *syntax.CallExpr, line int) {
 		return
 	}
 	ins.collectExportDestination(call, ins.destinations, &ins.dynamicDestinations)
+	ins.collectExportLibrary(call, line)
 	if exportrefs.Declares(call) { // a manage_asset call, as register= below is manage_table (#1834)
 		ins.tools[exportrefs.Tool] = true
 	}

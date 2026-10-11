@@ -18,6 +18,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exportlibrary"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
@@ -215,8 +216,10 @@ type hostState struct {
 	// memory budget, and keeps the peak (#1861).
 	mem *scriptguard.Meter
 	// appended are the outputs the run appends to with append=True, in the
-	// order they were started; each is written once, when the run succeeds.
-	appended []*ExportRequest
+	// order they were started; each is written once, when the run succeeds,
+	// and recorded at appendedAt, its place among the outputs in call order.
+	appended   []*ExportRequest
+	appendedAt []int
 	// site is where in the script the host call in progress was made (#1907),
 	// carried on everything that call records.
 	site []string
@@ -993,6 +996,9 @@ func (h *hostState) finishRecord(
 	record.ResourceRef = written.ResourceRef
 	record.ResourceURI = written.ResourceURI
 	record.ResourceVersion = written.ResourceVersion
+	if written.Scope != "" {
+		record.Scope, record.ScopeID = written.Scope, written.ScopeID
+	}
 	record.Bytes = written.Bytes
 	record.TableChanges = written.TableChanges
 	h.noteTables(record.Name, written.TableChanges)
@@ -1040,16 +1046,17 @@ func PublishRowCount(data any) int {
 // destination's configured prefix, and the rows themselves.
 func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (ExportRequest, error) {
 	var (
-		name        string
-		format      string
-		destination string
-		key         string
-		rows        starlark.Value
-		register    starlark.Value
-		references  starlark.Value
-		tags        starlark.Value
-		metadata    starlark.Value
-		appendRows  bool
+		name           string
+		format         string
+		destination    string
+		key            string
+		rows           starlark.Value
+		register       starlark.Value
+		references     starlark.Value
+		tags           starlark.Value
+		metadata       starlark.Value
+		appendRows     bool
+		scope, scopeID string
 	)
 	// destination and key must be NAMED. The static validator reads keyword
 	// arguments, so a destination passed by position would be invisible to it —
@@ -1063,7 +1070,8 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"name", &name, "rows", &rows, "format?", &format,
 		"destination?", &destination, "key?", &key, "register?", &register,
-		"references?", &references, "tags?", &tags, "metadata?", &metadata, "append?", &appendRows); err != nil {
+		"references?", &references, "tags?", &tags, "metadata?", &metadata, "append?", &appendRows,
+		"scope?", &scope, "scope_id?", &scopeID); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	if format == "" {
@@ -1089,9 +1097,13 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err := checkExportKey(b, resolved, key); err != nil {
 		return ExportRequest{}, err
 	}
+	scope, scopeID = strings.TrimSpace(scope), strings.TrimSpace(scopeID)
+	if err := exportlibrary.CheckFor(resolved.IsResource(), scope, scopeID); err != nil {
+		return ExportRequest{}, argErr(b, err)
+	}
 	req := ExportRequest{
 		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Destination: resolved, Key: key,
-		Append: appendRows,
+		Library: ResourceLibrary{Scope: scope, ScopeID: scopeID}.Normalized(), Append: appendRows,
 	}
 	if err := exportContent(b, format, rows, &req); err != nil {
 		return ExportRequest{}, err
@@ -1258,6 +1270,9 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
 		RowCount: req.RowCount(), Document: req.Body != nil, Sheets: req.Sheets(),
+	}
+	if req.Destination.IsResource() { // the library a preview would write (#2080)
+		record.Scope, record.ScopeID = req.Library.RecordScope()
 	}
 	return h.finishRecord(b, record,
 		func() ([]byte, error) { data, _, err := FormatOutput(req); return data, err },

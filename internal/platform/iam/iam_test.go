@@ -105,3 +105,25 @@ func TestNewAuthorizer_WiresMappingAndRegistry(t *testing.T) {
 	assert.Equal(t, "special", personaName,
 		"OIDCToPersona mapping and persona registry must be wired into the authorizer")
 }
+
+// Authority is what a request presenting roles acts as (#2080): the persona
+// the authorizer resolves, and whether it is the administrator's, whatever
+// tool the roles would be asked to reach.
+func TestAuthority_ResolvesThePersonaTheAuthorizerResolves(t *testing.T) {
+	reg := persona.NewRegistry()
+	require.NoError(t, reg.Register(&persona.Persona{Name: "admin", Roles: []string{"dp_admin"}}))
+	require.NoError(t, reg.Register(&persona.Persona{Name: "analyst", Roles: []string{"dp_analyst"}}))
+	authority := iam.Authority(iam.NewAuthorizer(iam.Input{PersonaRegistry: reg}), "admin")
+	require.NotNil(t, authority)
+
+	name, admin := authority([]string{"dp_admin"})
+	assert.Equal(t, "admin", name)
+	assert.True(t, admin)
+	name, admin = authority([]string{"dp_analyst"})
+	assert.Equal(t, "analyst", name)
+	assert.False(t, admin)
+	_, admin = authority(nil)
+	assert.False(t, admin, "roles that map to nothing are no administrator")
+
+	assert.Nil(t, iam.Authority(nil, "admin"), "no authorizer resolves nothing")
+}

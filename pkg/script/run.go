@@ -125,6 +125,15 @@ type RunOutput struct {
 	ResourceID      string `json:"resource_id,omitempty"`
 	ResourceURI     string `json:"resource_uri,omitempty"`
 	ResourceVersion int    `json:"resource_version,omitempty"`
+	// Scope and ScopeID are the library a managed-resource output was
+	// addressed to with scope= and scope_id= (#2080), empty for the library of
+	// the person the run acts for. LandedScope and LandedScopeID are the
+	// library the file is in, which differs only for a file moved to another
+	// library before the run wrote it.
+	Scope         string `json:"scope,omitempty"`
+	ScopeID       string `json:"scope_id,omitempty"`
+	LandedScope   string `json:"landed_scope,omitempty"`
+	LandedScopeID string `json:"landed_scope_id,omitempty"`
 
 	Format   string `json:"format"`
 	RowCount int    `json:"row_count"`

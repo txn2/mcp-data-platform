@@ -114,3 +114,15 @@ func zeros(n int) string {
 	}
 	return string(b)
 }
+
+func TestExpiredCallTasks_RealDB_RemovesOnlyTasksPastTheirExpiry(t *testing.T) {
+	db := testdb.New(t)
+	mustExec(t, db, `INSERT INTO call_tasks (id, tool_name, user_id, status, expires_at) VALUES
+		('dpt_expired', 'trino_export', 'jane', 'completed', NOW() - INTERVAL '1 hour'),
+		('dpt_expired_working', 'trino_export', 'jane', 'working', NOW() - INTERVAL '1 hour'),
+		('dpt_kept', 'trino_export', 'jane', 'completed', NOW() + INTERVAL '1 day')`)
+
+	New(db, time.Hour, ExpiredCallTasks(db)...).RunOnce(context.Background())
+
+	assert.ElementsMatch(t, []string{"dpt_kept"}, ids(t, db, `SELECT id FROM call_tasks`))
+}

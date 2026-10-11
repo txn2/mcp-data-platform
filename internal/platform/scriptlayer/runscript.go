@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
@@ -96,6 +97,11 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to queue a script run", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to queue the run"), nil, nil
+	}
+	// A client that follows the run as a task (#2009) is answered at once;
+	// the run's progress and its result are the task's.
+	if mcptask.Requested(ctx) != nil {
+		return taskResult(ctx, sc, run)
 	}
 	return jsonResult(h.awaitRun(ctx, sc, run, waitBudget(input.WaitSeconds)))
 }
@@ -389,6 +395,10 @@ returns its run_id, keeps going, and is read with manage_script get_run, which
 shows its latest progress and the log so far while it runs. A run that set a
 value with platform.result returns it as "result". manage_script cancel_run
 stops a run: a queued one never starts, a running one ends canceled.
+
+A client that declares the MCP Tasks extension is answered at once with a task
+instead: the run's progress is the task's status message, tasks/cancel cancels
+the run, and tasks/get returns this same answer once the run ends.
 
 The platform never runs a failed run again on its own. A failed run says why
 (cause) and whether running it again is expected to succeed (retryable). A

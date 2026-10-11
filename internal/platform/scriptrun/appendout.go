@@ -3,6 +3,7 @@ package scriptrun
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"go.starlark.net/starlark"
 
@@ -50,6 +51,9 @@ func (h *hostState) appendExport(b *starlark.Builtin, page ExportRequest) (starl
 	case out.Key != page.Key:
 		return nil, fmt.Errorf("in %s: output %q was started at key %q; every page of it goes to the same file",
 			b.Name(), page.Name, out.Key)
+	case out.Library != page.Library: // half of the file's address, as the key is (#2080)
+		return nil, fmt.Errorf("in %s: output %q was started in %s; every page of it goes to the same file",
+			b.Name(), page.Name, out.Library.Label())
 	}
 	if err := out.Spooled.Append(page.Columns, page.Rows); err != nil {
 		return nil, argErr(b, err)
@@ -79,6 +83,7 @@ func (h *hostState) startAppend(b *starlark.Builtin, page ExportRequest) (*Expor
 	}
 	out := page
 	out.Rows, out.Columns, out.Spooled = nil, nil, spool
+	h.appendedAt = append(h.appendedAt, len(h.exports)+len(h.appended))
 	h.appended = append(h.appended, &out)
 	return &out, nil
 }
@@ -93,11 +98,13 @@ func (h *hostState) appendedBytes() int64 {
 }
 
 // landAppended writes every appended output, and registers the table one
-// asked for, as platform.export writes any other output.
+// asked for, as platform.export writes any other output. Each is recorded
+// where the script started it, so the run's outputs are in the order the
+// script made them, the order testing.outputs() reads them in.
 func (h *hostState) landAppended() error {
 	b := starlark.NewBuiltin(CapabilityExport, nil)
 	var errs []error
-	for _, req := range h.appended {
+	for i, req := range h.appended {
 		record, err := h.persistOrPreview(b, *req)
 		if err == nil && req.Register != nil {
 			record.Table, err = h.registerOutput(b, req.Register, record)
@@ -106,8 +113,8 @@ func (h *hostState) landAppended() error {
 			errs = append(errs, err)
 			continue
 		}
-		h.exports = append(h.exports, record)
+		h.exports = slices.Insert(h.exports, min(h.appendedAt[i], len(h.exports)), record)
 	}
-	h.appended = nil
+	h.appended, h.appendedAt = nil, nil
 	return errors.Join(errs...) //nolint:wrapcheck // each error names the output it failed
 }

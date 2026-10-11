@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
+	"github.com/txn2/mcp-data-platform/internal/platform/taskwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/thumbworker"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
@@ -137,6 +138,7 @@ type Config struct {
 	Admin                AdminConfig         `yaml:"admin"`
 	Resources            ResourcesConfig     `yaml:"resources"`
 	Progress             ProgressConfig      `yaml:"progress"`
+	Tasks                taskwiring.Config   `yaml:"tasks"`
 	Thumbnails           ThumbnailsConfig    `yaml:"thumbnails"`
 	Webhooks             whconfig.Config     `yaml:"webhooks"`
 	ClientLogging        ClientLoggingConfig `yaml:"client_logging"`

@@ -71,6 +71,26 @@ func TestDraftExporter_WritesALibraryOutputForThePersonDrafting(t *testing.T) {
 	require.Error(t, err, "a draft refuses a second write of one output as a run does")
 }
 
+// A draft allowed to write files where the person drafting may: their roles
+// resolved as their own session resolves them (#2080), so a persona admin's
+// draft writes their persona's library.
+func TestDraftExporter_WritesUnderTheDraftersResolvedAuthority(t *testing.T) {
+	h, st := draftHandle(t)
+	h.export.Authority = func(roles []string) (string, bool) {
+		assert.Equal(t, []string{"analyst"}, roles)
+		return "admin", true
+	}
+	sc, _, _ := executableState()
+	req := libraryRequest("orders", "datasets/orders.csv")
+	req.Library = scriptrun.ResourceLibrary{Scope: "global"}
+	_, err := h.DraftExporter(janeDraft(sc)).Export(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, st.lander.claims, 1)
+	assert.True(t, st.lander.claims[0].IsAdmin)
+	assert.Equal(t, []string{"admin"}, st.lander.claims[0].Personas)
+	assert.Equal(t, "global", st.lander.landed[0].Scope)
+}
+
 // TestDraftExporter_VersionsASavedScriptsPortalOutput: a saved script's portal
 // output is a version of its own asset, and the version says a draft wrote it.
 func TestDraftExporter_VersionsASavedScriptsPortalOutput(t *testing.T) {

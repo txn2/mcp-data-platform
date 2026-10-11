@@ -54,6 +54,7 @@ const (
 	NameWebhookStats        = "webhook_stats_flush"
 	NameMapFetch            = "map_fetch"
 	NameMapFetchRegion      = "map_fetch_region"
+	NameCallTaskHeartbeat   = "call_task_heartbeat"
 
 	// Alerts, keepalives and watchers.
 	NameConnOAuthRefresh   = "connection_oauth_refresh"
