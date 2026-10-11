@@ -22,6 +22,21 @@ function watchRefusals(page: Page): string[] {
   return refusals;
 }
 
+/**
+ * Errors the page or its frames reported, and MapLibre's warning that it
+ * could not start its worker the way it was told to. The map runtime's worker
+ * is made from a blob: URL inside an opaque-origin frame (#2082); a worker that
+ * fails to start leaves the map blank without any policy refusal.
+ */
+function watchErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error" || /worker/i.test(m.text())) errors.push(`${m.type()}: ${m.text()}`);
+  });
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  return errors;
+}
+
 /** Requests the page made to any host but its own. */
 function watchForeignHosts(page: Page, ownHost: string): string[] {
   const foreign: string[] = [];
@@ -61,6 +76,7 @@ async function mapDrawn(frame: Frame) {
 test.describe("a map share", () => {
   test("draws the route over the served basemap, from this origin only", async ({ page, baseURL }) => {
     const refusals = watchRefusals(page);
+    const errors = watchErrors(page);
     const foreign = watchForeignHosts(page, new URL(baseURL!).host);
     const archiveReads: number[] = [];
     page.on("response", (r) => {
@@ -78,6 +94,7 @@ test.describe("a map share", () => {
     await expect(frame.locator("canvas.maplibregl-canvas")).toBeVisible();
 
     expect(refusals, refusals.join("\n")).toHaveLength(0);
+    expect(errors, errors.join("\n")).toHaveLength(0);
     expect(foreign, `fetched from ${foreign.join(", ")}`).toHaveLength(0);
   });
 

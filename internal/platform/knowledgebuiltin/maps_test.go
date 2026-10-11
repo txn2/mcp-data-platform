@@ -2,7 +2,9 @@ package knowledgebuiltin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -52,15 +54,30 @@ func TestMapsPage_SaysWhatThisDeploymentServes(t *testing.T) {
 	assert.Contains(t, unknown, "could not be read")
 }
 
+// uiDependency is the exact version ui/package.json pins for an npm package.
+func uiDependency(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile("../../../ui/package.json")
+	require.NoError(t, err)
+	var pkg struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &pkg))
+	require.Contains(t, pkg.Dependencies, name)
+	return pkg.Dependencies[name]
+}
+
 // Every runtime path the page names is one the portal build serves: the
-// vite plugin's list and this page are held together here.
+// vite plugin's list and this page are held together here, and the MapLibre
+// version it names is the one ui/package.json builds.
 func TestMapsPage_NamesTheServedRuntime(t *testing.T) {
 	body := mapsPage(t, &maps.State{Regions: []maps.Ready{}})
 	for _, p := range []string{
 		"/portal/vendor/maplibre/maplibre-gl.js", "/portal/vendor/maplibre/maplibre-gl.css",
 		"/portal/vendor/maplibre/pmtiles.js", "/portal/vendor/maplibre/basemaps.js",
 		"/portal/vendor/maplibre/topojson-client.js", "/portal/vendor/maplibre/us-atlas/states-albers-10m.json",
-		"/portal/vendor/maplibre/fonts/{fontstack}/{range}.pbf", "MapLibre GL JS 5.24.0",
+		"/portal/vendor/maplibre/fonts/{fontstack}/{range}.pbf",
+		"MapLibre GL JS " + uiDependency(t, "maplibre-gl"),
 	} {
 		assert.Contains(t, body, p)
 	}
