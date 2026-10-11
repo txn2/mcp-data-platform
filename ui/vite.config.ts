@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import fs from "fs";
+import { buildSync } from "esbuild";
 
 // Serve mockServiceWorker.js from root "/" so the service worker scope covers
 // /api/* requests. Without this, the worker at /portal/mockServiceWorker.js can
@@ -125,10 +126,9 @@ function revealFiles(): Map<string, string> {
  * the glyphs and sprites that style names, and the us-atlas boundaries with
  * the TopoJSON client that reads them.
  *
- * MapLibre is the 5.x UMD build because it starts its worker from a blob: URL
- * it makes itself. A map asset runs in a sandboxed frame whose origin is
- * opaque, and the 6.x module build starts its worker from the file's own URL,
- * which a frame with an opaque origin may not do.
+ * maplibre-gl.js is built from MapLibre's module build by maplibreClassic():
+ * one classic script assigning the global `maplibregl`, which is how every map
+ * asset loads it.
  *
  * The glyphs and sprites are not on npm. They are checked in under
  * ui/vendor/maplibre at a pinned commit by scripts/sync-map-assets.sh, which
@@ -137,10 +137,59 @@ function revealFiles(): Map<string, string> {
  */
 const MAP_VENDOR_PREFIX = "/portal/vendor/maplibre/";
 
+/**
+ * Builds MapLibre GL JS 6.x, which ships only ES modules, into the classic
+ * script map assets load with <script src> (#2082), and returns its path.
+ *
+ * The worker is bundled to a classic script and carried inside the main one as
+ * text, and the main script hands MapLibre a blob: URL of it. A map asset runs
+ * in a sandboxed frame whose origin is opaque, and 6.x left to itself starts a
+ * module worker that imports maplibre-gl-worker.mjs by its URL beside the main
+ * module; a worker made from a blob: the frame created itself fetches nothing.
+ * The "#.cjs" fragment is MapLibre's switch to a classic worker (it starts a
+ * module worker for any URL not ending in .cjs); the fragment is not part of
+ * what a blob: URL fetches.
+ */
+function maplibreClassic(): string {
+  const dist = path.resolve(__dirname, "node_modules/maplibre-gl/dist");
+  const out = path.resolve(__dirname, "node_modules/.cache/maplibre-classic/maplibre-gl.js");
+  const worker = buildSync({
+    entryPoints: [path.join(dist, "maplibre-gl-worker.mjs")],
+    bundle: true,
+    format: "iife",
+    minify: true,
+    write: false,
+    legalComments: "none",
+  }).outputFiles[0]!.text;
+  buildSync({
+    stdin: {
+      contents: [
+        `import * as maplibregl from ${JSON.stringify(path.join(dist, "maplibre-gl.mjs"))};`,
+        `const source = ${JSON.stringify(worker)};`,
+        `maplibregl.setWorkerUrl(URL.createObjectURL(new Blob([source], { type: "text/javascript" })) + "#.cjs");`,
+        // A plain object, as the 5.x build's global was: a module namespace's
+        // members cannot be reassigned, and the PDF print step replaces
+        // maplibregl.Map to wait for each map to draw (pdfhttp.PrintStep).
+        `globalThis.maplibregl = Object.assign({}, maplibregl);`,
+      ].join("\n"),
+      resolveDir: dist,
+      loader: "js",
+    },
+    bundle: true,
+    format: "iife",
+    minify: true,
+    legalComments: "none",
+    // Only read where no worker URL is set, which this script always sets.
+    define: { "import.meta.url": '""' },
+    outfile: out,
+  });
+  return out;
+}
+
 function mapFiles(): Map<string, string> {
   const mod = (p: string) => path.resolve(__dirname, "node_modules", p);
   const files = new Map<string, string>([
-    ["maplibre-gl.js", mod("maplibre-gl/dist/maplibre-gl.js")],
+    ["maplibre-gl.js", maplibreClassic()],
     ["maplibre-gl.css", mod("maplibre-gl/dist/maplibre-gl.css")],
     ["LICENSE-maplibre.txt", mod("maplibre-gl/LICENSE.txt")],
     ["pmtiles.js", mod("pmtiles/dist/pmtiles.js")],

@@ -39,7 +39,7 @@ for the asset frame and for share links alike.
 
 | Path | What it is |
 |---|---|
-| `/portal/vendor/maplibre/maplibre-gl.js` | MapLibre GL JS 5.24.0; defines the global `maplibregl` |
+| `/portal/vendor/maplibre/maplibre-gl.js` | MapLibre GL JS 6.4.1; defines the global `maplibregl` |
 | `/portal/vendor/maplibre/maplibre-gl.css` | the map's controls and attribution styling |
 | `/portal/vendor/maplibre/pmtiles.js` | the PMTiles protocol 4.5.0; defines the global `pmtiles` |
 | `/portal/vendor/maplibre/basemaps.js` | the Protomaps basemap style 5.7.2; defines the global `basemaps` |

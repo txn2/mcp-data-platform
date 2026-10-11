@@ -5447,7 +5447,7 @@ platform can reach. It must answer byte ranges.
 |---|---|---|
 | `/portal/maps/regions` | none | `{"enabled": ..., "regions": [...]}`: each ready region's id, name, url, bounds, zooms, build and size |
 | `/portal/maps/{id}.pmtiles` | none | the region's archive, by byte range, with an `ETag` that changes when a refresh replaces it; 404 when maps are off or the region has no archive |
-| `/portal/vendor/maplibre/...` | none | MapLibre GL JS 5.24.0, the PMTiles protocol 4.5.0, the Protomaps basemap style 5.7.2, its glyphs and sprites, TopoJSON client 3.1.0 and the us-atlas 3.0.1 boundaries, each with its license |
+| `/portal/vendor/maplibre/...` | none | MapLibre GL JS 6.4.1, the PMTiles protocol 4.5.0, the Protomaps basemap style 5.7.2, its glyphs and sprites, TopoJSON client 3.1.0 and the us-atlas 3.0.1 boundaries, each with its license |
 
 The archive is public OpenStreetMap data and is read from a sandboxed asset
 frame, whose origin is opaque, and from public share links, so these paths
