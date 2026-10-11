@@ -13,20 +13,26 @@ import (
 // record plus the one-line summary the recipient's email carries, so a row
 // can be matched against a reported message without opening the payload.
 type notificationRow struct {
-	ID        int64      `json:"id" example:"4211"`
-	Recipient string     `json:"recipient" example:"bob@example.com"`
-	Category  string     `json:"category" example:"share"`
-	Subject   string     `json:"subject" example:"alice@example.com shared the asset \"Q3 Revenue\" with you"`
-	Digest    bool       `json:"digest" example:"false"`
-	Status    string     `json:"status" example:"failed"`
-	Attempts  int        `json:"attempts" example:"5"`
-	LastError string     `json:"last_error,omitempty" example:"dial tcp: connection refused"`
-	ItemTitle string     `json:"item_title,omitempty" example:"Q3 Revenue"`
-	Actor     string     `json:"actor,omitempty" example:"alice@example.com"`
-	Link      string     `json:"link,omitempty" example:"https://platform.example.com/portal/assets/a1"`
-	Scheduled time.Time  `json:"scheduled_for"`
-	SentAt    *time.Time `json:"sent_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        int64  `json:"id" example:"4211"`
+	Recipient string `json:"recipient" example:"bob@example.com"`
+	Category  string `json:"category" example:"share"`
+	// Channel is the notification channel the row was sent to, absent for
+	// a row addressed to a person alone.
+	Channel string `json:"channel,omitempty" example:"ops-alerts"`
+	// Suppressed is how many repeats of the row's alert were held back by
+	// its key before this one went through.
+	Suppressed int        `json:"suppressed,omitempty" example:"3"`
+	Subject    string     `json:"subject" example:"alice@example.com shared the asset \"Q3 Revenue\" with you"`
+	Digest     bool       `json:"digest" example:"false"`
+	Status     string     `json:"status" example:"failed"`
+	Attempts   int        `json:"attempts" example:"5"`
+	LastError  string     `json:"last_error,omitempty" example:"dial tcp: connection refused"`
+	ItemTitle  string     `json:"item_title,omitempty" example:"Q3 Revenue"`
+	Actor      string     `json:"actor,omitempty" example:"alice@example.com"`
+	Link       string     `json:"link,omitempty" example:"https://platform.example.com/portal/assets/a1"`
+	Scheduled  time.Time  `json:"scheduled_for"`
+	SentAt     *time.Time `json:"sent_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // notificationListResponse wraps a paginated list of notification rows.
@@ -53,21 +59,31 @@ type notificationStatsResponse struct {
 // toRow projects a queue row onto the admin view model.
 func toRow(n notification.Notification) notificationRow {
 	return notificationRow{
-		ID:        n.ID,
-		Recipient: n.Recipient,
-		Category:  n.Category,
-		Subject:   notifyrender.Subject(n),
-		Digest:    n.Digest,
-		Status:    n.Status,
-		Attempts:  n.Attempts,
-		LastError: n.LastError,
-		ItemTitle: n.Payload.ItemTitle,
-		Actor:     n.Payload.Actor,
-		Link:      n.Payload.Link,
-		Scheduled: n.ScheduledFor,
-		SentAt:    n.SentAt,
-		CreatedAt: n.CreatedAt,
+		ID:         n.ID,
+		Recipient:  n.Recipient,
+		Category:   n.Category,
+		Channel:    n.Channel,
+		Subject:    notifyrender.Subject(n),
+		Digest:     n.Digest,
+		Status:     n.Status,
+		Attempts:   n.Attempts,
+		LastError:  n.LastError,
+		ItemTitle:  n.Payload.ItemTitle,
+		Actor:      n.Payload.Actor,
+		Link:       n.Payload.Link,
+		Scheduled:  n.ScheduledFor,
+		SentAt:     n.SentAt,
+		CreatedAt:  n.CreatedAt,
+		Suppressed: suppressedOf(n),
 	}
+}
+
+// suppressedOf reads the count of held-back repeats off a channel row.
+func suppressedOf(n notification.Notification) int {
+	if n.Payload.Document == nil {
+		return 0
+	}
+	return n.Payload.Document.Suppressed
 }
 
 // parseFilter reads the shared query vocabulary into a history filter.
@@ -80,6 +96,7 @@ func parseFilter(r *http.Request) notification.HistoryFilter {
 		Recipient: notification.NormalizeAddress(q.Get("recipient")),
 		Status:    q.Get("status"),
 		Category:  q.Get("category"),
+		Channel:   q.Get("channel"),
 		Limit:     httpjson.ParseLimit(q),
 	}
 	filter.Offset = httpjson.ParsePageOffset(q, filter.EffectiveLimit())
@@ -95,6 +112,7 @@ func parseFilter(r *http.Request) notification.HistoryFilter {
 // @Param        recipient  query  string   false  "Filter by recipient email"
 // @Param        status     query  string   false  "Filter by status (pending, sending, sent, failed)"
 // @Param        category   query  string   false  "Filter by category (share, comment, mention)"
+// @Param        channel    query  string   false  "Filter by notification channel name"
 // @Param        page       query  integer  false  "Page number, 1-based (default: 1)"
 // @Param        per_page   query  integer  false  "Results per page (default: 50, max: 200)"
 // @Success      200  {object}  notificationListResponse
@@ -139,6 +157,7 @@ func (h *handler) listNotifications(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        recipient  query  string  false  "Filter by recipient email"
 // @Param        category   query  string  false  "Filter by category (share, comment, mention)"
+// @Param        channel    query  string  false  "Filter by notification channel name"
 // @Success      200  {object}  notificationStatsResponse
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth

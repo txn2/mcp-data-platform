@@ -34,6 +34,7 @@ import {
 import { RunAttempts, RunHolder } from "./ScriptRunAttempts";
 import { IncompleteBadge } from "@/components/IncompleteBadge";
 import { truncationLabel } from "@/lib/truncation";
+import { ScriptRunPosts } from "./ScriptRunPosts";
 
 // ScriptRunHistory is the refresh history of one script: every run, what
 // triggered it, how it ended, and what it produced. A recurring script writes
@@ -301,6 +302,7 @@ function RunDetail({
       <RunAttempts run={run} />
       <RunResult run={run} />
       <RunOutputs run={run} onNavigate={onNavigate} />
+      <ScriptRunPosts scriptId={scriptId} runId={run.id} />
       <RunLog run={run} />
     </div>
   );

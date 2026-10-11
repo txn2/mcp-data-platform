@@ -25,15 +25,7 @@ const reviewAlertPath = "/api/v1/admin/settings/review-queue-alert"
 // routes. Like the SMTP routes, reads need only the store and writes need
 // database config mode.
 func registerReviewAlert(mux *http.ServeMux, h *handler) {
-	if h.cfg.ReviewAlert == nil {
-		return
-	}
-	mux.HandleFunc("GET "+reviewAlertPath, h.getReviewAlert)
-	if h.cfg.Mutable {
-		mux.HandleFunc("PUT "+reviewAlertPath, h.setReviewAlert)
-		return
-	}
-	mux.Handle("PUT "+reviewAlertPath, h.cfg.ReadOnly)
+	registerAlertSettings(mux, h, reviewAlertPath, h.cfg.ReviewAlert != nil, alertHandlers{get: h.getReviewAlert, set: h.setReviewAlert})
 }
 
 // getReviewAlert handles GET /api/v1/admin/settings/review-queue-alert.
@@ -91,6 +83,14 @@ func (h *handler) storeReviewAlert(w http.ResponseWriter, r *http.Request, route
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
+	channels, ok := h.alertChannels(w, r, req.Channels, func() ([]string, error) {
+		stored, err := reviewalert.SettingsOf(r.Context(), route.store, route.target)
+		return stored.Channels, err //nolint:wrapcheck // the handler answers 500 without reading it
+	})
+	if !ok {
+		return
+	}
+	req.Channels = &channels
 	if err := route.store.Set(r.Context(), req.Settings(), h.cfg.Author(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, "storing review queue alert settings failed")
 		return

@@ -1,0 +1,26 @@
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Weekly revenue",
+        "type": "plain_text"
+      },
+      "type": "header"
+    },
+    {
+      "text": "## Revenue by region\n\n| Region | Revenue |\n| --- | ---: |\n| West | 1,204,000 |\n| East | 988,500 |\n\n- West led for the third week\n- East recovered\n\n```sql\nSELECT region, SUM(amount) FROM sales GROUP BY 1\n```\n\nSee the [full report](https://portal.example.com/portal/assets/a1).\n\nAttachment: raw.csv https://portal.example.com/portal/resources/r1",
+      "type": "markdown"
+    },
+    {
+      "elements": [
+        {
+          "text": "\u003chttps://portal.example.com/portal/assets/a1|Open\u003e",
+          "type": "mrkdwn"
+        }
+      ],
+      "type": "context"
+    }
+  ],
+  "channel": "C123",
+  "text": "Weekly revenue"
+}

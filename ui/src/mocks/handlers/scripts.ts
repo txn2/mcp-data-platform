@@ -846,6 +846,22 @@ export const scriptHandlers = [
   // A run drawn on its version's diagram (#1907). A run the fixtures do not
   // draw is drawn with no calls, which is what a run before call sites were
   // recorded reads as.
+  // What a run posted to notification channels (#1723).
+  http.get(`${PORTAL_BASE}/scripts/:id/runs/:runID/posts`, () =>
+    HttpResponse.json({
+      posts: [
+        {
+          channel: "ops-alerts", title: "Orders feed is 41 minutes behind", queued_at: "2026-07-29T15:10:00Z",
+          status: "sent", deliveries: 1, sent: 1, failed: 0, sent_at: "2026-07-29T15:10:02Z",
+        },
+        {
+          channel: "ops-email", title: "Weekly revenue report", queued_at: "2026-07-29T15:10:01Z",
+          status: "queued", deliveries: 3, sent: 2, failed: 0,
+        },
+      ],
+    }),
+  ),
+
   http.get(`${PORTAL_BASE}/scripts/:id/runs/:runID/flow`, ({ params }) => {
     const run = (mockScriptRuns[String(params.id)] ?? []).find((r) => r.id === params.runID);
     if (!run) return HttpResponse.json({ detail: "run not found" }, { status: 404 });

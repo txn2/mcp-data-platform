@@ -178,6 +178,7 @@ SMTP section, or via the REST API:
 | `oldest_pending_days` | Alert once the oldest pending insight reaches this age in days. `0` turns this condition off. Defaults to 30, the same age at which the portal badges an insight stale. |
 | `cooldown_hours` | Minimum gap between two alerts while the queue stays over threshold (1-720, default 24). |
 | `recipients` | The addresses the digest is delivered to (at most 20). |
+| `channels` | The [notification channels](#notification-channels) the alert is also posted to, by name (at most 10). The queue is the post's [key](#repeating-alerts-key), so a queue that crosses again inside a channel's repeat window is counted rather than posted. |
 
 Either threshold alone is enough to cross; an empty queue never crosses. The
 recipient list is explicit rather than derived from roles: role membership
@@ -186,13 +187,23 @@ admins the platform can enumerate at check time.
 
 Like the SMTP section, the read and update responses carry a `warnings` array
 for a configuration that saves cleanly and delivers nothing -- an enabled
-alert with no recipients, or with both thresholds cleared -- and the admin UI
+alert with no recipients and no channels, or with both thresholds cleared -- and the admin UI
 shows them as a banner above the form. Neither blocks a save.
 
 ```
-GET /api/v1/admin/settings/review-queue-alert    read the threshold, cooldown, and recipients
+GET /api/v1/admin/settings/review-queue-alert    read the threshold, cooldown, recipients and channels
 PUT /api/v1/admin/settings/review-queue-alert    update them
 ```
+
+`channels` on a PUT follows one rule on every alert route: absent keeps the
+stored list, so a client that predates channels does not clear them by saving
+recipients; `[]` clears it; a name no channel is stored under is refused with
+400. A channel that exists but is disabled is accepted, so enabling it later
+does not mean naming it again.
+
+The check runs hourly. `MCP_PLATFORM_REVIEW_ALERT_INTERVAL` (a duration such
+as `30s`) overrides that, for a local stack proved against in seconds; the
+first check runs one interval after startup.
 
 **Re-alert policy.** A queue that stays over threshold produces one alert per
 cooldown window, not one per check. A queue worked back under the threshold
@@ -260,6 +271,7 @@ review-queue section, or via the REST API:
 | `enabled` | Master switch for both emails. Off, the revocation is still recorded in the auth-event history and shown on the status card, and nobody is told. |
 | `escalate_after_hours` | How long a connection stays revoked before the escalation is raised (1-720, default 24). |
 | `recipients` | The addresses the escalation is delivered to (at most 20). Empty is the default and means no escalation: the person who authorized the connection is still told, and nobody else is. |
+| `channels` | The [notification channels](#notification-channels) a revocation is posted to, by name (at most 10): at once, when the credential is discarded or an assertion is refused, and again when it escalates. The connection is the post's [key](#repeating-alerts-key). With channels named and no recipients, the escalation still goes to the channels. |
 
 The recipient list is explicit rather than derived from roles, for the same
 reason the review-queue list is: role membership arrives with a request from
@@ -267,7 +279,7 @@ the identity provider, so there is no set of admins the platform can enumerate
 when the sweep runs.
 
 ```
-GET /api/v1/admin/settings/connection-alert    read the window and recipients
+GET /api/v1/admin/settings/connection-alert    read the window, recipients and channels
 PUT /api/v1/admin/settings/connection-alert    update them
 ```
 
@@ -309,10 +321,36 @@ interest, and its second was named by the operator. A recipient still opts out
 for themselves with delivery mode `off`, including through the unsubscribe
 link the email carries like any other.
 
+## Scheduled run failures
+
+A managed script's scheduled run that fails emails the script's owner: they
+are accountable for the automation and can fix it. The email names the
+script, why the run failed, the head of its error and the tail of its log, and
+links to the run's page. A run somebody started with `run_script` reports its
+failure in the answer they are already reading and sends nothing.
+
+An operations team that watches a chat channel rather than each owner's inbox
+names it here, once for every script:
+
+| Field | Description |
+|-------|-------------|
+| `channels` | The [notification channels](#notification-channels) every failed scheduled run is posted to, by name (at most 10), beside the owner's email. The script is the post's [key](#repeating-alerts-key), so an automation failing every ten minutes posts once per the channel's repeat window and the next post says how many failures were held back. |
+
+```
+GET /api/v1/admin/settings/script-run-alert    read the channels
+PUT /api/v1/admin/settings/script-run-alert    set them
+```
+
+In the portal it is the **Scheduled run failures** card under **Admin,
+then Settings**. The post is authorized as the platform, as the email is:
+naming the channel here is the authorization, and no persona is consulted.
+
 ## Notification channels
 
+![Admin Settings: the scheduled run failure alert and the notification channels](../images/screenshots/light/admin-admin-settings-channels-light.webp#only-light)![Admin Settings: the scheduled run failure alert and the notification channels](../images/screenshots/dark/admin-admin-settings-channels-dark.webp#only-dark)
+
 A **channel** is an operator-configured destination that is not one person: a
-Mattermost channel, an incoming webhook, or a named list of email addresses. A managed script posts what it found to one, a person in a
+Slack channel, a Mattermost channel, an incoming webhook, or a named list of email addresses. A managed script posts what it found to one, a person in a
 session asks the agent to send to one, and the portal offers the same action
 on an asset.
 
@@ -324,9 +362,10 @@ YAML.
 
 | Kind | Delivers through | Needs | Carries |
 | --- | --- | --- | --- |
-| `mattermost` | `POST /api/v4/posts` | an api connection holding the bot token, and the target channel id | a title, a markdown body and a link |
-| `webhook` | one POST to the connection's base URL: `{"text": ...}` (`format: text`, the default), or a JSON envelope (`format: json`) | an api connection whose base URL is the webhook URL, with any secret part as its `path_secret` | `text`: a title and a text body, the link appended. `json`: every field, the body whole, and the sender's `data` |
-| `email` | the deployment's mail server | one to 20 recipient addresses | a subject, a body and a link button, in the branded template |
+| `slack` | `chat.postMessage`, with files through `files.getUploadURLExternal` and `files.completeUploadExternal` | an api connection with `base_url: https://slack.com/api`, `auth_mode: bearer` and the bot token as its `credential`; the target channel id; the bot invited to that channel | a title, a markdown body Slack renders, up to 5 files in the message's thread, and a link |
+| `mattermost` | `POST /api/v4/files`, then `POST /api/v4/posts` | an api connection holding the bot token, and the target channel id | a title, a markdown body, up to 5 files, and a link |
+| `webhook` | one POST to the connection's base URL: `{"text": ...}` (`format: text`, the default), or a JSON envelope (`format: json`) | an api connection whose base URL is the webhook URL, with any secret part as its `path_secret` | `text`: a title and a text body, each attachment and the link appended as a line. `json`: every field, the body whole, the attachments by link, and the sender's `data` |
+| `email` | the deployment's mail server | one to 20 recipient addresses | a subject, the body rendered from markdown, up to 5 files as attachments, and a link button, in the branded template |
 
 ### A channel holds no credential
 
@@ -349,10 +388,86 @@ built-in portal destination is reachable by every script.
 
 ### What is sent
 
-A **document**: a title, a markdown body, and an optional link back to
-whatever produced it. Each kind shows as much of it as it can and falls back
-to an excerpt plus the link past its own cap, so a long report always arrives
-as a summary and a pointer rather than as a wall or a truncation.
+A **document**: a title, a markdown body, an optional link back to whatever
+produced it, and up to five attachments. Each kind shows as much of it as it
+can and falls back to an excerpt plus the link past its own cap, so a long
+report always arrives as a summary and a pointer rather than as a wall or a
+truncation.
+
+| Kind | The body | Files | Cap |
+| --- | --- | --- | --- |
+| `email` | rendered to HTML (headings, tables, lists, code, links, strikethrough) in the branded template; the plain-text part carries the markdown as written | attached as MIME parts | the queue's 256 KiB |
+| `slack` | a header block with the title, a `markdown` block Slack renders into its own headings, tables, lists and code, and a context block with the link | uploaded, then shared into the message's thread | 12,000 bytes of markdown; a 150-character header |
+| `mattermost` | the title as a heading, then the markdown, which Mattermost renders | uploaded to the channel and attached to the post | 16,000 bytes |
+| `webhook` (`text`) | the title and the markdown as text | each named on its own line with its link | 12,000 bytes |
+| `webhook` (`json`) | the body whole in the envelope | named with their links in `attachments` | the queue's 256 KiB |
+
+A cut ends on a paragraph boundary where one is near, and the attachments
+named by link and the document's own link always survive it: they are added
+after the cut, not before.
+
+The email body is rendered by [goldmark](https://github.com/yuin/goldmark)
+with its default renderer, which writes no raw HTML from the source (an HTML
+tag in a sender's markdown arrives as an omission comment) and drops a
+`javascript:` link, so nothing a sender writes becomes markup of its own.
+
+#### Attachments
+
+An attachment names a portal asset or a managed resource. A queue row carries
+the reference and never the bytes; the worker reads the file when it delivers:
+
+- **An asset** is sent at the version it had when the message was queued, so
+  editing the asset afterwards does not change what a queued message sends.
+- **A resource** is sent as it is when the message is delivered.
+- **A preview** is an asset's light tile image. `notify action=publish`
+  attaches it on its own when the asset has one, so a chat reader sees what
+  the report looks like before opening it.
+
+Who may attach a file is decided when the message is queued, against the
+sender: an asset they can read, a resource they can read. The worker acts for
+nobody and checks nothing, which is why the check cannot wait for it. A file
+over 8 MiB, or one that can no longer be read (deleted since it was queued),
+is sent as its link instead; it does not fail the message.
+
+#### Repeating alerts: `key`
+
+A monitor whose condition stays true would post on every schedule tick, which
+is what gets a channel muted. A send that names a **key** is held back when
+the same key was posted to the same channel inside the channel's
+`repeat_after` window (default 1 hour): it is counted on the key and not
+queued, and the sender is told so (`suppressed: true`). The next send with the
+key after the window goes through, opening with a line that says how many
+repeats were not posted and since when:
+
+> 4 repeats of this alert since 2026-10-10 09:00 UTC were not posted.
+
+A send may pass `repeat_after` to lengthen the window for its key (`"6h"`);
+a value shorter than the channel's own is ignored, so a sender can make an
+alert quieter, never louder. The key, the count and the window are decided by
+the database in the transaction that writes the message, under a per-channel
+lock, so two replicas sending the same alert at once post it once. A key's
+record is purged with the queue's retention, once its window has long ended.
+
+A daily channel's posts are not keyed: a day's posts are already one bulletin.
+
+#### Hourly cap
+
+Every channel has a `max_per_hour` (default 60), counted in sends across every
+replica: an email channel's send is one send however many recipients it fans
+out to. A send past the cap is refused, and the refusal names the cap; nothing
+is queued and the history records nothing. A send held back by its key does
+not count.
+
+#### Daily channels
+
+A channel with `mode: daily` delivers once a day, at the deployment's
+`notifications.digest_hour_utc`. A chat or text webhook channel posts the
+day's documents as **one bulletin**: each document's title, its first
+paragraph and its link, titled `<channel>: <n> updates today`. Attachments
+are not carried in a bulletin; each item's link is where its files are. A
+`json` webhook still receives each document as its own envelope, because a
+system wants each event. An email channel's recipients get the day's documents
+in the branded digest, each as its first paragraph and link.
 
 Every send is an ordinary row in the same queue every email uses: claimed by
 the same worker, retried on the same backoff, purged on the same retention,
@@ -443,16 +558,32 @@ excerpt of the upstream's answer.
 
 | Surface | How |
 | --- | --- |
-| A person in a session | the `notify` tool: `action=list`, then `action=send` (with optional `data`) or `action=publish` |
-| A managed script | `platform.notify(channel, title, body, data=None)` and `platform.publish(channel, name)` |
+| A person in a session | the `notify` tool: `action=list`, then `action=send` (with optional `data`, `attachments`, `key` and `repeat_after`) or `action=publish` (with optional `key` and `repeat_after`) |
+| A managed script | `platform.notify(channel, title, body="", link="", data=None, key="", repeat_after="", attachments=None)` and `platform.publish(channel, name, message="", key="", repeat_after="")` |
+| A person in the portal | **Post to a channel** on an asset's page: the channel, an optional message, and the asset posted as `notify action=publish` would post it |
 | An administrator | **Send test** on the channel's editor, which delivers immediately and reports what the upstream said |
+| The platform | the [review-queue](#review-queue-alerts), [connection revocation](#connection-revocation-alerts) and [scheduled run failure](#scheduled-run-failures) alerts, to the channels each names |
+
+`attachments` takes a list whose entries are an asset id, an asset's portal
+URL, a resource id or `mcp:resource:` reference, or an object naming
+`asset_id` or `resource_id` with an optional `name`; the two forms may be
+mixed. A string that could be either an asset or a resource id is tried as an
+asset first.
 
 `notify` is an ordinary tool, so persona allow lists, the per-session rate
 limit and audit apply to it unchanged. A script's send is the run's principal,
 holding the roles its version author held, and is refused in a draft run
 without `allow_writes` - a message in somebody else's chat client is not
 something a rehearsal may leave behind. A script's post links back to the run
-that produced it unless the script names its own link.
+that produced it unless the script names its own link, and the run's page
+lists every post the run made, with whether it was delivered.
+
+![Asset page: Post to a channel](../images/screenshots/light/user-asset-post-to-channel-light.webp#only-light)![Asset page: Post to a channel](../images/screenshots/dark/user-asset-post-to-channel-dark.webp#only-dark)
+
+The portal's **Post to a channel** is the same tool call: the portal opens an
+in-process session as the signed-in person and calls `notify`, so the
+channels offered, the persona rules, the rate limit and the audit row are the
+tool's.
 
 ### REST
 
@@ -463,17 +594,42 @@ that produced it unless the script names its own link.
 | `PUT /api/v1/admin/notification-channels/{name}` | create or replace one |
 | `DELETE /api/v1/admin/notification-channels/{name}` | remove one |
 | `POST /api/v1/admin/notification-channels/{name}/test` | deliver a test through the channel's own transport |
+| `GET /api/v1/admin/notification-channels/{name}/status` | what the channel has done recently: when it last delivered, the last failure still recorded against it, its sends in the last hour against its cap, what is waiting, and the repeats its keys are holding back |
 
 Every route is admin-only and audited. The write routes answer 405 in file
-config mode, as every other admin configuration surface does.
+config mode, as every other admin configuration surface does. The settings
+page shows each channel's status under its name.
 
-### Kinds not yet here
+The portal routes are the signed-in person's, and each is a `notify` call made
+as them:
 
-Slack is not a kind yet (#1824). Its transport is a small variation on the
-Mattermost one — a bot token on an api connection, `POST /chat.postMessage`,
-and an application-level `ok: false` to read — but it has no local upstream to
-be exercised against, so it ships when there is a workspace to prove it in
-rather than on the strength of a test double.
+| Route | Does |
+| --- | --- |
+| `GET /api/v1/portal/channels` | the channels the person can post to |
+| `POST /api/v1/portal/channels/{name}/publish` | post an asset (`{"asset_id": "...", "message": "..."}`) |
+| `POST /api/v1/portal/channels/{name}/send` | post a message (`{"title": "...", "body": "...", "link": "..."}`) |
+| `GET /api/v1/portal/scripts/{id}/runs/{runID}/posts` | the posts one run made, each with its channel, title and status (`sent`, `failed`, `queued`); readable by the script's owner, an administrator and whoever requested the run |
+
+A refusal from the tool answers 400 in the tool's own words, and its per-session
+rate limit answers 429.
+
+#### Slack
+
+The bot needs `chat:write`, and `files:write` for attachments, and must be
+invited to the channel (`/invite @<bot>`). Slack answers a refusal with HTTP
+200 and `ok: false`, so the platform reads that envelope: `ratelimited`,
+`internal_error`, `service_unavailable`, `fatal_error` and `request_timeout`
+retry, and every other code fails the message at once with the next step an
+operator takes (`not_in_channel` says to invite the bot, `missing_scope` names
+the scope, a revoked token says to reinstall the app). An answer that is not a
+Web API envelope means the connection's `base_url` is not
+`https://slack.com/api`.
+
+A message's files are uploaded before it is posted and shared into its thread
+after, so they sit with the message they belong to. The bytes go only to an
+upload address on the connection's own domain (`files.slack.com` for
+`slack.com`). A share that fails after the message was posted fails the
+delivery saying so, rather than retrying and posting the message twice.
 
 ### Local development
 
@@ -485,6 +641,10 @@ rather than on the strength of a test double.
   `Dev-Password-1`) - seeded with a team, an `ops-alerts` channel and a token,
   and registered as the `mattermost-dev` api connection with an `ops-alerts`
   channel over it. An `ops-email` channel is registered too.
+- **Slack**, when `dev/.slack-env` (gitignored) holds `SLACK_TEST_BOT_TOKEN`
+  and `SLACK_TEST_CHANNEL_ID` for a workspace of your own: the stack registers
+  a `slack-dev` connection and channel over it. No Slack server runs locally,
+  so without the file there is no Slack channel.
 
 ## User notification preferences
 
@@ -621,8 +781,12 @@ sit behind the admin persona gate:
 
 ```
 GET /api/v1/admin/notifications?status=failed&recipient=user@example.com
+GET /api/v1/admin/notifications?channel=ops-alerts
 GET /api/v1/admin/notifications/stats
 ```
+
+A row sent to a notification channel names its channel in the list, and its
+drill-in says how many repeats its key held back before it went through.
 
 ![Dashboard: the Notifications tab](../images/screenshots/light/admin-admin-audit-notifications-light.webp#only-light)![Dashboard: the Notifications tab](../images/screenshots/dark/admin-admin-audit-notifications-dark.webp#only-dark)
 

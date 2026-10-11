@@ -172,6 +172,19 @@ func (*mailQueue) PurgeOld(context.Context, time.Duration, time.Duration) (int64
 	return 0, nil
 }
 
+// EnqueueChannel writes the send's rows through Enqueue; this fake applies no
+// gate.
+func (q *mailQueue) EnqueueChannel(ctx context.Context, rows []notification.Notification, _ notification.ChannelGate) (notification.ChannelOutcome, error) {
+	for _, n := range rows {
+		if err := q.Enqueue(ctx, n); err != nil {
+			return notification.ChannelOutcome{}, err
+		}
+	}
+	return notification.ChannelOutcome{}, nil
+}
+
+func (*mailQueue) PurgeChannelKeys(context.Context, time.Duration) (int64, error) { return 0, nil }
+
 // TestJWTBearerRefusalReachesTheAlert_Integration is the cross-component proof
 // for #1734. A jwt_bearer connection parsed from the stored config shape, served
 // by the toolkit, called through a real MCP client, exchanges a real signed

@@ -58,6 +58,9 @@ type Config struct {
 	// leaves the publish action refusing: a deployment that cannot check
 	// entitlement must not publish on the strength of an id.
 	Access Entitlement
+	// Resources reads a managed resource a send attaches. nil leaves
+	// resources unattachable and assets unaffected.
+	Resources ResourceReader
 	// PortalURL is the deployment's public base URL, used to build the link
 	// a published document carries. Empty omits the link.
 	PortalURL string

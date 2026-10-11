@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -16,6 +17,30 @@ func (h *Handle) Channels() notification.ChannelStore {
 		return nil
 	}
 	return h.channels
+}
+
+// AlertChannels is how the platform's own alerts reach the channels an
+// operator names for them (#1724): this handle's channel store and enqueuer.
+// Nil-safe: a nil handle yields a nil sender, which sends nothing.
+func (h *Handle) AlertChannels() *notifyalert.Sender {
+	if h == nil {
+		return nil
+	}
+	return notifyalert.New(h.channels, h.enqueuer)
+}
+
+// channelActivityReader reads one channel's recent activity.
+// notifyqueue.PostgresStore implements it.
+type channelActivityReader interface {
+	ChannelActivity(ctx context.Context, channel string) (notification.ChannelActivity, error)
+}
+
+// ChannelActivity reports what one channel has done recently.
+func (h *Handle) ChannelActivity(ctx context.Context, name string) (notification.ChannelActivity, error) {
+	if h == nil || h.activity == nil {
+		return notification.ChannelActivity{}, errors.New("notification channels unavailable: no database configured")
+	}
+	return h.activity.ChannelActivity(ctx, name) //nolint:wrapcheck // the store names the channel
 }
 
 // testDocument is what a test send delivers: enough for the administrator to

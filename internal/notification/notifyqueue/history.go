@@ -25,6 +25,7 @@ func historyWhere(filter notification.HistoryFilter) (clause string, args []any)
 	add("recipient", filter.Recipient)
 	add("status", filter.Status)
 	add("category", filter.Category)
+	add("channel", filter.Channel)
 	if len(clauses) == 0 {
 		return "", nil
 	}

@@ -45,6 +45,8 @@ export function NotificationDetail({
             label="Category"
             value={row.digest ? `${row.category} (daily digest)` : row.category}
           />
+          {row.channel && <Field label="Channel" value={row.channel} />}
+          {!!row.suppressed && <Field label="Suppressed repeats" value={String(row.suppressed)} />}
           <Field
             label="Status"
             value={

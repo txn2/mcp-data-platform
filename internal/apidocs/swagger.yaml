@@ -3067,6 +3067,31 @@ definitions:
       title:
         type: string
     type: object
+  channelhttp.PublishRequest:
+    properties:
+      asset_id:
+        description: AssetID is the asset to post.
+        example: ast_01HK7R8Z
+        type: string
+      message:
+        description: Message is an optional line posted above the asset.
+        example: This week's numbers
+        type: string
+    type: object
+  channelhttp.SendRequest:
+    properties:
+      body:
+        description: Body is markdown.
+        example: The load finished at 06:40, forty minutes past its window.
+        type: string
+      link:
+        description: Link is the absolute URL a reader follows from the message.
+        example: https://platform.example.com/portal/automations/scr_1/runs/run_9
+        type: string
+      title:
+        example: Nightly load finished late
+        type: string
+    type: object
   configstore.ChangelogEntry:
     properties:
       action:
@@ -3104,6 +3129,13 @@ definitions:
     type: object
   connalert.SettingsInput:
     properties:
+      channels:
+        description: |-
+          Channels names the notification channels a revocation is also posted
+          to. Absent keeps the stored list; an empty list clears it.
+        items:
+          type: string
+        type: array
       enabled:
         example: true
         type: boolean
@@ -3119,6 +3151,10 @@ definitions:
     type: object
   connalert.SettingsView:
     properties:
+      channels:
+        items:
+          type: string
+        type: array
       enabled:
         example: true
         type: boolean
@@ -5161,6 +5197,12 @@ definitions:
       category:
         example: share
         type: string
+      channel:
+        description: |-
+          Channel is the notification channel the row was sent to, absent for
+          a row addressed to a person alone.
+        example: ops-alerts
+        type: string
       created_at:
         type: string
       digest:
@@ -5191,6 +5233,12 @@ definitions:
       subject:
         example: alice@example.com shared the asset "Q3 Revenue" with you
         type: string
+      suppressed:
+        description: |-
+          Suppressed is how many repeats of the row's alert were held back by
+          its key before this one went through.
+        example: 3
+        type: integer
     type: object
   notifyapi.notificationStatsResponse:
     properties:
@@ -6932,6 +6980,47 @@ definitions:
     x-enum-varnames:
     - PermissionViewer
     - PermissionEditor
+  postshttp.Post:
+    properties:
+      channel:
+        example: ops-alerts
+        type: string
+      deliveries:
+        description: |-
+          Deliveries counts what the post became: one for a chat or webhook
+          channel, one per recipient for an email channel.
+        example: 1
+        type: integer
+      failed:
+        example: 0
+        type: integer
+      last_error:
+        example: upstream answered HTTP 403
+        type: string
+      queued_at:
+        type: string
+      sent:
+        example: 1
+        type: integer
+      sent_at:
+        type: string
+      status:
+        description: |-
+          Status is sent when every delivery went out, failed when any gave up,
+          and queued while any is still waiting.
+        example: sent
+        type: string
+      title:
+        example: Orders feed is 41 minutes behind
+        type: string
+    type: object
+  postshttp.postsResponse:
+    properties:
+      posts:
+        items:
+          $ref: '#/definitions/postshttp.Post'
+        type: array
+    type: object
   producedview.Item:
     properties:
       created:
@@ -7755,6 +7844,14 @@ definitions:
     type: object
   reviewalert.SettingsInput:
     properties:
+      channels:
+        description: |-
+          Channels names the notification channels the alert is also sent to.
+          Absent keeps the stored list, so a client that predates channels does
+          not clear them; an empty list clears them.
+        items:
+          type: string
+        type: array
       cooldown_hours:
         example: 24
         type: integer
@@ -7776,6 +7873,10 @@ definitions:
     type: object
   reviewalert.SettingsView:
     properties:
+      channels:
+        items:
+          type: string
+        type: array
       cooldown_hours:
         example: 24
         type: integer
@@ -8581,6 +8682,25 @@ definitions:
       version:
         example: 3
         type: integer
+    type: object
+  scriptalert.SettingsInput:
+    properties:
+      channels:
+        items:
+          type: string
+        type: array
+    type: object
+  scriptalert.SettingsView:
+    properties:
+      channels:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
     type: object
   scriptbehavior.Difference:
     properties:
@@ -10524,6 +10644,44 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  settingsapi.ChannelStatusView:
+    properties:
+      last_delivered_at:
+        description: LastDeliveredAt is when a message to the channel was last delivered.
+        example: "2026-10-10T09:14:03Z"
+        type: string
+      last_error:
+        description: |-
+          LastError is the most recent failure still recorded on one of the
+          channel's messages, and LastErrorAt when that message was queued.
+        example: 'upstream answered HTTP 403: not_in_channel'
+        type: string
+      last_error_at:
+        example: "2026-10-10T08:02:11Z"
+        type: string
+      max_per_hour:
+        example: 60
+        type: integer
+      name:
+        example: ops-alerts
+        type: string
+      pending:
+        description: Pending counts messages not yet delivered.
+        example: 0
+        type: integer
+      sent_last_hour:
+        description: |-
+          SentLastHour counts the sends the hourly cap counts, and MaxPerHour
+          is that cap.
+        example: 12
+        type: integer
+      suppressed:
+        description: |-
+          Suppressed counts repeats held back by the channel's keys since each
+          key last went through.
+        example: 3
+        type: integer
     type: object
   settingsapi.ChannelTestResult:
     properties:
@@ -15804,6 +15962,39 @@ paths:
       summary: Create or update a notification channel
       tags:
       - Settings
+  /admin/notification-channels/{name}/status:
+    get:
+      description: Returns when the channel last delivered, the latest failure still
+        recorded against it, how many sends it took in the last hour against its hourly
+        cap, how many messages are waiting, and how many repeats its keys are holding
+        back.
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/settingsapi.ChannelStatusView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a notification channel's recent activity
+      tags:
+      - Settings
   /admin/notification-channels/{name}/test:
     post:
       description: Delivers a test message through the channel's own transport and
@@ -15854,6 +16045,10 @@ paths:
         in: query
         name: category
         type: string
+      - description: Filter by notification channel name
+        in: query
+        name: channel
+        type: string
       - description: 'Page number, 1-based (default: 1)'
         in: query
         name: page
@@ -15892,6 +16087,10 @@ paths:
       - description: Filter by category (share, comment, mention)
         in: query
         name: category
+        type: string
+      - description: Filter by notification channel name
+        in: query
+        name: channel
         type: string
       produces:
       - application/json
@@ -17925,6 +18124,54 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update knowledge review-queue alert settings
+      tags:
+      - Settings
+  /admin/settings/script-run-alert:
+    get:
+      description: Returns the notification channels a failed scheduled run of any
+        managed script is posted to, beside the email its owner receives. Empty before
+        an operator has named any.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scriptalert.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get scheduled-run failure alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Sets the notification channels a failed scheduled run is posted
+        to. An absent channels field keeps the stored list and an empty one clears
+        it; a name no channel is stored under is refused.
+      parameters:
+      - description: Scheduled-run failure alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/scriptalert.SettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scriptalert.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update scheduled-run failure alert settings
       tags:
       - Settings
   /admin/settings/smtp:
@@ -20627,6 +20874,122 @@ paths:
       summary: Decline one of my calls
       tags:
       - Calls
+  /portal/channels:
+    get:
+      description: 'Returns the enabled notification channels the signed-in user reaches:
+        every email channel, and each chat or webhook channel whose api connection
+        the user''s persona reaches. Answered by the notify tool''s list action.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List the channels I can post to
+      tags:
+      - Notifications
+  /portal/channels/{name}/publish:
+    post:
+      consumes:
+      - application/json
+      description: 'Posts a portal asset the signed-in user can read to a channel
+        they reach: the asset''s name, its content (a CSV as a table of its first
+        rows), its preview image when it has one, and a link to it. Delivery is queued.'
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The asset and an optional message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/channelhttp.PublishRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Post an asset to a channel
+      tags:
+      - Notifications
+  /portal/channels/{name}/send:
+    post:
+      consumes:
+      - application/json
+      description: Posts a title, a markdown body and an optional link to a channel
+        the signed-in user reaches. Delivery is queued.
+      parameters:
+      - description: Channel name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: The message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/channelhttp.SendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Send a message to a channel
+      tags:
+      - Notifications
   /portal/collections:
     get:
       description: Returns paginated collections owned by the current user.
@@ -25632,6 +25995,49 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Draw a script run on its flow diagram
+      tags:
+      - Scripts
+  /portal/scripts/{id}/runs/{runID}/posts:
+    get:
+      description: 'Returns the posts a run made with platform.notify and platform.publish,
+        oldest first: the channel, the title, when it was queued, and whether it was
+        delivered. A post held back by its key''s repeat window was never queued and
+        is not listed. Readable by the script''s owner, an administrator, and whoever
+        requested the run.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: runID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/postshttp.postsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List what a script run posted to channels
       tags:
       - Scripts
   /portal/scripts/{id}/schedule:

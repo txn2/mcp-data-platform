@@ -25,17 +25,61 @@ func channelSubject(p notification.Payload) string {
 	return p.ItemTitle
 }
 
-// channelBody is the document's markdown, rendered as the plain prose this
-// stage delivers.
+// channelBody is the document's markdown, opened by the line saying how many
+// repeats of the alert were held back when there were any.
 //
 // It is Body rather than Message because Message renders as a quotation, and
-// a report is not something a colleague said. The markdown arrives as its own
-// source: rendering it to HTML is the next stage's work, and a body shown as
-// written is legible in the meantime, where a body silently stripped of its
-// markup would not be.
+// a report is not something a colleague said. The text part of the email
+// carries this markdown as written; the HTML part carries it rendered.
 func channelBody(p notification.Payload) string {
 	if p.Document == nil {
 		return ""
 	}
-	return p.Document.Body
+	note := p.Document.SuppressionNote()
+	switch {
+	case note == "":
+		return p.Document.Body
+	case p.Document.Body == "":
+		return note
+	default:
+		return note + "\n\n" + p.Document.Body
+	}
+}
+
+// AttachmentLink is an attachment a message names by link instead of carrying:
+// one over the size a file may be, or one that could not be read.
+type AttachmentLink struct {
+	Name string
+	URL  string
+}
+
+// RenderDocument renders one channel document to one email recipient with
+// its attachments: files is what travels as MIME parts, links what the message
+// names by link instead.
+func (r *Renderer) RenderDocument(n notification.Notification, files []notification.File, links []AttachmentLink) (*Email, error) {
+	data := r.buildData([]notification.Notification{n})
+	if r.unsubURL != nil {
+		data.UnsubURL = r.unsubURL(n.Recipient)
+	}
+	data.Items[0].Links = links
+	email, err := r.execute(n.Recipient, data)
+	if err != nil {
+		return nil, err
+	}
+	email.Attachments = files
+	return email, nil
+}
+
+// AlertDocument renders a platform alert's payload as the document a channel
+// carries: the line its email's subject carries as the title, the prose its
+// email's body carries as the body, and its link. A channel reader and an
+// email reader are told the same thing in the same words.
+func AlertDocument(p notification.Payload) notification.Document {
+	n := notification.Notification{Payload: p}
+	item := buildItem(n)
+	body := item.Body
+	if body == "" {
+		body = item.Message
+	}
+	return notification.Document{Title: subjectFor(n), Body: body, Link: p.Link}
 }

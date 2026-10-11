@@ -38,9 +38,10 @@ Reply-To) is implementor-owned YAML, not part of this page; see the
 
 A **Knowledge review queue alert** section follows: it decides when the
 platform emails an operator about unreviewed insights — the pending-count
-and oldest-age thresholds, the re-alert cooldown, and the recipients. A
-section that would deliver nothing (enabled with no recipients, or with
-both thresholds cleared) says so in a banner rather than saving silently.
+and oldest-age thresholds, the re-alert cooldown, the recipients, and the
+**Channels** the alert is also posted to. A section that would deliver
+nothing (enabled with no recipients and no channels, or with both thresholds
+cleared) says so in a banner rather than saving silently.
 See [review queue alerts](../server/notifications.md#review-queue-alerts).
 
 A **Connection revocation alerts** section follows that: it decides who hears
@@ -48,13 +49,25 @@ that a connection's OAuth credential was discarded and every call through it
 now fails needing reauthorization. The person who authorized the connection is
 emailed as soon as it happens and needs no configuration here; what this
 section sets is the escalation — how long a revoked connection goes
-unauthorized before the addresses listed here are told as well. Leaving the
-list empty is the default, and the section says so in a banner rather than
-implying a gap. See [connection revocation
+unauthorized before the addresses listed here are told as well, and the
+**Channels** a revocation is posted to the moment it happens and again when it
+escalates. Leaving both empty is the default, and the section says so in a
+banner rather than implying a gap. See [connection revocation
 alerts](../server/notifications.md#connection-revocation-alerts).
 
+A **Scheduled run failures** section follows: the **Channels** a failed
+scheduled run of any automation is posted to, with a link to the run, beside
+the email its owner already receives. An automation that keeps failing posts
+once per the channel's repeat window. See [scheduled run
+failures](../server/notifications.md#scheduled-run-failures).
+
+The **Channels** field is the same in all three alert sections: a checkbox per
+configured channel. A channel an alert names that has since been deleted stays
+listed, marked missing, so it can be unchecked; the server refuses to save a
+name no channel is stored under.
+
 A **Notification Channels** section comes last: the destinations a report or
-an alert is sent to that are not one person — a Mattermost channel,
+an alert is sent to that are not one person — a Slack channel, a Mattermost channel,
 an incoming webhook, or a named list of addresses. Each row opens its editor
 on click, showing only the fields its kind can use: the chat kinds ask for an
 api connection and a target channel id, a webhook asks for the connection
@@ -65,7 +78,10 @@ A channel holds no credential. What authorizes a post is the named
 connection's, held and encrypted there, which also decides who may send:
 anyone whose persona reaches that connection. A channel naming a connection no
 live toolkit serves is flagged in the list rather than looking configured and
-failing when something is sent to it.
+failing when something is sent to it. Under each channel's name is what it
+has done recently: when it last delivered, its sends this hour against its
+hourly cap ("Sent this hour 12 of 60"), what is waiting, how many repeats its
+keys are holding back, and the last error still recorded against it.
 
 **Send test** delivers a message immediately through the channel's own
 transport and reports what the upstream answered — a refusal reaches the

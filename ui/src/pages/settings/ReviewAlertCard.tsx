@@ -8,6 +8,7 @@ import {
 } from "@/api/admin/hooks";
 import { ConfigField, ConfigToggle } from "./connections/fields";
 import { SettingsCard } from "./panels";
+import { ChannelsPicker } from "./ChannelsPicker";
 import { RecipientsEditor } from "./RecipientsEditor";
 import {
   AlertStatusBanners,
@@ -32,6 +33,7 @@ interface FormState {
   oldest_pending_days: string;
   cooldown_hours: string;
   recipients: string[];
+  channels: string[];
 }
 
 const DEFAULT_FORM: FormState = {
@@ -40,6 +42,7 @@ const DEFAULT_FORM: FormState = {
   oldest_pending_days: "30",
   cooldown_hours: "24",
   recipients: [],
+  channels: [],
 };
 
 function formFrom(settings: ReviewQueueAlertSettings): FormState {
@@ -49,6 +52,7 @@ function formFrom(settings: ReviewQueueAlertSettings): FormState {
     oldest_pending_days: String(settings.oldest_pending_days ?? 0),
     cooldown_hours: String(settings.cooldown_hours || 24),
     recipients: settings.recipients ?? [],
+    channels: settings.channels ?? [],
   };
 }
 
@@ -146,6 +150,7 @@ export function ReviewAlertCard({
         oldest_pending_days: parseInt(form.oldest_pending_days, 10) || 0,
         cooldown_hours: parseInt(form.cooldown_hours, 10) || 24,
         recipients: form.recipients,
+        channels: form.channels,
       },
       {
         onSuccess: () => {
@@ -207,6 +212,11 @@ export function ReviewAlertCard({
           <RecipientsEditor
             recipients={form.recipients}
             onChange={(recipients) => handleChange({ recipients })}
+          />
+          <ChannelsPicker
+            selected={form.channels}
+            onChange={(channels) => handleChange({ channels })}
+            help="The alert is also posted to each channel chosen here. A queue that crosses again within the channel's repeat window is counted rather than posted."
           />
         </div>
       )}

@@ -5,6 +5,7 @@ import type { NotificationList, NotificationRow, NotificationStats } from "@/api
 vi.mock("@/api/admin/hooks", () => ({
   useNotifications: vi.fn(),
   useNotificationStats: vi.fn(),
+  useNotificationChannels: vi.fn(),
 }));
 
 // The recipient filter debounces; the tests assert on the immediate filter
@@ -13,11 +14,16 @@ vi.mock("@/lib/useDebounced", () => ({
   useDebounced: <T,>(value: T) => value,
 }));
 
-import { useNotifications, useNotificationStats } from "@/api/admin/hooks";
+import {
+  useNotificationChannels,
+  useNotifications,
+  useNotificationStats,
+} from "@/api/admin/hooks";
 import { NotificationsTab } from "./NotificationsTab";
 
 const mockUseList = vi.mocked(useNotifications);
 const mockUseStats = vi.mocked(useNotificationStats);
+const mockUseChannels = vi.mocked(useNotificationChannels);
 
 function row(overrides: Partial<NotificationRow> = {}): NotificationRow {
   return {
@@ -67,6 +73,9 @@ function chooseOption(name: RegExp | string, option: string): void {
 beforeEach(() => {
   mockUseList.mockReset();
   mockUseStats.mockReset();
+  mockUseChannels.mockReturnValue({
+    data: { channels: [{ name: "ops-alerts" }, { name: "ops-email" }], kinds: [] },
+  } as unknown as ReturnType<typeof useNotificationChannels>);
 });
 
 afterEach(cleanup);
@@ -125,6 +134,28 @@ describe("NotificationsTab", () => {
     expect(mockUseList).toHaveBeenLastCalledWith(
       expect.objectContaining({ category: "mention" }),
     );
+  });
+
+  it("filters by channel and shows a channel row's channel and suppressed repeats", () => {
+    show(list({ data: [row({ id: 7, recipient: "channel:ops-alerts", category: "channel", channel: "ops-alerts", suppressed: 3, status: "sent", last_error: undefined })] }));
+    expect(screen.getByRole("columnheader", { name: "Channel" })).toBeInTheDocument();
+
+    chooseOption(/filter by channel/i, "ops-alerts");
+    expect(mockUseList).toHaveBeenLastCalledWith(
+      expect.objectContaining({ channel: "ops-alerts", page: 1 }),
+    );
+
+    fireEvent.click(screen.getByText("channel:ops-alerts"));
+    const detail = screen.getByRole("dialog", { name: /notification detail/i });
+    expect(detail.textContent).toContain("Suppressed repeats3");
+  });
+
+  it("offers no channel filter when no channel is configured", () => {
+    mockUseChannels.mockReturnValue({ data: { channels: [], kinds: [] } } as unknown as ReturnType<
+      typeof useNotificationChannels
+    >);
+    show();
+    expect(screen.queryByRole("combobox", { name: /filter by channel/i })).toBeNull();
   });
 
   it("says so when nothing matches rather than rendering an empty table", () => {

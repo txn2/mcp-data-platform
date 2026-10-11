@@ -25,6 +25,9 @@ type fakeQueueStore struct {
 	purges  int
 	opErr   error
 
+	keyPurges   int
+	keyPurgeErr error
+
 	// filters records the transport filter of every claim, so a test can
 	// assert which transports the worker asked for.
 	filters []notification.TransportFilter
@@ -119,6 +122,24 @@ func (f *fakeQueueStore) PurgeOld(_ context.Context, _, _ time.Duration) (int64,
 	defer f.mu.Unlock()
 	f.purges++
 	return 0, f.opErr
+}
+
+// EnqueueChannel writes the send's rows through Enqueue; this fake applies no
+// gate.
+func (f *fakeQueueStore) EnqueueChannel(ctx context.Context, rows []notification.Notification, _ notification.ChannelGate) (notification.ChannelOutcome, error) {
+	for _, n := range rows {
+		if err := f.Enqueue(ctx, n); err != nil {
+			return notification.ChannelOutcome{}, err
+		}
+	}
+	return notification.ChannelOutcome{}, nil
+}
+
+func (f *fakeQueueStore) PurgeChannelKeys(context.Context, time.Duration) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keyPurges++
+	return 1, f.keyPurgeErr
 }
 
 // Verify interface compliance: the fake must stay a real QueueStore, or the

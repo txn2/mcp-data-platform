@@ -2935,7 +2935,7 @@ func (p *Platform) Start(ctx context.Context) error {
 		Blobs: p.portalStore.S3Client(), Shares: p.portalStore.ShareStore(),
 		Collections: p.portalStore.CollectionStore(),
 		PortalURL:   p.config.Portal.PublicBaseURL, AdminPersona: p.config.Admin.Persona,
-		DigestHourUTC: p.config.Notifications.DigestHour(),
+		DigestHourUTC: p.config.Notifications.DigestHour(), Resources: p.resources.Store(),
 	})
 
 	// Register platform-level prompts from config

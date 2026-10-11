@@ -5,6 +5,7 @@ import (
 	"net/mail"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -28,7 +29,7 @@ const (
 const (
 	// NoRecipientsWarning is reported when the check is on with an empty
 	// recipient list.
-	NoRecipientsWarning = "no recipients are configured, so no alert will be delivered; add at least one address"
+	NoRecipientsWarning = "no recipients or channels are configured, so no alert will be delivered; add an address or a channel"
 	// NoThresholdWarning is reported when the check is on with both
 	// thresholds cleared.
 	NoThresholdWarning = "both thresholds are 0, so nothing can cross; set a pending count, an age in days, or both"
@@ -41,6 +42,10 @@ type SettingsInput struct {
 	OldestPendingDays int      `json:"oldest_pending_days" example:"30"`
 	CooldownHours     int      `json:"cooldown_hours" example:"24"`
 	Recipients        []string `json:"recipients" example:"data-admin@example.com"`
+	// Channels names the notification channels the alert is also sent to.
+	// Absent keeps the stored list, so a client that predates channels does
+	// not clear them; an empty list clears them.
+	Channels *[]string `json:"channels,omitempty"`
 }
 
 // Validate normalizes the input in place and returns a non-empty message when
@@ -54,7 +59,25 @@ func (in *SettingsInput) Validate() string {
 	if msg := in.validateBounds(); msg != "" {
 		return msg
 	}
+	if msg := in.normalizeChannels(); msg != "" {
+		return msg
+	}
 	return in.normalizeRecipients()
+}
+
+// normalizeChannels trims and de-duplicates a submitted channel list in place.
+// Whether each name is a channel is checked by the admin route, which holds
+// the channel store.
+func (in *SettingsInput) normalizeChannels() string {
+	if in.Channels == nil {
+		return ""
+	}
+	names := notifyalert.Normalize(*in.Channels)
+	if len(names) > notifyalert.MaxChannels {
+		return fmt.Sprintf("at most %d channels may be configured", notifyalert.MaxChannels)
+	}
+	in.Channels = &names
+	return ""
 }
 
 // validateBounds checks the numeric fields against their sanity bounds.
@@ -102,7 +125,17 @@ func (in *SettingsInput) Settings() Settings {
 		OldestPendingDays: in.OldestPendingDays,
 		CooldownHours:     in.CooldownHours,
 		Recipients:        in.Recipients,
+		Channels:          channelsOf(in.Channels),
 	}
+}
+
+// channelsOf reads the submitted channel list; the caller has already put the
+// stored list in place of an absent one.
+func channelsOf(in *[]string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return *in
 }
 
 // SettingsView is the read shape for the admin alert configuration.
@@ -112,6 +145,7 @@ type SettingsView struct {
 	OldestPendingDays int       `json:"oldest_pending_days" example:"30"`
 	CooldownHours     int       `json:"cooldown_hours" example:"24"`
 	Recipients        []string  `json:"recipients"`
+	Channels          []string  `json:"channels"`
 	UpdatedBy         string    `json:"updated_by,omitempty" example:"admin@example.com"`
 	UpdatedAt         time.Time `json:"updated_at"`
 	// Warnings describes a configuration that saves cleanly but delivers
@@ -128,6 +162,7 @@ func (s Settings) View() SettingsView {
 		OldestPendingDays: s.OldestPendingDays,
 		CooldownHours:     s.CooldownHours,
 		Recipients:        s.recipientsForView(),
+		Channels:          nonNil(s.Channels),
 		UpdatedBy:         s.UpdatedBy,
 		UpdatedAt:         s.UpdatedAt,
 		Warnings:          s.warnings(),
@@ -151,11 +186,19 @@ func (s Settings) warnings() []string {
 		return nil
 	}
 	var out []string
-	if len(s.Recipients) == 0 {
+	if len(s.Recipients) == 0 && len(s.Channels) == 0 {
 		out = append(out, NoRecipientsWarning)
 	}
 	if s.PendingThreshold <= 0 && s.OldestPendingDays <= 0 {
 		out = append(out, NoThresholdWarning)
 	}
 	return out
+}
+
+// nonNil returns a non-nil slice so the JSON carries [] rather than null.
+func nonNil(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }

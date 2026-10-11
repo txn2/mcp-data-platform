@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptnotify"
 )
 
 // notifyCaller answers a notify call the way the tool does, and records what
@@ -42,8 +44,8 @@ func onlyNotifyCall(t *testing.T, caller *notifyCaller) recordedCall {
 	if len(caller.calls) != 1 {
 		t.Fatalf("made %d calls, want 1: %+v", len(caller.calls), caller.calls)
 	}
-	if caller.calls[0].name != toolNotify {
-		t.Fatalf("called %q, want %q", caller.calls[0].name, toolNotify)
+	if caller.calls[0].name != scriptnotify.Tool {
+		t.Fatalf("called %q, want %q", caller.calls[0].name, scriptnotify.Tool)
 	}
 	return caller.calls[0]
 }
@@ -57,7 +59,7 @@ platform.notify(channel="ops", title="Threshold crossed", body="queue depth 812"
 		t.Fatalf("run: %v", err)
 	}
 	call := onlyNotifyCall(t, caller)
-	if call.args["action"] != notifyActionSend {
+	if call.args["action"] != "send" {
 		t.Errorf("action = %v, want send", call.args["action"])
 	}
 	if call.args["channel"] != "ops" || call.args["title"] != "Threshold crossed" {
@@ -148,7 +150,7 @@ platform.publish(channel="ops", name="Weekly report", message="This week")
 		t.Fatalf("run: %v", err)
 	}
 	call := onlyNotifyCall(t, caller)
-	if call.args["action"] != notifyActionPublish {
+	if call.args["action"] != "publish" {
 		t.Errorf("action = %v, want publish", call.args["action"])
 	}
 	// The asset is named the way platform.export named it, so a script says

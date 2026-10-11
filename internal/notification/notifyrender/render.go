@@ -96,6 +96,9 @@ type Email struct {
 	// ReplyTo is the Reply-To address the sender must apply when non-empty
 	// (#1023). Stamped from Branding.ReplyTo on every rendered message.
 	ReplyTo string
+	// Attachments are files the sender attaches as MIME parts: a channel
+	// document's attachments, read at delivery.
+	Attachments []notification.File
 }
 
 // Renderer renders queued notifications into branded multipart emails.
@@ -248,7 +251,13 @@ type emailItem struct {
 	// must not appear to be quoting someone.
 	Body    string
 	Message string
-	Link    string
+	// BodyHTML is a channel document's markdown rendered by markdownHTML,
+	// and set by nothing else. The HTML template writes it unescaped in
+	// place of Body; the text template keeps Body.
+	BodyHTML htmltemplate.HTML
+	// Links are attachments named by link rather than carried.
+	Links []AttachmentLink
+	Link  string
 	// LinkText overrides the default "Open ..." button label.
 	LinkText string
 }
@@ -261,7 +270,14 @@ func (r *Renderer) buildData(ns []notification.Notification) emailData {
 		PrefsURL: joinURL(r.branding.BaseURL, "/portal/settings"),
 	}
 	for _, n := range ns {
-		data.Items = append(data.Items, buildItem(n))
+		item := buildItem(n)
+		if data.Digest && n.Payload.Kind == notification.KindChannel {
+			// A digest is a bulletin: each document's first paragraph,
+			// with its link carrying the rest.
+			item.Body = firstParagraph(item.Body)
+			item.BodyHTML = markdownHTML(item.Body)
+		}
+		data.Items = append(data.Items, item)
 	}
 	if data.Digest {
 		data.Subject = fmt.Sprintf("%s: %d updates in your daily digest", r.branding.Name, len(ns))
@@ -295,6 +311,7 @@ func buildItem(n notification.Notification) emailItem {
 		item.LinkText = connAuthLinkTextFor(n.Payload.Connection)
 	case notification.KindChannel:
 		item.Body = channelBody(n.Payload)
+		item.BodyHTML = markdownHTML(item.Body)
 		item.Message = ""
 		if item.Link != "" {
 			item.LinkText = channelLinkText

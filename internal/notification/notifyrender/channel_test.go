@@ -82,3 +82,22 @@ func TestChannelEmail_LinkTextIsOmittedWithoutALink(t *testing.T) {
 		t.Errorf("LinkText = %q, want %q", withLink.LinkText, channelLinkText)
 	}
 }
+
+func TestAlertDocument_SaysWhatTheEmailSays(t *testing.T) {
+	p := notification.Payload{
+		Kind: notification.KindScriptRun, ItemTitle: "nightly-load", Link: "https://p/portal/automations/s1/runs/r1",
+		Message: "Failure:\nError: division by zero",
+	}
+	doc := AlertDocument(p)
+	n := notification.Notification{Payload: p}
+	if doc.Title != Subject(n) || doc.Link != p.Link {
+		t.Errorf("document %+v, want the email's subject and the payload's link", doc)
+	}
+	if !strings.Contains(doc.Body, "division by zero") {
+		t.Errorf("body = %q, want the failure", doc.Body)
+	}
+	quoted := AlertDocument(notification.Payload{Kind: notification.KindAsset, ItemTitle: "x", Actor: "a@example.com", Message: "look"})
+	if quoted.Body != "look" {
+		t.Errorf("a payload with only a message: body = %q", quoted.Body)
+	}
+}

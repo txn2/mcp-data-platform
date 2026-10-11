@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -34,7 +35,9 @@ const (
 // already exist, and that delivery is queued rather than immediate.
 const toolDescription = `Send a message, or publish a saved asset, to a notification channel an administrator has configured (Slack, Mattermost, an incoming webhook, or an email list).
 
-Call action=list first: channel names are not guessable, and a channel this session cannot reach is not listed. action=send posts a title and a markdown body with an optional link. action=publish posts a portal asset -- its title, its content, and a link back to it.
+Call action=list first: channel names are not guessable, and a channel this session cannot reach is not listed. action=send posts a title and a markdown body with an optional link and up to 5 attached assets or resources. action=publish posts a portal asset -- its title, its content, its preview image, and a link back to it.
+
+For an alert that repeats, pass key: a second send with the same key inside the channel's repeat window is counted and not posted, and the next post says how many were held back. A channel refuses sends past its hourly cap.
 
 Delivery is queued, so success means the message was accepted for delivery, not that it has already appeared. This tool does not create channels.`
 
@@ -56,6 +59,14 @@ type notifyInput struct {
 	// Data is structured JSON a webhook channel with format json delivers
 	// verbatim; every other channel ignores it.
 	Data any `json:"data,omitempty" jsonschema:"optional structured JSON for action=send, delivered verbatim to a webhook channel whose format is json (at most 64 KiB) and ignored by every other channel"`
+
+	// Attachments name the assets and resources that travel with the
+	// message as files, as a list of strings or of objects.
+	Attachments []any `json:"attachments,omitempty" jsonschema:"optional files to attach, at most 5: each an asset id, an asset's portal URL, a resource id or mcp:resource: reference, or an object {asset_id or resource_id, name}"`
+	// Key identifies a repeating alert, for send and publish.
+	Key string `json:"key,omitempty" jsonschema:"optional key naming this alert; a second send with the same key inside the channel's repeat window is counted and not posted, and the next post states how many were held back"`
+	// RepeatAfter lengthens the channel's repeat window for this key.
+	RepeatAfter string `json:"repeat_after,omitempty" jsonschema:"optional duration such as 6h that lengthens the channel's repeat window for this key; a value shorter than the channel's own is ignored"`
 
 	// Asset is the portal asset id for action=publish.
 	Asset string `json:"asset,omitempty" jsonschema:"the portal asset id to publish, for action=publish"`
@@ -87,6 +98,9 @@ type sendResult struct {
 	// Queued is how many queue rows were written: one for a chat or webhook
 	// channel, one per deliverable recipient for an email channel.
 	Queued int `json:"queued"`
+	// Suppressed reports a keyed send held back by the channel's repeat
+	// window: counted, and stated by the next post with the key.
+	Suppressed bool `json:"suppressed,omitempty"`
 	// Delivered is always false: nothing here waits for the transport. It is
 	// stated rather than implied so a caller does not read "queued" as "seen".
 	Delivered bool   `json:"delivered"`
@@ -197,23 +211,53 @@ func (h *Handle) resolveChannel(ctx context.Context, name string, c caller) (*no
 }
 
 // enqueue writes the document to the channel and renders the result.
-func (h *Handle) enqueue(ctx context.Context, ch notification.Channel, c caller, doc notification.Document) (*mcp.CallToolResult, any, error) {
-	queued, err := h.cfg.Enqueuer.NotifyChannel(ctx, ch, c.email, doc)
+func (h *Handle) enqueue(ctx context.Context, ch notification.Channel, c caller, doc notification.Document, repeatAfter string) (*mcp.CallToolResult, any, error) {
+	window, err := parseRepeatAfter(repeatAfter)
 	if err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
-	result := sendResult{Channel: ch.Name, Kind: ch.Kind, Queued: queued, Link: doc.Link}
-	if queued == 0 {
+	res, err := h.cfg.Enqueuer.NotifyChannel(ctx, notification.ChannelSend{
+		Channel: ch, Document: doc, Actor: c.email, RepeatAfter: window,
+	})
+	if err != nil {
+		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
+	}
+	result := sendResult{Channel: ch.Name, Kind: ch.Kind, Queued: res.Queued, Suppressed: res.Suppressed, Link: doc.Link}
+	switch {
+	case res.Suppressed:
+		result.Detail = fmt.Sprintf("not posted: a message with key %q went to %q inside the channel's repeat window; "+
+			"it was counted, and the next post with this key states how many were held back", doc.Key, ch.Name)
+	case res.Queued == 0:
 		// Nothing was written and nothing went wrong: every recipient on an
 		// email list had opted out, or the actor is over their enqueue rate.
 		// Reporting this as a send would be a lie the caller acts on.
 		result.Detail = "nothing was queued: either every recipient has opted out of notifications, " +
 			"or this session has enqueued too many messages in the last minute"
-		return toolkit.JSONResult(result), nil, nil
+	default:
+		result.Detail = fmt.Sprintf("accepted for delivery to %q; an administrator can see the outcome "+
+			"in the platform's notification history", ch.Name)
 	}
-	result.Detail = fmt.Sprintf("accepted for delivery to %q; an administrator can see the outcome "+
-		"in the platform's notification history", ch.Name)
 	return toolkit.JSONResult(result), nil, nil
+}
+
+// maxRepeatAfter bounds how long a sender may lengthen a key's window: a week,
+// past which a monitor is not repeating so much as asleep.
+const maxRepeatAfter = 7 * 24 * time.Hour
+
+// parseRepeatAfter reads the repeat_after parameter, a Go duration string.
+func parseRepeatAfter(in string) (time.Duration, error) {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(in)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("repeat_after %q must be a positive duration such as 30m or 6h", in)
+	}
+	if d > maxRepeatAfter {
+		return 0, fmt.Errorf("repeat_after %q is longer than the most a key may be held back, %s", in, maxRepeatAfter)
+	}
+	return d, nil
 }
 
 // handleSend posts a document the caller composed.
@@ -227,6 +271,10 @@ func (h *Handle) handleSend(ctx context.Context, input notifyInput) (*mcp.CallTo
 		Title: strings.TrimSpace(input.Title),
 		Body:  input.Body,
 		Link:  strings.TrimSpace(input.Link),
+		Key:   strings.TrimSpace(input.Key),
+	}
+	if err := h.attach(ctx, &doc, input.Attachments, c); err != nil {
+		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
 	if input.Data != nil {
 		data, err := wirejson.Marshal(input.Data)
@@ -239,7 +287,7 @@ func (h *Handle) handleSend(ctx context.Context, input notifyInput) (*mcp.CallTo
 	if err := notification.ValidateDocument(doc); err != nil {
 		return toolkit.ErrorResult("notify: " + err.Error()), nil, nil
 	}
-	return h.enqueue(ctx, *ch, c, doc)
+	return h.enqueue(ctx, *ch, c, doc, input.RepeatAfter)
 }
 
 // stamp records what produced a document: a managed script's run, read off
@@ -286,12 +334,14 @@ func (h *Handle) handleList(ctx context.Context) (*mcp.CallToolResult, any, erro
 // carries states what a kind can show.
 func carries(kind string) string {
 	switch kind {
+	case notification.ChannelKindSlack:
+		return "a title, a markdown body Slack renders (headings, tables, lists, code), files and a link"
 	case notification.ChannelKindMattermost:
-		return "a title, a markdown body and a link"
+		return "a title, a markdown body, files and a link"
 	case notification.ChannelKindWebhook:
-		return "a title and a text body; the link is appended to the text"
+		return "a title and a text body; files and the link are appended as links"
 	case notification.ChannelKindEmail:
-		return "a subject, a body and a link button, in the deployment's branded template"
+		return "a subject, a rendered markdown body, files and a link button, in the deployment's branded template"
 	default:
 		return "a title, a body and a link"
 	}

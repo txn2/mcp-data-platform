@@ -22,6 +22,7 @@ import (
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/alertwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/corshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
@@ -152,14 +153,14 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 
 	// Scheduled knowledge review-queue staleness check (#803). It enqueues
 	// through the substrate above, so it starts after it and stops before it.
-	reviewAlert := notifywire.BuildReviewAlert(p, notify)
+	reviewAlert := alertwire.BuildReviewAlert(p, notify)
 	reviewAlert.Start(ctx)
 	defer reviewAlert.Stop()
 
 	// Connection-revocation alerts (#1694). The sink is attached to the
 	// auth-event writer here, once the substrate it enqueues into exists; the
 	// escalation sweep starts and stops alongside the check above.
-	connEscalator := notifywire.WireConnRevocationAlert(p, notify)
+	connEscalator := alertwire.WireConnRevocationAlert(p, notify)
 	connEscalator.Start(ctx)
 	defer connEscalator.Stop()
 

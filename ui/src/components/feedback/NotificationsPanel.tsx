@@ -27,6 +27,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   share: "Share",
   comment: "Comment",
   mention: "Mention",
+  channel: "Channel",
 };
 
 // describeRetention states the window this list covers. The server reports the

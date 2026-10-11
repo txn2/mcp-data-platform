@@ -5157,26 +5157,43 @@ organization's own definitions rather than raw database columns.
 - MCP Specification: https://modelcontextprotocol.io/
 - Security Article: https://imti.co/mcp-defense/
 
-# Notification channels (#1720, #1723)
+# Notification channels (#1720-#1724, #1824)
 
 A notification channel is an operator-configured destination that is not one
-person: a Mattermost channel, an incoming webhook, or a named list of email
-addresses. Channels are configured under Admin > Settings >
+person: a Slack channel, a Mattermost channel, an incoming webhook, or a named
+list of email addresses. Channels are configured under Admin > Settings >
 Notification Channels, stored in the database, and never in YAML.
 
 Kinds and what each carries:
 
-- mattermost: posts through POST /api/v4/posts. Needs an api connection
-  holding the bot token and the site URL, and the target channel id. Carries a
-  title, a markdown body and a link.
+- slack (#1824): posts through chat.postMessage with a header block (the
+  title, 150 characters), a markdown block Slack renders into its own
+  headings, tables, lists and code (12,000-byte cap, link lines kept), and a
+  context block with the link. Files are uploaded through
+  files.getUploadURLExternal and a POST to the returned address (only on the
+  connection's own domain), then shared into the message's thread with
+  files.completeUploadExternal; a share failing after the post fails the
+  delivery saying the message was posted. Needs an api connection with
+  base_url https://slack.com/api, auth_mode bearer and the bot token
+  (chat:write, files:write), the target channel id, and the bot invited.
+  Slack answers a refusal with HTTP 200 and ok: false: ratelimited,
+  internal_error, service_unavailable, fatal_error and request_timeout retry;
+  every other code fails at once with the operator's next step. make dev
+  registers a slack-dev channel when dev/.slack-env holds
+  SLACK_TEST_BOT_TOKEN and SLACK_TEST_CHANNEL_ID.
+- mattermost: uploads each file through POST /api/v4/files, then posts
+  through POST /api/v4/posts with their file_ids. Needs an api connection
+  holding the bot token and the site URL, and the target channel id. Carries
+  the title as a heading, the markdown body, up to 5 files and a link, cut at
+  16,000 bytes.
 - webhook: posts one {"text": ...} body to the connection's base URL, the
   shape Slack and Mattermost both accept. Carries a title and a text body,
-  with the link appended. With `format: json` (#1997) it posts one envelope
+  each attachment and the link appended as lines, cut at 12,000 bytes. With `format: json` (#1997) it posts one envelope
   per notification instead: id (ntf_<queue row id>, the same on every retry,
   so a receiver deduplicates on it; a test send gets its own), type
   (script.finding, script.published, notify.sent, notify.published, test),
   occurred_at, deployment (the portal brand name), channel, title, the body
-  whole, link, source ({kind: script, script: mcp:script:<id>, run_id} or
+  whole, link, attachments (by link), source ({kind: script, script: mcp:script:<id>, run_id} or
   {kind: user}) and data, the sender's JSON verbatim (notify action=send
   data=..., platform.notify(..., data=...), at most 64 KiB; ignored by every
   other kind). Signing comes from the connection: with auth_mode hmac every
@@ -5186,7 +5203,11 @@ Kinds and what each carries:
   the row at once, saying the receiver asked for no more deliveries; any
   other 4xx fails at once with the upstream's words.
 - email: delivers to one to 20 operator-named addresses through the
-  deployment's mail server, in the branded template.
+  deployment's mail server, in the branded template: the body rendered from
+  markdown to HTML by goldmark's default renderer (headings, tables, lists,
+  code, links, strikethrough; raw HTML in the source is written as an
+  omission and a javascript: link is dropped), the markdown as written in the
+  text part, and the files as MIME attachments.
 
 A channel holds no credential. The three HTTP kinds name an existing api
 connection, so the bot token is that connection's credential -- encrypted at
@@ -5198,9 +5219,36 @@ a channel to fewer people means giving it its own connection; no new persona
 dimension exists. An email channel names no connection and is reachable by
 anyone who can send at all.
 
-What is sent is a document: a title, a markdown body, and an optional link.
-Each kind shows what it can and falls back to an excerpt plus the link past
-its own cap. Every send is an ordinary row in the existing notification queue,
+What is sent is a document: a title, a markdown body, an optional link, and up
+to 5 attachments (#1721). Each kind shows what it can and falls back to an
+excerpt plus the link past its own cap; the cut is made before the attachment
+lines and the link are added, so they always survive it.
+
+Attachments name a portal asset (at the version it had when the message was
+queued), an asset's light preview tile, or a managed resource (as it is at
+delivery); a queue row carries the reference, never the bytes, and the worker
+reads each file when it delivers. Who may attach a file is decided at enqueue
+against the sender (an asset they can read, a resource they can read); the
+worker acts for nobody. A file over 8 MiB, or one that can no longer be read,
+is sent as its link and does not fail the message. notify action=publish
+attaches the asset's preview on its own and posts a CSV asset as a markdown
+table of its first 50 rows.
+
+Repeating alerts (#1722): a send naming a key is held back when the same key
+was posted to the same channel inside the channel's repeat_after window
+(default 1h); it is counted and not queued, the sender is told suppressed:
+true, and the next send with the key after the window opens with a line
+saying how many repeats were not posted and since when. A send may pass
+repeat_after to lengthen its key's window, never to shorten it. The key, the
+count and the hourly cap are decided in the transaction that writes the
+message, under a per-channel advisory lock, so they hold across replicas
+(table notification_channel_keys, purged once a key's window has long
+ended). Every channel has max_per_hour (default 60), counted in sends (an
+email channel's fan-out is one send); a send past it is refused naming the
+cap and nothing is queued. A daily channel's posts are not keyed; a chat or
+text webhook daily channel posts the day's documents as one bulletin (each
+title, first paragraph and link, titled "<channel>: <n> updates today"),
+while a json webhook still receives each envelope. Every send is an ordinary row in the existing notification queue,
 claimed by the existing worker, retried on the existing backoff, purged on the
 existing retention, and visible in the existing delivery history; there is no
 synchronous send path, so an upstream outage is a retry rather than a failed
@@ -5215,9 +5263,21 @@ chat channel the bot was never invited to, any 4xx that is not a rate limit --
 fails the row at once rather than five times, recording the upstream's own
 words.
 
-Sending surfaces: the notify tool (action=list, action=send, action=publish),
-and platform.notify(channel, title, body, link) and platform.publish(channel,
-name, message) in a managed script. notify is an ordinary tool, so persona
+Sending surfaces: the notify tool (action=list, action=send with optional
+data, attachments, key and repeat_after, action=publish with optional key and
+repeat_after), and platform.notify(channel, title, body="", link="",
+data=None, key="", repeat_after="", attachments=None) and
+platform.publish(channel, name, message="", key="", repeat_after="") in a
+managed script. attachments is a list of asset ids, asset portal URLs,
+resource ids or mcp:resource: references, or objects naming asset_id or
+resource_id with an optional name. The portal's asset page has Post to a
+channel, which calls notify action=publish as the signed-in person over an
+in-process session (GET /api/v1/portal/channels, POST
+/api/v1/portal/channels/{name}/publish, POST /api/v1/portal/channels/{name}/send;
+a tool refusal answers 400 in its words, the rate limit 429). A run's page
+lists the posts that run made with their delivery status, read from the queue
+by the run recorded on each post (GET
+/api/v1/portal/scripts/{id}/runs/{runID}/posts). notify is an ordinary tool, so persona
 allow lists, the per-session rate limit and audit apply unchanged; a script's
 send is the run's principal holding its version author's roles, is refused in
 a draft run without allow_writes, and links back to the run that produced it
@@ -5225,8 +5285,22 @@ unless the script names its own link. An administrator tests a channel from
 its editor, which delivers immediately through the channel's own transport and
 reports what the upstream said.
 
-Admin REST: GET/PUT/DELETE /api/v1/admin/notification-channels[/{name}] and
-POST /api/v1/admin/notification-channels/{name}/test. All admin-only and
+Admin REST: GET/PUT/DELETE /api/v1/admin/notification-channels[/{name}],
+POST /api/v1/admin/notification-channels/{name}/test, and GET
+/api/v1/admin/notification-channels/{name}/status (last delivery, last error,
+sends in the last hour against the cap, waiting, repeats held back), shown
+under each channel on the settings page. The admin Notifications tab filters
+by channel (?channel=) and shows each row's channel and held-back count.
+
+Platform alerts route to channels (#1724): the review-queue alert and the
+connection revocation alert gain a channels list beside their recipients, and
+a new script_run_alert settings section (GET|PUT
+/api/v1/admin/settings/script-run-alert, the Scheduled run failures card)
+names the channels every failed scheduled run is posted to beside the owner's
+email, which now links to the run. Each alert posts under its own key (the
+queue, the connection, the script), so a re-firing alert is held back by the
+channel's repeat window. On a PUT, absent channels keeps the stored list, []
+clears it, and an unknown channel name is refused with 400. All admin-only and
 audited; the write routes answer 405 in file config mode.
 
 Local development: make dev runs mailpit (http://localhost:8025) for every
@@ -5234,10 +5308,7 @@ email the stack sends, and Mattermost (http://localhost:8065) seeded with a
 team, an ops-alerts channel and a token, registered as the mattermost-dev api
 connection.
 
-Slack is not a kind yet (#1824). Its transport is a small variation on the
-Mattermost one, but it has no local upstream to be exercised against, so it
-ships when there is a workspace to prove it in rather than on the strength of a
-test double.
+
 
 
 # Data Retention

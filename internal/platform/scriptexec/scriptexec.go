@@ -32,10 +32,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -125,6 +128,10 @@ type Config struct {
 	// in rather than one keyed by the author's address (#1677). Nil leaves a
 	// run keyed by address.
 	Subjects SubjectResolver
+
+	// FailureChannels posts the alert a failed scheduled run raises to the
+	// channels the operator named. Optional.
+	FailureChannels FailurePoster
 
 	// Notifier queues the alert a failed SCHEDULED run raises. When nil and DB
 	// is set, one is built over the notification queue unless
@@ -227,6 +234,12 @@ type Notifier interface {
 	Notify(ctx context.Context, recipient, category string, p notification.Payload) (bool, error)
 }
 
+// FailurePoster posts a failed scheduled run's alert to the operator's
+// notification channels (#1724). scriptalert.Poster implements it.
+type FailurePoster interface {
+	Post(ctx context.Context, key string, p notification.Payload) (int, error)
+}
+
 // newNotifier builds the enqueue side of the notification substrate over db.
 //
 // It is built here rather than handed in because of when this package is
@@ -248,6 +261,21 @@ func newNotifier(cfg Config) Notifier {
 		notifyprefs.NewPostgresStore(cfg.DB),
 		notifyqueue.NewPostgresStore(cfg.DB),
 		cfg.DigestHourUTC)
+}
+
+// failureChannels is the poster a failed scheduled run's alert reaches the
+// operator's channels through: the one supplied, or one built over the
+// database and the same enqueuer the owner's email goes through.
+func failureChannels(cfg Config, notifier Notifier) FailurePoster {
+	if cfg.FailureChannels != nil {
+		return cfg.FailureChannels
+	}
+	enq, ok := notifier.(*notification.Enqueuer)
+	if !ok || cfg.DB == nil {
+		return nil
+	}
+	return scriptalert.NewPoster(scriptalert.NewPostgresStore(cfg.DB),
+		notifyalert.New(notifychannel.NewPostgresStore(cfg.DB), enq))
 }
 
 // listenerControl narrows the LISTEN adapter to the two calls the handle makes,
@@ -304,6 +332,8 @@ func New(cfg Config) *Handle {
 		retention:   orDefaultRetention(cfg.RunRetention),
 		recordings:  cfg.Recordings,
 		notifier:    notifier,
+		channels:    failureChannels(cfg, notifier),
+		portalURL:   cfg.PortalURL,
 		metrics:     cfg.Metrics,
 		lease:       LeaseFor(cfg.Limits.WithDefaults().Timeout),
 		admission:   cfg.Admission,

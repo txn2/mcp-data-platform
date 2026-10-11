@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpobs"
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
 	"github.com/txn2/mcp-data-platform/internal/portal/assetrefs"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
@@ -281,6 +282,10 @@ type Deps struct {
 	// window and recipients (#1694). nil disables the
 	// /api/v1/admin/settings/connection-alert routes.
 	ConnectionAlert connalert.SettingsStore
+	// ScriptRunAlert persists the channels a failed scheduled run is posted
+	// to (#1724). nil disables the /api/v1/admin/settings/script-run-alert
+	// routes.
+	ScriptRunAlert scriptalert.SettingsStore
 	// NotificationChannels persists the destinations a document is
 	// delivered to (#1720). nil disables the
 	// /api/v1/admin/notification-channels routes.
@@ -288,6 +293,9 @@ type Deps struct {
 	// SendChannelTest delivers a test message through one channel's own
 	// transport. nil disables the channel test route.
 	SendChannelTest func(ctx context.Context, name string) error
+	// ChannelActivity reads one channel's recent activity. nil disables
+	// the channel status route.
+	ChannelActivity func(ctx context.Context, name string) (notification.ChannelActivity, error)
 	// APIConnectionExists reports whether a live api toolkit serves a
 	// connection, so a channel naming one that is gone is reported as
 	// undeliverable rather than as configured. nil omits that warning.
