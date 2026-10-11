@@ -242,7 +242,14 @@ func (p *produced) exportValue(req scriptrun.ExportRequest) (starlark.Value, err
 		body = starlark.String(*req.Body)
 	}
 	id := exportID(req.Name)
+	// The library a "resources" output is filed in (#2080), "" elsewhere.
+	var scope, scopeID string
+	if req.Destination.IsResource() {
+		scope, scopeID = req.Library.RecordScope()
+	}
 	return &watched{typ: "export", fields: starlark.StringDict{
+		"scope":       starlark.String(scope),
+		"scope_id":    starlark.String(scopeID),
 		"name":        starlark.String(req.Name),
 		"format":      starlark.String(req.Format),
 		"destination": starlark.String(req.Destination.Name),

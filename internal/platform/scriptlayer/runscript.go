@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/openrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/runcontrol"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptgrant"
@@ -96,6 +97,11 @@ func (h *Handle) handleRunScript(ctx context.Context, input runScriptInput) (*mc
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to queue a script run", fieldName, sc.Name, logKeyError, err)
 		return errorResult("failed to queue the run"), nil, nil
+	}
+	// A client that follows the run as a task (#2009) is answered at once;
+	// the run's progress and its result are the task's.
+	if mcptask.Requested(ctx) != nil {
+		return taskResult(ctx, sc, run)
 	}
 	return jsonResult(h.awaitRun(ctx, sc, run, waitBudget(input.WaitSeconds)))
 }
@@ -325,6 +331,11 @@ func runSummary(sc *script.Script, run *script.Run) map[string]any {
 		out["finished_at"] = run.FinishedAt.UTC()
 		out["duration_ms"] = run.Metrics.DurationMS
 	}
+	// The statement that ran longest against its timeout (#2073), so an owner
+	// sees one approaching its limit before a run fails on it.
+	if run.Metrics.SlowestStatement != nil {
+		out["slowest_statement"] = run.Metrics.SlowestStatement
+	}
 	// The latest platform.progress report (#1847): on a running run it is
 	// how far the run has got, on a finished one the last thing it said.
 	if run.Progress != nil {
@@ -384,6 +395,10 @@ returns its run_id, keeps going, and is read with manage_script get_run, which
 shows its latest progress and the log so far while it runs. A run that set a
 value with platform.result returns it as "result". manage_script cancel_run
 stops a run: a queued one never starts, a running one ends canceled.
+
+A client that declares the MCP Tasks extension is answered at once with a task
+instead: the run's progress is the task's status message, tasks/cancel cancels
+the run, and tasks/get returns this same answer once the run ends.
 
 The platform never runs a failed run again on its own. A failed run says why
 (cause) and whether running it again is expected to succeed (retryable). A

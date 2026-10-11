@@ -221,7 +221,7 @@ func TestPlainText_KeepsTheLinkWhenTheBodyIsCut(t *testing.T) {
 		Body:  strings.Repeat("paragraph of text\n\n", 500),
 		Link:  link,
 	}
-	out := plainText(doc, 400)
+	out := plainText(notification.Delivery{Document: doc}, 400)
 	if len(out) > 400 {
 		t.Errorf("plainText returned %d bytes, over the 400-byte cap", len(out))
 	}
@@ -235,7 +235,7 @@ func TestPlainText_KeepsTheLinkWhenTheBodyIsCut(t *testing.T) {
 
 func TestPlainText_ShortDocumentIsUnchanged(t *testing.T) {
 	doc := notification.Document{Title: "Hi", Body: "there"}
-	if got, want := plainText(doc, 1000), "Hi\n\nthere"; got != want {
+	if got, want := plainText(notification.Delivery{Document: doc}, 1000), "Hi\n\nthere"; got != want {
 		t.Errorf("plainText = %q, want %q", got, want)
 	}
 }

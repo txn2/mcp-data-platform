@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsave"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -73,9 +74,19 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 func (h *Handle) saveRequest(ctx context.Context, existing *script.Script, name, source string, input manageScriptInput) scriptsave.Request {
 	return scriptsave.Request{
 		Existing: existing, Name: name, Source: source,
-		Caller:        scriptsave.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx)},
+		Caller:        h.saveCaller(ctx),
 		ChangeSummary: input.ChangeSummary, Agreed: input.UserAgreed,
 	}
+}
+
+// saveCaller is who saves: their address, and the authority a run of the
+// version they save presents (#2080).
+func (h *Handle) saveCaller(ctx context.Context) scriptsave.Caller {
+	caller := scriptsave.Caller{Email: resolveEmail(ctx), Admin: h.isAdminPersona(ctx), Roles: callerAuthor(ctx).Roles}
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		caller.Persona = pc.PersonaName
+	}
+	return caller
 }
 
 // keepRecordings keeps the recordings the saved source's tests name past the

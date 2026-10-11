@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/mcptask"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -144,41 +146,48 @@ func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware 
 
 			ctx, pc := ensurePlatformContext(ctx, req)
 			startTime := time.Now()
-
-			// Execute handler
-			result, err := next(ctx, method, req)
-
-			duration := time.Since(startTime)
-
-			// Get platform context (set by MCPToolCallMiddleware)
-
-			// Build audit event
-			event := buildMCPAuditEvent(pc, auditCallInfo{
-				Request:   req,
-				Result:    result,
-				Err:       err,
-				StartTime: startTime,
-				Duration:  duration,
-			}, policy)
-
-			// Hand the event to the logger. context.Background is intentional:
-			// the async writer ignores this context, and the sync writer (which
-			// performs the store write inline) must not have its write canceled
-			// when the request ends — shutdown cancellation flows through the
-			// writer's Close, not the request context. Depending on delivery
-			// mode Log either enqueues (async) or writes inline within its
-			// per-write timeout (sync); neither fails the tool call.
-			if err := logger.Log(context.Background(), event); err != nil {
-				slog.ErrorContext(ctx, "failed to log audit event",
-					"error", err,
-					"tool", event.ToolName,
-					"user_id", event.UserID,
-					"request_id", event.RequestID,
-				)
+			write := func(pc *PlatformContext, result mcp.Result, err error) {
+				logAuditEvent(ctx, logger, buildMCPAuditEvent(pc, auditCallInfo{
+					Request:   req,
+					Result:    result,
+					Err:       err,
+					StartTime: startTime,
+					Duration:  time.Since(startTime),
+				}, policy))
 			}
 
+			// A call answered with a task (#2009) is recorded when the work
+			// behind it ends, with what that work produced: the handle the
+			// client was given says nothing about what the call did.
+			ctx = mcptask.WithCompletion(ctx, func(done context.Context, result mcp.Result, err error) {
+				write(cmp.Or(GetPlatformContext(done), pc), result, err)
+			})
+
+			result, err := next(ctx, method, req)
+			if err == nil && mcptask.IsTask(result) {
+				return result, nil
+			}
+			write(pc, result, err)
 			return result, err
 		}
+	}
+}
+
+// logAuditEvent hands the event to the logger. context.Background is
+// intentional: the async writer ignores this context, and the sync writer
+// (which performs the store write inline) must not have its write canceled when
+// the request ends — shutdown cancellation flows through the writer's Close,
+// not the request context. Depending on delivery mode Log either enqueues
+// (async) or writes inline within its per-write timeout (sync); neither fails
+// the tool call.
+func logAuditEvent(ctx context.Context, logger AuditLogger, event AuditEvent) {
+	if err := logger.Log(context.Background(), event); err != nil {
+		slog.ErrorContext(ctx, "failed to log audit event",
+			"error", err,
+			"tool", event.ToolName,
+			"user_id", event.UserID,
+			"request_id", event.RequestID,
+		)
 	}
 }
 

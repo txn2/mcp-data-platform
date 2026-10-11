@@ -44,12 +44,24 @@ func (f *fakeLander) Land(
 	f.landed = append(f.landed, dest)
 	f.bodies = append(f.bodies, string(body))
 	f.claims = append(f.claims, claims)
+	scope, scopeID := dest.Scope, dest.ScopeID
+	if scope == "" {
+		scope, scopeID = "user", "jane@example.com"
+	}
+	library := scope + "/" + scopeID
+	if scope == "global" {
+		library = scope
+	}
 	address := dest.Path + "/" + dest.Filename
+	if dest.Scope != "" {
+		address = library + "/" + address
+	}
 	f.versions[address]++
 	version := f.versions[address]
 	return &toolkit.ResourceLanding{
 		ResourceID: "res-" + address, Reference: "mcp:resource:res-" + address,
-		URI: "mcp://user/jane@example.com/" + address, Filename: dest.Filename, Path: dest.Path,
+		URI: "mcp://" + library + "/" + dest.Path + "/" + dest.Filename, Filename: dest.Filename, Path: dest.Path,
+		Scope: scope, ScopeID: scopeID,
 		ContentType: contentType, SizeBytes: int64(len(body)), Version: version,
 		Created: version == 1, TableChanges: f.tables, Message: "Landed.",
 	}, nil
@@ -101,7 +113,72 @@ func TestExportToTheLibraryWritesTheFileAtTheKey(t *testing.T) {
 	assert.Equal(t, "script:daily", lander.claims[0].Sub)
 	assert.Equal(t, "jane@example.com", lander.claims[0].OnBehalfOf)
 	assert.Equal(t, []string{"analyst"}, lander.claims[0].Roles)
-	assert.False(t, lander.claims[0].IsAdmin, "a run asserts no admin authority of its own")
+	assert.False(t, lander.claims[0].IsAdmin, "with no persona resolution, the roles alone decide")
+	assert.Equal(t, "user", out.Scope, "the record names the library the file landed in")
+	assert.Equal(t, "jane@example.com", out.ScopeID)
+	assert.Empty(t, lander.landed[0].Scope, "no scope named: the run's own library")
+}
+
+// An export naming a library (#2080) lands there, the run records the library
+// it named and the one the file landed in, and the result names the latter.
+func TestExportToANamedLibraryLandsThere(t *testing.T) {
+	h, lander := landingHarness(t)
+	req := libraryRequest("orders", "datasets/orders.csv")
+	req.Library = scriptrun.ResourceLibrary{Scope: "persona", ScopeID: "finance"}
+
+	out, err := h.writer.Export(context.Background(), req)
+
+	require.NoError(t, err)
+	require.Len(t, lander.landed, 1)
+	assert.Equal(t, "persona", lander.landed[0].Scope)
+	assert.Equal(t, "finance", lander.landed[0].ScopeID)
+	assert.Equal(t, "persona", out.Scope)
+	assert.Equal(t, "finance", out.ScopeID)
+	assert.Equal(t, "mcp://persona/finance/datasets/orders.csv", out.ResourceURI)
+	recorded := h.run.Outputs[0]
+	assert.Equal(t, "persona", recorded.Scope)
+	assert.Equal(t, "finance", recorded.ScopeID)
+	assert.Equal(t, "persona", recorded.LandedScope)
+	assert.Equal(t, "finance", recorded.LandedScopeID)
+}
+
+// One path in two libraries is two files: both are written. One path twice in
+// one library is refused, naming the library.
+func TestOnePathInTwoLibrariesIsTwoFiles(t *testing.T) {
+	h, lander := landingHarness(t)
+	_, err := h.writer.Export(context.Background(), libraryRequest("mine", "datasets/orders.csv"))
+	require.NoError(t, err)
+	global := libraryRequest("shared", "datasets/orders.csv")
+	global.Library = scriptrun.ResourceLibrary{Scope: "global"}
+	_, err = h.writer.Export(context.Background(), global)
+	require.NoError(t, err)
+	assert.Len(t, lander.landed, 2)
+
+	again := libraryRequest("shared-copy", "datasets/orders.csv")
+	again.Library = scriptrun.ResourceLibrary{Scope: "global"}
+	_, err = h.writer.Export(context.Background(), again)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "in the global library, where this run already wrote")
+}
+
+// A reclaimed attempt rebuilds a named library's address from the run record.
+func TestAReclaimedAttemptKnowsTheLibraryItWrote(t *testing.T) {
+	h, lander := landingHarness(t)
+	req := libraryRequest("shared", "datasets/orders.csv")
+	req.Library = scriptrun.ResourceLibrary{Scope: "global"}
+	_, err := h.writer.Export(context.Background(), req)
+	require.NoError(t, err)
+
+	reclaimed := newOutputWriter(h.writer.deps, h.runs, claimedRun{run: h.run, script: h.writer.script, version: testVersion()}, h.caller)
+	out, err := reclaimed.Export(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "global", out.Scope, "the earlier attempt's landing is what is reported")
+	again := libraryRequest("shared-copy", "datasets/orders.csv")
+	again.Library = scriptrun.ResourceLibrary{Scope: "global"}
+	_, err = reclaimed.Export(context.Background(), again)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already wrote")
+	assert.Len(t, lander.landed, 1)
 }
 
 // The output is recorded on the run by what it is: a file, its version, and what
@@ -227,7 +304,7 @@ func TestRunClaimsNameTheVersionAuthor(t *testing.T) {
 	sc := &script.Script{ID: "script_1", Name: "daily", OwnerEmail: "newowner@example.com"}
 	v := &script.Version{Author: "admin@example.com", AuthorRoles: []string{"admin"}}
 
-	claims := runClaims(sc, v, "")
+	claims := runClaims(sc, v, "", nil)
 
 	assert.Equal(t, "script:daily", claims.Sub)
 	assert.Equal(t, "newowner@example.com", claims.Email)
@@ -236,7 +313,34 @@ func TestRunClaimsNameTheVersionAuthor(t *testing.T) {
 		"the person a run files work under is the author it acts for")
 }
 
-func TestLibraryAddressIsThePath(t *testing.T) {
-	assert.NotEqual(t, libraryAddress("a/b.csv"), libraryAddress("a/c.csv"))
-	assert.True(t, strings.HasPrefix(libraryAddress("a/b.csv"), "library"))
+// The persona and the administrator's authority are what the author's roles
+// resolve to (#2080), as the run's own session resolves them, so a library
+// write is held to what platform.call("manage_resource") is.
+func TestRunClaimsResolveThePersonaLayer(t *testing.T) {
+	sc := &script.Script{ID: "script_1", Name: "daily", OwnerEmail: "jane@example.com"}
+	v := &script.Version{Author: "jane@example.com", AuthorRoles: []string{"dp_admin"}}
+	var asked []string
+	authority := Authority(func(roles []string) (string, bool) {
+		asked = roles
+		return "admin", true
+	})
+
+	claims := runClaims(sc, v, "", authority)
+
+	assert.Equal(t, []string{"dp_admin"}, asked)
+	assert.True(t, claims.IsAdmin)
+	assert.True(t, resource.CanWriteScope(claims, resource.ScopeGlobal, ""))
+	analyst := runClaims(sc, &script.Version{Author: "jane@example.com", AuthorRoles: []string{"dp_analyst"}}, "",
+		func([]string) (string, bool) { return "analyst", false })
+	assert.False(t, resource.CanWriteScope(analyst, resource.ScopeGlobal, ""))
+}
+
+func TestLibraryAddressIsTheLibraryAndThePath(t *testing.T) {
+	own := scriptrun.ResourceLibrary{}
+	global := scriptrun.ResourceLibrary{Scope: "global"}
+	assert.NotEqual(t, libraryAddress(own, "a/b.csv"), libraryAddress(own, "a/c.csv"))
+	assert.NotEqual(t, libraryAddress(own, "a/b.csv"), libraryAddress(global, "a/b.csv"))
+	assert.NotEqual(t, libraryAddress(scriptrun.ResourceLibrary{Scope: "persona", ScopeID: "a"}, "b/c.csv"),
+		libraryAddress(scriptrun.ResourceLibrary{Scope: "persona", ScopeID: "a/b"}, "c.csv"))
+	assert.True(t, strings.HasPrefix(libraryAddress(own, "a/b.csv"), "library"))
 }

@@ -41,12 +41,17 @@ func (w *outputWriter) writeResource(
 	// reason an object key identifies a delivered one: two output names can be
 	// given one path, and the second write would record itself as a version of
 	// the first one's file while the run recorded both as written.
-	if prior, taken := w.delivered[libraryAddress(req.Key)]; taken {
-		return nil, script.RunOutput{}, fmt.Errorf("output %q would be written to %s in the library, where this "+
-			"run already wrote %q; give it its own key", req.Name, req.Key, prior)
+	address := libraryAddress(req.Library, req.Key)
+	if prior, taken := w.delivered[address]; taken {
+		return nil, script.RunOutput{}, fmt.Errorf("output %q would be written to %s in %s, where this "+
+			"run already wrote %q; give it its own key", req.Name, req.Key, req.Library.Label(), prior)
 	}
 
+	// The library the script named (#2080), resolved and checked against the
+	// run's identity by the lander as manage_resource's create is: a library
+	// the run may not write is refused there, before anything is written.
 	landing, err := w.deps.Lander.Land(ctx, toolkit.ResourceDestination{
+		Scope: req.Library.Scope, ScopeID: req.Library.ScopeID,
 		Path: path, Filename: filename,
 		DisplayName:   req.Name,
 		Description:   fmt.Sprintf("Output of the managed script %s. Each run records a new version.", w.script.Name),
@@ -56,14 +61,15 @@ func (w *outputWriter) writeResource(
 	if err != nil {
 		return nil, script.RunOutput{}, fmt.Errorf("writing output %q to the library: %w", req.Name, err)
 	}
-	w.delivered[libraryAddress(req.Key)] = req.Name
+	w.delivered[address] = req.Name
 	slog.InfoContext(ctx, "scripts: wrote an output to the managed-resource library",
 		logKeyRunID, w.run.ID, "output", req.Name, "uri", landing.URI,
 		"version", landing.Version, "created", landing.Created, "bytes", landing.SizeBytes)
 
 	out := script.RunOutput{
 		Name: req.Name, Destination: req.Destination.Name,
-		Key:             req.Key,
+		Key: req.Key, Scope: req.Library.Scope, ScopeID: req.Library.ScopeID,
+		LandedScope: landing.Scope, LandedScopeID: landing.ScopeID,
 		ResourceID:      landing.ResourceID,
 		ResourceURI:     landing.URI,
 		ResourceVersion: landing.Version,
@@ -77,16 +83,18 @@ func (w *outputWriter) writeResource(
 		ResourceRef:     landing.Reference,
 		ResourceURI:     landing.URI,
 		ResourceVersion: landing.Version,
+		Scope:           landing.Scope,
+		ScopeID:         landing.ScopeID,
 		Bytes:           len(data),
 		TableChanges:    landing.TableChanges,
 	}, out, nil
 }
 
-// libraryAddress identifies one library file within a run: the path it is filed
-// at. The library itself is not part of it because a run's library outputs all
-// land in the one the run acts for.
-func libraryAddress(key string) string {
-	return "library\x00" + key
+// libraryAddress identifies one library file within a run: the library the
+// script named (#2080) and the path it is filed at in it. One path in two
+// libraries is two files.
+func libraryAddress(library scriptrun.ResourceLibrary, key string) string {
+	return "library\x00" + library.Scope + "\x00" + library.ScopeID + "\x00" + key
 }
 
 // runClaims is the managed-resource identity a run's own writes are made under.
@@ -101,11 +109,14 @@ func libraryAddress(key string) string {
 // platform has seen it, so the output lands in the library that session files
 // in rather than one keyed by the author's address (#1677).
 //
-// The roles are the author's, and admin is NOT asserted: that resolution belongs
-// to the persona layer, and claiming it here would hand every run an authority
-// nothing granted it. A run's library output lands in the author's own library,
-// which needs no admin arm.
-func runClaims(sc *script.Script, v *script.Version, subject string) resource.Claims {
-	return resource.BuildClaims(sc.Principal(), sc.OwnerEmail, "", v.AuthorRoles, false).
+// The roles are the author's, and the persona and the administrator's
+// authority are what the persona layer resolves those roles to (#2080): the
+// same resolution the run's own MCP session gets, so a library write through
+// platform.export is held to exactly what the same run's
+// platform.call("manage_resource") is. Nothing is asserted that the roles do
+// not resolve to.
+func runClaims(sc *script.Script, v *script.Version, subject string, authority Authority) resource.Claims {
+	persona, admin := authority.resolve(v.AuthorRoles)
+	return resource.BuildClaims(sc.Principal(), sc.OwnerEmail, persona, v.AuthorRoles, admin).
 		ActingFor(v.Author, subject)
 }

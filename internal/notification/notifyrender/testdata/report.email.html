@@ -1,0 +1,29 @@
+<h2>Revenue by region</h2>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th style="text-align:right">Revenue</th>
+<th style="text-align:right">Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>West</td>
+<td style="text-align:right">1,204,000</td>
+<td style="text-align:right">+4%</td>
+</tr>
+<tr>
+<td>East</td>
+<td style="text-align:right">988,500</td>
+<td style="text-align:right"><del>-1%</del> +1%</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>West led for the third week</li>
+<li>East recovered</li>
+</ul>
+<pre><code class="language-sql">SELECT region, SUM(amount) FROM sales GROUP BY 1
+</code></pre>
+<p>See the <a href="https://portal.example.com/portal/assets/a1">full report</a>.</p>

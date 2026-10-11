@@ -102,6 +102,7 @@ nav:
     - End User:
       - Tools: server/tools.md
       - Exports Cut at a Limit: server/export-truncation.md
+      - MCP Tasks: server/tasks.md
       - Content Types and Viewers: server/content-viewers.md
       - Street Maps: server/maps.md
       - Asset References: server/asset-references.md

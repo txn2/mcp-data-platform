@@ -547,6 +547,34 @@ Whoever may read a run may stop it: the script's owner, an administrator, and
 whoever requested that run. A canceled run is not a failure: it is not
 retried, and a scheduled one does not mail its owner.
 
+### Following a run as an MCP task
+
+A client that declares the MCP Tasks extension (`io.modelcontextprotocol/tasks`,
+protocol revision 2026-07-28) on its `tools/call` is answered by `run_script` at
+once with a task instead of waiting (#2009). The task is the run:
+
+- Its `taskId` is the run id (`dpx_…`), so `manage_script get_run` reads the
+  same run. Nothing is stored beside it, and it is kept as long as
+  `scripts.run_retention_days` keeps the run.
+- `tasks/get` reports it `working` while the run is queued or executing, with the
+  run's latest `platform.progress` message as the task's `statusMessage`.
+- When the run ends the task is `completed`, and `tasks/get` inlines the answer
+  `run_script` would have given: status, `result` (what `platform.result` set),
+  the outputs, and for a failed run its `error`, `cause` and `retryable`. A
+  failed run is a tool result that says it failed, not a protocol error.
+- `tasks/cancel` is `cancel_run`: a queued run never starts, a running one ends
+  canceled within seconds, and the task then reports `cancelled`.
+- Whoever may read the run may follow the task: the script's owner, an
+  administrator, and whoever requested the run. Everyone else is told the task
+  does not exist.
+- `wait_seconds` does not apply: the client polls `tasks/get` at the
+  `pollIntervalMs` it was handed.
+
+A client that does not declare the extension gets exactly the answer described
+above, waiting up to `wait_seconds`. The export tools (`trino_export`,
+`api_export`, `graphql_export`) are tasks to the same client: see
+[MCP tasks](../server/tasks.md).
+
 ## Running one on a schedule
 
 A schedule is what turns a script into an automation: a cadence, a timezone,
@@ -1894,14 +1922,68 @@ def main():
   seen the author's subject is folded into the subject-keyed library the next
   time either the author authenticates or a run of theirs executes, keeping its
   id and leaving its old address resolving, so a scheduled script keeps its
-  rolling file. Writing to the persona or global library is an explicit scope,
-  which `platform.call("api_export", ...)` and `manage_resource` take and this
-  destination does not.
+  rolling file. `scope` and `scope_id` file it in another library instead;
+  see below.
 - What the write did to the tables registered over the file is printed into the
   run log, one line per table, whether or not the script prints the result.
 - A draft run previews it like every other output: the content is serialized to
-  measure it and nothing is written. A draft run with `allow_writes` writes it,
-  into the caller's library.
+  measure it and nothing is written, and the record names the library it would
+  go in. A draft run with `allow_writes` writes it, under the drafting person's
+  own authority: into their library, or the one `scope` names.
+
+#### Filing it in a persona or the global library
+
+`scope` and `scope_id` name the library the file goes in (#2080), read the way
+`manage_resource` reads them:
+
+```python
+def main():
+    """Writes the shared orders file every analyst reads."""
+    rows = platform.query(connection = "warehouse", sql = "SELECT ...")["rows"]
+    out = platform.export(
+        "Daily orders",
+        rows,
+        format = "csv",
+        destination = "resources",
+        key = "reports/orders/daily.csv",
+        scope = "persona",
+        scope_id = "finance",
+    )
+    print(out["scope"], out["scope_id"], out["uri"])
+```
+
+| `scope` | `scope_id` | Library | Who may write it |
+|---|---|---|---|
+| absent, or `user` | absent | the person the run acts for | always |
+| `user` | another person's address | that person's | a platform administrator |
+| `persona` | the persona's name | the persona's | that persona's admin, or a platform administrator |
+| `global` | absent | the platform's | a platform administrator |
+
+- The check is `resource.CanWriteScope`, against the identity the run presents:
+  the roles its author held at save, resolved to a persona the way the run's own
+  session resolves them. It is the check `platform.call("manage_resource",
+  {"action": "create", "scope": ...})` passes through from the same run, so a
+  script reaches with `platform.export` exactly the libraries it already reaches
+  with `manage_resource`, and never one its author cannot write.
+- It is made when the script is saved: a save naming a library its author cannot
+  write is refused, naming the library. It is made again when the file is
+  written: a run whose author has since lost the role fails naming the library,
+  and nothing is written.
+- `scope` and `scope_id` are passed by name and written out as strings (directly
+  or through a module constant), like `destination` and `key`, so where a script
+  writes stays readable from its source. `validate` lists every library the
+  exports write to under `resource_libraries`.
+- `key` is the path inside the named library, so the same key and scope on the
+  next run record the next version of the same file (same id and URI), with
+  `append=True` and `register=` as without.
+- The record carries `scope` and `scope_id`: where the file is. A file another
+  library's file was moved from still answers at its old address, and an export
+  to that address writes the next version of the moved file, wherever it now is;
+  the record names the library it is in.
+- With `append=True` the first call fixes the scope with the key; a later page
+  naming another library is refused.
+- `testing.outputs()` carries each export's `scope` and `scope_id`, so a test
+  asserts on where the script writes.
 
 ### Paging into one output
 
@@ -1936,6 +2018,10 @@ def main():
         if not cursor:
             break
 ```
+
+The run records the output where its first page was written, so a run's
+outputs, a draft's and `testing.outputs()` list it in the order the script
+made it.
 
 Each page is serialized when it arrives and only the bytes are kept, so the
 Starlark values of a page are the script's to drop before the next one. The
@@ -2284,7 +2370,8 @@ message:
 
 | What Trino reported | Run cause | Retryable |
 |---|---|---|
-| No answer: a timeout (including one while polling the statement), a refused or reset connection, a DNS failure, a 502, 503 or 504 | `upstream` | yes |
+| No answer: a timeout before the coordinator accepted the statement, a refused or reset connection, a DNS failure, a 502, 503 or 504 | `upstream` | yes |
+| A statement the coordinator accepted and stopped at its timeout (see [How long one statement may run](#how-long-one-statement-may-run)) | `script` | no |
 | `INSUFFICIENT_RESOURCES`, or `INTERNAL_ERROR` naming a node or transport fault | `upstream` | yes |
 | `EXTERNAL` with a SQLSTATE `08` connection error from the source | `upstream` | yes |
 | `USER_ERROR` (syntax, a missing table or column, a type mismatch, a permission) | `script` | no |
@@ -2349,6 +2436,62 @@ A test reaches that branch by declaring the failure:
 `testing.answer("trino_execute", {"connection": "warehouse"}, error = {"retryable": True, "category": "upstream_unavailable", "message": "...", "trino": {"error_type": "EXTERNAL", "sql_state": "08001"}})`.
 A recorded run keeps the classification of every call that failed, so a replay
 fails the way the run did.
+
+### How long one statement may run
+
+A statement runs under a timeout (#2073). `platform.query`, `platform.execute`
+and a `platform.call` to `trino_query` or `trino_execute` take
+`timeout_seconds`; left out, the statement has the tools' default of 120
+seconds.
+
+```python
+REBUILD_SQL = "CREATE TABLE warehouse.public.daily_totals AS SELECT day, sum(total) AS total FROM warehouse.public.orders GROUP BY day"
+
+def main():
+    """Rebuilds the daily totals, which takes longer than the default limit."""
+    platform.execute(REBUILD_SQL, connection = "warehouse", timeout_seconds = 300)
+```
+
+- The most a statement may ask for is `scripts.sql.max_timeout_seconds`, 300
+  unless the deployment lowers it. A request above it fails the run and names
+  the ceiling and the key; it is never cut to fit. A ceiling under 120 lowers
+  the default as well.
+- A statement never runs past the time left in the run: the host gives it the
+  run's remaining time less five seconds when that is shorter, so the statement
+  is stopped, and its cancel confirmed, before the run is. A draft's 60 seconds
+  is always shorter than the default, so a draft's statements run under the
+  draft's remaining time.
+- A statement the coordinator accepted and then stopped at its timeout is
+  canceled, and fails the run with cause `script`, not retryable: the same
+  statement over the same data runs as long again. The run's error names the
+  limit, how long the statement ran, the query id and what became of the
+  query:
+
+```text
+Trino stopped the statement at its 120s limit after 121.4s (statement timeout, query 20261009_120000_00001_abcde); the query was canceled. The next run fails the same way until the statement does less work, is split, or is given a longer timeout_seconds.
+```
+
+  When the cancel was sent and not confirmed it says the query may still be
+  running. A timeout before the coordinator accepted the statement is still a
+  failure to reach Trino, `upstream` and retryable.
+- With `on_error = "return"` the envelope carries `statement_timeout`
+  (`elapsed_ms`, `limit_ms`, `limit_source`, `cancel_requested`,
+  `cancel_confirmed`) and `query_id`.
+- `get_run` and a `run_draft` answer report `slowest_statement`: the tool, its
+  `elapsed_ms`, the `limit_ms` it ran under and where that came from
+  (`limit_source`: `default`, `requested` or `run_remaining`), its
+  `share_of_limit`, and `timed_out`. A statement whose share is close to 1 is
+  close to failing the run.
+
+```yaml
+scripts:
+  sql:
+    max_timeout_seconds: 300   # the most timeout_seconds may be; 1 to 300
+```
+
+`manage_script help` reports `statement_default_timeout_seconds`,
+`statement_max_timeout_seconds` and `statement_max_timeout_key`, and
+`platform_info`'s `limits.query` reports `script_max_timeout_seconds`.
 
 ### The owner's email
 

@@ -5,6 +5,7 @@ import {
   useSetNotificationChannel,
   useDeleteNotificationChannel,
   useTestNotificationChannel,
+  useNotificationChannelStatus,
   type NotificationChannel,
 } from "@/api/admin/hooks";
 import { Badge } from "@/components/ui/badge";
@@ -100,7 +101,7 @@ export function NotificationChannelsCard({ isReadOnly }: { isReadOnly: boolean }
     <SettingsCard
       icon={Send}
       title="Notification Channels"
-      description="Where reports and alerts are sent: a Mattermost channel, an incoming webhook, or a list of email addresses. A channel holds no credential — the chat and webhook kinds name an api connection, and the token lives there."
+      description="Where reports and alerts are sent: a Slack channel, a Mattermost channel, an incoming webhook, or a list of email addresses. A channel holds no credential — the chat and webhook kinds name an api connection, and the token lives there."
       action={
         !isReadOnly && (
           <Button size="sm" variant="outline" onClick={openNew} data-testid="channel-new">
@@ -211,6 +212,7 @@ function ChannelRow({
               {ch.description}
             </span>
           )}
+          <ChannelStatusLine name={ch.name} />
           {ch.warnings?.map((w) => (
             <span
               key={w}
@@ -222,9 +224,38 @@ function ChannelRow({
           ))}
         </span>
         <span className="shrink-0 text-sm text-muted-foreground">
-          {ch.connection || `${ch.recipients?.length ?? 0} recipients`}
+          {ch.connection || recipientCount(ch.recipients?.length ?? 0)}
         </span>
       </button>
     </li>
   );
+}
+
+// ChannelStatusLine is what the channel has done recently: when it last
+// delivered, how close it is to its hourly cap, what is waiting, what its keys
+// are holding back, and the last failure still recorded against it.
+function ChannelStatusLine({ name }: { name: string }) {
+  const { data } = useNotificationChannelStatus(name);
+  if (!data) return null;
+  const parts = [
+    `Last delivered ${data.last_delivered_at ? new Date(data.last_delivered_at).toLocaleString() : "never"}`,
+    `Sent this hour ${data.sent_last_hour} of ${data.max_per_hour}`,
+  ];
+  if (data.pending > 0) parts.push(`Waiting ${data.pending}`);
+  if (data.suppressed > 0) parts.push(`Suppressed repeats ${data.suppressed}`);
+  return (
+    <span className="mt-0.5 block text-xs text-muted-foreground" data-testid={`channel-status-${name}`}>
+      {parts.join(" · ")}
+      {data.last_error && (
+        <span className="mt-0.5 block truncate text-destructive" title={data.last_error}>
+          Last error: {data.last_error}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// recipientCount names how many addresses an email channel delivers to.
+function recipientCount(n: number): string {
+  return `${n} recipient${n === 1 ? "" : "s"}`;
 }

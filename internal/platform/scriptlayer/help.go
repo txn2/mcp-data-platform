@@ -8,6 +8,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptcontract"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexamples"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -136,10 +137,15 @@ func (h *Handle) handleHelp(_ context.Context, _ manageScriptInput) (*mcp.CallTo
 			"run_max_rows":         h.runLimits.MaxRows,
 			"run_result_bytes":     h.runLimits.ResultMaxBytes,
 			"run_max_memory_bytes": h.runLimits.MaxMemoryBytes,
-			"output_max_bytes":     scriptrun.MaxOutputBytes,
-			"log_bytes":            scriptrun.MaxLogBytes,
-			"max_source_bytes":     script.MaxSourceBytes,
-			"state_bytes":          script.MaxStateBytes,
+			// How long one statement may run (#2073): the tools' default when
+			// a call names no timeout_seconds, and the most it may name.
+			"statement_default_timeout_seconds": int(min(scriptstmt.ToolDefaultTimeout, h.runLimits.MaxStatementTimeout).Seconds()),
+			"statement_max_timeout_seconds":     int(h.runLimits.MaxStatementTimeout.Seconds()),
+			"statement_max_timeout_key":         scriptstmt.MaxTimeoutKey,
+			"output_max_bytes":                  scriptrun.MaxOutputBytes,
+			"log_bytes":                         scriptrun.MaxLogBytes,
+			"max_source_bytes":                  script.MaxSourceBytes,
+			"state_bytes":                       script.MaxStateBytes,
 			"note": "A draft run is bounded more tightly than a platform run; the run_ limits are the ones a " +
 				"saved script meets on this deployment. A tool a run calls keeps its own ceiling as well: " +
 				"a trino_export or api_export inside a run is bounded by that tool's timeout. " +

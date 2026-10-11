@@ -18,6 +18,7 @@ deployment sets nothing unless it wants a different age.
 | Audit log | 90 days | `audit.retention_days` | |
 | Call catalog records nothing came of | 90 days | `calls.retention_days` | |
 | Managed-script runs | 365 days | `scripts.run_retention_days` | |
+| Exports run as MCP tasks (`call_tasks`) | 7 days after the call | `tasks.retention_days` | The export's asset or file is kept; only the record a client reads the task's outcome from is removed |
 
 For each setting, `0` or unset takes the default shown and a negative value
 keeps the rows forever.
@@ -39,7 +40,7 @@ retention:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `retention.every` | duration | `24h` | How often the portal, memory, producer and GraphQL sweeps run. The ages they remove at are the `*_retention_days` settings above |
+| `retention.every` | duration | `24h` | How often the portal, memory, producer, GraphQL and call-task sweeps run. The ages they remove at are the `*_retention_days` settings above |
  An asset whose stored object cannot be
 deleted keeps its row, and the next day's run tries again, so no object is left
 behind with nothing naming it.

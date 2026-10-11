@@ -53,6 +53,12 @@ type Record struct {
 	ResourceRef     string `json:"reference,omitempty"`
 	ResourceURI     string `json:"uri,omitempty"`
 	ResourceVersion int    `json:"version,omitempty"`
+	// Scope and ScopeID are the library a "resources" output is in (#2080):
+	// where the file landed, or on a preview the library the export names.
+	// "user" with no ScopeID on a preview is the library of the person the
+	// run acts for.
+	Scope   string `json:"scope,omitempty"`
+	ScopeID string `json:"scope_id,omitempty"`
 	// TableChanges is what the version did to the tables registered over the
 	// output's file (#1536): one sentence per table, saying it followed onto
 	// the version or is pinned and now behind it. The same sentences are
@@ -137,6 +143,12 @@ func setLocators(out *starlark.Dict, record Record) {
 		_ = out.SetKey(starlark.String("reference"), starlark.String(record.ResourceRef))
 		_ = out.SetKey(starlark.String("uri"), starlark.String(record.ResourceURI))
 		_ = out.SetKey(starlark.String("version"), starlark.MakeInt(record.ResourceVersion))
+	}
+	if record.Scope != "" {
+		_ = out.SetKey(starlark.String("scope"), starlark.String(record.Scope))
+		if record.ScopeID != "" {
+			_ = out.SetKey(starlark.String("scope_id"), starlark.String(record.ScopeID))
+		}
 	}
 }
 

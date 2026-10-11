@@ -8,6 +8,8 @@
   {{.Body}}{{end}}
 {{- if .Message}}
   "{{.Message}}"{{end}}
+{{- range .Links}}
+  Attachment: {{.Name}}{{if .URL}} {{.URL}}{{end}}{{end}}
 {{- if .Link}}
   {{.Link}}{{end}}
 {{end}}

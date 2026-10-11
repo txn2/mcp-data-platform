@@ -80,7 +80,7 @@ func newOutputWriter(deps ExportDeps, runs script.RunStore, rc claimedRun, calle
 	return &outputWriter{
 		deps: deps, runs: runs, run: rc.run, script: rc.script, caller: caller,
 		written: map[string]bool{}, delivered: map[string]string{},
-		claims: runClaims(rc.script, rc.version, rc.subject),
+		claims: runClaims(rc.script, rc.version, rc.subject, deps.Authority),
 	}
 }
 
@@ -179,7 +179,7 @@ func (w *outputWriter) priorAttempt(name, destination string) *scriptrun.ExportR
 	// have collided with was skipped.
 	if prior.Key != "" {
 		if prior.ResourceID != "" {
-			w.delivered[libraryAddress(prior.Key)] = name
+			w.delivered[libraryAddress(scriptrun.ResourceLibrary{Scope: prior.Scope, ScopeID: prior.ScopeID}, prior.Key)] = name
 		} else {
 			w.delivered[objectAddress(script.Destination{Bucket: prior.Bucket}, prior.Key)] = name
 		}
@@ -188,7 +188,7 @@ func (w *outputWriter) priorAttempt(name, destination string) *scriptrun.ExportR
 		AssetID: prior.AssetID, AssetVersion: prior.AssetVersion,
 		Bucket: prior.Bucket, Key: prior.Key, Bytes: prior.Bytes,
 		ResourceID: prior.ResourceID, ResourceURI: prior.ResourceURI,
-		ResourceVersion: prior.ResourceVersion,
+		ResourceVersion: prior.ResourceVersion, Scope: prior.LandedScope, ScopeID: prior.LandedScopeID,
 	}
 }
 

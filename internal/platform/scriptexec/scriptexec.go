@@ -32,10 +32,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifychannel"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -126,6 +129,10 @@ type Config struct {
 	// run keyed by address.
 	Subjects SubjectResolver
 
+	// FailureChannels posts the alert a failed scheduled run raises to the
+	// channels the operator named. Optional.
+	FailureChannels FailurePoster
+
 	// Notifier queues the alert a failed SCHEDULED run raises. When nil and DB
 	// is set, one is built over the notification queue unless
 	// NotificationsDisabled says the deployment turned notifications off.
@@ -202,6 +209,24 @@ type ExportDeps struct {
 	// destination reporting that this deployment has no library, which is what a
 	// deployment without one should say.
 	Lander ResourceLander
+	// Authority resolves the persona a set of roles acts as and whether that
+	// persona is the administrator's (#2080), the resolution the run's own
+	// session gets from the persona layer. A library write is checked against
+	// it, so platform.export reaches the libraries platform.call
+	// ("manage_resource") does. Nil resolves none: the roles alone decide.
+	Authority Authority
+}
+
+// Authority resolves the persona roles act as and whether it is the
+// administrator's.
+type Authority func(roles []string) (persona string, admin bool)
+
+// resolve applies a, or resolves nothing when a is nil.
+func (a Authority) resolve(roles []string) (string, bool) {
+	if a == nil {
+		return "", false
+	}
+	return a(roles)
 }
 
 // ResourceLander lands one output in the managed resource at a path. It is the
@@ -227,6 +252,12 @@ type Notifier interface {
 	Notify(ctx context.Context, recipient, category string, p notification.Payload) (bool, error)
 }
 
+// FailurePoster posts a failed scheduled run's alert to the operator's
+// notification channels (#1724). scriptalert.Poster implements it.
+type FailurePoster interface {
+	Post(ctx context.Context, key string, p notification.Payload) (int, error)
+}
+
 // newNotifier builds the enqueue side of the notification substrate over db.
 //
 // It is built here rather than handed in because of when this package is
@@ -248,6 +279,21 @@ func newNotifier(cfg Config) Notifier {
 		notifyprefs.NewPostgresStore(cfg.DB),
 		notifyqueue.NewPostgresStore(cfg.DB),
 		cfg.DigestHourUTC)
+}
+
+// failureChannels is the poster a failed scheduled run's alert reaches the
+// operator's channels through: the one supplied, or one built over the
+// database and the same enqueuer the owner's email goes through.
+func failureChannels(cfg Config, notifier Notifier) FailurePoster {
+	if cfg.FailureChannels != nil {
+		return cfg.FailureChannels
+	}
+	enq, ok := notifier.(*notification.Enqueuer)
+	if !ok || cfg.DB == nil {
+		return nil
+	}
+	return scriptalert.NewPoster(scriptalert.NewPostgresStore(cfg.DB),
+		notifyalert.New(notifychannel.NewPostgresStore(cfg.DB), enq))
 }
 
 // listenerControl narrows the LISTEN adapter to the two calls the handle makes,
@@ -304,6 +350,8 @@ func New(cfg Config) *Handle {
 		retention:   orDefaultRetention(cfg.RunRetention),
 		recordings:  cfg.Recordings,
 		notifier:    notifier,
+		channels:    failureChannels(cfg, notifier),
+		portalURL:   cfg.PortalURL,
 		metrics:     cfg.Metrics,
 		lease:       LeaseFor(cfg.Limits.WithDefaults().Timeout),
 		admission:   cfg.Admission,
@@ -374,6 +422,15 @@ type storeSet struct {
 	scripts   ScriptReader
 	versions  VersionReader
 	schedules script.ScheduleStore
+}
+
+// hoursPerDay converts a retention expressed in days to a duration.
+const hoursPerDay = 24
+
+// RetentionDays is scripts.run_retention_days as a duration, the default
+// when zero or less.
+func RetentionDays(days int) time.Duration {
+	return orDefaultRetention(time.Duration(days) * hoursPerDay * time.Hour)
 }
 
 // orDefaultRetention applies the default when a deployment names no retention.

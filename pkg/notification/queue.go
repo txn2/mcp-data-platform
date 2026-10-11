@@ -12,6 +12,13 @@ import (
 type QueueStore interface {
 	// Enqueue inserts a pending row and nudges the send worker.
 	Enqueue(ctx context.Context, n Notification) error
+	// EnqueueChannel writes the rows of one channel send in one transaction
+	// behind gate: it returns an error wrapping ErrChannelOverCap when the
+	// channel has been sent gate.MaxPerHour sends in the last hour, and
+	// Suppressed when gate.Key was sent inside gate.Window. A send that goes
+	// through after suppressed ones carries their count and start on its
+	// document.
+	EnqueueChannel(ctx context.Context, rows []Notification, gate ChannelGate) (ChannelOutcome, error)
 	// ClaimImmediate claims the next due non-digest row deliverable under
 	// filter, returning ErrNoWork when none is due.
 	ClaimImmediate(ctx context.Context, lease time.Duration, filter TransportFilter) (*Notification, error)
@@ -30,6 +37,9 @@ type QueueStore interface {
 	// deployment that queued for months does not deliver an ancient
 	// backlog. Returns the number of rows deleted.
 	PurgeOld(ctx context.Context, resolvedRetention, pendingTTL time.Duration) (int64, error)
+	// PurgeChannelKeys deletes suppression keys whose window ended more than
+	// retention ago, returning how many were deleted.
+	PurgeChannelKeys(ctx context.Context, retention time.Duration) (int64, error)
 }
 
 // TransportFilter narrows a claim to the rows the worker can currently

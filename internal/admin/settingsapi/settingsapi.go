@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/connalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
 	"github.com/txn2/mcp-data-platform/internal/wirejson"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
@@ -44,12 +45,18 @@ type Config struct {
 	// window and recipients (#1694). nil disables the connection-alert
 	// routes.
 	ConnectionAlert connalert.SettingsStore
+	// ScriptRunAlert persists the channels a failed scheduled run is posted
+	// to (#1724). nil disables the script-run-alert routes.
+	ScriptRunAlert scriptalert.SettingsStore
 	// Channels persists the operator's notification channels (#1720). nil
 	// disables the channel routes.
 	Channels notification.ChannelStore
 	// SendChannelTest delivers a test message through one channel's own
 	// transport. nil disables the channel test route.
 	SendChannelTest func(ctx context.Context, name string) error
+	// ChannelActivity reads what one channel has done recently. nil
+	// disables the channel status route.
+	ChannelActivity func(ctx context.Context, name string) (notification.ChannelActivity, error)
 	// ConnectionExists reports whether a live api toolkit serves a
 	// connection, so a channel naming one that is gone is shown as
 	// undeliverable rather than as configured. nil omits that warning.
@@ -79,6 +86,7 @@ func Register(mux *http.ServeMux, cfg Config) {
 	h := &handler{cfg: cfg}
 	registerReviewAlert(mux, h)
 	registerConnAlert(mux, h)
+	registerScriptRunAlert(mux, h)
 	registerChannels(mux, h)
 	if cfg.Settings == nil {
 		return

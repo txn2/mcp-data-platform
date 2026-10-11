@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
 // Deps are what the facade hands over. Every field is a value it already
@@ -49,6 +50,9 @@ type Deps struct {
 	Blobs       portal.S3Client
 	Shares      portal.ShareStore
 	Collections portal.CollectionStore
+	// Resources reads a managed resource a send attaches. nil leaves
+	// resources unattachable.
+	Resources resource.Store
 	// PortalURL is the deployment's public address, for the link a published
 	// document carries.
 	PortalURL string
@@ -79,6 +83,7 @@ func Wire(deps Deps) {
 		Scope:        connscope.New(connscope.Deps{Registry: deps.Personas}),
 		Assets:       assetReaderOf(deps),
 		Access:       assetAccessOf(deps),
+		Resources:    resourcesOf(deps.Resources),
 		PortalURL:    deps.PortalURL,
 		AdminPersona: deps.AdminPersona,
 	})
@@ -143,4 +148,13 @@ func assetAccessOf(deps Deps) notifylayer.Entitlement {
 		Collections: deps.Collections,
 		Shares:      deps.Shares,
 	})}
+}
+
+// resourcesOf narrows the resource store to the read the tool needs, keeping
+// an absent store absent rather than a typed nil.
+func resourcesOf(store resource.Store) notifylayer.ResourceReader {
+	if store == nil {
+		return nil
+	}
+	return store
 }

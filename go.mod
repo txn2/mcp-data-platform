@@ -33,7 +33,7 @@ require (
 	github.com/trinodb/trino-go-client v0.337.0
 	github.com/txn2/mcp-datahub v1.15.1
 	github.com/txn2/mcp-s3 v1.5.1
-	github.com/txn2/mcp-trino v1.7.0
+	github.com/txn2/mcp-trino v1.7.1
 	github.com/vektah/gqlparser/v2 v2.5.60
 	github.com/wneessen/go-mail v0.8.1
 	github.com/xuri/excelize/v2 v2.11.0
@@ -170,6 +170,7 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
+	github.com/yuin/goldmark v1.8.6 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect

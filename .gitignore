@@ -99,6 +99,8 @@ ui/.claude/
 dev/.dev-ports.env
 # Bot token and ids dev/seed-mattermost.sh writes on every seed.
 dev/.mattermost-env
+# A developer's own Slack bot token and channel for the #1824 acceptance run.
+dev/.slack-env
 # Self-signed certificate dev/start.sh generates for the api-test TLS terminator.
 dev/.tls/
 # What the dev OpenTelemetry collector received, as JSON lines (dev/otel-collector.yml).

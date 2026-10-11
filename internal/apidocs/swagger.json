@@ -6245,6 +6245,55 @@
                 }
             }
         },
+        "/admin/notification-channels/{name}/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns when the channel last delivered, the latest failure still recorded against it, how many sends it took in the last hour against its hourly cap, how many messages are waiting, and how many repeats its keys are holding back.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get a notification channel's recent activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.ChannelStatusView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/notification-channels/{name}/test": {
             "post": {
                 "security": [
@@ -6332,6 +6381,12 @@
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by notification channel name",
+                        "name": "channel",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Page number, 1-based (default: 1)",
                         "name": "page",
@@ -6389,6 +6444,12 @@
                         "type": "string",
                         "description": "Filter by category (share, comment, mention)",
                         "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by notification channel name",
+                        "name": "channel",
                         "in": "query"
                     }
                 ],
@@ -9466,6 +9527,80 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/script-run-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the notification channels a failed scheduled run of any managed script is posted to, beside the email its owner receives. Empty before an operator has named any.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get scheduled-run failure alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scriptalert.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the notification channels a failed scheduled run is posted to. An absent channels field keeps the stored list and an empty one clears it; a name no channel is stored under is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update scheduled-run failure alert settings",
+                "parameters": [
+                    {
+                        "description": "Scheduled-run failure alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scriptalert.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scriptalert.SettingsView"
                         }
                     },
                     "400": {
@@ -13567,6 +13702,183 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/channels": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the enabled notification channels the signed-in user reaches: every email channel, and each chat or webhook channel whose api connection the user's persona reaches. Answered by the notify tool's list action.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List the channels I can post to",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/channels/{name}/publish": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Posts a portal asset the signed-in user can read to a channel they reach: the asset's name, its content (a CSV as a table of its first rows), its preview image when it has one, and a link to it. Delivery is queued.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Post an asset to a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The asset and an optional message",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/channelhttp.PublishRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/channels/{name}/send": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Posts a title, a markdown body and an optional link to a channel the signed-in user reaches. Delivery is queued.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Send a message to a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/channelhttp.SendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
                         "schema": {
                             "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
@@ -21249,6 +21561,68 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/flowhttp.runFlowResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/runs/{runID}/posts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the posts a run made with platform.notify and platform.publish, oldest first: the channel, the title, when it was queued, and whether it was delivered. A post held back by its key's repeat window was never queued and is not listed. Readable by the script's owner, an administrator, and whoever requested the run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List what a script run posted to channels",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "runID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/postshttp.postsResponse"
                         }
                     },
                     "401": {
@@ -29005,6 +29379,40 @@
                 }
             }
         },
+        "channelhttp.PublishRequest": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "description": "AssetID is the asset to post.",
+                    "type": "string",
+                    "example": "ast_01HK7R8Z"
+                },
+                "message": {
+                    "description": "Message is an optional line posted above the asset.",
+                    "type": "string",
+                    "example": "This week's numbers"
+                }
+            }
+        },
+        "channelhttp.SendRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "description": "Body is markdown.",
+                    "type": "string",
+                    "example": "The load finished at 06:40, forty minutes past its window."
+                },
+                "link": {
+                    "description": "Link is the absolute URL a reader follows from the message.",
+                    "type": "string",
+                    "example": "https://platform.example.com/portal/automations/scr_1/runs/run_9"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Nightly load finished late"
+                }
+            }
+        },
         "configstore.ChangelogEntry": {
             "type": "object",
             "properties": {
@@ -29057,6 +29465,13 @@
         "connalert.SettingsInput": {
             "type": "object",
             "properties": {
+                "channels": {
+                    "description": "Channels names the notification channels a revocation is also posted\nto. Absent keeps the stored list; an empty list clears it.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "enabled": {
                     "type": "boolean",
                     "example": true
@@ -29079,6 +29494,12 @@
         "connalert.SettingsView": {
             "type": "object",
             "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "enabled": {
                     "type": "boolean",
                     "example": true
@@ -31741,6 +32162,11 @@
                     "type": "string",
                     "example": "share"
                 },
+                "channel": {
+                    "description": "Channel is the notification channel the row was sent to, absent for\na row addressed to a person alone.",
+                    "type": "string",
+                    "example": "ops-alerts"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -31781,6 +32207,11 @@
                 "subject": {
                     "type": "string",
                     "example": "alice@example.com shared the asset \"Q3 Revenue\" with you"
+                },
+                "suppressed": {
+                    "description": "Suppressed is how many repeats of the row's alert were held back by\nits key before this one went through.",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
@@ -33947,6 +34378,58 @@
                 "PermissionEditor"
             ]
         },
+        "postshttp.Post": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "example": "ops-alerts"
+                },
+                "deliveries": {
+                    "description": "Deliveries counts what the post became: one for a chat or webhook\nchannel, one per recipient for an email channel.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "failed": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "last_error": {
+                    "type": "string",
+                    "example": "upstream answered HTTP 403"
+                },
+                "queued_at": {
+                    "type": "string"
+                },
+                "sent": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is sent when every delivery went out, failed when any gave up,\nand queued while any is still waiting.",
+                    "type": "string",
+                    "example": "sent"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Orders feed is 41 minutes behind"
+                }
+            }
+        },
+        "postshttp.postsResponse": {
+            "type": "object",
+            "properties": {
+                "posts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/postshttp.Post"
+                    }
+                }
+            }
+        },
         "producedview.Item": {
             "type": "object",
             "properties": {
@@ -34891,6 +35374,13 @@
         "reviewalert.SettingsInput": {
             "type": "object",
             "properties": {
+                "channels": {
+                    "description": "Channels names the notification channels the alert is also sent to.\nAbsent keeps the stored list, so a client that predates channels does\nnot clear them; an empty list clears them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "cooldown_hours": {
                     "type": "integer",
                     "example": 24
@@ -34921,6 +35411,12 @@
         "reviewalert.SettingsView": {
             "type": "object",
             "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "cooldown_hours": {
                     "type": "integer",
                     "example": 24
@@ -34980,6 +35476,42 @@
                     "type": "string"
                 },
                 "worker": {
+                    "type": "string"
+                }
+            }
+        },
+        "runstate.StatementTiming": {
+            "type": "object",
+            "properties": {
+                "call_site": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "elapsed_ms": {
+                    "type": "integer"
+                },
+                "limit_ms": {
+                    "type": "integer"
+                },
+                "limit_source": {
+                    "description": "LimitSource is where the limit came from: default, requested, or\nrun_remaining when the run's deadline was nearer.",
+                    "type": "string"
+                },
+                "query_id": {
+                    "description": "QueryID is the id Trino gave the statement, known for one that failed.",
+                    "type": "string"
+                },
+                "share_of_limit": {
+                    "description": "Share is ElapsedMS over LimitMS, to two decimals. ElapsedMS spans every\nattempt of a read the host issued again, so a share over 1 without\nTimedOut is such a read rather than a statement stopped by its limit.",
+                    "type": "number"
+                },
+                "timed_out": {
+                    "description": "TimedOut is true when the statement was stopped by its limit.",
+                    "type": "boolean"
+                },
+                "tool": {
                     "type": "string"
                 }
             }
@@ -35406,6 +35938,14 @@
                 "queries": {
                     "type": "integer"
                 },
+                "slowest_statement": {
+                    "description": "SlowestStatement is the statement that ran longest against the timeout\nit ran under (#2073); absent when the run issued none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/runstate.StatementTiming"
+                        }
+                    ]
+                },
                 "steps": {
                     "type": "integer"
                 }
@@ -35449,6 +35989,12 @@
                 "key": {
                     "type": "string"
                 },
+                "landed_scope": {
+                    "type": "string"
+                },
+                "landed_scope_id": {
+                    "type": "string"
+                },
                 "limit_applied": {
                     "type": "integer"
                 },
@@ -35481,6 +36027,13 @@
                 },
                 "row_count": {
                     "type": "integer"
+                },
+                "scope": {
+                    "description": "Scope and ScopeID are the library a managed-resource output was\naddressed to with scope= and scope_id= (#2080), empty for the library of\nthe person the run acts for. LandedScope and LandedScopeID are the\nlibrary the file is in, which differs only for a file moved to another\nlibrary before the run wrote it.",
+                    "type": "string"
+                },
+                "scope_id": {
+                    "type": "string"
                 },
                 "table_changes": {
                     "description": "TableChanges is what this version did to the tables registered over the\noutput's file (#1536): one sentence per table, saying it followed onto\nthe version or is pinned and now behind it. Absent when none is\nregistered. It is a change report rather than the `tables` a fetched\nreference carries (#1666).",
@@ -35760,6 +36313,35 @@
                 "version": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "scriptalert.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "scriptalert.SettingsView": {
+            "type": "object",
+            "properties": {
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
                 }
             }
         },
@@ -38101,6 +38683,48 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "settingsapi.ChannelStatusView": {
+            "type": "object",
+            "properties": {
+                "last_delivered_at": {
+                    "description": "LastDeliveredAt is when a message to the channel was last delivered.",
+                    "type": "string",
+                    "example": "2026-10-10T09:14:03Z"
+                },
+                "last_error": {
+                    "description": "LastError is the most recent failure still recorded on one of the\nchannel's messages, and LastErrorAt when that message was queued.",
+                    "type": "string",
+                    "example": "upstream answered HTTP 403: not_in_channel"
+                },
+                "last_error_at": {
+                    "type": "string",
+                    "example": "2026-10-10T08:02:11Z"
+                },
+                "max_per_hour": {
+                    "type": "integer",
+                    "example": 60
+                },
+                "name": {
+                    "type": "string",
+                    "example": "ops-alerts"
+                },
+                "pending": {
+                    "description": "Pending counts messages not yet delivered.",
+                    "type": "integer",
+                    "example": 0
+                },
+                "sent_last_hour": {
+                    "description": "SentLastHour counts the sends the hourly cap counts, and MaxPerHour\nis that cap.",
+                    "type": "integer",
+                    "example": 12
+                },
+                "suppressed": {
+                    "description": "Suppressed counts repeats held back by the channel's keys since each\nkey last went through.",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },

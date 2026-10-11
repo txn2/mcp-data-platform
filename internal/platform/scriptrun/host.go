@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsession"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptsql"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/internal/platform/starlarkconv"
 	"github.com/txn2/mcp-data-platform/internal/scriptcallsite"
 	"github.com/txn2/mcp-data-platform/internal/scriptdest"
@@ -17,6 +18,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/exportlibrary"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportrefs"
 	"github.com/txn2/mcp-data-platform/internal/platform/exporttable"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptfail"
@@ -25,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportmeta"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptout/exportrecord"
 	"github.com/txn2/mcp-data-platform/internal/portal/contentrefs"
+	"github.com/txn2/mcp-data-platform/internal/runstate"
 	"github.com/txn2/mcp-data-platform/internal/scriptdate"
 	"github.com/txn2/mcp-data-platform/internal/toolwrite"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -35,7 +38,7 @@ import (
 // with a constant here, platform.call with the name the author wrote — so a
 // script's query is authorized, rate limited, and audited by exactly the
 // middleware an agent's query goes through.
-const ToolQuery = "trino_query"
+const ToolQuery = scriptstmt.ToolQuery
 
 // argSQL is the SQL argument of platform.query, platform.execute and the tool
 // calls they make.
@@ -43,7 +46,7 @@ const argSQL = "sql"
 
 // ToolExecute is the tool platform.execute names: the statement that changes
 // state, bound as platform.query binds (#1950).
-const ToolExecute = "trino_execute"
+const ToolExecute = scriptstmt.ToolExecute
 
 // Member names of the platform module.
 //
@@ -191,6 +194,8 @@ type hostState struct {
 	ctx     context.Context //nolint:containedctx // one run's context, bound for the life of that run and used only by its host bindings
 	log     *scriptlive.Live
 	queries int
+	// slowest is the statement call that took longest (#2073).
+	slowest *runstate.StatementTiming
 	exports []ExportRecord
 	// writes records the persisting platform.call calls the run made, in call
 	// order. It stays empty under the write barrier, which refuses them.
@@ -211,8 +216,10 @@ type hostState struct {
 	// memory budget, and keeps the peak (#1861).
 	mem *scriptguard.Meter
 	// appended are the outputs the run appends to with append=True, in the
-	// order they were started; each is written once, when the run succeeds.
-	appended []*ExportRequest
+	// order they were started; each is written once, when the run succeeds,
+	// and recorded at appendedAt, its place among the outputs in call order.
+	appended   []*ExportRequest
+	appendedAt []int
 	// site is where in the script the host call in progress was made (#1907),
 	// carried on everything that call records.
 	site []string
@@ -459,10 +466,11 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 		params     *starlark.Dict
 		onError    string
 		retry      = true
+		timeout    int
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		argSQL, &sql, "connection?", &connection, "params?", &params,
-		"on_error?", &onError, "retry?", &retry); err != nil {
+		"on_error?", &onError, "retry?", &retry, scriptstmt.ArgTimeout+"?", &timeout); err != nil {
 		return nil, argErr(b, err)
 	}
 	returnFailure, err := scriptfail.OnError(b.Name(), onError)
@@ -480,6 +488,9 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	call := map[string]any{argSQL: bound, "limit": h.opts.MaxRows}
 	if connection != "" {
 		call["connection"] = connection
+	}
+	if timeout != 0 {
+		call[scriptstmt.ArgTimeout] = timeout
 	}
 	out, err := h.callToolWith(ToolQuery, call, callOpts{noRetry: !retry})
 	if err != nil {
@@ -540,9 +551,11 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 		sql        string
 		params     *starlark.Dict
 		onError    string
+		timeout    int
 	)
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
-		argSQL, &sql, "connection?", &connection, "params?", &params, "on_error?", &onError); err != nil {
+		argSQL, &sql, "connection?", &connection, "params?", &params, "on_error?", &onError,
+		scriptstmt.ArgTimeout+"?", &timeout); err != nil {
 		return nil, argErr(b, err)
 	}
 	returnFailure, err := scriptfail.OnError(b.Name(), onError)
@@ -559,6 +572,9 @@ func (h *hostState) execute(_ *starlark.Thread, b *starlark.Builtin, args starla
 	payload := map[string]any{argSQL: bound}
 	if connection != "" {
 		payload["connection"] = connection
+	}
+	if timeout != 0 {
+		payload[scriptstmt.ArgTimeout] = timeout
 	}
 	// No retry: a statement is never issued twice by the host.
 	return h.invoke(b, ToolExecute, payload, invokeOpts{returnFailure: returnFailure})
@@ -980,6 +996,9 @@ func (h *hostState) finishRecord(
 	record.ResourceRef = written.ResourceRef
 	record.ResourceURI = written.ResourceURI
 	record.ResourceVersion = written.ResourceVersion
+	if written.Scope != "" {
+		record.Scope, record.ScopeID = written.Scope, written.ScopeID
+	}
 	record.Bytes = written.Bytes
 	record.TableChanges = written.TableChanges
 	h.noteTables(record.Name, written.TableChanges)
@@ -1027,16 +1046,17 @@ func PublishRowCount(data any) int {
 // destination's configured prefix, and the rows themselves.
 func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (ExportRequest, error) {
 	var (
-		name        string
-		format      string
-		destination string
-		key         string
-		rows        starlark.Value
-		register    starlark.Value
-		references  starlark.Value
-		tags        starlark.Value
-		metadata    starlark.Value
-		appendRows  bool
+		name           string
+		format         string
+		destination    string
+		key            string
+		rows           starlark.Value
+		register       starlark.Value
+		references     starlark.Value
+		tags           starlark.Value
+		metadata       starlark.Value
+		appendRows     bool
+		scope, scopeID string
 	)
 	// destination and key must be NAMED. The static validator reads keyword
 	// arguments, so a destination passed by position would be invisible to it —
@@ -1050,7 +1070,8 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs,
 		"name", &name, "rows", &rows, "format?", &format,
 		"destination?", &destination, "key?", &key, "register?", &register,
-		"references?", &references, "tags?", &tags, "metadata?", &metadata, "append?", &appendRows); err != nil {
+		"references?", &references, "tags?", &tags, "metadata?", &metadata, "append?", &appendRows,
+		"scope?", &scope, "scope_id?", &scopeID); err != nil {
 		return ExportRequest{}, argErr(b, err)
 	}
 	if format == "" {
@@ -1076,9 +1097,13 @@ func (h *hostState) exportRequest(b *starlark.Builtin, args starlark.Tuple, kwar
 	if err := checkExportKey(b, resolved, key); err != nil {
 		return ExportRequest{}, err
 	}
+	scope, scopeID = strings.TrimSpace(scope), strings.TrimSpace(scopeID)
+	if err := exportlibrary.CheckFor(resolved.IsResource(), scope, scopeID); err != nil {
+		return ExportRequest{}, argErr(b, err)
+	}
 	req := ExportRequest{
 		Name: name, Format: format, Columns: starlarkconv.ColumnOrder(rows), Destination: resolved, Key: key,
-		Append: appendRows,
+		Library: ResourceLibrary{Scope: scope, ScopeID: scopeID}.Normalized(), Append: appendRows,
 	}
 	if err := exportContent(b, format, rows, &req); err != nil {
 		return ExportRequest{}, err
@@ -1245,6 +1270,9 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
 		RowCount: req.RowCount(), Document: req.Body != nil, Sheets: req.Sheets(),
+	}
+	if req.Destination.IsResource() { // the library a preview would write (#2080)
+		record.Scope, record.ScopeID = req.Library.RecordScope()
 	}
 	return h.finishRecord(b, record,
 		func() ([]byte, error) { data, _, err := FormatOutput(req); return data, err },

@@ -101,6 +101,19 @@ func (*recordingQueue) PurgeOld(context.Context, time.Duration, time.Duration) (
 	return 0, nil
 }
 
+// EnqueueChannel writes the send's rows through Enqueue; this fake applies no
+// gate.
+func (q *recordingQueue) EnqueueChannel(ctx context.Context, rows []notification.Notification, _ notification.ChannelGate) (notification.ChannelOutcome, error) {
+	for _, n := range rows {
+		if err := q.Enqueue(ctx, n); err != nil {
+			return notification.ChannelOutcome{}, err
+		}
+	}
+	return notification.ChannelOutcome{}, nil
+}
+
+func (*recordingQueue) PurgeChannelKeys(context.Context, time.Duration) (int64, error) { return 0, nil }
+
 // openPrefs is the platform default for every address: immediate delivery, no
 // category muted. It models the real store's contract, which answers for an
 // address that has never been written rather than reporting it absent.

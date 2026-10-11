@@ -16,6 +16,7 @@ import { ConnectionAlertCard } from "./ConnectionAlertCard";
 import { MapsCard } from "./MapsCard";
 import { NotificationChannelsCard } from "./NotificationChannelsCard";
 import { ReviewAlertCard } from "./ReviewAlertCard";
+import { ScriptRunAlertCard } from "./ScriptRunAlertCard";
 import { SettingsCard } from "./panels";
 import {
   ErrorBanner,
@@ -325,6 +326,7 @@ export function AdminSettingsPage() {
         isReadOnly={isReadOnly}
       />
       <ConnectionAlertCard isReadOnly={isReadOnly} />
+      <ScriptRunAlertCard isReadOnly={isReadOnly} />
       <NotificationChannelsCard isReadOnly={isReadOnly} />
       <MapsCard />
     </div>

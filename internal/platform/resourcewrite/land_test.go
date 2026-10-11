@@ -438,3 +438,37 @@ func TestARunOfASeenAuthorLandsWhereTheAuthorsSessionLooks(t *testing.T) {
 		assert.Nil(t, found, "keyed by address, the file is not at the session's default address")
 	})
 }
+
+// A run's output named into another library (#2080) is held to the resource
+// rule against the run's identity: a run whose author is no administrator is
+// refused the global library before anything is written, and one whose author
+// administers a persona writes that persona's library, where the next run's
+// landing records the next version of the same file.
+func TestLandUnderARunIsHeldToTheLibraryItNames(t *testing.T) {
+	lf := newLandFixture(t)
+	global := orders()
+	global.Scope = string(resource.ScopeGlobal)
+	_, err := lf.lander.Land(context.Background(), global, strings.NewReader("id\n1\n"), "text/csv", runFor(authorMail))
+	require.ErrorIs(t, err, resourcewrite.ErrRefused)
+	assert.Contains(t, err.Error(), "global")
+
+	financeAdmin := resource.BuildClaims("script:weekly-refresh", authorMail, "analyst",
+		[]string{"analyst", "persona-admin:finance"}, false).ActingFor(authorMail, "")
+	persona := orders()
+	persona.Scope, persona.ScopeID = string(resource.ScopePersona), "finance"
+	first, err := lf.lander.Land(context.Background(), persona, strings.NewReader("id\n1\n"), "text/csv", financeAdmin)
+	require.NoError(t, err)
+	assert.Equal(t, "mcp://persona/finance/datasets/orders.csv", first.URI)
+	assert.Equal(t, "persona", first.Scope)
+	assert.Equal(t, "finance", first.ScopeID)
+	next, err := lf.lander.Land(context.Background(), persona, strings.NewReader("id\n2\n"), "text/csv", financeAdmin)
+	require.NoError(t, err)
+	assert.Equal(t, first.ResourceID, next.ResourceID, "the same key and scope is the same file")
+	assert.Equal(t, first.URI, next.URI)
+	assert.Equal(t, 2, next.Version)
+
+	sales := orders()
+	sales.Scope, sales.ScopeID = string(resource.ScopePersona), "sales"
+	_, err = lf.lander.Land(context.Background(), sales, strings.NewReader("id\n1\n"), "text/csv", financeAdmin)
+	require.ErrorIs(t, err, resourcewrite.ErrRefused)
+}

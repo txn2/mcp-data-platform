@@ -44,6 +44,12 @@ type fakeQueueStore struct {
 	failed  [][]int64
 	purges  int
 	opErr   error
+
+	// gates records each channel send's gate; gateOutcome and gateErr are
+	// what EnqueueChannel answers, standing in for the database's verdict.
+	gates       []ChannelGate
+	gateOutcome ChannelOutcome
+	gateErr     error
 }
 
 func (f *fakeQueueStore) Enqueue(_ context.Context, n Notification) error {
@@ -115,6 +121,29 @@ func (f *fakeQueueStore) PurgeOld(_ context.Context, _, _ time.Duration) (int64,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.purges++
+	return 0, f.opErr
+}
+
+// EnqueueChannel records the gate and, unless the canned verdict refuses or
+// absorbs the send, writes its rows.
+func (f *fakeQueueStore) EnqueueChannel(_ context.Context, rows []Notification, gate ChannelGate) (ChannelOutcome, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gates = append(f.gates, gate)
+	if f.gateErr != nil {
+		return ChannelOutcome{}, f.gateErr
+	}
+	if f.gateOutcome.Suppressed {
+		return f.gateOutcome, nil
+	}
+	if f.enqErr != nil {
+		return ChannelOutcome{}, f.enqErr
+	}
+	f.enqueued = append(f.enqueued, rows...)
+	return ChannelOutcome{}, nil
+}
+
+func (f *fakeQueueStore) PurgeChannelKeys(context.Context, time.Duration) (int64, error) {
 	return 0, f.opErr
 }
 

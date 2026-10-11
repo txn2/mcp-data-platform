@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -259,6 +258,8 @@ func attemptFrom(result *scriptrun.Result, runErr error) attempt {
 			Exports:    len(result.Exports),
 			// What the run was measured holding at its peak (#1861).
 			PeakMemoryBytes: result.PeakMemory,
+			// The statement that came nearest its timeout (#2073).
+			SlowestStatement: result.SlowestStatement,
 		}
 		// Staged state travels with the result whatever the outcome; the store
 		// applies it only to a succeeded run, so a failed run leaves the state
@@ -400,8 +401,5 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 // its own public address. A link the reader cannot follow is worse than no
 // link, so an unconfigured portal address omits it rather than guessing one.
 func (r *runner) runURL(scriptID, runID string) string {
-	if r.portalURL == "" {
-		return ""
-	}
-	return strings.TrimRight(r.portalURL, "/") + "/portal/automations/" + scriptID + "/runs/" + runID
+	return runPage(r.portalURL, scriptID, runID)
 }

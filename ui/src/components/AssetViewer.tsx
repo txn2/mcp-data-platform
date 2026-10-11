@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { FileQuestion } from "lucide-react";
 import { KnowledgeBacklinksButton } from "@/components/knowledge/KnowledgeBacklinksButton";
 import { EmptyState } from "@/components/patterns/EmptyState";
+import { PostToChannelDialog } from "@/components/PostToChannelDialog";
 import { ShareDialog } from "@/components/ShareDialog";
 import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
@@ -55,6 +56,7 @@ export function AssetViewer({
   versionContentLoading,
 }: AssetViewerProps) {
   const [shareOpen, setShareOpen] = useState(false);
+  const [postOpen, setPostOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -239,6 +241,7 @@ export function AssetViewer({
             onDownload={handleDownload}
             onCopyToMyAssets={handleCopyToMyAssets}
             onShare={() => setShareOpen(true)}
+            onPostToChannel={() => setPostOpen(true)}
           />
         }
         sidebar={
@@ -304,6 +307,7 @@ export function AssetViewer({
       </ViewerLayout>
 
       <ShareDialog assetId={asset.id} open={shareOpen} onOpenChange={setShareOpen} />
+      <PostToChannelDialog assetId={asset.id} open={postOpen} onOpenChange={setPostOpen} />
 
       <AssetViewerModals
         asset={asset}

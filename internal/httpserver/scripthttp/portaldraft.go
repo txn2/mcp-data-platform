@@ -137,7 +137,7 @@ func (h *Handler) portalValidateSource(w http.ResponseWriter, r *http.Request, u
 	// tests, and what the new version does differently (#1939, #1942).
 	gated := h.gate().Check(r.Context(), scriptsave.Request{
 		Existing: sc, Name: sc.Name, Source: source,
-		Caller: scriptsave.Caller{Email: user.owner(), Admin: user.IsAdmin},
+		Caller: saveCaller(user),
 	})
 	report := scriptlint.Merge(scriptlint.WithDestinationCheck(scriptrun.Validate(source), h.deps.Destinations), gated.Lint)
 	httpjson.WriteJSON(w, http.StatusOK, validateResponse{

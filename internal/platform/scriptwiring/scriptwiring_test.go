@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptdraft"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstmt"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -56,8 +57,11 @@ func TestRunLimits_AndAdmission(t *testing.T) {
 	cfg := scriptadmit.Config{
 		Concurrency: "3", RunTimeout: 20 * time.Minute, MaxSteps: 9, MaxQueryRows: 11,
 	}
-	assert.Equal(t, scriptrun.PlatformLimits{Timeout: 20 * time.Minute, MaxSteps: 9, MaxRows: 11}, runLimits(cfg))
-	assert.Equal(t, uint64(0), runLimits(scriptadmit.Config{MaxSteps: -5}).MaxSteps,
+	assert.Equal(t, scriptrun.PlatformLimits{Timeout: 20 * time.Minute, MaxSteps: 9, MaxRows: 11, MaxStatementTimeout: 90 * time.Second},
+		runLimits(cfg, scriptstmt.Config{MaxTimeoutSeconds: 90}))
+	assert.Equal(t, scriptstmt.ToolMaxTimeout, runLimits(cfg, scriptstmt.Config{}).MaxStatementTimeout,
+		"an unset scripts.sql ceiling is the tools' own cap")
+	assert.Equal(t, uint64(0), runLimits(scriptadmit.Config{MaxSteps: -5}, scriptstmt.Config{}).MaxSteps,
 		"a negative step count is unset, not a huge unsigned one")
 	assert.Equal(t, 3, admission(cfg).Fixed)
 	assert.True(t, admission(scriptadmit.Config{Concurrency: "lots"}).Adaptive(),

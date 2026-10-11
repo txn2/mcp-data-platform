@@ -219,3 +219,38 @@ func TestTestDocument_NamesTheChannel(t *testing.T) {
 		t.Errorf("the test document does not name the channel: %q", doc.Body)
 	}
 }
+
+func TestChannelActivity_UnavailableWithoutADatabase(t *testing.T) {
+	var h *Handle
+	if _, err := h.ChannelActivity(context.Background(), "ops"); err == nil {
+		t.Error("a nil handle reported activity")
+	}
+	if _, err := (&Handle{}).ChannelActivity(context.Background(), "ops"); err == nil {
+		t.Error("a handle with no store reported activity")
+	}
+}
+
+type activityStub struct{ got string }
+
+func (s *activityStub) ChannelActivity(_ context.Context, name string) (notification.ChannelActivity, error) {
+	s.got = name
+	return notification.ChannelActivity{SentLastHour: 3}, nil
+}
+
+func TestChannelActivity_ReadsTheQueue(t *testing.T) {
+	stub := &activityStub{}
+	act, err := (&Handle{activity: stub}).ChannelActivity(context.Background(), "ops")
+	if err != nil || act.SentLastHour != 3 || stub.got != "ops" {
+		t.Errorf("activity = %+v, %v (asked %q)", act, err, stub.got)
+	}
+}
+
+func TestAlertChannels(t *testing.T) {
+	var h *Handle
+	if h.AlertChannels() != nil {
+		t.Error("a nil handle built a sender")
+	}
+	if (&Handle{}).AlertChannels() != nil {
+		t.Error("a handle with no channel store built a sender")
+	}
+}

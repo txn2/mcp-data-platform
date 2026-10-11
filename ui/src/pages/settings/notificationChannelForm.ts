@@ -13,6 +13,7 @@ import type {
 
 // kindLabel is how each kind is named to an administrator.
 export const kindLabel: Record<string, string> = {
+  slack: "Slack",
   mattermost: "Mattermost",
   webhook: "Incoming webhook",
   email: "Email list",
@@ -22,6 +23,8 @@ export const kindLabel: Record<string, string> = {
 // and find: a Mattermost channel id is a value they look up, not something
 // they can guess.
 export const kindHelp: Record<string, string> = {
+  slack:
+    "Posts through the Slack Web API. The api connection's base URL is https://slack.com/api and its credential is the bot token (chat:write, plus files:write for attachments); the target is the channel id, and the bot must be invited to that channel.",
   mattermost:
     "Posts through the Mattermost REST API. The api connection holds the bot token and the site URL; the target is the channel id.",
   webhook:
@@ -69,7 +72,7 @@ export function usesConnection(kind: string): boolean {
 }
 
 export function usesTarget(kind: string): boolean {
-  return kind === "mattermost";
+  return kind === "slack" || kind === "mattermost";
 }
 
 export function channelFormFrom(ch: NotificationChannel): ChannelFormState {

@@ -72,7 +72,7 @@ THE SHAPE OF A SCRIPT, AND WHAT A SAVE CHECKS
 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={}, on_error="raise",
-                 retry=True)  Run read-only SQL. Returns
+                 retry=True, timeout_seconds=None)  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
       column name, in the SELECT's column order, so rows exported as they
       came keep the query's columns where it put them. It is the read tool, so a statement that modifies state —
@@ -92,7 +92,18 @@ WHAT IS AVAILABLE
       A query Trino itself fails for a temporary reason (see A FAILED CALL)
       is issued again by the host, at most 3 times; retry=False turns that
       off.
-  platform.execute(sql, connection=..., params={}, on_error="raise")
+      timeout_seconds is how long the statement may run: 120 when omitted,
+      at most the deployment's ceiling (300 unless scripts.sql
+      max_timeout_seconds lowers it; help reports it as
+      statement_max_timeout_seconds), and never past the time left in the
+      run. A value above the ceiling is refused, never cut. A statement
+      Trino stops at its timeout is canceled and fails the run as the
+      script's, naming the limit, how long it ran and the query id: the
+      next run fails the same way, so make the statement do less, split
+      it, or give it a longer timeout_seconds. get_run reports the
+      slowest statement and its share_of_limit.
+  platform.execute(sql, connection=..., params={}, on_error="raise",
+                   timeout_seconds=None)
       Run a statement that
       changes state -- INSERT, UPDATE, DELETE, CREATE, DROP -- through
       trino_execute, and return its answer as platform.call would. Values
@@ -106,10 +117,12 @@ WHAT IS AVAILABLE
                          connection = "scratch", params = {"src": out["table"]})
       It is a trino_execute call: authorized, audited and listed among a
       draft's writes as that call is, and a draft refuses it unless the draft
-      was run with allow_writes.
+      was run with allow_writes. timeout_seconds is platform.query's, and a
+      platform.call to trino_query or trino_execute is held to the same
+      ceiling.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,
-                  append=False)
+                  append=False, scope=None, scope_id=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
@@ -222,24 +235,38 @@ WHAT IS AVAILABLE
       same file, and the record carries its resource_id, reference, uri and
       version. The file lands in the library of the person the run acts for;
       name is its display name there.
-      destination and key must be passed BY NAME. Only name, rows and format may
-      be positional, because where a script writes has to be readable from its
+      scope and scope_id file a "resources" output in another library, as
+      manage_resource's do: scope="persona" with scope_id the persona's name,
+      scope="global" for the platform's library, scope="user" with scope_id
+      another person's address. The run writes only where the person it acts
+      for may: a persona's library needs its persona admin or a platform
+      administrator, the global library a platform administrator. A save
+      naming a library its author may not write is refused, naming the
+      library, and a run whose author has since lost that authority fails
+      naming it, writing nothing. key is the path inside that library, so the
+      same key and scope next run record the next version of the same file,
+      and the record carries scope and scope_id: where the file is.
+      destination, key, scope and scope_id must be passed BY NAME, and scope
+      and scope_id written out as strings. Only name, rows and format may be
+      positional, because where a script writes has to be readable from its
       source.
       append=True adds rows to an output the run builds across calls, so a
       paged API or a large query becomes one file and one registered table
       without holding every page: each page is serialized when it arrives,
       and the script keeps only what the next page needs. The first call to a
-      name and destination starts the output and fixes its key, register=,
-      tags= and metadata=; every later call passes append=True and adds rows.
+      name and destination starts the output and fixes its key, scope,
+      register=, tags= and metadata=; every later call passes append=True and
+      adds rows, and one naming another key or scope is refused.
       It takes csv or jsonl (a CSV keeps its first page's header, and a later
       page with a column the header lacks fails the call). The call returns
       the rows and bytes the output holds so far, with appending True; the
       output is written once, when the script finishes, and a run that fails
-      part-way writes none of it.
+      part-way writes none of it. The run lists it among its outputs where
+      the first page was written, as testing.outputs() does.
       In a draft run this writes nothing, wherever it was addressed, and
-      reports the shape and size the output would have: the content is
-      serialized in the declared format to measure it, so the size is the one
-      a real run writes. A register= argument then reports the table it
+      reports the shape and size the output would have, and for "resources"
+      the scope it would land in: the content is serialized in the declared
+      format to measure it, so the size is the one a real run writes. A register= argument then reports the table it
       would make, with preview True and no query_table. A draft started with
       allow_writes writes the output for real and makes the table, as a
       platform run would, except that a draft of a script not yet saved
@@ -390,25 +417,34 @@ WHAT IS AVAILABLE
       latest report is shown on the running run within a few seconds, beside
       the log printed so far; call it as often as you like, since only the
       latest is written, every few seconds.
-  platform.notify(channel, title, body="", link="", data=None)  Post a message to a
-      notification channel an administrator configured: a Mattermost channel,
+  platform.notify(channel, title, body="", link="", data=None, key="",
+          repeat_after="", attachments=None)  Post a message to a
+      notification channel an administrator configured: a Slack or Mattermost channel,
       an incoming webhook, or a named email list. Call
       platform.call("notify", {"action": "list"}) to see which channels this
       script reaches; a channel is reachable when the run's persona reaches
       the api connection behind it, and an email channel is reachable by any
-      script. body is markdown, shown as far as the destination can show it.
-      link defaults to this run's own page, so a post leads back to the run
-      that produced it. data is a dict or list a webhook channel whose format
-      is json delivers verbatim beside the message, for a system that
-      branches on fields rather than text (at most 64 KiB); every other
-      channel ignores it. Delivery is queued: the call returns when the
+      script. body is markdown: an email, Slack and Mattermost render it, a
+      webhook receives it as text. link defaults to this run's own page, so a
+      post leads back to the run that produced it. data is a dict or list a
+      webhook channel whose format is json delivers verbatim beside the
+      message, for a system that branches on fields rather than text (at most
+      64 KiB); every other channel ignores it. key names a repeating alert: a
+      second post with the same key inside the channel's repeat window is
+      counted and not posted, and the next one that goes through says how many
+      were held back. repeat_after (e.g. "6h") lengthens that window for this
+      key, never shortens it. attachments is a list of up to 5 asset ids,
+      resource references or dicts naming asset_id or resource_id; email,
+      Slack and Mattermost carry them as files, a webhook as links. A channel refuses
+      posts past its hourly cap. Delivery is queued: the call returns when the
       message is accepted, not when it appears.
-  platform.publish(channel, name, message="")  Post a portal asset to a
-      channel: the asset's name, an excerpt of its content and a link to it.
-      name is the name platform.export saved the asset under, so a script
-      that builds a report and posts it says the name twice rather than
+  platform.publish(channel, name, message="", key="", repeat_after="")  Post a
+      portal asset to a channel: the asset's name, its content (a CSV as a
+      table of its first rows) and a link to it, with its preview image when
+      it has one. name is the name platform.export saved the asset under, so a
+      script that builds a report and posts it says the name twice rather than
       carrying an id between the two calls. message is a line printed above
-      it.
+      it; key and repeat_after are as for notify.
       In a draft run both are refused unless the draft was started with
       allow_writes, like every other call that persists: a message in
       somebody else's chat client is not something a dry run may leave behind.
@@ -499,7 +535,10 @@ A FAILED CALL
   hands a failed call back as {"error": {...}} instead of ending the run:
   code, category (upstream_unavailable, client_input, internal), retryable,
   message, and from Trino trino {error_type, error_name, error_code,
-  sql_state} or transport {kind, http_status, detail}. Only "error" is in it,
+  sql_state} or transport {kind, http_status, detail}, or for a statement
+  stopped at its timeout statement_timeout {elapsed_ms, limit_ms,
+  limit_source, cancel_requested, cancel_confirmed} and query_id (category
+  client_input, retryable false). Only "error" is in it,
   so reading a result field without checking fails at that read:
     res = platform.execute(MERGE_SQL, connection = "warehouse", params = p,
                            on_error = "return")
@@ -665,7 +704,7 @@ TESTS, AND WHAT A SAVE RUNS
   the run is out of time. A test naming no recording answers only what it declares, and
   its exports are previewed. testing.outputs() is what the execution produced so
   far, written nowhere: exports (each with name, format, destination, key,
-  columns, rows, row_count, body), publishes (name, data), notifies (each
+  scope, scope_id, columns, rows, row_count, body), publishes (name, data), notifies (each
   notify call's arguments), calls (every tool call: tool, args, error, and
   declared, true when a declared answer answered it), state (what save_state
   staged, or None; None too when the execution failed under assert.fails,

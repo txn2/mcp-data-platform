@@ -77,6 +77,13 @@ test.describe("The listing can be ordered", () => {
 
     const header = page.getByRole("columnheader", { name: /Automation/ });
     await header.click();
+    // The ascending order is read once it is shown, not while it loads.
+    await expect
+      .poll(async () => {
+        const shown = await names(page);
+        return shown.length > 1 && shown.join("|") === [...shown].sort((a, b) => a.localeCompare(b)).join("|");
+      })
+      .toBe(true);
     const ascending = await names(page);
     await header.click();
     await expect.poll(async () => (await names(page)).join("|")).toBe(

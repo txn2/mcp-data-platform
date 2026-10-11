@@ -15,15 +15,7 @@ const connAlertPath = "/api/v1/admin/settings/connection-alert"
 // database config mode; with no store both stay unmounted, since an operator
 // must not be able to name recipients for an alert nothing will ever send.
 func registerConnAlert(mux *http.ServeMux, h *handler) {
-	if h.cfg.ConnectionAlert == nil {
-		return
-	}
-	mux.HandleFunc("GET "+connAlertPath, h.getConnAlert)
-	if h.cfg.Mutable {
-		mux.HandleFunc("PUT "+connAlertPath, h.setConnAlert)
-		return
-	}
-	mux.Handle("PUT "+connAlertPath, h.cfg.ReadOnly)
+	registerAlertSettings(mux, h, connAlertPath, h.cfg.ConnectionAlert != nil, alertHandlers{get: h.getConnAlert, set: h.setConnAlert})
 }
 
 // getConnAlert handles GET /api/v1/admin/settings/connection-alert.
@@ -63,6 +55,14 @@ func (h *handler) setConnAlert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
+	channels, ok := h.alertChannels(w, r, req.Channels, func() ([]string, error) {
+		stored, err := connalert.SettingsOf(r.Context(), h.cfg.ConnectionAlert)
+		return stored.Channels, err //nolint:wrapcheck // the handler answers 500 without reading it
+	})
+	if !ok {
+		return
+	}
+	req.Channels = &channels
 	if err := h.cfg.ConnectionAlert.Set(r.Context(), req.Settings(), h.cfg.Author(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, "storing connection alert settings failed")
 		return

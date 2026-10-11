@@ -40,6 +40,7 @@ func Assemble(cfg Config) *Loop {
 	sweeps = append(sweeps, MemoryArchived(cfg.DB, cfg.ArchivedDays)...)
 	sweeps = append(sweeps, OrphanedProducers(cfg.DB, cfg.ProducerDays)...)
 	sweeps = append(sweeps, SupersededGraphQL(cfg.DB)...)
+	sweeps = append(sweeps, ExpiredCallTasks(cfg.DB)...)
 	return New(cfg.DB, cfg.Every, sweeps...)
 }
 
@@ -51,6 +52,7 @@ const (
 	lockOrphanedProducers int64 = 4713210103
 	lockGraphQLSuperseded int64 = 4713210104
 	lockAssetBucket       int64 = 4713210105
+	lockCallTasks         int64 = 4713210106
 )
 
 // PortalDeleted is the sweep that purges portal items deleted more than days
@@ -130,6 +132,20 @@ const supersededGraphQLQuery = `
 func SupersededGraphQL(db *sql.DB) []Sweep {
 	return []Sweep{{Name: "graphql_superseded_embeddings", LockKey: lockGraphQLSuperseded, Run: func(ctx context.Context) (int64, error) {
 		return execQuery(ctx, db, supersededGraphQLQuery)
+	}}}
+}
+
+// expiredCallTasksQuery deletes the tool calls executed as MCP tasks (#2009)
+// past the expiry each was created with (tasks.retention_days). The expiry is
+// days after a call that runs for minutes at most, so a row still marked
+// working by then belongs to a replica that stopped long ago.
+const expiredCallTasksQuery = `DELETE FROM call_tasks WHERE expires_at < now()`
+
+// ExpiredCallTasks is the sweep that deletes call tasks past their expiry. It
+// takes no age of its own: each row carries the one it was created with.
+func ExpiredCallTasks(db *sql.DB) []Sweep {
+	return []Sweep{{Name: "call_tasks", LockKey: lockCallTasks, Run: func(ctx context.Context) (int64, error) {
+		return execQuery(ctx, db, expiredCallTasksQuery)
 	}}}
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/notifywire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/flowhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp/postshttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/thumbwire"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/connreach"
@@ -274,12 +275,14 @@ func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(ht
 	deps.Connections = scriptConnectionEnumerator(lister)
 	deps.Drafts = scriptdraft.New(p.MCPServer(), p.Config().Scripts.ScriptDestinations()).
 		WithToolkits(p.ToolkitRegistry()).WithExports(p.ScriptDraftExports()).
-		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).
+		WithMemoryBudget(p.Config().Scripts.Worker.ProcessRunMemoryBudget()).WithStatementCeiling(p.Config().Scripts.SQL.MaxTimeout()).
 		WithRecordings(deps.Gate.Recordings).WithLibraries(deps.Gate.Libraries)
 	scripts := scripthttp.New(deps)
 	scripts.RegisterPortal(mux, wrap)
 	// A version drawn as a diagram (#1906) and a run drawn on it (#1907).
 	flowhttp.ForPortal(scripts, deps, p.Audit().Reader(), thumbwire.ScriptTiles(p)).RegisterPortal(mux, wrap)
+	// What a run posted to notification channels (#1723).
+	postshttp.ForPortal(scripts, deps, notifywire.RunPosts(p)).Register(mux, wrap)
 }
 
 // scriptDeps assembles the surface-independent script handler dependencies,

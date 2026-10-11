@@ -119,7 +119,7 @@ func TestTextChannelIgnoresData(t *testing.T) {
 	ch.Format = ""
 	d := finding()
 	require.NoError(t, NewWebhookSender(up, "x").Send(context.Background(), ch, d))
-	want, _ := json.Marshal(webhookRequest{Text: plainText(d.Document, WebhookMaxTextBytes)})
+	want, _ := json.Marshal(webhookRequest{Text: plainText(d, WebhookMaxTextBytes)})
 	assert.Equal(t, string(want), string((*got)[0].body))
 }
 

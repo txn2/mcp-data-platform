@@ -429,6 +429,7 @@ func (a *connectionAuthz) IsAuthorized(_ context.Context, _ string, _ []string, 
 type executeInput struct {
 	SQL        string `json:"sql"`
 	Connection string `json:"connection,omitempty"`
+	Timeout    int    `json:"timeout_seconds,omitempty"`
 }
 
 // exportToolInput is the part of a trino_export call the stand-in reads.

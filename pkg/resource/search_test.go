@@ -230,7 +230,7 @@ func TestUpdate_ClearsEmbeddingForReindex(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	mock.ExpectExec("UPDATE resources SET updated_at = \\$1, embedding = NULL, embedding_model = '', embedding_text_hash = NULL, description = \\$2 WHERE id = \\$3").
+	mock.ExpectExec("UPDATE resources SET updated_at = now\\(\\), embedding = NULL, embedding_model = '', embedding_text_hash = NULL, description = \\$1 WHERE id = \\$2").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	desc := "new description"

@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyalert"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -42,6 +43,9 @@ type Config struct {
 	Source Source
 	// Enqueuer is the notification substrate's trigger-side entry point.
 	Enqueuer *notification.Enqueuer
+	// Channels sends the alert to the channels the settings name. nil sends
+	// it to recipients alone.
+	Channels *notifyalert.Sender
 	// BaseURL is the portal's public base URL, for the alert's deep link.
 	BaseURL string
 	// Interval overrides DefaultInterval. Testing hook.
@@ -138,7 +142,7 @@ func (c *Checker) Check(ctx context.Context) error {
 	if !claimed {
 		return nil
 	}
-	c.deliver(ctx, settings.Recipients, rollup)
+	c.deliver(ctx, settings, rollup)
 	return nil
 }
 
@@ -146,7 +150,8 @@ func (c *Checker) Check(ctx context.Context) error {
 // address is logged and the rest still go out: the claim has already been
 // stamped, so a caller that gave up here would suppress the whole cooldown
 // window over one bad row.
-func (c *Checker) deliver(ctx context.Context, recipients []string, q notification.ReviewQueue) {
+func (c *Checker) deliver(ctx context.Context, settings Settings, q notification.ReviewQueue) {
+	recipients := settings.Recipients
 	payload := notification.Payload{
 		Kind:      c.cfg.Target.Kind,
 		ItemTitle: c.cfg.Target.Title,
@@ -172,8 +177,12 @@ func (c *Checker) deliver(ctx context.Context, recipients []string, q notificati
 	// queued is what was actually written, not what was attempted: a
 	// recipient who opted out, or whose enqueue failed, must not read as
 	// notified in the log an operator checks after a silent alert.
+	// The queue's own key: a channel's repeat window applies to a queue that
+	// crosses again soon after its cooldown.
+	channels := c.cfg.Channels.Send(ctx, settings.Channels, c.cfg.Target.Queue, payload)
 	slog.InfoContext(ctx, "review queue alert enqueued",
 		"queue", c.cfg.Target.Queue,
 		"pending", q.Pending, "oldest_age_days", q.OldestAgeDays,
-		"recipients", len(recipients), "queued", queued)
+		"recipients", len(recipients), "queued", queued,
+		"channels", len(settings.Channels), "channels_queued", channels)
 }

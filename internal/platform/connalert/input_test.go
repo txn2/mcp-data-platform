@@ -50,8 +50,27 @@ func TestSettingsInput_Validate(t *testing.T) {
 		require.Empty(t, in.Validate())
 		assert.Equal(t, Settings{
 			Enabled: true, EscalateAfterHours: 6,
-			Recipients: []string{"ops@example.com"},
+			Recipients: []string{"ops@example.com"}, Channels: []string{},
 		}, in.Settings())
+	})
+
+	t.Run("channels are trimmed, de-duplicated and bounded", func(t *testing.T) {
+		names := []string{" ops ", "ops", "", "pager"}
+		in := SettingsInput{Channels: &names}
+		require.Empty(t, in.Validate())
+		assert.Equal(t, []string{"ops", "pager"}, in.Settings().Channels)
+		many := make([]string, 11)
+		for i := range many {
+			many[i] = string(rune('a' + i))
+		}
+		assert.Contains(t, (&SettingsInput{Channels: &many}).Validate(), "at most 10 channels")
+	})
+
+	t.Run("channels alone keep the escalation from going nowhere", func(t *testing.T) {
+		s := Settings{Enabled: true, Channels: []string{"ops"}}
+		assert.Empty(t, s.View().Warnings)
+		assert.Equal(t, []string{"ops"}, s.View().Channels)
+		assert.Equal(t, []string{}, Settings{}.View().Channels)
 	})
 }
 

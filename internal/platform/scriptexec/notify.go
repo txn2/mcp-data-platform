@@ -35,20 +35,16 @@ const (
 // as well would be telling a person something they just read. A schedule is the
 // case with nobody present, which is the whole reason this exists.
 func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.Script, res script.RunResult) {
-	if w.cfg.notifier == nil || sc == nil ||
-		run.Trigger != script.TriggerSchedule || res.Status != script.RunStatusFailed {
-		return
-	}
-	recipients := alertRecipients(sc)
-	if len(recipients) == 0 {
-		slog.WarnContext(ctx, "scripts: a scheduled run failed and there is nobody to tell",
-			logKeyRunID, run.ID, "script", logsan.SanitizeForLog(sc.Name))
+	if sc == nil || run.Trigger != script.TriggerSchedule || res.Status != script.RunStatusFailed ||
+		(w.cfg.notifier == nil && w.cfg.channels == nil) {
 		return
 	}
 	payload := notification.Payload{
 		Kind:      notification.KindScriptRun,
 		ItemID:    run.ID,
 		ItemTitle: sc.Name,
+		// The run's own page, where the whole failure and log are.
+		Link: runPage(w.cfg.portalURL, sc.ID, run.ID),
 		// The actor is the SCRIPT, which is both true and load-bearing: the
 		// enqueuer rate-limits per actor and falls back to the recipient when
 		// there is none, so an actorless alert would let one bad night —
@@ -62,11 +58,34 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 		Cause:   res.Cause,
 		Repeats: w.repeats(ctx, sc.ID),
 	}
-	// The run is already recorded, so this write outlives the cancellation that
-	// may have raced it, and is bounded so a wedged database cannot hold the
-	// worker on an email.
+	// The run is already recorded, so these writes outlive the cancellation
+	// that may have raced it, and are bounded so a wedged database cannot hold
+	// the worker on an alert.
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyWriteTimeout)
 	defer cancel()
+	w.mailOwner(writeCtx, ctx, run, sc, payload)
+	// The script is the key: a schedule failing every ten minutes posts once
+	// per the channel's repeat window, with the count of what it held back.
+	if w.cfg.channels == nil {
+		return
+	}
+	if _, err := w.cfg.channels.Post(writeCtx, "script:"+sc.ID, payload); err != nil {
+		slog.WarnContext(ctx, "scripts: posting a run-failure alert to channels failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyRunID, run.ID, logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+}
+
+// mailOwner queues the alert for the script's owner.
+func (w *worker) mailOwner(writeCtx, ctx context.Context, run *script.Run, sc *script.Script, payload notification.Payload) {
+	if w.cfg.notifier == nil {
+		return
+	}
+	recipients := alertRecipients(sc)
+	if len(recipients) == 0 {
+		slog.WarnContext(ctx, "scripts: a scheduled run failed and its script has no owner to tell",
+			logKeyRunID, run.ID, "script", logsan.SanitizeForLog(sc.Name))
+		return
+	}
 	for _, recipient := range recipients {
 		if _, err := w.cfg.notifier.Notify(writeCtx, recipient, notification.CategoryScriptRun, payload); err != nil {
 			// A failed alert is not a failed run. It is logged and the next
@@ -75,6 +94,15 @@ func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.
 				logKeyRunID, run.ID, logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
+}
+
+// runPage is a run's page, or nothing when the deployment does not know its
+// own public address.
+func runPage(portalURL, scriptID, runID string) string {
+	if portalURL == "" {
+		return ""
+	}
+	return strings.TrimRight(portalURL, "/") + "/portal/automations/" + scriptID + "/runs/" + runID
 }
 
 // repeats is how many runs of the script have failed in a row ending on the

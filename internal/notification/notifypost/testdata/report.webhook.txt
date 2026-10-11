@@ -1,0 +1,21 @@
+Weekly revenue
+
+## Revenue by region
+
+| Region | Revenue |
+| --- | ---: |
+| West | 1,204,000 |
+| East | 988,500 |
+
+- West led for the third week
+- East recovered
+
+```sql
+SELECT region, SUM(amount) FROM sales GROUP BY 1
+```
+
+See the [full report](https://portal.example.com/portal/assets/a1).
+
+Attachment: raw.csv https://portal.example.com/portal/resources/r1
+Attachment: chart.png https://portal.example.com/portal/assets/a1
+https://portal.example.com/portal/assets/a1

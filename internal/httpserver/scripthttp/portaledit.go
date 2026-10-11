@@ -91,7 +91,7 @@ func (h *Handler) portalSetSource(w http.ResponseWriter, r *http.Request, user *
 	gate := h.gate()
 	gated := gate.Check(r.Context(), scriptsave.Request{
 		Existing: sc, Name: sc.Name, Source: req.Source,
-		Caller:        scriptsave.Caller{Email: user.owner(), Admin: user.IsAdmin},
+		Caller:        saveCaller(user),
 		ChangeSummary: req.ChangeSummary, Agreed: req.UserAgreed,
 	})
 	if gated.ChangeNeeded {
@@ -198,6 +198,12 @@ func editAuthor(user *PortalIdentity) script.Author {
 		roles = []string{}
 	}
 	return script.Author{Email: user.owner(), Roles: roles}
+}
+
+// saveCaller is who saves through the portal: their address, and the
+// authority a run of the version they save presents (#2080).
+func saveCaller(user *PortalIdentity) scriptsave.Caller {
+	return scriptsave.Caller{Email: user.owner(), Admin: user.IsAdmin, Persona: user.Persona, Roles: editAuthor(user).Roles}
 }
 
 // writeEditError maps an edit failure to a status. A version conflict is the

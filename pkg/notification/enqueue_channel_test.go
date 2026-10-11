@@ -26,12 +26,12 @@ func TestNotifyChannel_HTTPKindWritesOneRowAddressedToTheChannel(t *testing.T) {
 	}
 	doc := Document{Title: "Threshold crossed", Body: "queue depth 812", Link: "https://x.example.com/r/1"}
 
-	queued, err := e.NotifyChannel(context.Background(), ch, "alice@example.com", doc)
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "alice@example.com", Document: doc})
 	if err != nil {
 		t.Fatalf("NotifyChannel: %v", err)
 	}
-	if queued != 1 {
-		t.Fatalf("queued = %d, want 1", queued)
+	if res.Queued != 1 {
+		t.Fatalf("queued = %d, want 1", res.Queued)
 	}
 	rows := queue.enqueued
 	if len(rows) != 1 {
@@ -69,12 +69,12 @@ func TestNotifyChannel_EmailKindFansOutPerRecipient(t *testing.T) {
 		Recipients: []string{"a@example.com", "b@example.com", "muted@example.com"},
 	}
 
-	queued, err := e.NotifyChannel(context.Background(), ch, "alice@example.com", Document{Title: "Weekly"})
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "alice@example.com", Document: Document{Title: "Weekly"}})
 	if err != nil {
 		t.Fatalf("NotifyChannel: %v", err)
 	}
-	if queued != 2 {
-		t.Fatalf("queued = %d, want 2; the opted-out recipient must be skipped", queued)
+	if res.Queued != 2 {
+		t.Fatalf("queued = %d, want 2; the opted-out recipient must be skipped", res.Queued)
 	}
 	for _, n := range queue.enqueued {
 		if n.Recipient == "muted@example.com" {
@@ -95,7 +95,7 @@ func TestNotifyChannel_DailyChannelSchedulesADigest(t *testing.T) {
 		Name: "digest", Kind: ChannelKindMattermost, Enabled: true, Mode: ChannelModeDaily,
 		Connection: "mm", Target: "C1",
 	}
-	if _, err := e.NotifyChannel(context.Background(), ch, "a@example.com", Document{Title: "t"}); err != nil {
+	if _, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "a@example.com", Document: Document{Title: "t"}}); err != nil {
 		t.Fatalf("NotifyChannel: %v", err)
 	}
 	n := queue.enqueued[0]
@@ -118,7 +118,7 @@ func TestNotifyChannel_RecipientsOwnDailyModeStillBatches(t *testing.T) {
 		Name: "ops-email", Kind: ChannelKindEmail, Enabled: true, Mode: ChannelModeImmediate,
 		Recipients: []string{"daily@example.com", "now@example.com"},
 	}
-	if _, err := e.NotifyChannel(context.Background(), ch, "a@example.com", Document{Title: "t"}); err != nil {
+	if _, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "a@example.com", Document: Document{Title: "t"}}); err != nil {
 		t.Fatalf("NotifyChannel: %v", err)
 	}
 	for _, n := range queue.enqueued {
@@ -158,14 +158,14 @@ func TestNotifyChannel_RefusesWhatCannotBeDelivered(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e, queue := channelEnqueuer(t, nil)
-			queued, err := e.NotifyChannel(context.Background(), tc.ch, "a@example.com", tc.doc)
+			res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: tc.ch, Actor: "a@example.com", Document: tc.doc})
 			if err == nil {
 				t.Fatal("the send was accepted")
 			}
 			if !strings.Contains(err.Error(), tc.wants) {
 				t.Errorf("error %q does not mention %q", err, tc.wants)
 			}
-			if queued != 0 || len(queue.enqueued) != 0 {
+			if res.Queued != 0 || len(queue.enqueued) != 0 {
 				t.Errorf("a refused send wrote %d rows", len(queue.enqueued))
 			}
 		})
@@ -185,19 +185,19 @@ func TestNotifyChannel_ChargesTheActorLimitOncePerSend(t *testing.T) {
 		Name: "big", Kind: ChannelKindEmail, Enabled: true, Mode: ChannelModeImmediate,
 		Recipients: recipients,
 	}
-	queued, err := e.NotifyChannel(context.Background(), ch, "sender@example.com", Document{Title: "t"})
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "sender@example.com", Document: Document{Title: "t"}})
 	if err != nil {
 		t.Fatalf("NotifyChannel: %v", err)
 	}
-	if queued != MaxChannelRecipients {
-		t.Fatalf("queued = %d, want %d", queued, MaxChannelRecipients)
+	if res.Queued != MaxChannelRecipients {
+		t.Fatalf("queued = %d, want %d", res.Queued, MaxChannelRecipients)
 	}
 	if got := len(queue.enqueued); got != MaxChannelRecipients {
 		t.Errorf("wrote %d rows, want %d", got, MaxChannelRecipients)
 	}
 	// A second send of the same size still goes through: one charge, not
 	// twenty, so the actor is nowhere near their burst.
-	if _, err := e.NotifyChannel(context.Background(), ch, "sender@example.com", Document{Title: "t2"}); err != nil {
+	if _, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: ch, Actor: "sender@example.com", Document: Document{Title: "t2"}}); err != nil {
 		t.Fatalf("second NotifyChannel: %v", err)
 	}
 	if got := len(queue.enqueued); got != 2*MaxChannelRecipients {
@@ -209,9 +209,9 @@ func TestNotifyChannel_NilEnqueuerDropsSilently(t *testing.T) {
 	// A deployment with no database wires no enqueuer; every caller of this
 	// path is nil-safe by contract.
 	var e *Enqueuer
-	queued, err := e.NotifyChannel(context.Background(), Channel{Name: "ops"}, "a@example.com", Document{Title: "t"})
-	if queued != 0 || err != nil {
-		t.Errorf("NotifyChannel on a nil Enqueuer = %d, %v; want 0, nil", queued, err)
+	res, err := e.NotifyChannel(context.Background(), ChannelSend{Channel: Channel{Name: "ops"}, Actor: "a@example.com", Document: Document{Title: "t"}})
+	if res.Queued != 0 || err != nil {
+		t.Errorf("NotifyChannel on a nil Enqueuer = %d, %v; want 0, nil", res.Queued, err)
 	}
 }
 

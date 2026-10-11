@@ -356,9 +356,11 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 // portal asset store does (#1012, #1256); leaving them would rank the resource
 // on its pre-edit text forever.
 func buildUpdate(id string, u Update) (query string, args []any) {
-	setClauses := []string{"updated_at = $1", "embedding = NULL", "embedding_model = ''", "embedding_text_hash = NULL"}
-	args = []any{time.Now().UTC()}
-	idx := 2
+	// updated_at is the database's clock, as the insert's default is: a
+	// thumbnail failure is compared with it, and a platform clock behind the
+	// database's would make an edit read as older than the failure it clears.
+	setClauses := []string{"updated_at = now()", "embedding = NULL", "embedding_model = ''", "embedding_text_hash = NULL"}
+	idx := 1
 
 	if u.DisplayName != nil {
 		setClauses = append(setClauses, fmt.Sprintf("display_name = $%d", idx))
@@ -680,12 +682,12 @@ func applyMove(ctx context.Context, tx *sql.Tx, m Move) error {
 	scopeID := sql.NullString{String: m.ScopeID, Valid: m.ScopeID != ""}
 	const update = `
 		UPDATE resources SET
-			scope = $2, scope_id = $3, path = $4, uri = $5, updated_at = $6,
+			scope = $2, scope_id = $3, path = $4, uri = $5, updated_at = now(),
 			embedding           = CASE WHEN path = $4 THEN embedding           ELSE NULL END,
 			embedding_model     = CASE WHEN path = $4 THEN embedding_model     ELSE '' END,
 			embedding_text_hash = CASE WHEN path = $4 THEN embedding_text_hash ELSE NULL END
 		WHERE id = $1`
-	res, err := tx.ExecContext(ctx, update, m.ID, string(m.Scope), scopeID, m.Path, m.URI, time.Now().UTC())
+	res, err := tx.ExecContext(ctx, update, m.ID, string(m.Scope), scopeID, m.Path, m.URI)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrURIConflict

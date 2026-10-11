@@ -24,3 +24,26 @@ func TestAppendingValue(t *testing.T) {
 	}
 	assert.Equal(t, appendingFields, d.Len())
 }
+
+// A library output's record names the library the file is in (#2080); the
+// global library has no id.
+func TestValueCarriesTheLibrary(t *testing.T) {
+	read := func(v starlark.Value, key string) (starlark.Value, bool) {
+		d, ok := v.(*starlark.Dict)
+		require.True(t, ok)
+		got, found, err := d.Get(starlark.String(key))
+		require.NoError(t, err)
+		return got, found
+	}
+	persona := Value(Record{Name: "o", Destination: "resources", ResourceID: "r1", Scope: "persona", ScopeID: "finance"})
+	got, _ := read(persona, "scope")
+	assert.Equal(t, starlark.String("persona"), got)
+	got, _ = read(persona, "scope_id")
+	assert.Equal(t, starlark.String("finance"), got)
+
+	global := Value(Record{Name: "o", Destination: "resources", ResourceID: "r1", Scope: "global"})
+	_, found := read(global, "scope_id")
+	assert.False(t, found)
+	_, found = read(Value(Record{Name: "o", Destination: "portal", AssetID: "a1"}), "scope")
+	assert.False(t, found, "a portal output is in no library")
+}

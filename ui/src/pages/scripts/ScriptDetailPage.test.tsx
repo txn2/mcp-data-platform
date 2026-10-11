@@ -75,6 +75,12 @@ vi.mock("@/api/portal/hooks/scriptDelete", () => ({
 // Everything this script has produced (#1569) has its own tests; here it only
 // has to answer, so the page renders without a query client. The fixture is one
 // asset, which is what the section assertion below reads.
+// The run's posts to channels (#1723) are covered in ScriptRunPosts.test.tsx;
+// here a run posted nothing.
+vi.mock("@/api/portal/hooks/channels", () => ({
+  useRunPosts: () => ({ data: { posts: [] } }),
+}));
+
 vi.mock("@/api/portal/hooks/producers", () => ({
   useScriptProduced: () => ({
     data: {

@@ -35,6 +35,9 @@ func registerChannels(mux *http.ServeMux, h *handler) {
 	}
 	mux.HandleFunc("GET "+channelsPath, h.listChannels)
 	mux.HandleFunc("GET "+channelsPath+"/{name}", h.getChannel)
+	if h.cfg.ChannelActivity != nil {
+		mux.HandleFunc("GET "+channelsPath+"/{name}/status", h.channelStatus)
+	}
 	if !h.cfg.Mutable {
 		mux.Handle("PUT "+channelsPath+"/{name}", h.cfg.ReadOnly)
 		mux.Handle("DELETE "+channelsPath+"/{name}", h.cfg.ReadOnly)
@@ -120,6 +123,7 @@ func (h *handler) listChannels(w http.ResponseWriter, r *http.Request) {
 	out := ChannelListView{
 		Channels: make([]ChannelView, 0, len(channels)),
 		Kinds: []string{
+			notification.ChannelKindSlack,
 			notification.ChannelKindMattermost,
 			notification.ChannelKindWebhook,
 			notification.ChannelKindEmail,

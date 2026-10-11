@@ -39,6 +39,7 @@ export function NotificationTable({
             <TableHead className="px-3">Recipient</TableHead>
             <TableHead className="px-3">Subject</TableHead>
             <TableHead className="px-3">Category</TableHead>
+            <TableHead className="px-3">Channel</TableHead>
             <TableHead className="px-3 text-center">Status</TableHead>
             <TableHead className="px-3 text-right">Attempts</TableHead>
             <TableHead className="px-3">Sent</TableHead>
@@ -47,14 +48,14 @@ export function NotificationTable({
         <TableBody>
           {isLoading && (
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+              <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                 Loading...
               </TableCell>
             </TableRow>
           )}
           {rows?.map((row) => (
             <TableRow key={row.id} onClick={() => onSelect(row)} className="cursor-pointer">
-              {/* ui/table sets whitespace-nowrap on every cell; with seven
+              {/* ui/table sets whitespace-nowrap on every cell; with eight
                   columns the two timestamps have to wrap or the trailing Sent
                   column is pushed behind a horizontal scroll and lost. */}
               <TableCell className="whitespace-normal px-3 text-xs">
@@ -68,6 +69,7 @@ export function NotificationTable({
                 {row.category}
                 {row.digest && <span className="ml-1 text-muted-foreground">(digest)</span>}
               </TableCell>
+              <TableCell className="px-3 text-xs">{row.channel ?? "-"}</TableCell>
               <TableCell className="px-3 text-center">
                 <StatusBadge variant={STATUS_VARIANT[row.status] ?? "neutral"}>
                   {row.status}
@@ -81,7 +83,7 @@ export function NotificationTable({
           ))}
           {rows?.length === 0 && (
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+              <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                 No notifications match these filters.
               </TableCell>
             </TableRow>
