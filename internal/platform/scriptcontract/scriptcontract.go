@@ -122,7 +122,7 @@ WHAT IS AVAILABLE
       ceiling.
   platform.export(name, rows, format="csv", destination="portal", key=None,
                   register=None, references=None, tags=None, metadata=None,
-                  append=False)
+                  append=False, scope=None, scope_id=None)
       Declare an output. rows is a list of dicts serialized in the declared
       format, or a string body written verbatim so a script can compose a
       document: an HTML or JSX dashboard, a prose report, a hand-assembled
@@ -235,24 +235,38 @@ WHAT IS AVAILABLE
       same file, and the record carries its resource_id, reference, uri and
       version. The file lands in the library of the person the run acts for;
       name is its display name there.
-      destination and key must be passed BY NAME. Only name, rows and format may
-      be positional, because where a script writes has to be readable from its
+      scope and scope_id file a "resources" output in another library, as
+      manage_resource's do: scope="persona" with scope_id the persona's name,
+      scope="global" for the platform's library, scope="user" with scope_id
+      another person's address. The run writes only where the person it acts
+      for may: a persona's library needs its persona admin or a platform
+      administrator, the global library a platform administrator. A save
+      naming a library its author may not write is refused, naming the
+      library, and a run whose author has since lost that authority fails
+      naming it, writing nothing. key is the path inside that library, so the
+      same key and scope next run record the next version of the same file,
+      and the record carries scope and scope_id: where the file is.
+      destination, key, scope and scope_id must be passed BY NAME, and scope
+      and scope_id written out as strings. Only name, rows and format may be
+      positional, because where a script writes has to be readable from its
       source.
       append=True adds rows to an output the run builds across calls, so a
       paged API or a large query becomes one file and one registered table
       without holding every page: each page is serialized when it arrives,
       and the script keeps only what the next page needs. The first call to a
-      name and destination starts the output and fixes its key, register=,
-      tags= and metadata=; every later call passes append=True and adds rows.
+      name and destination starts the output and fixes its key, scope,
+      register=, tags= and metadata=; every later call passes append=True and
+      adds rows, and one naming another key or scope is refused.
       It takes csv or jsonl (a CSV keeps its first page's header, and a later
       page with a column the header lacks fails the call). The call returns
       the rows and bytes the output holds so far, with appending True; the
       output is written once, when the script finishes, and a run that fails
-      part-way writes none of it.
+      part-way writes none of it. The run lists it among its outputs where
+      the first page was written, as testing.outputs() does.
       In a draft run this writes nothing, wherever it was addressed, and
-      reports the shape and size the output would have: the content is
-      serialized in the declared format to measure it, so the size is the one
-      a real run writes. A register= argument then reports the table it
+      reports the shape and size the output would have, and for "resources"
+      the scope it would land in: the content is serialized in the declared
+      format to measure it, so the size is the one a real run writes. A register= argument then reports the table it
       would make, with preview True and no query_table. A draft started with
       allow_writes writes the output for real and makes the table, as a
       platform run would, except that a draft of a script not yet saved
@@ -690,7 +704,7 @@ TESTS, AND WHAT A SAVE RUNS
   the run is out of time. A test naming no recording answers only what it declares, and
   its exports are previewed. testing.outputs() is what the execution produced so
   far, written nowhere: exports (each with name, format, destination, key,
-  columns, rows, row_count, body), publishes (name, data), notifies (each
+  scope, scope_id, columns, rows, row_count, body), publishes (name, data), notifies (each
   notify call's arguments), calls (every tool call: tool, args, error, and
   declared, true when a declared answer answered it), state (what save_state
   staged, or None; None too when the execution failed under assert.fails,

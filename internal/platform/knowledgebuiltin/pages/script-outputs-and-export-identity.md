@@ -112,10 +112,43 @@ bucket, and prefix come from the configuration. That declaration bounds where an
 EXPORT may address, which is not the same as bounding the script: a persona
 holding an S3 connection reaches `s3_object` directly. What the
 configuration buys is that a named destination can be repointed without touching
-the script. `destination` and `key` must be
+the script. `destination`, `key`, `scope` and `scope_id` must be
 passed **by name**, not positionally. One output name may be written once per destination
 in a run, so sending one result to the portal and to a bucket is two calls with
 one name.
 
+`resources` writes the platform's managed-resource library instead, at the
+path `key` names (`key="datasets/orders.csv"`, folder and filename). The path is
+the file's identity: the same key next run records the next version of the same
+file, and the export record carries its `resource_id`, `reference`, `uri`,
+`version`, and the `scope` and `scope_id` of the library it is in.
+
+Without `scope` the file lands in the library of the person the run acts for.
+`scope` and `scope_id` file it in another library, read the way
+`manage_resource` reads them:
+
+```python
+platform.export(
+    "Daily orders",
+    rows,
+    format = "csv",
+    destination = "resources",
+    key = "reports/orders/daily.csv",
+    scope = "global",          # user (default) | persona | global
+    append = True,
+)
+```
+
+`scope="persona"` takes `scope_id`, the persona whose library it is;
+`scope="user"` with a `scope_id` is another person's library. A run writes only
+where the person it acts for may (their roles at save time): a persona library
+needs that persona's admin or a platform administrator, the global library a
+platform administrator. A save that names a library its author cannot write is
+refused, naming the library, and a run whose author has since lost the
+authority fails naming it, writing nothing. `scope` and `scope_id` are passed by
+name and written out as strings, so where a script writes is readable from its
+source; `validate` lists them under `resource_libraries`. With `append=True`
+the first call fixes the scope with the key.
+
 In a draft run nothing is written anywhere: each export reports the shape and
-size it would have.
+size it would have, and a `resources` export the library it would go in.

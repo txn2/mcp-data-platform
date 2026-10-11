@@ -209,6 +209,24 @@ type ExportDeps struct {
 	// destination reporting that this deployment has no library, which is what a
 	// deployment without one should say.
 	Lander ResourceLander
+	// Authority resolves the persona a set of roles acts as and whether that
+	// persona is the administrator's (#2080), the resolution the run's own
+	// session gets from the persona layer. A library write is checked against
+	// it, so platform.export reaches the libraries platform.call
+	// ("manage_resource") does. Nil resolves none: the roles alone decide.
+	Authority Authority
+}
+
+// Authority resolves the persona roles act as and whether it is the
+// administrator's.
+type Authority func(roles []string) (persona string, admin bool)
+
+// resolve applies a, or resolves nothing when a is nil.
+func (a Authority) resolve(roles []string) (string, bool) {
+	if a == nil {
+		return "", false
+	}
+	return a(roles)
 }
 
 // ResourceLander lands one output in the managed resource at a path. It is the

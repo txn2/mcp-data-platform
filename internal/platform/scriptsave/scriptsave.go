@@ -56,10 +56,14 @@ type Gate struct {
 	Libraries scriptlib.Source
 }
 
-// Caller is who is saving.
+// Caller is who is saving. A run of the version they save presents their
+// roles, so the persona and roles they hold now are what a library the source
+// writes to is checked against (#2080).
 type Caller struct {
-	Email string
-	Admin bool
+	Email   string
+	Admin   bool
+	Persona string
+	Roles   []string
 }
 
 // Request is one save.
@@ -140,6 +144,9 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		return res
 	}
 	source := res.Lint.Source
+	if res.Refusal = checkLibraryReach(req, source); res.Refusal != "" {
+		return res
+	}
 	if res.Refusal = g.checkLibraries(ctx, req, source); res.Refusal != "" {
 		return res
 	}

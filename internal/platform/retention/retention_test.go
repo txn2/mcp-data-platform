@@ -116,6 +116,12 @@ func TestSweepStatements(t *testing.T) {
 	n, err = SupersededGraphQL(db)[0].Run(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), n)
+
+	// A call task carries its own expiry, so the sweep takes no cutoff (#2009).
+	mock.ExpectExec(regexp.QuoteMeta(expiredCallTasksQuery)).WithoutArgs().WillReturnResult(sqlmock.NewResult(0, 3))
+	n, err = ExpiredCallTasks(db)[0].Run(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), n)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -144,7 +150,7 @@ func TestAssemble(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	all := Assemble(Config{DB: db, Portal: true, DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
-	assert.Len(t, all.sweeps, 4, "no portal bucket: no bucket pass")
+	assert.Len(t, all.sweeps, 5, "no portal bucket: no bucket pass")
 	assert.Equal(t, DefaultInterval, all.interval)
 
 	withBucket := Assemble(Config{DB: db, Portal: true, Bucket: "portal", DeletedDays: 30, ArchivedDays: 90, ProducerDays: 90})
@@ -152,11 +158,11 @@ func TestAssemble(t *testing.T) {
 	for _, s := range withBucket.sweeps {
 		names = append(names, s.Name)
 	}
-	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings"}, names,
+	assert.Equal(t, []string{"asset_bucket", "portal_deleted", "memory_archived", "orphaned_producers", "graphql_superseded_embeddings", "call_tasks"}, names,
 		"the bucket pass runs ahead of the purge (#1931)")
 
 	portalOff := Assemble(Config{DB: db, ArchivedDays: 90, Every: time.Minute})
-	assert.Len(t, portalOff.sweeps, 2, "memory and GraphQL; the portal is off and producer retention is 0")
+	assert.Len(t, portalOff.sweeps, 3, "memory, GraphQL and call tasks; the portal is off and producer retention is 0")
 	assert.Equal(t, time.Minute, portalOff.interval)
 }
 

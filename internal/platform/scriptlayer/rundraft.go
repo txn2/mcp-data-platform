@@ -56,6 +56,9 @@ func (h *Handle) handleValidate(ctx context.Context, input manageScriptInput) (*
 		"saves_state":             report.Saves,
 		"library":                 report.Library,
 		"libraries":               report.Libraries,
+		// The managed-resource libraries the exports file in (#2080); {} is
+		// the library of the person the run acts for.
+		"resource_libraries": report.ResourceLibraries,
 	}
 	if report.DynamicConnections {
 		out["connections_note"] = "At least one call computes its connection instead of naming one, or passes platform.call an argument set that cannot be read from the source, so this connection list is incomplete."

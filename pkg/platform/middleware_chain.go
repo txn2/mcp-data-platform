@@ -41,6 +41,7 @@ const (
 	mwAudit               mwName = "audit"
 	mwErrorContract       mwName = "error_contract"
 	mwConsent             mwName = "consent"
+	mwTasks               mwName = "tasks"
 	mwClientLogging       mwName = "client_logging"
 	mwManagedResource     mwName = "managed_resource"
 	mwCallReference       mwName = "call_reference"
@@ -165,6 +166,9 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 
 		// Consent (#2052): toolkits' prompts (Trino's cost and PII), inside authorization and the gates, inside the error contract.
 		{Name: mwConsent, Requires: []mwName{mwToolCall, mwWorkflowGate, mwRateLimit, mwErrorContract}, Register: func() { p.toolkitRegistry.InstallConsentLayers(p.mcpServer) }},
+
+		// Tasks (#2009): inside authorization, the gates, consent and audit; the result layers run with the work.
+		{Name: mwTasks, Requires: []mwName{mwToolCall, mwWorkflowGate, mwRateLimit, mwErrorContract, mwConsent, mwAudit}, Register: p.addTasks},
 
 		// Result budget (#1878): reads PlatformContext; outer to the call
 		// reference and enrichment so it measures what the client receives.

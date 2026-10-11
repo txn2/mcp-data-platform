@@ -547,6 +547,34 @@ Whoever may read a run may stop it: the script's owner, an administrator, and
 whoever requested that run. A canceled run is not a failure: it is not
 retried, and a scheduled one does not mail its owner.
 
+### Following a run as an MCP task
+
+A client that declares the MCP Tasks extension (`io.modelcontextprotocol/tasks`,
+protocol revision 2026-07-28) on its `tools/call` is answered by `run_script` at
+once with a task instead of waiting (#2009). The task is the run:
+
+- Its `taskId` is the run id (`dpx_…`), so `manage_script get_run` reads the
+  same run. Nothing is stored beside it, and it is kept as long as
+  `scripts.run_retention_days` keeps the run.
+- `tasks/get` reports it `working` while the run is queued or executing, with the
+  run's latest `platform.progress` message as the task's `statusMessage`.
+- When the run ends the task is `completed`, and `tasks/get` inlines the answer
+  `run_script` would have given: status, `result` (what `platform.result` set),
+  the outputs, and for a failed run its `error`, `cause` and `retryable`. A
+  failed run is a tool result that says it failed, not a protocol error.
+- `tasks/cancel` is `cancel_run`: a queued run never starts, a running one ends
+  canceled within seconds, and the task then reports `cancelled`.
+- Whoever may read the run may follow the task: the script's owner, an
+  administrator, and whoever requested the run. Everyone else is told the task
+  does not exist.
+- `wait_seconds` does not apply: the client polls `tasks/get` at the
+  `pollIntervalMs` it was handed.
+
+A client that does not declare the extension gets exactly the answer described
+above, waiting up to `wait_seconds`. The export tools (`trino_export`,
+`api_export`, `graphql_export`) are tasks to the same client: see
+[MCP tasks](../server/tasks.md).
+
 ## Running one on a schedule
 
 A schedule is what turns a script into an automation: a cadence, a timezone,
@@ -1894,14 +1922,68 @@ def main():
   seen the author's subject is folded into the subject-keyed library the next
   time either the author authenticates or a run of theirs executes, keeping its
   id and leaving its old address resolving, so a scheduled script keeps its
-  rolling file. Writing to the persona or global library is an explicit scope,
-  which `platform.call("api_export", ...)` and `manage_resource` take and this
-  destination does not.
+  rolling file. `scope` and `scope_id` file it in another library instead;
+  see below.
 - What the write did to the tables registered over the file is printed into the
   run log, one line per table, whether or not the script prints the result.
 - A draft run previews it like every other output: the content is serialized to
-  measure it and nothing is written. A draft run with `allow_writes` writes it,
-  into the caller's library.
+  measure it and nothing is written, and the record names the library it would
+  go in. A draft run with `allow_writes` writes it, under the drafting person's
+  own authority: into their library, or the one `scope` names.
+
+#### Filing it in a persona or the global library
+
+`scope` and `scope_id` name the library the file goes in (#2080), read the way
+`manage_resource` reads them:
+
+```python
+def main():
+    """Writes the shared orders file every analyst reads."""
+    rows = platform.query(connection = "warehouse", sql = "SELECT ...")["rows"]
+    out = platform.export(
+        "Daily orders",
+        rows,
+        format = "csv",
+        destination = "resources",
+        key = "reports/orders/daily.csv",
+        scope = "persona",
+        scope_id = "finance",
+    )
+    print(out["scope"], out["scope_id"], out["uri"])
+```
+
+| `scope` | `scope_id` | Library | Who may write it |
+|---|---|---|---|
+| absent, or `user` | absent | the person the run acts for | always |
+| `user` | another person's address | that person's | a platform administrator |
+| `persona` | the persona's name | the persona's | that persona's admin, or a platform administrator |
+| `global` | absent | the platform's | a platform administrator |
+
+- The check is `resource.CanWriteScope`, against the identity the run presents:
+  the roles its author held at save, resolved to a persona the way the run's own
+  session resolves them. It is the check `platform.call("manage_resource",
+  {"action": "create", "scope": ...})` passes through from the same run, so a
+  script reaches with `platform.export` exactly the libraries it already reaches
+  with `manage_resource`, and never one its author cannot write.
+- It is made when the script is saved: a save naming a library its author cannot
+  write is refused, naming the library. It is made again when the file is
+  written: a run whose author has since lost the role fails naming the library,
+  and nothing is written.
+- `scope` and `scope_id` are passed by name and written out as strings (directly
+  or through a module constant), like `destination` and `key`, so where a script
+  writes stays readable from its source. `validate` lists every library the
+  exports write to under `resource_libraries`.
+- `key` is the path inside the named library, so the same key and scope on the
+  next run record the next version of the same file (same id and URI), with
+  `append=True` and `register=` as without.
+- The record carries `scope` and `scope_id`: where the file is. A file another
+  library's file was moved from still answers at its old address, and an export
+  to that address writes the next version of the moved file, wherever it now is;
+  the record names the library it is in.
+- With `append=True` the first call fixes the scope with the key; a later page
+  naming another library is refused.
+- `testing.outputs()` carries each export's `scope` and `scope_id`, so a test
+  asserts on where the script writes.
 
 ### Paging into one output
 
@@ -1936,6 +2018,10 @@ def main():
         if not cursor:
             break
 ```
+
+The run records the output where its first page was written, so a run's
+outputs, a draft's and `testing.outputs()` list it in the order the script
+made it.
 
 Each page is serialized when it arrives and only the bytes are kept, so the
 Starlark values of a page are the script's to drop before the next one. The

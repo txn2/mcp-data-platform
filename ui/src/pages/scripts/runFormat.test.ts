@@ -118,6 +118,28 @@ describe("outputs", () => {
     expect(link.detail).toBe("library file datasets/daily.csv, version 7");
   });
 
+  it("names the shared library a library output is in (#2080)", () => {
+    const base = {
+      name: "daily-sales",
+      destination: "resources",
+      key: "reports/daily.csv",
+      resource_id: "res-2",
+      resource_version: 3,
+      format: "csv",
+      row_count: 10,
+      bytes: 100,
+    };
+    expect(outputLink({ ...base, landed_scope: "global" }).detail).toBe(
+      "library file reports/daily.csv in the global library, version 3",
+    );
+    expect(outputLink({ ...base, landed_scope: "persona", landed_scope_id: "finance" }).detail).toBe(
+      "library file reports/daily.csv in the finance persona library, version 3",
+    );
+    expect(outputLink({ ...base, landed_scope: "user", landed_scope_id: "jane@example.com" }).detail).toBe(
+      "library file reports/daily.csv, version 3",
+    );
+  });
+
   it("names a delivered object without offering a link to it", () => {
     const link = outputLink({
       name: "daily-sales",

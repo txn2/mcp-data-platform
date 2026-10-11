@@ -47,10 +47,12 @@ func (h *Handle) DraftExporter(d Draft) scriptrun.Exporter {
 	if h == nil || d.Script == nil {
 		return nil
 	}
+	// The drafter's own authority, resolved as their session's is (#2080).
+	persona, admin := h.export.Authority.resolve(d.Roles)
 	w := &outputWriter{
 		deps: h.export, run: &script.Run{ID: d.RunID}, script: d.Script, caller: d.Caller,
 		written: map[string]bool{}, delivered: map[string]string{},
-		claims: resource.BuildClaims(d.Script.Principal(), d.Script.OwnerEmail, "", d.Roles, false).
+		claims: resource.BuildClaims(d.Script.Principal(), d.Script.OwnerEmail, persona, d.Roles, admin).
 			ActingFor(d.Email, d.Subject),
 	}
 	return &draftWriter{outputWriter: w}

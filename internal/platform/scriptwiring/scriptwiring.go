@@ -65,6 +65,9 @@ func Wire(deps Deps) *scriptexec.Handle {
 			// (#1663), which is how a script's output becomes one rolling file
 			// with a version history rather than an asset series only it owns.
 			Lander: deps.Lander,
+			// What the run's author's roles resolve to, so a library write is
+			// held to the authority the run's own session has (#2080).
+			Authority: deps.Authority,
 		},
 		Audit: deps.Audit,
 		// The subject a run's author authenticates as, so the run files
@@ -145,6 +148,8 @@ type Deps struct {
 	Prefix       string
 	FollowTables func(ctx context.Context, assetID string, version int) []string
 	Lander       *resourcewrite.Ref
+	// Authority resolves what the roles a run presents act as (#2080).
+	Authority scriptexec.Authority
 
 	Audit    middleware.AuditLogger
 	Subjects scriptexec.SubjectResolver

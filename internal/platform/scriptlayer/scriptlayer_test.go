@@ -40,6 +40,8 @@ type memStore struct {
 	// enable/disable write.
 	versionErr error
 	enabledErr error
+	// getByIDErr fails the read of a script by id.
+	getByIDErr error
 	nextID     int
 	// states is the state half of the store (#1537), keyed by script id; a
 	// missing entry is revision 0 and {}, as the real store answers. stateErr
@@ -173,6 +175,9 @@ func (m *memStore) GetByName(_ context.Context, owner, name string) (*script.Scr
 }
 
 func (m *memStore) GetByID(_ context.Context, id string) (*script.Script, error) {
+	if m.getByIDErr != nil {
+		return nil, m.getByIDErr
+	}
 	sc, ok := m.scripts[id]
 	if !ok {
 		return nil, nil //nolint:nilnil // Store contract: nil, nil means not found

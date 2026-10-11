@@ -35995,6 +35995,12 @@ const docTemplate = `{
                 "key": {
                     "type": "string"
                 },
+                "landed_scope": {
+                    "type": "string"
+                },
+                "landed_scope_id": {
+                    "type": "string"
+                },
                 "limit_applied": {
                     "type": "integer"
                 },
@@ -36027,6 +36033,13 @@ const docTemplate = `{
                 },
                 "row_count": {
                     "type": "integer"
+                },
+                "scope": {
+                    "description": "Scope and ScopeID are the library a managed-resource output was\naddressed to with scope= and scope_id= (#2080), empty for the library of\nthe person the run acts for. LandedScope and LandedScopeID are the\nlibrary the file is in, which differs only for a file moved to another\nlibrary before the run wrote it.",
+                    "type": "string"
+                },
+                "scope_id": {
+                    "type": "string"
                 },
                 "table_changes": {
                     "description": "TableChanges is what this version did to the tables registered over the\noutput's file (#1536): one sentence per table, saying it followed onto\nthe version or is pinned and now behind it. Absent when none is\nregistered. It is a change report rather than the ` + "`" + `tables` + "`" + ` a fetched\nreference carries (#1666).",
