@@ -166,3 +166,40 @@ func TestIntegration_ATimeoutAboveTheCeilingIsRefusedByName(t *testing.T) {
 		assert.Empty(t, client.seen(), "a refused statement reaches no tool")
 	}
 }
+
+// TestIntegration_AVersionSavedBeforeTheCeilingRunsAtIt is #2085: a run of a
+// version saved before the ceiling was enforced runs a request above it at
+// the ceiling, through platform.execute, platform.query and platform.call
+// alike, says so in its log, and reports the limit as clamped. A request the
+// ceiling allows is left as asked, with no line.
+func TestIntegration_AVersionSavedBeforeTheCeilingRunsAtIt(t *testing.T) {
+	run := func(source string) (*timedTrino, *Result) {
+		t.Helper()
+		client := &timedTrino{}
+		opts := RunLimits(PlatformLimits{MaxStatementTimeout: time.Minute})
+		opts.Source, opts.Name, opts.RunID, opts.FireTime, opts.Caller = source, "test", "run_1", fireTime, timedServer(t, client)
+		opts.ClampStatementTimeout = true
+		result, err := Run(context.Background(), opts)
+		require.NoError(t, err)
+		return client, result
+	}
+
+	client, result := run(`
+platform.execute("CREATE TABLE s.t AS SELECT 1", connection = "w", timeout_seconds = 600)
+platform.query("SELECT 1", connection = "w", timeout_seconds = 120)
+platform.call("trino_execute", {"connection": "w", "sql": "SELECT 1", "timeout_seconds": 90})
+`)
+	assert.Equal(t, []time.Duration{time.Minute, time.Minute, time.Minute}, client.seen())
+	assert.Contains(t, result.Log, "WARN statement timeout: trino_execute asked for timeout_seconds=600; it ran at 60, "+
+		"the most scripts.sql.max_timeout_seconds allows, because this version was saved before that limit was enforced")
+	assert.Contains(t, result.Log, "trino_query asked for timeout_seconds=120")
+	assert.Contains(t, result.Log, "trino_execute asked for timeout_seconds=90")
+	require.NotNil(t, result.SlowestStatement)
+	assert.Equal(t, "clamped", result.SlowestStatement.LimitSource)
+
+	client, result = run(`platform.query("SELECT 1", connection = "w", timeout_seconds = 30)` + "\n")
+	assert.Equal(t, []time.Duration{30 * time.Second}, client.seen(), "a request the ceiling allows is not lowered")
+	assert.NotContains(t, result.Log, "WARN statement timeout")
+	require.NotNil(t, result.SlowestStatement)
+	assert.Equal(t, "requested", result.SlowestStatement.LimitSource)
+}

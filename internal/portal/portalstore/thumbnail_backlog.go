@@ -11,15 +11,12 @@ import (
 // owed a tile that no replica holds (pending), and the ones a replica holds
 // now or is holding back after an attempt that did not finish (waiting). The
 // owed predicate is the claim's own, so the two cannot disagree about what
-// is owed.
+// is owed, and only due rows are counted (#2084): a row owed a tile is due
+// until it is drawn.
 
 // buildThumbnailBacklog renders the count of assets owed a tile.
 func buildThumbnailBacklog(renderer int) (stmt string, args []any, err error) {
-	owed, args, err := sq.And{
-		sq.Expr("deleted_at IS NULL"),
-		thumbnailOwedPredicate(renderer),
-		sq.Expr("thumbnail_failed_version < current_version"),
-	}.ToSql()
+	owed, args, err := sq.And{sq.Expr(dueAny), assetOwed(renderer)}.ToSql()
 	if err != nil {
 		return "", nil, fmt.Errorf("building the thumbnail backlog: %w", err)
 	}
@@ -49,13 +46,13 @@ func (s *postgresAssetStore) ThumbnailBacklog(ctx context.Context, renderer int)
 // collectionThumbnailBacklog counts the collections whose mosaic is owed,
 // with the claim's own sources and owed conditions.
 func collectionThumbnailBacklog() string {
-	return collectionMosaicSources() + `
+	return collectionMosaicSources(dueAny) + `
 		SELECT
 			COUNT(*) FILTER (WHERE c.thumbnail_claimed_until IS NULL OR c.thumbnail_claimed_until < now()),
 			COUNT(*) FILTER (WHERE c.thumbnail_claimed_until >= now())
 		FROM portal_collections c
 		LEFT JOIN sources g ON g.collection_id = c.id
-		WHERE ` + collectionMosaicOwed
+		WHERE c.` + dueAny + ` AND ` + collectionMosaicOwed
 }
 
 // CollectionThumbnailBacklog counts the collections whose mosaic is owed.

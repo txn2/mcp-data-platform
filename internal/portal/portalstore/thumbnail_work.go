@@ -10,10 +10,16 @@ import (
 	sq "github.com/Masterminds/squirrel"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/thumbdue"
 )
 
-// buildThumbnailClaim renders the statement that leases up to limit assets the
-// renderer owes a tile and returns them as listing rows.
+// buildThumbnailClaim renders the statement that leases up to limit due assets
+// the renderer owes a tile and returns them as listing rows.
+//
+// Only due rows are read (#2084): thumbnail_due_at is set by a trigger on
+// every write the renderer did not make, and the partial index on it holds
+// nothing else. The lease is written to thumbnail_due_at as well, so an asset
+// whose replica died mid-render comes due again when the lease passes.
 //
 // An asset is skipped while another replica holds a lease on it, and while the
 // renderer's last attempt at its current version failed: that failure stands
@@ -26,30 +32,85 @@ import (
 // has no form for an UPDATE whose target is a locking subquery.
 func buildThumbnailClaim(renderer int, lease time.Duration, limit int) (stmt string, args []any, err error) {
 	owed, owedArgs, err := sq.And{
-		sq.Expr("deleted_at IS NULL"),
-		thumbnailOwedPredicate(renderer),
-		sq.Expr("thumbnail_failed_version < current_version"),
+		sq.Expr("thumbnail_due_at <= now()"),
 		sq.Expr("(thumbnail_claimed_until IS NULL OR thumbnail_claimed_until < now())"),
+		assetOwed(renderer),
 	}.ToSql()
 	if err != nil {
 		return "", nil, fmt.Errorf("building the thumbnail claim: %w", err)
 	}
 	stmt = `UPDATE portal_assets SET thumbnail_claimed_until = now() + make_interval(secs => ?),
+		thumbnail_due_at = now() + make_interval(secs => ?),
 		thumbnail_attempts = thumbnail_attempts + 1
 		WHERE id IN (
 			SELECT id FROM portal_assets WHERE ` + owed + `
-			ORDER BY updated_at DESC
+			ORDER BY thumbnail_due_at DESC
 			LIMIT ?
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING ` + strings.Join(assetListColumns(), ", ") + `, thumbnail_attempts`
-	args = append([]any{lease.Seconds()}, owedArgs...)
+	args = append([]any{lease.Seconds(), lease.Seconds()}, owedArgs...)
 	args = append(args, limit)
 	stmt, err = sq.Dollar.ReplacePlaceholders(stmt)
 	if err != nil {
 		return "", nil, fmt.Errorf("numbering the thumbnail claim: %w", err)
 	}
 	return stmt, args, nil
+}
+
+// assetOwed is when an asset is owed a tile, whoever holds it.
+func assetOwed(renderer int) sq.Sqlizer {
+	return sq.And{
+		sq.Expr("deleted_at IS NULL"),
+		thumbnailOwedPredicate(renderer),
+		sq.Expr("thumbnail_failed_version < current_version"),
+	}
+}
+
+// buildThumbnailClear renders the statement that takes up to limit due assets
+// the renderer owes nothing out of the due set (#2084).
+func buildThumbnailClear(renderer, limit int) (stmt string, args []any, err error) {
+	owed, args, err := assetOwed(renderer).ToSql()
+	if err != nil {
+		return "", nil, fmt.Errorf("building the thumbnail clear: %w", err)
+	}
+	stmt, err = sq.Dollar.ReplacePlaceholders(`UPDATE portal_assets SET thumbnail_due_at = NULL
+		WHERE id IN (
+			SELECT id FROM portal_assets
+			WHERE thumbnail_due_at <= now() AND NOT COALESCE((` + owed + `), FALSE)
+			ORDER BY thumbnail_due_at
+			LIMIT ?
+			FOR UPDATE SKIP LOCKED
+		)`)
+	if err != nil {
+		return "", nil, fmt.Errorf("numbering the thumbnail clear: %w", err)
+	}
+	return stmt, append(args, limit), nil
+}
+
+// SweepThumbnailWork marks every asset due once per owed rule (#2084), at
+// the first start after the rule changed, and returns how many it marked.
+func (s *postgresAssetStore) SweepThumbnailWork(ctx context.Context, renderer int) (int64, error) {
+	owed, args, err := assetOwed(renderer).ToSql()
+	if err != nil {
+		return 0, fmt.Errorf("building the thumbnail rule: %w", err)
+	}
+	return thumbdue.Sweep(ctx, s.db, thumbdue.Assets, thumbdue.Rule(owed, args...)) //nolint:wrapcheck // thumbdue names itself
+}
+
+// ClearThumbnailWork takes up to limit due assets the renderer owes nothing
+// out of the due set and returns how many (#2084).
+func (s *postgresAssetStore) ClearThumbnailWork(ctx context.Context, renderer, limit int) (int64, error) {
+	query, args, err := buildThumbnailClear(renderer, limit)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, query, args...) // #nosec G701 -- assembled by buildThumbnailClear; every value is bound
+	if err != nil {
+		return 0, fmt.Errorf("clearing thumbnail work: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // ClaimThumbnailWork leases up to limit assets the renderer owes a tile for
@@ -92,10 +153,11 @@ func (s *postgresAssetStore) ClaimThumbnailWork(ctx context.Context, renderer in
 }
 
 // holdAssetThumbnailQuery ends a claim: the asset stays out of the claim
-// until the hold passes, with the attempts counted against it. Like every
-// thumbnail write it leaves updated_at alone (#1466).
+// until the hold passes, when it comes due again, with the attempts counted
+// against it. Like every thumbnail write it leaves updated_at alone (#1466).
 const holdAssetThumbnailQuery = `UPDATE portal_assets
 	SET thumbnail_claimed_until = now() + make_interval(secs => $1),
+	    thumbnail_due_at = now() + make_interval(secs => $1),
 	    thumbnail_attempts = $2
 	WHERE id = $3`
 
@@ -116,8 +178,8 @@ func (s *postgresAssetStore) HoldThumbnailWork(ctx context.Context, id string, h
 const collectionMosaicTiles = 4
 
 // buildCollectionThumbnailClaim renders the statement that leases up to limit
-// collections whose mosaic is out of date and returns each with the source it
-// should be composed from.
+// due collections whose mosaic is out of date and returns each with the
+// source it should be composed from.
 //
 // A collection's source names the member tiles its mosaic is drawn from: the
 // first collectionMosaicTiles members, in section and item order, that have a
@@ -130,30 +192,60 @@ const collectionMosaicTiles = 4
 // be composed from a source is not owed again until the source changes
 // (#1868).
 //
+// Sources are computed for due collections only (#2084): a collection comes
+// due when it, one of its sections or items, or a member's tile changes
+// (migration 000189), so an unchanged library costs an empty index probe.
+//
 // The lease and the limit are bound as $1 and $2 by the caller.
 func buildCollectionThumbnailClaim() string {
-	return collectionMosaicSources() + `,
+	return collectionMosaicSources(dueNow) + `,
 		owed AS (
 			SELECT c.id FROM portal_collections c
 			LEFT JOIN sources g ON g.collection_id = c.id
-			WHERE ` + collectionMosaicOwed + `
+			WHERE c.thumbnail_due_at <= now()
 			  AND (c.thumbnail_claimed_until IS NULL OR c.thumbnail_claimed_until < now())
-			ORDER BY c.updated_at DESC
+			  AND ` + collectionMosaicOwed + `
+			ORDER BY c.thumbnail_due_at DESC
 			LIMIT $2
 			FOR UPDATE OF c SKIP LOCKED
 		)
 		UPDATE portal_collections c
 		SET thumbnail_claimed_until = now() + make_interval(secs => $1),
+		    thumbnail_due_at = now() + make_interval(secs => $1),
 		    thumbnail_attempts = c.thumbnail_attempts + 1
 		FROM owed LEFT JOIN sources g ON g.collection_id = owed.id
 		WHERE c.id = owed.id
 		RETURNING c.id, c.thumbnail_s3_key, COALESCE(g.source, ''), c.thumbnail_attempts`
 }
 
-// collectionMosaicSources opens the WITH clause naming each collection's
-// mosaic source (the member tiles it is composed from), for the claim and the
-// backlog count to read the same thing.
-func collectionMosaicSources() string {
+// buildCollectionThumbnailClear renders the statement that takes up to $1 due
+// collections whose mosaic is current out of the due set (#2084).
+func buildCollectionThumbnailClear() string {
+	return collectionMosaicSources(dueNow) + `,
+		current AS (
+			SELECT c.id FROM portal_collections c
+			LEFT JOIN sources g ON g.collection_id = c.id
+			WHERE c.thumbnail_due_at <= now()
+			  AND NOT COALESCE((` + collectionMosaicOwed + `), FALSE)
+			ORDER BY c.thumbnail_due_at
+			LIMIT $1
+			FOR UPDATE OF c SKIP LOCKED
+		)
+		UPDATE portal_collections c SET thumbnail_due_at = NULL
+		FROM current WHERE c.id = current.id`
+}
+
+// Which collections a statement computes mosaic sources for: the ones due
+// now (a claim or a clear), or every one in the due set (the backlog).
+const (
+	dueNow = "thumbnail_due_at <= now()"
+	dueAny = "thumbnail_due_at IS NOT NULL"
+)
+
+// collectionMosaicSources opens the WITH clause naming the mosaic source (the
+// member tiles it is composed from) of each collection matching due, for the
+// claim, the clear and the backlog count to read the same thing.
+func collectionMosaicSources(due string) string {
 	return `
 		WITH member_tiles AS (
 			SELECT s.collection_id, pa.id AS asset_id, pa.thumbnail_version, pa.thumbnail_dark_version, pa.thumbnail_renderer,
@@ -161,6 +253,7 @@ func collectionMosaicSources() string {
 			FROM portal_collection_sections s
 			JOIN portal_collection_items ci ON ci.section_id = s.id
 			JOIN portal_assets pa ON pa.id = ci.asset_id AND pa.deleted_at IS NULL AND pa.thumbnail_s3_key <> ''
+			WHERE s.collection_id IN (SELECT id FROM portal_collections WHERE ` + due + `)
 		),
 		sources AS (
 			SELECT collection_id,
@@ -176,6 +269,27 @@ const collectionMosaicOwed = `c.deleted_at IS NULL
 			  AND COALESCE(g.source, '') <> c.thumbnail_source
 			  AND (COALESCE(g.source, '') <> '' OR c.thumbnail_s3_key <> '')
 			  AND (c.thumbnail_failure = '' OR COALESCE(g.source, '') <> c.thumbnail_failed_source)`
+
+// collectionRule is the fingerprint of the mosaic rule, which a sweep is
+// recorded under.
+var collectionRule = thumbdue.Rule(collectionMosaicSources(dueNow) + collectionMosaicOwed)
+
+// SweepCollectionThumbnailWork marks every collection due once per mosaic
+// rule (#2084) and returns how many it marked.
+func (s *postgresCollectionStore) SweepCollectionThumbnailWork(ctx context.Context) (int64, error) {
+	return thumbdue.Sweep(ctx, s.db, thumbdue.Collections, collectionRule) //nolint:wrapcheck // thumbdue names itself
+}
+
+// ClearCollectionThumbnailWork takes up to limit due collections whose mosaic
+// is current out of the due set and returns how many (#2084).
+func (s *postgresCollectionStore) ClearCollectionThumbnailWork(ctx context.Context, limit int) (int64, error) {
+	res, err := s.db.ExecContext(ctx, buildCollectionThumbnailClear(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("clearing collection thumbnail work: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
 
 // ClaimCollectionThumbnailWork leases up to limit collections whose mosaic is
 // out of date and returns them with the source each should be composed from.
@@ -224,6 +338,7 @@ const recordCollectionThumbnailFailureQuery = `UPDATE portal_collections
 // holdCollectionThumbnailQuery is holdAssetThumbnailQuery for a collection.
 const holdCollectionThumbnailQuery = `UPDATE portal_collections
 	SET thumbnail_claimed_until = now() + make_interval(secs => $1),
+	    thumbnail_due_at = now() + make_interval(secs => $1),
 	    thumbnail_attempts = $2
 	WHERE id = $3`
 

@@ -24,6 +24,60 @@ import {
 const REF_SETTLE_TIMEOUT_MS = 8_000;
 
 /**
+ * How long the frame waits for the maps a document creates to finish drawing
+ * (#2087), after its reference loads have settled.
+ *
+ * A map draws its tiles after the document has loaded, so a capture taken at
+ * load shows the basemap at its lowest zooms and whichever data tiles happened
+ * to land. The bound keeps a map whose tiles never arrive from holding the
+ * render past the renderer's deadline: with the delay and the reference bound
+ * it stays well inside it.
+ */
+const MAP_SETTLE_TIMEOUT_MS = 15_000;
+
+/**
+ * The map tracker the PDF print step uses too (internal/httpserver/pdfhttp,
+ * PrintStep). It takes the map runtime's assignment to window.maplibregl
+ * through a property setter, keeps every map the document creates, and gives
+ * the notifier window.__mapsDrawn, which resolves once each has drawn
+ * (MapLibre's idle: style, tiles and any transition done) or the bound passes.
+ * The Go side holds the text between the markers to be the same as this.
+ */
+const MAP_TRACKER = `/*map-tracker:start*/
+(function(){
+var maps=[];
+var maplibre;
+Object.defineProperty(window,"maplibregl",{
+  configurable:true,
+  enumerable:true,
+  get:function(){return maplibre;},
+  set:function(value){
+    maplibre=value;
+    if(value&&typeof value.Map==="function"&&!value.Map.__tracked){
+      var Base=value.Map;
+      var Tracked=function(options){var m=new Base(options);maps.push(m);return m;};
+      Tracked.prototype=Base.prototype;
+      Tracked.__tracked=true;
+      value.Map=Tracked;
+    }
+  }
+});
+function drawn(m){
+  return new Promise(function(resolve){
+    if(m.loaded()&&m.areTilesLoaded()){resolve();return;}
+    m.once("idle",function(){resolve();});
+  });
+}
+window.__mapCount=function(){return maps.length;};
+window.__mapsDrawn=function(bound){
+  if(!maps.length)return Promise.resolve();
+  var timeout=new Promise(function(resolve){setTimeout(resolve,bound);});
+  return Promise.race([Promise.all(maps.map(drawn)),timeout]);
+};
+})();
+/*map-tracker:end*/`;
+
+/**
  * How long the frame waits for the artifact's FIRST reference request before
  * deciding there is none coming.
  *
@@ -62,6 +116,7 @@ const REF_FIRST_REQUEST_GRACE_MS = 1_500;
  */
 function refWatchScript(): string {
   return `<script>
+${MAP_TRACKER}
 (function() {
   var PREFIX = ${JSON.stringify(REF_PATH_PREFIX)};
   var state = { failed: 0, inflight: 0, started: 0 };
@@ -114,6 +169,9 @@ function refWatchScript(): string {
  * asked for nothing yet is given a grace period first, and one that has is
  * waited on until its requests settle.
  *
+ * Once they have, it waits for every map the document created to finish
+ * drawing (MAP_TRACKER), bounded by MAP_SETTLE_TIMEOUT_MS.
+ *
  * It reports how many reference loads failed so the parent can throw the
  * capture away, and names the asset so a frame's report cannot be read as
  * another frame's. A document with no watcher on it (the transform-failure page
@@ -125,11 +183,14 @@ function notifierScript(assetId: string, delayMs: number): string {
   var waited = 0;
   function state() { return window.__thumbnailRefs || { failed: 0, inflight: 0, started: 0 }; }
   function ready() {
-    parent.postMessage({
-      type: 'thumbnail-ready',
-      assetId: ${JSON.stringify(assetId)},
-      refFailures: state().failed
-    }, '*');
+    var maps = window.__mapsDrawn ? window.__mapsDrawn(${MAP_SETTLE_TIMEOUT_MS}) : Promise.resolve();
+    maps.then(function() {
+      parent.postMessage({
+        type: 'thumbnail-ready',
+        assetId: ${JSON.stringify(assetId)},
+        refFailures: state().failed
+      }, '*');
+    });
   }
   function settle() {
     var s = state();

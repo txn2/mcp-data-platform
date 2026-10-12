@@ -22,6 +22,8 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/headless"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/pglisten"
+	"github.com/txn2/mcp-data-platform/internal/thumbdue"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -36,7 +38,15 @@ import (
 const Renderer = 3
 
 const (
-	defaultPoll          = 5 * time.Second
+	defaultPoll = 5 * time.Second
+	// maxIdlePoll is the longest an idle worker waits between passes, its
+	// wait doubling from Poll while it finds nothing (#2084). A row that
+	// becomes due wakes it through NOTIFY; the poll is for a missed signal
+	// and for a hold coming due.
+	maxIdlePoll = time.Minute
+	// clearBatch is how many due rows of each kind one pass takes out of the
+	// due set when the renderer owes them nothing (#2084).
+	clearBatch           = 1000
 	defaultConcurrency   = 1
 	defaultRenderTimeout = 45 * time.Second
 	defaultMaxAttempts   = 5
@@ -165,6 +175,10 @@ type Deps struct {
 	// TileEntryURL and TileCSS are the tile page's script and stylesheet.
 	TileEntryURL string
 	TileCSS      string
+
+	// DSN is the database a LISTEN connection is opened on, so a row
+	// becoming due wakes the worker (#2084); empty, it only polls.
+	DSN string
 }
 
 // Worker draws owed tiles until stopped.
@@ -175,6 +189,7 @@ type Worker struct {
 	stopOnce sync.Once
 	stop     chan struct{}
 	done     chan struct{}
+	wake     chan struct{}
 
 	mu          sync.Mutex
 	unavailable bool
@@ -186,7 +201,18 @@ type Worker struct {
 // New returns a worker. It does nothing until Start.
 func New(cfg Tuning, deps Deps) *Worker {
 	deps.AssetBlobs, deps.ResourceBlobs = thumbnailBlobs(deps.AssetBlobs), thumbnailBlobs(deps.ResourceBlobs)
-	return &Worker{cfg: cfg.withDefaults(), deps: deps, stop: make(chan struct{}), done: make(chan struct{})}
+	return &Worker{
+		cfg: cfg.withDefaults(), deps: deps,
+		stop: make(chan struct{}), done: make(chan struct{}), wake: make(chan struct{}, 1),
+	}
+}
+
+// Notify wakes an idle worker for a pass now: a row became due (#2084).
+func (w *Worker) Notify() {
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Start runs the worker until ctx ends or Stop is called. A nil worker, which
@@ -210,21 +236,88 @@ func (w *Worker) Stop() {
 
 func (w *Worker) run(ctx context.Context) {
 	defer close(w.done)
-	busy := false
+	closeListener := w.listen(ctx)
+	defer closeListener()
+	w.sweep(ctx)
+	busy, idle := false, w.cfg.Poll
 	bgloop.Run(ctx, bgloop.Loop{
-		Name: bgloop.NameThumbnailWorker, Immediate: true, Stop: w.stop, SpanPerUnit: true,
+		Name: bgloop.NameThumbnailWorker, Immediate: true, Stop: w.stop, Wake: w.wake, SpanPerUnit: true,
 		Next: func() time.Duration {
 			if busy {
 				// A pass that found work drains the backlog without waiting.
 				return 0
 			}
-			return w.cfg.Poll
+			wait := idle
+			idle = nextIdle(idle, w.cfg.Poll)
+			return wait
 		},
 		Body: func(ctx context.Context) error {
 			busy = w.pass(ctx)
+			if busy || bgloop.Woken(ctx) {
+				idle = w.cfg.Poll
+			}
 			return nil
 		},
 	})
+}
+
+// listen opens the LISTEN connection that wakes the worker when a row becomes
+// due (#2084) and returns what closes it. It is opened beside the loop rather
+// than before it: pq's Listen waits for a connection, and a database that is
+// not answering must leave the worker polling, not waiting. The close waits
+// for an open still under way, so a connection that comes up after the worker
+// stopped is closed too.
+func (w *Worker) listen(ctx context.Context) func() {
+	if w.deps.DSN == "" {
+		return func() {}
+	}
+	started := make(chan *pglisten.Listener, 1)
+	go func() {
+		l := pglisten.New(w.deps.DSN, thumbdue.NotifyChannel, w)
+		if err := l.Start(ctx); err != nil {
+			slog.WarnContext(ctx, "thumbnails: not woken by new work; polling only", logKeyError, logsan.SanitizeForLog(err.Error()))
+			close(started)
+			return
+		}
+		started <- l
+	}()
+	return func() {
+		go func() {
+			if l, ok := <-started; ok {
+				l.Stop()
+			}
+		}()
+	}
+}
+
+// nextIdle is the wait after an idle one: twice as long, at most maxIdlePoll
+// or poll when that is longer.
+func nextIdle(wait, poll time.Duration) time.Duration {
+	return min(2*wait, max(maxIdlePoll, poll))
+}
+
+// sweep marks every row of each kind due once per owed rule (#2084), before
+// the first pass, so a document a changed rule now owes a tile is read.
+func (w *Worker) sweep(ctx context.Context) {
+	sweeps := map[string]func(context.Context) (int64, error){}
+	if w.deps.Assets != nil {
+		sweeps[kindAsset] = func(ctx context.Context) (int64, error) { return w.deps.Assets.SweepThumbnailWork(ctx, Renderer) }
+	}
+	if w.deps.Resources != nil {
+		sweeps[kindResource] = func(ctx context.Context) (int64, error) { return w.deps.Resources.SweepThumbnailWork(ctx, Renderer) }
+	}
+	if w.deps.Collections != nil {
+		sweeps[kindCollection] = w.deps.Collections.SweepCollectionThumbnailWork
+	}
+	for kind, sweep := range sweeps {
+		marked, err := sweep(ctx)
+		switch {
+		case err != nil:
+			slog.ErrorContext(ctx, "thumbnails: marking rows for the current rule failed", "kind", kind, logKeyError, logsan.SanitizeForLog(err.Error()))
+		case marked > 0:
+			slog.InfoContext(ctx, "thumbnails: rows marked for the current rule", "kind", kind, "rows", marked)
+		}
+	}
 }
 
 // pass claims and draws one batch of each kind and reports whether it found
@@ -234,12 +327,40 @@ func (w *Worker) pass(ctx context.Context) bool {
 	if !w.rendererAnswers(ctx) {
 		return false
 	}
+	// The due rows owed nothing leave the due set first; a full batch says
+	// more may wait.
+	cleared := w.clear(ctx) >= clearBatch
 	// Each kind is drawn whatever the one before it found.
 	assets := w.drawBatch(ctx, w.claimAssets(ctx))
 	resources := w.drawBatch(ctx, w.claimResources(ctx))
 	collections := w.drawBatch(ctx, w.claimCollections(ctx))
 	scripts := w.drawBatch(ctx, w.claimScripts(ctx))
-	return assets || resources || collections || scripts
+	return cleared || assets || resources || collections || scripts
+}
+
+// clear takes the due rows each kind owes nothing out of the due set and
+// returns the most one kind cleared.
+func (w *Worker) clear(ctx context.Context) int64 {
+	var most int64
+	note := func(kind string, n int64, err error) {
+		if err != nil {
+			slog.ErrorContext(ctx, "thumbnails: clearing settled rows failed", "kind", kind, logKeyError, logsan.SanitizeForLog(err.Error()))
+		}
+		most = max(most, n)
+	}
+	if w.deps.Assets != nil {
+		n, err := w.deps.Assets.ClearThumbnailWork(ctx, Renderer, clearBatch)
+		note(kindAsset, n, err)
+	}
+	if w.deps.Resources != nil {
+		n, err := w.deps.Resources.ClearThumbnailWork(ctx, Renderer, clearBatch)
+		note(kindResource, n, err)
+	}
+	if w.deps.Collections != nil {
+		n, err := w.deps.Collections.ClearCollectionThumbnailWork(ctx, clearBatch)
+		note(kindCollection, n, err)
+	}
+	return most
 }
 
 // claimAssets claims one batch of assets.

@@ -62,6 +62,7 @@ func TestClaimThumbnailWork_ReturnsTheClaimedResources(t *testing.T) {
 		AddRow(append(resourceRow("r1", "First"), 1)...).
 		AddRow(append(resourceRow("r2", "Second"), 3)...)
 	mock.ExpectQuery("UPDATE resources SET thumbnail_claimed_until = now\\(\\) \\+ make_interval\\(secs => \\$1\\),\\s+" +
+		"thumbnail_due_at = now\\(\\) \\+ make_interval\\(secs => \\$1\\),\\s+" +
 		"thumbnail_attempts = thumbnail_attempts \\+ 1").WillReturnRows(rows)
 
 	got, err := workStore(t, db).ClaimThumbnailWork(context.Background(), 1, time.Minute, 4)
@@ -184,6 +185,7 @@ func TestHoldThumbnailWork(t *testing.T) {
 	store := workStore(t, db)
 
 	hold := `UPDATE resources\s+SET thumbnail_claimed_until = now\(\) \+ make_interval\(secs => \$1\),\s+` +
+		`thumbnail_due_at = now\(\) \+ make_interval\(secs => \$1\),\s+` +
 		`thumbnail_attempts = \$2\s+WHERE id = \$3`
 	mock.ExpectExec(hold).WithArgs(240.0, 2, "r1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(hold).WithArgs(0.0, 0, "r2").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -196,6 +198,58 @@ func TestHoldThumbnailWork(t *testing.T) {
 	}
 	if err := store.HoldThumbnailWork(context.Background(), "r3", time.Minute, 1); err == nil || !strings.Contains(err.Error(), "holding thumbnail work") {
 		t.Errorf("a failed hold = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// The clear takes due files owed nothing out of the due set (#2084): its
+// predicate is the claim's owed rule negated, bound $1..$5, with the limit
+// last, and it reports how many it cleared.
+func TestClearThumbnailWork(t *testing.T) {
+	stmt, args := buildThumbnailClear(1, 1000)
+	if len(args) != 6 || args[2] != 1 || args[5] != 1000 {
+		t.Fatalf("bound %v; want the owed values then the limit", args)
+	}
+	if !strings.Contains(stmt, "NOT COALESCE((") || !strings.Contains(stmt, "thumbnail_due_at <= now()") {
+		t.Errorf("the clear does not read due rows the rule owes nothing:\n%s", stmt)
+	}
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	store := workStore(t, db)
+	mock.ExpectExec("UPDATE resources SET thumbnail_due_at = NULL").WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec("UPDATE resources SET thumbnail_due_at = NULL").WillReturnError(errWorkDB)
+	if n, err := store.ClearThumbnailWork(context.Background(), 1, 1000); err != nil || n != 3 {
+		t.Errorf("ClearThumbnailWork = %d, %v", n, err)
+	}
+	if _, err := store.ClearThumbnailWork(context.Background(), 1, 1000); err == nil || !strings.Contains(err.Error(), "clearing thumbnail work") {
+		t.Errorf("a failed clear = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
+	}
+}
+
+// A sweep runs under the resources lock with the rule fingerprinted from the
+// owed predicate; a new renderer generation is a different rule.
+func TestSweepThumbnailWork(t *testing.T) {
+	first, again, next := thumbnailRule(1), thumbnailRule(1), thumbnailRule(2)
+	if first != again || first == next {
+		t.Error("the rule fingerprint does not follow the renderer generation")
+	}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.ExpectQuery("pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(false))
+	if n, err := workStore(t, db).SweepThumbnailWork(context.Background(), 1); err != nil || n != 0 {
+		t.Errorf("a sweep another replica holds = %d, %v", n, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Error(err)

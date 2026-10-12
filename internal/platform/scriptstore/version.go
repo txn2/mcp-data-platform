@@ -20,7 +20,8 @@ import (
 // mirrored by scanVersion so the scan order cannot drift from the query.
 const versionColumns = `id, script_id, version, display_name, description,
 	category, source_code, params, tags, author, author_roles, status,
-	created_at, change_summary, change_agreed_by, change_agreed_at, tests`
+	created_at, change_summary, change_agreed_by, change_agreed_at, tests,
+	predates_statement_cap`
 
 // versionSelect is the base SELECT for the version columns.
 const versionSelect = "SELECT " + versionColumns + " FROM script_versions"
@@ -32,7 +33,8 @@ func scanVersion(sc rowScanner) (*script.Version, error) {
 	err := sc.Scan(&v.ID, &v.ScriptID, &v.Version, &v.DisplayName, &v.Description,
 		&v.Category, &v.Source, &paramsJSON, pq.Array(&v.Tags), &v.Author,
 		pq.Array(&v.AuthorRoles), &v.Status, &v.CreatedAt,
-		&v.ChangeSummary, &v.ChangeAgreedBy, &v.ChangeAgreedAt, &testsJSON)
+		&v.ChangeSummary, &v.ChangeAgreedBy, &v.ChangeAgreedAt, &testsJSON,
+		&v.PredatesStatementCap)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script version row: %w", err)
 	}
@@ -92,18 +94,24 @@ func insertVersionRow(ctx context.Context, tx *sql.Tx, ins versionInsert) error 
 	// carried a change. A version written without running the tests (an
 	// owner transfer, a description edit) keeps the report of the latest
 	// version with the same source: the tests are part of the source, so
-	// they found the same thing.
+	// they found the same thing. It keeps predates_statement_cap the same way
+	// (#2085): the source is what was saved before the ceiling, so a version
+	// that only moves the owner or the description still runs as it did.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO script_versions (script_id, version, display_name, description,
 		                             category, source_code, params, tags, author,
 		                             author_roles, status, change_summary,
-		                             change_agreed_by, change_agreed_at, tests)
+		                             change_agreed_by, change_agreed_at, tests,
+		                             predates_statement_cap)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text, $13::text,
 		        CASE WHEN $12::text = '' THEN NULL ELSE NOW() END,
 		        COALESCE($14::jsonb, (SELECT prior.tests FROM script_versions prior
 		                               WHERE prior.script_id = $1 AND prior.source_code = $6
 		                                 AND prior.tests IS NOT NULL
-		                               ORDER BY prior.version DESC LIMIT 1)))`,
+		                               ORDER BY prior.version DESC LIMIT 1)),
+		        COALESCE((SELECT prior.predates_statement_cap FROM script_versions prior
+		                   WHERE prior.script_id = $1 AND prior.source_code = $6
+		                   ORDER BY prior.version DESC LIMIT 1), FALSE))`,
 		ins.ScriptID, ins.Version, ins.Snapshot.DisplayName, ins.Snapshot.Description,
 		ins.Snapshot.Category, ins.Snapshot.Source, paramsJSON, pq.Array(tags),
 		ins.Author.Email, pq.Array(roles), ins.Status, ins.Snapshot.ChangeSummary, ins.Snapshot.ChangeAgreedBy,

@@ -151,7 +151,10 @@ The tile worker draws a map asset like any HTML asset, in the platform's
 headless Chrome, which draws WebGL in software (SwiftShader). The page's
 reads of `/portal/vendor/maplibre/` and `/portal/maps/` are answered by the
 platform in-process, by range, so the tile shows the basemap and the data in
-light and dark with no outbound request. Export PDF reads them the same way,
+light and dark with no outbound request. The tile is taken once every map on
+the page has finished drawing (MapLibre's `idle`), bounded at 15 seconds after
+the page's other files load, so a map whose tiles never arrive still gets a
+tile (#2087). Export PDF reads them the same way,
 and prints a document that draws a map once every map on it has finished
 drawing (MapLibre's `idle`, bounded at 20 seconds), on one page the size of
 its screen layout, since a map fitted to the screen's width and printed on a

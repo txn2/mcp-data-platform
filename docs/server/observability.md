@@ -872,8 +872,8 @@ Thumbnails add `thumbnail_renderer_up`, `thumbnail_render_duration_seconds{kind}
 and `thumbnail_render_failures_total{kind,reason}`. The audit writer adds
 `audit_writer_queue_depth` and `audit_write_duration_seconds{result}`.
 
-The four LISTEN adapters (index jobs, notifications, script runs, the session
-broadcaster) report `pg_listen_connected{loop}`,
+The five LISTEN adapters (index jobs, notifications, script runs, the session
+broadcaster, and the thumbnail worker's `listen_thumbnail_due`, #2084) report `pg_listen_connected{loop}`,
 `pg_listen_reconnects_total{loop}` and
 `pg_listen_last_notification_age_seconds{loop}`. A connection whose peer is gone
 without a reset is not pinged: `pq.Listener.Ping` holds the listener's lock for

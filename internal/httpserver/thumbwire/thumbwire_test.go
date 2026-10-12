@@ -55,6 +55,10 @@ func (workingAssets) HoldThumbnailWork(context.Context, string, time.Duration, i
 	return nil
 }
 
+func (workingAssets) SweepThumbnailWork(context.Context, int) (int64, error) { return 0, nil }
+
+func (workingAssets) ClearThumbnailWork(context.Context, int, int) (int64, error) { return 0, nil }
+
 type workingCollections struct {
 	portal.CollectionStore
 	c *claims
@@ -77,6 +81,12 @@ func (workingCollections) HoldCollectionThumbnailWork(context.Context, string, t
 	return nil
 }
 
+func (workingCollections) SweepCollectionThumbnailWork(context.Context) (int64, error) { return 0, nil }
+
+func (workingCollections) ClearCollectionThumbnailWork(context.Context, int) (int64, error) {
+	return 0, nil
+}
+
 type workingResources struct {
 	resource.Store
 	c *claims
@@ -94,6 +104,10 @@ func (workingResources) RecordThumbnailFailure(context.Context, string, string, 
 func (workingResources) HoldThumbnailWork(context.Context, string, time.Duration, int) error {
 	return nil
 }
+
+func (workingResources) SweepThumbnailWork(context.Context, int) (int64, error) { return 0, nil }
+
+func (workingResources) ClearThumbnailWork(context.Context, int, int) (int64, error) { return 0, nil }
 
 type blobs struct{}
 

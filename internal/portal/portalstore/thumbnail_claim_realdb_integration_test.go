@@ -88,7 +88,8 @@ func pendingIDs(t *testing.T, store *postgresAssetStore) []string {
 	t.Helper()
 	assets, err := store.ClaimThumbnailWork(context.Background(), testRenderer, time.Minute, 100)
 	require.NoError(t, err)
-	_, err = store.db.ExecContext(context.Background(), `UPDATE portal_assets SET thumbnail_claimed_until = NULL`)
+	_, err = store.db.ExecContext(context.Background(), `UPDATE portal_assets SET thumbnail_claimed_until = NULL,
+		thumbnail_due_at = CASE WHEN thumbnail_claimed_until IS NULL THEN thumbnail_due_at ELSE now() END`)
 	require.NoError(t, err)
 	return ids(assets)
 }
@@ -318,7 +319,8 @@ func TestThumbnailClaim_RealDB_ALeaseIsExclusiveUntilItLapses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, second, "a leased row was claimed a second time")
 
-	_, err = db.ExecContext(ctx, `UPDATE portal_assets SET thumbnail_claimed_until = now() - interval '1 second'`)
+	_, err = db.ExecContext(ctx, `UPDATE portal_assets SET thumbnail_claimed_until = now() - interval '1 second',
+		thumbnail_due_at = now() - interval '1 second'`)
 	require.NoError(t, err)
 	third, err := store.ClaimThumbnailWork(ctx, testRenderer, time.Minute, 10)
 	require.NoError(t, err)
@@ -396,7 +398,8 @@ func TestCollectionThumbnailClaim_RealDB_AMosaicFollowsItsMembers(t *testing.T) 
 	claim := func() map[string]string {
 		work, err := colls.ClaimCollectionThumbnailWork(ctx, time.Minute, 100)
 		require.NoError(t, err)
-		_, err = db.ExecContext(ctx, `UPDATE portal_collections SET thumbnail_claimed_until = NULL`)
+		_, err = db.ExecContext(ctx, `UPDATE portal_collections SET thumbnail_claimed_until = NULL,
+			thumbnail_due_at = CASE WHEN thumbnail_claimed_until IS NULL THEN thumbnail_due_at ELSE now() END`)
 		require.NoError(t, err)
 		out := map[string]string{}
 		for _, w := range work {

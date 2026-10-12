@@ -33,6 +33,7 @@ import (
 	portalstore "github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/sqlgate"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
+	"github.com/txn2/mcp-data-platform/internal/thumbdue"
 	auditpg "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	promptpg "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -77,10 +78,11 @@ type source struct {
 // "joining" it.
 var sampleSources = map[string]source{
 	"github.com/txn2/mcp-data-platform/pkg/audit/postgres":            {auditpg.SQLSamples, 0},
-	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 15},
-	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 12},
+	"github.com/txn2/mcp-data-platform/pkg/resource":                  {resource.SQLSamples, 16},
+	"github.com/txn2/mcp-data-platform/internal/portal/portalstore":   {portalstore.SQLSamples, 13},
 	"github.com/txn2/mcp-data-platform/pkg/prompt/postgres":           {promptpg.SQLSamples, 5},
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore": {scriptstore.SQLSamples, 4},
+	"github.com/txn2/mcp-data-platform/internal/thumbdue":             {thumbdue.SQLSamples, 1},
 }
 
 func TestStoreStatementsPrepare_RealDB(t *testing.T) {

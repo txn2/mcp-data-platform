@@ -77,6 +77,11 @@ type Version struct {
 	// test and the statements they reach. Nil for a version saved before
 	// reports were kept.
 	Tests *testreport.Report `json:"tests,omitempty"`
+	// PredatesStatementCap is true for a version whose source was saved
+	// before scripts.sql.max_timeout_seconds was enforced (#2085): a run of it
+	// runs a timeout_seconds above the ceiling at the ceiling, as the tools
+	// did when it was saved, instead of failing.
+	PredatesStatementCap bool `json:"-"`
 }
 
 // VersionStore is the versioning capability of a script store. The PostgreSQL

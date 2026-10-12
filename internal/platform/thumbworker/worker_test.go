@@ -103,6 +103,7 @@ type hold struct {
 }
 
 type fakeAssets struct {
+	dueWork
 	mu      sync.Mutex
 	claims  [][]portaldomain.Asset
 	byID    map[string]*portaldomain.Asset
@@ -174,6 +175,7 @@ type fakeRefs struct {
 func (f fakeRefs) ListByAsset(context.Context, string) ([]assetrefs.Ref, error) { return f.refs, f.err }
 
 type fakeCollections struct {
+	dueWork
 	claims    []portaldomain.CollectionThumbnailWork
 	recorded  map[string][2]string
 	failures  map[string][2]string
@@ -218,6 +220,7 @@ func (f *fakeCollections) RecordCollectionThumbnail(_ context.Context, id, key, 
 }
 
 type fakeResources struct {
+	dueWork
 	mu       sync.Mutex
 	claims   []resource.Resource
 	captures []resource.ThumbnailCapture

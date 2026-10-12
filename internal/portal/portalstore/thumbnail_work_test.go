@@ -157,6 +157,7 @@ func TestThumbnailHolds(t *testing.T) {
 
 	hold := func(table string) string {
 		return `UPDATE ` + table + `\s+SET thumbnail_claimed_until = now\(\) \+ make_interval\(secs => \$1\),\s+` +
+			`thumbnail_due_at = now\(\) \+ make_interval\(secs => \$1\),\s+` +
 			`thumbnail_attempts = \$2\s+WHERE id = \$3`
 	}
 	mock.ExpectExec(hold("portal_assets")).WithArgs(60.0, 3, "a1").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -268,4 +269,48 @@ func TestBuildThumbnailClaim_BoundsTheSourceSizePerFamily(t *testing.T) {
 		}
 	}
 	assert.True(t, bound, "the large-source families are bound to the CASE's placeholder")
+}
+
+// The asset clear and the collection clear take due rows owed nothing out of
+// the due set (#2084), and a sweep runs under each table's lock.
+func TestThumbnailClearsAndSweeps(t *testing.T) {
+	stmt, args, err := buildThumbnailClear(1, 1000)
+	require.NoError(t, err)
+	assert.Equal(t, 1000, args[len(args)-1], "the limit is the last placeholder")
+	assert.Contains(t, stmt, "NOT COALESCE((")
+	assert.NotContains(t, stmt, "?", "every placeholder is numbered")
+	assert.Contains(t, buildCollectionThumbnailClear(), "NOT COALESCE(("+collectionMosaicOwed)
+	assert.Contains(t, buildCollectionThumbnailClear(), "WHERE s.collection_id IN (SELECT id FROM portal_collections WHERE "+dueNow+")",
+		"a clear computes sources for due collections only")
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	assets, collections := claimAssets(t, db), claimCollections(t, db)
+	ctx := context.Background()
+
+	mock.ExpectExec("UPDATE portal_assets SET thumbnail_due_at = NULL").WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("UPDATE portal_assets SET thumbnail_due_at = NULL").WillReturnError(errClaimDB)
+	mock.ExpectExec("UPDATE portal_collections c SET thumbnail_due_at = NULL").WithArgs(1000).WillReturnResult(sqlmock.NewResult(0, 4))
+	mock.ExpectExec("UPDATE portal_collections c SET thumbnail_due_at = NULL").WillReturnError(errClaimDB)
+	mock.ExpectQuery("pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(false))
+	mock.ExpectQuery("pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"got"}).AddRow(false))
+
+	n, err := assets.ClearThumbnailWork(ctx, 1, 1000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n)
+	_, err = assets.ClearThumbnailWork(ctx, 1, 1000)
+	require.ErrorContains(t, err, "clearing thumbnail work")
+	n, err = collections.ClearCollectionThumbnailWork(ctx, 1000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), n)
+	_, err = collections.ClearCollectionThumbnailWork(ctx, 1000)
+	require.ErrorContains(t, err, "clearing collection thumbnail work")
+	n, err = assets.SweepThumbnailWork(ctx, 1)
+	require.NoError(t, err)
+	assert.Zero(t, n, "another replica holds the asset sweep")
+	n, err = collections.SweepCollectionThumbnailWork(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, n, "another replica holds the collection sweep")
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

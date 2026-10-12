@@ -1060,10 +1060,12 @@ internal/platform/thumbworker -> internal/headless
 internal/platform/thumbworker -> internal/inproc
 internal/platform/thumbworker -> internal/logsan
 internal/platform/thumbworker -> internal/objectobs
+internal/platform/thumbworker -> internal/pglisten
 internal/platform/thumbworker -> internal/platform/scriptflow
 internal/platform/thumbworker -> internal/platform/scripttiles
 internal/platform/thumbworker -> internal/portal/assetrefs
 internal/platform/thumbworker -> internal/portal/portaldomain
+internal/platform/thumbworker -> internal/thumbdue
 internal/platform/thumbworker -> internal/thumbtypes
 internal/platform/thumbworker -> pkg/observability
 internal/platform/thumbworker -> pkg/resource
@@ -1133,6 +1135,7 @@ internal/portal/portalpurge -> internal/logsan
 internal/portal/portalpurge -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/producedby
+internal/portal/portalstore -> internal/thumbdue
 internal/portal/portalstore -> internal/thumbtypes
 internal/portal/portalstore -> pkg/indexjobs
 internal/portal/portalstore -> pkg/portal/shareaccess
@@ -1171,6 +1174,7 @@ internal/shutdown -> internal/inprocess
 internal/soap -> internal/xmltree
 internal/tableavail -> pkg/query
 internal/tableparquet -> internal/tabletype
+internal/thumbdue -> internal/logsan
 internal/thumbtypes -> pkg/contenttype
 internal/toolanswer -> pkg/registry
 internal/toolanswer -> pkg/toolkit
@@ -1617,6 +1621,7 @@ pkg/resource -> internal/exporttrunc
 pkg/resource -> internal/logsan
 pkg/resource -> internal/opsobs
 pkg/resource -> internal/producedby
+pkg/resource -> internal/thumbdue
 pkg/resource -> internal/thumbtypes
 pkg/resource -> internal/wirejson
 pkg/resource -> pkg/blobserve

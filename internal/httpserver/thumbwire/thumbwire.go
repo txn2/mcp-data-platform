@@ -121,6 +121,7 @@ func assemble(p source, routes http.Handler, tileEntry string) *thumbworker.Work
 		Routes:           routes,
 		TileEntryURL:     tileEntry,
 		TileCSS:          contentviewer.CSS,
+		DSN:              cfg.Database.DSN,
 	}
 	if collections, ok := p.PortalCollectionStore().(thumbworker.CollectionWork); ok {
 		deps.Collections = collections

@@ -63,10 +63,9 @@ func (w *Worker) registerBacklog(m *observability.Metrics) {
 }
 
 // backlogMaxAge is how long one reading of the tile backlog is reported
-// before the next scrape counts again. The counts scan whole tables (the
-// collection mosaic's source is a window over every collection item), and a
-// backlog moves in minutes, not seconds, so every replica counting on every
-// scrape was database load for no reading anybody needed.
+// before the next scrape counts again. The counts read only due rows (#2084),
+// but a backlog moves in minutes, not seconds, so every replica counting on
+// every scrape is database load for no reading anybody needs.
 const backlogMaxAge = time.Minute
 
 // cachedBacklog is the sampler over counts: each family counted at once,

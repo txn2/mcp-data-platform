@@ -72,6 +72,45 @@ func Begin(tool string, args map[string]any, ceiling, remaining time.Duration) (
 	return &Statement{tool: tool, limit: limit, started: time.Now()}, nil
 }
 
+// Bounds is what a run's statement call is decided against: the ceiling, the
+// run's remaining time, and whether the version predates the ceiling.
+type Bounds struct {
+	Ceiling, Remaining time.Duration
+	// Clamp is set for a version saved before the ceiling was enforced
+	// (#2085), never for a draft or a test: a timeout_seconds above the
+	// ceiling runs at it instead of being refused, and Log is handed the line
+	// that says what was lowered and why.
+	Clamp bool
+	Log   func(string)
+}
+
+// BeginRun is Begin for a run of a saved version, under b.
+func BeginRun(tool string, args map[string]any, b Bounds) (*Statement, error) {
+	asked := 0
+	if b.Clamp && IsStatementTool(tool) {
+		asked = ClampTo(args, b.Ceiling)
+	}
+	stmt, err := Begin(tool, args, b.Ceiling, b.Remaining)
+	if err != nil || asked == 0 {
+		return stmt, err
+	}
+	stmt.MarkClamped()
+	if b.Log != nil {
+		b.Log(fmt.Sprintf("WARN statement timeout: %s asked for timeout_seconds=%d; it ran at %v, the most %s allows, "+
+			"because this version was saved before that limit was enforced. A new version asking for more is refused",
+			tool, asked, args[ArgTimeout], MaxTimeoutKey))
+	}
+	return stmt, nil
+}
+
+// MarkClamped records that the call's requested limit was lowered to the
+// ceiling (ClampTo), so its timing reports limit_source "clamped". Nil-safe.
+func (s *Statement) MarkClamped() {
+	if s != nil && s.limit.Source == LimitRequested {
+		s.limit.Source = LimitClamped
+	}
+}
+
 // End is the call's timing (Time), nil for no statement.
 func (s *Statement) End(err error, site []string) *runstate.StatementTiming {
 	if s == nil {
