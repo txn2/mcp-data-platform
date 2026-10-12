@@ -92,15 +92,21 @@ func (r *Receiver) attrs(d delivery, st *stages) []any {
 		"events", len(d.events),
 	}
 	if d.hash != "" {
-		ids := d.eventIDs()
-		for i, id := range ids {
-			ids[i] = logsan.SanitizeForLog(id)
-		}
-		out = append(out, "windows", d.windows(), "request_hash", d.hash, "event_ids", ids)
+		out = append(out, "windows", sanitizeAll(d.windows()),
+			"request_hash", logsan.SanitizeForLog(d.hash), "event_ids", sanitizeAll(d.eventIDs()))
 	}
 	if st != nil {
 		out = append(out, "buffer_ms", st.buffer.Milliseconds(), "mark_ms", st.mark.Milliseconds(),
 			"put_ms", st.put.Milliseconds())
+	}
+	return out
+}
+
+// sanitizeAll is a new slice holding each of in made safe for a log line.
+func sanitizeAll(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		out = append(out, logsan.SanitizeForLog(s))
 	}
 	return out
 }
