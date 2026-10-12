@@ -199,7 +199,6 @@ const EXACT_PAGES: ReadonlyMap<string, (p: PageContext) => ReactNode> = new Map(
     ["/admin/keys", () => <KeysPage />],
     ["/admin/users", () => <UsersPanel />],
     ["/admin/changelog", () => <ChangelogPage />],
-    ["/admin/settings", () => <AdminSettingsPage />],
   ],
 );
 
@@ -312,6 +311,9 @@ function SubtreeSections({
           onNavigate={navigate}
           onBack={onBack}
         />
+      )}
+      {isInSection(route, "/admin/settings") && (
+        <AdminSettingsPage route={route} onNavigate={navigate} />
       )}
       {isInSection(route, "/admin/webhooks") && (
         <AdminWebhookRoutes

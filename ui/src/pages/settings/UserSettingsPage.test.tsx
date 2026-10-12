@@ -218,7 +218,7 @@ describe("UserSettingsPage: no delivery path configured", () => {
 
     const link = screen.getByRole("button", { name: /Configure SMTP/ });
     fireEvent.click(link);
-    expect(onNavigate).toHaveBeenCalledWith("/admin/settings");
+    expect(onNavigate).toHaveBeenCalledWith("/admin/settings/email");
   });
 
   it("offers a non-admin no SMTP link, since they have no way to set it", () => {

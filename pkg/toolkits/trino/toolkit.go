@@ -2,6 +2,7 @@
 package trino
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -656,6 +658,10 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 
 	warnInertConnectionName(name, getString(config, "connection_name"))
 
+	config, err := secretref.FillConfigKeys(context.Background(), name, config, SecretKeys...)
+	if err != nil {
+		return fmt.Errorf("adding trino connection %s: %w", name, err)
+	}
 	conn := dynamicConnection(config)
 	if err := t.validateDynamic(name, conn); err != nil {
 		return err

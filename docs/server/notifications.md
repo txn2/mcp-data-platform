@@ -168,8 +168,8 @@ threshold. The alert is a normal notification: it goes through the same
 preference gate, queue, worker, and branded renderer as every other email,
 and a daily-mode recipient reads it as one line of their digest.
 
-Admins configure it in the portal under **Admin, then Settings**, beside the
-SMTP section, or via the REST API:
+Admins configure it in the portal under **Admin > Settings > Knowledge review**
+(`/portal/admin/settings/knowledge-review`), or via the REST API:
 
 | Field | Description |
 |-------|-------------|
@@ -263,8 +263,9 @@ reader knows why it reached them rather than the person who signed in.
 
 ![Admin Settings: the connection revocation alert card](../images/screenshots/light/admin-admin-settings-connection-alert-light.webp#only-light)![Admin Settings: the connection revocation alert card](../images/screenshots/dark/admin-admin-settings-connection-alert-dark.webp#only-dark)
 
-Admins configure it in the portal under **Admin, then Settings**, beside the
-review-queue section, or via the REST API:
+Admins configure it in the portal under **Admin > Settings > Connection
+revocations** (`/portal/admin/settings/connection-revocations`), or via the REST
+API:
 
 | Field | Description |
 |-------|-------------|
@@ -329,33 +330,52 @@ script, why the run failed, the head of its error and the tail of its log, and
 links to the run's page. A run somebody started with `run_script` reports its
 failure in the answer they are already reading and sends nothing.
 
+A failing automation is one incident, not one email per run. The failed
+scheduled run that starts it is the one emailed; the scheduled runs that fail
+while it continues are counted and send nothing, so a script that fails every
+five minutes overnight sends one email, not dozens. The next run of the script
+that succeeds, scheduled or started by hand, ends the incident and sends one
+**recovered** email: the run that succeeded, when the failing began and how long
+it lasted, how many runs failed, and the cause, the error line naming the failure and the link of
+the run that began it. A single failed run followed by a success therefore
+sends exactly two emails. A canceled run neither starts nor ends an incident;
+a run failed because its worker was lost counts as a failure.
+
+"Recovered" says the latest run succeeded. It does not say that what the
+failed runs left undone was redone: that happens only if the script redoes it,
+and the email says so. The incident is kept in the database
+(`script_failure_incidents`), so it survives a restart and a failure on one
+replica pairs with the recovery on another. It agrees with the session-start
+notice about which automations are failing (#1934): both end a failure at the
+next succeeded run.
+
 An operations team that watches a chat channel rather than each owner's inbox
 names it here, once for every script:
 
 | Field | Description |
 |-------|-------------|
-| `channels` | The [notification channels](#notification-channels) every failed scheduled run is posted to, by name (at most 10), beside the owner's email. The script is the post's [key](#repeating-alerts-key), so an automation failing every ten minutes posts once per the channel's repeat window and the next post says how many failures were held back. |
+| `channels` | The [notification channels](#notification-channels) a failing automation is posted to, by name (at most 10), beside the owner's email: the failed run that starts an incident, and the run that recovers it. The script is the failure post's [key](#repeating-alerts-key), and the recovery is posted under its own key, so a failure's repeat window never holds back the recovery that ends it. |
 
 ```
 GET /api/v1/admin/settings/script-run-alert    read the channels
 PUT /api/v1/admin/settings/script-run-alert    set them
 ```
 
-In the portal it is the **Scheduled run failures** card under **Admin,
-then Settings**. The post is authorized as the platform, as the email is:
+In the portal it is **Admin > Settings > Run failures**
+(`/portal/admin/settings/run-failures`). The post is authorized as the platform, as the email is:
 naming the channel here is the authorization, and no persona is consulted.
 
 ## Notification channels
 
-![Admin Settings: the scheduled run failure alert and the notification channels](../images/screenshots/light/admin-admin-settings-channels-light.webp#only-light)![Admin Settings: the scheduled run failure alert and the notification channels](../images/screenshots/dark/admin-admin-settings-channels-dark.webp#only-dark)
+![Admin Settings: the notification channels section](../images/screenshots/light/admin-admin-settings-channels-light.webp#only-light)![Admin Settings: the notification channels section](../images/screenshots/dark/admin-admin-settings-channels-dark.webp#only-dark)
 
 A **channel** is an operator-configured destination that is not one person: a
 Slack channel, a Mattermost channel, an incoming webhook, or a named list of email addresses. A managed script posts what it found to one, a person in a
 session asks the agent to send to one, and the portal offers the same action
 on an asset.
 
-Channels are configured in the portal under **Admin > Settings > Notification
-Channels**, or through the REST routes below. Nothing about a channel lives in
+Channels are configured in the portal under **Admin > Settings > Channels**
+(`/portal/admin/settings/channels`), or through the REST routes below. Nothing about a channel lives in
 YAML.
 
 ### Kinds
@@ -680,7 +700,7 @@ safe for a non-admin caller, and it is the signal the Settings page uses to
 render the section inert rather than offering live controls over a preference
 nothing can act on. Stored preferences are untouched while delivery is
 unavailable; they take effect as soon as an admin configures SMTP. Admins see
-the same note with a link into **Admin > Settings**, and the SMTP section
+the same note with a link into **Admin > Settings > Email**, and that section
 itself states the consequence of leaving delivery off: triggers keep queueing
 rows, and those rows expire undelivered after 7 days.
 

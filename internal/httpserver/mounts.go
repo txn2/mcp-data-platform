@@ -663,12 +663,12 @@ func buildAdminAuth(p *platform.Platform) func(http.Handler) http.Handler {
 	if adminPersona == "" {
 		adminPersona = defaultAdminPersona
 	}
-	return admin.RequirePersona(admin.NewPlatformAuthenticator(
+	return admin.RequirePersona(httpauth.AdminSelfCalls(admin.NewPlatformAuthenticator(
 		p.Authenticator(),
 		adminPersona,
 		p.PersonaRegistry(),
 		authOpts...,
-	))
+	), p.PersonaRegistry(), adminPersona))
 }
 
 // AdminHandler constructs the admin REST API handler from the platform: the one

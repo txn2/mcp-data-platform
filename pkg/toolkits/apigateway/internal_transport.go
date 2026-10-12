@@ -196,3 +196,15 @@ func (w *internalResponseWriter) CloseWithError(err error) {
 	w.WriteHeader(http.StatusOK)
 	_ = w.pw.CloseWithError(err) // io.PipeWriter.CloseWithError never returns an error
 }
+
+// SetSelfHandler installs the platform's own HTTP handler, which a
+// self_dispatch connection serves a token-less call with (#2086).
+func (t *Toolkit) SetSelfHandler(h http.Handler) { t.selfHandler.Set(h) }
+
+// ScriptRunCannotServe reports whether connection acts as its caller toward
+// an upstream other than this platform, which a saved script's run, having no
+// caller token, cannot call (#2086). False for an unknown connection.
+func (t *Toolkit) ScriptRunCannotServe(connection string) bool {
+	c, ok := t.lookup(connection)
+	return ok && c.cfg.IdentityPassthrough && !c.cfg.SelfDispatch
+}

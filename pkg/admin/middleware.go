@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -242,6 +243,11 @@ func RequirePersona(auth Authenticator) func(http.Handler) http.Handler {
 			if err != nil {
 				if errors.Is(err, browsersession.ErrCSRFInvalid) {
 					writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
+					return
+				}
+				// A caller authenticated in process whose roles miss the persona (#2086).
+				if refusal := (*selfcall.PersonaError)(nil); errors.As(err, &refusal) {
+					writeError(w, http.StatusForbidden, refusal.Error())
 					return
 				}
 				writeError(w, http.StatusInternalServerError, "authentication error")

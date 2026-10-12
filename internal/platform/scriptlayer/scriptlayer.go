@@ -144,7 +144,8 @@ func New(cfg Config) *Handle {
 	}
 	h.gate = &scriptsave.Gate{
 		Recordings: h.recordings, Destinations: cfg.Destinations, MaxMemoryBytes: h.runLimits.MaxMemoryBytes,
-		Contracts: toolanswer.Live{Kits: cfg.Toolkits, Extra: notifylayer.AnswerContracts()},
+		Contracts:   toolanswer.Live{Kits: cfg.Toolkits, Extra: notifylayer.AnswerContracts()},
+		CannotServe: scriptsave.PassthroughConnections{Kits: cfg.Toolkits}.CannotServe,
 	}
 	h.gate.Libraries, _ = h.store.(scriptlib.Source)
 	h.versions, _ = h.store.(script.VersionStore)

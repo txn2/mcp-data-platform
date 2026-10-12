@@ -89,3 +89,16 @@ func TestResultBudget_RoundTrip(t *testing.T) {
 		t.Errorf("ResultBudget = %d; want 32768", got)
 	}
 }
+
+func TestCaller(t *testing.T) {
+	if _, ok := GetCaller(context.Background()); ok {
+		t.Error("no caller recorded reads as none")
+	}
+	if _, ok := GetCaller(WithCaller(context.Background(), Caller{})); ok {
+		t.Error("a caller naming no user reads as none")
+	}
+	c, ok := GetCaller(WithCaller(context.Background(), Caller{UserID: "u", Roles: []string{"r"}}))
+	if !ok || c.UserID != "u" || c.Roles[0] != "r" {
+		t.Errorf("GetCaller = %+v, %v", c, ok)
+	}
+}

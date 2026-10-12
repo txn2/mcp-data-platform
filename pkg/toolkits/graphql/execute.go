@@ -12,9 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/apigwmetrics"
 	"github.com/txn2/mcp-data-platform/internal/membudget"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
-	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/internal/useragent"
-	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // contentTypeJSON is what a GraphQL request body is and what a
@@ -180,7 +178,8 @@ func (*Toolkit) newRequest(ctx context.Context, c *conn, payload []byte) (*http.
 		req.Header.Set(name, value)
 	}
 	if c.cfg.IdentityPassthrough {
-		return req, applyIdentityPassthrough(ctx, req)
+		//nolint:wrapcheck // the seam speaks in this toolkit's voice
+		return c.cfg.upstream().PassthroughRequest(ctx, req, c.cfg.ConnectionName)
 	}
 	if err := c.auth.Apply(req); err != nil {
 		return nil, fmt.Errorf("graphql: applying auth: %w", err)
@@ -188,19 +187,10 @@ func (*Toolkit) newRequest(ctx context.Context, c *conn, payload []byte) (*http.
 	return req, nil
 }
 
-// applyIdentityPassthrough forwards the acting caller's inbound bearer
-// token as the outbound Authorization header, in place of this
-// connection's shared credential. The token is the one that
-// authenticated the MCP session, bridged onto the request context by
-// the auth middleware and read here via mcpcontext (importing
-// pkg/middleware would form a cycle). An absent token is a hard error:
-// a passthrough connection must act as the calling user, so an
-// anonymous call would be wrong rather than merely unauthenticated.
-func applyIdentityPassthrough(ctx context.Context, req *http.Request) error {
-	token := mcpcontext.GetAuthToken(ctx)
-	if token == "" {
-		return errors.New("graphql: identity passthrough requires an authenticated caller token, but none was present on the request")
-	}
-	req.Header.Set(upstreamauth.AuthorizationHeader, "Bearer "+token)
-	return nil
+// ScriptRunCannotServe reports whether connection acts as its caller, so a
+// saved script's run, which has no caller token, cannot call it (#2086).
+// False for an unknown connection.
+func (t *Toolkit) ScriptRunCannotServe(connection string) bool {
+	c, _, ok := t.lookup(connection)
+	return ok && c.cfg.IdentityPassthrough
 }

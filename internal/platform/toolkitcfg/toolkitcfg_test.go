@@ -1,9 +1,13 @@
 package toolkitcfg
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 )
 
 func TestInstanceConfig(t *testing.T) {
@@ -399,5 +403,39 @@ func TestS3Config_Timeout(t *testing.T) {
 	}
 	if got := S3Config(toolkits, "plain").Timeout; got != 0 {
 		t.Errorf("an instance that sets none reports none: got %v", got)
+	}
+}
+
+// TestConfigReadersFillStoredSecrets: the platform's own trino and s3 clients
+// read a credential naming a stored secret as the toolkit does (#1806), and
+// an instance whose secret cannot be read is reported as not configured.
+func TestConfigReadersFillStoredSecrets(t *testing.T) {
+	prev := secretref.SetConnectionSource(func(_ context.Context, name, connection string) (string, error) {
+		if connection == "primary" {
+			return "v-" + name, nil
+		}
+		return "", errors.New("not allowed")
+	})
+	t.Cleanup(func() { secretref.SetConnectionSource(prev) })
+	toolkits := map[string]any{
+		"trino": map[string]any{"instances": map[string]any{
+			"primary": map[string]any{"host": "h", "password": "{{secret:pw}}"},
+			"other":   map[string]any{"host": "h", "password": "{{secret:pw}}"},
+		}},
+		"s3": map[string]any{"instances": map[string]any{
+			"primary": map[string]any{"access_key_id": "{{secret:id}}", "secret_access_key": "{{secret:key}}"},
+		}},
+	}
+	if got := TrinoConfig(toolkits, "primary"); got == nil || got.Password != "v-pw" {
+		t.Errorf("trino primary = %+v", got)
+	}
+	if got := TrinoConfig(toolkits, "other"); got != nil {
+		t.Errorf("trino other = %+v; want not configured", got)
+	}
+	if got := S3Config(toolkits, "primary"); got == nil || got.AccessKeyID != "v-id" || got.SecretKey != "v-key" {
+		t.Errorf("s3 primary = %+v", got)
+	}
+	if got := S3Config(toolkits, "missing"); got != nil {
+		t.Errorf("missing instance = %+v", got)
 	}
 }

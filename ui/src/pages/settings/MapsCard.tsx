@@ -22,6 +22,7 @@ import {
   UpdatedByMeta,
   WarningBanner,
 } from "./settingsChrome";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 
 // The street maps settings section (#2068).
 //
@@ -59,6 +60,7 @@ export function MapsCard() {
 
   const [form, setForm] = useState<FormState | null>(null);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 

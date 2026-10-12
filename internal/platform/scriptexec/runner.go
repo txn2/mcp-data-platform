@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptguard"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlive"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
@@ -402,5 +403,5 @@ func (r *runner) recordAudit(ctx context.Context, run *script.Run, sc *script.Sc
 // its own public address. A link the reader cannot follow is worse than no
 // link, so an unconfigured portal address omits it rather than guessing one.
 func (r *runner) runURL(scriptID, runID string) string {
-	return runPage(r.portalURL, scriptID, runID)
+	return scriptincident.RunPage(r.portalURL, scriptID, runID)
 }

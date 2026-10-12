@@ -19,6 +19,7 @@ const (
 	sourceKey
 	personaKey
 	resultBudgetKey
+	callerKey
 )
 
 // SourceScript labels a call arriving from a managed script's host
@@ -98,6 +99,31 @@ func WithPersona(ctx context.Context, persona string) context.Context {
 func GetPersona(ctx context.Context) string {
 	persona, _ := ctx.Value(personaKey).(string)
 	return persona
+}
+
+// Caller is the identity a tool call was authenticated as: who the
+// platform's own HTTP API should take a request for, when a connection
+// that acts as its caller serves that request inside this process (#2086).
+type Caller struct {
+	UserID   string
+	Email    string
+	Roles    []string
+	AuthType string
+	Claims   map[string]any
+}
+
+// WithCaller records the identity the call was authenticated as. It lives
+// here for the reason WithPersona does; the tool-call middleware writes it
+// once authentication has resolved the caller.
+func WithCaller(ctx context.Context, c Caller) context.Context {
+	return context.WithValue(ctx, callerKey, c)
+}
+
+// GetCaller returns the identity the call was authenticated as, and false
+// when nothing recorded one or it names no user.
+func GetCaller(ctx context.Context) (Caller, bool) {
+	c, ok := ctx.Value(callerKey).(Caller)
+	return c, ok && c.UserID != ""
 }
 
 // WithResultBudget records the context budget the result of this call is

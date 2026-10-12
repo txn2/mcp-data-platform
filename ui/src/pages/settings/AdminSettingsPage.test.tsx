@@ -11,6 +11,7 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetSMTPSettings: vi.fn(),
   useSendTestEmail: vi.fn(),
   useSMTPRecipientStatus: vi.fn(),
+  useFailingChannelCount: vi.fn(() => 0),
 }));
 
 // The page composes independent sections. This file covers the SMTP one, so
@@ -45,6 +46,7 @@ import {
   useSetSMTPSettings,
   useSendTestEmail,
   useSMTPRecipientStatus,
+  useFailingChannelCount,
 } from "@/api/admin/hooks";
 
 const mockUseSystemInfo = vi.mocked(useSystemInfo);
@@ -94,6 +96,7 @@ beforeEach(() => {
   mockUseSMTPRecipientStatus.mockReturnValue({
     data: undefined,
   } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
+  vi.mocked(useFailingChannelCount).mockReturnValue(0);
 });
 
 afterEach(() => {
@@ -110,13 +113,13 @@ describe("AdminSettingsPage: loading and loaded states", () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSMTPSettings>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.getByText("Loading...")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("smtp.example.com")).not.toBeInTheDocument();
   });
 
   it("renders the loaded form with stored values", () => {
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
 
     expect(screen.getByText("Email (SMTP)")).toBeInTheDocument();
     expect(screen.getByDisplayValue("smtp.example.com")).toBeInTheDocument();
@@ -128,7 +131,7 @@ describe("AdminSettingsPage: loading and loaded states", () => {
     // TLS mode rides the shared ConfigSelect, a Radix listbox: its trigger is
     // a button showing the option's label, not a native select carrying the
     // stored value.
-    expect(screen.getByRole("combobox")).toHaveTextContent("STARTTLS");
+    expect(screen.getByRole("combobox", { name: /TLS mode/ })).toHaveTextContent("STARTTLS");
     expect(screen.getByText(/Updated by admin@example.com/)).toBeInTheDocument();
   });
 
@@ -141,7 +144,7 @@ describe("AdminSettingsPage: loading and loaded states", () => {
       refetch,
     } as unknown as ReturnType<typeof useSMTPSettings>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.getByText(/Failed to load SMTP settings/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Retry/ }));
     expect(refetch).toHaveBeenCalled();
@@ -163,12 +166,12 @@ describe("AdminSettingsPage: stored-configuration warnings (#1072)", () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSMTPSettings>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.getByText(/sent in cleartext/)).toBeInTheDocument();
   });
 
   it("shows no warning banner when the server reports none", () => {
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.queryByText(/sent in cleartext/)).not.toBeInTheDocument();
   });
 });
@@ -179,7 +182,7 @@ describe("AdminSettingsPage: saving", () => {
       opts?.onSuccess?.(makeSettings({ host: "mail.internal", password_set: true }));
     });
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
 
     const saveButton = screen.getByRole("button", { name: /Save/ });
     expect(saveButton).toBeDisabled();
@@ -211,7 +214,7 @@ describe("AdminSettingsPage: saving", () => {
       opts?.onError?.(new Error("invalid port"));
     });
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     fireEvent.change(screen.getByDisplayValue("smtp.example.com"), {
       target: { value: "mail.internal" },
     });
@@ -228,7 +231,7 @@ describe("AdminSettingsPage: read-only file mode", () => {
       data: { config_mode: "file" },
     } as unknown as ReturnType<typeof useSystemInfo>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
 
     expect(screen.getByText(/Configuration is read-only/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Save/ })).not.toBeInTheDocument();
@@ -245,14 +248,14 @@ describe("AdminSettingsPage: write-only password", () => {
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSMTPSettings>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     const password = screen.getByPlaceholderText("(unchanged)");
     expect(password).toHaveAttribute("type", "password");
     expect(password).toHaveValue("");
   });
 
   it("has no placeholder when no password is stored", () => {
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.queryByPlaceholderText("(unchanged)")).not.toBeInTheDocument();
   });
 });
@@ -263,7 +266,7 @@ describe("AdminSettingsPage: send test email", () => {
       opts?.onSuccess?.({ status: "sent", to });
     });
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
 
     const sendButton = screen.getByRole("button", { name: /Send test/ });
     expect(sendButton).toBeDisabled();
@@ -282,7 +285,7 @@ describe("AdminSettingsPage: send test email", () => {
       opts?.onError?.(new Error("SMTP connection refused"));
     });
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
       target: { value: "user@example.com" },
     });
@@ -297,7 +300,7 @@ describe("AdminSettingsPage: send test email", () => {
       isPending: true,
     } as unknown as ReturnType<typeof useSendTestEmail>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
       target: { value: "user@example.com" },
     });
@@ -314,7 +317,7 @@ describe("AdminSettingsPage: test-send opt-out notice (#1022)", () => {
       data: { to: "optedout@example.com", opted_out: true },
     } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     // Mixed case in the input must still match the canonical status address.
     fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
       target: { value: "OptedOut@example.com" },
@@ -334,7 +337,7 @@ describe("AdminSettingsPage: test-send opt-out notice (#1022)", () => {
       data: { to: "user@example.com", opted_out: false },
     } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
       target: { value: "user@example.com" },
     });
@@ -351,7 +354,7 @@ describe("AdminSettingsPage: test-send opt-out notice (#1022)", () => {
       data: { to: "optedout@example.com", opted_out: true },
     } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
 
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
       target: { value: "other@example.com" },
     });
@@ -374,7 +377,7 @@ describe("AdminSettingsPage: no delivery path", () => {
       error: null,
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSMTPSettings>);
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
   }
 
   it("states the queue-expiry consequence when SMTP is disabled", () => {
@@ -399,7 +402,36 @@ describe("AdminSettingsPage: no delivery path", () => {
       error: null,
       refetch: vi.fn(),
     } as unknown as ReturnType<typeof useSMTPSettings>);
-    render(<AdminSettingsPage />);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.queryByText(/expire undelivered after 7 days/)).not.toBeInTheDocument();
+  });
+});
+
+describe("AdminSettingsPage: sections (#2093)", () => {
+  it("navigates to a section from the nav and from the narrow-screen picker", () => {
+    const onNavigate = vi.fn();
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Maps" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("/admin/settings/maps");
+    fireEvent.change(screen.getByLabelText("Section"), { target: { value: "run-failures" } });
+    expect(onNavigate).toHaveBeenLastCalledWith("/admin/settings/run-failures");
+  });
+
+  it("marks an email server not configured and a channel whose delivery failed", () => {
+    mockUseSMTPSettings.mockReturnValue({
+      data: makeSettings({ host: "" }), isLoading: false, error: null, refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useSMTPSettings>);
+    vi.mocked(useFailingChannelCount).mockReturnValue(2);
+    render(<AdminSettingsPage route="/admin/settings/channels" onNavigate={() => {}} />);
+    expect(screen.getByLabelText("Not configured")).toBeInTheDocument();
+    expect(screen.getByLabelText("2 channels' last delivery failed")).toBeInTheDocument();
+  });
+
+  it("says the settings are read-only in file mode", () => {
+    mockUseSystemInfo.mockReturnValue({
+      data: { config_mode: "file" },
+    } as unknown as ReturnType<typeof useSystemInfo>);
+    render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
+    expect(screen.getByText("Read-only: no database configured")).toBeInTheDocument();
   });
 });

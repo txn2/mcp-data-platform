@@ -423,35 +423,13 @@ func buildFilledRequest(ctx context.Context, cfg Config, auth Authenticator, cat
 		return nil, err
 	}
 	if cfg.IdentityPassthrough {
-		if err := applyIdentityPassthrough(ctx, req); err != nil {
-			return nil, err
-		}
-		return req, nil
+		//nolint:wrapcheck // the seam speaks in this toolkit's voice
+		return cfg.upstream().PassthroughRequest(ctx, req, cfg.ConnectionName)
 	}
 	if err := auth.Apply(req); err != nil {
 		return nil, fmt.Errorf("apigateway: applying auth: %w", err)
 	}
 	return req, nil
-}
-
-// applyIdentityPassthrough forwards the acting caller's inbound bearer
-// token as the outbound Authorization header, in place of this
-// connection's shared credential. The token is the one that
-// authenticated the MCP session, bridged onto the request context by the
-// auth middleware and read here via mcpcontext (importing pkg/middleware
-// would form a cycle). An absent token is a hard error: a
-// passthrough connection (the built-in platform-admin self-connection)
-// must act as the calling admin, so an anonymous loopback call to the
-// admin API would be wrong, not merely unauthenticated. The Authorization
-// header is reserved from model input by ValidateCustomHeaders, so the
-// value set here cannot be overridden by a tool argument.
-func applyIdentityPassthrough(ctx context.Context, req *http.Request) error {
-	token := mcpcontext.GetAuthToken(ctx)
-	if token == "" {
-		return errors.New("apigateway: identity passthrough requires an authenticated caller token, but none was present on the request")
-	}
-	req.Header.Set(upstreamauth.AuthorizationHeader, "Bearer "+token)
-	return nil
 }
 
 func validateMethod(method string) (string, error) {

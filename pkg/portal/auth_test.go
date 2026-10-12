@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	mw "github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -226,4 +229,17 @@ func TestPortalAuthenticatorNoBrowserAuth(t *testing.T) {
 	assert.NoError(t, err)
 	require.NotNil(t, user)
 	assert.Equal(t, "u1", user.UserID)
+}
+
+// TestPortalAuthenticatorServedInProcess: a request the platform-admin
+// connection serves in process is taken as the caller it carries (#2086).
+func TestPortalAuthenticatorServedInProcess(t *testing.T) {
+	pa := NewAuthenticator(&mockAuthenticator{err: errors.New("the token chain must not be asked")})
+	ctx := selfcall.With(context.Background(), mcpcontext.Caller{
+		UserID: "script:s", Email: "owner@example.com", Roles: []string{"analyst"}, AuthType: "script",
+		Claims: map[string]any{"team": "x"},
+	})
+	user, err := pa.Authenticate(httptest.NewRequestWithContext(ctx, http.MethodGet, "/", http.NoBody))
+	require.NoError(t, err)
+	assert.Equal(t, &User{UserID: "script:s", Email: "owner@example.com", Roles: []string{"analyst"}, AuthType: "script", Claims: map[string]any{"team": "x"}}, user)
 }

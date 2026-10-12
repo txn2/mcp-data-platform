@@ -54,6 +54,10 @@ type Gate struct {
 	// Libraries is where the libraries a source loads are read from
 	// (#1941); nil refuses a source that loads any.
 	Libraries scriptlib.Source
+	// CannotServe reports whether a saved script's run cannot call a
+	// connection, which the source is warned of for each one it names
+	// (#2086); nil warns of none.
+	CannotServe func(connection string) bool
 }
 
 // Caller is who is saving. A run of the version they save presents their
@@ -144,6 +148,10 @@ func (g *Gate) Check(ctx context.Context, req Request) Result {
 		return res
 	}
 	source := res.Lint.Source
+	if warn := passthroughFindings(source, g.CannotServe); len(warn) > 0 {
+		res.Lint.Findings = append(res.Lint.Findings, warn...)
+		res.Lint.Warnings = append(res.Lint.Warnings, warn...)
+	}
 	if res.Refusal = checkLibraryReach(req, source); res.Refusal != "" {
 		return res
 	}

@@ -1,12 +1,14 @@
 package trino
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -19,6 +21,11 @@ type MultiConfig struct {
 	Instances map[string]Config
 }
 
+// SecretKeys are the configuration keys a trino connection may name a stored
+// secret in as {{secret:<name>}} (#1806). The value is read as the
+// connection's client is built.
+var SecretKeys = []string{"password"}
+
 // ParseMultiConfig builds a MultiConfig from the aggregate factory's instance map.
 func ParseMultiConfig(defaultName string, instances map[string]map[string]any) (MultiConfig, error) {
 	mc := MultiConfig{
@@ -26,7 +33,13 @@ func ParseMultiConfig(defaultName string, instances map[string]map[string]any) (
 		Instances:         make(map[string]Config, len(instances)),
 	}
 	for name, raw := range instances {
-		cfg, err := ParseConfig(raw)
+		filled, err := secretref.FillConfigKeys(context.Background(), name, raw, SecretKeys...)
+		if err != nil {
+			slog.Warn("skipping connection instance whose stored secret could not be read",
+				"kind", "trino", "instance", name, "error", logsan.SanitizeForLog(err.Error()))
+			continue
+		}
+		cfg, err := ParseConfig(filled)
 		if err != nil {
 			slog.Warn("skipping invalid connection instance",
 				"kind", "trino", "instance", name, "error", err)

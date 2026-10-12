@@ -3,10 +3,8 @@ package scriptexec
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +70,7 @@ func TestNotifyFailure_TellsTheOwner(t *testing.T) {
 	f := failedScheduledRun()
 	n := &fakeNotifier{}
 
-	notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
+	notifierWorker(n).notifyOutcome(context.Background(), f.run, f.script, f.result)
 
 	assert.Equal(t, []string{"jane@example.com"}, n.queued(),
 		"the owner, and only the owner, is told")
@@ -110,7 +108,7 @@ func TestNotifyFailure_OnlyForAScheduledFailure(t *testing.T) {
 			tt.mutate(f.run, &f.result)
 			n := &fakeNotifier{}
 
-			notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
+			notifierWorker(n).notifyOutcome(context.Background(), f.run, f.script, f.result)
 			assert.Empty(t, n.queued())
 		})
 	}
@@ -122,13 +120,13 @@ func TestNotifyFailure_OnlyForAScheduledFailure(t *testing.T) {
 func TestNotifyFailure_DegradesQuietly(t *testing.T) {
 	t.Run("no notifier wired", func(*testing.T) {
 		f := failedScheduledRun()
-		notifierWorker(nil).notifyFailure(context.Background(), f.run, f.script, f.result)
+		notifierWorker(nil).notifyOutcome(context.Background(), f.run, f.script, f.result)
 	})
 
 	t.Run("the script is gone, so there is nobody to tell", func(t *testing.T) {
 		f := failedScheduledRun()
 		n := &fakeNotifier{}
-		notifierWorker(n).notifyFailure(context.Background(), f.run, nil, f.result)
+		notifierWorker(n).notifyOutcome(context.Background(), f.run, nil, f.result)
 		assert.Empty(t, n.queued())
 	})
 
@@ -136,14 +134,14 @@ func TestNotifyFailure_DegradesQuietly(t *testing.T) {
 		f := failedScheduledRun()
 		f.script.OwnerEmail = ""
 		n := &fakeNotifier{}
-		notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
+		notifierWorker(n).notifyOutcome(context.Background(), f.run, f.script, f.result)
 		assert.Empty(t, n.queued())
 	})
 
 	t.Run("the enqueue failed", func(t *testing.T) {
 		f := failedScheduledRun()
 		n := &fakeNotifier{err: errors.New("boom")}
-		notifierWorker(n).notifyFailure(context.Background(), f.run, f.script, f.result)
+		notifierWorker(n).notifyOutcome(context.Background(), f.run, f.script, f.result)
 		assert.Len(t, n.queued(), 1, "the write was attempted; its failure is logged, not raised")
 	})
 
@@ -152,47 +150,9 @@ func TestNotifyFailure_DegradesQuietly(t *testing.T) {
 		n := &fakeNotifier{}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		notifierWorker(n).notifyFailure(ctx, f.run, f.script, f.result)
+		notifierWorker(n).notifyOutcome(ctx, f.run, f.script, f.result)
 		assert.Len(t, n.queued(), 1, "the run is already recorded; the alert about it survives the cancel")
 	})
-}
-
-// TestAlertRecipients_IsTheOwnerOnly pins who the alert set is: the script's
-// owner, trimmed, and nobody when the script has no owner address.
-func TestAlertRecipients_IsTheOwnerOnly(t *testing.T) {
-	assert.Equal(t, []string{"jane@example.com"},
-		alertRecipients(&script.Script{OwnerEmail: " jane@example.com "}))
-	assert.Empty(t, alertRecipients(&script.Script{OwnerEmail: "  "}))
-}
-
-// TestAlertDetail_TruncatesFromTheRightEnd pins the two directions: an error
-// reads from the top, a log reads from the bottom.
-func TestAlertDetail_TruncatesFromTheRightEnd(t *testing.T) {
-	detail := alertDetail(script.RunResult{
-		Error: "E" + strings.Repeat("x", maxAlertError+50),
-		Log:   strings.Repeat("y", maxAlertLog+50) + "LAST",
-	})
-	assert.Contains(t, detail, "Ex", "the error's first line survives")
-	assert.Contains(t, detail, "LAST", "the log's last line survives")
-	assert.Contains(t, detail, "[truncated]")
-
-	assert.Empty(t, alertDetail(script.RunResult{}), "nothing to say is said with nothing")
-}
-
-// TestAlertDetail_CutsOnARuneBoundary pins that a truncated body is still text.
-func TestAlertDetail_CutsOnARuneBoundary(t *testing.T) {
-	detail := alertDetail(script.RunResult{Error: strings.Repeat("é", maxAlertError+10)})
-	assert.True(t, isValidUTF8(detail), "half a character is not a character")
-}
-
-// isValidUTF8 reports whether s decodes cleanly.
-func isValidUTF8(s string) bool {
-	for _, r := range s {
-		if r == '�' {
-			return false
-		}
-	}
-	return true
 }
 
 // TestWorker_AFailedScheduledRunNotifies is the wiring proof: the alert is
@@ -270,12 +230,6 @@ func TestNewNotifier(t *testing.T) {
 		"a deployment that turned notifications off queues nothing")
 }
 
-// TestNotifyWriteIsBounded pins that the alert cannot hold a worker open on a
-// wedged queue for longer than its own timeout.
-func TestNotifyWriteIsBounded(t *testing.T) {
-	assert.LessOrEqual(t, notifyWriteTimeout, 10*time.Second)
-}
-
 // streakRuns is a run store that also reads failure streaks, as the
 // PostgreSQL one does.
 type streakRuns struct {
@@ -304,7 +258,7 @@ func TestNotifyFailure_CarriesHowOftenItRepeated(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			n := &fakeNotifier{}
-			newWorker(workerConfig{runs: tc.runs, notifier: n}).notifyFailure(context.Background(), f.run, f.script, f.result)
+			newWorker(workerConfig{runs: tc.runs, notifier: n}).notifyOutcome(context.Background(), f.run, f.script, f.result)
 			require.Len(t, n.payloads, 1)
 			assert.Equal(t, tc.want, n.payloads[0].Repeats)
 		})

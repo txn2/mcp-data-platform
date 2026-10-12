@@ -39,6 +39,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptlib"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
@@ -132,6 +133,12 @@ type Config struct {
 	// FailureChannels posts the alert a failed scheduled run raises to the
 	// channels the operator named. Optional.
 	FailureChannels FailurePoster
+
+	// Incidents holds each script's open failure incident, so a script that
+	// keeps failing alerts once and its recovery alerts once (#2041). When nil
+	// and DB is set, the Postgres store is used; with neither, every failed
+	// scheduled run alerts and no recovery does.
+	Incidents scriptincident.Store
 
 	// Notifier queues the alert a failed SCHEDULED run raises. When nil and DB
 	// is set, one is built over the notification queue unless
@@ -296,6 +303,18 @@ func failureChannels(cfg Config, notifier Notifier) FailurePoster {
 		notifyalert.New(notifychannel.NewPostgresStore(cfg.DB), enq))
 }
 
+// failureIncidents is the store a script's failure incident is kept in: the
+// one supplied, or the Postgres one over the database.
+func failureIncidents(cfg Config) scriptincident.Store {
+	if cfg.Incidents != nil {
+		return cfg.Incidents
+	}
+	if cfg.DB == nil {
+		return nil
+	}
+	return scriptincident.NewPostgresStore(cfg.DB)
+}
+
 // listenerControl narrows the LISTEN adapter to the two calls the handle makes,
 // so the degraded-startup path is testable without a live Postgres. It mirrors
 // notifydelivery, which needs the same seam for the same reason.
@@ -351,6 +370,7 @@ func New(cfg Config) *Handle {
 		recordings:  cfg.Recordings,
 		notifier:    notifier,
 		channels:    failureChannels(cfg, notifier),
+		incidents:   failureIncidents(cfg),
 		portalURL:   cfg.PortalURL,
 		metrics:     cfg.Metrics,
 		lease:       LeaseFor(cfg.Limits.WithDefaults().Timeout),

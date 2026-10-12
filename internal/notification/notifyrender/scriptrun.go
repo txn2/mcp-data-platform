@@ -3,6 +3,7 @@ package notifyrender
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
@@ -15,6 +16,9 @@ import (
 // the check that wrote it, so a row enqueued by one build may be delivered by
 // another.
 func scriptRunSubject(p notification.Payload) string {
+	if p.Recovery != nil {
+		return scriptRecoverySubject(p)
+	}
 	if p.ItemTitle == "" {
 		return "A scheduled automation failed"
 	}
@@ -26,13 +30,17 @@ func scriptRunSubject(p notification.Payload) string {
 // speaking here — the text it carries is a stack trace and a program's own
 // output, not something a person wrote.
 func scriptRunBody(p notification.Payload) string {
+	if p.Recovery != nil {
+		return scriptRecoveryBody(p)
+	}
 	sentences := []string{
 		"The platform ran this automation on its schedule and the run did not finish.",
 	}
 	if p.ItemID != "" {
 		sentences = append(sentences, fmt.Sprintf("Its run is %s.", p.ItemID))
 	}
-	sentences = append(sentences, scriptRunCauseSentence(p.Cause, p.Repeats))
+	sentences = append(sentences, scriptRunCauseSentence(p.Cause, p.Repeats),
+		"You will not be emailed about further failed runs while it keeps failing; you will be emailed when a run of it next succeeds.")
 	body := strings.Join(sentences, " ")
 	if detail := strings.TrimSpace(p.Message); detail != "" {
 		body += "\n\n" + detail
@@ -107,4 +115,79 @@ func repeatedNote(repeats int) string {
 		return ""
 	}
 	return fmt.Sprintf(" It has now failed %d runs in a row the same way, which is worth looking into.", repeats)
+}
+
+// scriptRecoverySubject is the subject and heading of a failing automation's
+// recovery (#2041).
+func scriptRecoverySubject(p notification.Payload) string {
+	if p.ItemTitle == "" {
+		return "A scheduled automation recovered"
+	}
+	return fmt.Sprintf("The scheduled automation %q recovered", p.ItemTitle)
+}
+
+// scriptRecoveryBody says which run succeeded, how long the automation was
+// failing and how many runs failed, and which failed run began it. It says
+// "recovered" of the automation and claims nothing about the work: a run that
+// succeeds does not redo what the failed runs left undone unless the script
+// does.
+func scriptRecoveryBody(p notification.Payload) string {
+	r := p.Recovery
+	runs := "1 run"
+	if r.FailedRuns != 1 {
+		runs = fmt.Sprintf("%d runs", r.FailedRuns)
+	}
+	sentences := []string{}
+	if p.ItemID != "" {
+		sentences = append(sentences, fmt.Sprintf("Run %s of this automation succeeded.", p.ItemID))
+	} else {
+		sentences = append(sentences, "A run of this automation succeeded.")
+	}
+	failing := fmt.Sprintf("It had been failing since %s UTC", r.FailingSince.UTC().Format("2006-01-02 15:04"))
+	if !r.RecoveredAt.IsZero() && r.RecoveredAt.After(r.FailingSince) {
+		failing += ", for " + failingFor(r.RecoveredAt.Sub(r.FailingSince))
+	}
+	sentences = append(sentences, failing+", and "+runs+" failed in that time.",
+		fmt.Sprintf("The first failed run was %s.", r.OpeningRunID),
+		"A succeeded run does not redo what the failed runs left undone unless the script does; check the runs if that matters.")
+	body := strings.Join(sentences, " ")
+	var first []string
+	if r.OpeningCause != "" {
+		first = append(first, "Cause: "+r.OpeningCause)
+	}
+	if r.OpeningError != "" {
+		first = append(first, "Failure: "+r.OpeningError)
+	}
+	if r.OpeningLink != "" {
+		first = append(first, "First failed run: "+r.OpeningLink)
+	}
+	if len(first) > 0 {
+		body += "\n\n" + strings.Join(first, "\n")
+	}
+	return body
+}
+
+// failingFor renders how long an automation was failing, to the minute, or
+// "less than a minute".
+func failingFor(d time.Duration) string {
+	d = d.Truncate(time.Minute)
+	if d < time.Minute {
+		return "less than a minute"
+	}
+	h, m := int(d/time.Hour), int(d%time.Hour/time.Minute)
+	switch {
+	case h == 0:
+		return plural(m, "minute")
+	case m == 0:
+		return plural(h, "hour")
+	default:
+		return plural(h, "hour") + " " + plural(m, "minute")
+	}
+}
+
+func plural(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }

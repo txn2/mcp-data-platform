@@ -1,6 +1,7 @@
 // Package connsecretref is the save-time half of a connection configuration
 // that names a stored secret as {{secret:<name>}} (#2066): which fields the
-// platform fills as the connection sends a request, and the check the admin
+// platform fills as the connection sends a request, or for trino and s3 as it
+// builds the connection's client (#1806), and the check the admin
 // API runs before it stores such a configuration. The send-time half, the
 // fill itself, is internal/upstreamauth's and pkg/toolkits/gateway's; the
 // configuration keys named here are theirs, and a test holds the two lists
@@ -26,7 +27,17 @@ const (
 	kindAPI     = "api"
 	kindGraphQL = "graphql"
 	kindMCP     = "mcp"
+	kindTrino   = "trino"
+	kindS3      = "s3"
 )
+
+// builtKeys are the keys of the kinds that read their credential once, as
+// they build their client (#1806), rather than as each request is sent; the
+// keys are pkg/toolkits/trino's and pkg/toolkits/s3's SecretKeys.
+var builtKeys = map[string]map[string]bool{
+	kindTrino: {keyPassword: true},
+	kindS3:    {"access_key_id": true, "secret_access_key": true, "session_token": true},
+}
 
 // The configuration keys read here, as the kinds spell them.
 const (
@@ -74,6 +85,9 @@ var referenceMapKeys = map[string]bool{
 // them as stored.
 func Allowed(kind string, cfg map[string]any, path string) bool {
 	key, entry, nested := strings.Cut(path, ".")
+	if keys, ok := builtKeys[kind]; ok {
+		return !nested && keys[key]
+	}
 	switch {
 	case !fillsConfig[kind]:
 		return false
@@ -126,6 +140,10 @@ func Fields(kind string) string {
 		}, listSep)
 	case kindMCP:
 		return keyCredential + listSep + "and " + oauth
+	case kindTrino:
+		return keyPassword
+	case kindS3:
+		return "access_key_id, secret_access_key and session_token"
 	}
 	return "none of a " + kind + " connection's fields"
 }

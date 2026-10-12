@@ -87,6 +87,7 @@ import {
   isResourceViewerRoute,
 } from "@/lib/portalRoutes";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { confirmLeave } from "@/lib/navigationGuard";
 
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
@@ -145,6 +146,8 @@ const detailTitles: readonly { prefix: string; title: string }[] = [
   { prefix: "/scratch-tables/", title: "Registered Table" },
   { prefix: "/admin/secrets/", title: "Secret" },
   { prefix: "/admin/webhooks/", title: "Webhook Source" },
+  // A settings section is the settings page, on one section (#2093).
+  { prefix: "/admin/settings/", title: "Settings" },
 ];
 
 // pageTitleFor resolves the header title for a route with no detail view of
@@ -327,6 +330,9 @@ export function AppShell() {
       setCurrentPath(path);
       return;
     }
+    // A form with unsaved changes is asked about before it is left (#2093). A
+    // replace is a redirect to where the reader already is, not a leaving.
+    if (!opts?.replace && !confirmLeave()) return;
     // Record the path we are leaving so a detail view can offer a wiki-style Back:
     // return to the previous knowledge page when that is where we came from, and
     // fall back to the section index otherwise (an asset viewer, a search result,

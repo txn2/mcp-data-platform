@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	s3kit "github.com/txn2/mcp-data-platform/pkg/toolkits/s3"
+	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,14 +42,23 @@ func TestAllowed(t *testing.T) {
 		{"mcp", nil, "credential", true},
 		{"mcp", cc, "oauth_client_secret", true},
 		{"mcp", nil, "static_headers.X", false},
-		{"trino", nil, "password", false},
+		{"trino", nil, "password", true},
+		{"trino", nil, "user", false},
+		{"s3", nil, "access_key_id", true},
+		{"s3", nil, "secret_access_key", true},
+		{"s3", nil, "session_token", true},
+		{"s3", nil, "endpoint", false},
+		{"s3", nil, "access_key_id.x", false},
+		{"datahub", nil, "token", false},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, Allowed(tc.kind, tc.cfg, tc.path), "%s %s", tc.kind, tc.path)
 	}
 	assert.Contains(t, Fields("api"), "static_headers")
 	assert.Contains(t, Fields("mcp"), "credential, and oauth_client_id")
-	assert.Equal(t, "none of a trino connection's fields", Fields("trino"))
+	assert.Equal(t, "password", Fields("trino"))
+	assert.Equal(t, "access_key_id, secret_access_key and session_token", Fields("s3"))
+	assert.Equal(t, "none of a datahub connection's fields", Fields("datahub"))
 }
 
 // TestKeysAreTheOnesTheKindsRead pins the spelling of every key Allowed
@@ -100,16 +112,17 @@ func TestCheck(t *testing.T) {
 		cfg    map[string]any
 		want   string
 	}{
-		"out of scope":       {known, "mcp", map[string]any{"credential": "{{secret:vendor-token}}"}, `may not be used by connection "instance"`},
-		"missing":            {known, "api", map[string]any{"credential": "{{secret:nope}}"}, `which does not exist; store it under Admin > Secrets with "instance"`},
-		"personas":           {known, "mcp", map[string]any{"credential": "{{secret:finance-only}}", "connection_name": "vendor"}, "clear its allow_personas"},
-		"unreadable":         {known, "api", map[string]any{"credential": "{{secret:down}}"}, "could not be read"},
-		"no store":           {nil, "api", map[string]any{"credential": "{{secret:vendor-token}}"}, "not available on this deployment"},
-		"malformed":          {known, "api", map[string]any{"credential": "{{secret:Bad}}"}, "not {{secret:<name>}}"},
-		"one-time code":      {known, "api", map[string]any{"credential": "{{totp:vendor-token}}"}, "filled only in an api call's request"},
-		"unfilled field":     {known, "api", map[string]any{"base_url": "https://x/{{secret:vendor-token}}"}, "field base_url names a stored secret"},
-		"a list entry":       {known, "api", map[string]any{"scopes": []any{"{{secret:vendor-token}}"}}, "field scopes[0] names a stored secret"},
-		"a trino connection": {known, "trino", map[string]any{"password": "{{secret:vendor-token}}"}, "none of a trino connection's fields"},
+		"out of scope":                   {known, "mcp", map[string]any{"credential": "{{secret:vendor-token}}"}, `may not be used by connection "instance"`},
+		"missing":                        {known, "api", map[string]any{"credential": "{{secret:nope}}"}, `which does not exist; store it under Admin > Secrets with "instance"`},
+		"personas":                       {known, "mcp", map[string]any{"credential": "{{secret:finance-only}}", "connection_name": "vendor"}, "clear its allow_personas"},
+		"unreadable":                     {known, "api", map[string]any{"credential": "{{secret:down}}"}, "could not be read"},
+		"no store":                       {nil, "api", map[string]any{"credential": "{{secret:vendor-token}}"}, "not available on this deployment"},
+		"malformed":                      {known, "api", map[string]any{"credential": "{{secret:Bad}}"}, "not {{secret:<name>}}"},
+		"one-time code":                  {known, "api", map[string]any{"credential": "{{totp:vendor-token}}"}, "filled only in an api call's request"},
+		"unfilled field":                 {known, "api", map[string]any{"base_url": "https://x/{{secret:vendor-token}}"}, "field base_url names a stored secret"},
+		"a list entry":                   {known, "api", map[string]any{"scopes": []any{"{{secret:vendor-token}}"}}, "field scopes[0] names a stored secret"},
+		"a trino field it does not fill": {known, "trino", map[string]any{"host": "{{secret:vendor-token}}"}, "may be named in password"},
+		"a trino password out of scope":  {known, "trino", map[string]any{"password": "{{secret:vendor-token}}"}, `may not be used by connection "instance"`},
 	} {
 		err := Check(ctx, c.scopes, c.kind, "instance", c.cfg)
 		require.Error(t, err, name)
@@ -136,4 +149,16 @@ func TestNamesStoredSecret(t *testing.T) {
 	assert.True(t, NamesStoredSecret("{{secret:pat}}"))
 	assert.False(t, NamesStoredSecret("Bearer {{secret:pat}}"))
 	assert.False(t, NamesStoredSecret(42))
+}
+
+// TestBuiltKeysAreTheOnesTheToolkitsFill pins the keys the save check lets a
+// trino or s3 connection name a secret in to the keys those toolkits fill
+// as they build their client (#1806).
+func TestBuiltKeysAreTheOnesTheToolkitsFill(t *testing.T) {
+	for kind, keys := range map[string][]string{kindTrino: trinokit.SecretKeys, kindS3: s3kit.SecretKeys} {
+		assert.Len(t, builtKeys[kind], len(keys), kind)
+		for _, k := range keys {
+			assert.True(t, builtKeys[kind][k], "%s %s", kind, k)
+		}
+	}
 }

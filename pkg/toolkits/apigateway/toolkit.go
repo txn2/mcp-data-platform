@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/internal/secretstore"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
@@ -137,6 +138,9 @@ type Toolkit struct {
 	// #1005). nil until SetInternalHandler wires it; adding an
 	// internal connection before then fails.
 	internalHandler http.Handler
+
+	// selfHandler serves a self_dispatch connection's token-less calls (#2086).
+	selfHandler selfcall.Handler
 }
 
 // SetMemBudget wires the shared in-flight memory budget the buffered
@@ -869,6 +873,9 @@ func (t *Toolkit) newConnClient(name string, cfg Config) (*http.Client, error) {
 			return nil, fmt.Errorf("apigateway: %s: handler=internal requires SetInternalHandler before the connection is added", name)
 		}
 		client = newInternalHTTPClient(name, h)
+	}
+	if cfg.SelfDispatch {
+		client.Transport = selfcall.Transport(newInternalHTTPClient(name, &t.selfHandler).Transport, client.Transport)
 	}
 	client.Transport = secretref.Transport(client.Transport)
 	return client, nil

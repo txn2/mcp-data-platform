@@ -211,6 +211,24 @@ type ConnectionAuth struct {
 	EscalatedAfterHours int `json:"escalated_after_hours,omitempty"`
 }
 
+// ScriptRecovery is the failure incident a recovered automation's alert
+// closes (#2041): how long it was failing and how many runs failed, and the
+// failed run that opened it. ItemID and Link on the payload are the run that
+// succeeded.
+type ScriptRecovery struct {
+	FailedRuns   int       `json:"failed_runs"`
+	FailingSince time.Time `json:"failing_since"`
+	RecoveredAt  time.Time `json:"recovered_at"`
+	OpeningRunID string    `json:"opening_run_id"`
+	OpeningCause string    `json:"opening_cause,omitempty"`
+	// OpeningError is the line of the opening run's error that names the
+	// failure: its last, as a traceback ends with what was raised.
+	OpeningError string `json:"opening_error,omitempty"`
+	// OpeningLink is the opening run's page, empty when the deployment does
+	// not know its own public address.
+	OpeningLink string `json:"opening_link,omitempty"`
+}
+
 // Payload carries the event details a template needs to render an email.
 // It is stored as the queue row's JSONB payload.
 type Payload struct {
@@ -237,6 +255,10 @@ type Payload struct {
 	// on its own; a single one may be a bad moment outside the script. Zero
 	// where it was not read, which renders as a first failure.
 	Repeats int `json:"repeats,omitempty"`
+	// Recovery is set on a KindScriptRun alert that a failing automation ran
+	// successfully again (#2041), and is nil on a failure alert and every
+	// other kind.
+	Recovery *ScriptRecovery `json:"recovery,omitempty"`
 	// Review carries the review-queue rollup of a KindReviewQueue alert and
 	// is nil for every other kind.
 	Review *ReviewQueue `json:"review,omitempty"`

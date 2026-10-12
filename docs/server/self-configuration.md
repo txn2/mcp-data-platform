@@ -50,7 +50,24 @@ header on the loopback call. The admin API authenticates that token through the
 same authenticator the MCP transport uses, so authorization and audit logging
 attribute the change to the real admin.
 
-A passthrough call with no caller token fails fast rather than calling
+A saved script's run has no token: it presents the roles its owner held when
+the script was saved. A call it makes on `platform-admin`, from `run_script` or
+a schedule, is served inside the platform process instead of over the loopback,
+as the script's own identity, and the admin and portal APIs check that identity
+the way they check a token. A script owned by an administrator reaches the admin
+routes; any other script is answered `403` with the persona the admin API
+requires and the roles that reach it. The `api_invoke_endpoint` audit row names
+the script (`script:<name>`) and its owner, as every call a run makes does. A
+draft run (`run_draft`) runs in its caller's session and forwards their token
+as before, so a draft and a saved run are authorized by the same rule.
+
+Any other identity-passthrough connection forwards the token to an upstream
+that checks it, so a saved script's call on one is refused, naming the
+connection and saying to use a connection that holds its own credentials.
+`manage_script validate` and every save warn of such a connection
+(`passthrough-connection`) before the script's first scheduled run.
+
+A passthrough call with no authenticated caller fails fast rather than calling
 anonymously.
 
 ### Discovery and invocation
@@ -102,7 +119,12 @@ the embedded spec's base path no longer matches the live routes).
 - **Default scope is admin only.** Granting the connection to another persona is
   an explicit admin action.
 - **Mutations are attributed to the acting admin** through the existing audit
-  middleware (identity passthrough), so the audit trail names the real user.
+  middleware (identity passthrough), so the audit trail names the real user. A
+  saved script's call is attributed to the script and its owner.
+- **A script adds no reach its owner did not have.** A script's run keeps the
+  roles its owner held at the save for every tool it calls; the admin API checks
+  those roles, so only a script saved by someone holding the admin persona's
+  role reaches it.
 - Destructive admin operations run through the same audit and authorization path
   as any other admin API call.
 

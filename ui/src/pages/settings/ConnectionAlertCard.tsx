@@ -15,6 +15,7 @@ import {
   SaveFeedbackBanners,
   UpdatedByMeta,
 } from "./settingsChrome";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 
 // The connection-revocation alert settings section (#1694).
 //
@@ -56,6 +57,7 @@ export function ConnectionAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -406,5 +408,44 @@ func TestSeedAdminSelfConnection_APathBaseURLRequiresNoPrefix(t *testing.T) {
 	failure := callSeededAdminConnection(t, "http://127.0.0.1:1/api/v1", "/admin/tools")
 	if strings.Contains(failure, "Send path") {
 		t.Fatalf("a base URL carrying the prefix refused a path relative to it: %s", failure)
+	}
+}
+
+// TestSeedAdminSelfConnection_ServesATokenlessCallWithTheInstalledHandler:
+// the seeded connection hands a call that carries a caller but no token to
+// the handler the server installs on the toolkit (#2086).
+func TestSeedAdminSelfConnection_ServesATokenlessCallWithTheInstalledHandler(t *testing.T) {
+	store := apicatalog.NewMemoryStore()
+	tk := apigatewaykit.New("api")
+	tk.SetCatalogStore(store)
+	p := &Platform{}
+	if err := p.seedAdminSelfConnection(context.Background(), tk, store, nil, "http://127.0.0.1:1"); err != nil {
+		t.Fatalf("seedAdminSelfConnection: %v", err)
+	}
+	var served string
+	tk.SetSelfHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		served = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+	tk.RegisterTools(server)
+	ctx := mcpcontext.WithCaller(context.Background(), mcpcontext.Caller{UserID: "script:s", Roles: []string{"admin"}})
+	st, ct := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, st, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	sess, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = sess.Close() }()
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: apigatewaykit.ToolInvokeEndpoint, Arguments: map[string]any{
+		"connection": adminSelfConnectionName, "method": "GET", "path": "/api/v1/admin/personas",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if served != "/api/v1/admin/personas" {
+		t.Errorf("installed handler served %q (result %v); want the call served in process", served, res.Content)
 	}
 }

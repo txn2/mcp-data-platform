@@ -16,6 +16,7 @@ import {
   SaveFeedbackBanners,
   UpdatedByMeta,
 } from "./settingsChrome";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 
 // A review-queue alert settings section. Two queues use it — knowledge
 // insights (#803) and managed-script reviews (#1287) — because they are one
@@ -125,6 +126,7 @@ export function ReviewAlertCard({
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 

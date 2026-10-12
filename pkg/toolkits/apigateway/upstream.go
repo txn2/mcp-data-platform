@@ -76,6 +76,7 @@ func (c Config) upstream() upstreamauth.Config {
 		MTLSClientKeyPEM:    c.MTLSClientKeyPEM,
 		TLSCABundlePEM:      c.TLSCABundlePEM,
 		IdentityPassthrough: c.IdentityPassthrough,
+		SelfDispatch:        c.SelfDispatch,
 		TracePropagation:    c.TracePropagation,
 		PathSecret:          c.PathSecret,
 	}
@@ -117,6 +118,7 @@ func configFromUpstream(up upstreamauth.Config) Config {
 		MTLSClientKeyPEM:    up.MTLSClientKeyPEM,
 		TLSCABundlePEM:      up.TLSCABundlePEM,
 		IdentityPassthrough: up.IdentityPassthrough,
+		SelfDispatch:        up.SelfDispatch,
 		TracePropagation:    up.TracePropagation,
 		PathSecret:          up.PathSecret,
 	}

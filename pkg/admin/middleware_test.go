@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -620,4 +621,20 @@ func TestHandler_IntegrationWithAuth(t *testing.T) {
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
+}
+
+// refusingAuth refuses every request with err.
+type refusingAuth struct{ err error }
+
+func (r refusingAuth) Authenticate(*http.Request) (*User, error) { return nil, r.err }
+
+// TestRequirePersona_APersonaRefusalIs403: a caller authenticated in process
+// whose roles miss the persona is answered 403 with the refusal's text (#2086).
+func TestRequirePersona_APersonaRefusalIs403(t *testing.T) {
+	refusal := &selfcall.PersonaError{Surface: "admin API", Persona: "admin", Need: []string{"admin"}, Caller: "script:s", Has: []string{"analyst"}}
+	rec := httptest.NewRecorder()
+	RequirePersona(refusingAuth{err: refusal})(http.NotFoundHandler()).
+		ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody))
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "script:s presents [analyst]")
 }

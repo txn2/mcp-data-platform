@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/bgloop"
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptadmit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrec"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptrun"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
@@ -133,6 +134,9 @@ type workerConfig struct {
 	// channels; portalURL builds the run's page the alert links to.
 	channels  FailurePoster
 	portalURL string
+	// incidents holds each script's open failure incident (#2041); nil
+	// alerts every failed scheduled run and no recovery.
+	incidents scriptincident.Store
 	// metrics records what the run queue is doing, so an operator watching the
 	// platform sees a failing or slowing automation without querying the run
 	// table (#1307). Nil is a no-op: every method on *observability.Metrics is
@@ -505,7 +509,7 @@ func (w *worker) maybeFailAbandoned(ctx context.Context) {
 			Script: scriptName(sc, run), Trigger: run.Trigger, Status: script.RunStatusFailed,
 		}, 0)
 		w.cfg.metrics.RecordScriptRunFailure(ctx, runstate.CauseWorkerLost)
-		w.notifyFailure(ctx, run, sc, result)
+		w.notifyOutcome(ctx, run, sc, result)
 	}
 }
 
@@ -690,7 +694,7 @@ func (w *worker) processRun(ctx context.Context, run *script.Run, s *slot) error
 	w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
 		Script: scriptName(sc, run), Trigger: run.Trigger, Status: outcome.result.Status,
 	}, time.Since(started))
-	w.notifyFailure(ctx, run, sc, outcome.result)
+	w.notifyOutcome(ctx, run, sc, outcome.result)
 	if outcome.result.Status != script.RunStatusFailed {
 		return nil
 	}

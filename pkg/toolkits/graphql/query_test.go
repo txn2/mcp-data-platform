@@ -548,3 +548,28 @@ func TestADocumentPastTheBudgetIsNamedNotEchoed(t *testing.T) {
 		t.Errorf("text is %d characters; want it inside the budget", len(text.Text))
 	}
 }
+
+// TestIdentityPassthroughTellsAScriptWhy: a saved script's run has no token
+// to forward, so its call on a passthrough connection is refused naming that
+// and what to use instead, and the connection is reported as one a run cannot
+// call (#2086).
+func TestIdentityPassthroughTellsAScriptWhy(t *testing.T) {
+	u := newUpstream(t)
+	tk := newToolkit(t, u, "flat", map[string]any{"identity_passthrough": true})
+	ctx := mcpcontext.WithSource(context.Background(), mcpcontext.SourceScript)
+	res, _, err := tk.handleQuery(ctx, nil, QueryInput{Connection: "gql", Query: `{ dataset(urn:"x") { urn } }`})
+	if err != nil || !res.IsError {
+		t.Fatalf("want an error result; err=%v", err)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content = %T", res.Content[0])
+	}
+	text := tc.Text
+	if !strings.Contains(text, "a saved script's run has none") || !strings.Contains(text, "holds its own credentials") {
+		t.Errorf("refusal = %s", text)
+	}
+	if !tk.ScriptRunCannotServe("gql") || tk.ScriptRunCannotServe("other") {
+		t.Error("ScriptRunCannotServe: want true for the passthrough connection only")
+	}
+}
