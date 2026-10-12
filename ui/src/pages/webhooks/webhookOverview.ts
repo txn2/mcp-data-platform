@@ -13,6 +13,7 @@ export const OUTCOMES: { key: string; label: string }[] = [
   { key: "rate_limited", label: "Rate limited" },
   { key: "buffer_full", label: "Buffer full" },
   { key: "write_failed", label: "Write failed" },
+  { key: "sender_gone", label: "Sender gone" },
   { key: "invalid_body", label: "Invalid body" },
 ];
 
@@ -23,6 +24,13 @@ export function outcomeLabel(key: string): string {
   if (known) return known.label;
   const words = key.replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** formatMs renders a duration in milliseconds as a person reads it: whole
+ * milliseconds under a second, seconds to one decimal above. */
+export function formatMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
 }
 
 export const HEALTH_LABELS: Record<WebhookHealth, string> = {

@@ -158,6 +158,29 @@ func issue1870Rows(t *testing.T, c *client, source, where string) int {
 	return issue1870Count(t, c, sqlText)
 }
 
+// issue1870AwaitCount waits until sqlText counts want. A window's raw
+// partition is registered on the receiver's own loop, never while a sender
+// waits: ahead of the window for a source already receiving, and moments after
+// the first 202 of a window nobody saw coming, such as a new source's first
+// (#2107). A count taken straight after that 202 can come before it.
+func issue1870AwaitCount(t *testing.T, c *client, sqlText string, want int) {
+	t.Helper()
+	waitFor(t, sqlText, func() (bool, string) {
+		n := issue1870Count(t, c, sqlText)
+		return n == want, fmt.Sprintf("counted %d, want %d", n, want)
+	})
+}
+
+// issue1870AwaitRows is issue1870AwaitCount over a source's view.
+func issue1870AwaitRows(t *testing.T, c *client, source, where string, want int) {
+	t.Helper()
+	sqlText := "SELECT count(*) FROM " + issue1870Table(source)
+	if where != "" {
+		sqlText += " WHERE " + where
+	}
+	issue1870AwaitCount(t, c, sqlText, want)
+}
+
 // issue1870Docker pauses or unpauses the store the managed resources live in.
 // Pausing freezes the process with its sockets open, so a write to it stalls
 // rather than failing fast: the store is there and does not answer.
@@ -211,9 +234,7 @@ func TestIssue1870_AnHMACSourceAcceptsASignedRequestAndRefusesAForgedOne(t *test
 			if res.StatusCode != http.StatusAccepted {
 				t.Fatalf("a signed request was answered %d, want 202: %s", res.StatusCode, body)
 			}
-			if n := issue1870Rows(t, c, name, "event_id = 'signed-"+f.name+"'"); n != 1 {
-				t.Fatalf("the acknowledged event is returned %d times, want 1", n)
-			}
+			issue1870AwaitRows(t, c, name, "event_id = 'signed-"+f.name+"'", 1)
 		})
 	}
 	if status, list := c.rest(http.MethodGet, "/api/v1/admin/webhooks/sources", http.NoBody); status != http.StatusOK ||
@@ -459,9 +480,7 @@ func TestIssue1870_ABatchSplitsIntoOneRowPerEvent(t *testing.T) {
 			if res.StatusCode != http.StatusAccepted || !strings.Contains(text, `"accepted":500`) {
 				t.Fatalf("a batch of 500 was answered %d: %s", res.StatusCode, text)
 			}
-			if n := issue1870Rows(t, c, name, "event_id LIKE '"+f.name+"-%' AND event_type = 'delivered'"); n != 500 {
-				t.Fatalf("a batch of 500 produced %d rows", n)
-			}
+			issue1870AwaitRows(t, c, name, "event_id LIKE '"+f.name+"-%' AND event_type = 'delivered'", 500)
 		})
 	}
 }
@@ -637,7 +656,5 @@ func TestIssue1870_TheCompactionWindowIsASourceSetting(t *testing.T) {
 	want := fmt.Sprintf("%02d", now.Truncate(5*time.Minute).Minute())
 	// Either side of a window boundary the event is in one of two windows.
 	prev := fmt.Sprintf("%02d", now.Add(-10*time.Second).Truncate(5*time.Minute).Minute())
-	if n := issue1870Rows(t, c, name, fmt.Sprintf("event_id = 'w1' AND minute IN ('%s', '%s')", want, prev)); n != 1 {
-		t.Fatalf("the event is not filed under its five-minute window (%s or %s)", want, prev)
-	}
+	issue1870AwaitRows(t, c, name, fmt.Sprintf("event_id = 'w1' AND minute IN ('%s', '%s')", want, prev), 1)
 }

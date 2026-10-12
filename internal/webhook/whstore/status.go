@@ -28,8 +28,12 @@ type Status struct {
 	Failing   int    `json:"failing"`
 	LastError string `json:"last_error,omitempty"`
 	// OldestWindow is the start of the oldest window still held.
-	OldestWindow *time.Time  `json:"oldest_window"`
-	Rejections   []Rejection `json:"rejections"`
+	OldestWindow *time.Time `json:"oldest_window"`
+	// AckLastHour and AckLastDay are how long the deliveries answered 202
+	// waited for that answer.
+	AckLastHour AckLatency  `json:"ack_last_hour"`
+	AckLastDay  AckLatency  `json:"ack_last_day"`
+	Rejections  []Rejection `json:"rejections"`
 }
 
 // Status reads a source's status at now.
@@ -59,25 +63,46 @@ func (s *Store) Status(ctx context.Context, source string, now time.Time) (Statu
 	st.OldestWindow = timePtr(oldest)
 	st.LastError = lastError.String
 
+	lat, err := s.readLatency(ctx, source, now)
+	if err != nil {
+		return Status{}, err
+	}
+	st.AckLastHour, st.AckLastDay = lat[source].hour, lat[source].day
+
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT first_at, rejected_at, count, outcome, reason FROM webhook_rejections
+		`SELECT source, first_at, rejected_at, count, outcome, reason, request_hash, event_ids FROM webhook_rejections
 		  WHERE source = $1 ORDER BY rejected_at DESC, id DESC`, source)
 	if err != nil {
 		return Status{}, fmt.Errorf("reading webhook rejections: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var r Rejection
-		if err := rows.Scan(&r.FirstAt, &r.At, &r.Count, &r.Outcome, &r.Reason); err != nil {
-			return Status{}, fmt.Errorf("scanning webhook rejection: %w", err)
-		}
-		r.FirstAt, r.At = r.FirstAt.UTC(), r.At.UTC()
-		st.Rejections = append(st.Rejections, r)
-	}
-	if err := rows.Err(); err != nil {
-		return Status{}, fmt.Errorf("iterating webhook rejections: %w", err)
+	st.Rejections, err = scanRejections(rows)
+	if err != nil {
+		return Status{}, err
 	}
 	return st, nil
+}
+
+// scanRejections reads rows of source, first_at, rejected_at, count, outcome,
+// reason, request_hash and event_ids, and closes them.
+func scanRejections(rows *sql.Rows) ([]Rejection, error) {
+	defer func() { _ = rows.Close() }()
+	out := make([]Rejection, 0)
+	for rows.Next() {
+		var (
+			r   Rejection
+			ids pq.StringArray
+		)
+		if err := rows.Scan(&r.Source, &r.FirstAt, &r.At, &r.Count, &r.Outcome, &r.Reason, &r.RequestHash, &ids); err != nil {
+			return nil, fmt.Errorf("scanning webhook rejection: %w", err)
+		}
+		r.FirstAt, r.At = r.FirstAt.UTC(), r.At.UTC()
+		r.EventIDs = append(make([]string, 0, len(ids)), ids...)
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating webhook rejections: %w", err)
+	}
+	return out, nil
 }
 
 // readCounts fills the last hour's and last day's counts.

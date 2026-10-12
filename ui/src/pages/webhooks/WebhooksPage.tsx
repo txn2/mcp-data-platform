@@ -21,15 +21,19 @@ import {
   HEALTH_HINTS,
   HEALTH_LABELS,
   HEALTH_VARIANTS,
+  formatMs,
   outcomeLabel,
   splitCounts,
   volumeSeries,
 } from "./webhookOverview";
 
 // WebhooksPage is the overview of every inbound webhook source (#1870, #1979),
-// read in one request: the request volume by outcome, each source's health
-// and counts, and the newest rejected requests across all of them. A row
-// opens the source's page, which is where its address and settings are.
+// read in one request: the request volume by outcome, each source's health,
+// counts and response time, and the newest rejected requests across all of
+// them. Choosing a source narrows the chart and the rejections to it; the
+// rejections are then read for that source alone (#2107), so another
+// source's volume never hides them. A row opens the source's page, which is
+// where its address and settings are.
 
 const RANGES: { value: WebhookStatusRange; label: string }[] = [
   { value: "hour", label: "Last hour" },
@@ -40,9 +44,27 @@ const RANGES: { value: WebhookStatusRange; label: string }[] = [
 // cannot carry an empty value.
 const ALL = "__all__";
 
+/** useChosenSource is the source picked in the chart, or "" for every source
+ * (one deleted while picked falls back to every source), and the rejections
+ * to list: every source's from the overview, or the picked source's read for
+ * it alone. */
+function useChosenSource(range: WebhookStatusRange, data: WebhookStatusOverview | undefined) {
+  const [source, setSource] = useState(ALL);
+  const names = data?.sources.map((s) => s.name) ?? [];
+  const chosen = source !== ALL && names.includes(source) ? source : "";
+  const one = useWebhookStatus(range, chosen, chosen !== "");
+  return {
+    chosen,
+    setSource,
+    rejections: chosen ? one.data?.rejections : data?.rejections,
+    loading: chosen !== "" && one.isLoading,
+  };
+}
+
 export function WebhooksPage({ onNavigate }: { onNavigate: (path: string) => void }) {
   const [range, setRange] = useState<WebhookStatusRange>("hour");
   const { data, isLoading, isError } = useWebhookStatus(range);
+  const { chosen, setSource, rejections, loading } = useChosenSource(range, data);
   const open = (name: string) => onNavigate(`/admin/webhooks/${encodeURIComponent(name)}`);
 
   return (
@@ -63,9 +85,22 @@ export function WebhooksPage({ onNavigate }: { onNavigate: (path: string) => voi
         <NoSources />
       ) : (
         <>
-          <VolumeSection data={data} isLoading={isLoading} range={range} onRange={setRange} />
+          <VolumeSection
+            data={data}
+            isLoading={isLoading}
+            range={range}
+            onRange={setRange}
+            chosen={chosen}
+            onSource={setSource}
+          />
           <SourcesTable sources={data?.sources} isLoading={isLoading} onOpen={open} />
-          <RejectionsSection rejections={data?.rejections} isLoading={isLoading} onOpen={open} />
+          <RejectionsSection
+            rejections={rejections}
+            isLoading={isLoading || loading}
+            range={range}
+            source={chosen}
+            onOpen={open}
+          />
         </>
       )}
     </div>
@@ -77,16 +112,17 @@ function VolumeSection({
   isLoading,
   range,
   onRange,
+  chosen,
+  onSource,
 }: {
   data: WebhookStatusOverview | undefined;
   isLoading: boolean;
   range: WebhookStatusRange;
   onRange: (r: WebhookStatusRange) => void;
+  chosen: string;
+  onSource: (s: string) => void;
 }) {
-  const [source, setSource] = useState(ALL);
   const names = data?.sources.map((s) => s.name) ?? [];
-  // A source deleted while chosen falls back to every source.
-  const chosen = source !== ALL && names.includes(source) ? source : "";
   const series = useMemo(
     () => (data ? volumeSeries(data, chosen) : { buckets: [], outcomes: [], total: 0 }),
     [data, chosen],
@@ -96,7 +132,7 @@ function VolumeSection({
       title="Requests"
       action={
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={chosen === "" ? ALL : chosen} onValueChange={setSource}>
+          <Select value={chosen === "" ? ALL : chosen} onValueChange={onSource}>
             <SelectTrigger size="sm" className="h-7 w-44 text-xs" aria-label="Source">
               <SelectValue />
             </SelectTrigger>
@@ -162,6 +198,7 @@ function SourcesTable({
             <TableHead>Last event</TableHead>
             <TableHead className="text-right">Last hour</TableHead>
             <TableHead className="text-right">Last day</TableHead>
+            <TableHead className="text-right">Response time</TableHead>
             <TableHead className="text-right">Pending</TableHead>
             <TableHead>Failing</TableHead>
           </TableRow>
@@ -169,7 +206,7 @@ function SourcesTable({
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+              <TableCell colSpan={8} className="py-6 text-center text-sm text-muted-foreground">
                 Loading...
               </TableCell>
             </TableRow>
@@ -194,6 +231,7 @@ function SourcesTable({
                 </TableCell>
                 <CountsCell counts={s.last_hour} />
                 <CountsCell counts={s.last_day} />
+                <ResponseTimeCell source={s} />
                 <TableCell className="text-right tabular-nums">{s.pending}</TableCell>
                 <TableCell className="max-w-72">
                   {s.failing > 0 ? (
@@ -230,25 +268,50 @@ function CountsCell({ counts }: { counts: Record<string, number> }) {
   );
 }
 
+/** ResponseTimeCell is how long the last hour's accepted requests waited for
+ * their answer: the 99th percentile, and the slowest beneath it. A source with
+ * none in the hour falls back to the last day. */
+function ResponseTimeCell({ source }: { source: WebhookSourceStatus }) {
+  const hour = source.ack_last_hour;
+  const span = hour && hour.count > 0 ? hour : source.ack_last_day;
+  if (!span || span.count === 0) {
+    return <TableCell className="text-right text-muted-foreground">-</TableCell>;
+  }
+  return (
+    <TableCell className="text-right tabular-nums" title="99th percentile, and the slowest request beneath it">
+      <div>p99 {formatMs(span.p99_ms)}</div>
+      <div className="text-xs text-muted-foreground">
+        max {formatMs(span.max_ms)}
+        {span === hour ? "" : " (24 hours)"}
+      </div>
+    </TableCell>
+  );
+}
+
 function RejectionsSection({
   rejections,
   isLoading,
+  range,
+  source,
   onOpen,
 }: {
   rejections: WebhookSourceRejection[] | undefined;
   isLoading: boolean;
+  range: WebhookStatusRange;
+  source: string;
   onOpen: (name: string) => void;
 }) {
   if (isLoading) return null;
+  const when = range === "hour" ? "in the last hour" : "in the last 24 hours";
   return (
     <SectionCard title="Recent rejections">
       {!rejections || rejections.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No request has been rejected.</p>
+        <p className="text-xs text-muted-foreground">No request has been rejected {when}.</p>
       ) : (
         <>
           <p className="mb-2 text-xs text-muted-foreground">
-            The newest 50 of each outcome across every source. A row counts the requests rejected for the same
-            reason within a minute of each other. A request body is never kept.
+            The newest 50 of each outcome {source ? `for ${source}` : "across every source"} {when}. A row counts
+            the requests rejected for the same reason within a minute of each other. A request body is never kept.
           </p>
           <RejectionsTable rows={rejections} showSource onOpen={(r) => onOpen(r.source)} />
         </>

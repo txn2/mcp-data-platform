@@ -53,7 +53,7 @@ func TestOverview(t *testing.T) {
 		Rejections: []whstore.Rejection{{Source: "zeta", At: now, Outcome: "unauthorized", Reason: "the signature does not match"}},
 	}
 
-	ov, err := r.svc.Overview(ctx, time.Hour, time.Minute)
+	ov, err := r.svc.Overview(ctx, "", time.Hour, time.Minute)
 	require.NoError(t, err)
 	assert.Equal(t, time.Hour, r.windows.span)
 	assert.Equal(t, time.Minute, r.windows.step)
@@ -72,9 +72,25 @@ func TestOverview(t *testing.T) {
 	assert.Len(t, ov.Rejections, 1)
 }
 
+// TestOverviewOfOneSource reads one source's status, and refuses a name no
+// source has (#2107).
+func TestOverviewOfOneSource(t *testing.T) {
+	r := newRig()
+	r.sources.rows["alpha"] = whsource.Source{Name: "alpha", Enabled: true}
+	r.sources.rows["zeta"] = whsource.Source{Name: "zeta", Enabled: true}
+	ov, err := r.svc.Overview(ctx, "zeta", time.Hour, time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, "zeta", r.windows.source, "the store is asked for that source alone")
+	require.Len(t, ov.Sources, 1)
+	assert.Equal(t, "zeta", ov.Sources[0].Source.Name)
+
+	_, err = r.svc.Overview(ctx, "nope", time.Hour, time.Minute)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestOverviewEmpty(t *testing.T) {
 	r := newRig()
-	ov, err := r.svc.Overview(ctx, time.Hour, time.Minute)
+	ov, err := r.svc.Overview(ctx, "", time.Hour, time.Minute)
 	require.NoError(t, err)
 	assert.NotNil(t, ov.Sources)
 	assert.Empty(t, ov.Sources)
@@ -87,11 +103,11 @@ func TestOverviewEmpty(t *testing.T) {
 func TestOverviewFailures(t *testing.T) {
 	r := newRig()
 	r.sources.err["list"] = errBoom
-	_, err := r.svc.Overview(ctx, time.Hour, time.Minute)
+	_, err := r.svc.Overview(ctx, "", time.Hour, time.Minute)
 	require.ErrorIs(t, err, errBoom)
 
 	r = newRig()
 	r.windows.err["overview"] = errBoom
-	_, err = r.svc.Overview(ctx, time.Hour, time.Minute)
+	_, err = r.svc.Overview(ctx, "", time.Hour, time.Minute)
 	require.ErrorIs(t, err, errBoom)
 }

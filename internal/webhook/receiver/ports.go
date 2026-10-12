@@ -28,10 +28,12 @@ type Recorder interface {
 	MarkSegment(ctx context.Context, source string, start time.Time, length time.Duration) error
 	RecordCounts(ctx context.Context, counts []whstore.Count) error
 	RecordRejections(ctx context.Context, rejections []whstore.Rejection) error
+	RecordLatency(ctx context.Context, latencies []whstore.Latency) error
 }
 
 // RawWindows registers a new window's raw partition, so an event is queryable
-// as soon as it is acknowledged. A nil RawWindows leaves new windows to the
+// moments after it is acknowledged. The receiver calls it from its own loop,
+// never while a sender waits. A nil RawWindows leaves new windows to the
 // compactor's sync.
 type RawWindows interface {
 	EnsureRawWindow(ctx context.Context, src whsource.Source, start time.Time) error

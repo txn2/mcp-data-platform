@@ -77,11 +77,12 @@ func issue1996Connection(t *testing.T, c *client, base string, extra map[string]
 	return name
 }
 
-// issue1996Events counts the source's events with the given id.
-func issue1996Events(t *testing.T, c *client, source, id string) int {
+// issue1996AwaitEvent waits until the source holds exactly one event with
+// the given id.
+func issue1996AwaitEvent(t *testing.T, c *client, source, id string) {
 	t.Helper()
-	return issue1870Count(t, c, fmt.Sprintf("SELECT count(*) FROM %s.webhook_%s WHERE event_id = '%s'",
-		issue1870Schema, strings.ReplaceAll(source, "-", "_"), id))
+	issue1870AwaitCount(t, c, fmt.Sprintf("SELECT count(*) FROM %s.webhook_%s WHERE event_id = '%s'",
+		issue1870Schema, strings.ReplaceAll(source, "-", "_"), id), 1)
 }
 
 // TestIssue1996_AScriptDeliversToAnHMACSource is the ticket's integration
@@ -120,9 +121,7 @@ def main():
 	if run["status"] != "succeeded" {
 		t.Fatalf("the run did not succeed, so the receiver did not answer 202: %v", run)
 	}
-	if n := issue1996Events(t, c, source, marker); n != 1 {
-		t.Fatalf("webhook_%s holds %d events with id %s, want 1", source, n, marker)
-	}
+	issue1996AwaitEvent(t, c, source, marker)
 	if strings.Contains(fmt.Sprint(run), issue1996Secret) {
 		t.Error("the run's record quotes the signing secret")
 	}
@@ -147,9 +146,7 @@ func TestIssue1996_TheToolSendsBothBodyForms(t *testing.T) {
 		if status, _ := out["status"].(float64); status != http.StatusAccepted {
 			t.Fatalf("%s body: the receiver answered %v: %v", form, out["status"], out)
 		}
-		if n := issue1996Events(t, c, source, form+"-"+source); n != 1 {
-			t.Errorf("%s body: %d events landed, want 1", form, n)
-		}
+		issue1996AwaitEvent(t, c, source, form+"-"+source)
 	}
 }
 
@@ -268,7 +265,5 @@ func TestIssue1996_APathSecretReachesAPathTokenSource(t *testing.T) {
 	if raw, _ := json.Marshal(view); strings.Contains(string(raw), token) {
 		t.Errorf("the connection read quotes the path secret: %s", raw)
 	}
-	if n := issue1996Events(t, c, source, "path-"+source); n != 1 {
-		t.Errorf("%d events landed, want 1", n)
-	}
+	issue1996AwaitEvent(t, c, source, "path-"+source)
 }

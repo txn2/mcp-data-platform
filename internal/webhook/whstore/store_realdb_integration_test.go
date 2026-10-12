@@ -249,7 +249,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	empty, err := st.Overview(ctx, now, time.Hour, time.Minute)
+	empty, err := st.Overview(ctx, "", now, time.Hour, time.Minute)
 	require.NoError(t, err)
 	assert.Empty(t, empty.Summaries)
 	assert.NotNil(t, empty.Volume)
@@ -277,7 +277,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 		{Source: "crm", At: now, Outcome: "too_large", Reason: "the body is over the limit"},
 	}))
 
-	ov, err := st.Overview(ctx, now, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "", now, time.Hour, time.Minute)
 	require.NoError(t, err)
 
 	esp := ov.Summaries["esp"]
@@ -304,7 +304,7 @@ func TestWebhookOverviewRealDB(t *testing.T) {
 	assert.Equal(t, int64(10), table)
 	assert.Equal(t, table, series, "the series over the hour sums to the counts table's rows for the same bound")
 
-	day, err := st.Overview(ctx, now, 24*time.Hour, 15*time.Minute)
+	day, err := st.Overview(ctx, "", now, 24*time.Hour, 15*time.Minute)
 	require.NoError(t, err)
 	series = 0
 	for _, p := range day.Volume {
@@ -377,7 +377,98 @@ func TestRejectionsSurviveABurstRealDB(t *testing.T) {
 	assert.Equal(t, now.Add(499*time.Millisecond), status.Rejections[0].At)
 	assert.Equal(t, want, unauthorized(status.Rejections))
 
-	ov, err := st.Overview(ctx, now, time.Hour, time.Minute)
+	ov, err := st.Overview(ctx, "", now, time.Hour, time.Minute)
 	require.NoError(t, err)
 	assert.Equal(t, want, unauthorized(ov.Rejections))
+}
+
+// TestAckLatencyRealDB writes two replicas' latency for one minute and a
+// third for another, and reads it back: bucket counts summed, the slowest
+// kept with its stages, the hour told apart from the day, a source filter
+// applied, and the minute pruned with the counts (#2107).
+func TestAckLatencyRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('esp', 'scratch'), ('crm', 'scratch')`)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	recent, earlier := now.Add(-5*time.Minute), now.Add(-3*time.Hour)
+	one := func(source string, minute time.Time, acks ...SlowAck) Latency {
+		l := Latency{Source: source, Minute: minute}
+		for _, a := range acks {
+			l.Observe(a)
+		}
+		return l
+	}
+	require.NoError(t, st.RecordLatency(ctx, []Latency{
+		one("esp", recent, SlowAck{At: recent, TotalMS: 8}, SlowAck{At: recent, TotalMS: 40, BufferMS: 5, MarkMS: 10, PutMS: 25}),
+		one("esp", earlier, SlowAck{At: earlier, TotalMS: 2600, BufferMS: 1, MarkMS: 2500, PutMS: 99}),
+		one("crm", recent, SlowAck{At: recent, TotalMS: 3}),
+		one("gone", recent, SlowAck{At: recent, TotalMS: 3}),
+	}))
+	// A second replica's deliveries in the same minute add to the row.
+	require.NoError(t, st.RecordLatency(ctx, []Latency{
+		one("esp", recent, SlowAck{At: recent.Add(time.Second), TotalMS: 9}, SlowAck{At: recent, TotalMS: 20}),
+	}))
+
+	status, err := st.Status(ctx, "esp", now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), status.AckLastHour.Count, "both replicas' deliveries in the minute are summed")
+	assert.Equal(t, int64(40), status.AckLastHour.MaxMS, "the slower of the two replicas' slowest is kept")
+	require.NotNil(t, status.AckLastHour.Slowest)
+	assert.Equal(t, SlowAck{At: recent, TotalMS: 40, BufferMS: 5, MarkMS: 10, PutMS: 25}, *status.AckLastHour.Slowest)
+	assert.Equal(t, int64(10), status.AckLastHour.P50MS)
+	assert.Equal(t, int64(5), status.AckLastDay.Count)
+	assert.Equal(t, int64(2600), status.AckLastDay.MaxMS)
+	assert.Equal(t, int64(2500), status.AckLastDay.Slowest.MarkMS, "the day's slowest names the stage that was slow")
+
+	ov, err := st.Overview(ctx, "crm", now, time.Hour, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, ov.Summaries, 1, "a source filter reads that source alone")
+	assert.Equal(t, int64(1), ov.Summaries["crm"].AckLastDay.Count)
+
+	require.NoError(t, st.PruneCounts(ctx, now.Add(-time.Hour)))
+	status, err = st.Status(ctx, "esp", now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), status.AckLastDay.Count, "the minute older than the prune bound is gone")
+}
+
+// TestIdentifiedRejectionsRealDB keeps a refused delivery's hash and event
+// ids, never folds it into a run, and reads it back only within the range and
+// for the source asked for (#2107).
+func TestIdentifiedRejectionsRealDB(t *testing.T) {
+	db := testdb.New(t)
+	st := New(db)
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO webhook_sources (name, connection_name) VALUES ('esp', 'scratch'), ('crm', 'scratch')`)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	require.NoError(t, st.RecordRejections(ctx, []Rejection{
+		{Source: "esp", At: now.Add(-3 * time.Hour), Outcome: "sender_gone", Reason: "gone", RequestHash: "h0", EventIDs: []string{"old"}},
+		{Source: "esp", At: now.Add(-2 * time.Second), Outcome: "sender_gone", Reason: "gone", RequestHash: "h1", EventIDs: []string{"a", "b"}},
+		{Source: "esp", At: now.Add(-time.Second), Outcome: "sender_gone", Reason: "gone", RequestHash: "h2", EventIDs: []string{"c"}},
+		{Source: "crm", At: now, Outcome: "unauthorized", Reason: "bad"},
+	}))
+	require.NoError(t, st.RecordRejections(ctx, []Rejection{{Source: "esp", At: now, Outcome: "sender_gone", Reason: "gone"}}))
+
+	status, err := st.Status(ctx, "esp", now)
+	require.NoError(t, err)
+	require.Len(t, status.Rejections, 4, "no rejection is folded into one that names its events")
+	assert.Empty(t, status.Rejections[0].EventIDs)
+	assert.NotNil(t, status.Rejections[0].EventIDs, "no ids is an empty list")
+	assert.Equal(t, []string{"c"}, status.Rejections[1].EventIDs)
+	assert.Equal(t, "h1", status.Rejections[2].RequestHash)
+	assert.Equal(t, []string{"a", "b"}, status.Rejections[2].EventIDs)
+
+	ov, err := st.Overview(ctx, "esp", now, time.Hour, time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, ov.Rejections, 3, "the rejection older than the range is left out")
+	for _, r := range ov.Rejections {
+		assert.Equal(t, "esp", r.Source)
+	}
+	all, err := st.Overview(ctx, "", now, 24*time.Hour, 15*time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, all.Rejections, 5)
 }

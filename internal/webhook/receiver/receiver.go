@@ -36,6 +36,10 @@ const (
 	DefaultStatsFlush   = 10 * time.Second
 )
 
+// loops is how many background loops Start runs beside the buffers' writers:
+// the source refresh, the stats flush and the window registration.
+const loops = 3
+
 // writerIDBase is the base the process start time is written in, in the
 // name of every segment this process writes.
 const writerIDBase = 36
@@ -66,7 +70,13 @@ type Config struct {
 	// change made on another replica reaches this one.
 	Refresh    time.Duration
 	StatsFlush time.Duration
-	Now        func() time.Time
+	// RegisterRetry is how often a window whose raw partition could not be
+	// registered is tried again.
+	RegisterRetry time.Duration
+	// MissRefresh is the least time between two re-reads of the sources made
+	// for requests naming a source this replica does not serve.
+	MissRefresh time.Duration
+	Now         func() time.Time
 }
 
 // Receiver serves the webhook routes.
@@ -80,17 +90,32 @@ type Receiver struct {
 	buffers  map[string]*buffer
 	limiters map[string]*limiter
 
-	// missMu serializes the re-reads a request for a name not served makes,
-	// and lastMiss is when the last of them ran.
+	// missMu guards the re-reads requests for a name not served wait on:
+	// lastMiss is when the last of them started, and nextMiss the one not
+	// yet started that a new miss joins.
 	missMu   sync.Mutex
 	lastMiss time.Time
+	nextMiss *missRead
 
 	// rawWindows holds the windows whose raw partition this process has seen
-	// registered, so it registers each once rather than per segment.
+	// registered, so it registers each once rather than per segment, and
+	// marked those it recorded before a write; both map a window's key to its
+	// start.
 	rawWindows sync.Map
+	marked     sync.Map
+
+	// regPending holds the windows owed a registration, which the
+	// registration loop works through when regKick wakes it, and latest each
+	// source's newest window written, whose successor the loop registers
+	// ahead of time.
+	regMu      sync.Mutex
+	regPending map[string]rawWindow
+	latest     map[string]time.Time
+	regKick    chan struct{}
 
 	statsMu    sync.Mutex
 	counts     map[countKey]int64
+	latency    map[latencyKey]*whstore.Latency
 	rejections []whstore.Rejection
 
 	ctx     context.Context
@@ -130,6 +155,12 @@ func New(cfg Config) *Receiver {
 	if cfg.StatsFlush <= 0 {
 		cfg.StatsFlush = DefaultStatsFlush
 	}
+	if cfg.RegisterRetry <= 0 {
+		cfg.RegisterRetry = DefaultRegisterRetry
+	}
+	if cfg.MissRefresh <= 0 {
+		cfg.MissRefresh = DefaultMissRefresh
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -138,13 +169,17 @@ func New(cfg Config) *Receiver {
 	}
 	start := cfg.Now()
 	return &Receiver{
-		cfg:      cfg,
-		writer:   whlayout.ReplicaSlug(cfg.Replica) + "-" + strconv.FormatInt(start.UnixNano(), writerIDBase),
-		sources:  map[string]served{},
-		buffers:  map[string]*buffer{},
-		limiters: map[string]*limiter{},
-		counts:   map[countKey]int64{},
-		reload:   make(chan struct{}, 1),
+		cfg:        cfg,
+		writer:     whlayout.ReplicaSlug(cfg.Replica) + "-" + strconv.FormatInt(start.UnixNano(), writerIDBase),
+		sources:    map[string]served{},
+		buffers:    map[string]*buffer{},
+		limiters:   map[string]*limiter{},
+		counts:     map[countKey]int64{},
+		latency:    map[latencyKey]*whstore.Latency{},
+		regPending: map[string]rawWindow{},
+		latest:     map[string]time.Time{},
+		regKick:    make(chan struct{}, 1),
+		reload:     make(chan struct{}, 1),
 	}
 }
 
@@ -159,9 +194,10 @@ func (r *Receiver) Start(ctx context.Context) {
 	if err := r.refresh(r.ctx); err != nil {
 		r.cfg.Logger.Warn("webhooks: loading sources", logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
-	r.wg.Add(2)
+	r.wg.Add(loops)
 	go r.refreshLoop()
 	go r.statsLoop()
+	go r.registerLoop()
 }
 
 // Stop writes every pending buffer, answering the requests waiting on them,
@@ -244,38 +280,6 @@ func (r *Receiver) refresh(ctx context.Context) error {
 	return nil
 }
 
-// missRefresh bounds how often a request for a name this replica does not
-// serve re-reads the sources. A source created on another replica is served
-// here on its first request rather than at the next refresh, and a caller
-// inventing names costs the database at most one read per interval.
-const missRefresh = time.Second
-
-// lookupFresh is lookup, re-reading the sources first when the name is not
-// served and the last re-read for a miss is older than missRefresh.
-//
-// Misses are handled one at a time: a request that misses while another is
-// re-reading waits for that re-read and looks again, rather than answering
-// 404 for a source the re-read under way is about to find.
-func (r *Receiver) lookupFresh(ctx context.Context, name string) (served, bool) {
-	if s, ok := r.lookup(name); ok {
-		return s, true
-	}
-	r.missMu.Lock()
-	defer r.missMu.Unlock()
-	if s, ok := r.lookup(name); ok {
-		return s, true
-	}
-	now := r.now()
-	if now.Sub(r.lastMiss) < missRefresh {
-		return served{}, false
-	}
-	r.lastMiss = now
-	if err := r.refresh(ctx); err != nil {
-		r.cfg.Logger.Warn("webhooks: refreshing sources", logKeyError, logsan.SanitizeForLog(err.Error()))
-	}
-	return r.lookup(name)
-}
-
 // lookup returns a source that is served: stored and enabled.
 func (r *Receiver) lookup(name string) (served, bool) {
 	r.mu.RLock()
@@ -356,14 +360,19 @@ func (r *Receiver) count(source, outcome string) {
 	r.statsMu.Unlock()
 }
 
-// reject keeps a refused request for the source's page.
-func (r *Receiver) reject(source, outcome, reason string) {
+// reject keeps a refused request for the source's page, naming its events
+// when they were read.
+func (r *Receiver) reject(d delivery, outcome, reason string) {
+	rej := whstore.Rejection{
+		Source: d.source, At: r.now(), Outcome: outcome, Reason: reason,
+		RequestHash: d.hash, EventIDs: d.eventIDs(),
+	}
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
 	if len(r.rejections) >= maxPendingRejections {
 		r.rejections = r.rejections[1:]
 	}
-	r.rejections = append(r.rejections, whstore.Rejection{Source: source, At: r.now(), Outcome: outcome, Reason: reason})
+	r.rejections = append(r.rejections, rej)
 }
 
 // flushStats writes the counts and rejections gathered since the last write.
@@ -377,11 +386,21 @@ func (r *Receiver) flushStats(ctx context.Context) error {
 		counts = append(counts, whstore.Count{Source: k.source, Minute: k.minute, Outcome: k.outcome, Count: v})
 	}
 	rejections := r.rejections
+	latency := make([]whstore.Latency, 0, len(r.latency))
+	for _, l := range r.latency {
+		latency = append(latency, *l)
+	}
 	r.counts = map[countKey]int64{}
+	r.latency = map[latencyKey]*whstore.Latency{}
 	r.rejections = nil
 	r.statsMu.Unlock()
 
 	var errs []error
+	if err := r.cfg.Recorder.RecordLatency(ctx, latency); err != nil {
+		r.cfg.Logger.WarnContext(ctx, "webhooks: writing acknowledgement latency", logKeyError, logsan.SanitizeForLog(err.Error()))
+		r.restoreLatency(latency)
+		errs = append(errs, err)
+	}
 	if err := r.cfg.Recorder.RecordCounts(ctx, counts); err != nil {
 		r.cfg.Logger.WarnContext(ctx, "webhooks: writing request counts", logKeyError, logsan.SanitizeForLog(err.Error()))
 		r.statsMu.Lock()
@@ -410,28 +429,20 @@ func (r *Receiver) flushStats(ctx context.Context) error {
 	return nil
 }
 
-// ensureRawWindow registers a source's raw partition for the window starting
-// at start the first time this process writes into it. It is best effort: a query engine that is down
-// never stops events being stored, and the compactor's sync registers what
-// this missed.
-func (r *Receiver) ensureRawWindow(ctx context.Context, source string, start time.Time) {
-	if r.cfg.RawWindows == nil {
-		return
+// restoreLatency puts back latency a failed write did not store, merged into
+// what arrived since.
+func (r *Receiver) restoreLatency(latency []whstore.Latency) {
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	for _, l := range latency {
+		k := latencyKey{source: l.Source, minute: l.Minute}
+		if cur := r.latency[k]; cur != nil {
+			cur.Merge(l)
+			continue
+		}
+		kept := l
+		r.latency[k] = &kept
 	}
-	key := source + "@" + start.UTC().Format(time.RFC3339)
-	if _, done := r.rawWindows.Load(key); done {
-		return
-	}
-	src, ok := r.lookup(source)
-	if !ok {
-		return
-	}
-	if err := r.cfg.RawWindows.EnsureRawWindow(ctx, src.Source, start); err != nil {
-		r.cfg.Logger.Warn("webhooks: registering a new window", "source", logsan.SanitizeForLog(source),
-			logKeyError, logsan.SanitizeForLog(err.Error()))
-		return
-	}
-	r.rawWindows.Store(key, struct{}{})
 }
 
 func (r *Receiver) metricRequest(source, outcome string) {

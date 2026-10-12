@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Pencil, Trash2, Webhook } from "lucide-react";
 import { useDeleteWebhookSource, useWebhookSource } from "@/api/admin/hooks";
-import type { WebhookSource, WebhookStatus } from "@/api/admin/types";
+import type { WebhookAckLatency, WebhookSource, WebhookStatus } from "@/api/admin/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PageHeader } from "@/components/patterns/PageHeader";
@@ -13,11 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODE_LABELS, senderURL, windowLength } from "./webhookForm";
 import { RejectionsTable } from "./RejectionsTable";
-import { OUTCOMES } from "./webhookOverview";
+import { OUTCOMES, formatMs } from "./webhookOverview";
 
 // WebhookDetailPage is one source (#1870): the address to give the sender,
-// whether requests are arriving and being accepted, how far compaction and
-// retention have got, and why recent requests were refused.
+// whether requests are arriving and being accepted, how long accepted
+// requests waited for their answer, how far compaction and retention have
+// got, and why recent requests were refused.
 
 export function WebhookDetailPage({
   name,
@@ -98,6 +99,7 @@ export function WebhookDetailPage({
 
       <SenderSection source={source} />
       <ActivitySection status={status} />
+      <ResponseTimeSection status={status} />
       <StorageSection source={source} status={status} />
       <RejectionsSection status={status} />
     </div>
@@ -211,6 +213,78 @@ function ActivitySection({ status }: { status: WebhookStatus }) {
         </div>
       )}
     </SectionCard>
+  );
+}
+
+const RESPONSE_SPANS: { key: "ack_last_hour" | "ack_last_day"; label: string }[] = [
+  { key: "ack_last_hour", label: "Last hour" },
+  { key: "ack_last_day", label: "Last 24 hours" },
+];
+
+/** ResponseTimeSection is how long requests answered 202 waited for that
+ * answer (#2107), and the slowest with where its time went, so a response
+ * time creeping toward a sender's timeout shows before requests fail. */
+function ResponseTimeSection({ status }: { status: WebhookStatus }) {
+  const day = status.ack_last_day;
+  const slowest = day?.slowest;
+  return (
+    <SectionCard title="Response time">
+      {!day || day.count === 0 ? (
+        <p className="text-xs text-muted-foreground">No request was accepted in the last 24 hours.</p>
+      ) : (
+        <>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Period</TableHead>
+                  <TableHead className="text-right">Requests</TableHead>
+                  <TableHead className="text-right">Median</TableHead>
+                  <TableHead className="text-right">99th percentile</TableHead>
+                  <TableHead className="text-right">Slowest</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {RESPONSE_SPANS.map((span) => (
+                  <ResponseTimeRow key={span.key} label={span.label} latency={status[span.key]} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {slowest && (
+            <div className="mt-3">
+              <h4 className="text-xs font-medium">Slowest request</h4>
+              <dl className="mt-1 grid gap-3 text-xs sm:grid-cols-5">
+                <Fact label="When" value={new Date(slowest.at).toLocaleString()} />
+                <Fact label="Total" value={formatMs(slowest.total_ms)} />
+                <Fact label="Buffer" value={formatMs(slowest.buffer_ms)} />
+                <Fact label="Recording" value={formatMs(slowest.mark_ms)} />
+                <Fact label="Writing" value={formatMs(slowest.put_ms)} />
+              </dl>
+            </div>
+          )}
+          <p className="mt-3 text-xs text-muted-foreground">
+            The time from a request arriving to its answer. Expect the source's flush interval (one second unless
+            it sets another) plus one write to object storage. Median and 99th percentile are at most the value
+            shown. Buffer is the wait for the flush, Recording the database writes that record the window, and
+            Writing the write to object storage.
+          </p>
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
+function ResponseTimeRow({ label, latency }: { label: string; latency: WebhookAckLatency | undefined }) {
+  const none = !latency || latency.count === 0;
+  return (
+    <TableRow>
+      <TableCell>{label}</TableCell>
+      <TableCell className="text-right tabular-nums">{none ? 0 : latency.count.toLocaleString()}</TableCell>
+      <TableCell className="text-right tabular-nums">{none ? "-" : formatMs(latency.p50_ms)}</TableCell>
+      <TableCell className="text-right tabular-nums">{none ? "-" : formatMs(latency.p99_ms)}</TableCell>
+      <TableCell className="text-right tabular-nums">{none ? "-" : formatMs(latency.max_ms)}</TableCell>
+    </TableRow>
   );
 }
 

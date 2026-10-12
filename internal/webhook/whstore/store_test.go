@@ -169,6 +169,7 @@ func TestStats(t *testing.T) {
 	assert.Error(t, st.RecordRejections(ctx, rej))
 
 	mock.ExpectExec(`DELETE FROM webhook_request_counts`).WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(`DELETE FROM webhook_ack_latency`).WillReturnResult(sqlmock.NewResult(0, 1))
 	require.NoError(t, st.PruneCounts(ctx, start))
 	mock.ExpectExec(`DELETE FROM webhook_request_counts`).WillReturnError(errDown)
 	assert.Error(t, st.PruneCounts(ctx, start))
@@ -187,16 +188,27 @@ func TestStatus(t *testing.T) {
 	st, mock := newMock(t)
 	mock.ExpectQuery(`FROM webhook_request_counts`).WillReturnRows(countRows().AddRow("accepted", 2, 5).AddRow("unauthorized", 0, 1))
 	mock.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(start, start, 1, 0, start, nil))
-	mock.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(
-		sqlmock.NewRows([]string{"first_at", "at", "count", "outcome", "reason"}).
-			AddRow(start, start, 1, "unauthorized", "the token does not match"))
+	mock.ExpectQuery(qLatencyBuckets).WithArgs(start.Add(-time.Hour), start.Add(-24*time.Hour), "esp").
+		WillReturnRows(latencyBucketRows().AddRow("esp", 3, 2, 4))
+	mock.ExpectQuery(qSlowest).WillReturnRows(slowestRows().AddRow("esp", true, true, 40, start, 1, 2, 30))
+	mock.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(rejectionRows().
+		AddRow("esp", start, start, 1, "unauthorized", "the token does not match", "", "{}").
+		AddRow("esp", start, start, 1, "sender_gone", "the sender disconnected", "abc", "{e1,e2}"))
 	s, err := st.Status(ctx, "esp", start)
 	require.NoError(t, err)
+	assert.Equal(t, AckLatency{
+		Count: 2, P50MS: 40, P99MS: 40, MaxMS: 40,
+		Slowest: &SlowAck{At: start, TotalMS: 40, BufferMS: 1, MarkMS: 2, PutMS: 30},
+	}, s.AckLastHour)
+	assert.Equal(t, int64(4), s.AckLastDay.Count)
+	require.Len(t, s.Rejections, 2)
+	assert.Equal(t, []string{}, s.Rejections[0].EventIDs, "no ids is an empty list, never nil")
+	assert.Equal(t, []string{"e1", "e2"}, s.Rejections[1].EventIDs)
+	assert.Equal(t, "abc", s.Rejections[1].RequestHash)
 	assert.Equal(t, map[string]int64{"accepted": 2}, s.LastHour)
 	assert.Equal(t, map[string]int64{"accepted": 5, "unauthorized": 1}, s.LastDay)
 	require.NotNil(t, s.LastSegmentAt)
 	assert.Equal(t, 1, s.Pending)
-	require.Len(t, s.Rejections, 1)
 	assert.Equal(t, "the token does not match", s.Rejections[0].Reason)
 }
 
@@ -216,18 +228,29 @@ func TestStatusFailures(t *testing.T) {
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
 			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
+			m.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 			m.ExpectQuery(`FROM webhook_rejections`).WillReturnError(errDown)
 		},
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
 			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
+			m.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 			m.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(sqlmock.NewRows([]string{"x"}).AddRow(1))
 		},
 		func(m sqlmock.Sqlmock) {
 			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
 			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(qLatencyBuckets).WillReturnRows(latencyBucketRows())
+			m.ExpectQuery(qSlowest).WillReturnRows(slowestRows())
 			m.ExpectQuery(`FROM webhook_rejections`).WillReturnRows(
 				sqlmock.NewRows([]string{"at", "outcome", "reason"}).AddRow(start, "a", "b").RowError(0, errDown))
+		},
+		func(m sqlmock.Sqlmock) {
+			m.ExpectQuery(`webhook_request_counts`).WillReturnRows(countRows())
+			m.ExpectQuery(`FROM webhook_windows`).WillReturnRows(summaryRows().AddRow(nil, nil, 0, 0, nil, nil))
+			m.ExpectQuery(qLatencyBuckets).WillReturnError(errDown)
 		},
 	}
 	for i, step := range steps {
