@@ -10,13 +10,17 @@
 package toolkitcfg
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/platform/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 )
 
@@ -144,6 +148,25 @@ func InstanceConfig(toolkits map[string]any, kind, instance string) map[string]a
 // name it resolved to. Callers that label a connection need the name: with an
 // empty instance the caller does not know which one it was handed, and naming
 // it "" leaves every downstream connection label blank.
+// filledInstance is resolveInstance with the stored secrets the credential
+// keys name filled in (#1806), as the toolkit fills them for its own client.
+// An instance whose secret cannot be read is reported as not configured, and
+// logged: its client would otherwise be built with a placeholder for a
+// credential, or with none and whatever the environment provides.
+func filledInstance(toolkits map[string]any, kind, instance string, keys ...string) (instanceCfg map[string]any, resolved string) {
+	instanceCfg, resolved = resolveInstance(toolkits, kind, instance)
+	if instanceCfg == nil {
+		return nil, ""
+	}
+	filled, err := secretref.FillConfigKeys(context.Background(), resolved, instanceCfg, keys...)
+	if err != nil {
+		slog.Error("a connection's stored secret could not be read; the platform does not use it",
+			"kind", kind, "instance", resolved, "error", logsan.SanitizeForLog(err.Error()))
+		return nil, ""
+	}
+	return filled, resolved
+}
+
 func resolveInstance(toolkits map[string]any, kind, instance string) (instanceCfg map[string]any, resolved string) {
 	toolkitsCfg, ok := toolkits[kind]
 	if !ok {
@@ -281,7 +304,7 @@ func DataHubConfig(toolkits map[string]any, instance string) *DataHub {
 // toolkit reports as its connection. Reading `connection_name` here published a
 // name no call could bind, and reading nothing published an empty one (#1396).
 func TrinoConfig(toolkits map[string]any, instance string) *Trino {
-	instanceCfg, resolved := resolveInstance(toolkits, kindTrino, instance)
+	instanceCfg, resolved := filledInstance(toolkits, kindTrino, instance, fieldcrypt.CfgKeyPassword)
 	if instanceCfg == nil {
 		return nil
 	}
@@ -307,7 +330,7 @@ func TrinoConfig(toolkits map[string]any, instance string) *Trino {
 // instance when instance is ""). Returns nil if not configured. When the
 // instance omits connection_name it defaults to the instance name.
 func S3Config(toolkits map[string]any, instance string) *S3 {
-	instanceCfg, resolved := resolveInstance(toolkits, kindS3, instance)
+	instanceCfg, resolved := filledInstance(toolkits, kindS3, instance, "access_key_id", fieldcrypt.CfgKeySecretAccessKey)
 	if instanceCfg == nil {
 		return nil
 	}

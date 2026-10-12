@@ -14,6 +14,7 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 	s3tools "github.com/txn2/mcp-s3/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -287,6 +288,10 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 
 // AddConnection adds a named S3 connection at runtime.
 func (t *Toolkit) AddConnection(name string, config map[string]any) error {
+	config, err := secretref.FillConfigKeys(context.Background(), name, config, SecretKeys...)
+	if err != nil {
+		return fmt.Errorf("parsing S3 config for %s: %w", name, err)
+	}
 	cfg, err := ParseConfig(config)
 	if err != nil {
 		return fmt.Errorf("parsing S3 config for %s: %w", name, err)

@@ -24,7 +24,7 @@ turned off.
 
 ## Turning maps on
 
-Maps are off by default. Open **Admin > Settings > Maps**, or use the admin
+Maps are off by default. Open **Admin > Settings > Maps** (`/portal/admin/settings/maps`), or use the admin
 API:
 
 | Setting | Default | What it is |

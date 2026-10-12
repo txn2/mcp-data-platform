@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/internal/producedby"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -46,6 +47,12 @@ func WithBrowserAuth(ba *browsersession.Authenticator) AuthenticatorOption {
 // cross-site attacker cannot supply) may still authenticate the request, and
 // only when none does is the rejection surfaced (→ 403).
 func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
+	// A request served inside this process for a caller the tool-call
+	// middleware authenticated: a managed script's call on the
+	// platform-admin connection (#2086).
+	if c, ok := selfcall.From(r.Context()); ok {
+		return &User{UserID: c.UserID, Email: c.Email, Roles: c.Roles, AuthType: c.AuthType, Claims: c.Claims}, nil
+	}
 	var csrfErr error
 	if pa.browserAuth != nil {
 		if info, err := pa.browserAuth.AuthenticateHTTP(r); err == nil && info != nil {

@@ -30,7 +30,7 @@ func TestNotifyFailure_PostsToTheChannelsUnderTheScriptsKeyWithTheRunsLink(t *te
 	n, p := &fakeNotifier{}, &fakePoster{}
 	w := newWorker(workerConfig{runs: &fakeRuns{}, notifier: n, channels: p, portalURL: "https://portal.example.com/"})
 
-	w.notifyFailure(context.Background(), f.run, f.script, f.result)
+	w.notifyOutcome(context.Background(), f.run, f.script, f.result)
 
 	link := "https://portal.example.com/portal/automations/" + f.script.ID + "/runs/" + f.run.ID
 	require.Len(t, p.keys, 1)
@@ -46,7 +46,7 @@ func TestNotifyFailure_ChannelsWithoutAnOwnerOrANotifier(t *testing.T) {
 	p := &fakePoster{err: errors.New("settings unreadable")}
 	w := newWorker(workerConfig{runs: &fakeRuns{}, channels: p})
 
-	w.notifyFailure(context.Background(), f.run, f.script, f.result)
+	w.notifyOutcome(context.Background(), f.run, f.script, f.result)
 
 	assert.Len(t, p.keys, 1, "a script with no owner still reaches the operator's channels")
 	assert.Empty(t, p.payloads[0].Link, "no portal address, no link")

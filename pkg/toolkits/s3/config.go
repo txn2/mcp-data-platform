@@ -1,9 +1,12 @@
 package s3
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/secretref"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -60,12 +63,23 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	return c, nil
 }
 
+// SecretKeys are the configuration keys an s3 connection may name a stored
+// secret in as {{secret:<name>}} (#1806). The value is read as the
+// connection's client is built.
+var SecretKeys = []string{"access_key_id", "secret_access_key", "session_token"}
+
 // ParseMultiConfig parses every instance of the s3 kind. An instance whose
 // config does not parse is logged and skipped rather than blocking startup.
 func ParseMultiConfig(defaultName string, instances map[string]map[string]any) (MultiConfig, error) {
 	mc := MultiConfig{DefaultConnection: defaultName, Instances: make(map[string]Config, len(instances))}
 	for name, raw := range instances {
-		cfg, err := ParseConfig(raw)
+		filled, err := secretref.FillConfigKeys(context.Background(), name, raw, SecretKeys...)
+		if err != nil {
+			slog.Warn("skipping connection instance whose stored secret could not be read",
+				"kind", "s3", "instance", name, "error", logsan.SanitizeForLog(err.Error()))
+			continue
+		}
+		cfg, err := ParseConfig(filled)
 		if err != nil {
 			slog.Warn("skipping invalid connection instance", "kind", "s3", "instance", name, "error", err)
 			continue

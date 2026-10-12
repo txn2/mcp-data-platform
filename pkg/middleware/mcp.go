@@ -448,6 +448,7 @@ func authenticateAndAuthorize(
 	// every upstream call with it, which is what separates an automated
 	// principal's traffic from an analyst's on a shared connection (#1615).
 	ctx = mcpcontext.WithPersona(ctx, params.pc.PersonaName)
+	ctx = withCaller(ctx, params.pc)
 
 	// Put the named connection into service if this process does not serve it
 	// yet (#1757). It runs after authorization, so a caller who may not reach a
@@ -705,4 +706,20 @@ func denialReason(personaName, reason string) string {
 	default:
 		return opsobs.DenialToolDenied
 	}
+}
+
+// withCaller mirrors the authenticated identity where a toolkit can read it,
+// for the reason WithPersona does: a connection that acts as its caller and
+// is served inside this process hands it to the platform's own HTTP API when
+// the call carries no token to forward, as a managed script's run does
+// (#2086). The shared identities of an anonymous or unauthenticated
+// deployment are no one, so they are not recorded.
+func withCaller(ctx context.Context, pc *PlatformContext) context.Context {
+	if pc.AuthType == AuthTypeAnonymous || pc.AuthType == AuthTypeNoop {
+		return ctx
+	}
+	return mcpcontext.WithCaller(ctx, mcpcontext.Caller{
+		UserID: pc.UserID, Email: pc.UserEmail, Roles: pc.Roles,
+		AuthType: pc.AuthType, Claims: pc.UserClaims,
+	})
 }

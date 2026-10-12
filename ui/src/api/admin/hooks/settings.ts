@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
 // --- Platform settings (SMTP, #631) ---
@@ -297,13 +297,37 @@ const channelsKey = ["settings", "notification-channels"];
 // useNotificationChannelStatus reads one channel's recent activity. It is
 // refetched on the listing's key so a save or a test refreshes it too.
 export function useNotificationChannelStatus(name: string) {
-  return useQuery({
+  return useQuery(notificationChannelStatusQuery(name));
+}
+
+// notificationChannelStatusQuery is the query one channel's status is read
+// by, shared by the channel's own row and the settings nav's failing mark.
+export function notificationChannelStatusQuery(name: string) {
+  return {
     queryKey: [...channelsKey, name, "status"],
     queryFn: () =>
       apiFetch<NotificationChannelStatus>(
         `/notification-channels/${encodeURIComponent(name)}/status`,
       ),
+  };
+}
+
+// useFailingChannelCount is how many channels' most recent delivery attempt
+// failed, which the settings nav marks (#2093).
+export function useFailingChannelCount(): number {
+  const { data } = useNotificationChannels();
+  const statuses = useQueries({
+    queries: (data?.channels ?? []).map((ch) => notificationChannelStatusQuery(ch.name)),
   });
+  return statuses.filter((q) => q.data && lastDeliveryFailed(q.data)).length;
+}
+
+// lastDeliveryFailed reports whether a channel's most recent delivery attempt
+// failed: an error newer than its last delivery.
+export function lastDeliveryFailed(st: NotificationChannelStatus): boolean {
+  if (!st.last_error_at) return false;
+  if (!st.last_delivered_at) return true;
+  return new Date(st.last_error_at) > new Date(st.last_delivered_at);
 }
 
 export function useNotificationChannels() {

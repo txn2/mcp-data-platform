@@ -320,6 +320,7 @@ func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
 			MaxMemoryBytes: p.Config().Scripts.Worker.ProcessRunMemoryBudget(),
 			Contracts:      toolanswer.Live{Kits: p.ToolkitRegistry(), Extra: notifylayer.AnswerContracts()},
 			Libraries:      store,
+			CannotServe:    scriptsave.PassthroughConnections{Kits: p.ToolkitRegistry()}.CannotServe,
 		},
 	}
 	if auditStore := p.Audit().Store(); auditStore != nil {

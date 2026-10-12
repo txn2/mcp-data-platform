@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/buildinfo"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/shutdown"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -265,6 +266,10 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// The PDF routes and the tile worker read the complete mux, through the CORS layer a browser's reads pass; the worker stops after the drain.
 	pdfhttp.MountFor(mux, p)
 	thumbs := thumbwire.Build(p, corshttp.Middleware(mux))
+	// The platform-admin connection serves a managed script's call with the same complete mux, as the script's own identity (#2086).
+	if p != nil {
+		selfcall.Install(p.ToolkitRegistry().All(), corshttp.Middleware(mux))
+	}
 	thumbs.Start(ctx)
 	defer thumbs.Stop()
 

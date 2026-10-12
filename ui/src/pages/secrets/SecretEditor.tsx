@@ -312,9 +312,10 @@ function Actions({
 }
 
 // SECRET_KINDS are the connection kinds a stored secret can be used by: an
-// api connection's requests fill it (#2051), and an api, graphql or mcp
-// connection's own configuration may name it (#2066).
-const SECRET_KINDS = ["api", "graphql", "mcp"];
+// api connection's requests fill it (#2051), an api, graphql or mcp
+// connection's own configuration may name it (#2066), and so may a trino
+// connection's password and an s3 connection's keys (#1806).
+const SECRET_KINDS = ["api", "graphql", "mcp", "trino", "s3"];
 
 function ConnectionsGroup({
   chosen,

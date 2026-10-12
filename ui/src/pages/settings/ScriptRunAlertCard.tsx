@@ -4,6 +4,7 @@ import { useScriptRunAlert, useSetScriptRunAlert } from "@/api/admin/hooks";
 import { ChannelsPicker } from "./ChannelsPicker";
 import { SettingsCard } from "./panels";
 import { SaveButton, SaveFeedbackBanners, UpdatedByMeta } from "./settingsChrome";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 
 // The scheduled-run failure alert (#1724). A failed scheduled run already
 // emails its script's owner, who can fix it; this card names the channels an
@@ -15,6 +16,7 @@ export function ScriptRunAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
 
   const [channels, setChannels] = useState<string[]>([]);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 

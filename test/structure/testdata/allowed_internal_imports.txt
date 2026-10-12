@@ -151,6 +151,7 @@ internal/httpserver -> internal/portal/producerapi
 internal/httpserver -> internal/producedby
 internal/httpserver -> internal/producedview
 internal/httpserver -> internal/secretstore
+internal/httpserver -> internal/selfcall
 internal/httpserver -> internal/shutdown
 internal/httpserver -> internal/toolanswer
 internal/httpserver -> internal/ui
@@ -239,8 +240,11 @@ internal/httpserver/gatewayhttp -> pkg/toolkits/apigateway
 internal/httpserver/health -> internal/wirejson
 internal/httpserver/httpauth -> internal/logsan
 internal/httpserver/httpauth -> internal/opsobs
+internal/httpserver/httpauth -> internal/selfcall
+internal/httpserver/httpauth -> pkg/admin
 internal/httpserver/httpauth -> pkg/auth
 internal/httpserver/httpauth -> pkg/middleware
+internal/httpserver/httpauth -> pkg/persona
 internal/httpserver/maphttp -> internal/httpjson
 internal/httpserver/maphttp -> internal/logsan
 internal/httpserver/maphttp -> internal/maps
@@ -816,6 +820,7 @@ internal/platform/scriptexec -> internal/pglisten
 internal/platform/scriptexec -> internal/platform/scriptadmit
 internal/platform/scriptexec -> internal/platform/scriptalert
 internal/platform/scriptexec -> internal/platform/scriptguard
+internal/platform/scriptexec -> internal/platform/scriptincident
 internal/platform/scriptexec -> internal/platform/scriptlib
 internal/platform/scriptexec -> internal/platform/scriptlive
 internal/platform/scriptexec -> internal/platform/scriptrec
@@ -852,6 +857,9 @@ internal/platform/scriptfmt -> internal/platform/scriptdialect
 internal/platform/scriptgrant -> pkg/script
 internal/platform/scriptguard -> internal/runstate
 internal/platform/scriptguard -> internal/upstreamretry
+internal/platform/scriptincident -> internal/logsan
+internal/platform/scriptincident -> pkg/notification
+internal/platform/scriptincident -> pkg/script
 internal/platform/scriptindex -> internal/textchunk
 internal/platform/scriptindex -> pkg/indexjobs
 internal/platform/scriptindex -> pkg/script
@@ -952,6 +960,7 @@ internal/platform/scriptsave -> internal/platform/scriptrec
 internal/platform/scriptsave -> internal/platform/scriptrun
 internal/platform/scriptsave -> internal/platform/scripttest
 internal/platform/scriptsave -> internal/testreport
+internal/platform/scriptsave -> pkg/registry
 internal/platform/scriptsave -> pkg/resource
 internal/platform/scriptsave -> pkg/script
 internal/platform/scriptsession -> internal/inprocess
@@ -1075,6 +1084,7 @@ internal/platform/toolinventory -> internal/logsan
 internal/platform/toolinventory -> pkg/registry
 internal/platform/toolkitcfg -> internal/logsan
 internal/platform/toolkitcfg -> internal/platform/cfgmap
+internal/platform/toolkitcfg -> internal/secretref
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
 internal/platform/tooloutput -> pkg/script
 internal/platform/toolratelimit -> internal/logsan
@@ -1167,6 +1177,7 @@ internal/scriptdest -> pkg/script
 internal/scriptxml -> internal/xmltree
 internal/secretstore -> internal/secretref
 internal/secretstore -> internal/totp
+internal/selfcall -> pkg/mcpcontext
 internal/server -> internal/buildinfo
 internal/server -> internal/platform/knowledgebuiltin
 internal/server -> pkg/platform
@@ -1185,10 +1196,12 @@ internal/upstreamauth -> internal/hmacsig
 internal/upstreamauth -> internal/membudget
 internal/upstreamauth -> internal/outbound
 internal/upstreamauth -> internal/secretref
+internal/upstreamauth -> internal/selfcall
 internal/upstreamauth -> internal/upstreamauth/googlekey
 internal/upstreamauth -> internal/upstreamauth/sessionlogin
 internal/upstreamauth -> pkg/authevents
 internal/upstreamauth -> pkg/connoauth
+internal/upstreamauth -> pkg/mcpcontext
 internal/upstreamauth/googlekey -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/cfgmap
 internal/upstreamauth/sessionlogin -> internal/secretref
@@ -1264,6 +1277,7 @@ pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/platform/scriptalert
 pkg/admin -> internal/portal/assetrefs
 pkg/admin -> internal/portal/portaldomain
+pkg/admin -> internal/selfcall
 pkg/admin -> internal/upstreamauth/googlekey
 pkg/admin -> internal/wirejson
 pkg/admin -> pkg/audit
@@ -1572,6 +1586,7 @@ pkg/portal -> internal/portal/sharecache
 pkg/portal -> internal/portal/viewerlimit
 pkg/portal -> internal/producedby
 pkg/portal -> internal/producedview
+pkg/portal -> internal/selfcall
 pkg/portal -> internal/wirejson
 pkg/portal -> pkg/audit
 pkg/portal -> pkg/blobserve
@@ -1664,6 +1679,7 @@ pkg/toolkits/apigateway -> internal/pagewalk
 pkg/toolkits/apigateway -> internal/pathtemplate
 pkg/toolkits/apigateway -> internal/secretref
 pkg/toolkits/apigateway -> internal/secretstore
+pkg/toolkits/apigateway -> internal/selfcall
 pkg/toolkits/apigateway -> internal/soap
 pkg/toolkits/apigateway -> internal/upstreamauth
 pkg/toolkits/apigateway -> internal/upstreamauth/googlekey
@@ -1722,7 +1738,6 @@ pkg/toolkits/graphql -> internal/useragent
 pkg/toolkits/graphql -> pkg/authevents
 pkg/toolkits/graphql -> pkg/connoauth
 pkg/toolkits/graphql -> pkg/embedding
-pkg/toolkits/graphql -> pkg/mcpcontext
 pkg/toolkits/graphql -> pkg/observability
 pkg/toolkits/graphql -> pkg/query
 pkg/toolkits/graphql -> pkg/semantic
@@ -1774,6 +1789,8 @@ pkg/toolkits/portal -> pkg/toolkit
 pkg/toolkits/portal -> pkg/user
 pkg/toolkits/s3 -> internal/connprobe
 pkg/toolkits/s3 -> internal/connstate
+pkg/toolkits/s3 -> internal/logsan
+pkg/toolkits/s3 -> internal/secretref
 pkg/toolkits/s3 -> pkg/observability
 pkg/toolkits/s3 -> pkg/query
 pkg/toolkits/s3 -> pkg/semantic
@@ -1793,6 +1810,7 @@ pkg/toolkits/trino -> internal/exporttrunc
 pkg/toolkits/trino -> internal/inlinefit
 pkg/toolkits/trino -> internal/logsan
 pkg/toolkits/trino -> internal/scratchcatalog
+pkg/toolkits/trino -> internal/secretref
 pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> internal/tableparquet
 pkg/toolkits/trino -> internal/tabletype

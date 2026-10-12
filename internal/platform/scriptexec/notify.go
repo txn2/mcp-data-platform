@@ -3,106 +3,59 @@ package scriptexec
 import (
 	"context"
 	"log/slog"
-	"strings"
-	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptincident"
 	"github.com/txn2/mcp-data-platform/internal/runstate"
-	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// Failure-alert bounds.
-const (
-	// notifyWriteTimeout bounds the enqueue. It is one insert, and a run that
-	// has already been recorded must not be held open behind a slow database
-	// for the sake of telling somebody about it.
-	notifyWriteTimeout = 5 * time.Second
-
-	// maxAlertError and maxAlertLog bound what the alert carries. The whole
-	// failure and the whole log live on the run row; an email exists to make
-	// somebody go and read them, so it carries the head of the error and the
-	// tail of the log — the two ends that say what happened last.
-	maxAlertError = 2000
-	maxAlertLog   = 2000
-)
-
-// notifyFailure alerts the people accountable for an automation that its
-// scheduled run failed.
+// notifyOutcome tells the owner and the operator's channels what a finished
+// run means for its automation's failure incident (#2041): a failed scheduled
+// run opens one, or is counted on the one already open; a succeeded run closes
+// it. A canceled run does neither.
 //
-// Only scheduled runs. A run somebody asked for through run_script reports its
-// own failure in the tool response they are already reading, and mailing that
-// as well would be telling a person something they just read. A schedule is the
-// case with nobody present, which is the whole reason this exists.
-func (w *worker) notifyFailure(ctx context.Context, run *script.Run, sc *script.Script, res script.RunResult) {
-	if sc == nil || run.Trigger != script.TriggerSchedule || res.Status != script.RunStatusFailed ||
-		(w.cfg.notifier == nil && w.cfg.channels == nil) {
+// Only a scheduled failure is told. A run somebody asked for through
+// run_script reports its own failure in the tool response they are already
+// reading, and mailing that as well would be telling a person something they
+// just read. A schedule is the case with nobody present, which is the whole
+// reason this exists.
+func (w *worker) notifyOutcome(ctx context.Context, run *script.Run, sc *script.Script, res script.RunResult) {
+	if sc == nil || (w.cfg.notifier == nil && w.cfg.channels == nil) {
 		return
 	}
-	payload := notification.Payload{
-		Kind:      notification.KindScriptRun,
-		ItemID:    run.ID,
-		ItemTitle: sc.Name,
-		// The run's own page, where the whole failure and log are.
-		Link: runPage(w.cfg.portalURL, sc.ID, run.ID),
-		// The actor is the SCRIPT, which is both true and load-bearing: the
-		// enqueuer rate-limits per actor and falls back to the recipient when
-		// there is none, so an actorless alert would let one bad night —
-		// forty schedules failing on the same unreachable warehouse — spend one
-		// person's whole budget and drop the rest. Keyed on the script, a
-		// repeatedly failing automation is throttled and its neighbors are not.
-		Actor:   sc.Principal(),
-		Message: alertDetail(res),
-		// Why it failed decides what the alert tells the owner to do (#1859),
-		// and whether it keeps failing the same way decides how firmly (#1935).
-		Cause:   res.Cause,
-		Repeats: w.repeats(ctx, sc.ID),
+	alerts := scriptincident.Alerter{Store: w.cfg.incidents, PortalURL: w.cfg.portalURL}
+	if w.cfg.notifier != nil {
+		alerts.Notifier = w.cfg.notifier
 	}
-	// The run is already recorded, so these writes outlive the cancellation
-	// that may have raced it, and are bounded so a wedged database cannot hold
-	// the worker on an alert.
-	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyWriteTimeout)
+	if w.cfg.channels != nil {
+		alerts.Channels = w.cfg.channels
+	}
+	res = w.recordedResult(ctx, run, res)
+	switch {
+	case res.Status == script.RunStatusFailed && run.Trigger == script.TriggerSchedule:
+		alerts.Failed(ctx, run, sc, res, func() int { return w.repeats(ctx, sc.ID) })
+	case res.Status == script.RunStatusSucceeded:
+		alerts.Succeeded(ctx, run, sc)
+	}
+}
+
+// recordedResult is the result the run was recorded with. A run that saved
+// state can be recorded as failed although it finished successfully, when
+// another run moved the state first (runstate.CauseStateConflict); the run row
+// says so, and what it says is what the incident follows.
+func (w *worker) recordedResult(ctx context.Context, run *script.Run, res script.RunResult) script.RunResult {
+	if res.Status != script.RunStatusSucceeded || res.State == nil {
+		return res
+	}
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scriptincident.WriteTimeout)
 	defer cancel()
-	w.mailOwner(writeCtx, ctx, run, sc, payload)
-	// The script is the key: a schedule failing every ten minutes posts once
-	// per the channel's repeat window, with the count of what it held back.
-	if w.cfg.channels == nil {
-		return
+	recorded, err := w.cfg.runs.GetRun(readCtx, run.ID)
+	if err != nil || recorded.Status == res.Status {
+		return res
 	}
-	if _, err := w.cfg.channels.Post(writeCtx, "script:"+sc.ID, payload); err != nil {
-		slog.WarnContext(ctx, "scripts: posting a run-failure alert to channels failed", // #nosec G706 -- structured slog call; error sanitized
-			logKeyRunID, run.ID, logKeyError, logsan.SanitizeForLog(err.Error()))
-	}
-}
-
-// mailOwner queues the alert for the script's owner.
-func (w *worker) mailOwner(writeCtx, ctx context.Context, run *script.Run, sc *script.Script, payload notification.Payload) {
-	if w.cfg.notifier == nil {
-		return
-	}
-	recipients := alertRecipients(sc)
-	if len(recipients) == 0 {
-		slog.WarnContext(ctx, "scripts: a scheduled run failed and its script has no owner to tell",
-			logKeyRunID, run.ID, "script", logsan.SanitizeForLog(sc.Name))
-		return
-	}
-	for _, recipient := range recipients {
-		if _, err := w.cfg.notifier.Notify(writeCtx, recipient, notification.CategoryScriptRun, payload); err != nil {
-			// A failed alert is not a failed run. It is logged and the next
-			// recipient is still told.
-			slog.WarnContext(ctx, "scripts: queueing a run-failure alert failed", // #nosec G706 -- structured slog call; error sanitized
-				logKeyRunID, run.ID, logKeyError, logsan.SanitizeForLog(err.Error()))
-		}
-	}
-}
-
-// runPage is a run's page, or nothing when the deployment does not know its
-// own public address.
-func runPage(portalURL, scriptID, runID string) string {
-	if portalURL == "" {
-		return ""
-	}
-	return strings.TrimRight(portalURL, "/") + "/portal/automations/" + scriptID + "/runs/" + runID
+	res.Status, res.Error, res.Cause = recorded.Status, recorded.Error, recorded.Cause
+	return res
 }
 
 // repeats is how many runs of the script have failed in a row ending on the
@@ -114,7 +67,7 @@ func (w *worker) repeats(ctx context.Context, scriptID string) int {
 	if !ok {
 		return 0
 	}
-	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyWriteTimeout)
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scriptincident.WriteTimeout)
 	defer cancel()
 	streaks, err := reader.FailureStreaks(readCtx, []string{scriptID})
 	if err != nil {
@@ -123,50 +76,4 @@ func (w *worker) repeats(ctx context.Context, scriptID string) int {
 		return 0
 	}
 	return streaks[scriptID].SameError
-}
-
-// alertRecipients is who hears about a failed automation: the script's owner,
-// who is accountable for it and can fix it.
-func alertRecipients(sc *script.Script) []string {
-	addr := strings.TrimSpace(sc.OwnerEmail)
-	if addr == "" {
-		return []string{}
-	}
-	return []string{addr}
-}
-
-// alertDetail composes what the alert carries: the failure, and the tail of
-// what the script printed before it.
-func alertDetail(res script.RunResult) string {
-	parts := []string{}
-	if failure := strings.TrimSpace(res.Error); failure != "" {
-		parts = append(parts, "Failure:\n"+headOf(failure, maxAlertError))
-	}
-	if log := strings.TrimSpace(res.Log); log != "" {
-		parts = append(parts, "Last output:\n"+tailOf(log, maxAlertLog))
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-// headOf truncates from the end, marking that it did. An error reads from the
-// top: the first line names what went wrong and the rest is the path to it.
-// The cut is on a rune boundary, because a mail body is text and half a
-// character is not.
-func headOf(s string, limit int) string {
-	runes := []rune(s)
-	if len(runes) <= limit {
-		return s
-	}
-	return string(runes[:limit]) + "\n[truncated]"
-}
-
-// tailOf truncates from the start, marking that it did. A log reads from the
-// bottom: what a script printed just before it failed is what explains the
-// failure.
-func tailOf(s string, limit int) string {
-	runes := []rune(s)
-	if len(runes) <= limit {
-		return s
-	}
-	return "[truncated]\n" + string(runes[len(runes)-limit:])
 }

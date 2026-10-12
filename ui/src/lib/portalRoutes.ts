@@ -13,6 +13,8 @@
 // switch because the switch is spread across six section components that each
 // own their own matching, and none of them can see whether another matched.
 
+import { SETTINGS_SECTIONS } from "@/pages/settings/settingsSections";
+
 /** ADMIN_PREFIX is the segment that makes a route the administrator's. */
 const ADMIN_PREFIX = "/admin";
 
@@ -108,6 +110,9 @@ const KNOWN_PATTERNS: readonly RegExp[] = [
   // shape, which the section tells apart from a source (#1870).
   /^\/admin\/webhooks\/[^/]+$/,
   /^\/admin\/webhooks\/[^/]+\/edit$/,
+  // One settings section (#2093), matched by name so a path naming no section
+  // gets the not-found page.
+  new RegExp(`^/admin/settings/(${SETTINGS_SECTIONS.map((s) => s.id).join("|")})$`),
 ];
 
 // ALIASES are paths that named a real surface and no longer do. Each redirects

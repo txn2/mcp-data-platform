@@ -490,47 +490,26 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
-    // Platform settings: SMTP configuration for email notifications (#631),
-    // the knowledge review-queue alert that sends through it (#803), and the
-    // connection-revocation alert and its escalation (#1694).
+    // Platform settings (#2093): the section nav, open on its first section,
+    // Email, the SMTP configuration for email notifications (#631).
     slug: "admin-settings",
     path: "/portal/admin/settings",
     category: "admin",
   },
   {
-    // The same page scrolled to its last section. The viewport is fixed, so
-    // the connection-revocation alert (#1694) sits below the fold of the
-    // capture above and has no picture without one of its own.
+    // The connection-revocation alert and its escalation (#1694), on its own
+    // section route.
     slug: "admin-settings-connection-alert",
-    path: "/portal/admin/settings",
+    path: "/portal/admin/settings/connection-revocations",
     category: "admin",
-    beforeCapture: async (page) => {
-      await page
-        .locator("text=Connection revocation alerts")
-        .first()
-        .scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
-    },
-    afterCapture: async (page) => {
-      // The run shares one page, so leave the settings page at the top for
-      // whatever captures it next.
-      await page.evaluate(() => window.scrollTo(0, 0));
-    },
   },
   {
-    // The maps section (#2068), scrolled into view: the mock carries a region
-    // in each state a fetch moves through (fetching with progress, ready,
-    // failed while the previous build serves, queued).
+    // The maps section (#2068): the mock carries a region in each state a
+    // fetch moves through (fetching with progress, ready, failed while the
+    // previous build serves, queued).
     slug: "admin-settings-maps",
-    path: "/portal/admin/settings",
+    path: "/portal/admin/settings/maps",
     category: "admin",
-    beforeCapture: async (page) => {
-      await page.locator("text=Add region").first().scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
-    },
-    afterCapture: async (page) => {
-      await page.evaluate(() => window.scrollTo(0, 0));
-    },
   },
   ...adminScriptRoutes,
 

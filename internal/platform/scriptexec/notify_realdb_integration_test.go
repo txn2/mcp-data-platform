@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/script"
@@ -95,4 +96,55 @@ func TestRealDB_ASuccessfulScheduledRunMailsNobody(t *testing.T) {
 	var count int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications`).Scan(&count))
 	assert.Zero(t, count)
+}
+
+// TestRealDB_AFailingScheduleMailsOnceAndOnceMoreWhenItRecovers is #2041
+// over the real queue and incident tables: two failed scheduled runs land one
+// failure row, and the run that succeeds lands one recovered row naming the
+// first failed run and the count.
+func TestRealDB_AFailingScheduleMailsOnceAndOnceMoreWhenItRecovers(t *testing.T) {
+	db := testdb.New(t)
+	ctx := context.Background()
+	sc, v, _ := executableState()
+	require.NoError(t, scriptstore.New(db).Create(ctx, sc, script.Author{Email: sc.OwnerEmail}))
+	// The run executes the script's current version, which the store numbered.
+	v.ScriptID, v.Version = sc.ID, sc.Version
+	// The fake script store serves it as runnable; its row only anchors the
+	// incident's foreign key.
+	sc.Status, sc.Enabled, sc.Library = script.StatusActive, true, false
+
+	runs := &fakeRuns{}
+	exec := &fakeExecutor{}
+	w := newWorker(workerConfig{
+		runs: runs, scripts: &fakeScripts{script: sc}, versions: &fakeVersions{version: v},
+		runner: exec, notifier: newNotifier(Config{DB: db}), incidents: failureIncidents(Config{DB: db}),
+	})
+	for i, status := range []string{script.RunStatusFailed, script.RunStatusFailed, script.RunStatusSucceeded} {
+		exec.out = attempt{result: script.RunResult{Status: status, Error: "Error: upstream timed out"}}
+		if status == script.RunStatusSucceeded {
+			exec.out.result.Error = ""
+		}
+		run := &script.Run{ID: "dpx_" + string(rune('1'+i)), ScriptID: sc.ID, VersionID: v.ID, Version: v.Version,
+			Trigger: script.TriggerSchedule, ScheduleID: "sched_1"}
+		require.NoError(t, runs.Enqueue(ctx, run))
+		drainAll(w)
+	}
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT payload->>'item_id', COALESCE(payload->'recovery'->>'failed_runs', ''), COALESCE(payload->'recovery'->>'opening_run_id', '')
+		  FROM notifications ORDER BY id`)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	var got [][3]string
+	for rows.Next() {
+		var r [3]string
+		require.NoError(t, rows.Scan(&r[0], &r[1], &r[2]))
+		got = append(got, r)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, [][3]string{{"dpx_1", "", ""}, {"dpx_3", "2", "dpx_1"}}, got)
+
+	var open int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM script_failure_incidents`).Scan(&open))
+	assert.Zero(t, open, "the recovery closed the incident")
 }

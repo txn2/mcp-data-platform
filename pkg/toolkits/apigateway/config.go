@@ -260,6 +260,8 @@ type Config struct {
 	// an administrator saves a connection whose configuration names a
 	// stored secret (#2066).
 	FillSecrets bool
+	// SelfDispatch is upstreamauth.Config.SelfDispatch (#2086).
+	SelfDispatch bool
 	// RequiredPathPrefix is the path every raw method+path call on the
 	// connection must start with; a path outside it is refused before it
 	// is sent, naming the prefixed path and the operation_id the catalog

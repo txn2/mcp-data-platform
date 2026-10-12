@@ -190,6 +190,7 @@ const (
 	cfgKeyTLSCABundlePEM    = "tls_ca_bundle_pem"
 
 	cfgKeyIdentityPassthrough = "identity_passthrough"
+	cfgKeySelfDispatch        = "self_dispatch"
 
 	// cfgKeyTracePropagation switches the W3C trace headers on outbound
 	// requests off for an upstream that rejects unknown headers or must not
@@ -306,6 +307,11 @@ type Config struct {
 	// token off the request context is the kind's job, not this
 	// package's — only the invariant lives here.
 	IdentityPassthrough bool
+	// SelfDispatch serves a call with an authenticated caller and no token
+	// inside this process as that caller (#2086, PassthroughRequest): the
+	// built-in platform-admin connection, whose upstream is this platform.
+	// Requires IdentityPassthrough.
+	SelfDispatch bool
 
 	// PathSecret is appended to every request's path as it is sent, for a
 	// receiver that authenticates by a secret in the URL. Encrypted at rest;
@@ -435,6 +441,7 @@ func Parse(kind, errPrefix, endpointURL string, cfg map[string]any) (Config, err
 	c.MTLSClientKeyPEM = cfgmap.String(cfg, cfgKeyMTLSClientKeyPEM)
 	c.TLSCABundlePEM = cfgmap.String(cfg, cfgKeyTLSCABundlePEM)
 	c.IdentityPassthrough = cfgmap.Bool(cfg, cfgKeyIdentityPassthrough)
+	c.SelfDispatch = cfgmap.Bool(cfg, cfgKeySelfDispatch)
 	c.PathSecret = cfgmap.String(cfg, cfgKeyPathSecret)
 	return c, nil
 }
@@ -660,6 +667,9 @@ func (c Config) validateAPIKeyAuth() error {
 func (c Config) ValidateIdentityPassthrough() error {
 	if c.IdentityPassthrough && c.AuthMode != AuthModeNone {
 		return c.errf("identity_passthrough requires auth_mode=none, got %q", c.AuthMode)
+	}
+	if c.SelfDispatch && !c.IdentityPassthrough {
+		return c.errf("self_dispatch requires identity_passthrough")
 	}
 	return nil
 }

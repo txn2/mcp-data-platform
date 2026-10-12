@@ -3,6 +3,7 @@ package secretref
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync/atomic"
 )
@@ -107,4 +108,33 @@ func WithoutPlaceholders(s string) string {
 func IsPlaceholder(s string) bool {
 	m := placeholderRE.FindStringIndex(s)
 	return len(m) == 2 && m[0] == 0 && m[1] == len(s)
+}
+
+// FillConfigKeys returns a copy of a connection's configuration with the
+// stored secrets named in keys filled in, for a kind that reads its
+// credential once, as it builds its client (trino's password, s3's keys;
+// #1806). A rotated secret is read the next time the connection is built: a
+// save, a peer's reload, a restart. A value that cannot be filled is an
+// error, never an empty credential or a placeholder sent as written. cfg
+// itself is not changed; with nothing to fill it is returned as is.
+func FillConfigKeys(ctx context.Context, connection string, cfg map[string]any, keys ...string) (map[string]any, error) {
+	var out map[string]any
+	for _, key := range keys {
+		s, ok := cfg[key].(string)
+		if !ok || !HasPlaceholder(s) {
+			continue
+		}
+		filled, err := FillConnection(ctx, connection, s, func(v string) string { return v })
+		if err != nil {
+			return nil, fmt.Errorf("connection %q field %s: %w", connection, key, err)
+		}
+		if out == nil {
+			out = maps.Clone(cfg)
+		}
+		out[key] = filled
+	}
+	if out == nil {
+		return cfg, nil
+	}
+	return out, nil
 }

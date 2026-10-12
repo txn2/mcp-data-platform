@@ -19,18 +19,16 @@ export const channelRoutes: ScreenshotRoute[] = [
     },
   },
   {
-    // The scheduled-run failure alert (#1724) and the notification channels
-    // below it, each channel with its recent activity (#1722), scrolled into
-    // view: both sit below the fold of the capture above.
+    // The notification channels, each with its recent activity (#1722), on
+    // their own settings section (#2093).
     slug: "admin-settings-channels",
-    path: "/portal/admin/settings",
+    path: "/portal/admin/settings/channels",
     category: "admin",
-    beforeCapture: async (page) => {
-      await page.locator("text=Scheduled run failures").first().scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
-    },
-    afterCapture: async (page) => {
-      await page.evaluate(() => window.scrollTo(0, 0));
-    },
+  },
+  {
+    // The scheduled-run failure alert's channels (#1724).
+    slug: "admin-settings-run-failures",
+    path: "/portal/admin/settings/run-failures",
+    category: "admin",
   },
 ];

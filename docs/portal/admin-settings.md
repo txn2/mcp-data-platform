@@ -24,8 +24,29 @@ The Description page sets the platform's identity string, surfaced to MCP client
 
 ## Settings
 
-The Settings page holds global platform settings. The first section is
-**Email (SMTP)**, which configures outbound mail for [email
+The Settings page holds global platform settings, one section at a time. A
+nav on the left lists the sections by topic, and each section has its own
+address, so a link can open it directly:
+
+| Group | Section | Address |
+|-------|---------|---------|
+| Delivery | Email | `/portal/admin/settings/email` |
+| Delivery | Channels | `/portal/admin/settings/channels` |
+| Alerts | Knowledge review | `/portal/admin/settings/knowledge-review` |
+| Alerts | Connection revocations | `/portal/admin/settings/connection-revocations` |
+| Alerts | Run failures | `/portal/admin/settings/run-failures` |
+| Content | Maps | `/portal/admin/settings/maps` |
+
+`/portal/admin/settings` opens on **Email**. The nav marks **Email** when no
+mail server is configured and **Channels** when a channel's last delivery
+failed. In file config mode it says the settings are read-only. On a narrow
+screen the nav is a picker above the section.
+
+Each section saves on its own. A section with unsaved changes asks before it
+is left, whether for another section or through the sidebar, and the browser
+asks before the tab is closed or reloaded. Browser Back is not asked.
+
+**Email** configures outbound mail for [email
 notifications](../server/notifications.md). Host, port, credentials, sender address,
 and TLS mode are stored in the database (the password encrypted at rest
 and write-only), and a **Send test** action verifies the configuration by
@@ -36,7 +57,7 @@ requires database config mode. Email branding (footer text, legal links,
 Reply-To) is implementor-owned YAML, not part of this page; see the
 [portal configuration](../server/configuration.md).
 
-A **Knowledge review queue alert** section follows: it decides when the
+**Knowledge review** decides when the
 platform emails an operator about unreviewed insights — the pending-count
 and oldest-age thresholds, the re-alert cooldown, the recipients, and the
 **Channels** the alert is also posted to. A section that would deliver
@@ -44,7 +65,7 @@ nothing (enabled with no recipients and no channels, or with both thresholds
 cleared) says so in a banner rather than saving silently.
 See [review queue alerts](../server/notifications.md#review-queue-alerts).
 
-A **Connection revocation alerts** section follows that: it decides who hears
+**Connection revocations** decides who hears
 that a connection's OAuth credential was discarded and every call through it
 now fails needing reauthorization. The person who authorized the connection is
 emailed as soon as it happens and needs no configuration here; what this
@@ -55,10 +76,10 @@ escalates. Leaving both empty is the default, and the section says so in a
 banner rather than implying a gap. See [connection revocation
 alerts](../server/notifications.md#connection-revocation-alerts).
 
-A **Scheduled run failures** section follows: the **Channels** a failed
-scheduled run of any automation is posted to, with a link to the run, beside
-the email its owner already receives. An automation that keeps failing posts
-once per the channel's repeat window. See [scheduled run
+**Run failures** names the **Channels** a failing
+automation is posted to, beside the email its owner already receives: the
+failed scheduled run that begins the failure, with a link to it, and the run
+that recovers it. See [scheduled run
 failures](../server/notifications.md#scheduled-run-failures).
 
 The **Channels** field is the same in all three alert sections: a checkbox per
@@ -66,7 +87,7 @@ configured channel. A channel an alert names that has since been deleted stays
 listed, marked missing, so it can be unchecked; the server refuses to save a
 name no channel is stored under.
 
-A **Notification Channels** section comes last: the destinations a report or
+**Channels** lists the destinations a report or
 an alert is sent to that are not one person — a Slack channel, a Mattermost channel,
 an incoming webhook, or a named list of addresses. Each row opens its editor
 on click, showing only the fields its kind can use: the chat kinds ask for an
@@ -88,6 +109,8 @@ transport and reports what the upstream answered — a refusal reaches the
 screen as it was given, since that is what tells you what to fix. A disabled channel can still be tested, so nothing has
 to be enabled untested. See [notification
 channels](../server/notifications.md#notification-channels).
+
+**Maps** sets the basemap a map asset draws on. See [Maps](../server/maps.md).
 
 ## Change Log
 

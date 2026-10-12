@@ -5,6 +5,7 @@ import {
   useSendTestEmail,
   useSMTPRecipientStatus,
   useSystemInfo,
+  useFailingChannelCount,
   type SMTPSettings,
 } from "@/api/admin/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,6 +28,16 @@ import {
   WarningBanner,
 } from "./settingsChrome";
 import { AlertCircle, Check, XCircle, Send, Mail } from "lucide-react";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
+import { DetailList, DetailListGroupLabel, DetailListItem, MasterDetail } from "./MasterDetail";
+import {
+  SECTION_GROUPS,
+  SETTINGS_SECTIONS,
+  isSettingsSection,
+  settingsSectionFor,
+  settingsSectionPath,
+  type SettingsSectionId,
+} from "./settingsSections";
 
 // ---------------------------------------------------------------------------
 // SMTP form state
@@ -303,34 +314,118 @@ function SaveFeedbackBanners({
 }
 
 // ---------------------------------------------------------------------------
-// AdminSettingsPage: platform settings (/admin/settings). Email (SMTP)
-// delivery used by the notification mailer (#631), and the alerts that send
-// through it: the review queues (#803, #1287) and connection revocations
-// (#1694). The review-queue alerts are one card rendered per queue — same
-// mechanism, own thresholds and recipients. Maps (#2068) are the basemap a
-// map asset draws on.
+// AdminSettingsPage: platform settings (/admin/settings/<section>, #2093). A
+// left nav lists the sections by topic and the pane shows one, each with its
+// own save. Email (SMTP) delivery used by the notification mailer (#631), the
+// channels reports and alerts are posted to (#1720), the alerts that send
+// through them: the knowledge review queue (#803, #1287), connection
+// revocations (#1694) and scheduled run failures (#1724); and Maps (#2068),
+// the basemap a map asset draws on. A new section is one entry in SECTIONS.
 // ---------------------------------------------------------------------------
 
-export function AdminSettingsPage() {
+export function AdminSettingsPage({
+  route,
+  onNavigate,
+}: {
+  route: string;
+  onNavigate: (path: string) => void;
+}) {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
+  const current = settingsSectionFor(route);
+  const status = useSectionStatus();
+  const go = (id: SettingsSectionId) => onNavigate(settingsSectionPath(id));
+
   return (
-    <div className="space-y-6">
-      <SMTPCard isReadOnly={isReadOnly} />
-      <ReviewAlertCard
-        queue="review-queue-alert"
-        title="Knowledge review queue alert"
-        description="Email a digest when knowledge insights are left unreviewed"
-        enabledHelp="Check the pending insight queue hourly and alert when it crosses a threshold"
-        itemNoun="insight"
-        isReadOnly={isReadOnly}
-      />
-      <ConnectionAlertCard isReadOnly={isReadOnly} />
-      <ScriptRunAlertCard isReadOnly={isReadOnly} />
-      <NotificationChannelsCard isReadOnly={isReadOnly} />
-      <MapsCard />
-    </div>
+    <MasterDetail
+      list={
+        <div className="hidden md:flex" data-testid="settings-nav">
+          <DetailList>
+            {isReadOnly && (
+              <p className="border-b px-4 py-2 text-xs text-muted-foreground">Read-only: no database configured</p>
+            )}
+            {SECTION_GROUPS.map((group) => (
+              <div key={group}>
+                <DetailListGroupLabel>{group}</DetailListGroupLabel>
+                {SETTINGS_SECTIONS.filter((sec) => sec.group === group).map((sec) => (
+                  <DetailListItem key={sec.id} selected={sec.id === current} onClick={() => go(sec.id)}>
+                    <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                      {sec.label}
+                      {status[sec.id] && (
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                          title={status[sec.id]}
+                          aria-label={status[sec.id]}
+                        />
+                      )}
+                    </span>
+                  </DetailListItem>
+                ))}
+              </div>
+            ))}
+          </DetailList>
+        </div>
+      }
+    >
+      <div className="space-y-4 p-4 md:p-6">
+        <div className="md:hidden">
+          <Label htmlFor="settings-section" className="sr-only">
+            Section
+          </Label>
+          <select
+            id="settings-section"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={current}
+            onChange={(e) => {
+              if (isSettingsSection(e.target.value)) go(e.target.value);
+            }}
+          >
+            {SECTION_GROUPS.map((group) => (
+              <optgroup key={group} label={group}>
+                {SETTINGS_SECTIONS.filter((sec) => sec.group === group).map((sec) => (
+                  <option key={sec.id} value={sec.id}>
+                    {sec.label}
+                    {status[sec.id] ? ` (${status[sec.id]})` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        {SECTION_CARDS[current](isReadOnly)}
+      </div>
+    </MasterDetail>
   );
+}
+
+// SECTION_CARDS is the card each section shows.
+const SECTION_CARDS: Record<SettingsSectionId, (isReadOnly: boolean) => React.ReactNode> = {
+  email: (ro) => <SMTPCard isReadOnly={ro} />,
+  channels: (ro) => <NotificationChannelsCard isReadOnly={ro} />,
+  "knowledge-review": (ro) => (
+    <ReviewAlertCard
+      queue="review-queue-alert"
+      title="Knowledge review queue alert"
+      description="Email a digest when knowledge insights are left unreviewed"
+      enabledHelp="Check the pending insight queue hourly and alert when it crosses a threshold"
+      itemNoun="insight"
+      isReadOnly={ro}
+    />
+  ),
+  "connection-revocations": (ro) => <ConnectionAlertCard isReadOnly={ro} />,
+  "run-failures": (ro) => <ScriptRunAlertCard isReadOnly={ro} />,
+  maps: () => <MapsCard />,
+};
+
+// useSectionStatus is what the nav marks beside a section: an email server
+// not configured, a channel whose last delivery failed.
+function useSectionStatus(): Partial<Record<SettingsSectionId, string>> {
+  const { data: smtp } = useSMTPSettings();
+  const failing = useFailingChannelCount();
+  const out: Partial<Record<SettingsSectionId, string>> = {};
+  if (smtp && !smtp.host) out.email = "Not configured";
+  if (failing > 0) out.channels = failing === 1 ? "A channel's last delivery failed" : `${failing} channels' last delivery failed`;
+  return out;
 }
 
 // SMTPCard is the outbound mail server section (#631).
@@ -345,6 +440,7 @@ function SMTPCard({ isReadOnly }: { isReadOnly: boolean }) {
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChangesGuard(dirty);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 

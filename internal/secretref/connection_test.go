@@ -148,3 +148,30 @@ func TestOneTimeCodePlaceholders(t *testing.T) {
 		t.Errorf("FillConnection(totp) = %v", err)
 	}
 }
+
+// TestFillConfigKeys: the named keys are filled in a copy, the configuration
+// handed in is untouched, and a reference that cannot be read is an error
+// rather than an empty credential (#1806).
+func TestFillConfigKeys(t *testing.T) {
+	installSource(t, scoped)
+	ctx := context.Background()
+	cfg := map[string]any{"password": "{{secret:pat}}", "host": "{{secret:pat}}", "port": 443}
+	out, err := FillConfigKeys(ctx, "tableau", cfg, "password", "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["password"] != "pat-value-1" || out["host"] != "{{secret:pat}}" || out["port"] != 443 {
+		t.Errorf("filled = %v; want only password filled", out)
+	}
+	if cfg["password"] != "{{secret:pat}}" {
+		t.Error("the configuration handed in was changed")
+	}
+	plain := map[string]any{"password": "literal"}
+	if same, err := FillConfigKeys(ctx, "tableau", plain, "password"); err != nil || same["password"] != "literal" {
+		t.Errorf("nothing to fill: %v, %v", same, err)
+	}
+	_, err = FillConfigKeys(ctx, "other", cfg, "password")
+	if err == nil || !strings.Contains(err.Error(), `connection "other" field password`) {
+		t.Errorf("out of scope: %v", err)
+	}
+}

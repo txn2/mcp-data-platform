@@ -18,9 +18,11 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/apigwtls"
 	"github.com/txn2/mcp-data-platform/internal/outbound"
 	"github.com/txn2/mcp-data-platform/internal/secretref"
+	"github.com/txn2/mcp-data-platform/internal/selfcall"
 	"github.com/txn2/mcp-data-platform/internal/upstreamauth/sessionlogin"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
 // Authenticator applies a connection's authentication scheme to an
@@ -653,4 +655,42 @@ func exchangeClientCredentials(ctx context.Context, c Config, base *clientcreden
 		return nil, err
 	}
 	return cfg.Token(ctx) //nolint:wrapcheck // tokenFetchError scrubs it at Apply
+}
+
+// CallerToken is the token an identity_passthrough connection sends a call
+// with: the caller's inbound bearer token, bridged onto the context by the
+// auth middleware. A call with none is refused, because a passthrough
+// connection must act as someone. A managed script's run is the call that
+// has none -- it presents the roles its owner held at the save, which only
+// this platform can check -- so its refusal says that and names what to use
+// instead (#2086). connection names the connection in that refusal.
+func CallerToken(ctx context.Context, errPrefix, connection string) (string, error) {
+	if token := mcpcontext.GetAuthToken(ctx); token != "" {
+		return token, nil
+	}
+	if mcpcontext.GetSource(ctx) == mcpcontext.SourceScript {
+		return "", errf(errPrefix, "connection %q sends each call with the caller's own sign-in token, "+
+			"and a saved script's run has none: it presents its owner's roles, which only this platform can check. "+
+			"Call this upstream through a connection that holds its own credentials", connection)
+	}
+	return "", errf(errPrefix, "identity passthrough requires an authenticated caller token, but none was present on the request")
+}
+
+// PassthroughRequest makes req act as the caller on an identity_passthrough
+// connection: the caller's token is forwarded as the Authorization header, or
+// on a SelfDispatch connection a call with an authenticated caller and no token
+// (a managed script's run) is marked to be served inside this process as that
+// caller (#2086). Any other call without a token is refused (CallerToken).
+func (c Config) PassthroughRequest(ctx context.Context, req *http.Request, connection string) (*http.Request, error) {
+	if c.SelfDispatch {
+		if marked, ok := selfcall.ForCall(ctx, req); ok {
+			return marked, nil
+		}
+	}
+	token, err := CallerToken(ctx, c.ErrPrefix, connection)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set(AuthorizationHeader, "Bearer "+token)
+	return req, nil
 }

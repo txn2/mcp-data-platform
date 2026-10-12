@@ -674,6 +674,7 @@ var nestedMapSensitiveKeys = []string{
 // never store it and a GET must always recompute it.
 var platformInternalKeys = []string{
 	"elicitation", "progress_enabled", "mtls_cert_not_after", cfgKeyGoogleIdentity,
+	"self_dispatch", // the platform-admin connection's own; no stored connection may claim it (#2086)
 }
 
 // redactConnectionConfig returns a copy of config with sensitive fields replaced

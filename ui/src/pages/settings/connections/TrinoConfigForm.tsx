@@ -47,7 +47,7 @@ export function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
           onChange={(v) => onChange(update(config, "password", v))}
           placeholder="••••••••"
           sensitive
-          help="Leave blank to keep existing password"
+          help="Leave blank to keep the existing password. To use a stored secret, write {{secret:<name>}}; it is read when the connection is saved or the platform starts."
         />
       </div>
       <div className="grid grid-cols-2 gap-4">

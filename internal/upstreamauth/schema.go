@@ -78,6 +78,10 @@ const ConfigSchemaPropertiesJSON = `{
     "type": "boolean",
     "description": "Forward the calling person's own bearer token to the upstream in place of a shared credential, so the call acts as them."
   },
+  "self_dispatch": {
+    "type": "boolean",
+    "description": "Serve a call that has no caller token, a saved script's run, inside the platform as the script's identity. Set by the platform's built-in connection; leave unset."
+  },
   "jwt_algorithm": {
     "type": "string",
     "description": "Signing algorithm for auth_mode=signed_jwt."

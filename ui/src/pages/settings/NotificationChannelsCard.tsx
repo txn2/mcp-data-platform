@@ -19,6 +19,7 @@ import {
   kindLabel,
 } from "./notificationChannelForm";
 import { SettingsCard } from "./panels";
+import { useUnsavedChangesGuard } from "@/lib/navigationGuard";
 
 // The notification-channels section (#1720).
 //
@@ -41,12 +42,16 @@ export function NotificationChannelsCard({ isReadOnly }: { isReadOnly: boolean }
   const [form, setForm] = useState<ChannelFormState>(blankChannelForm);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestOutcome | null>(null);
+  // changed is whether the open editor holds an edit not yet saved.
+  const [changed, setChanged] = useState(false);
+  useUnsavedChangesGuard(editing !== null && changed);
 
   const channels = data?.channels ?? [];
   const kinds = useMemo(() => data?.kinds ?? Object.keys(kindLabel), [data]);
 
   const openNew = useCallback(() => {
     setEditing("");
+    setChanged(false);
     setForm(blankChannelForm);
     setSaveError(null);
     setTestResult(null);
@@ -54,6 +59,7 @@ export function NotificationChannelsCard({ isReadOnly }: { isReadOnly: boolean }
 
   const openExisting = useCallback((ch: NotificationChannel) => {
     setEditing(ch.name);
+    setChanged(false);
     setForm(channelFormFrom(ch));
     setSaveError(null);
     setTestResult(null);
@@ -61,11 +67,13 @@ export function NotificationChannelsCard({ isReadOnly }: { isReadOnly: boolean }
 
   const close = useCallback(() => {
     setEditing(null);
+    setChanged(false);
     setTestResult(null);
   }, []);
 
   const change = useCallback((patch: Partial<ChannelFormState>) => {
     setForm((prev) => ({ ...prev, ...patch }));
+    setChanged(true);
     setSaveError(null);
     setTestResult(null);
   }, []);

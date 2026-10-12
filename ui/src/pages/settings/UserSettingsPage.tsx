@@ -146,7 +146,7 @@ function NoDeliveryNotice({ onNavigate }: Props) {
           type="button"
           variant="link"
           size="xs"
-          onClick={() => onNavigate?.("/admin/settings")}
+          onClick={() => onNavigate?.("/admin/settings/email")}
           className="mt-1 h-auto px-0 text-current underline underline-offset-2"
         >
           <Settings />

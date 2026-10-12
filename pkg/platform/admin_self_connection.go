@@ -208,6 +208,10 @@ func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) erro
 		// stored secret as {{secret:<name>}}, which the admin API stores as
 		// written; filling it here would save the value instead (#2066).
 		"fill_secrets": false,
+		// A call that carries no token -- a managed script's run -- is served
+		// by this process's own handler as the identity it was authenticated
+		// as (#2086).
+		"self_dispatch": true,
 	}); err != nil {
 		return fmt.Errorf("adding connection: %w", err)
 	}

@@ -14,6 +14,7 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetSMTPSettings: vi.fn(),
   useSendTestEmail: vi.fn(),
   useSMTPRecipientStatus: vi.fn(),
+  useFailingChannelCount: vi.fn(() => 0),
   useReviewAlert: vi.fn(),
   useSetReviewAlert: vi.fn(),
   useConnectionAlert: vi.fn(),
@@ -333,11 +334,19 @@ describe("ReviewAlertCard: read-only file mode", () => {
 });
 
 describe("AdminSettingsPage composition", () => {
-  it("renders the SMTP section and the knowledge review-queue alert", () => {
-    render(<AdminSettingsPage />);
+  it("shows one section at a time, the one its route names, beside the nav", () => {
+    const { unmount } = render(<AdminSettingsPage route="/admin/settings" onNavigate={() => {}} />);
     expect(screen.getByText("Email (SMTP)")).toBeInTheDocument();
+    expect(screen.queryByText("Knowledge review queue alert")).not.toBeInTheDocument();
+    for (const label of ["Email", "Channels", "Knowledge review", "Connection revocations", "Run failures", "Maps"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    unmount();
+
+    render(<AdminSettingsPage route="/admin/settings/knowledge-review" onNavigate={() => {}} />);
     expect(screen.getByText("Knowledge review queue alert")).toBeInTheDocument();
-    expect(screen.getByText("Maps")).toBeInTheDocument();
+    expect(screen.queryByText("Email (SMTP)")).not.toBeInTheDocument();
     expect(mockUseAlert).toHaveBeenCalledWith("review-queue-alert");
   });
 });
+

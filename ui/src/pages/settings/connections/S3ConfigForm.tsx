@@ -44,7 +44,7 @@ export function S3ConfigForm({ config, onChange }: ConfigFormProps) {
           onChange={(v) => onChange(update(config, "access_key_id", v))}
           placeholder="AKIA..."
           mono
-          help="AWS access key ID or S3-compatible equivalent"
+          help="AWS access key ID or S3-compatible equivalent, or {{secret:<name>}} for a stored secret"
         />
         <ConfigField
           label="Secret Access Key"
@@ -52,7 +52,7 @@ export function S3ConfigForm({ config, onChange }: ConfigFormProps) {
           onChange={(v) => onChange(update(config, "secret_access_key", v))}
           placeholder="••••••••"
           sensitive
-          help="Leave blank to keep existing secret"
+          help="Leave blank to keep the existing key. To use a stored secret, write {{secret:<name>}}; it is read when the connection is saved or the platform starts."
         />
       </div>
       <ConfigToggle

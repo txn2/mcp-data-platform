@@ -173,9 +173,12 @@ func TestCheckSecretReferencesByKind(t *testing.T) {
 	}))
 	err := h.checkSecretReferences(ctx, connectionKindMCP, "instance", map[string]any{"credential": "{{secret:vendor-token}}"})
 	require.ErrorContains(t, err, `connection "instance"`)
-	// A trino connection fills nothing.
-	err = h.checkSecretReferences(ctx, connectionKindTrino, "vendor", map[string]any{"password": "{{secret:vendor-token}}"})
-	require.ErrorContains(t, err, "none of a trino connection's fields")
+	// A trino connection fills its password (#1806), and nothing else.
+	require.NoError(t, h.checkSecretReferences(ctx, connectionKindTrino, "vendor", map[string]any{"password": "{{secret:vendor-token}}"}))
+	err = h.checkSecretReferences(ctx, connectionKindTrino, "vendor", map[string]any{"host": "{{secret:vendor-token}}"})
+	require.ErrorContains(t, err, "may be named in password")
+	err = h.checkSecretReferences(ctx, connectionKindTrino, "other", map[string]any{"password": "{{secret:vendor-token}}"})
+	require.ErrorContains(t, err, `connection "other"`)
 	require.NoError(t, h.checkSecretReferences(ctx, connectionKindTrino, "vendor", map[string]any{"password": "plain"}))
 }
 
