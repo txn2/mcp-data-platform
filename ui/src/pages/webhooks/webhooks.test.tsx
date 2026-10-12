@@ -5,7 +5,9 @@ import { mockWebhookOverview, mockWebhookSources, mockWebhookStatus } from "@/mo
 
 const h = vi.hoisted(() => ({
   status: { data: undefined as unknown, isLoading: false, isError: false },
+  one: { data: undefined as unknown, isLoading: false, isError: false },
   ranges: [] as string[],
+  sources: [] as string[],
   detail: { data: undefined as unknown, isLoading: false, error: null as unknown },
   create: vi.fn(),
   update: vi.fn(),
@@ -16,9 +18,10 @@ vi.mock("@/api/admin/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/admin/hooks")>();
   return {
     ...actual,
-    useWebhookStatus: (range: string) => {
+    useWebhookStatus: (range: string, source = "", enabled = true) => {
       h.ranges.push(range);
-      return h.status;
+      if (source && enabled) h.sources.push(source);
+      return source ? h.one : h.status;
     },
     useWebhookSource: () => h.detail,
     useCreateWebhookSource: () => ({ mutate: h.create, isPending: false, error: null }),
@@ -50,6 +53,8 @@ const quiet = mockWebhookSources[1]!;
 beforeEach(() => {
   h.status = { data: mockWebhookOverview(mockWebhookSources, "hour"), isLoading: false, isError: false };
   h.ranges = [];
+  h.sources = [];
+  h.one = { data: undefined, isLoading: false, isError: false };
   h.detail = { data: { source: busy, status: mockWebhookStatus[busy.name] }, isLoading: false, error: null };
   h.create.mockReset();
   h.update.mockReset();
@@ -61,6 +66,8 @@ beforeEach(() => {
 function overview(patch: Partial<WebhookStatusOverview>): WebhookStatusOverview {
   return { ...mockWebhookOverview([], "hour"), ...patch };
 }
+
+const noAcks = { count: 0, p50_ms: 0, p99_ms: 0, max_ms: 0, slowest: null };
 
 // row is the table row holding text.
 function row(text: string): HTMLElement {
@@ -98,6 +105,7 @@ describe("WebhooksPage", () => {
           {
             name: "new-source", enabled: true, health: "silent", auth_mode: "hmac", connection: "c", table: "webhook_new_source",
             last_event_at: null, last_hour: {}, last_day: {}, pending: 0, failing: 0,
+            ack_last_hour: noAcks, ack_last_day: noAcks,
           },
         ],
       }),
@@ -122,6 +130,7 @@ describe("WebhooksPage", () => {
 
   it("lists recent rejections across sources with source and reason, and opens the source", () => {
     const onNavigate = vi.fn();
+    h.status = { data: mockWebhookOverview(mockWebhookSources, "day"), isLoading: false, isError: false };
     render(<WebhooksPage onNavigate={onNavigate} />);
     const section = screen.getByText("Recent rejections").closest("[data-slot=card]") as HTMLElement;
     const reason = within(section).getByText("the credentials do not match");
@@ -134,13 +143,54 @@ describe("WebhooksPage", () => {
     expect(onNavigate).toHaveBeenCalledWith("/admin/webhooks/billing-events");
   });
 
-  it("says when no request was rejected", () => {
+  it("says when no request was rejected in the range", () => {
     h.status = { data: { ...mockWebhookOverview(mockWebhookSources, "hour"), rejections: [] }, isLoading: false, isError: false };
     render(<WebhooksPage onNavigate={vi.fn()} />);
-    expect(screen.getByText("No request has been rejected.")).toBeInTheDocument();
+    expect(screen.getByText("No request has been rejected in the last hour.")).toBeInTheDocument();
+  });
+
+  it("shows each source's response time, and a dash for one that accepted nothing", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(within(row("email-events")).getByText("p99 2.5 s")).toBeInTheDocument();
+    expect(within(row("email-events")).getByText("max 2.4 s")).toBeInTheDocument();
+    expect(within(row("crm-contacts")).getByText("-")).toBeInTheDocument();
+  });
+
+  it("falls back to the last day's response time when the hour has none", () => {
+    const base = mockWebhookOverview(mockWebhookSources, "hour");
+    const day = { count: 4, p50_ms: 10, p99_ms: 25, max_ms: 22, slowest: null };
+    h.status = {
+      data: { ...base, sources: base.sources.map((s) => ({ ...s, ack_last_hour: noAcks, ack_last_day: day })) },
+      isLoading: false,
+      isError: false,
+    };
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    expect(within(row("email-events")).getByText("max 22 ms (24 hours)")).toBeInTheDocument();
+  });
+
+  it("names a rejection's events, and reads the rejections of the source chosen", () => {
+    render(<WebhooksPage onNavigate={vi.fn()} />);
+    const section = () => screen.getByText("Recent rejections").closest("[data-slot=card]") as HTMLElement;
+    const ids = within(section()).getByText("evt_01J9Z6Q4, evt_01J9Z6Q5, evt_01J9Z6Q6 +1 more");
+    expect(ids).toHaveAttribute("title", expect.stringContaining("Request SHA-256: 9f2c4e7a"));
+    expect(within(section()).getByText("Sender gone")).toBeInTheDocument();
+    expect(h.sources).toEqual([]);
+
+    h.one = {
+      data: { ...mockWebhookOverview(mockWebhookSources, "hour", "order-updates") },
+      isLoading: false,
+      isError: false,
+    };
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Source" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "order-updates" }));
+    expect(h.sources).toContain("order-updates");
+    expect(within(section()).getByText("the body is not JSON")).toBeInTheDocument();
+    expect(within(section()).queryByText("Sender gone")).not.toBeInTheDocument();
+    expect(within(section()).getByText(/for order-updates in the last hour/)).toBeInTheDocument();
   });
 
   it("totals the volume by outcome for every source and for one", () => {
+    h.one = { data: mockWebhookOverview(mockWebhookSources, "hour", "order-updates"), isLoading: false, isError: false };
     render(<WebhooksPage onNavigate={vi.fn()} />);
     const totals = screen.getByRole("list", { name: "Totals by outcome" });
     // email-events 18342 + order-updates 420 accepted in the last hour.
@@ -202,11 +252,25 @@ describe("WebhookDetailPage", () => {
     expect(screen.queryByText(/This source is disabled/)).not.toBeInTheDocument();
   });
 
+  it("shows the response time and where the slowest request's time went", () => {
+    render(<WebhookDetailPage name="email-events" onBack={vi.fn()} onNavigate={vi.fn()} />);
+    const section = screen.getByText("Response time").closest("[data-slot=card]") as HTMLElement;
+    const hour = within(section).getByText("Last hour").closest("tr")!;
+    expect(within(hour).getByText("18,342")).toBeInTheDocument();
+    expect(within(hour).getByText("1.0 s")).toBeInTheDocument();
+    expect(within(hour).getByText("2.4 s")).toBeInTheDocument();
+    expect(within(section).getByText("Slowest request")).toBeInTheDocument();
+    expect(within(section).getAllByText("24.6 s")).toHaveLength(2);
+    expect(within(section).getByText("22.0 s")).toBeInTheDocument();
+    expect(within(section).getByText("Writing")).toBeInTheDocument();
+  });
+
   it("says a disabled source stores nothing and a quiet one has no requests", () => {
     h.detail = { data: { source: quiet, status: mockWebhookStatus[quiet.name] }, isLoading: false, error: null };
     render(<WebhookDetailPage name="crm-contacts" onBack={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.getByText(/This source is disabled/)).toBeInTheDocument();
     expect(screen.getByText("No requests in the last day.")).toBeInTheDocument();
+    expect(screen.getByText("No request was accepted in the last 24 hours.")).toBeInTheDocument();
     expect(screen.getByText("No request has been rejected.")).toBeInTheDocument();
     expect(screen.getByText("forever")).toBeInTheDocument();
     expect(screen.getByText("Administrators only")).toBeInTheDocument();

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 
 import type { WebhookSourceRejection } from "@/api/admin/types";
-import { RejectionsTable, outcomesOf, rejectionTimes } from "./RejectionsTable";
+import { RejectionsTable, eventsText, outcomesOf, rejectionTimes } from "./RejectionsTable";
 
 const rows: WebhookSourceRejection[] = [
   {
@@ -12,6 +12,8 @@ const rows: WebhookSourceRejection[] = [
     count: 42,
     outcome: "rate_limited",
     reason: "the source's rate limit was reached",
+    request_hash: "",
+    event_ids: [],
   },
   {
     source: "esp",
@@ -20,6 +22,8 @@ const rows: WebhookSourceRejection[] = [
     count: 1,
     outcome: "unauthorized",
     reason: "the signature does not match",
+    request_hash: "",
+    event_ids: [],
   },
 ];
 
@@ -58,5 +62,33 @@ describe("RejectionsTable", () => {
     expect(outcomesOf([...rows, rows[0]!])).toEqual(["rate_limited", "unauthorized"]);
     expect(rejectionTimes(rows[1]!).span).toBeUndefined();
     expect(rejectionTimes({ ...rows[0]!, first_at: "" }).span).toBeUndefined();
+  });
+
+  it("names a refused request's events, copies them with the request hash, and opens nothing from the copy", () => {
+    const onOpen = vi.fn();
+    const gone: WebhookSourceRejection = {
+      ...rows[1]!,
+      outcome: "sender_gone",
+      reason: "the sender disconnected",
+      request_hash: "abc123",
+      event_ids: ["e1"],
+    };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<RejectionsTable rows={[gone, rows[0]!]} onOpen={onOpen} />);
+    expect(screen.getByText("e1")).toHaveAttribute("title", "Request SHA-256: abc123");
+    expect(screen.getAllByText("-")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Copy event ids and request hash/ }));
+    expect(writeText).toHaveBeenCalledWith("e1\nsha256:abc123");
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("reads a row's events as shown and as copied", () => {
+    expect(eventsText(rows[0]!)).toEqual({ shown: "", copy: "" });
+    expect(eventsText({ ...rows[0]!, event_ids: ["a", "b", "c", "d", "e"], request_hash: "h" })).toEqual({
+      shown: "a, b, c +2 more",
+      copy: "a\nb\nc\nd\ne\nsha256:h",
+    });
+    expect(eventsText({ ...rows[0]!, event_ids: ["a"] }).copy).toBe("a");
   });
 });

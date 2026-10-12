@@ -11487,17 +11487,35 @@ definitions:
         type: string
       count:
         type: integer
+      event_ids:
+        items:
+          type: string
+        type: array
       first_at:
         type: string
       outcome:
         type: string
       reason:
         type: string
+      request_hash:
+        description: |-
+          RequestHash is the SHA-256 of the refused request's body and EventIDs
+          the ids of its first 20 events, when its events were read; empty for a
+          request refused before that.
+        type: string
       source:
         type: string
     type: object
   webhookapi.SourceStatus:
     properties:
+      ack_last_day:
+        $ref: '#/definitions/whstore.AckLatency'
+      ack_last_hour:
+        allOf:
+        - $ref: '#/definitions/whstore.AckLatency'
+        description: |-
+          AckLastHour and AckLastDay are how long the deliveries answered 202
+          waited for that answer.
       auth_mode:
         type: string
       connection:
@@ -11681,6 +11699,22 @@ definitions:
       split:
         type: string
     type: object
+  whstore.AckLatency:
+    properties:
+      count:
+        type: integer
+      max_ms:
+        type: integer
+      p50_ms:
+        type: integer
+      p99_ms:
+        type: integer
+      slowest:
+        allOf:
+        - $ref: '#/definitions/whstore.SlowAck'
+        description: Slowest is the slowest delivery of the span, null when there
+          was none.
+    type: object
   whstore.Rejection:
     properties:
       at:
@@ -11689,6 +11723,10 @@ definitions:
       count:
         description: Count is how many rejections the row stands for, at least one.
         type: integer
+      event_ids:
+        items:
+          type: string
+        type: array
       first_at:
         description: FirstAt is the earliest. Equal to At for a single rejection.
         type: string
@@ -11696,9 +11734,37 @@ definitions:
         type: string
       reason:
         type: string
+      request_hash:
+        description: |-
+          RequestHash is the SHA-256 of the refused request's body, and EventIDs
+          the ids of its first events, when its events were read; empty for a
+          request refused before that. A rejection carrying ids is one request,
+          never folded into a run.
+        type: string
+    type: object
+  whstore.SlowAck:
+    properties:
+      at:
+        type: string
+      buffer_ms:
+        type: integer
+      mark_ms:
+        type: integer
+      put_ms:
+        type: integer
+      total_ms:
+        type: integer
     type: object
   whstore.Status:
     properties:
+      ack_last_day:
+        $ref: '#/definitions/whstore.AckLatency'
+      ack_last_hour:
+        allOf:
+        - $ref: '#/definitions/whstore.AckLatency'
+        description: |-
+          AckLastHour and AckLastDay are how long the deliveries answered 202
+          waited for that answer.
       failing:
         description: Failing counts pending windows whose last compaction attempt
           failed.
@@ -18752,25 +18818,38 @@ paths:
       - Webhooks
   /admin/webhooks/status:
     get:
-      description: Returns every source's health and counts in one response, the request
-        volume by source and outcome over the range, and the newest 50 rejected requests
-        across all sources, each with its source (never a body). Health is disabled
-        for a source turned off, failing for one with a window whose last compaction
-        failed, silent for an enabled source that received no event in the last 24
-        hours (including one that never received any), and receiving otherwise; when
-        more than one applies the first in that order is reported. The volume series
-        reads the per-minute request counts at or after `from`, the same bound as
-        each source's `last_hour` (range=hour) or `last_day` (range=day), so the series
-        sums to those counts.
+      description: 'Returns every source''s health, counts and acknowledgement latency
+        in one response, the request volume by source and outcome over the range,
+        and the newest 50 rejected requests of each outcome across all sources whose
+        latest rejection falls within the range, each with its source (never a body).
+        With `source`, every part of the response is that one source''s. A rejected
+        request whose events were read names them: `request_hash` is the SHA-256 of
+        its body and `event_ids` the ids of its first 20 events. Latency is how long
+        a delivery answered 202 waited for that answer, over the last hour and the
+        last day; `p50_ms` and `p99_ms` are the upper bound of the bucket the percentile
+        falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms),
+        capped at `max_ms`, and `slowest` is the slowest delivery with how long it
+        spent in the buffer, recording its window and writing its segment. Health
+        is disabled for a source turned off, failing for one with a window whose last
+        compaction failed, silent for an enabled source that received no event in
+        the last 24 hours (including one that never received any), and receiving otherwise;
+        when more than one applies the first in that order is reported. The volume
+        series reads the per-minute request counts at or after `from`, the same bound
+        as each source''s `last_hour` (range=hour) or `last_day` (range=day), so the
+        series sums to those counts.'
       parameters:
       - default: hour
-        description: 'Span of the volume series: hour (one-minute buckets) or day
-          (fifteen-minute buckets)'
+        description: 'Span of the volume series and the rejections: hour (one-minute
+          buckets) or day (fifteen-minute buckets)'
         enum:
         - hour
         - day
         in: query
         name: range
+        type: string
+      - description: Name of one source to report on; every source when absent
+        in: query
+        name: source
         type: string
       produces:
       - application/json
@@ -18781,6 +18860,10 @@ paths:
             $ref: '#/definitions/webhookapi.StatusOverview'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/httpjson.ProblemDetail'
         "500":

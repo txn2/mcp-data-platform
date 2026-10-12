@@ -168,12 +168,13 @@ type fakeWindows struct {
 	ids      []string
 	err      map[string]error
 	overview whstore.Overview
+	source   string
 	span     time.Duration
 	step     time.Duration
 }
 
-func (f *fakeWindows) Overview(_ context.Context, _ time.Time, span, step time.Duration) (whstore.Overview, error) {
-	f.span, f.step = span, step
+func (f *fakeWindows) Overview(_ context.Context, source string, _ time.Time, span, step time.Duration) (whstore.Overview, error) {
+	f.source, f.span, f.step = source, span, step
 	return f.overview, f.err["overview"]
 }
 

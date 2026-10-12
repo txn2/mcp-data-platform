@@ -65,6 +65,32 @@ export interface WebhookRejection {
   count: number;
   outcome: string;
   reason: string;
+  /** SHA-256 of the refused request's body, when its events were read; empty otherwise. */
+  request_hash: string;
+  /** Ids of the refused request's first 20 events; empty when they were not read. */
+  event_ids: string[];
+}
+
+/** WebhookSlowAck is the slowest delivery answered 202 in a span: when, how
+ * long the sender waited, and how long its events spent in the buffer,
+ * recording their window and writing their segment. */
+export interface WebhookSlowAck {
+  at: string;
+  total_ms: number;
+  buffer_ms: number;
+  mark_ms: number;
+  put_ms: number;
+}
+
+/** WebhookAckLatency is how long the deliveries answered 202 waited for that
+ * answer. p50_ms and p99_ms are the upper bound of the bucket the percentile
+ * falls in, capped at max_ms. */
+export interface WebhookAckLatency {
+  count: number;
+  p50_ms: number;
+  p99_ms: number;
+  max_ms: number;
+  slowest: WebhookSlowAck | null;
 }
 
 export interface WebhookStatus {
@@ -76,6 +102,8 @@ export interface WebhookStatus {
   failing: number;
   last_error?: string;
   oldest_window: string | null;
+  ack_last_hour: WebhookAckLatency;
+  ack_last_day: WebhookAckLatency;
   rejections: WebhookRejection[];
 }
 
@@ -134,6 +162,8 @@ export interface WebhookSourceStatus {
   pending: number;
   failing: number;
   last_error?: string;
+  ack_last_hour: WebhookAckLatency;
+  ack_last_day: WebhookAckLatency;
 }
 
 /** WebhookVolumePoint is one source's requests with one outcome in the

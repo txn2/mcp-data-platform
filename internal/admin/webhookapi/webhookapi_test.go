@@ -26,12 +26,13 @@ type fakeService struct {
 	created  whsource.Source
 	updated  whadmin.Update
 	overview whadmin.Overview
+	source   string
 	span     time.Duration
 	step     time.Duration
 }
 
-func (f *fakeService) Overview(_ context.Context, span, step time.Duration) (whadmin.Overview, error) {
-	f.span, f.step = span, step
+func (f *fakeService) Overview(_ context.Context, source string, span, step time.Duration) (whadmin.Overview, error) {
+	f.source, f.span, f.step = source, span, step
 	return f.overview, f.err
 }
 

@@ -242,11 +242,8 @@ func TestIssue1997_ARetryCarriesTheSameID(t *testing.T) {
 			t.Fatalf("delivery %d posted to the source: %d %s", i+1, res.StatusCode, body)
 		}
 	}
-	distinct := issue1870Count(t, c, fmt.Sprintf("SELECT count(DISTINCT event_id) FROM %s.webhook_%s",
-		issue1870Schema, strings.ReplaceAll(source, "-", "_")))
-	if distinct != 1 {
-		t.Errorf("the two deliveries are %d event ids at the source, want 1", distinct)
-	}
+	issue1870AwaitCount(t, c, fmt.Sprintf("SELECT count(DISTINCT event_id) FROM %s.webhook_%s",
+		issue1870Schema, strings.ReplaceAll(source, "-", "_")), 1)
 }
 
 // TestIssue1997_ATextChannelIgnoresData sends data to a channel with no

@@ -14,12 +14,16 @@ import { REFETCH_INTERVAL } from "./shared";
 const KEY = ["webhook-sources"] as const;
 
 /** useWebhookStatus reads the status of every source in one request (#1979),
- * refreshed so a source that goes quiet or starts failing shows without a
- * reload. */
-export function useWebhookStatus(range: WebhookStatusRange) {
+ * or of one source when `source` names it (#2107), refreshed so a source that
+ * goes quiet or starts failing shows without a reload. `enabled` false holds
+ * the request. */
+export function useWebhookStatus(range: WebhookStatusRange, source = "", enabled = true) {
+  const params = new URLSearchParams({ range });
+  if (source) params.set("source", source);
   return useQuery({
-    queryKey: [...KEY, "status", range],
-    queryFn: () => apiFetch<WebhookStatusOverview>(`/webhooks/status?range=${range}`),
+    queryKey: [...KEY, "status", range, source],
+    queryFn: () => apiFetch<WebhookStatusOverview>(`/webhooks/status?${params.toString()}`),
+    enabled,
     refetchInterval: REFETCH_INTERVAL,
     // Switching the range keeps the table on screen while the series loads.
     placeholderData: keepPreviousData,

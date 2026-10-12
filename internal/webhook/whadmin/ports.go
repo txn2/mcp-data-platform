@@ -44,6 +44,6 @@ type Registrations interface {
 // resources a source's windows were written as.
 type Windows interface {
 	Status(ctx context.Context, source string, now time.Time) (whstore.Status, error)
-	Overview(ctx context.Context, now time.Time, span, step time.Duration) (whstore.Overview, error)
+	Overview(ctx context.Context, source string, now time.Time, span, step time.Duration) (whstore.Overview, error)
 	ResourceIDs(ctx context.Context, source string) ([]string, error)
 }

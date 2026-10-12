@@ -24,11 +24,19 @@ var errBufferFull = errors.New("the source's buffer is full")
 // errClosed means the buffer's writer has stopped.
 var errClosed = errors.New("the receiver is shutting down")
 
-// batch is one request's events and the channel its answer arrives on.
+// batch is one request's events, when they were admitted, and the channel
+// the outcome of their write arrives on.
 type batch struct {
-	events []whevent.Event
-	bytes  int64
-	done   chan error
+	events   []whevent.Event
+	bytes    int64
+	admitted time.Time
+	done     chan written
+}
+
+// written is how a batch's write ended and how long each stage of it took.
+type written struct {
+	err    error
+	stages stages
 }
 
 // buffer holds one source's events until they are written. Writes are one at
@@ -63,7 +71,7 @@ func (b *buffer) admit(events []whevent.Event, limit int) (*batch, error) {
 	for _, e := range events {
 		size += int64(len(e.Payload))
 	}
-	bt := &batch{events: events, bytes: size, done: make(chan error, 1)}
+	bt := &batch{events: events, bytes: size, admitted: b.r.now(), done: make(chan written, 1)}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -176,9 +184,11 @@ func (b *buffer) flush() error {
 		return nil
 	}
 
-	err := b.write(taken)
+	began := b.r.now()
+	st, err := b.write(taken)
 	for _, bt := range taken {
-		bt.done <- err
+		st.buffer = began.Sub(bt.admitted)
+		bt.done <- written{err: err, stages: st}
 	}
 
 	b.mu.Lock()
@@ -190,10 +200,10 @@ func (b *buffer) flush() error {
 }
 
 // write renders the batches' events as segments, one per window of the
-// source's compact_every length, and records each window. Any failure fails
-// every batch: a request is answered 202 only when all of its events are in
-// object storage.
-func (b *buffer) write(batches []*batch) error {
+// source's compact_every length, and records each window, returning how long
+// recording and writing took. Any failure fails every batch: a request is
+// answered 202 only when all of its events are in object storage.
+func (b *buffer) write(batches []*batch) (stages, error) {
 	length := b.r.window(b.source)
 	byWindow := map[time.Time][]whevent.Event{}
 	for _, bt := range batches {
@@ -210,38 +220,61 @@ func (b *buffer) write(batches []*batch) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), b.r.cfg.WriteTimeout)
 	defer cancel()
+	var st stages
 	for _, w := range starts {
-		if err := b.writeWindow(ctx, w, length, byWindow[w]); err != nil {
-			return err
+		if err := b.writeWindow(ctx, w, length, byWindow[w], &st); err != nil {
+			return st, err
 		}
 	}
-	return nil
+	return st, nil
 }
 
-// writeWindow writes one segment and records it against its window.
+// writeWindow writes one segment and records it against its window, adding
+// how long recording and writing took to st, then queues the window's raw
+// partition for registration, which never delays the answer.
 //
-// The window is recorded before the write as well as after it. Before, so a
-// window whose segment is written always has a row, and is compacted and
-// expired like any other even if the database is unreachable when the write
-// finishes. After, so a compaction that listed the window's segments while
-// this one was being written is followed by another that includes it.
-func (b *buffer) writeWindow(ctx context.Context, start time.Time, length time.Duration, events []whevent.Event) error {
+// The window is recorded after every write, so a compaction that listed the
+// window's segments while this one was being written is followed by another
+// that includes it. The first write of a window by this process records it
+// before the write as well, so a window whose segment is written has a row,
+// and is compacted and expired like any other, even if the database is
+// unreachable when the write finishes; once it has, the row exists and the
+// record after each write keeps it current.
+func (b *buffer) writeWindow(ctx context.Context, start time.Time, length time.Duration, events []whevent.Event, st *stages) error {
 	data, err := whevent.EncodeSegment(events, b.r.now())
 	if err != nil {
 		return fmt.Errorf("encoding the segment: %w", err)
 	}
-	if err := b.r.cfg.Recorder.MarkSegment(ctx, b.source, start, length); err != nil {
-		return fmt.Errorf("recording segment: %w", err)
+	if b.r.needsMark(b.source, start) {
+		if err := b.mark(ctx, start, length, st); err != nil {
+			return err
+		}
+		b.r.markedWindow(b.source, start)
 	}
 	key := whlayout.SegmentKey(b.source, start, b.r.writer, b.r.seq.Add(1))
-	if err := b.r.cfg.Objects.PutObject(ctx, b.r.cfg.Bucket, key, data, segmentContentType); err != nil {
+	began := b.r.now()
+	err = b.r.cfg.Objects.PutObject(ctx, b.r.cfg.Bucket, key, data, segmentContentType)
+	st.put += b.r.now().Sub(began)
+	if err != nil {
 		return fmt.Errorf("writing segment: %w", err)
 	}
 	b.r.metricSegment(b.source)
-	if err := b.r.cfg.Recorder.MarkSegment(ctx, b.source, start, length); err != nil {
+	if err := b.mark(ctx, start, length, st); err != nil {
+		return err
+	}
+	b.r.queueRawWindow(b.source, start)
+	return nil
+}
+
+// mark records a segment against its window, adding how long that took to
+// st.
+func (b *buffer) mark(ctx context.Context, start time.Time, length time.Duration, st *stages) error {
+	began := b.r.now()
+	err := b.r.cfg.Recorder.MarkSegment(ctx, b.source, start, length)
+	st.mark += b.r.now().Sub(began)
+	if err != nil {
 		return fmt.Errorf("recording segment: %w", err)
 	}
-	b.r.ensureRawWindow(ctx, b.source, start)
 	return nil
 }
 

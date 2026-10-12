@@ -4,8 +4,8 @@ An external system can post events to the platform. Each **webhook source** has
 its own address, `POST /hooks/{source}`, and its own way of proving a request
 came from the sender. The platform writes what it receives to object storage
 within about a second and answers `202` only after that write. The events can
-be queried through Trino as soon as they are acknowledged, and each window of
-them, an hour unless the source sets a shorter one, is compacted into one
+be queried through Trino moments after they are acknowledged, and each window
+of them, an hour unless the source sets a shorter one, is compacted into one
 Parquet file.
 
 Ingestion does not depend on whatever reads the data. A source receives,
@@ -171,6 +171,54 @@ holds events it has not written answered nobody for them, so their senders send
 them again. Backpressure is the sender's own retry queue, told to wait: the
 platform keeps no backlog beyond each source's buffer limit.
 
+### How long a sender waits
+
+A sender should expect its answer within the source's flush interval
+(`flush_max_interval_ms`, one second by default) plus one write to object
+storage and one database write that records the segment against its window.
+The first segment a replica writes into a window records the window once more
+before the write. Nothing else is done before the answer: registering a window's
+partition with the query engine runs on the replica's own loop. For a source
+that wrote into the current window, the loop registers the next one a minute
+before it starts (half the window ahead for a window shorter than two minutes),
+so its first event is queryable as soon as it is acknowledged. A window nobody
+saw coming, such as a new source's first, is registered right after its first
+`202`, so its events become queryable moments later. A registration that fails
+is retried every 15 seconds, never while a sender waits, and the compactor's
+partition sync, every 10 minutes, registers any window still missing. The source's page
+shows how long requests waited (see [The source's page](#the-sources-page)).
+
+### A sender that gives up
+
+A sender whose own timeout passes before its answer disconnects. The platform
+counts that request `sender_gone`, not `write_failed`, because its write goes
+on and usually stores the events. The request is logged at `WARN`
+(`webhooks: request not accepted`, `outcome=sender_gone`) and kept in the
+rejections with its event ids and body hash. When the write finishes, a second
+`WARN` line, `webhooks: write for a disconnected sender finished`, says whether
+the events were stored (`stored=true` or `stored=false`, with the error) and how
+long each stage took. A sender that retries delivers the same events again;
+compaction removes the duplicate.
+
+### What is logged
+
+Every request not answered `202` is logged at `WARN` as `webhooks: request not
+accepted`, with the source, the replica, the outcome and reason, how long since
+the request arrived (`elapsed_ms`), and the number of events. Once the body has
+been read into events the line also names the windows they fall in, the
+SHA-256 of the body (`request_hash`) and the ids of the first 20 events
+(`event_ids`). A request whose write ran adds how long its events waited in the
+buffer (`buffer_ms`), recorded their window (`mark_ms`) and took to write
+(`put_ms`). A `write_failed` line carries the storage error, which the sender's
+answer never does.
+
+A source created on any replica is served by every replica from its first
+request. A replica asked for a name it does not hold reads the source list
+again before answering `404`, and every such request waits for a read that
+started after it arrived. Those reads are shared and at least a second apart,
+so a caller inventing names costs the database at most one read a second, and
+waits up to a second for its `404` (#2108).
+
 The rate limit, the buffer and the `503` they answer are each replica's own.
 They protect the replica holding the source's buffer, not the sender's quota,
 so they take no shared state on the path a request takes. A sender spread over
@@ -242,8 +290,11 @@ something a reader chooses between:
 - `webhook_{source}_raw`: the raw segments.
 
 For each window, the view reads the compacted table once the window's partition
-is registered, and the raw segments until then. An event is therefore queryable
-as soon as its `202` is sent, and no window is missing or served twice. Rows read
+is registered, and the raw segments until then. An event is queryable once its
+window's raw partition is registered: ahead of the window for a source receiving
+steadily, otherwise moments after the window's first `202` (see
+[How long a sender waits](#how-long-a-sender-waits)). No window is missing or
+served twice. Rows read
 from the raw side have not had duplicates removed yet.
 
 | Column | Type |
@@ -343,13 +394,16 @@ metastore still lists. An operator may add one as a backstop, set longer than
   fifteen minutes), with the total of each outcome beneath.
 - **Sources**: one row per source with its health, when it last received an
   event, the requests accepted and rejected in the last hour and the last day,
-  the windows owed a compaction (Pending), and the windows whose last
-  compaction failed (Failing) with the newest one's error. Clicking a row opens
-  the source's page.
-- **Recent rejections**: the rejected requests across every source, the newest
-  50 rows of each outcome, each with its source, time, outcome, reason and how
-  many requests it stands for. Never the body. An outcome filter narrows the
-  list.
+  how long accepted requests waited for their answer (Response time: the 99th
+  percentile, with the slowest beneath, over the last hour or, when the hour
+  had none, the last day), the windows owed a compaction (Pending), and the
+  windows whose last compaction failed (Failing) with the newest one's error.
+  Clicking a row opens the source's page.
+- **Recent rejections**: the rejected requests across every source within the
+  range, the newest 50 rows of each outcome, each with its source, time,
+  outcome, reason, the events it refused (Events) and how many requests it
+  stands for. Never the body. Choosing a source in the Requests chart reads that
+  source's rejections alone. An outcome filter narrows the list.
 
 Rejections are kept per outcome, so a burst of `rate_limited` refusals never
 pushes out the `unauthorized` rows that show someone sending forged requests.
@@ -357,6 +411,13 @@ A rejection with the same outcome and reason as that outcome's newest row,
 within a minute of it, is added to the row rather than written as a new one:
 the row's `count` says how many requests it stands for, `first_at` the first
 of them and `at` the latest. A burst is one row.
+
+A rejected request whose body was read into events names them: `request_hash`
+is the SHA-256 of its body and `event_ids` the ids of its first 20 events, the
+ids the source's table holds in `event_id`. Such a row is one request and is
+never added to a run. A request refused before its events were read (`401`,
+`413` for the body size, `429`, `400`) has an empty `request_hash` and
+`event_ids: []`.
 
 A source's health is one of:
 
@@ -372,7 +433,8 @@ source receives nothing by choice, and a failing one is losing what it did
 receive, which outranks silence. A sender that stops produces no error on the
 receiving side, so Silent is how a stopped sender shows.
 
-The page reads `GET /api/v1/admin/webhooks/status?range=hour|day`:
+The page reads `GET /api/v1/admin/webhooks/status?range=hour|day`, and
+`&source=<name>` to read one source (a name no source has is `404`):
 
 ```json
 {
@@ -389,15 +451,21 @@ The page reads `GET /api/v1/admin/webhooks/status?range=hour|day`:
       "last_hour": {"accepted": 1832, "unauthorized": 3},
       "last_day": {"accepted": 40211, "unauthorized": 12},
       "pending": 2, "failing": 1,
-      "last_error": "segment webhooks/esp-events/...: gzip: invalid header"
+      "last_error": "segment webhooks/esp-events/...: gzip: invalid header",
+      "ack_last_hour": {
+        "count": 1832, "p50_ms": 1000, "p99_ms": 2500, "max_ms": 2380,
+        "slowest": {"at": "2026-09-29T11:00:21Z", "total_ms": 2380, "buffer_ms": 990, "mark_ms": 1310, "put_ms": 80}
+      },
+      "ack_last_day": {"count": 40211, "p50_ms": 1000, "p99_ms": 2500, "max_ms": 2380, "slowest": {"at": "2026-09-29T11:00:21Z", "total_ms": 2380, "buffer_ms": 990, "mark_ms": 1310, "put_ms": 80}}
     }
   ],
   "volume": [
     {"at": "2026-09-29T11:59:00Z", "source": "esp-events", "outcome": "accepted", "count": 31}
   ],
   "rejections": [
-    {"source": "esp-events", "first_at": "2026-09-29T11:58:12Z", "at": "2026-09-29T11:58:12Z", "count": 1, "outcome": "unauthorized", "reason": "the signature does not match"},
-    {"source": "esp-events", "first_at": "2026-09-29T11:57:01Z", "at": "2026-09-29T11:57:03Z", "count": 42, "outcome": "rate_limited", "reason": "the source's rate limit was reached"}
+    {"source": "esp-events", "first_at": "2026-09-29T11:58:40Z", "at": "2026-09-29T11:58:40Z", "count": 1, "outcome": "sender_gone", "reason": "the sender disconnected after 30s, before its events were written", "request_hash": "9f2c4e7a...", "event_ids": ["evt_01J9Z6Q4"]},
+    {"source": "esp-events", "first_at": "2026-09-29T11:58:12Z", "at": "2026-09-29T11:58:12Z", "count": 1, "outcome": "unauthorized", "reason": "the signature does not match", "request_hash": "", "event_ids": []},
+    {"source": "esp-events", "first_at": "2026-09-29T11:57:01Z", "at": "2026-09-29T11:57:03Z", "count": 42, "outcome": "rate_limited", "reason": "the source's rate limit was reached", "request_hash": "", "event_ids": []}
   ]
 }
 ```
@@ -407,7 +475,20 @@ bound each source's `last_hour` (range `hour`) or `last_day` (range `day`) is
 read with, so the series sums to those counts. A bucket starts at a multiple of
 `bucket_seconds` since the Unix epoch, and one with no requests has no point.
 Per-minute counts are kept for 48 hours, which is why the longest range is a
-day. With no sources, every list is `[]`.
+day. `rejections` holds the rows whose latest rejection (`at`) is at or after
+`from`, so a range of an hour shows the last hour's. With no sources, every
+list is `[]`.
+
+`ack_last_hour` and `ack_last_day` are how long the requests answered `202`
+waited for that answer. Each replica counts them per minute in fixed buckets
+(10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms, and one for
+anything slower). `p50_ms` and `p99_ms` are the upper bound of the bucket the
+percentile falls in, capped at `max_ms`, so each is the most it could be.
+`slowest` is the slowest request of the span with how long its events waited in
+the buffer (`buffer_ms`), recorded their window (`mark_ms`) and took to write to
+object storage (`put_ms`); it is `null` when nothing was accepted. A response
+time creeping toward a sender's timeout shows here before requests start to
+fail. The counts are kept for 48 hours, like the request counts.
 
 ## The source's page
 
@@ -415,13 +496,17 @@ A source's page shows:
 
 - the URL to give the sender, and the table readers query;
 - request counts by outcome for the last hour and the last day;
+- how long accepted requests waited for their answer over the last hour and
+  the last 24 hours (median, 99th percentile, slowest), and the slowest
+  request's time split into Buffer, Recording and Writing;
 - when the source last received an event (a sender that stops produces no
   error on the receiving side, so this is how a quiet source shows);
 - the window length, the last compacted window, the windows owed a compaction,
   and the last failure;
 - the oldest window held, beside the retention settings;
 - the rejected requests, the newest 50 rows of each outcome: when, the
-  outcome, why, and how many requests a row stands for. Never the body.
+  outcome, why, the events refused (their ids, with the body's SHA-256 on hover
+  and a copy button), and how many requests a row stands for. Never the body.
 
 ## Deployment
 
@@ -490,7 +575,7 @@ it should listen on a port of its own.
 
 | Series | Labels |
 |---|---|
-| `webhook_requests_total` | `source`, `outcome`: `accepted`, `unauthorized`, `too_large`, `rate_limited`, `buffer_full`, `write_failed`, `unknown_source`, `invalid_body` |
+| `webhook_requests_total` | `source`, `outcome`: `accepted`, `unauthorized`, `too_large`, `rate_limited`, `buffer_full`, `write_failed`, `sender_gone`, `unknown_source`, `invalid_body` |
 | `webhook_events_total` | `source` |
 | `webhook_segments_written_total` | `source` |
 | `webhook_compactions_total` | `source`, `result`: `compacted`, `failed` |

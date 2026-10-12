@@ -84,8 +84,10 @@ type fakeRecorder struct {
 	marks      map[string]int
 	counts     map[string]int64
 	rejections []whstore.Rejection
+	latency    []whstore.Latency
 	markErr    error
 	countErr   error
+	latencyErr error
 }
 
 func newRecorder() *fakeRecorder {
@@ -119,6 +121,22 @@ func (f *fakeRecorder) RecordRejections(_ context.Context, r []whstore.Rejection
 	defer f.mu.Unlock()
 	f.rejections = append(f.rejections, r...)
 	return nil
+}
+
+func (f *fakeRecorder) RecordLatency(_ context.Context, l []whstore.Latency) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.latencyErr != nil {
+		return f.latencyErr
+	}
+	f.latency = append(f.latency, l...)
+	return nil
+}
+
+func (f *fakeRecorder) markCount(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.marks[key]
 }
 
 // fakeMetrics records what was reported.
@@ -161,30 +179,103 @@ func (m *fakeMetrics) WebhookBuffer(_ context.Context, _ string, n int) {
 	m.maxBuffer = max(m.maxBuffer, n)
 }
 
-// fakeRawWindows records the windows registered, and can fail.
+// fakeRawWindows records the windows registered, and can fail or hold a
+// registration until released. Every call is reported on called.
 type fakeRawWindows struct {
-	mu    sync.Mutex
-	calls int
-	err   error
+	mu     sync.Mutex
+	calls  int
+	err    error
+	hold   chan struct{}
+	called chan error
 }
 
-func (f *fakeRawWindows) EnsureRawWindow(context.Context, whsource.Source, time.Time) error {
+func (f *fakeRawWindows) EnsureRawWindow(ctx context.Context, _ whsource.Source, _ time.Time) error {
+	f.mu.Lock()
+	hold := f.hold
+	f.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+		}
+	}
+	f.mu.Lock()
+	f.calls++
+	err := f.err
+	f.mu.Unlock()
+	f.called <- err
+	return err
+}
+
+func (f *fakeRawWindows) setErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls++
-	return f.err
+	f.err = err
+}
+
+// next waits for the next registration and returns its result.
+func (f *fakeRawWindows) next(t *testing.T) error {
+	t.Helper()
+	select {
+	case err := <-f.called:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("no window was registered")
+		return nil
+	}
+}
+
+// logBuffer is a log sink a test can read while the receiver writes to it.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n, err := l.buf.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("buffering a log line: %w", err)
+	}
+	return n, nil
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// lines are the log lines that contain msg.
+func (l *logBuffer) lines(msg string) []string {
+	var out []string
+	for line := range strings.SplitSeq(l.String(), "\n") {
+		if strings.Contains(line, msg) {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 type staticSources struct {
-	mu   sync.Mutex
-	list []whsource.Source
-	err  error
+	mu    sync.Mutex
+	list  []whsource.Source
+	err   error
+	reads int
 }
 
 func (s *staticSources) List(context.Context) ([]whsource.Source, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.reads++
 	return s.list, s.err
+}
+
+func (s *staticSources) readCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reads
 }
 
 func (s *staticSources) set(list ...whsource.Source) {
@@ -200,6 +291,7 @@ type harness struct {
 	metrics  *fakeMetrics
 	sources  *staticSources
 	raw      *fakeRawWindows
+	logs     *logBuffer
 	srv      *httptest.Server
 }
 
@@ -220,12 +312,13 @@ func newHarness(t *testing.T, sources ...whsource.Source) *harness {
 		recorder: newRecorder(),
 		metrics:  &fakeMetrics{requests: map[string]int{}},
 		sources:  &staticSources{list: sources},
-		raw:      &fakeRawWindows{},
+		raw:      &fakeRawWindows{called: make(chan error, 64)},
+		logs:     &logBuffer{},
 	}
 	h.r = New(Config{
 		Sources: h.sources, Objects: h.objects, Bucket: "managed-resources", Recorder: h.recorder, RawWindows: h.raw,
-		Metrics: h.metrics, Replica: "host-a:8080", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WriteTimeout: 2 * time.Second, Refresh: time.Hour, StatsFlush: time.Hour,
+		Metrics: h.metrics, Replica: "host-a:8080", Logger: slog.New(slog.NewTextHandler(h.logs, nil)),
+		WriteTimeout: 2 * time.Second, Refresh: time.Hour, StatsFlush: time.Hour, RegisterRetry: 10 * time.Millisecond, MissRefresh: 20 * time.Millisecond,
 	})
 	h.r.Start(context.Background())
 	h.srv = httptest.NewServer(h.r)
@@ -323,15 +416,88 @@ func TestAcceptWritesBeforeAnswering(t *testing.T) {
 
 func TestNewWindowIsRegisteredOnce(t *testing.T) {
 	h := newHarness(t, hmacSource("esp"))
-	h.raw.err = errors.New("trino down")
+	h.raw.setErr(errors.New("trino down"))
 	assert.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"1"}`).StatusCode,
 		"a query engine that is down never stops events being stored")
-	h.raw.err = nil
+	require.Error(t, h.raw.next(t))
+	h.raw.setErr(nil)
+	// Retries already under way when the error is cleared may still fail;
+	// the loop keeps trying until one succeeds.
+	for err := h.raw.next(t); err != nil; err = h.raw.next(t) {
+		t.Log("a retry under way when the error was cleared failed:", err)
+	}
+	failures := h.logs.lines("webhooks: registering a new window")
+	require.NotEmpty(t, failures, "a failed registration is logged")
+	assert.Contains(t, failures[0], "elapsed_ms=")
+
+	h.raw.mu.Lock()
+	registered := h.raw.calls
+	h.raw.mu.Unlock()
 	assert.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"2"}`).StatusCode)
 	assert.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"3"}`).StatusCode)
+	require.NoError(t, h.r.registerPending(context.Background()))
 	h.raw.mu.Lock()
 	defer h.raw.mu.Unlock()
-	assert.Equal(t, 2, h.raw.calls, "registered until it succeeds, then not again")
+	assert.Equal(t, registered, h.raw.calls, "registered until it succeeds, then not again")
+}
+
+// TestAcknowledgementDoesNotWaitForRegistration holds the window's
+// registration and shows the delivery is answered 202 regardless (#2107).
+func TestAcknowledgementDoesNotWaitForRegistration(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	h.raw.mu.Lock()
+	h.raw.hold = make(chan struct{})
+	h.raw.mu.Unlock()
+	assert.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"1"}`).StatusCode,
+		"a registration that has not finished never holds the acknowledgement")
+	h.raw.mu.Lock()
+	assert.Zero(t, h.raw.calls, "the registration is still held")
+	close(h.raw.hold)
+	h.raw.mu.Unlock()
+	require.NoError(t, h.raw.next(t), "the window is registered once released")
+}
+
+// TestAWindowIsRecordedBeforeOnlyItsFirstWrite: the first segment this
+// process writes into a window records it before and after the write; every
+// later one only after (#2107).
+func TestAWindowIsRecordedBeforeOnlyItsFirstWrite(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	require.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"1"}`).StatusCode)
+	require.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"2"}`).StatusCode)
+	window := h.objects.events(t)[0].Window(time.Hour)
+	assert.Equal(t, 3, h.recorder.markCount("esp@"+window.Format(time.RFC3339)+"/1h0m0s"),
+		"two before-and-after records for the first write, one after for the second")
+}
+
+// TestOldWindowsAreForgotten: the windows remembered as recorded and
+// registered are dropped once they are older than windowsKept.
+func TestOldWindowsAreForgotten(t *testing.T) {
+	h := newHarness(t)
+	old, recent := time.Now().Add(-windowsKept-time.Hour), time.Now()
+	h.r.markedWindow("esp", old)
+	h.r.markedWindow("esp", recent)
+	h.r.rawWindows.Store(windowKey("esp", old), old)
+	h.r.rawWindows.Store("not-a-time", "x")
+	h.r.forgetOld()
+	assert.True(t, h.r.needsMark("esp", old))
+	assert.False(t, h.r.needsMark("esp", recent))
+	_, kept := h.r.rawWindows.Load(windowKey("esp", old))
+	assert.False(t, kept)
+	_, kept = h.r.rawWindows.Load("not-a-time")
+	assert.True(t, kept, "a value that is not a start is left alone")
+}
+
+// TestARegistrationForARemovedSourceIsDropped: a window queued for a source
+// no longer served is dropped rather than retried.
+func TestARegistrationForARemovedSourceIsDropped(t *testing.T) {
+	h := newHarness(t)
+	h.r.regMu.Lock()
+	h.r.regPending["gone@x"] = rawWindow{source: "gone", start: time.Now()}
+	h.r.regMu.Unlock()
+	require.NoError(t, h.r.registerPending(context.Background()))
+	h.r.regMu.Lock()
+	defer h.r.regMu.Unlock()
+	assert.Empty(t, h.r.regPending)
 }
 
 func TestFormPayload(t *testing.T) {
@@ -518,8 +684,171 @@ func TestWriteFailureAnswers503(t *testing.T) {
 	h.objects.fail = nil
 	h.recorder.markErr = errors.New("db down")
 	resp = h.signed(t, "esp", `{"id":"y"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
+		"a segment whose window could not be recorded after the write is not acknowledged")
+
+	fresh := newHarness(t, hmacSource("esp"))
+	fresh.recorder.markErr = errors.New("db down")
+	assert.Equal(t, http.StatusServiceUnavailable, fresh.signed(t, "esp", `{"id":"z"}`).StatusCode)
+	assert.Zero(t, fresh.objects.count(), "the first segment of a window that could not be recorded is not written")
+}
+
+// TestWriteFailureIsLoggedAndRejectedWithItsStages: a write that fails is
+// answered without the store's error, and logged and kept with it, the
+// delivery's events and how long each stage took (#2107).
+func TestWriteFailureIsLoggedAndRejectedWithItsStages(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	h.objects.fail = errors.New("bucket k: access denied")
+	body := `{"id":"evt-9"}`
+	req := h.request(t.Context(), "/hooks/esp", "application/json", body, "X-Sig", sig(body))
+	resp, err := testClient.Do(req) // #nosec G704 -- the httptest server this test started
+	require.NoError(t, err)
+	answer, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Zero(t, h.objects.count(), "a segment whose hour could not be recorded is not written")
+	assert.NotContains(t, string(answer), "access denied", "the store's error is never sent to the sender")
+
+	lines := h.logs.lines("webhooks: request not accepted")
+	require.Len(t, lines, 1)
+	for _, want := range []string{
+		"level=WARN", "outcome=write_failed", "source=esp", "replica=host-a:8080",
+		"events=1", "event_ids=[evt-9]", "request_hash=" + sha(body), "buffer_ms=", "mark_ms=", "put_ms=", "access denied",
+	} {
+		assert.Contains(t, lines[0], want)
+	}
+	require.Len(t, h.r.rejections, 1)
+	rej := h.r.rejections[0]
+	assert.Equal(t, OutcomeWriteFailed, rej.Outcome)
+	assert.Equal(t, "the events could not be written to object storage: writing segment: bucket k: access denied", rej.Reason)
+	assert.Equal(t, sha(body), rej.RequestHash)
+	assert.Equal(t, []string{"evt-9"}, rej.EventIDs)
+}
+
+// TestSenderGone: a sender that disconnects before its segment is written is
+// counted sender_gone rather than write_failed, kept with its events, and
+// logged twice: when it went, and when the write it left behind finished,
+// saying whether the events were stored (#2107).
+func TestSenderGone(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	h.objects.mu.Lock()
+	h.objects.stall = make(chan struct{})
+	h.objects.mu.Unlock()
+	body := `{"id":"evt-1"}`
+	ctx, cancel := context.WithCancel(context.Background())
+	sent := make(chan error, 1)
+	go func() {
+		_, err := send(h.request(ctx, "/hooks/esp", "application/json", body, "X-Sig", sig(body)))
+		sent <- err
+	}()
+	require.Eventually(t, func() bool { return h.objects.puts.Load() == 1 }, 5*time.Second, 5*time.Millisecond)
+	cancel()
+	require.Error(t, <-sent)
+	require.Eventually(t, func() bool { return len(h.logs.lines("webhooks: request not accepted")) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	gone := h.logs.lines("webhooks: request not accepted")[0]
+	for _, want := range []string{"outcome=sender_gone", "event_ids=[evt-1]", "request_hash=" + sha(body), "elapsed_ms="} {
+		assert.Contains(t, gone, want)
+	}
+	assert.Empty(t, h.logs.lines("write for a disconnected sender finished"), "the write has not finished")
+
+	h.objects.mu.Lock()
+	close(h.objects.stall)
+	h.objects.stall = nil
+	h.objects.mu.Unlock()
+	require.Eventually(t, func() bool { return len(h.logs.lines("write for a disconnected sender finished")) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	finished := h.logs.lines("write for a disconnected sender finished")[0]
+	assert.Contains(t, finished, "stored=true")
+	assert.Contains(t, finished, "put_ms=")
+	assert.Len(t, h.objects.events(t), 1, "the write the sender left behind stored its event")
+
+	h.r.statsMu.Lock()
+	rejections := append([]whstore.Rejection(nil), h.r.rejections...)
+	h.r.statsMu.Unlock()
+	require.Len(t, rejections, 1)
+	assert.Equal(t, OutcomeSenderGone, rejections[0].Outcome)
+	assert.Contains(t, rejections[0].Reason, "the sender disconnected after ")
+	assert.Equal(t, []string{"evt-1"}, rejections[0].EventIDs)
+	h.metrics.mu.Lock()
+	defer h.metrics.mu.Unlock()
+	assert.Equal(t, 1, h.metrics.requests["esp/sender_gone"])
+	assert.Zero(t, h.metrics.requests["esp/write_failed"])
+}
+
+// TestSenderGoneWhoseWriteFails says so on the second line.
+func TestSenderGoneWhoseWriteFails(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	h.objects.mu.Lock()
+	h.objects.stall = make(chan struct{})
+	h.objects.fail = errors.New("store down")
+	h.objects.mu.Unlock()
+	body := `{"id":"evt-2"}`
+	ctx, cancel := context.WithCancel(context.Background())
+	sent := make(chan error, 1)
+	go func() {
+		_, err := send(h.request(ctx, "/hooks/esp", "application/json", body, "X-Sig", sig(body)))
+		sent <- err
+	}()
+	require.Eventually(t, func() bool { return h.objects.puts.Load() == 1 }, 5*time.Second, 5*time.Millisecond)
+	cancel()
+	require.Error(t, <-sent)
+	require.Eventually(t, func() bool { return len(h.logs.lines("webhooks: request not accepted")) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	h.objects.mu.Lock()
+	close(h.objects.stall)
+	h.objects.stall = nil
+	h.objects.mu.Unlock()
+	require.Eventually(t, func() bool { return len(h.logs.lines("write for a disconnected sender finished")) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	finished := h.logs.lines("write for a disconnected sender finished")[0]
+	assert.Contains(t, finished, "stored=false")
+	assert.Contains(t, finished, "store down")
+}
+
+// TestAcknowledgementLatencyIsRecorded: every delivery answered 202 adds to
+// its minute's latency, which the stats flush writes, and a failed write
+// keeps it for the next (#2107).
+func TestAcknowledgementLatencyIsRecorded(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	require.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"1"}`).StatusCode)
+	require.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"2"}`).StatusCode)
+
+	h.recorder.latencyErr = errors.New("db down")
+	require.Error(t, h.r.flushStats(context.Background()))
+	require.Equal(t, http.StatusAccepted, h.signed(t, "esp", `{"id":"3"}`).StatusCode)
+	h.recorder.latencyErr = nil
+	require.NoError(t, h.r.flushStats(context.Background()))
+
+	var total int64
+	for _, l := range h.recorder.latency {
+		assert.Equal(t, "esp", l.Source)
+		for _, n := range l.Buckets {
+			total += n
+		}
+		assert.False(t, l.Slowest.At.IsZero(), "the slowest delivery is kept with its time")
+	}
+	assert.Equal(t, int64(3), total, "a failed write of latency keeps it for the next")
+}
+
+// TestRefusalsAreLoggedAtWarn: a refusal before the body is read into events
+// is logged and kept without naming any.
+func TestRefusalsAreLoggedAtWarn(t *testing.T) {
+	h := newHarness(t, hmacSource("esp"))
+	resp := h.post(t, "/hooks/esp", "application/json", `{"id":"x"}`, "X-Sig", "00")
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	lines := h.logs.lines("webhooks: request not accepted")
+	require.Len(t, lines, 1)
+	assert.Contains(t, lines[0], "level=WARN")
+	assert.Contains(t, lines[0], "outcome=unauthorized")
+	assert.NotContains(t, lines[0], "event_ids")
+	require.Len(t, h.r.rejections, 1)
+	assert.Empty(t, h.r.rejections[0].EventIDs)
+	assert.Empty(t, h.r.rejections[0].RequestHash)
+}
+
+func sha(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
 }
 
 func TestStalledStoreBoundsTheBuffer(t *testing.T) {
@@ -637,7 +966,7 @@ func TestSegmentsPerWindow(t *testing.T) {
 	b := newBuffer(h.r, "esp")
 	h1 := time.Date(2026, 9, 24, 10, 59, 59, 0, time.UTC)
 	h2 := h1.Add(2 * time.Second)
-	err := b.write([]*batch{{events: []whevent.Event{{ReceivedAt: h1, EventID: "a"}, {ReceivedAt: h2, EventID: "b"}}}})
+	_, err := b.write([]*batch{{events: []whevent.Event{{ReceivedAt: h1, EventID: "a"}, {ReceivedAt: h2, EventID: "b"}}}})
 	require.NoError(t, err)
 	assert.Equal(t, 2, h.objects.count(), "events are filed under the UTC hour they were received in")
 
@@ -646,7 +975,7 @@ func TestSegmentsPerWindow(t *testing.T) {
 	h = newHarness(t, src)
 	b = newBuffer(h.r, "fast")
 	at := time.Date(2026, 9, 24, 10, 12, 0, 0, time.UTC)
-	err = b.write([]*batch{{events: []whevent.Event{
+	_, err = b.write([]*batch{{events: []whevent.Event{
 		{ReceivedAt: at, EventID: "a"},
 		{ReceivedAt: at.Add(2 * time.Minute), EventID: "b"},
 		{ReceivedAt: at.Add(4 * time.Minute), EventID: "c"},
@@ -691,7 +1020,7 @@ func TestRefreshAndStats(t *testing.T) {
 	assert.Equal(t, int64(1), h.recorder.counts["good/accepted"], "a failed write of counts keeps them for the next")
 
 	for range maxPendingRejections + 5 {
-		h.r.reject("good", OutcomeUnauthorized, "x")
+		h.r.reject(delivery{source: "good"}, OutcomeUnauthorized, "x")
 	}
 	assert.Len(t, h.r.rejections, maxPendingRejections)
 }
@@ -727,14 +1056,52 @@ func TestANewSourceIsServedOnItsFirstRequest(t *testing.T) {
 	h.sources.mu.Lock()
 	h.sources.err = errors.New("db down")
 	h.sources.mu.Unlock()
-	h.r.lastMiss = time.Time{}
 	assert.Equal(t, http.StatusNotFound, h.signed(t, "missing", `{}`).StatusCode)
 	h.sources.mu.Lock()
 	h.sources.err = nil
 	h.sources.mu.Unlock()
 	h.sources.set(hmacSource("late"), hmacSource("again"))
-	assert.Equal(t, http.StatusNotFound, h.signed(t, "again", `{"id":"y"}`).StatusCode,
-		"a second miss within a second does not read the sources again")
+	assert.Equal(t, http.StatusAccepted, h.signed(t, "again", `{"id":"y"}`).StatusCode,
+		"a second new source straight after another miss is served on its first request (#2108)")
+}
+
+// TestMissesShareSpacedReReads: a burst of requests for names no source has
+// is one read of the sources, a later miss waits out the interval and reads
+// again, and a source created between the two is served (#2108).
+func TestMissesShareSpacedReReads(t *testing.T) {
+	sources := &staticSources{}
+	r := New(Config{
+		Sources: sources, Objects: newObjects(), Recorder: newRecorder(),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Refresh: time.Hour, StatsFlush: time.Hour,
+		MissRefresh: 200 * time.Millisecond,
+	})
+	r.Start(context.Background())
+	t.Cleanup(r.Stop)
+	started := sources.readCount()
+
+	const interval = 200 * time.Millisecond
+	var wg sync.WaitGroup
+	burst := time.Now()
+	for i := range 50 {
+		wg.Go(func() {
+			_, ok := r.lookupFresh(context.Background(), fmt.Sprintf("invented-%d", i))
+			assert.False(t, ok)
+		})
+	}
+	wg.Wait()
+	reads := sources.readCount() - started
+	assert.LessOrEqual(t, reads, 1+int(time.Since(burst)/interval), "at most one read per interval, whatever the burst")
+
+	sources.set(hmacSource("second"))
+	before := sources.readCount()
+	_, ok := r.lookupFresh(context.Background(), "second")
+	assert.True(t, ok, "a source created after the last read is found by the next")
+	assert.Equal(t, before+1, sources.readCount(), "one more read finds it")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, ok = r.lookupFresh(ctx, "gone-sender")
+	assert.False(t, ok, "a request whose sender left does not wait for the read")
 }
 
 func TestConcurrentMissesWaitForTheReRead(t *testing.T) {
@@ -771,4 +1138,63 @@ func TestABatchLargerThanTheBufferIsRefusedOnce(t *testing.T) {
 		"a batch the buffer can never hold is not answered 503, which a sender retries forever")
 	assert.Contains(t, string(raw), "buffer_limit of 2")
 	assert.Empty(t, resp.Header.Get("Retry-After"))
+}
+
+// TestTheNextWindowIsRegisteredAhead: a source that wrote into the current
+// window has the next one queued within the lead of its start, half a short
+// window's length at most; a quiet or removed source does not (#2107).
+func TestTheNextWindowIsRegisteredAhead(t *testing.T) {
+	var now time.Time
+	fast := hmacSource("fast")
+	fast.Config.CompactEveryMinutes = 5
+	r := New(Config{
+		Sources: &staticSources{list: []whsource.Source{hmacSource("esp"), fast}}, RawWindows: &fakeRawWindows{},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return now },
+	})
+	require.NoError(t, r.refresh(context.Background()))
+	hour := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
+	queued := func() []string {
+		r.regMu.Lock()
+		defer r.regMu.Unlock()
+		out := make([]string, 0, len(r.regPending))
+		for k := range r.regPending {
+			out = append(out, k)
+		}
+		sort.Strings(out)
+		r.regPending = map[string]rawWindow{}
+		return out
+	}
+
+	now = hour.Add(10 * time.Second)
+	r.queueRawWindow("esp", hour)
+	r.queueRawWindow("esp", hour.Add(-time.Hour))
+	assert.Equal(t, []string{windowKey("esp", hour.Add(-time.Hour)), windowKey("esp", hour)}, queued())
+	assert.Equal(t, hour, r.latest["esp"], "an older window never replaces the latest")
+
+	now = hour.Add(30 * time.Minute)
+	r.queueNext()
+	assert.Empty(t, queued(), "the next window is not near yet")
+
+	now = hour.Add(59 * time.Minute)
+	r.queueNext()
+	assert.Equal(t, []string{windowKey("esp", hour.Add(time.Hour))}, queued(), "a minute ahead of an hourly window")
+
+	now = hour.Add(61 * time.Minute)
+	r.queueNext()
+	assert.Empty(t, queued(), "a source that wrote nothing in the current window has gone quiet")
+
+	five := hour.Add(10 * time.Minute)
+	r.queueRawWindow("fast", five)
+	_ = queued()
+	now = five.Add(3*time.Minute + 29*time.Second)
+	r.queueNext()
+	assert.Empty(t, queued(), "a five-minute window is registered a minute ahead, not sooner")
+	now = five.Add(4*time.Minute + 1*time.Second)
+	r.queueNext()
+	assert.Equal(t, []string{windowKey("fast", five.Add(5*time.Minute))}, queued())
+
+	r.latest["gone"] = hour
+	r.queueNext()
+	_, kept := r.latest["gone"]
+	assert.False(t, kept, "a source no longer served is forgotten")
 }

@@ -34,7 +34,7 @@ type Service interface {
 	Create(ctx context.Context, src whsource.Source) (whsource.Source, error)
 	Update(ctx context.Context, name string, u whadmin.Update) (whsource.Source, error)
 	Delete(ctx context.Context, name string) error
-	Overview(ctx context.Context, span, step time.Duration) (whadmin.Overview, error)
+	Overview(ctx context.Context, source string, span, step time.Duration) (whadmin.Overview, error)
 }
 
 // Config carries the service and the parent-owned helpers.

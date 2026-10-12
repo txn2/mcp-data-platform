@@ -52,6 +52,7 @@ const (
 	NameWebhookRetention    = "webhook_retention"
 	NameWebhookRefresh      = "webhook_source_refresh"
 	NameWebhookStats        = "webhook_stats_flush"
+	NameWebhookRawWindows   = "webhook_raw_windows"
 	NameMapFetch            = "map_fetch"
 	NameMapFetchRegion      = "map_fetch_region"
 	NameCallTaskHeartbeat   = "call_task_heartbeat"

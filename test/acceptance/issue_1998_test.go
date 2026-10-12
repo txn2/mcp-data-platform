@@ -59,9 +59,7 @@ func TestIssue1998_AnUnqualifiedViewNameResolves(t *testing.T) {
 		t.Fatalf("posting the event: %d %s", res.StatusCode, body)
 	}
 	view := "webhook_" + strings.ReplaceAll(source, "-", "_")
-	if n := issue1870Count(t, c, "SELECT count(*) FROM "+view); n != 1 {
-		t.Fatalf("SELECT count(*) FROM %s on %s counted %d, want 1", view, issue1870Conn, n)
-	}
+	issue1870AwaitCount(t, c, "SELECT count(*) FROM "+view, 1)
 }
 
 // TestIssue1998_AConnectionWithoutCatalogOrSchemaInheritsTheDefaults

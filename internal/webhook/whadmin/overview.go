@@ -70,16 +70,24 @@ type Overview struct {
 	Rejections []whstore.Rejection
 }
 
-// Overview reads every source's status in one pass: the sources, ordered by
-// name, each with its health; the request series over span before now in
-// buckets of step; and the newest rejections across all of them.
-func (s *Service) Overview(ctx context.Context, span, step time.Duration) (Overview, error) {
+// Overview reads the status of every source, or of the source named when
+// source is not empty, in one pass: the sources, ordered by name, each with
+// its health; the request series over span before now in buckets of step;
+// and the newest rejections within that span. A source named that does not
+// exist is ErrNotFound.
+func (s *Service) Overview(ctx context.Context, source string, span, step time.Duration) (Overview, error) {
 	list, err := s.List(ctx)
 	if err != nil {
 		return Overview{}, err
 	}
+	if source != "" {
+		list = only(list, source)
+		if len(list) == 0 {
+			return Overview{}, ErrNotFound
+		}
+	}
 	now := s.deps.Now().UTC()
-	ov, err := s.deps.Windows.Overview(ctx, now, span, step)
+	ov, err := s.deps.Windows.Overview(ctx, source, now, span, step)
 	if err != nil {
 		return Overview{}, fmt.Errorf("reading webhook overview: %w", err)
 	}
@@ -98,6 +106,16 @@ func (s *Service) Overview(ctx context.Context, span, step time.Duration) (Overv
 		out.Sources = append(out.Sources, SourceOverview{Source: src, Health: HealthOf(src, sum, now), Summary: sum})
 	}
 	return out, nil
+}
+
+// only returns the source of list named name, if there is one.
+func only(list []whsource.Source, name string) []whsource.Source {
+	for _, src := range list {
+		if src.Name == name {
+			return []whsource.Source{src}
+		}
+	}
+	return nil
 }
 
 // nonNil returns list, or an empty list in place of nil, so a response

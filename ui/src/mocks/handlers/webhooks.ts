@@ -18,14 +18,22 @@ const notFound = () =>
 
 export const webhookHandlers = [
   http.get(`${ADMIN_BASE}/webhooks/status`, ({ request }) => {
-    const range = new URL(request.url).searchParams.get("range") ?? "hour";
+    const params = new URL(request.url).searchParams;
+    const range = params.get("range") ?? "hour";
+    const source = params.get("source") ?? "";
     if (range !== "hour" && range !== "day") {
       return HttpResponse.json(
         { type: "about:blank", title: "Bad Request", status: 400, detail: "range must be hour or day" },
         { status: 400 },
       );
     }
-    return HttpResponse.json(mockWebhookOverview(sources, range as WebhookStatusRange));
+    if (source && !sources.some((s) => s.name === source)) {
+      return HttpResponse.json(
+        { type: "about:blank", title: "Not Found", status: 404, detail: "no webhook source has that name" },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json(mockWebhookOverview(sources, range as WebhookStatusRange, source));
   }),
 
   http.get(`${ADMIN_BASE}/webhooks/sources`, () => HttpResponse.json({ sources })),
@@ -61,6 +69,8 @@ export const webhookHandlers = [
       pending: 0,
       failing: 0,
       oldest_window: null,
+      ack_last_hour: { count: 0, p50_ms: 0, p99_ms: 0, max_ms: 0, slowest: null },
+      ack_last_day: { count: 0, p50_ms: 0, p99_ms: 0, max_ms: 0, slowest: null },
       rejections: [],
     };
     return HttpResponse.json(created, { status: 201 });

@@ -1,6 +1,10 @@
 package webhookapi
 
-import "time"
+import (
+	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/webhook/whstore"
+)
 
 // The shape of the overview of every source (#1979).
 
@@ -45,6 +49,10 @@ type SourceStatus struct {
 	Pending   int    `json:"pending"`
 	Failing   int    `json:"failing"`
 	LastError string `json:"last_error,omitempty"`
+	// AckLastHour and AckLastDay are how long the deliveries answered 202
+	// waited for that answer.
+	AckLastHour whstore.AckLatency `json:"ack_last_hour"`
+	AckLastDay  whstore.AckLatency `json:"ack_last_day"`
 }
 
 // VolumePoint is the number of requests of one source with one outcome in the
@@ -65,4 +73,9 @@ type SourceRejection struct {
 	Count   int64     `json:"count"`
 	Outcome string    `json:"outcome"`
 	Reason  string    `json:"reason"`
+	// RequestHash is the SHA-256 of the refused request's body and EventIDs
+	// the ids of its first 20 events, when its events were read; empty for a
+	// request refused before that.
+	RequestHash string   `json:"request_hash"`
+	EventIDs    []string `json:"event_ids"`
 }

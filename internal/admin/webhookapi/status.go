@@ -1,6 +1,7 @@
 package webhookapi
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -31,12 +32,14 @@ const defaultStatusRange = "hour"
 // status handles GET /api/v1/admin/webhooks/status.
 //
 // @Summary      Status of every webhook source
-// @Description  Returns every source's health and counts in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests across all sources, each with its source (never a body). Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts.
+// @Description  Returns every source's health, counts and acknowledgement latency in one response, the request volume by source and outcome over the range, and the newest 50 rejected requests of each outcome across all sources whose latest rejection falls within the range, each with its source (never a body). With `source`, every part of the response is that one source's. A rejected request whose events were read names them: `request_hash` is the SHA-256 of its body and `event_ids` the ids of its first 20 events. Latency is how long a delivery answered 202 waited for that answer, over the last hour and the last day; `p50_ms` and `p99_ms` are the upper bound of the bucket the percentile falls in (10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000 and 30000 ms), capped at `max_ms`, and `slowest` is the slowest delivery with how long it spent in the buffer, recording its window and writing its segment. Health is disabled for a source turned off, failing for one with a window whose last compaction failed, silent for an enabled source that received no event in the last 24 hours (including one that never received any), and receiving otherwise; when more than one applies the first in that order is reported. The volume series reads the per-minute request counts at or after `from`, the same bound as each source's `last_hour` (range=hour) or `last_day` (range=day), so the series sums to those counts.
 // @Tags         Webhooks
 // @Produce      json
-// @Param        range  query  string  false  "Span of the volume series: hour (one-minute buckets) or day (fifteen-minute buckets)"  Enums(hour, day)  default(hour)
+// @Param        range   query  string  false  "Span of the volume series and the rejections: hour (one-minute buckets) or day (fifteen-minute buckets)"  Enums(hour, day)  default(hour)
+// @Param        source  query  string  false  "Name of one source to report on; every source when absent"
 // @Success      200  {object}  StatusOverview
 // @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
 // @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -51,7 +54,11 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request) {
 		httpjson.WriteError(w, http.StatusBadRequest, "range must be hour or day")
 		return
 	}
-	ov, err := h.cfg.Service.Overview(r.Context(), rng.span, rng.step)
+	ov, err := h.cfg.Service.Overview(r.Context(), r.URL.Query().Get("source"), rng.span, rng.step)
+	if errors.Is(err, whadmin.ErrNotFound) {
+		httpjson.WriteError(w, http.StatusNotFound, "no webhook source has that name")
+		return
+	}
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, "reading webhook status failed")
 		return
@@ -77,6 +84,7 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 			LastEventAt: s.Summary.LastSegmentAt,
 			LastHour:    counts(s.Summary.LastHour), LastDay: counts(s.Summary.LastDay),
 			Pending: s.Summary.Pending, Failing: s.Summary.Failing, LastError: s.Summary.LastError,
+			AckLastHour: s.Summary.AckLastHour, AckLastDay: s.Summary.AckLastDay,
 		})
 	}
 	for _, p := range ov.Volume {
@@ -85,6 +93,7 @@ func overviewOf(rangeName string, ov whadmin.Overview) StatusOverview {
 	for _, r := range ov.Rejections {
 		out.Rejections = append(out.Rejections, SourceRejection{
 			Source: r.Source, At: r.At, FirstAt: r.FirstAt, Count: r.Count, Outcome: r.Outcome, Reason: r.Reason,
+			RequestHash: r.RequestHash, EventIDs: nonNilIDs(r.EventIDs),
 		})
 	}
 	return out
@@ -96,4 +105,12 @@ func counts(m map[string]int64) map[string]int64 {
 		return map[string]int64{}
 	}
 	return m
+}
+
+// nonNilIDs returns ids, or an empty list in place of nil.
+func nonNilIDs(ids []string) []string {
+	if ids == nil {
+		return []string{}
+	}
+	return ids
 }

@@ -76,15 +76,15 @@ func TestIssue1870_WindowsCompactOnceAndRetentionFollows(t *testing.T) {
 
 	reader := issue1870StartReader(t, c, burst)
 
-	// Criterion 9, first half: an event is returned as soon as its 202 is.
+	// Criterion 9, first half: an event is returned before its window is
+	// compacted. The source is new, so its first window is registered just
+	// after the 202 rather than ahead of it (#2107).
 	first := []map[string]any{{"id": "first-seen", "event": "delivered", "email": "a@example.com"}}
 	raw, _ := json.Marshal(first)
 	if res, text := issue1870Signed(t, burst, "whsec_burst", "application/json", raw); res.StatusCode != http.StatusAccepted {
 		t.Fatalf("the first event was answered %d: %s", res.StatusCode, text)
 	}
-	if n := issue1870Rows(t, c, burst, "event_id = 'first-seen'"); n != 1 {
-		t.Fatalf("an acknowledged event is returned %d times before its window is compacted, want 1", n)
-	}
+	issue1870AwaitRows(t, c, burst, "event_id = 'first-seen'", 1)
 
 	issue1870SendBurst(t, burst)
 	issue1870SendQuiet(t, quiet)
