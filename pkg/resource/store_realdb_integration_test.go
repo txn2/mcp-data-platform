@@ -176,7 +176,8 @@ func TestResourceStore_Thumbnails_RealDB(t *testing.T) {
 	pendingIDs := func() map[string]bool {
 		out, err := work.ClaimThumbnailWork(ctx, thumbnailTestRenderer, time.Minute, 100)
 		require.NoError(t, err)
-		_, err = db.ExecContext(ctx, `UPDATE resources SET thumbnail_claimed_until = NULL`)
+		_, err = db.ExecContext(ctx, `UPDATE resources SET thumbnail_claimed_until = NULL,
+			thumbnail_due_at = CASE WHEN thumbnail_claimed_until IS NULL THEN thumbnail_due_at ELSE now() END`)
 		require.NoError(t, err)
 		ids := map[string]bool{}
 		for _, r := range out {
@@ -315,7 +316,8 @@ func TestResourceStore_ThumbnailClaim_RealDB(t *testing.T) {
 		return ids
 	}
 	release := func() {
-		_, err := db.ExecContext(ctx, `UPDATE resources SET thumbnail_claimed_until = NULL`)
+		_, err := db.ExecContext(ctx, `UPDATE resources SET thumbnail_claimed_until = NULL,
+			thumbnail_due_at = CASE WHEN thumbnail_claimed_until IS NULL THEN thumbnail_due_at ELSE now() END`)
 		require.NoError(t, err)
 	}
 

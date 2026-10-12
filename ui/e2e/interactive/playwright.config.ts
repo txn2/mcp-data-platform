@@ -18,6 +18,9 @@ const PORT = Number(process.env["E2E_PORT"] ?? 5173);
 export default defineConfig({
   testDir: __dirname,
   testMatch: "*.spec.ts",
+  // Loads the portal once before any worker starts, so the dev server has
+  // compiled the app before a test's first page asks for it (#2077).
+  globalSetup: path.join(__dirname, "global-setup.ts"),
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {

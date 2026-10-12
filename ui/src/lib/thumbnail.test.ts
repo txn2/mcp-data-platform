@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { buildCSP, REF_PATH_PREFIX } from "@/components/renderers/JsxRenderer";
 import { buildJsxThumbnailHtml, injectCaptureScript } from "./thumbnail";
@@ -201,5 +201,82 @@ describe("the capture frame's reference watch, run", () => {
     const state = runWatcher();
     violation("img-src", "https://beacon.example.com/pixel.gif");
     expect(state.failed).toBe(0);
+  });
+});
+
+// A map draws its tiles after the document has loaded, so the frame waits for
+// every map the document created to report itself drawn before it says it is
+// ready, as the PDF print step does (#2087), and gives up on one whose tiles
+// never arrive.
+describe("the capture frame's map wait, run", () => {
+  type FakeMap = { idle: () => void };
+  const win = window as unknown as {
+    maplibregl?: { Map: new (o: unknown) => FakeMap };
+    __mapsDrawn?: unknown;
+    __mapCount?: unknown;
+    __thumbnailRefs?: unknown;
+  };
+
+  /** A runtime whose maps are drawn only when the test says so. */
+  function fakeRuntime() {
+    class Map {
+      private drawn = false;
+      private waiting: (() => void)[] = [];
+      loaded() {
+        return this.drawn;
+      }
+      areTilesLoaded() {
+        return this.drawn;
+      }
+      once(event: string, fn: () => void) {
+        if (event === "idle") this.waiting.push(fn);
+      }
+      idle() {
+        this.drawn = true;
+        this.waiting.splice(0).forEach((fn) => fn());
+      }
+    }
+    return { Map };
+  }
+
+  /** Runs the scripts injectCaptureScript puts in a map document. */
+  function capture(): { map: FakeMap; posted: () => number } {
+    const html = injectCaptureScript("<div id='map'></div>", "ast-map");
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
+    new Function(scripts[0] ?? "")();
+    win.maplibregl = fakeRuntime() as unknown as typeof win.maplibregl;
+    const map = new win.maplibregl!.Map({ container: "map" });
+    const post = vi.spyOn(window, "postMessage").mockImplementation(() => undefined);
+    new Function(scripts[scripts.length - 1] ?? "")();
+    return { map, posted: () => post.mock.calls.filter((c) => (c[0] as { type?: string }).type === "thumbnail-ready").length };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    // The tracker defines maplibregl as a configurable accessor.
+    delete win.maplibregl;
+    delete win.__mapsDrawn;
+    delete win.__mapCount;
+    delete win.__thumbnailRefs;
+  });
+
+  it("is not ready until the map has drawn", async () => {
+    vi.useFakeTimers();
+    const { map, posted } = capture();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(posted()).toBe(0);
+    map.idle();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(posted()).toBe(1);
+  });
+
+  it("is ready at its bound when the map never draws", async () => {
+    vi.useFakeTimers();
+    const { posted } = capture();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(posted()).toBe(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(posted()).toBe(1);
   });
 });

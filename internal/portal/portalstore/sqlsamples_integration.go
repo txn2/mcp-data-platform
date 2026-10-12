@@ -83,6 +83,7 @@ func SQLSamples() map[string]string {
 	// subquery, with the listing projection RETURNED.
 	thumbnailClaim, _, _ := buildThumbnailClaim(1, time.Minute, 25)
 	thumbnailBacklog, _, _ := buildThumbnailBacklog(1)
+	thumbnailClear, _, _ := buildThumbnailClear(1, 1000)
 	// A managed script run's own inventory joins content_producers rather than
 	// reading either identifier on the row (#1579).
 	listFilterScript := portaldomain.AssetFilter{
@@ -132,6 +133,8 @@ func SQLSamples() map[string]string {
 		"buildCollectionThumbnailClaim":            buildCollectionThumbnailClaim(),
 		"buildThumbnailBacklog":                    thumbnailBacklog,
 		"collectionThumbnailBacklog":               collectionThumbnailBacklog(),
+		"buildThumbnailClear":                      thumbnailClear,
+		"buildCollectionThumbnailClear":            buildCollectionThumbnailClear(),
 		"recordCollectionThumbnailQuery":           recordCollectionThumbnailQuery,
 		"buildAssetCount":                          assetCount,
 		"buildAssetCount/idOnly":                   assetCountIDOnly,

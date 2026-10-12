@@ -62,7 +62,8 @@ func (h *hostState) callTool(tool string, args map[string]any) (map[string]any, 
 
 // callToolWith is callTool with what the binding asked of it.
 func (h *hostState) callToolWith(tool string, args map[string]any, opts callOpts) (map[string]any, error) {
-	stmt, err := scriptstmt.Begin(tool, args, h.opts.MaxStatementTimeout, h.remaining())
+	bounds := scriptstmt.Bounds{Ceiling: h.opts.MaxStatementTimeout, Remaining: h.remaining(), Clamp: h.opts.ClampStatementTimeout, Log: h.log.Print}
+	stmt, err := scriptstmt.BeginRun(tool, args, bounds)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // names the tool; the binding names itself around it
 	}

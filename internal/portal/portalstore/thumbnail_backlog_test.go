@@ -36,7 +36,7 @@ func TestAssetThumbnailBacklog(t *testing.T) {
 // the claim read one mosaic source and one owed condition (#1897).
 func TestCollectionThumbnailBacklog_SharesTheClaimsConditions(t *testing.T) {
 	claim, backlog := buildCollectionThumbnailClaim(), collectionThumbnailBacklog()
-	for _, part := range []string{collectionMosaicSources(), collectionMosaicOwed} {
+	for _, part := range []string{collectionMosaicOwed, "WITH member_tiles AS"} {
 		assert.Contains(t, claim, part)
 		assert.Contains(t, backlog, part)
 	}

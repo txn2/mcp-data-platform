@@ -117,8 +117,9 @@ type StatementTiming struct {
 	Tool      string `json:"tool"`
 	ElapsedMS int64  `json:"elapsed_ms"`
 	LimitMS   int64  `json:"limit_ms"`
-	// LimitSource is where the limit came from: default, requested, or
-	// run_remaining when the run's deadline was nearer.
+	// LimitSource is where the limit came from: default, requested,
+	// run_remaining when the run's deadline was nearer, or clamped when a
+	// version saved before the ceiling was enforced asked for more (#2085).
 	LimitSource string `json:"limit_source"`
 	// Share is ElapsedMS over LimitMS, to two decimals. ElapsedMS spans every
 	// attempt of a read the host issued again, so a share over 1 without

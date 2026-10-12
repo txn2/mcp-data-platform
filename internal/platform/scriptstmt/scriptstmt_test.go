@@ -144,3 +144,70 @@ func TestSlowest(t *testing.T) {
 	assert.True(t, IsStatementTool(ToolQuery))
 	assert.False(t, IsStatementTool("trino_export"))
 }
+
+// TestClampTo is #2085: only a whole number above the ceiling is lowered,
+// to the ceiling, and the request is returned; everything else is left for
+// Decide.
+func TestClampTo(t *testing.T) {
+	args := map[string]any{ArgTimeout: float64(600)}
+	assert.Equal(t, 600, ClampTo(args, 0), "a zero ceiling is the tools' cap")
+	assert.Equal(t, 300, args[ArgTimeout])
+
+	args = map[string]any{ArgTimeout: 120}
+	assert.Equal(t, 120, ClampTo(args, time.Minute))
+	assert.Equal(t, 60, args[ArgTimeout])
+
+	for _, v := range []any{nil, 60, 30, "600", 1.5} {
+		args = map[string]any{ArgTimeout: v}
+		assert.Zero(t, ClampTo(args, time.Minute), "%v", v)
+		assert.Equal(t, v, args[ArgTimeout], "%v is left as it was", v)
+	}
+}
+
+func TestMarkClamped(t *testing.T) {
+	var none *Statement
+	none.MarkClamped()
+
+	stmt, err := Begin(ToolQuery, map[string]any{ArgTimeout: 60}, ToolMaxTimeout, time.Hour)
+	require.NoError(t, err)
+	stmt.MarkClamped()
+	assert.Equal(t, LimitClamped, stmt.End(nil, nil).LimitSource)
+
+	stmt, err = Begin(ToolQuery, map[string]any{}, ToolMaxTimeout, time.Hour)
+	require.NoError(t, err)
+	stmt.MarkClamped()
+	assert.Equal(t, LimitDefault, stmt.End(nil, nil).LimitSource, "only a requested limit was lowered")
+}
+
+// TestBeginRun is #2085's host decision: only a run of a version saved
+// before the ceiling, and only a statement tool, lowers a request above the
+// ceiling, says so through log, and reports the limit as clamped; every other
+// call is Begin's.
+func TestBeginRun(t *testing.T) {
+	var lines []string
+	log := func(s string) { lines = append(lines, s) }
+
+	args := map[string]any{ArgTimeout: 600}
+	stmt, err := BeginRun(ToolExecute, args, Bounds{Ceiling: ToolMaxTimeout, Remaining: time.Hour, Clamp: true, Log: log})
+	require.NoError(t, err)
+	assert.Equal(t, 300, args[ArgTimeout])
+	assert.Equal(t, LimitClamped, stmt.End(nil, nil).LimitSource)
+	require.Len(t, lines, 1)
+	assert.Contains(t, lines[0], "WARN statement timeout: trino_execute asked for timeout_seconds=600; it ran at 300")
+
+	lines = nil
+	_, err = BeginRun(ToolExecute, map[string]any{ArgTimeout: 600}, Bounds{Ceiling: ToolMaxTimeout, Remaining: time.Hour, Log: log})
+	require.Error(t, err, "a version saved since is refused")
+	assert.Empty(t, lines)
+
+	stmt, err = BeginRun(ToolQuery, map[string]any{ArgTimeout: 60}, Bounds{Ceiling: ToolMaxTimeout, Remaining: time.Hour, Clamp: true, Log: log})
+	require.NoError(t, err)
+	assert.Equal(t, LimitRequested, stmt.End(nil, nil).LimitSource, "a request the ceiling allows is as asked")
+	stmt, err = BeginRun("api_export", map[string]any{ArgTimeout: 600}, Bounds{Ceiling: ToolMaxTimeout, Remaining: time.Hour, Clamp: true, Log: log})
+	require.NoError(t, err)
+	assert.Nil(t, stmt, "a tool that runs no statement is left alone")
+	assert.Empty(t, lines)
+
+	_, err = BeginRun(ToolQuery, map[string]any{ArgTimeout: 600}, Bounds{Ceiling: ToolMaxTimeout, Remaining: time.Hour, Clamp: true})
+	require.NoError(t, err, "a clamp with nowhere to log still runs")
+}

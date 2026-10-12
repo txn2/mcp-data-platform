@@ -246,7 +246,9 @@ page and the empty-state color as the skeleton above does.
 ## What the thumbnail and the PDF show
 
 The thumbnail is the document drawn by the platform, from the same archive,
-at the view the map opens on, light and dark. Export PDF prints the document
+at the view the map opens on, light and dark, once every map on it has
+finished drawing (at most 15 seconds after its other files load, so a map
+whose tiles never arrive still gets a thumbnail). Export PDF prints the document
 in the same renderer once every map on it has finished drawing, on one page
 the size of the screen layout. A map that fits its view to the data in the
 `load` handler has a thumbnail and a PDF showing the data.

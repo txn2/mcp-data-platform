@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { usePortalChannels, usePublishToChannel, type PortalChannel } from "@/api/portal/hooks";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,11 @@ import { Textarea } from "@/components/ui/textarea";
 // asset's name, its content, its preview image and a link to it, through the
 // same notify tool an agent asking for the post would call. The channels
 // offered are the ones the signed-in person reaches.
+//
+// A post that was accepted replaces the form with the answer and leaves only
+// Close (#2091): every click on Post is another message in the channel, so
+// posting the asset again takes reopening the dialog. A second click while a
+// post is on its way is ignored.
 export function PostToChannelDialog({
   assetId,
   open,
@@ -32,8 +37,12 @@ export function PostToChannelDialog({
   const [channel, setChannel] = useState("");
   const [message, setMessage] = useState("");
   const [outcome, setOutcome] = useState<{ ok: boolean; detail: string } | null>(null);
+  // Set from the click that starts a post until it is answered: two clicks
+  // can land before the pending state re-renders the button disabled.
+  const sending = useRef(false);
 
   const channels = data?.channels ?? [];
+  const posted = outcome?.ok === true;
 
   function close(next: boolean) {
     if (!next) {
@@ -45,12 +54,17 @@ export function PostToChannelDialog({
   }
 
   function submit() {
+    if (sending.current) return;
+    sending.current = true;
     setOutcome(null);
     publish.mutate(
       { channel, assetId, message },
       {
         onSuccess: (res) => setOutcome({ ok: !res.suppressed && res.queued > 0, detail: res.detail }),
         onError: (err) => setOutcome({ ok: false, detail: err instanceof Error ? err.message : "The post failed" }),
+        onSettled: () => {
+          sending.current = false;
+        },
       },
     );
   }
@@ -64,28 +78,57 @@ export function PostToChannelDialog({
             The channel receives this asset's name, its content, its preview and a link back to it.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody
-          isLoading={isLoading}
-          loadFailed={Boolean(loadError)}
-          note={data?.note}
-          channels={channels}
-          channel={channel}
-          onChannel={setChannel}
-          message={message}
-          onMessage={setMessage}
-        />
+        {!posted && (
+          <DialogBody
+            isLoading={isLoading}
+            loadFailed={Boolean(loadError)}
+            note={data?.note}
+            channels={channels}
+            channel={channel}
+            onChannel={setChannel}
+            message={message}
+            onMessage={setMessage}
+          />
+        )}
         {outcome && <Outcome ok={outcome.ok} detail={outcome.detail} />}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => close(false)}>
-            Close
-          </Button>
-          <Button onClick={submit} disabled={!channel || publish.isPending || channels.length === 0}>
-            <Send />
-            {publish.isPending ? "Posting…" : "Post"}
-          </Button>
-        </DialogFooter>
+        <Footer
+          posted={posted}
+          pending={publish.isPending}
+          canPost={Boolean(channel) && channels.length > 0}
+          onClose={() => close(false)}
+          onPost={submit}
+        />
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Footer is Close, and Post until a post is accepted.
+function Footer({
+  posted,
+  pending,
+  canPost,
+  onClose,
+  onPost,
+}: {
+  posted: boolean;
+  pending: boolean;
+  canPost: boolean;
+  onClose: () => void;
+  onPost: () => void;
+}) {
+  return (
+    <DialogFooter>
+      <Button variant="outline" onClick={onClose}>
+        Close
+      </Button>
+      {!posted && (
+        <Button onClick={onPost} disabled={!canPost || pending}>
+          <Send />
+          {pending ? "Posting…" : "Post"}
+        </Button>
+      )}
+    </DialogFooter>
   );
 }
 

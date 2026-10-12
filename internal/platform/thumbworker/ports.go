@@ -30,6 +30,8 @@ type Blobs interface {
 
 // AssetWork is what the worker asks of the asset store.
 type AssetWork interface {
+	SweepThumbnailWork(ctx context.Context, renderer int) (int64, error)
+	ClearThumbnailWork(ctx context.Context, renderer int, limit int) (int64, error)
 	ClaimThumbnailWork(ctx context.Context, renderer int, lease time.Duration, limit int) ([]portaldomain.Asset, error)
 	HoldThumbnailWork(ctx context.Context, id string, hold time.Duration, attempts int) error
 	Update(ctx context.Context, id string, u portaldomain.AssetUpdate) error
@@ -38,6 +40,8 @@ type AssetWork interface {
 
 // CollectionWork is what the worker asks of the collection store.
 type CollectionWork interface {
+	SweepCollectionThumbnailWork(ctx context.Context) (int64, error)
+	ClearCollectionThumbnailWork(ctx context.Context, limit int) (int64, error)
 	ClaimCollectionThumbnailWork(ctx context.Context, lease time.Duration, limit int) ([]portaldomain.CollectionThumbnailWork, error)
 	RecordCollectionThumbnail(ctx context.Context, id, key, source string) error
 	RecordCollectionThumbnailFailure(ctx context.Context, id, source, reason string) error

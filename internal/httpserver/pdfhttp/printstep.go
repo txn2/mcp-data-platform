@@ -27,6 +27,11 @@ import (
 // any transition done), bounded so a map whose tiles never arrive still
 // prints, and prints it on one page the size of its screen layout.
 //
+// The map tracker between the map-tracker markers is the thumbnail capture's
+// too (ui/src/lib/thumbnail.ts), so a thumbnail and a PDF wait for a map the
+// same way (#2087); TestMapTrackerIsTheThumbnailsToo holds the two copies
+// together.
+//
 // Either way the step resolves window.__pdfReady, which Ready waits on.
 const PrintStep = `<script>(function(){
 var done;
@@ -46,6 +51,8 @@ Object.defineProperty(window,"Reveal",{
     }
   }
 });
+/*map-tracker:start*/
+(function(){
 var maps=[];
 var maplibre;
 Object.defineProperty(window,"maplibregl",{
@@ -54,11 +61,11 @@ Object.defineProperty(window,"maplibregl",{
   get:function(){return maplibre;},
   set:function(value){
     maplibre=value;
-    if(value&&typeof value.Map==="function"&&!value.Map.__pdfTracked){
+    if(value&&typeof value.Map==="function"&&!value.Map.__tracked){
       var Base=value.Map;
       var Tracked=function(options){var m=new Base(options);maps.push(m);return m;};
       Tracked.prototype=Base.prototype;
-      Tracked.__pdfTracked=true;
+      Tracked.__tracked=true;
       value.Map=Tracked;
     }
   }
@@ -69,6 +76,14 @@ function drawn(m){
     m.once("idle",function(){resolve();});
   });
 }
+window.__mapCount=function(){return maps.length;};
+window.__mapsDrawn=function(bound){
+  if(!maps.length)return Promise.resolve();
+  var timeout=new Promise(function(resolve){setTimeout(resolve,bound);});
+  return Promise.race([Promise.all(maps.map(drawn)),timeout]);
+};
+})();
+/*map-tracker:end*/
 // screenPage prints the document on one page the size of its screen layout.
 // A map is drawn for the width it was laid out at; printed on a narrower
 // paper size its canvas would be cut at the page's edge.
@@ -82,9 +97,8 @@ window.addEventListener("load",function(){
   if(hooked)return;
   var fonts=document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve();
   var settled=fonts.then(function(){},function(){});
-  if(maps.length){
-    var bound=new Promise(function(resolve){setTimeout(resolve,20000);});
-    settled=settled.then(function(){return Promise.race([Promise.all(maps.map(drawn)),bound]);}).then(screenPage);
+  if(window.__mapCount()){
+    settled=settled.then(function(){return window.__mapsDrawn(20000);}).then(screenPage);
   }
   settled.then(function(){done("");});
 });

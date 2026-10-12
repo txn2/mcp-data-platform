@@ -103,6 +103,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 
 	opts := scriptrun.RunLimits(r.limits)
 	opts.Source = v.Source
+	opts.ClampStatementTimeout = v.PredatesStatementCap
 	opts.Name = sc.Name
 	opts.RunID = run.ID
 	// The fire time is what the run was created to compute against, not the

@@ -35496,7 +35496,7 @@
                     "type": "integer"
                 },
                 "limit_source": {
-                    "description": "LimitSource is where the limit came from: default, requested, or\nrun_remaining when the run's deadline was nearer.",
+                    "description": "LimitSource is where the limit came from: default, requested,\nrun_remaining when the run's deadline was nearer, or clamped when a\nversion saved before the ceiling was enforced asked for more (#2085).",
                     "type": "string"
                 },
                 "query_id": {

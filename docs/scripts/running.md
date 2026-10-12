@@ -2456,6 +2456,13 @@ def main():
   unless the deployment lowers it. A request above it fails the run and names
   the ceiling and the key; it is never cut to fit. A ceiling under 120 lowers
   the default as well.
+- A version saved before the ceiling was enforced (every version that existed
+  when the platform was upgraded past v1.143.x) runs a request above it at the
+  ceiling instead of failing, as mcp-trino did when the version was saved. The
+  run's log has a `WARN statement timeout:` line naming the tool and the
+  seconds asked for, and `slowest_statement.limit_source` is `clamped`. A
+  version whose description or owner changed keeps this; a new source is held
+  to the ceiling.
 - A statement never runs past the time left in the run: the host gives it the
   run's remaining time less five seconds when that is shorter, so the statement
   is stopped, and its cancel confirmed, before the run is. A draft's 60 seconds
@@ -2479,7 +2486,7 @@ Trino stopped the statement at its 120s limit after 121.4s (statement timeout, q
   `cancel_confirmed`) and `query_id`.
 - `get_run` and a `run_draft` answer report `slowest_statement`: the tool, its
   `elapsed_ms`, the `limit_ms` it ran under and where that came from
-  (`limit_source`: `default`, `requested` or `run_remaining`), its
+  (`limit_source`: `default`, `requested`, `run_remaining` or `clamped`), its
   `share_of_limit`, and `timed_out`. A statement whose share is close to 1 is
   close to failing the run.
 

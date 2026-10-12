@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 
 vi.mock("@/api/portal/hooks", () => ({
   usePortalChannels: vi.fn(),
@@ -52,6 +52,61 @@ describe("PostToChannelDialog", () => {
 
     expect(mutate).toHaveBeenCalledWith({ channel: "ops-alerts", assetId: "a1", message: "This week" }, expect.anything());
     expect(screen.getByRole("status").textContent).toContain("accepted for delivery");
+  });
+
+  // #2091: an accepted post leaves only Close, so posting again takes
+  // reopening the dialog, and reopening shows the form.
+  it("leaves only Close once a post is accepted", () => {
+    mutate.mockImplementation((_input, opts: { onSuccess: (r: unknown) => void }) =>
+      opts.onSuccess({ channel: "ops-alerts", queued: 1, detail: 'accepted for delivery to "ops-alerts"' }),
+    );
+    const { rerender } = render(<PostToChannelDialog assetId="a1" open onOpenChange={vi.fn()} />);
+    chooseChannel("ops-alerts");
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+
+    expect(screen.queryByRole("button", { name: /^post$/i })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Channel" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("accepted for delivery");
+    expect(mutate).toHaveBeenCalledTimes(1);
+
+    const footerClose = screen.getAllByRole("button", { name: /close/i }).find((b) => b.textContent === "Close");
+    fireEvent.click(footerClose!);
+    rerender(<PostToChannelDialog assetId="a1" open onOpenChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /^post$/i })).toBeEnabled();
+  });
+
+  // Two clicks can land before the pending state disables the button.
+  it("posts once for two clicks in quick succession", () => {
+    let answer: ((r: unknown) => void) | undefined;
+    let settle: (() => void) | undefined;
+    mutate.mockImplementation((_input, opts: { onSuccess: (r: unknown) => void; onSettled: () => void }) => {
+      answer = opts.onSuccess;
+      settle = opts.onSettled;
+    });
+    render(<PostToChannelDialog assetId="a1" open onOpenChange={vi.fn()} />);
+    chooseChannel("ops-alerts");
+    const post = screen.getByRole("button", { name: /^post$/i });
+    fireEvent.click(post);
+    fireEvent.click(post);
+    expect(mutate).toHaveBeenCalledTimes(1);
+    act(() => {
+      answer?.({ channel: "ops-alerts", queued: 1, detail: 'accepted for delivery to "ops-alerts"' });
+      settle?.();
+    });
+    expect(screen.queryByRole("button", { name: /^post$/i })).toBeNull();
+  });
+
+  // A post the channel held back is not a post: the form stays to try again.
+  it("keeps the form after a post that was not accepted", () => {
+    mutate.mockImplementation((_input, opts: { onSuccess: (r: unknown) => void; onSettled: () => void }) => {
+      opts.onSuccess({ channel: "ops-alerts", queued: 0, suppressed: true, detail: "held back: the channel's hourly limit" });
+      opts.onSettled();
+    });
+    render(<PostToChannelDialog assetId="a1" open onOpenChange={vi.fn()} />);
+    chooseChannel("ops-alerts");
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    expect(mutate).toHaveBeenCalledTimes(2);
   });
 
   it("reports a refusal in the tool's words", () => {

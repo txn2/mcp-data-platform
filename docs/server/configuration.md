@@ -1712,7 +1712,7 @@ thumbnails:
   render_timeout: 45s                   # one variant of one document
   batch: 1                              # rows of each kind one pass claims; defaults to concurrency
   lease: 4m10s                          # default worked out from batch, concurrency and render_timeout
-  poll: 5s                              # idle wait between passes
+  poll: 5s                              # first idle wait; doubles to 1m while idle, woken by new work
   max_attempts: 5                       # tries before a document that never finishes is recorded
   retry_backoff: 1m                     # hold after the first unfinished try; x4 each try, at most 1h
   max_source_bytes: 1048576             # largest document a tile is drawn from (1 MB)
@@ -1727,7 +1727,7 @@ thumbnails:
 | `render_timeout` | duration | `45s` | How long one variant of one document may take. A document that has not reported itself drawn by then is recorded as not drawable. |
 | `batch` | int | `concurrency` | How many assets, resources and collections one pass claims of each kind. A claimed row is held from every other replica while it waits for the rows ahead of it, so the default claims only what is drawn next. |
 | `lease` | duration | worked out | How long a claimed row is held. The default outlasts drawing the batch (per round of `concurrency` rows: the file's read, then for each of two variants `render_timeout`, the page's teardown and the tile's write) plus a minute; `4m10s` with every other default. A lease shorter than the batch can take is refused at startup. |
-| `poll` | duration | `5s` | How long an idle worker waits before asking for work again. |
+| `poll` | duration | `5s` | How long an idle worker first waits before asking for work again. The wait doubles while nothing is found, up to a minute (or `poll` when longer), and a write that makes a document owed wakes every replica at once over PostgreSQL `LISTEN`, so a new upload is drawn without waiting for the poll. |
 | `max_attempts` | int | `5` | How many times a document is tried before one whose attempt never finishes is recorded as not drawable. |
 | `retry_backoff` | duration | `1m` | How long a document is held back after its first unfinished attempt; four times longer after each one after, at most an hour. |
 | `max_source_bytes` | int | `1048576` (1 MB) | The largest document a tile is drawn from, for every family but the three below. The renderer loads the whole document to draw it. |
@@ -1744,6 +1744,8 @@ With no renderer answering, the platform starts and serves normally: files keep 
 Every claim is charged to the row as an attempt (#1868). An attempt that does not finish -- the renderer stops answering or closes the page while the document is loaded, the stored file cannot be read (a file whose object is gone), or the tile cannot be written -- records nothing and holds the document back for `retry_backoff`, then four times longer each time. At `max_attempts` the document is recorded as not drawable with the last reason, and leaves the queue until it changes or its tile is asked for again, so one document cannot hold the renderer or the rest of the queue. Before each document the worker asks the renderer whether it answers; a renderer that does not is not the next document's doing, so the rows not yet tried are handed back with their attempt returned. The warning that says the renderer stopped answering names the last document whose attempt did not finish.
 
 A collection's mosaic is held to the same rule, and one that cannot be composed from its members' tiles is not tried again until a member is added, removed or redrawn.
+
+Asking for work costs the same in a library of any size (#2084). Each asset, resource and collection row carries `thumbnail_due_at`: a trigger sets it on every write the renderer did not make, and on a collection when a section, an item or a member's tile changes. The worker reads only due rows, through a partial index that holds nothing else, takes the ones owed nothing out of the due set a thousand at a time, and claims from the rest; a claim or a hold writes its end time there, so a row comes due again when it passes. With 500,000 resources and 500,000 assets and nothing owed, an idle claim runs in about 2 ms and the backlog count in under 1 ms, reading one index page and no table row. When the rule for what is owed changes (a new renderer generation, a changed `max_source_bytes` or `large_source_bytes`, a newly drawable type), the first replica to start marks every row due once, 2,000 rows per statement, under an advisory lock, and records the rule in `thumbnail_sweeps`, so a restart does not do it again; 500,000 rows took 17 seconds.
 
 Animations are stopped for the picture. Every page is loaded with `prefers-reduced-motion: reduce` and its animation timeline stopped, in every frame; just before the capture an animation that ends is shown ended and one that never ends is removed. A document with an infinite CSS animation -- which, painted in software, never lets the renderer go idle -- draws in the time any other does.
 

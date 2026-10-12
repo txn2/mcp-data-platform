@@ -73,6 +73,7 @@ func SQLSamples() map[string]string {
 	// RETURNED. The tile writes are the statements the store runs, not copies.
 	claim, _ := buildThumbnailClaim(1, time.Minute, 25)
 	backlog, _ := buildThumbnailBacklog(1)
+	clear, _ := buildThumbnailClear(1, 1000)
 	foldersAll, _ := buildFolders(Filter{AllScopes: true})
 	// A narrowed facet reads no stored folder, so the second arm is FALSE and
 	// binds nothing (#1872).
@@ -104,6 +105,7 @@ func SQLSamples() map[string]string {
 		"buildFolders":            folders,
 		"buildThumbnailClaim":     claim,
 		"buildThumbnailBacklog":   backlog,
+		"buildThumbnailClear":     clear,
 		"setThumbnailLight":       setThumbnailQuery(ThumbnailVariantLight),
 		"setThumbnailDark":        setThumbnailQuery(ThumbnailVariantDark),
 		"clearThumbnailLight":     clearThumbnailQuery(ThumbnailVariantLight),

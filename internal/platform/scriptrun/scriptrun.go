@@ -277,6 +277,8 @@ type Options struct {
 	MaxMemoryBytes int64
 	// MaxStatementTimeout bounds timeout_seconds (#2073); zero is 300s.
 	MaxStatementTimeout time.Duration
+	// ClampStatementTimeout runs a request above it at it (scriptstmt.Bounds).
+	ClampStatementTimeout bool
 
 	// OnCall, when not nil, is told every tool call a host binding made and
 	// the answer the binding was finally given, after any pacing and retry:

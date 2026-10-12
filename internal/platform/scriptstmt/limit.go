@@ -77,11 +77,14 @@ type Limit struct {
 	Source string
 }
 
-// Where a statement's limit came from.
+// Where a statement's limit came from. LimitClamped is a request above the
+// ceiling run at the ceiling, which only a version saved before the ceiling
+// was enforced gets (#2085).
 const (
 	LimitDefault      = "default"
 	LimitRequested    = "requested"
 	LimitRunRemaining = "run_remaining"
+	LimitClamped      = "clamped"
 )
 
 // StatementLimit decides the timeout a statement runs under: the requested
@@ -109,6 +112,25 @@ func StatementLimit(requested int, ceiling, remaining time.Duration) (Limit, err
 		limit = Limit{Timeout: max(left, time.Second), Source: LimitRunRemaining}
 	}
 	return limit, nil
+}
+
+// ClampTo lowers a timeout_seconds in args above ceiling to the ceiling and
+// returns the seconds that were asked for, zero when it lowered nothing (an
+// absent, unreadable or allowed value is left for Decide). It is applied only
+// to a run of a version saved before the ceiling was enforced (#2085): such a
+// version ran for as long as it existed with mcp-trino cutting the request to
+// 300 seconds, so it keeps running at the ceiling instead of failing every run
+// after an upgrade. A new version is refused above the ceiling by Decide.
+func ClampTo(args map[string]any, ceiling time.Duration) int {
+	if ceiling <= 0 {
+		ceiling = ToolMaxTimeout
+	}
+	requested, err := requestedSeconds(args[ArgTimeout])
+	if err != nil || time.Duration(requested)*time.Second <= ceiling {
+		return 0
+	}
+	args[ArgTimeout] = int(ceiling / time.Second)
+	return requested
 }
 
 // Seconds is the limit as the tools' timeout_seconds, rounded up so a

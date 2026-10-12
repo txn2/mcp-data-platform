@@ -23,6 +23,7 @@ var versionSelectColumns = []string{
 	"id", "script_id", "version", "display_name", "description", "category",
 	"source_code", "params", "tags", "author", "author_roles", "status",
 	"created_at", "change_summary", "change_agreed_by", "change_agreed_at", "tests",
+	"predates_statement_cap",
 }
 
 // versionRow returns one full version row in versionColumns order.
@@ -30,7 +31,7 @@ func versionRow(version int, source, status string, paramsJSON []byte) []driver.
 	return []driver.Value{
 		"sver_1", "script_1", version, "Daily", "A daily report", "",
 		source, paramsJSON, pq.Array([]string{}), "jane@example.com",
-		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil, nil,
+		pq.Array([]string{"analyst"}), status, rowTime, "", "", nil, nil, false,
 	}
 }
 
@@ -246,7 +247,7 @@ func TestGetVersionByID(t *testing.T) {
 func TestGetVersion_ReadsTheTestReport(t *testing.T) {
 	s, mock := newMock(t)
 	row := versionRow(1, "print(1)", script.VersionStatusApplied, emptyParams(t))
-	row[len(row)-1] = []byte(`{"tests":[{"name":"test_a","passed":true,"line":4}],"passed":1,"failed":0,` +
+	row[len(row)-2] = []byte(`{"tests":[{"name":"test_a","passed":true,"line":4}],"passed":1,"failed":0,` +
 		`"coverage":{"statements":10,"covered":9,"percent":90,"missed_lines":[7]}}`)
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
 		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
@@ -259,7 +260,7 @@ func TestGetVersion_ReadsTheTestReport(t *testing.T) {
 		Coverage: testreport.Coverage{Statements: 10, Covered: 9, Percent: 90, MissedLines: []int{7}},
 	}, got.Tests)
 
-	row[len(row)-1] = []byte(`{bad`)
+	row[len(row)-2] = []byte(`{bad`)
 	mock.ExpectQuery(regexp.QuoteMeta("WHERE script_id = $1 AND version = $2")).
 		WillReturnRows(sqlmock.NewRows(versionSelectColumns).AddRow(row...))
 	_, err = s.GetVersion(context.Background(), "script_1", 1)

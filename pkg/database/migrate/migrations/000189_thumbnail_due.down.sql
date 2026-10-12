@@ -1,0 +1,18 @@
+DROP TABLE IF EXISTS thumbnail_sweeps;
+DROP TRIGGER IF EXISTS trg_portal_assets_member_tile ON portal_assets;
+DROP TRIGGER IF EXISTS trg_collection_items_thumbnail_due ON portal_collection_items;
+DROP TRIGGER IF EXISTS trg_collection_sections_thumbnail_due ON portal_collection_sections;
+DROP TRIGGER IF EXISTS trg_portal_collections_thumbnail_due ON portal_collections;
+DROP TRIGGER IF EXISTS trg_portal_assets_thumbnail_due ON portal_assets;
+DROP TRIGGER IF EXISTS trg_resources_thumbnail_due ON resources;
+DROP FUNCTION IF EXISTS thumbnail_member_changed();
+DROP FUNCTION IF EXISTS thumbnail_item_changed();
+DROP FUNCTION IF EXISTS thumbnail_section_changed();
+DROP FUNCTION IF EXISTS thumbnail_mark_collections_due(TEXT[]);
+DROP FUNCTION IF EXISTS thumbnail_mark_due();
+DROP INDEX IF EXISTS idx_portal_collections_thumbnail_due;
+DROP INDEX IF EXISTS idx_portal_assets_thumbnail_due;
+DROP INDEX IF EXISTS idx_resources_thumbnail_due;
+ALTER TABLE portal_collections DROP COLUMN IF EXISTS thumbnail_due_at;
+ALTER TABLE portal_assets DROP COLUMN IF EXISTS thumbnail_due_at;
+ALTER TABLE resources DROP COLUMN IF EXISTS thumbnail_due_at;
