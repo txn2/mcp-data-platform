@@ -28,6 +28,8 @@ internal/admin/catalogapi -> pkg/toolkits/apigateway
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalog
 internal/admin/catalogapi -> pkg/toolkits/apigateway/catalogindex
 internal/admin/catalogapi -> pkg/toolkits/graphql
+internal/admin/catalogimportapi -> internal/httpjson
+internal/admin/catalogimportapi -> internal/platform/catalogimport
 internal/admin/catalogscanapi -> internal/httpjson
 internal/admin/catalogscanapi -> internal/platform/catalogscan
 internal/admin/connoauthapi -> internal/httpjson
@@ -81,6 +83,7 @@ internal/apigwmetrics -> pkg/observability
 internal/apikeyissue -> internal/platform/apikeystore
 internal/apikeyissue -> pkg/auth
 internal/bgloop -> pkg/observability
+internal/catalogfake -> pkg/catalog
 internal/conncatchup -> internal/logsan
 internal/connsecretref -> internal/secretref
 internal/connsecretref -> internal/secretstore
@@ -225,15 +228,22 @@ internal/httpserver/attachhttp -> internal/wirejson
 internal/httpserver/attachhttp -> pkg/prompt
 internal/httpserver/attachhttp -> pkg/prompt/attachserve
 internal/httpserver/attachhttp -> pkg/resource
+internal/httpserver/catalogwire -> internal/admin/catalogimportapi
 internal/httpserver/catalogwire -> internal/admin/catalogscanapi
+internal/httpserver/catalogwire -> internal/indexpolicy
+internal/httpserver/catalogwire -> internal/platform/catalogimport
 internal/httpserver/catalogwire -> internal/platform/catalogscan
 internal/httpserver/catalogwire -> internal/platform/catalogstore
+internal/httpserver/catalogwire -> internal/platform/resourcewrite
 internal/httpserver/catalogwire -> internal/platform/tableregister
 internal/httpserver/catalogwire -> pkg/catalog
 internal/httpserver/catalogwire -> pkg/connid
+internal/httpserver/catalogwire -> pkg/contenttype
 internal/httpserver/catalogwire -> pkg/platform
 internal/httpserver/catalogwire -> pkg/registry
+internal/httpserver/catalogwire -> pkg/resource
 internal/httpserver/catalogwire -> pkg/toolkits/apigateway
+internal/httpserver/catalogwire -> pkg/toolkits/apigateway/catalog
 internal/httpserver/catalogwire -> pkg/toolkits/graphql
 internal/httpserver/catalogwire -> pkg/toolkits/trino
 internal/httpserver/channelhttp -> internal/httpjson
@@ -531,6 +541,9 @@ internal/platform/capacity -> internal/outbound
 internal/platform/capacity -> internal/platform/toolkitcfg
 internal/platform/capacity -> pkg/observability
 internal/platform/capacity -> pkg/portal/s3adapter
+internal/platform/catalogimport -> internal/logsan
+internal/platform/catalogimport -> pkg/catalog
+internal/platform/catalogimport -> pkg/urnbuild
 internal/platform/catalogscan -> internal/bgloop
 internal/platform/catalogscan -> internal/logsan
 internal/platform/catalogscan -> pkg/catalog
@@ -640,8 +653,8 @@ internal/platform/knowledgebuiltin -> internal/platform/scriptexamples
 internal/platform/knowledgebuiltin -> internal/platform/scriptlayer
 internal/platform/knowledgebuiltin -> pkg/contenttype
 internal/platform/knowledgebuiltin -> pkg/portal/knowledgepage
-internal/platform/knowledgelayer -> internal/dhobs
 internal/platform/knowledgelayer -> internal/platform/knowledgepageindex
+internal/platform/knowledgelayer -> pkg/catalog
 internal/platform/knowledgelayer -> pkg/embedding
 internal/platform/knowledgelayer -> pkg/indexjobs
 internal/platform/knowledgelayer -> pkg/memory
@@ -1374,6 +1387,7 @@ pkg/admin -> pkg/auth
 pkg/admin -> pkg/authevents
 pkg/admin -> pkg/blobserve
 pkg/admin -> pkg/browsersession
+pkg/admin -> pkg/catalog
 pkg/admin -> pkg/configstore
 pkg/admin -> pkg/connid
 pkg/admin -> pkg/connoauth
@@ -1688,6 +1702,7 @@ pkg/portal -> internal/wirejson
 pkg/portal -> pkg/audit
 pkg/portal -> pkg/blobserve
 pkg/portal -> pkg/browsersession
+pkg/portal -> pkg/catalog
 pkg/portal -> pkg/contenttype
 pkg/portal -> pkg/embedding
 pkg/portal -> pkg/indexjobs
@@ -1703,6 +1718,7 @@ pkg/portal -> pkg/registry
 pkg/portal -> pkg/resource
 pkg/portal -> pkg/toolkits/knowledge
 pkg/portal/knowledgepage -> internal/textchunk
+pkg/portal/knowledgepage -> pkg/catalog
 pkg/portal/knowledgepage -> pkg/embedding
 pkg/portal/knowledgepage -> pkg/indexjobs
 pkg/portal/mention -> internal/logsan
@@ -1845,6 +1861,7 @@ pkg/toolkits/knowledge -> internal/agentinstructions
 pkg/toolkits/knowledge -> internal/opsobs
 pkg/toolkits/knowledge -> internal/outbound
 pkg/toolkits/knowledge -> internal/toolnames
+pkg/toolkits/knowledge -> pkg/catalog
 pkg/toolkits/knowledge -> pkg/embedding
 pkg/toolkits/knowledge -> pkg/memory
 pkg/toolkits/knowledge -> pkg/middleware
@@ -1855,6 +1872,7 @@ pkg/toolkits/knowledge -> pkg/registry
 pkg/toolkits/knowledge -> pkg/semantic
 pkg/toolkits/knowledge -> pkg/textpatch
 pkg/toolkits/knowledge -> pkg/toolkit
+pkg/toolkits/knowledge -> pkg/urnbuild
 pkg/toolkits/memory -> internal/opsobs
 pkg/toolkits/memory -> pkg/embedding
 pkg/toolkits/memory -> pkg/memory

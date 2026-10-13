@@ -54,6 +54,17 @@ func TestGraphQLReader(t *testing.T) {
 
 	_, err = r.Operations(context.Background(), "nope")
 	assert.Error(t, err)
+
+	// Every operation is read from the connection's one SDL document.
+	assert.Equal(t, graphqlSchemaKey, ops[0].Document)
+	docs, err := r.Documents(context.Background(), "gh")
+	require.NoError(t, err)
+	require.Len(t, docs, 1)
+	assert.Equal(t, "schema.graphql", docs[0].Filename)
+	assert.Contains(t, string(docs[0].Content), "type RootQueryType")
+	docs, err = r.Documents(context.Background(), "nope")
+	require.NoError(t, err)
+	assert.Empty(t, docs)
 }
 
 func TestAPIOperationNames(t *testing.T) {
@@ -126,7 +137,7 @@ func TestBuildMountsAndRuns(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	c := assemble(db, registry.NewRegistry())
+	c := assemble(db, registry.NewRegistry(), nil)
 	require.NotNil(t, c.Settings)
 
 	mux := http.NewServeMux()
@@ -216,4 +227,39 @@ func TestAPIReaderListsTheStoredOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, []string{"listOrders"}, ops[0].Path)
+	assert.Equal(t, "orders", ops[0].Document, "an operation names the spec it was read from")
+
+	docs, err := r.Documents(context.Background(), "orders")
+	require.NoError(t, err)
+	require.Len(t, docs, 1)
+	assert.Equal(t, "orders", docs[0].Key)
+	assert.Equal(t, "orders.yaml", docs[0].Filename)
+	assert.Equal(t, "application/yaml", docs[0].MIMEType)
+	assert.Equal(t, ordersSpec, string(docs[0].Content))
+	_, err = r.Documents(context.Background(), "nope")
+	assert.Error(t, err)
+}
+
+// specDocuments reads a JSON spec as JSON, skips a catalog's GraphQL schema,
+// and reads nothing for a connection with no catalog.
+func TestSpecDocuments(t *testing.T) {
+	ctx := context.Background()
+	store := apicatalog.NewMemoryStore()
+	require.NoError(t, store.CreateCatalog(ctx, apicatalog.Catalog{ID: "c", Name: "c", DisplayName: "c"}))
+	require.NoError(t, store.UpsertSpec(ctx, "c", apicatalog.SpecEntry{SpecName: "json", Content: `{"openapi":"3.0.0"}`, SourceKind: apicatalog.SourceInline}))
+	require.NoError(t, store.UpsertSpec(ctx, "c", apicatalog.SpecEntry{
+		SpecName: "gql", Content: "type Query { a: Int }", SourceKind: apicatalog.SourceInline, SpecFormat: apicatalog.FormatGraphQL,
+	}))
+	docs, err := specDocuments(ctx, store, "c")
+	require.NoError(t, err)
+	require.Len(t, docs, 1)
+	assert.Equal(t, "json.json", docs[0].Filename)
+	assert.Equal(t, "application/json", docs[0].MIMEType)
+
+	docs, err = specDocuments(ctx, nil, "c")
+	require.NoError(t, err)
+	assert.Empty(t, docs)
+	docs, err = specDocuments(ctx, store, "")
+	require.NoError(t, err)
+	assert.Empty(t, docs)
 }

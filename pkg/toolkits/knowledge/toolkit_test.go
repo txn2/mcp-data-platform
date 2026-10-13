@@ -8,15 +8,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -261,6 +260,8 @@ type spyChangesetStore struct {
 	GetErr      error
 	ListErr     error
 	RollbackErr error
+	// LastFilter is the filter the last ListChangesets was given.
+	LastFilter ChangesetFilter
 }
 
 func (s *spyChangesetStore) InsertChangeset(_ context.Context, cs Changeset) error {
@@ -283,7 +284,8 @@ func (s *spyChangesetStore) GetChangeset(_ context.Context, id string) (*Changes
 	return nil, fmt.Errorf("changeset not found: %s", id)
 }
 
-func (s *spyChangesetStore) ListChangesets(_ context.Context, _ ChangesetFilter) ([]Changeset, int, error) {
+func (s *spyChangesetStore) ListChangesets(_ context.Context, f ChangesetFilter) ([]Changeset, int, error) {
+	s.LastFilter = f
 	if s.ListErr != nil {
 		return nil, 0, s.ListErr
 	}
@@ -305,207 +307,12 @@ func (s *spyChangesetStore) RollbackChangeset(_ context.Context, id, _ string) e
 
 var _ ChangesetStore = (*spyChangesetStore)(nil)
 
-// spyWriter implements DataHubWriter for tests.
-type spyWriter struct {
-	// mu guards the shared mutation state below so the writer is safe to call from
-	// the concurrent bulk_untag fan-out.
-	mu          sync.Mutex
-	Metadata    *EntityMetadata
-	MetaErr     error
-	WriteCalls  []writerCall
-	FailAtCall  int // If > 0, fail on the Nth write call
-	currentCall int
-	QueryURN    string // URN returned by CreateCuratedQuery
-	// TagState simulates the persisted globalTags per URN, applied additively by
-	// ApplyTagChanges so tests can assert the batched write does not clobber tags.
-	TagState map[string]map[string]bool
-	// TermState simulates the persisted glossaryTerms per URN, applied additively by
-	// ApplyGlossaryTermChanges so tests can assert the batched write does not clobber
-	// terms.
-	TermState map[string]map[string]bool
-	// Incidents is returned by GetIncidents (for dedup tests); IncidentsErr forces an
-	// error.
-	Incidents    []types.Incident
-	IncidentsErr error
-}
-
-type writerCall struct {
-	Method string
-	URN    string
-	Arg1   string
-	Arg2   string
-}
-
-func (w *spyWriter) GetCurrentMetadata(_ context.Context, _ string) (*EntityMetadata, error) {
-	if w.MetaErr != nil {
-		return nil, w.MetaErr
-	}
-	if w.Metadata != nil {
-		return w.Metadata, nil
-	}
-	return &EntityMetadata{
-		Tags:          []string{},
-		GlossaryTerms: []string{},
-		Owners:        []string{},
-	}, nil
-}
-
-func (w *spyWriter) recordAndCheck(method, urn, arg1, arg2 string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.currentCall++
-	w.WriteCalls = append(w.WriteCalls, writerCall{
-		Method: method, URN: urn, Arg1: arg1, Arg2: arg2,
-	})
-	if w.FailAtCall > 0 && w.currentCall >= w.FailAtCall {
-		return fmt.Errorf("simulated DataHub write failure at call %d", w.currentCall)
-	}
-	return nil
-}
-
-func (w *spyWriter) UpdateDescription(_ context.Context, urn, desc string) error {
-	return w.recordAndCheck("UpdateDescription", urn, desc, "")
-}
-
-func (w *spyWriter) UpdateColumnDescription(_ context.Context, urn, fieldPath, desc string) error {
-	return w.recordAndCheck("UpdateColumnDescription", urn, fieldPath, desc)
-}
-
-func (w *spyWriter) UpdateColumnDescriptionBatch(_ context.Context, urn string, columns map[string]string) error {
-	for fp, desc := range columns {
-		if err := w.recordAndCheck("UpdateColumnDescriptionBatch", urn, fp, desc); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (w *spyWriter) ApplyTagChanges(_ context.Context, urn string, add, remove []string) error {
-	if err := w.recordAndCheck("ApplyTagChanges", urn, strings.Join(add, ","), strings.Join(remove, ",")); err != nil {
-		return err
-	}
-	// Model the server-side additive/subtractive semantics so regression tests can
-	// assert that a batched apply/rollback does not clobber pre-existing tags (#721).
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.TagState == nil {
-		w.TagState = map[string]map[string]bool{}
-	}
-	if w.TagState[urn] == nil {
-		w.TagState[urn] = map[string]bool{}
-	}
-	for _, t := range remove {
-		delete(w.TagState[urn], t)
-	}
-	for _, t := range add {
-		w.TagState[urn][t] = true
-	}
-	return nil
-}
-
-func (w *spyWriter) ApplyGlossaryTermChanges(_ context.Context, urn string, add, remove []string) error {
-	if err := w.recordAndCheck("ApplyGlossaryTermChanges", urn, strings.Join(add, ","), strings.Join(remove, ",")); err != nil {
-		return err
-	}
-	// Model additive/subtractive semantics so regression tests can assert that a
-	// batched apply/rollback does not clobber pre-existing glossary terms (#729).
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.TermState == nil {
-		w.TermState = map[string]map[string]bool{}
-	}
-	if w.TermState[urn] == nil {
-		w.TermState[urn] = map[string]bool{}
-	}
-	for _, t := range remove {
-		delete(w.TermState[urn], t)
-	}
-	for _, t := range add {
-		w.TermState[urn][t] = true
-	}
-	return nil
-}
-
-func (w *spyWriter) AddDocumentationLink(_ context.Context, urn, url, desc string) error {
-	return w.recordAndCheck("AddDocumentationLink", urn, url, desc)
-}
-
-func (w *spyWriter) RemoveDocumentationLink(_ context.Context, urn, url string) error {
-	return w.recordAndCheck("RemoveDocumentationLink", urn, url, "")
-}
-
-func (w *spyWriter) CreateCuratedQuery(_ context.Context, datasetURNs []string, name, sqlText, _ string) (string, error) {
-	if err := w.recordAndCheck("CreateCuratedQuery", strings.Join(datasetURNs, ","), name, sqlText); err != nil {
-		return "", err
-	}
-	if w.QueryURN != "" {
-		return w.QueryURN, nil
-	}
-	return "urn:li:query:generated-id", nil
-}
-
-func (w *spyWriter) UpsertStructuredProperties(_ context.Context, urn, propertyURN string, _ []any) error {
-	return w.recordAndCheck("UpsertStructuredProperties", urn, propertyURN, "")
-}
-
-func (w *spyWriter) RemoveStructuredProperty(_ context.Context, urn, propertyURN string) error {
-	return w.recordAndCheck("RemoveStructuredProperty", urn, propertyURN, "")
-}
-
-func (w *spyWriter) DeleteTag(_ context.Context, tagURN string) error {
-	return w.recordAndCheck("DeleteTag", tagURN, "", "")
-}
-
-func (w *spyWriter) SetCustomProperties(_ context.Context, urn string, properties map[string]string) error {
-	keys := make([]string, 0, len(properties))
-	for k := range properties {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return w.recordAndCheck("SetCustomProperties", urn, strings.Join(keys, ","), "")
-}
-
-func (w *spyWriter) RemoveCustomProperties(_ context.Context, urn string, keys []string) error {
-	return w.recordAndCheck("RemoveCustomProperties", urn, strings.Join(keys, ","), "")
-}
-
-func (w *spyWriter) RaiseIncident(_ context.Context, entityURN, title, desc string) (string, error) {
-	if err := w.recordAndCheck("RaiseIncident", entityURN, title, desc); err != nil {
-		return "", err
-	}
-	return "urn:li:incident:generated-id", nil
-}
-
-func (w *spyWriter) GetIncidents(_ context.Context, _ string) ([]types.Incident, error) {
-	if w.IncidentsErr != nil {
-		return nil, w.IncidentsErr
-	}
-	return w.Incidents, nil
-}
-
-func (w *spyWriter) ResolveIncident(_ context.Context, incidentURN, message string) error {
-	return w.recordAndCheck("ResolveIncident", incidentURN, message, "")
-}
-
-func (w *spyWriter) UpsertContextDocument(_ context.Context, urn string, doc types.ContextDocumentInput) (*types.ContextDocument, error) {
-	if err := w.recordAndCheck("UpsertContextDocument", urn, doc.Title, doc.ID); err != nil {
-		return nil, err
-	}
-	return &types.ContextDocument{ID: "generated-doc-id", Title: doc.Title, Content: doc.Content}, nil
-}
-
-func (w *spyWriter) DeleteContextDocument(_ context.Context, documentID string) error {
-	return w.recordAndCheck("DeleteContextDocument", documentID, "", "")
-}
-
-var _ DataHubWriter = (*spyWriter)(nil)
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 // newApplyToolkit creates a Toolkit with apply enabled and the given dependencies.
-func newApplyToolkit(t *testing.T, store InsightStore, csStore ChangesetStore, writer DataHubWriter) *Toolkit {
+func newApplyToolkit(t *testing.T, store InsightStore, csStore ChangesetStore, writer catalog.Store) *Toolkit {
 	t.Helper()
 	tk, err := New(testName, store)
 	require.NoError(t, err)
@@ -689,7 +496,7 @@ func TestSetApplyConfig_NilDeps(t *testing.T) {
 
 	assert.True(t, tk.applyEnabled)
 	assert.NotNil(t, tk.changesetStore, "nil changeset store should be replaced with noop")
-	assert.NotNil(t, tk.datahubWriter, "nil writer should be replaced with noop")
+	assert.Nil(t, tk.curator.store, "no catalog leaves catalog changes refused")
 }
 
 func TestSetApplyConfig_WithDeps(t *testing.T) {
@@ -697,13 +504,13 @@ func TestSetApplyConfig_WithDeps(t *testing.T) {
 	require.NoError(t, err)
 
 	cs := &spyChangesetStore{}
-	w := &spyWriter{}
+	w := newFakeCatalog()
 	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, cs, w)
 
 	assert.True(t, tk.applyEnabled)
 	assert.True(t, tk.requireConfirmation)
 	assert.Same(t, cs, tk.changesetStore)
-	assert.Same(t, w, tk.datahubWriter)
+	assert.Same(t, w, tk.curator.store)
 }
 
 // ---------------------------------------------------------------------------
@@ -770,7 +577,7 @@ func TestJsonResult(t *testing.T) {
 
 func TestHandleApplyKnowledge_ActionValidation(t *testing.T) {
 	store := &fullSpyStore{}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	tests := []struct {
 		name    string
@@ -811,7 +618,7 @@ func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 			{ID: "i4", Status: StatusApplied, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "bulk_review"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -847,7 +654,7 @@ func TestHandleBulkReview_StalenessRollup(t *testing.T) {
 			{ID: "i4", Status: StatusApplied, Category: "correction", Confidence: "high", CreatedAt: now.Add(-300 * 24 * time.Hour)},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	assertStaleness := func(t *testing.T, m map[string]any) {
 		t.Helper()
@@ -882,7 +689,7 @@ func TestHandleBulkReview_StalenessOmittedWhenEmpty(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{
 		{ID: "i1", Status: StatusApplied, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
 	}}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
 		applyKnowledgeInput{Action: "bulk_review"})
@@ -896,7 +703,7 @@ func TestHandleBulkReview_StalenessOmittedWhenEmpty(t *testing.T) {
 
 func TestHandleBulkReview_StatsError(t *testing.T) {
 	store := &fullSpyStore{StatsErr: errors.New("stats query failed")}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "bulk_review"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -906,7 +713,7 @@ func TestHandleBulkReview_StatsError(t *testing.T) {
 
 func TestHandleBulkReview_ListError(t *testing.T) {
 	store := &fullSpyStore{ListErr: errors.New("list query failed")}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "bulk_review"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -938,7 +745,7 @@ func TestHandleBulkReview_CountsMarksByEntityIncomplete(t *testing.T) {
 		})
 	}
 	store := &fullSpyStore{Insights: insights}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
 		applyKnowledgeInput{Action: "bulk_review"})
@@ -999,7 +806,7 @@ func TestHandleBulkReview_ItemizeReturnsAuthors(t *testing.T) {
 		{ID: "i2", Status: StatusPending, CapturedBy: "bob@example.com", SinkClass: "business_knowledge", Category: "business_context", Confidence: "medium", CreatedAt: now.Add(-time.Minute)},
 		{ID: "i3", Status: StatusApplied, CapturedBy: "carol@example.com", Category: "correction", CreatedAt: now},
 	}}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
 		applyKnowledgeInput{Action: "bulk_review", Itemize: true})
@@ -1055,7 +862,7 @@ func TestHandleBulkReview_ItemizeEnumeratesPendingBehindApplied(t *testing.T) {
 		insights = append(insights, ins)
 	}
 	store := &fullSpyStore{Insights: insights}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	seen := map[string]bool{}
 	offset := 0
@@ -1096,7 +903,7 @@ func TestHandleBulkReview_ItemizeIncludesBody(t *testing.T) {
 			Confidence: "high", InsightText: body, CreatedAt: time.Now(),
 		},
 	}}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
 		applyKnowledgeInput{Action: "bulk_review", Itemize: true})
@@ -1130,7 +937,7 @@ func TestHandleBulkReview_ItemizeBudgetCapsPage(t *testing.T) {
 		})
 	}
 	store := &fullSpyStore{Insights: insights}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	// First page: requested limit is the max, but the byte budget cuts it short.
 	first, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
@@ -1194,7 +1001,7 @@ func TestHandleBulkReview_ItemizeProjectsSuggestedActions(t *testing.T) {
 			},
 		},
 	}}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
 		applyKnowledgeInput{Action: "bulk_review", Itemize: true})
@@ -1229,7 +1036,7 @@ func TestHandleBulkReview_ItemizeCapsByEntity(t *testing.T) {
 		})
 	}
 	store := &fullSpyStore{Insights: insights}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
 		applyKnowledgeInput{Action: "bulk_review", Itemize: true, Limit: 5})
@@ -1347,14 +1154,8 @@ func TestHandleReview_ReturnsInsightsAndMetadata(t *testing.T) {
 			{ID: "i2", Status: StatusApproved, EntityURNs: []string{testEntityURN}, Category: "business_context", InsightText: "MRR excludes trials"},
 		},
 	}
-	writer := &spyWriter{
-		Metadata: &EntityMetadata{
-			Description:   "Original description",
-			Tags:          []string{"important"},
-			GlossaryTerms: []string{"urn:li:glossaryTerm:mrr"},
-			Owners:        []string{"user-1"},
-		},
-	}
+	writer := testCatalog()
+	writer.SetDescription(testDatasetRef, "Original description")
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
 	input := applyKnowledgeInput{Action: "review", EntityURN: testEntityURN}
@@ -1402,7 +1203,7 @@ func TestHandleReview_MetadataError(t *testing.T) {
 			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}},
 		},
 	}
-	writer := &spyWriter{MetaErr: errors.New("datahub unavailable")}
+	writer := newFakeCatalog() // the catalog does not hold the entity
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
 	input := applyKnowledgeInput{Action: "review", EntityURN: testEntityURN}
@@ -1417,7 +1218,7 @@ func TestHandleReview_MetadataError(t *testing.T) {
 
 func TestHandleReview_ListError(t *testing.T) {
 	store := &fullSpyStore{ListErr: errors.New("db error")}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "review", EntityURN: testEntityURN}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -1430,7 +1231,7 @@ func TestHandleReview_ListError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleReview_RequiresEntityURN(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "review"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -1469,12 +1270,8 @@ func TestHandleSynthesize_ReturnsProposal(t *testing.T) {
 			},
 		},
 	}
-	writer := &spyWriter{
-		Metadata: &EntityMetadata{
-			Description: "Old description",
-			Tags:        []string{},
-		},
-	}
+	writer := testCatalog()
+	writer.SetDescription(testDatasetRef, "Old description")
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
 	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
@@ -1519,7 +1316,7 @@ func TestHandleSynthesize_OnlyApprovedInsights(t *testing.T) {
 			},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -1557,7 +1354,7 @@ func TestHandleSynthesize_InsightIDsFiltering(t *testing.T) {
 			},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{
 		Action:     "synthesize",
@@ -1592,7 +1389,7 @@ func TestHandleSynthesize_InsightIDsFiltering(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleSynthesize_RequiresEntityURN(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "synthesize"}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -1606,7 +1403,7 @@ func TestHandleSynthesize_RequiresEntityURN(t *testing.T) {
 
 func TestHandleSynthesize_ListError(t *testing.T) {
 	store := &fullSpyStore{ListErr: errors.New("db error")}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
@@ -1620,7 +1417,7 @@ func TestHandleSynthesize_MetadataError(t *testing.T) {
 			{ID: "i1", Status: StatusApproved, EntityURNs: []string{testEntityURN}},
 		},
 	}
-	writer := &spyWriter{MetaErr: errors.New("datahub unavailable")}
+	writer := newFakeCatalog()
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
 	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
@@ -1648,9 +1445,7 @@ func TestHandleSynthesize_NoteWhenNoProposedChanges(t *testing.T) {
 			},
 		},
 	}
-	writer := &spyWriter{
-		Metadata: &EntityMetadata{Description: "Existing desc"},
-	}
+	writer := newFakeCatalog()
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
 	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
@@ -1681,7 +1476,7 @@ func TestHandleSynthesize_NoNoteWhenProposalsExist(t *testing.T) {
 			},
 		},
 	}
-	writer := &spyWriter{Metadata: &EntityMetadata{}}
+	writer := newFakeCatalog()
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, writer)
 
 	input := applyKnowledgeInput{Action: "synthesize", EntityURN: testEntityURN}
@@ -1697,329 +1492,24 @@ func TestHandleSynthesize_NoNoteWhenProposalsExist(t *testing.T) {
 // AC-19: apply writes to DataHub via spy writer
 // ---------------------------------------------------------------------------
 
-func TestHandleApply_WritesToDataHub(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes: []ApplyChange{
-			{ChangeType: "update_description", Detail: "New description"},
-			{ChangeType: "add_tag", Detail: "important"},
-			{ChangeType: "remove_tag", Detail: "deprecated"},
-			{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:revenue"},
-			{ChangeType: "add_documentation", Detail: "Revenue docs", Target: "https://docs.example.com"},
-			{ChangeType: "flag_quality_issue", Detail: "missing_values"},
-		},
-		InsightIDs: []string{"ins-1", "ins-2"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
-
-	// Tag changes batch into one ApplyTagChanges and add_glossary_term into one
-	// ApplyGlossaryTermChanges, both before the dispatched writes (#721, #729).
-	// Remaining dispatched writes: update_description, add_documentation, and the
-	// flag_quality_issue incident carrying its detail (#722).
-	assert.Len(t, writer.WriteCalls, 5)
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
-	// Arg1 is the comma-joined adds (add_tag then flag_quality_issue's QualityIssue),
-	// Arg2 the comma-joined removes.
-	assert.Equal(t, "urn:li:tag:important,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
-	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[0].Arg2)
-	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:revenue", writer.WriteCalls[1].Arg1)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[2].Method)
-	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
-	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
-	assert.Equal(t, "Revenue docs", writer.WriteCalls[3].Arg2)
-	// flag_quality_issue raises an incident titled "Data quality issue" with the
-	// detail as the description.
-	assert.Equal(t, "RaiseIncident", writer.WriteCalls[4].Method)
-	assert.Equal(t, "Data quality issue", writer.WriteCalls[4].Arg1)
-	assert.Equal(t, "missing_values", writer.WriteCalls[4].Arg2)
-
-	// The QualityIssue tag survives in the same batched write as the other tags,
-	// rather than being clobbered by a separate per-tag write.
-	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:important")
-	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
-
-	// Verify all writes target the correct URN
-	for _, wc := range writer.WriteCalls {
-		assert.Equal(t, testEntityURN, wc.URN)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // AC-20: apply records changeset
 // ---------------------------------------------------------------------------
-
-func TestHandleApply_RecordsChangeset(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{
-		Metadata: &EntityMetadata{
-			Description: "Old desc",
-			Tags:        []string{"existing"},
-		},
-	}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:     "apply",
-		EntityURN:  testEntityURN,
-		Changes:    []ApplyChange{{ChangeType: "update_description", Detail: "New desc"}},
-		InsightIDs: []string{"ins-1"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	// Verify changeset was recorded
-	require.Len(t, csStore.Changesets, 1)
-	cs := csStore.Changesets[0]
-	assert.NotEmpty(t, cs.ID)
-	assert.Equal(t, testEntityURN, cs.TargetURN)
-	assert.Equal(t, "update_description", cs.ChangeType)
-	assert.Equal(t, "admin-1", cs.AppliedBy)
-	assert.Equal(t, []string{"ins-1"}, cs.SourceInsightIDs)
-
-	// Verify previous_value from metadata
-	prevVal, ok := cs.PreviousValue["description"]
-	require.True(t, ok)
-	assert.Equal(t, "Old desc", prevVal)
-
-	// Verify response includes changeset_id
-	m := parseJSONResult(t, result)
-	assert.NotEmpty(t, m["changeset_id"])
-	assert.Equal(t, testEntityURN, m["entity_urn"])
-	assert.Equal(t, float64(1), m["changes_applied"])
-	assert.Equal(t, float64(1), m["insights_marked_applied"])
-}
-
-func TestHandleApply_MultipleChangeTypes(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes: []ApplyChange{
-			{ChangeType: "update_description", Detail: "desc"},
-			{ChangeType: "add_tag", Detail: "tag1"},
-		},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	require.Len(t, csStore.Changesets, 1)
-	assert.Equal(t, "multiple", csStore.Changesets[0].ChangeType)
-}
-
-func TestHandleApply_NilInsightIDs(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-		// InsightIDs is nil
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	require.Len(t, csStore.Changesets, 1)
-	assert.NotNil(t, csStore.Changesets[0].SourceInsightIDs, "nil insight_ids should be normalized")
-	assert.Empty(t, csStore.Changesets[0].SourceInsightIDs)
-}
 
 // ---------------------------------------------------------------------------
 // AC-21: apply marks insights as applied
 // ---------------------------------------------------------------------------
 
-func TestHandleApply_MarksInsightsAsApplied(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:     "apply",
-		EntityURN:  testEntityURN,
-		Changes:    []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-		InsightIDs: []string{"ins-1", "ins-2", "ins-3"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	// Verify MarkApplied was called for each insight
-	require.Len(t, store.MarkAppliedCalls, 3)
-	for i, call := range store.MarkAppliedCalls {
-		assert.Equal(t, fmt.Sprintf("ins-%d", i+1), call.ID)
-		assert.Equal(t, "admin-1", call.AppliedBy)
-		assert.NotEmpty(t, call.ChangesetRef, "changeset ref should be set")
-	}
-
-	// All calls should reference the same changeset ID
-	csID := store.MarkAppliedCalls[0].ChangesetRef
-	for _, call := range store.MarkAppliedCalls {
-		assert.Equal(t, csID, call.ChangesetRef)
-	}
-}
-
-func TestHandleApply_NoPlatformContext(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:     "apply",
-		EntityURN:  testEntityURN,
-		Changes:    []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-		InsightIDs: []string{"ins-1"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	// AppliedBy should be empty when no platform context
-	require.Len(t, csStore.Changesets, 1)
-	assert.Equal(t, "", csStore.Changesets[0].AppliedBy)
-}
-
 // ---------------------------------------------------------------------------
 // AC-22: apply atomicity - writer fails mid-batch
 // ---------------------------------------------------------------------------
-
-func TestHandleApply_WriterFailsMidBatch(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{FailAtCall: 2} // Fail on second write
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes: []ApplyChange{
-			{ChangeType: "update_description", Detail: "new desc"},
-			{ChangeType: "add_tag", Detail: "tag1"},        // This one will fail
-			{ChangeType: "add_tag", Detail: "should-skip"}, // Never reached
-		},
-		InsightIDs: []string{"ins-1"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError, "should fail when writer fails")
-
-	m := parseJSONResult(t, result)
-	errMsg, _ := m["error"].(string)
-	assert.Contains(t, errMsg, "datahub write failed")
-
-	// No changeset should be recorded on failure
-	assert.Empty(t, csStore.Changesets)
-	// No insights should be marked as applied
-	assert.Empty(t, store.MarkAppliedCalls)
-}
-
-func TestHandleApply_ChangesetStoreError(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{InsertErr: errors.New("db write failed")}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError)
-
-	m := parseJSONResult(t, result)
-	errMsg, _ := m["error"].(string)
-	assert.Contains(t, errMsg, "failed to record changeset")
-}
-
-func TestHandleApply_MarkAppliedError(t *testing.T) {
-	store := &fullSpyStore{
-		MarkAppliedErr: errors.New("mark applied failed"),
-	}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:     "apply",
-		EntityURN:  testEntityURN,
-		Changes:    []ApplyChange{{ChangeType: "update_description", Detail: "New desc"}},
-		InsightIDs: []string{"ins-1", "ins-2"},
-	}
-
-	// MarkApplied error is logged but does not fail the operation.
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "MarkApplied errors should not fail the apply")
-
-	// Changeset was still recorded
-	require.Len(t, csStore.Changesets, 1)
-}
-
-func TestHandleApply_MetadataFetchError(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{MetaErr: errors.New("datahub unavailable")}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError)
-
-	m := parseJSONResult(t, result)
-	errMsg, _ := m["error"].(string)
-	assert.Contains(t, errMsg, "failed to get current metadata")
-}
 
 // ---------------------------------------------------------------------------
 // AC-23: apply requires changes
 // ---------------------------------------------------------------------------
 
 func TestHandleApply_RequiresChanges(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 
 	tests := []struct {
 		name    string
@@ -2048,7 +1538,7 @@ func TestHandleApply_RequiresChanges(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleApply_RequiresEntityURN(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{
 		Action:  "apply",
@@ -2068,7 +1558,7 @@ func TestHandleApply_RequiresEntityURN(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleApply_ChangeTypeValidation(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, testCatalog())
 
 	tests := []struct {
 		name       string
@@ -2090,7 +1580,7 @@ func TestHandleApply_ChangeTypeValidation(t *testing.T) {
 			input := applyKnowledgeInput{
 				Action:    "apply",
 				EntityURN: testEntityURN,
-				Changes:   []ApplyChange{{ChangeType: tc.changeType, Detail: "detail"}},
+				Changes:   []ApplyChange{{ChangeType: tc.changeType, Target: "https://example.com/doc", Detail: "detail"}},
 			}
 			result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
 			require.Nil(t, callErr)
@@ -2104,7 +1594,7 @@ func TestHandleApply_ChangeTypeValidation(t *testing.T) {
 }
 
 func TestHandleApply_TooManyChanges(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 
 	changes := make([]ApplyChange, MaxApplyChanges+1)
 	for i := range changes {
@@ -2132,7 +1622,7 @@ func TestHandleApprove(t *testing.T) {
 			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	ctx := ctxWithUser("reviewer-1", "sess-1", "admin")
 
@@ -2163,7 +1653,7 @@ func TestHandleReject(t *testing.T) {
 			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	ctx := ctxWithUser("reviewer-1", "sess-1", "admin")
 
@@ -2185,7 +1675,7 @@ func TestHandleReject(t *testing.T) {
 }
 
 func TestHandleApproveReject_RequiresInsightIDs(t *testing.T) {
-	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &spyChangesetStore{}, newFakeCatalog())
 
 	for _, action := range []string{"approve", "reject"} {
 		t.Run(action, func(t *testing.T) {
@@ -2210,7 +1700,7 @@ func TestHandleApproveReject_InvalidTransition(t *testing.T) {
 			{ID: "already-approved", Status: StatusApproved, EntityURNs: []string{testEntityURN}},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	// Try to approve an already-approved insight
 	input := applyKnowledgeInput{
@@ -2235,7 +1725,7 @@ func TestHandleApproveReject_InvalidTransition(t *testing.T) {
 
 func TestHandleApproveReject_InsightNotFound(t *testing.T) {
 	store := &fullSpyStore{}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{
 		Action:     "approve",
@@ -2262,7 +1752,7 @@ func TestHandleApproveReject_UpdateStatusError(t *testing.T) {
 		},
 		StatusErr: errors.New("db write error"),
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{
 		Action:     "approve",
@@ -2288,7 +1778,7 @@ func TestHandleApproveReject_NoPlatformContext(t *testing.T) {
 			{ID: "i1", Status: StatusPending},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{
 		Action:     "approve",
@@ -2310,7 +1800,7 @@ func TestHandleApproveReject_PartialSuccess(t *testing.T) {
 			{ID: "i3", Status: StatusPending},
 		},
 	}
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 
 	input := applyKnowledgeInput{
 		Action:     "approve",
@@ -2333,139 +1823,9 @@ func TestHandleApproveReject_PartialSuccess(t *testing.T) {
 // AC-53: require_confirmation config
 // ---------------------------------------------------------------------------
 
-func TestHandleApply_RequireConfirmation(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk, err := New(testName, store)
-	require.NoError(t, err)
-	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, csStore, writer)
-
-	t.Run("without confirm flag", func(t *testing.T) {
-		input := applyKnowledgeInput{
-			Action:    "apply",
-			EntityURN: testEntityURN,
-			Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-			Confirm:   false,
-		}
-		result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-		require.Nil(t, callErr)
-		require.False(t, result.IsError, "should not be error, just a confirmation prompt")
-
-		m := parseJSONResult(t, result)
-		assert.Equal(t, true, m["confirmation_required"])
-		assert.Equal(t, testEntityURN, m["entity_urn"])
-		assert.Equal(t, float64(1), m["changes_count"])
-		assert.NotEmpty(t, m["message"])
-
-		// Nothing should be written
-		assert.Empty(t, writer.WriteCalls)
-		assert.Empty(t, csStore.Changesets)
-	})
-
-	t.Run("with confirm flag", func(t *testing.T) {
-		writer.WriteCalls = nil
-		csStore.Changesets = nil
-
-		input := applyKnowledgeInput{
-			Action:    "apply",
-			EntityURN: testEntityURN,
-			Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-			Confirm:   true,
-		}
-		result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-		require.Nil(t, callErr)
-		require.False(t, result.IsError)
-
-		m := parseJSONResult(t, result)
-		assert.NotEmpty(t, m["changeset_id"])
-		assert.Len(t, writer.WriteCalls, 1)
-		assert.Len(t, csStore.Changesets, 1)
-	})
-}
-
-func TestHandleApply_NoConfirmationRequired(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-	// Default: requireConfirmation is false
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-		Confirm:   false, // Should still proceed without confirmation
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	m := parseJSONResult(t, result)
-	assert.NotEmpty(t, m["changeset_id"])
-	assert.Len(t, writer.WriteCalls, 1)
-}
-
 // ---------------------------------------------------------------------------
 // AC: handleApply with add_curated_query returns created_ids
 // ---------------------------------------------------------------------------
-
-func TestHandleApply_AddCuratedQuery(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{QueryURN: "urn:li:query:new-query"}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes: []ApplyChange{
-			{ChangeType: "add_curated_query", Detail: "Revenue Query", QuerySQL: "SELECT SUM(amount) FROM sales", QueryDescription: "Total revenue"},
-		},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
-
-	m := parseJSONResult(t, result)
-	assert.NotEmpty(t, m["changeset_id"])
-	assert.Equal(t, testEntityURN, m["entity_urn"])
-
-	// Verify created_ids is in the response
-	urns, ok := m["created_ids"].([]any)
-	require.True(t, ok, "expected created_ids to be an array")
-	require.Len(t, urns, 1)
-	assert.Equal(t, "urn:li:query:new-query", urns[0])
-
-	// Verify writer was called
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "CreateCuratedQuery", writer.WriteCalls[0].Method)
-}
-
-func TestHandleApply_NoCuratedQueryURNs_OmitsField(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "add_tag", Detail: "tag1"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	m := parseJSONResult(t, result)
-	_, hasCreatedURNs := m["created_ids"]
-	assert.False(t, hasCreatedURNs, "created_ids should be omitted when no queries created")
-}
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -2662,191 +2022,6 @@ func TestBuildProposedChanges_NoActions(t *testing.T) {
 // executeChanges directly
 // ---------------------------------------------------------------------------
 
-func TestExecuteChanges_AllTypes(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "update_description", Detail: "new desc"},
-		{ChangeType: "add_tag", Detail: "tag1"},
-		{ChangeType: "remove_tag", Detail: "old_tag"},
-		{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:t1"},
-		{ChangeType: "add_documentation", Detail: "API Docs", Target: "https://docs.example.com"},
-		{ChangeType: "flag_quality_issue", Detail: "nulls"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	// add_tag/remove_tag/flag_quality_issue collapse into one ApplyTagChanges and
-	// add_glossary_term into one ApplyGlossaryTermChanges (both run first), leaving
-	// update_description, add_documentation, and the flag_quality_issue incident as
-	// dispatched writes (#721, #729, #722).
-	assert.Len(t, writer.WriteCalls, 5)
-
-	// Batched tag write: adds (add_tag then flag_quality_issue) and removes, with
-	// short names normalized to full URNs.
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:tag:tag1,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
-	assert.Equal(t, "urn:li:tag:old_tag", writer.WriteCalls[0].Arg2)
-
-	// Batched glossary-term write.
-	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[1].Arg1)
-
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[2].Method)
-	assert.Equal(t, "new desc", writer.WriteCalls[2].Arg1)
-
-	// add_documentation: detail=description, target=URL
-	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
-	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
-	assert.Equal(t, "API Docs", writer.WriteCalls[3].Arg2)
-
-	// flag_quality_issue raises an incident carrying its detail (#722).
-	assert.Equal(t, "RaiseIncident", writer.WriteCalls[4].Method)
-	assert.Equal(t, "nulls", writer.WriteCalls[4].Arg2)
-}
-
-func TestExecuteChanges_AddCuratedQuery(t *testing.T) {
-	writer := &spyWriter{QueryURN: "urn:li:query:test-123"}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_curated_query", Detail: "Daily Revenue", QuerySQL: "SELECT date, SUM(amount) FROM sales GROUP BY date", QueryDescription: "Revenue by day"},
-	}
-
-	createdURNs, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-
-	// Verify writer was called correctly
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "CreateCuratedQuery", writer.WriteCalls[0].Method)
-	assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
-	assert.Equal(t, "Daily Revenue", writer.WriteCalls[0].Arg1)
-	assert.Equal(t, "SELECT date, SUM(amount) FROM sales GROUP BY date", writer.WriteCalls[0].Arg2)
-
-	// Verify created URN is returned
-	require.Len(t, createdURNs, 1)
-	assert.Equal(t, "urn:li:query:test-123", createdURNs[0])
-}
-
-func TestExecuteChanges_AddCuratedQuery_Error(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 1}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_curated_query", Detail: "Query", QuerySQL: "SELECT 1"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "datahub write failed")
-}
-
-func TestExecuteChanges_FailsOnError(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 1}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_tag", Detail: "tag1"},
-		{ChangeType: "add_tag", Detail: "tag2"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.Error(t, err)
-	// Both tags are written in one batched call, so a writer failure surfaces as a
-	// single tag-changes error rather than a per-change failure.
-	assert.Contains(t, err.Error(), "datahub write failed for tag changes")
-}
-
-// TestExecuteChanges_DispatchFailAfterTagBatch verifies that when the batched tag
-// write has already persisted and a later dispatched change fails, the error does
-// not claim "no changes were applied" (which would mislead the operator into not
-// cleaning up the already-applied tags).
-func TestExecuteChanges_DispatchFailAfterTagBatch(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) succeeds, dispatched doc (call 2) fails
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_tag", Detail: "important"},
-		{ChangeType: "add_documentation", Detail: "docs", Target: "https://docs.example.com"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "no changes were applied")
-	assert.Contains(t, err.Error(), "earlier changes in this changeset were already applied")
-}
-
-// TestExecuteChanges_BatchFailAfterPriorBatch verifies that when an earlier batch
-// (tags) persisted and a later batch (glossary terms) fails, the error warns that
-// earlier changes were already applied rather than reading as a clean failure.
-func TestExecuteChanges_BatchFailAfterPriorBatch(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) succeeds, glossary batch (call 2) fails
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_tag", Detail: "important"},
-		{ChangeType: "add_glossary_term", Detail: "Revenue"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "glossary term changes")
-	assert.Contains(t, err.Error(), "earlier changes in this changeset were already applied")
-}
-
-func TestExecuteChanges_UnknownType(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	// An unrecognized change type should return an error
-	changes := []ApplyChange{
-		{ChangeType: "unknown_type", Detail: "detail"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported change type")
-	assert.Empty(t, writer.WriteCalls, "unknown type should not produce writer calls")
-}
-
-func TestExecuteChanges_ColumnTarget(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "update_description", Target: "column:location_type_id", Detail: "Type of location"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 1)
-
-	call := writer.WriteCalls[0]
-	assert.Equal(t, "UpdateColumnDescriptionBatch", call.Method)
-	assert.Equal(t, testEntityURN, call.URN)
-	assert.Equal(t, "location_type_id", call.Arg1)
-	assert.Equal(t, "Type of location", call.Arg2)
-}
-
-func TestExecuteChanges_DatasetDescription(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	// No target (or empty target) should route to dataset-level description
-	changes := []ApplyChange{
-		{ChangeType: "update_description", Target: "", Detail: "New dataset desc"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 1)
-
-	call := writer.WriteCalls[0]
-	assert.Equal(t, "UpdateDescription", call.Method)
-	assert.Equal(t, "New dataset desc", call.Arg1)
-}
-
 func TestParseColumnTarget(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -2872,483 +2047,13 @@ func TestParseColumnTarget(t *testing.T) {
 	}
 }
 
-func TestExecuteChanges_MixedColumnAndDataset(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "update_description", Target: "", Detail: "Dataset description"},
-		{ChangeType: "update_description", Target: "column:email", Detail: "Email address"},
-		{ChangeType: "add_tag", Target: "", Detail: "urn:li:tag:PII"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 3)
-
-	// Column descriptions are batched and applied first, then the batched tag
-	// changes, then the remaining non-column changes.
-	assert.Equal(t, "UpdateColumnDescriptionBatch", writer.WriteCalls[0].Method)
-	assert.Equal(t, "email", writer.WriteCalls[0].Arg1)
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[1].Method)
-	// Full URN should pass through unchanged (no double-prepend)
-	assert.Equal(t, "urn:li:tag:PII", writer.WriteCalls[1].Arg1)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[2].Method)
-}
-
-func TestExecuteChanges_ColumnTargetError(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 1}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "update_description", Target: "column:email", Detail: "Email address"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "column descriptions")
-}
-
-func TestExecuteChanges_DatasetDescriptionError(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 1}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "update_description", Target: "", Detail: "New desc"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "description update")
-}
-
 // ---------------------------------------------------------------------------
 // URN normalization
 // ---------------------------------------------------------------------------
 
-func TestNormalizeTagURN(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"pii", "urn:li:tag:pii"},
-		{"PII", "urn:li:tag:PII"},
-		{"urn:li:tag:pii", "urn:li:tag:pii"},
-		{"urn:li:tag:PII", "urn:li:tag:PII"},
-		{"important", "urn:li:tag:important"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, normalizeTagURN(tt.input))
-		})
-	}
-}
-
-func TestNormalizeGlossaryTermURN(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"Location", "urn:li:glossaryTerm:Location"},
-		{"urn:li:glossaryTerm:Location", "urn:li:glossaryTerm:Location"},
-		{"CustomerPII", "urn:li:glossaryTerm:CustomerPII"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, normalizeGlossaryTermURN(tt.input))
-		})
-	}
-}
-
-func TestQualityIssueTagURN_IsFixedConstant(t *testing.T) {
-	// flag_quality_issue uses a single fixed tag, not dynamic slugified tags.
-	// The detail text is stored as context in the knowledge store.
-	assert.Equal(t, "urn:li:tag:QualityIssue", qualityIssueTagURN)
-}
-
-func TestExecuteChanges_TagNormalization(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_tag", Detail: "pii"},
-		{ChangeType: "add_tag", Detail: "urn:li:tag:pii"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	// Both add_tag changes batch into a single ApplyTagChanges; each short name is
-	// normalized to its full URN.
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:tag:pii,urn:li:tag:pii", writer.WriteCalls[0].Arg1)
-}
-
-func TestExecuteChanges_RemoveTag(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "remove_tag", Detail: "deprecated"},
-		{ChangeType: "remove_tag", Detail: "urn:li:tag:QualityIssue"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	// Both remove_tag changes batch into a single ApplyTagChanges; the removes are
-	// the comma-joined Arg2, with short names normalized to full URNs.
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
-	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
-	assert.Equal(t, "urn:li:tag:deprecated,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg2)
-}
-
-func TestExecuteChanges_FlagQualityIssue_FixedTag(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	// Regardless of detail text, the tag should be the fixed QualityIssue tag
-	changes := []ApplyChange{
-		{ChangeType: "flag_quality_issue", Detail: "Missing column descriptions"},
-		{ChangeType: "flag_quality_issue", Detail: "nulls"},
-		{ChangeType: "flag_quality_issue", Detail: ""},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	// All flag_quality_issue changes batch into a single ApplyTagChanges adding the
-	// fixed QualityIssue tag, regardless of detail text. Each one with a non-empty
-	// detail also raises an incident carrying that detail (#722); the empty-detail
-	// one raises no incident.
-	require.Len(t, writer.WriteCalls, 3)
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:tag:QualityIssue,urn:li:tag:QualityIssue,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
-	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
-	assert.Equal(t, "RaiseIncident", writer.WriteCalls[1].Method)
-	assert.Equal(t, "Missing column descriptions", writer.WriteCalls[1].Arg2)
-	assert.Equal(t, "RaiseIncident", writer.WriteCalls[2].Method)
-	assert.Equal(t, "nulls", writer.WriteCalls[2].Arg2)
-}
-
-// TestHandleApply_FlagQualityIssueRaisesIncident is the #722 regression: a
-// flag_quality_issue with a detail sets the QualityIssue tag AND raises a DataHub
-// incident carrying the detail, and the created incident URN is recorded on the
-// changeset so rollback can resolve it.
-func TestHandleApply_FlagQualityIssueRaisesIncident(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "flag_quality_issue", Detail: "amount column has nulls"}},
-	}
-	result, _, callErr := tk.handleApplyKnowledge(ctxWithUser("admin-1", "s", "admin"), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "got error: %v", result.Content)
-
-	var raisedDetail string
-	for _, wc := range writer.WriteCalls {
-		if wc.Method == "RaiseIncident" {
-			raisedDetail = wc.Arg2
-		}
-	}
-	assert.Equal(t, "amount column has nulls", raisedDetail, "the detail is raised as an incident")
-
-	// The created incident URN is recorded on the changeset for rollback.
-	require.Len(t, csStore.Changesets, 1)
-	assert.Equal(t, []string{"urn:li:incident:generated-id"}, strsFromMap(csStore.Changesets[0].NewValue, "created_urns"))
-}
-
-// TestHandleApply_FlagQualityIssueNoDetailNoIncident verifies a flag_quality_issue
-// without a detail sets only the tag and raises no (empty) incident.
-func TestHandleApply_FlagQualityIssueNoDetailNoIncident(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes:   []ApplyChange{{ChangeType: "flag_quality_issue", Detail: ""}},
-	}
-	result, _, callErr := tk.handleApplyKnowledge(ctxWithUser("admin-1", "s", "admin"), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-
-	for _, wc := range writer.WriteCalls {
-		assert.NotEqual(t, "RaiseIncident", wc.Method, "no incident without a detail")
-	}
-	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
-}
-
-// TestExecuteChanges_FlagQualityIssueDedup verifies that when an active quality
-// incident with the same detail already exists, a re-apply does not raise a duplicate
-// (and does not record a created incident, since none was created).
-func TestExecuteChanges_FlagQualityIssueDedup(t *testing.T) {
-	writer := &spyWriter{Incidents: []types.Incident{
-		{URN: "urn:li:incident:existing", Title: "Data quality issue", Description: "nulls", State: "ACTIVE"},
-	}}
-	tk := &Toolkit{datahubWriter: writer}
-
-	created, err := tk.executeChanges(context.Background(), testEntityURN, []ApplyChange{
-		{ChangeType: "flag_quality_issue", Detail: "nulls"},
-	})
-	require.NoError(t, err)
-	for _, wc := range writer.WriteCalls {
-		assert.NotEqual(t, "RaiseIncident", wc.Method, "deduped: no new incident raised")
-	}
-	assert.Empty(t, created, "a reused (deduped) incident is not recorded as created")
-}
-
-// TestExecuteChanges_FlagQualityIssueDedupReadErrorRaises verifies that a failed
-// incident read does not block the apply: it falls back to raising the incident.
-func TestExecuteChanges_FlagQualityIssueDedupReadErrorRaises(t *testing.T) {
-	writer := &spyWriter{IncidentsErr: errors.New("incident read boom")}
-	tk := &Toolkit{datahubWriter: writer}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, []ApplyChange{
-		{ChangeType: "flag_quality_issue", Detail: "nulls"},
-	})
-	require.NoError(t, err)
-	var raised bool
-	for _, wc := range writer.WriteCalls {
-		if wc.Method == "RaiseIncident" {
-			raised = true
-		}
-	}
-	assert.True(t, raised, "a dedup read failure falls back to raising the incident")
-}
-
-// TestExecuteChanges_FlagQualityIssueIncidentError verifies a failed incident raise
-// surfaces as an apply error.
-func TestExecuteChanges_FlagQualityIssueIncidentError(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) ok, RaiseIncident (call 2) fails
-	tk := &Toolkit{datahubWriter: writer}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, []ApplyChange{
-		{ChangeType: "flag_quality_issue", Detail: "nulls"},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "flag_quality_issue")
-}
-
-func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	changes := []ApplyChange{
-		{ChangeType: "add_glossary_term", Detail: "Revenue"},
-		{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:Revenue"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	// Both add_glossary_term changes batch into a single ApplyGlossaryTermChanges;
-	// each short name is normalized to its full URN.
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:Revenue,urn:li:glossaryTerm:Revenue", writer.WriteCalls[0].Arg1)
-}
-
-func TestExecuteChanges_DocumentationParamMapping(t *testing.T) {
-	writer := &spyWriter{}
-	tk := &Toolkit{datahubWriter: writer}
-
-	// detail=description, target=URL (consistent with other change types)
-	changes := []ApplyChange{
-		{ChangeType: "add_documentation", Detail: "Revenue documentation", Target: "https://wiki.example.com/revenue"},
-	}
-
-	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
-	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 1)
-
-	call := writer.WriteCalls[0]
-	assert.Equal(t, "AddDocumentationLink", call.Method)
-	// First arg to AddDocumentationLink is URL (from target)
-	assert.Equal(t, "https://wiki.example.com/revenue", call.Arg1)
-	// Second arg is description (from detail)
-	assert.Equal(t, "Revenue documentation", call.Arg2)
-}
-
 // ---------------------------------------------------------------------------
 // Non-dataset entity support (issue #180)
 // ---------------------------------------------------------------------------
-
-func TestHandleApply_UpdateDescriptionOnDomain(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:domain:sales",
-		Changes:   []ApplyChange{{ChangeType: "update_description", Detail: "Sales domain"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "update_description should work on domains: %v", result.Content)
-
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:domain:sales", writer.WriteCalls[0].URN)
-}
-
-func TestHandleApply_UpdateDescriptionOnGlossaryTerm(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:glossaryTerm:Revenue",
-		Changes:   []ApplyChange{{ChangeType: "update_description", Detail: "Revenue is..."}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "update_description should work on glossary terms: %v", result.Content)
-
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:Revenue", writer.WriteCalls[0].URN)
-}
-
-func TestHandleApply_UpdateDescriptionOnDataProduct(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:dataProduct:analytics",
-		Changes:   []ApplyChange{{ChangeType: "update_description", Detail: "Analytics product"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "update_description should work on data products: %v", result.Content)
-
-	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:dataProduct:analytics", writer.WriteCalls[0].URN)
-}
-
-func TestHandleApply_ColumnDescOnNonDatasetRejected(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:domain:sales",
-		Changes:   []ApplyChange{{ChangeType: "update_description", Target: "column:name", Detail: "desc"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError, "column description on domain should fail")
-
-	m := parseJSONResult(t, result)
-	errMsg, _ := m["error"].(string)
-	assert.Contains(t, errMsg, "column-level update_description is only supported for datasets")
-	assert.Contains(t, errMsg, "Supported operations for domain")
-
-	// No writes should have been attempted
-	assert.Empty(t, writer.WriteCalls)
-}
-
-func TestHandleApply_CuratedQueryOnNonDatasetRejected(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:glossaryTerm:Revenue",
-		Changes:   []ApplyChange{{ChangeType: "add_curated_query", Detail: "Query", QuerySQL: "SELECT 1"}},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError, "curated query on glossary term should fail")
-
-	m := parseJSONResult(t, result)
-	errMsg, _ := m["error"].(string)
-	assert.Contains(t, errMsg, "add_curated_query is only supported for datasets")
-	assert.Contains(t, errMsg, "Supported operations for glossaryTerm")
-
-	// No writes should have been attempted
-	assert.Empty(t, writer.WriteCalls)
-}
-
-func TestHandleApply_AddTagOnNonDatasetSucceeds(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:domain:sales",
-		Changes: []ApplyChange{
-			{ChangeType: "add_tag", Detail: "important"},
-			{ChangeType: "remove_tag", Detail: "deprecated"},
-			{ChangeType: "add_glossary_term", Detail: "Revenue"},
-			{ChangeType: "add_documentation", Target: "https://docs.example.com", Detail: "docs"},
-			{ChangeType: "flag_quality_issue", Detail: "stale metadata"},
-		},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "tag/glossary/doc/quality ops should work on domains: %v", result.Content)
-
-	// add_tag, remove_tag, and flag_quality_issue's tag batch into one
-	// ApplyTagChanges, leaving add_glossary_term and add_documentation as individual
-	// writes. A domain does not support incidents, so flag_quality_issue raises none
-	// (it stays tag-only on unsupported types, #722).
-	assert.Len(t, writer.WriteCalls, 3)
-	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
-	for _, wc := range writer.WriteCalls {
-		assert.NotEqual(t, "RaiseIncident", wc.Method, "no incident on a domain")
-	}
-}
-
-func TestHandleApply_MixedChangesRejectsBeforeExecution(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	// First change is valid, second is not (curated query on domain)
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: "urn:li:domain:sales",
-		Changes: []ApplyChange{
-			{ChangeType: "add_tag", Detail: "tag1"},
-			{ChangeType: "add_curated_query", Detail: "Query", QuerySQL: "SELECT 1"},
-		},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError, "should reject entire batch when one change is incompatible")
-
-	// Pre-flight validation should prevent ANY writes
-	assert.Empty(t, writer.WriteCalls, "no writes should occur when pre-flight validation fails")
-	assert.Empty(t, csStore.Changesets, "no changeset should be recorded")
-}
 
 // --- Prompt tests ---
 
@@ -3418,161 +2123,6 @@ func TestRegisterPrompts(t *testing.T) {
 // DataHub 1.4.x change types
 // ---------------------------------------------------------------------------
 
-func TestHandleApply_StructuredProperties(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes: []ApplyChange{
-			{ChangeType: "set_structured_property", Target: "io.acryl.privacy.retentionTime", Detail: "90"},
-			{ChangeType: "remove_structured_property", Target: "urn:li:structuredProperty:io.acryl.old", Detail: "no longer needed"},
-		},
-		InsightIDs: []string{"ins-1"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
-
-	require.Len(t, writer.WriteCalls, 2)
-	assert.Equal(t, "UpsertStructuredProperties", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:structuredProperty:io.acryl.privacy.retentionTime", writer.WriteCalls[0].Arg1)
-	assert.Equal(t, "RemoveStructuredProperty", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:structuredProperty:io.acryl.old", writer.WriteCalls[1].Arg1)
-}
-
-func TestHandleApply_Incidents(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	input := applyKnowledgeInput{
-		Action:    "apply",
-		EntityURN: testEntityURN,
-		Changes: []ApplyChange{
-			{ChangeType: "raise_incident", Target: "Pipeline failure", Detail: "ETL job crashed"},
-			{ChangeType: "resolve_incident", Target: "urn:li:incident:abc123", Detail: "Fixed the ETL job"},
-		},
-		InsightIDs: []string{"ins-1"},
-	}
-
-	result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
-
-	require.Len(t, writer.WriteCalls, 2)
-	assert.Equal(t, "RaiseIncident", writer.WriteCalls[0].Method)
-	assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
-	assert.Equal(t, "Pipeline failure", writer.WriteCalls[0].Arg1)
-	assert.Equal(t, "ETL job crashed", writer.WriteCalls[0].Arg2)
-	assert.Equal(t, "ResolveIncident", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:incident:abc123", writer.WriteCalls[1].URN)
-	assert.Equal(t, "Fixed the ETL job", writer.WriteCalls[1].Arg1)
-}
-
-func TestHandleApply_ContextDocuments(t *testing.T) {
-	store := &fullSpyStore{}
-	csStore := &spyChangesetStore{}
-	writer := &spyWriter{}
-	tk := newApplyToolkit(t, store, csStore, writer)
-
-	ctx := ctxWithUser("admin-1", "sess-1", "admin")
-
-	t.Run("add and remove context documents", func(t *testing.T) {
-		input := applyKnowledgeInput{
-			Action:    "apply",
-			EntityURN: testEntityURN,
-			Changes: []ApplyChange{
-				{
-					ChangeType:       "add_context_document",
-					Target:           "Analysis Notes",
-					Detail:           "This table contains revenue data",
-					QueryDescription: "analysis",
-				},
-				{
-					ChangeType: "remove_context_document",
-					Target:     "old-doc-id",
-				},
-			},
-			InsightIDs: []string{"ins-1"},
-		}
-
-		result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-		require.Nil(t, callErr)
-		require.False(t, result.IsError, "expected success but got error: %v", result.Content)
-
-		require.Len(t, writer.WriteCalls, 2)
-		assert.Equal(t, "UpsertContextDocument", writer.WriteCalls[0].Method)
-		assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
-		assert.Equal(t, "Analysis Notes", writer.WriteCalls[0].Arg1) // title
-		assert.Equal(t, "", writer.WriteCalls[0].Arg2)               // empty ID = create
-		assert.Equal(t, "DeleteContextDocument", writer.WriteCalls[1].Method)
-		assert.Equal(t, "old-doc-id", writer.WriteCalls[1].URN)
-	})
-
-	t.Run("update context document", func(t *testing.T) {
-		writer.WriteCalls = nil
-		writer.currentCall = 0
-
-		input := applyKnowledgeInput{
-			Action:    "apply",
-			EntityURN: testEntityURN,
-			Changes: []ApplyChange{
-				{
-					ChangeType:       "update_context_document",
-					Target:           "existing-doc-id",
-					Detail:           "Updated content",
-					QuerySQL:         "New Title",
-					QueryDescription: "notes",
-				},
-			},
-			InsightIDs: []string{"ins-1"},
-		}
-
-		result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-		require.Nil(t, callErr)
-		require.False(t, result.IsError, "expected success but got error: %v", result.Content)
-
-		require.Len(t, writer.WriteCalls, 1)
-		assert.Equal(t, "UpsertContextDocument", writer.WriteCalls[0].Method)
-		assert.Equal(t, testEntityURN, writer.WriteCalls[0].URN)
-		assert.Equal(t, "New Title", writer.WriteCalls[0].Arg1)       // title from QuerySQL
-		assert.Equal(t, "existing-doc-id", writer.WriteCalls[0].Arg2) // populated ID = update
-	})
-
-	t.Run("add_context_document returns created_ids", func(t *testing.T) {
-		writer.WriteCalls = nil
-		writer.currentCall = 0
-
-		input := applyKnowledgeInput{
-			Action:    "apply",
-			EntityURN: testEntityURN,
-			Changes: []ApplyChange{
-				{ChangeType: "add_context_document", Target: "Title", Detail: "content"},
-			},
-		}
-
-		result, _, callErr := tk.handleApplyKnowledge(ctx, nil, input)
-		require.Nil(t, callErr)
-		require.False(t, result.IsError)
-
-		m := parseJSONResult(t, result)
-		ids, ok := m["created_ids"].([]any)
-		require.True(t, ok, "expected created_ids to be an array")
-		assert.Len(t, ids, 1)
-		assert.Equal(t, "generated-doc-id", ids[0])
-	})
-}
-
 func TestParsePropertyValues(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -3636,9 +2186,4 @@ func TestParsePropertyValues(t *testing.T) {
 		assert.True(t, ok, "expected float64 in array, got %T", values[0])
 		assert.InDelta(t, 3.14, values[0], 0.001)
 	})
-}
-
-func TestNormalizeStructuredPropertyURN(t *testing.T) {
-	assert.Equal(t, "urn:li:structuredProperty:foo.bar", normalizeStructuredPropertyURN("foo.bar"))
-	assert.Equal(t, "urn:li:structuredProperty:foo.bar", normalizeStructuredPropertyURN("urn:li:structuredProperty:foo.bar"))
 }

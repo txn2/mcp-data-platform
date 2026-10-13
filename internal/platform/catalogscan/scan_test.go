@@ -241,14 +241,70 @@ func TestTrinoSourceStopsOnCancel(t *testing.T) {
 }
 
 type fakeOps struct {
-	conns []Connection
-	ops   []Operation
-	err   error
+	conns   []Connection
+	ops     []Operation
+	err     error
+	docs    []Document
+	docsErr error
 }
 
 func (f fakeOps) Connections() []Connection { return f.conns }
 func (f fakeOps) Operations(context.Context, string) ([]Operation, error) {
 	return f.ops, f.err
+}
+func (f fakeOps) Documents(context.Context, string) ([]Document, error) {
+	return f.docs, f.docsErr
+}
+
+// fakeKeeper keeps documents in memory, failing the ones named in fail.
+type fakeKeeper struct {
+	kept []string
+	fail string
+}
+
+func (k *fakeKeeper) Keep(_ context.Context, kind, connection string, d Document) (string, error) {
+	if d.Key == k.fail {
+		return "", errBoom
+	}
+	k.kept = append(k.kept, kind+"/"+connection+"/"+d.Filename)
+	return "res-" + d.Key, nil
+}
+
+// TestOperationSourceKeepsDocuments: each operation's dataset links the
+// resource its schema document is kept in; a document that cannot be kept or
+// read leaves its datasets cataloged without one.
+func TestOperationSourceKeepsDocuments(t *testing.T) {
+	conn := Connection{Instance: "billing", Bound: "billing"}
+	reader := fakeOps{
+		conns: []Connection{conn},
+		ops: []Operation{
+			{Path: []string{"listInvoices"}, Document: "invoices"},
+			{Path: []string{"listCustomers"}, Document: "customers"},
+			{Path: []string{"health"}},
+		},
+		docs: []Document{
+			{Key: "invoices", Filename: "invoices.json", MIMEType: "application/json", Content: []byte("{}")},
+			{Key: "customers", Filename: "customers.json", MIMEType: "application/json", Content: []byte("{}")},
+		},
+	}
+	keeper := &fakeKeeper{fail: "customers"}
+	var got []catalog.DatasetInput
+	err := NewAPISource(reader).KeepDocuments(keeper).Datasets(context.Background(), conn, nil,
+		func(in catalog.DatasetInput) error { got = append(got, in); return nil })
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, "res-invoices", got[0].SchemaResourceID)
+	assert.Empty(t, got[1].SchemaResourceID, "a document that could not be kept links nothing")
+	assert.Empty(t, got[2].SchemaResourceID)
+	assert.Equal(t, []string{"api/billing/invoices.json"}, keeper.kept)
+
+	reader.docsErr = errBoom
+	got = nil
+	err = NewAPISource(reader).KeepDocuments(keeper).Datasets(context.Background(), conn, nil,
+		func(in catalog.DatasetInput) error { got = append(got, in); return nil })
+	require.NoError(t, err, "an unreadable document does not fail the scan")
+	assert.Len(t, got, 3)
+	assert.Empty(t, got[0].SchemaResourceID)
 }
 
 func TestOperationSources(t *testing.T) {

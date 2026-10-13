@@ -88,9 +88,8 @@ type Features struct {
 
 // KnowledgeApplyInfo provides information about the knowledge apply feature.
 type KnowledgeApplyInfo struct {
-	Enabled           bool             `json:"enabled"`
-	DataHubConnection string           `json:"datahub_connection,omitempty"`
-	ReviewQueue       *ReviewQueueInfo `json:"review_queue,omitempty"`
+	Enabled     bool             `json:"enabled"`
+	ReviewQueue *ReviewQueueInfo `json:"review_queue,omitempty"`
 }
 
 // ReviewQueueInfo is the pending-review summary platform_info reports, aliased
@@ -127,9 +126,8 @@ func (p *Platform) buildFeatures(ctx context.Context, accessibleTools []string) 
 
 	if p.config.Knowledge.Apply.IsEnabled() && canReach(toolApplyKnowledge) {
 		f.KnowledgeApply = &KnowledgeApplyInfo{
-			Enabled:           true,
-			DataHubConnection: p.config.Knowledge.Apply.DataHubConnection,
-			ReviewQueue:       p.knowledge.PendingReviewSummary(ctx),
+			Enabled:     true,
+			ReviewQueue: p.knowledge.PendingReviewSummary(ctx),
 		}
 	}
 

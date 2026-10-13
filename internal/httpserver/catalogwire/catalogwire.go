@@ -11,26 +11,36 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/catalogimportapi"
 	"github.com/txn2/mcp-data-platform/internal/admin/catalogscanapi"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogimport"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogscan"
 	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcewrite"
 	"github.com/txn2/mcp-data-platform/internal/platform/tableregister"
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/connid"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
+	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	graphqlkit "github.com/txn2/mcp-data-platform/pkg/toolkits/graphql"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// Catalog is the assembled scan.
+// Catalog is the assembled scan, and the DataHub import beside it.
 type Catalog struct {
 	Settings *catalogscan.Store
 	Loop     *catalogscan.Loop
+	// Import runs the one-time import from DataHub (#1923).
+	Import   *catalogimport.Runner
 	platform *platform.Platform
 	admin    bool
 }
@@ -46,18 +56,62 @@ func Build(p *platform.Platform) *Catalog {
 	if p == nil || p.DB() == nil {
 		return nil
 	}
-	c := assemble(p.DB(), p.ToolkitRegistry())
+	c := assemble(p.DB(), p.ToolkitRegistry(), keeper(p))
 	c.platform, c.admin = p, p.Config().Admin.IsEnabled()
+	c.Import = importRunner(p.DB(), p.Config().Semantic.URNMapping)
 	return c
 }
 
-// assemble builds the scan over a database and the live toolkits.
-func assemble(db *sql.DB, reg *registry.Registry) *Catalog {
+// importTimeout bounds one request the import makes to DataHub.
+const importTimeout = 60 * time.Second
+
+// importRunner assembles the DataHub import over the platform catalog.
+func importRunner(db *sql.DB, urns platform.URNMappingConfig) *catalogimport.Runner {
+	im := catalogimport.New(catalogstore.New(db), catalogimport.NewStore(db), catalogimport.Options{
+		Platform: urns.Platform, CatalogMapping: urns.CatalogMapping,
+	})
+	return catalogimport.NewRunner(db, im, catalogimport.NewRewriter(db), openDataHub)
+}
+
+// openDataHub opens a DataHub client for an import.
+func openDataHub(url, token string) (catalogimport.Source, error) {
+	cfg := dhclient.DefaultConfig()
+	cfg.URL, cfg.Token, cfg.Timeout = url, token, importTimeout
+	c, err := dhclient.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("opening a DataHub client: %w", err)
+	}
+	return catalogimport.NewDataHub(c), nil
+}
+
+// keeper is where the scan keeps schema documents: the managed-resource
+// library, or nowhere on a deployment with no object storage for it.
+func keeper(p *platform.Platform) catalogscan.DocumentKeeper {
+	cfg := p.Config().Resources.Managed
+	uriScheme := cfg.URIScheme
+	if uriScheme == "" {
+		uriScheme = resource.DefaultURIScheme
+	}
+	w := resourcewrite.New(resourcewrite.Deps{
+		Store: p.ResourceStore(), Blobs: p.ResourceS3Client(), Bucket: cfg.S3Bucket,
+		URIScheme: uriScheme, MaxVersions: cfg.MaxVersions,
+		Registered: p.RegisterManagedResource, Unregistered: p.UnregisterManagedResource,
+		IndexPolicy: p.Config().Resources.Index.Resolver(),
+	})
+	if w == nil {
+		return nil
+	}
+	return documentKeeper{w: w, byURI: p.ResourceStore(), uriScheme: uriScheme}
+}
+
+// assemble builds the scan over a database and the live toolkits, keeping
+// schema documents through docs when it is set.
+func assemble(db *sql.DB, reg *registry.Registry, docs catalogscan.DocumentKeeper) *Catalog {
 	settings := catalogscan.NewStore(db)
 	scanner := catalogscan.New(catalogstore.New(db), settings, settings,
 		catalogscan.NewTrinoSource(trinoReader{reg: reg}),
-		catalogscan.NewAPISource(apiReader{reg: reg}),
-		catalogscan.NewGraphQLSource(graphqlReader{reg: reg}),
+		catalogscan.NewAPISource(apiReader{reg: reg}).KeepDocuments(docs),
+		catalogscan.NewGraphQLSource(graphqlReader{reg: reg}).KeepDocuments(docs),
 	)
 	return &Catalog{Settings: settings, Loop: catalogscan.NewLoop(scanner, settings, db)}
 }
@@ -71,6 +125,9 @@ func (c *Catalog) MountAdmin(
 		return
 	}
 	catalogscanapi.Register(mux, auth(c.platform), catalogscanapi.Config{Store: c.Settings, Scanner: c.Loop, Author: author})
+	if c.Import != nil {
+		catalogimportapi.Register(mux, auth(c.platform), catalogimportapi.Config{Runner: c.Import, Author: author})
+	}
 }
 
 // Start begins scanning.
@@ -80,10 +137,13 @@ func (c *Catalog) Start(ctx context.Context) {
 	}
 }
 
-// Stop ends scanning.
+// Stop ends scanning and any import under way.
 func (c *Catalog) Stop() {
 	if c != nil {
 		c.Loop.Stop()
+		if c.Import != nil {
+			c.Import.Stop()
+		}
 	}
 }
 
@@ -219,6 +279,50 @@ func (r apiReader) Operations(_ context.Context, bound string) ([]catalogscan.Op
 	return nil, fmt.Errorf("no api connection %q", bound)
 }
 
+// Documents are the OpenAPI specs of an API connection's catalog, each the
+// document the gateway serves. A connection whose spec is not kept in a
+// catalog has none.
+func (r apiReader) Documents(ctx context.Context, bound string) ([]catalogscan.Document, error) {
+	for _, tk := range r.reg.GetByKind(apigateway.Kind) {
+		t, ok := tk.(*apigateway.Toolkit)
+		if !ok {
+			continue
+		}
+		for _, c := range t.CatalogConnections() {
+			if c.Name == bound {
+				return specDocuments(ctx, t.CatalogStore(), c.CatalogID)
+			}
+		}
+	}
+	return nil, fmt.Errorf("no api connection %q", bound)
+}
+
+// specDocuments reads the OpenAPI specs of one API catalog as documents.
+func specDocuments(ctx context.Context, store apicatalog.Store, catalogID string) ([]catalogscan.Document, error) {
+	out := make([]catalogscan.Document, 0)
+	if store == nil || catalogID == "" {
+		return out, nil
+	}
+	specs, err := store.ListSpecs(ctx, catalogID)
+	if err != nil {
+		return nil, fmt.Errorf("listing the specs of catalog %s: %w", catalogID, err)
+	}
+	for _, spec := range specs {
+		if !spec.ServesOpenAPI() {
+			continue
+		}
+		content := spec.Effective()
+		mime, ext := contenttype.YAML, ".yaml"
+		if strings.HasPrefix(strings.TrimSpace(content), "{") {
+			mime, ext = contenttype.JSON, ".json"
+		}
+		out = append(out, catalogscan.Document{
+			Key: spec.SpecName, Filename: spec.SpecName + ext, MIMEType: mime, Content: []byte(content),
+		})
+	}
+	return out, nil
+}
+
 // apiOperations names each operation by its operation id. Two specs of one
 // connection can use the same id; those are named by spec and id so neither
 // replaces the other. An operation with no id has no stable name and is not
@@ -237,7 +341,7 @@ func apiOperations(ops []apigateway.OperationSummary) []catalogscan.Operation {
 		if count[op.OperationID] > 1 && op.Spec != "" {
 			path = []string{op.Spec, op.OperationID}
 		}
-		out = append(out, catalogscan.Operation{Path: path})
+		out = append(out, catalogscan.Operation{Path: path, Document: op.Spec})
 	}
 	return out
 }
@@ -268,11 +372,30 @@ func (r graphqlReader) Operations(_ context.Context, bound string) ([]catalogsca
 				cols = append(cols, catalog.ColumnInput{Name: a.Name, DataType: a.Type, Nullable: !a.Required})
 			}
 			path := append([]string{strings.ToLower(string(op.Kind))}, op.Path...)
-			out = append(out, catalogscan.Operation{Path: path, Columns: cols})
+			out = append(out, catalogscan.Operation{Path: path, Columns: cols, Document: graphqlSchemaKey})
 		}
 		return out, nil
 	}
 	return nil, fmt.Errorf("no graphql connection %q, or its schema has not been read", bound)
+}
+
+// graphqlSchemaKey names a GraphQL connection's one schema document.
+const graphqlSchemaKey = "schema"
+
+// Documents is the SDL of a GraphQL connection's schema.
+func (r graphqlReader) Documents(_ context.Context, bound string) ([]catalogscan.Document, error) {
+	for _, tk := range r.reg.GetByKind(graphqlkit.Kind) {
+		t, ok := tk.(*graphqlkit.Toolkit)
+		if !ok {
+			continue
+		}
+		if sdl, found := t.SchemaSDL(bound); found {
+			return []catalogscan.Document{{
+				Key: graphqlSchemaKey, Filename: "schema.graphql", MIMEType: contenttype.PlainText, Content: []byte(sdl),
+			}}, nil
+		}
+	}
+	return []catalogscan.Document{}, nil
 }
 
 // RegistrationStore wraps a registration store so each table it records is

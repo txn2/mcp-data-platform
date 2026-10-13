@@ -290,9 +290,10 @@ func (m *memStore) AddRevision(_ context.Context, rev resource.Revision) (*resou
 		MIMEType: rev.MIMEType, SizeBytes: rev.SizeBytes, S3Key: rev.S3Key,
 		UploaderSub: rev.UploaderSub, UploaderEmail: rev.UploaderEmail,
 		RestoredFrom: rev.RestoredFrom, ChangeSummary: rev.ChangeSummary,
-		// The Postgres store records it on the row, so the fake does too.
-		Metadata:  rev.Metadata,
-		CreatedAt: time.Now().UTC(),
+		// The Postgres store records both on the row, so the fake does too.
+		Metadata:      rev.Metadata,
+		ContentSHA256: rev.ContentSHA256,
+		CreatedAt:     time.Now().UTC(),
 	}
 	m.versions[rev.ResourceID] = append(m.versions[rev.ResourceID], v)
 	r.S3Key, r.MIMEType, r.SizeBytes = rev.S3Key, rev.MIMEType, rev.SizeBytes

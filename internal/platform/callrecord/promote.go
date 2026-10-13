@@ -15,24 +15,24 @@ import (
 var ErrNotPromotable = errors.New("only a satisfied record that has not already been promoted or rejected can be promoted")
 
 // ErrNoPromotionTarget is returned when the platform has nowhere to promote a
-// record to: no DataHub connection for a query, no endpoint identity for an API
+// record to: no platform catalog for a query, no endpoint identity for an API
 // call. It is a configuration answer, not a validation failure, and the caller
 // reports it as such rather than telling the reviewer they did something wrong.
 var ErrNoPromotionTarget = errors.New("no promotion target is configured for this kind of record")
 
-// CuratedQueryWriter is the DataHub write path a promoted query takes. It is
-// the platform's existing curated-query write (pkg/toolkits/knowledge's
-// DataHubWriter satisfies it), narrowed to the one method promotion needs, so a
-// promoted record and an apply_knowledge proposal reach DataHub the same way
-// rather than through two write paths that could drift.
+// CuratedQueryWriter is the catalog write path a promoted query takes. It is
+// the platform's curated-query write (pkg/toolkits/knowledge's
+// CatalogQueryWriter satisfies it), narrowed to the one method promotion needs,
+// so a promoted record and an apply_knowledge proposal reach the catalog the
+// same way rather than through two write paths that could drift.
 type CuratedQueryWriter interface {
 	CreateCuratedQuery(ctx context.Context, datasetURNs []string, name, sql, description string) (string, error)
 }
 
 // ExampleWriter saves a promoted API call as an example on its endpoint, so the
 // next agent reading that endpoint's schema sees a request that is known to
-// have worked. It is the API catalog's counterpart to a DataHub Query entity:
-// an endpoint has no catalog entity of its own to attach a query to.
+// have worked. It is the API catalog's counterpart to a dataset's curated
+// query.
 type ExampleWriter interface {
 	SaveExample(ctx context.Context, ex Example) (string, error)
 }
@@ -59,7 +59,7 @@ type Promoter struct {
 }
 
 // NewPromoter builds the promotion path. Either writer may be nil: a
-// deployment with no DataHub cannot promote a query, and one with no example
+// deployment with no platform catalog cannot promote a query, and one with no example
 // store cannot promote an API call, and each refuses only its own kind.
 func NewPromoter(store Store, queries CuratedQueryWriter, examples ExampleWriter) *Promoter {
 	return &Promoter{store: store, queries: queries, examples: examples}
@@ -107,10 +107,9 @@ func (p *Promoter) publish(ctx context.Context, rec Record, actor string) (strin
 	return p.publishQuery(ctx, rec)
 }
 
-// publishQuery creates the DataHub Query entity for a promoted statement,
-// against every dataset the query read rather than one of them: a query that
-// joins three tables belongs to all three, and DataHub's own write path already
-// accepts the set.
+// publishQuery keeps a promoted statement as a curated query on every dataset
+// the query read rather than one of them: a query that joins three tables
+// belongs to all three.
 func (p *Promoter) publishQuery(ctx context.Context, rec Record) (string, error) {
 	if p.queries == nil {
 		return "", ErrNoPromotionTarget

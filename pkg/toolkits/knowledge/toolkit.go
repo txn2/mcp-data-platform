@@ -7,16 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/internal/opsobs"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -44,7 +43,7 @@ const (
 	promptName = "knowledge_capture_guidance"
 
 	// applyPromptName is the MCP prompt name for the review-and-apply guidance:
-	// how to synthesize insights into durable knowledge (DataHub or knowledge pages).
+	// how to synthesize insights into durable knowledge (the catalog or knowledge pages).
 	applyPromptName = "knowledge_apply_guidance"
 
 	// userPromptName is the user-facing prompt for capturing knowledge.
@@ -58,8 +57,9 @@ type applyKnowledgeInput struct {
 	InsightIDs []string      `json:"insight_ids,omitempty"`
 	Changes    []ApplyChange `json:"changes,omitempty"`
 	Confirm    bool          `json:"confirm,omitempty"`
-	// Sink selects the apply target: "" / "datahub" (default) applies DataHub
-	// changes; "knowledge_page" promotes a capture to a canonical knowledge page.
+	// Sink selects the apply target: "" / "catalog" (default) writes curation
+	// to the platform catalog; "knowledge_page" promotes a capture to a
+	// canonical knowledge page.
 	Sink string `json:"sink,omitempty"`
 	// Page is the curated page payload for sink=knowledge_page (#633 Goal 3).
 	Page *pagePromotionInput `json:"page,omitempty"`
@@ -91,9 +91,8 @@ type applyKnowledgeInput struct {
 
 // ApplyConfig configures the apply_knowledge tool.
 type ApplyConfig struct {
-	Enabled             bool   `yaml:"enabled"`
-	DataHubConnection   string `yaml:"datahub_connection"`
-	RequireConfirmation bool   `yaml:"require_confirmation"`
+	Enabled             bool `yaml:"enabled"`
+	RequireConfirmation bool `yaml:"require_confirmation"`
 }
 
 // Toolkit implements the knowledge capture toolkit.
@@ -104,8 +103,11 @@ type Toolkit struct {
 	applyEnabled        bool
 	requireConfirmation bool
 	changesetStore      ChangesetStore
-	datahubWriter       DataHubWriter
-	pageWriter          pageWriter
+	// curator writes catalog curation to the platform catalog (#1920). Its
+	// store is nil on a deployment with no catalog, where only the knowledge
+	// page and agent-instruction sinks apply.
+	curator    curator
+	pageWriter pageWriter
 
 	// instructions is the deployment's customized agent-instruction layer, the
 	// third apply sink (#1607). Nil leaves sink=agent_instructions unavailable.
@@ -154,8 +156,9 @@ func New(name string, store InsightStore) (*Toolkit, error) {
 	}, nil
 }
 
-// SetApplyConfig enables the apply_knowledge tool with its dependencies.
-func (t *Toolkit) SetApplyConfig(cfg ApplyConfig, csStore ChangesetStore, writer DataHubWriter) {
+// SetApplyConfig enables the apply_knowledge tool with its dependencies. A nil
+// store leaves catalog changes refused; the other sinks still apply.
+func (t *Toolkit) SetApplyConfig(cfg ApplyConfig, csStore ChangesetStore, store catalog.Store) {
 	t.applyEnabled = cfg.Enabled
 	t.requireConfirmation = cfg.RequireConfirmation
 	if csStore != nil {
@@ -163,11 +166,7 @@ func (t *Toolkit) SetApplyConfig(cfg ApplyConfig, csStore ChangesetStore, writer
 	} else {
 		t.changesetStore = NewNoopChangesetStore()
 	}
-	if writer != nil {
-		t.datahubWriter = writer
-	} else {
-		t.datahubWriter = &NoopDataHubWriter{}
-	}
+	t.curator = curator{store: store}
 }
 
 // SetPromptCreator sets the prompt creator for add_prompt change type support.
@@ -203,60 +202,58 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"The loop: users and agents capture memories with memory_capture; durable ones become insights pending review " +
 				"(business_knowledge, schema_entity, operational_rule); holding this tool you review those insights and turn the good ones into " +
 				"durable, shared, canonical KNOWLEDGE that every future session recalls via search, so no one re-teaches the same fact. " +
-				"Knowledge has three homes: a DataHub entity when the fact is tied to a catalog dataset or column; a canonical knowledge page " +
+				"Knowledge has three homes: the platform catalog when the fact is tied to a dataset, a column or a glossary definition; a canonical knowledge page " +
 				"(sink=knowledge_page) when it is business or domain knowledge not tied to one entity (for example seasonal date ranges or company vocabulary); " +
 				"or this deployment's customized agent instructions (sink=agent_instructions) when it is an operating rule every future session here must know before it acts. " +
 				"Be an expert reviewer, not a mechanical one: " +
-				"(1) discover existing knowledge first by searching DataHub and knowledge pages for the topic, so every decision is update-vs-create, never blind-create; " +
+				"(1) discover existing knowledge first by searching the catalog and knowledge pages for the topic, so every decision is update-vs-create, never blind-create; " +
 				"(2) compare each insight against what exists (new, a refinement, a correction, or already covered); " +
 				"(3) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one record per raw insight; " +
-				"(4) route: entity-tied facts update the DataHub entity (description, tags, glossary, curated queries); business or domain knowledge promotes to a knowledge page " +
+				"(4) route: entity-tied facts update the catalog entity (description, tags, glossary terms, curated queries); business or domain knowledge promotes to a knowledge page " +
 				"via sink=knowledge_page with a 'page' object, found-or-created by slug so repeat promotions consolidate and references accumulate; " +
 				"(5) update in place over duplicating, and create only when genuinely new: a create whose content closely matches an existing page is blocked and the candidate pages are returned, " +
 				"so re-apply against a candidate's slug to update it, or set page.force_new only when the new page is genuinely distinct; " +
 				"(6) prefer several focused, cross-linked pages over one large page, citing related pages with mcp:knowledge_page: references and building a thin index page that links to the focused ones; an oversized page is flagged with a non-blocking split suggestion; " +
 				"(7) mark insights applied, rejected, or superseded. " +
 				"Access is granted per persona by tool visibility, not by an admin role. " +
-				"Sinks for the apply action: sink='datahub' (default) applies 'changes' to entity_urn; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
+				"Sinks for the apply action: sink='catalog' (default) writes 'changes' to the catalog entity entity_urn names; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
 				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'; sink='agent_instructions' promotes an operating rule into the " +
 				"deployment's customized agent instructions using the 'instructions' object {section,body}, found-or-created by section so a repeat promotion rewrites its own " +
 				"section and leaves the rest byte-identical. That layer is read by every session in its first response, so it is byte-bounded and holds hard rules only: a body " +
 				"longer than the inline limit is written to a knowledge page and the section keeps one index entry pointing at it, and a promotion naming a tool this deployment " +
 				"does not register is refused. Route domain knowledge to sink='knowledge_page' instead; the instruction layer should carry at most a pointer to it. " +
+				"entity_urn is a catalog reference: mcp:dataset:(kind,connection,path), mcp:column:(kind,connection,path,column), mcp:glossary_term:<id>, mcp:glossary_node:<id>, " +
+				"mcp:domain:<id>, mcp:data_product:<id> or mcp:tag:<name>; a DataHub dataset URN is read as the catalog dataset with the same path. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag. " +
-				"bulk_untag (tag_urn required, confirm required) removes a tag from every entity a catalog search finds carrying it, recording one changeset; it is not auto-revertible. " +
-				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
-				"it removes tags/glossary terms/documentation links the apply added (leaving any that pre-existed) and restores the prior description. " +
-				"It also returns the changeset's source insights to the review queue as pending (insights_returned_to_review), keeping applied_by/applied_at/changeset_ref so the next reviewer sees what was already tried; " +
+				"The changes of one apply are written together or not at all. " +
+				"bulk_untag (tag_urn required, confirm required) removes a tag from every dataset and column carrying it, up to 500 per call, recording one changeset. " +
+				"rollback (changeset_id required, confirm required) restores every aspect a prior apply or bulk_untag wrote to the value it replaced, in one transaction, " +
+				"and returns the changeset's source insights to the review queue as pending (insights_returned_to_review), keeping applied_by/applied_at/changeset_ref so the next reviewer sees what was already tried; " +
 				"use reject to discard an insight for good. " +
-				"Rollback is refused if the changeset is already rolled back, if a newer changeset has since changed the same aspect, " +
-				"or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, delete_tag, bulk_untag). " +
+				"Rollback is refused, and nothing is reverted, if the changeset is already rolled back, if an aspect it wrote has been written again since (roll that change back first), " +
+				"if it created a prompt, or if it was applied to DataHub before the platform catalog replaced it. " +
 				"list_changesets (entity_urn required) lists an entity's changesets with their ids, timestamps, actors, and rollback status. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
 				"set_structured_property, remove_structured_property, raise_incident, resolve_incident, " +
 				"add_context_document, update_context_document, remove_context_document, delete_tag, set_custom_property, remove_custom_property. " +
-				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for entity-level. " +
-				"update_description works on datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes. " +
-				"Column-level descriptions (column:<fieldPath>) are dataset-only. " +
-				"add_tag, remove_tag, add_glossary_term, add_documentation, and flag_quality_issue work on all entity types. " +
-				"add_curated_query is dataset-only. " +
-				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
-				"flag_quality_issue adds a fixed 'QualityIssue' tag and, for entity types DataHub supports incidents on (datasets, dashboards, charts, data flows/jobs, containers, data products) with a detail, raises a 'Data quality issue' incident whose description is the detail, so the issue is verifiable on the entity (re-applying the same detail reuses the existing open incident instead of duplicating it); rolling back the changeset resolves an incident it created. On other entity types it sets only the tag. " +
+				"A dataset and its columns carry every kind of curation; curated queries, incidents and context documents are dataset-only; a glossary term, glossary node, domain, " +
+				"data product or tag carries a description, owners, custom properties and documentation links. " +
+				"update_description, add_tag, remove_tag and add_glossary_term take target 'column:<name>' to address a column of the dataset (e.g., 'column:location_type_id'); omit it for the entity itself. " +
+				"For add_tag/remove_tag, detail is the tag name (e.g., 'pii'; 'mcp:tag:pii' and 'urn:li:tag:pii' are read as 'pii'). " +
+				"For add_glossary_term, detail is a term reference or name; a name the catalog does not hold creates the term, and the response lists it in created_ids. " +
+				"flag_quality_issue adds a fixed 'QualityIssue' tag and, on a dataset with a detail, opens a 'Data quality issue' incident whose description is the detail (re-applying the same detail while it is open adds none). " +
 				"For add_documentation, target is the URL, detail is the link description. " +
-				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional. " +
-				"For set_structured_property, target is the property qualified name or URN, detail is the value or JSON array. " +
-				"For remove_structured_property, target is the property qualified name or URN. " +
-				"For raise_incident, target is the incident title, detail is the optional description. " +
-				"For resolve_incident, target is the incident URN, detail is the resolution message. " +
-				"For add_context_document, target is the document title, detail is the content, query_description is the category. " +
-				"For update_context_document, target is the document ID, detail is the new content, query_sql is the new title, query_description is the category. " +
-				"For remove_context_document, target is the document ID. " +
-				"add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, and containers. " +
-				"delete_tag deletes a tag definition entirely (entity_urn is the tag URN); it is irreversible. " +
-				"update_description with entity_urn set to a tag URN fixes the tag's own definition. " +
-				"For set_custom_property, target is the customProperties key, detail is the value; for remove_custom_property, target is the key. Custom properties are recorded but not auto-revertible. " +
-				"A single apply may set multiple custom properties or remove multiple, but not both set and remove on the same entity, and not a custom-property change together with update_description on a dataProduct (they share one aspect written non-atomically); split those into separate apply calls. " +
-				"Structured properties, incidents, and context documents require DataHub 1.4.x. " +
+				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional; a query of the same name is replaced. " +
+				"For set_structured_property, target is the property name, detail is the value or JSON array. " +
+				"For remove_structured_property, target is the property name. " +
+				"For raise_incident, target is the incident title, detail is the optional description; the incident id is returned in created_ids. " +
+				"For resolve_incident, target is the incident id, detail is the resolution message. " +
+				"For add_context_document, target is the document title, detail is the content, query_description is the category; the document id is returned in created_ids. " +
+				"For update_context_document, target is the document id, detail is the new content, query_sql is the new title, query_description is the category. " +
+				"For remove_context_document, target is the document id. " +
+				"delete_tag (entity_urn mcp:tag:<name>) takes the tag off every dataset and column carrying it. " +
+				"update_description with entity_urn set to mcp:tag:<name> describes the tag itself. " +
+				"For set_custom_property, target is the key, detail is the value; for remove_custom_property, target is the key. " +
 				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → pending (when its changeset is rolled back).",
 			InputSchema: applyKnowledgeSchema,
 			// bulk_untag and delete_tag remove, and update_description
@@ -688,13 +685,7 @@ func (t *Toolkit) handleReview(ctx context.Context, input applyKnowledgeInput) (
 		return toolkit.ErrorResult("failed to list insights: " + err.Error()), nil, nil
 	}
 
-	var currentMeta *EntityMetadata
-	if t.datahubWriter != nil {
-		meta, metaErr := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
-		if metaErr == nil {
-			currentMeta = meta
-		}
-	}
+	currentMeta := t.currentMetadata(ctx, input.EntityURN)
 
 	result := map[string]any{
 		fieldEntityURN:     input.EntityURN,
@@ -727,14 +718,7 @@ func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInpu
 		insights = filterByIDs(insights, input.InsightIDs)
 	}
 
-	// Get current metadata
-	var currentMeta *EntityMetadata
-	if t.datahubWriter != nil {
-		meta, metaErr := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
-		if metaErr == nil {
-			currentMeta = meta
-		}
-	}
+	currentMeta := t.currentMetadata(ctx, input.EntityURN)
 
 	// Build proposed changes from suggested actions
 	proposed := buildProposedChanges(insights, currentMeta)
@@ -752,6 +736,24 @@ func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInpu
 	}
 
 	return toolkit.JSONResultTyped(result)
+}
+
+// currentMetadata reads the curation the catalog holds on an entity, or nil
+// when there is no catalog or it does not hold the entity: a review is still
+// worth answering without it.
+func (t *Toolkit) currentMetadata(ctx context.Context, entity string) *EntityMetadata {
+	if t.curator.store == nil {
+		return nil
+	}
+	ref, err := t.curator.resolveTarget(ctx, entity)
+	if err != nil {
+		return nil
+	}
+	meta, err := t.curator.metadata(ctx, ref)
+	if err != nil {
+		return nil
+	}
+	return meta
 }
 
 // buildProposedChanges assembles proposed changes from insight suggested actions.
@@ -776,184 +778,6 @@ func buildProposedChanges(insights []Insight, meta *EntityMetadata) []ProposedCh
 	return proposed
 }
 
-// datahubUnavailableFor returns a user-facing refusal when changes carry writes
-// this deployment cannot perform, or "" when the apply may proceed. add_prompt
-// creates a platform prompt rather than a DataHub write, so an apply carrying only
-// add_prompt changes still runs on a deployment with no catalog.
-func (t *Toolkit) datahubUnavailableFor(changes []ApplyChange) string {
-	if datahubWritable(t.datahubWriter) {
-		return ""
-	}
-	seen := map[string]bool{}
-	var blocked []string
-	for _, c := range changes {
-		if c.ChangeType == string(actionAddPrompt) || seen[c.ChangeType] {
-			continue
-		}
-		seen[c.ChangeType] = true
-		blocked = append(blocked, c.ChangeType)
-	}
-	if len(blocked) == 0 {
-		return ""
-	}
-	return noDataHubConfigured + ", so these change types cannot be written: " +
-		strings.Join(blocked, ", ") +
-		`. Set knowledge.apply.datahub_connection to a configured DataHub toolkit instance to write to the catalog, ` +
-		`or re-send with sink: "knowledge_page" to record this knowledge as a canonical knowledge page instead.`
-}
-
-// handleApply writes changes to DataHub and records a changeset.
-func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
-	// Sink router: knowledge has three homes. A dataset-anchored fact updates a
-	// DataHub entity (the default); domain knowledge promotes to a portal
-	// knowledge page (#633 Goal 3); a durable operating rule for this deployment
-	// promotes into its customized agent instructions (#1607).
-	switch input.Sink {
-	case "", sinkDataHub:
-		// fall through to the DataHub path below
-	case sinkKnowledgePage:
-		return t.promoteToPage(ctx, input)
-	case sinkAgentInstructions:
-		return t.promoteToInstructions(ctx, input)
-	default:
-		return toolkit.ErrorResult("unknown sink: " + input.Sink +
-			" (valid: datahub, knowledge_page, agent_instructions)"), nil, nil
-	}
-
-	if input.EntityURN == "" {
-		return toolkit.ErrorResult("entity_urn is required for apply action"), nil, nil
-	}
-	if err := ValidateApplyChanges(input.Changes); err != nil {
-		return toolkit.ErrorResult(err.Error()), nil, nil
-	}
-	// Reject unsafe change combinations up front, before the confirmation round-trip.
-	if err := validateChangeCombination(input.EntityURN, input.Changes); err != nil {
-		return toolkit.ErrorResult(err.Error()), nil, nil
-	}
-	// Refuse before the confirmation round-trip when the changes need a DataHub
-	// instance this deployment does not have: the noop writer would return nil for
-	// every write and the apply would report success having persisted nothing.
-	if msg := t.datahubUnavailableFor(input.Changes); msg != "" {
-		return toolkit.ErrorResult(msg), nil, nil
-	}
-
-	// Check confirmation requirement
-	if t.requireConfirmation && !input.Confirm {
-		return toolkit.JSONResultTyped(map[string]any{
-			"confirmation_required": true,
-			fieldEntityURN:          input.EntityURN,
-			"changes_count":         len(input.Changes),
-			fieldMessage:            "Set confirm: true to apply these changes.",
-		})
-	}
-
-	appliedBy := authorFromContext(ctx)
-
-	// Get current metadata for recording previous values
-	prevMeta, err := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
-	if err != nil {
-		return toolkit.ErrorResult("failed to get current metadata: " + err.Error()), nil, nil
-	}
-
-	// Apply all changes atomically — collect writes first, then execute
-	createdURNs, err := t.executeChanges(ctx, input.EntityURN, input.Changes)
-	if err != nil {
-		return toolkit.ErrorResult(err.Error()), nil, nil
-	}
-
-	return t.recordChangesetAndMarkApplied(ctx, input, prevMeta, appliedBy, createdURNs)
-}
-
-// recordChangesetAndMarkApplied records a changeset and marks source insights as applied.
-func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prevMeta *EntityMetadata, appliedBy string, createdURNs []string) (*mcp.CallToolResult, any, error) {
-	csID, err := generateID()
-	if err != nil {
-		return toolkit.ErrorResult("internal error generating changeset ID"), nil, nil
-	}
-
-	insightIDs := input.InsightIDs
-	if insightIDs == nil {
-		insightIDs = []string{}
-	}
-
-	newValue := changesToMap(input.Changes)
-	// Record the URNs created by this apply (incidents, queries, documents) so
-	// rollback can act on them, e.g. resolve the incident raised by
-	// flag_quality_issue (#722).
-	if len(createdURNs) > 0 {
-		newValue[fieldCreatedURNs] = createdURNs
-	}
-
-	cs := Changeset{
-		ID:               csID,
-		TargetURN:        input.EntityURN,
-		ChangeType:       summarizeChangeTypes(input.Changes),
-		PreviousValue:    metadataToMap(prevMeta),
-		NewValue:         newValue,
-		SourceInsightIDs: insightIDs,
-		AppliedBy:        appliedBy,
-	}
-
-	if err := t.changesetStore.InsertChangeset(ctx, cs); err != nil {
-		return toolkit.ErrorResult("failed to record changeset: " + err.Error()), nil, nil
-	}
-
-	// Mark source insights as applied
-	for _, insID := range input.InsightIDs {
-		if err := t.store.MarkApplied(ctx, insID, appliedBy, csID); err != nil {
-			slog.Warn("knowledge: failed to mark insight applied",
-				"insight_id", insID, "changeset_id", csID, "error", err)
-		}
-	}
-
-	// Advertise rollback only when the changeset can actually be reverted (#922): the
-	// same all-or-nothing gate rollback enforces, evaluated over the just-recorded
-	// changeset so the success message and the eventual rollback outcome cannot disagree.
-	revertible, blockingTypes := changesetRevertibility(cs.TargetURN, parseRecordedChanges(cs.NewValue))
-
-	result := map[string]any{
-		"changeset_id":            csID,
-		fieldEntityURN:            input.EntityURN,
-		"changes_applied":         len(input.Changes),
-		"insights_marked_applied": len(input.InsightIDs),
-		"revertible":              revertible,
-		fieldMessage:              applyResultMessage(csID, revertible, blockingTypes),
-	}
-	if len(blockingTypes) > 0 {
-		result["unrevertible_change_types"] = blockingTypes
-	}
-
-	// Re-read the entity so the caller can verify what actually persisted without
-	// a follow-up call. This closes the gap where changes_applied counted requested
-	// changes (a duplicate add is a no-op upstream) rather than verified writes.
-	if meta, err := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN); err == nil {
-		result["resulting_state"] = metadataToMap(meta)
-	}
-
-	if len(createdURNs) > 0 {
-		result["created_ids"] = createdURNs
-	}
-
-	return toolkit.JSONResultTyped(result)
-}
-
-// applyResultMessage builds the apply success message honestly (#922): it instructs a
-// rollback only when the changeset can actually be reverted, and otherwise states why
-// it cannot (rollback is all-or-nothing, so any unrevertible change makes the whole
-// changeset unrevertible). This keeps an agent — or the admin UI reading the same
-// message — from planning on reversibility the changeset lacks. The suffix about
-// changes_applied is constant.
-func applyResultMessage(csID string, revertible bool, blockingTypes []string) string {
-	const suffix = " changes_applied counts requested changes; verify against resulting_state below."
-	if revertible {
-		return fmt.Sprintf("Changes applied to DataHub. Roll back with action=rollback changeset_id=%s.%s", csID, suffix)
-	}
-	return fmt.Sprintf("Changes applied to DataHub. Recorded as changeset %s for audit. "+
-		"This changeset cannot be rolled back automatically (%s: no before-image); "+
-		"restore prior state with a new apply if needed.%s",
-		csID, strings.Join(blockingTypes, ", "), suffix)
-}
-
 // authorFromContext returns the acting user's identity for authorship fields
 // (page created_by/created_email, changeset author, rollback author). It prefers the
 // email, matching the portal page handler, captured-insight authorship, and how these
@@ -973,348 +797,6 @@ func authorFromContext(ctx context.Context) string {
 
 // columnTargetPrefix is the prefix for column-level targets in the target field.
 const columnTargetPrefix = "column:"
-
-// executeChanges applies changes to DataHub, rolling back on failure.
-// Returns a list of IDs/URNs created by changes (query URNs, document IDs, incident URNs).
-// Column description updates are batched into a single read-modify-write to avoid
-// the stale-read bug where back-to-back single calls lose all but the last column.
-func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
-	if err := validateAllChanges(urn, changes); err != nil {
-		return nil, err
-	}
-
-	columnDescs, nonColumnChanges := partitionColumnChanges(changes)
-
-	// Track whether any batched write (column descriptions, tags, glossary terms) has
-	// already been persisted, so a later batch or per-change failure does not falsely
-	// report that nothing was applied. These batched writes run before the per-change
-	// dispatch loop.
-	priorWrites := false
-
-	if len(columnDescs) > 0 {
-		if err := t.datahubWriter.UpdateColumnDescriptionBatch(ctx, urn, columnDescs); err != nil {
-			return nil, batchWriteError("column descriptions", priorWrites, err)
-		}
-		priorWrites = true
-	}
-
-	addTags, removeTags, nonTagChanges := partitionTagChanges(nonColumnChanges)
-	if len(addTags) > 0 || len(removeTags) > 0 {
-		if err := t.datahubWriter.ApplyTagChanges(ctx, urn, addTags, removeTags); err != nil {
-			return nil, batchWriteError("tag changes", priorWrites, err)
-		}
-		priorWrites = true
-	}
-
-	addTerms, nonTermChanges := partitionGlossaryTermChanges(nonTagChanges)
-	if len(addTerms) > 0 {
-		if err := t.datahubWriter.ApplyGlossaryTermChanges(ctx, urn, addTerms, nil); err != nil {
-			return nil, batchWriteError("glossary term changes", priorWrites, err)
-		}
-		priorWrites = true
-	}
-
-	otherChanges, priorWrites, err := t.applyCustomPropertyBatch(ctx, urn, nonTermChanges, priorWrites)
-	if err != nil {
-		return nil, err
-	}
-
-	return t.dispatchNonColumnChanges(ctx, urn, otherChanges, priorWrites)
-}
-
-// applyCustomPropertyBatch applies all set_custom_property changes in one
-// read-modify-write and all remove_custom_property changes in another, returning the
-// remaining changes and whether anything was persisted. Mixed set+remove is rejected
-// up front by validateCustomPropertyBatch, so at most one of the two writes fires.
-func (t *Toolkit) applyCustomPropertyBatch(ctx context.Context, urn string, changes []ApplyChange, priorWrites bool) ([]ApplyChange, bool, error) {
-	setProps, removeKeys, other := partitionCustomPropertyChanges(changes)
-	if len(setProps) > 0 {
-		if err := t.datahubWriter.SetCustomProperties(ctx, urn, setProps); err != nil {
-			return nil, priorWrites, batchWriteError("custom properties", priorWrites, err)
-		}
-		priorWrites = true
-	}
-	if len(removeKeys) > 0 {
-		if err := t.datahubWriter.RemoveCustomProperties(ctx, urn, removeKeys); err != nil {
-			return nil, priorWrites, batchWriteError("custom properties", priorWrites, err)
-		}
-		priorWrites = true
-	}
-	return other, priorWrites, nil
-}
-
-// batchWriteError wraps a batched-write failure, appending the "earlier changes
-// already applied" warning when a prior batch in the same changeset has already
-// persisted to DataHub (those writes are not transactional and are not rolled back).
-func batchWriteError(stage string, priorWrites bool, err error) error {
-	if priorWrites {
-		return fmt.Errorf("datahub write failed for %s: %w (earlier changes in this changeset were already applied and were NOT rolled back)", stage, err)
-	}
-	return fmt.Errorf("datahub write failed for %s: %w", stage, err)
-}
-
-// partitionGlossaryTermChanges separates add_glossary_term changes from other
-// changes so they can be applied in a single read-modify-write. Batching avoids the
-// stale-read clobber where back-to-back per-term writes drop all but the last term
-// (#729). There is no remove_glossary_term apply action; removal happens only on
-// rollback.
-func partitionGlossaryTermChanges(changes []ApplyChange) (add []string, other []ApplyChange) {
-	for _, c := range changes {
-		if c.ChangeType == string(actionAddGlossaryTerm) {
-			add = append(add, normalizeGlossaryTermURN(c.Detail))
-			continue
-		}
-		other = append(other, c)
-	}
-	return add, other
-}
-
-// partitionTagChanges separates tag-setting changes (add_tag, remove_tag, and
-// flag_quality_issue, which sets the QualityIssue tag) from other changes so they
-// can be applied in a single read-modify-write. Batching avoids the stale-read
-// clobber where back-to-back per-tag writes drop all but the last tag (#721).
-//
-// flag_quality_issue also keeps its change in the dispatched set when it carries a
-// detail, so dispatchCoreOrV14Change raises a DataHub incident describing the issue:
-// the QualityIssue tag is the at-a-glance signal and the incident makes the detail
-// verifiable on the entity (#722). With no detail, only the tag is set.
-func partitionTagChanges(changes []ApplyChange) (add, remove []string, other []ApplyChange) {
-	for _, c := range changes {
-		switch c.ChangeType {
-		case string(actionAddTag):
-			add = append(add, normalizeTagURN(c.Detail))
-		case string(actionRemoveTag):
-			remove = append(remove, normalizeTagURN(c.Detail))
-		case string(actionFlagQualityIssue):
-			add = append(add, qualityIssueTagURN)
-			if strings.TrimSpace(c.Detail) != "" {
-				other = append(other, c)
-			}
-		default:
-			other = append(other, c)
-		}
-	}
-	return add, remove, other
-}
-
-// validateAllChanges pre-checks entity type compatibility for each change.
-func validateAllChanges(urn string, changes []ApplyChange) error {
-	for i, c := range changes {
-		if err := validateEntityTypeForChange(urn, c); err != nil {
-			return fmt.Errorf("change %d of %d rejected: %w", i+1, len(changes), err)
-		}
-	}
-	return nil
-}
-
-// changeAspectFlags summarizes, for one apply, which mutations touch the shared
-// properties aspect: whether it sets and/or removes custom properties and whether it
-// carries an entity-level (not column) description change.
-func changeAspectFlags(changes []ApplyChange) (set, remove, entityDesc bool) {
-	for _, c := range changes {
-		switch c.ChangeType {
-		case string(actionSetCustomProperty):
-			set = true
-		case string(actionRemoveCustomProperty):
-			remove = true
-		case string(actionUpdateDescription):
-			if _, isColumn := parseColumnTarget(c.Target); !isColumn {
-				entityDesc = true
-			}
-		}
-	}
-	return set, remove, entityDesc
-}
-
-// validateChangeCombination rejects change combinations that would issue two
-// non-atomic read-modify-writes of the SAME DataHub aspect in one apply, which under
-// DataHub's non-read-your-writes aspect reads would clobber each other (the reason
-// tags and glossary terms are batched, #721/#729). Upstream exposes no atomic
-// combined mutate, so the safe answer is to split them into separate apply calls.
-func validateChangeCombination(urn string, changes []ApplyChange) error {
-	set, remove, entityDesc := changeAspectFlags(changes)
-	if set && remove {
-		return fmt.Errorf("a single apply cannot both set and remove custom properties on the same entity " +
-			"(they share one aspect that DataHub writes non-atomically, so one would clobber the other); " +
-			"use separate apply calls for set_custom_property and remove_custom_property")
-	}
-	// A dataProduct stores its description and its customProperties in the one
-	// dataProductProperties aspect, so an entity-level update_description alongside a
-	// custom-property change would be two non-atomic writes to it.
-	if (set || remove) && entityDesc && sharesDescriptionAndCustomPropertiesAspect(urn) {
-		return fmt.Errorf("a single apply cannot combine a custom-property change with update_description on a " +
-			"dataProduct (they share one aspect that DataHub writes non-atomically); use separate apply calls")
-	}
-	return nil
-}
-
-// sharesDescriptionAndCustomPropertiesAspect reports whether an entity type stores its
-// description in the same aspect as its customProperties (dataProduct:
-// dataProductProperties). For other supported types the description lives in a
-// distinct aspect (editable* or a GraphQL mutation), so co-applying is safe.
-func sharesDescriptionAndCustomPropertiesAspect(urn string) bool {
-	et, err := entityTypeFromURN(urn)
-	return err == nil && et == entityTypeDataProduct
-}
-
-// partitionCustomPropertyChanges separates custom-property changes from other changes
-// so all sets apply in one read-modify-write and all removes in another. Batching
-// avoids the stale-read clobber where back-to-back per-key writes of the shared
-// customProperties aspect drop all but the last (#721/#729). A later-listed set of
-// the same key wins. Mixed set+remove is rejected up front by
-// validateCustomPropertyBatch, so at most one of set/remove is non-empty here.
-func partitionCustomPropertyChanges(changes []ApplyChange) (set map[string]string, remove []string, other []ApplyChange) {
-	for _, c := range changes {
-		switch c.ChangeType {
-		case string(actionSetCustomProperty):
-			if set == nil {
-				set = map[string]string{}
-			}
-			set[c.Target] = c.Detail
-		case string(actionRemoveCustomProperty):
-			remove = append(remove, c.Target)
-		default:
-			other = append(other, c)
-		}
-	}
-	return set, remove, other
-}
-
-// partitionColumnChanges separates column description updates from other changes.
-func partitionColumnChanges(changes []ApplyChange) (map[string]string, []ApplyChange) {
-	columnDescs := make(map[string]string)
-	var other []ApplyChange
-	for _, c := range changes {
-		if c.ChangeType == string(actionUpdateDescription) {
-			if fieldPath, ok := parseColumnTarget(c.Target); ok {
-				columnDescs[fieldPath] = c.Detail
-				continue
-			}
-		}
-		other = append(other, c)
-	}
-	return columnDescs, other
-}
-
-// dispatchNonColumnChanges applies non-column changes individually. priorWrites
-// reports whether batched writes (column descriptions, tags) were already persisted
-// before this loop, so a failure on the first dispatched change is not mislabeled as
-// "no changes were applied".
-func (t *Toolkit) dispatchNonColumnChanges(ctx context.Context, urn string, changes []ApplyChange, priorWrites bool) ([]string, error) {
-	var createdURNs []string
-	for i, c := range changes {
-		queryURN, err := t.dispatchChange(ctx, urn, c)
-		if err != nil {
-			// Writes are not transactional: any batched writes plus dispatched changes
-			// 1..i already persisted and are NOT automatically undone. Report this
-			// honestly so the caller can re-apply (or roll back) rather than assuming a
-			// clean failure.
-			if i == 0 && !priorWrites {
-				return nil, fmt.Errorf("datahub write failed for change 1 of %d: %w (no changes were applied)", len(changes), err)
-			}
-			return nil, fmt.Errorf("datahub write failed for change %d of %d: %w (earlier changes in this changeset were already applied and were NOT rolled back)", i+1, len(changes), err)
-		}
-		if queryURN != "" {
-			createdURNs = append(createdURNs, queryURN)
-		}
-	}
-	return createdURNs, nil
-}
-
-// dispatchChange executes a single change against DataHub.
-// Returns a non-empty ID/URN for changes that create resources (queries, documents, incidents).
-func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	switch c.ChangeType {
-	case string(actionAddCuratedQuery):
-		return t.dispatchCuratedQuery(ctx, urn, c)
-	case string(actionAddPrompt):
-		return t.dispatchAddPrompt(ctx, c)
-	default:
-		return t.dispatchCoreOrV14Change(ctx, urn, c)
-	}
-}
-
-// dispatchCoreOrV14Change handles core DataHub changes and delegates to V14 for newer types.
-func (t *Toolkit) dispatchCoreOrV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	var err error
-	// The tag side of add_tag/remove_tag/flag_quality_issue and the glossary-term
-	// changes (add_glossary_term) are not handled here: executeChanges batches them
-	// through ApplyTagChanges / ApplyGlossaryTermChanges so a multi-item apply is a
-	// single read-modify-write rather than a clobbering sequence of per-item writes
-	// (#721, #729). flag_quality_issue with a detail still reaches this dispatch to
-	// raise the incident that makes the detail verifiable (#722).
-	switch c.ChangeType {
-	case string(actionUpdateDescription):
-		err = t.executeUpdateDescription(ctx, urn, c)
-	case string(actionAddDocumentation):
-		err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
-	case string(actionFlagQualityIssue):
-		return t.dispatchQualityIncident(ctx, urn, c)
-	default:
-		return t.dispatchV14Change(ctx, urn, c)
-	}
-	if err != nil {
-		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
-	}
-	return "", nil
-}
-
-// dispatchQualityIncident raises a DataHub incident carrying a flag_quality_issue's
-// detail so the issue is verifiable on the entity. It returns the created incident
-// URN (recorded in the changeset so rollback can resolve it), or "" when no incident
-// was created: the entity type does not support incidents, or an identical active
-// quality incident already exists (deduped). A deduped incident is intentionally not
-// recorded, so rollback only resolves incidents this changeset actually created.
-func (t *Toolkit) dispatchQualityIncident(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	// An unparseable URN yields entityType "", which is not incident-supported, so it
-	// falls through to the tag-only path below (the change's URN was already validated
-	// before dispatch).
-	entityType, _ := entityTypeFromURN(urn)
-	if !incidentSupportedTypes[entityType] {
-		// Unsupported entity type: the QualityIssue tag is the signal; the detail
-		// stays in the changeset record. No incident, no apply failure.
-		return "", nil
-	}
-	if t.activeQualityIncidentExists(ctx, urn, c.Detail) {
-		return "", nil
-	}
-	return t.raiseIncident(ctx, urn, qualityIssueIncidentTitle, c.Detail, c.ChangeType)
-}
-
-// activeQualityIncidentExists reports whether the entity already has an active
-// quality-issue incident with the same detail, so a re-apply or retry does not pile
-// up duplicates. A read failure is treated as "no duplicate" (best-effort dedup).
-func (t *Toolkit) activeQualityIncidentExists(ctx context.Context, urn, detail string) bool {
-	incidents, err := t.datahubWriter.GetIncidents(ctx, urn)
-	if err != nil {
-		return false
-	}
-	for _, inc := range incidents {
-		if inc.State == "ACTIVE" && inc.Title == qualityIssueIncidentTitle && inc.Description == detail {
-			return true
-		}
-	}
-	return false
-}
-
-// raiseIncident raises a DataHub incident and returns its URN, wrapping a failure
-// with the change type. Shared by flag_quality_issue and the raise_incident action.
-func (t *Toolkit) raiseIncident(ctx context.Context, urn, title, description, changeType string) (string, error) {
-	incidentURN, err := t.datahubWriter.RaiseIncident(ctx, urn, title, description)
-	if err != nil {
-		return "", fmt.Errorf(errFmtExecuting, changeType, err)
-	}
-	return incidentURN, nil
-}
-
-// dispatchCuratedQuery handles add_curated_query changes.
-func (t *Toolkit) dispatchCuratedQuery(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	queryURN, err := t.datahubWriter.CreateCuratedQuery(ctx, []string{urn}, c.Detail, c.QuerySQL, c.QueryDescription)
-	if err != nil {
-		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
-	}
-	return queryURN, nil
-}
 
 // dispatchAddPrompt handles add_prompt changes by creating a platform prompt.
 func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string, error) {
@@ -1343,96 +825,6 @@ func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string,
 	return p.ID, nil
 }
 
-// dispatchV14Change handles DataHub 1.4.x change types.
-func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	var err error
-	switch c.ChangeType {
-	case string(actionSetStructuredProperty):
-		values, parseErr := parsePropertyValues(c.Detail)
-		if parseErr != nil {
-			return "", fmt.Errorf("parsing property values: %w", parseErr)
-		}
-		err = t.datahubWriter.UpsertStructuredProperties(ctx, urn, normalizeStructuredPropertyURN(c.Target), values)
-	case string(actionRemoveStructuredProperty):
-		err = t.datahubWriter.RemoveStructuredProperty(ctx, urn, normalizeStructuredPropertyURN(c.Target))
-	case string(actionDeleteTag):
-		// entity_urn is the tag URN being deleted. Irreversible: the changeset is
-		// recorded for audit but delete_tag is not in revertibleChangeTypes.
-		err = t.datahubWriter.DeleteTag(ctx, urn)
-	case string(actionRaiseIncident):
-		return t.raiseIncident(ctx, urn, c.Target, c.Detail, c.ChangeType)
-	case string(actionResolveIncident):
-		err = t.datahubWriter.ResolveIncident(ctx, c.Target, c.Detail)
-	default:
-		return t.dispatchContextDocumentChange(ctx, urn, c)
-	}
-	if err != nil {
-		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
-	}
-	return "", nil
-}
-
-// dispatchContextDocumentChange routes context document change types, falling back to
-// unsupported for anything else.
-func (t *Toolkit) dispatchContextDocumentChange(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	switch c.ChangeType {
-	case string(actionAddContextDocument), string(actionUpdateContextDocument):
-		return t.dispatchContextDocumentUpsert(ctx, urn, c)
-	case string(actionRemoveContextDocument):
-		if err := t.datahubWriter.DeleteContextDocument(ctx, c.Target); err != nil {
-			return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
-		}
-		return "", nil
-	default:
-		return "", fmt.Errorf("unsupported change type: %s", c.ChangeType)
-	}
-}
-
-// dispatchContextDocumentUpsert handles add_context_document and update_context_document.
-// For add: target = title, detail = content, query_description = category.
-// For update: target = document ID, detail = content, query_sql = new title, query_description = category.
-func (t *Toolkit) dispatchContextDocumentUpsert(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	doc := types.ContextDocumentInput{
-		Content:  c.Detail,
-		Category: c.QueryDescription,
-	}
-
-	if c.ChangeType == string(actionAddContextDocument) {
-		doc.Title = c.Target
-	} else {
-		doc.ID = c.Target
-		doc.Title = c.QuerySQL
-	}
-
-	result, err := t.datahubWriter.UpsertContextDocument(ctx, urn, doc)
-	if err != nil {
-		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
-	}
-
-	if result != nil {
-		return result.ID, nil
-	}
-	return "", nil
-}
-
-// normalizeTagURN ensures a tag value is a full DataHub TagUrn.
-// Per TagAssociation.pdl, the tag field must be a TagUrn (urn:li:tag:<name>).
-func normalizeTagURN(tag string) string {
-	if strings.HasPrefix(tag, "urn:li:tag:") {
-		return tag
-	}
-	return "urn:li:tag:" + tag
-}
-
-// normalizeGlossaryTermURN ensures a glossary term value is a full DataHub GlossaryTermUrn.
-// Per GlossaryTermAssociation.pdl, the urn field must be a GlossaryTermUrn.
-func normalizeGlossaryTermURN(term string) string {
-	if strings.HasPrefix(term, "urn:li:glossaryTerm:") {
-		return term
-	}
-	return "urn:li:glossaryTerm:" + term
-}
-
 // errFmtExecuting is the format string for change dispatch errors.
 const errFmtExecuting = "executing %s: %w"
 
@@ -1455,24 +847,9 @@ const (
 // rename of sourceUser must not silently change the prompt role.
 const promptRoleUser = "user"
 
-// qualityIssueTagURN is the single fixed DataHub tag applied by flag_quality_issue.
-// Instead of encoding quality issue details into dynamic tag names (which pollutes
-// the tag namespace), the QualityIssue tag is the at-a-glance signal and the detail
-// text is raised as a DataHub incident (titled qualityIssueIncidentTitle) so it is
-// verifiable on the entity (#722).
-const qualityIssueTagURN = "urn:li:tag:QualityIssue"
-
-// qualityIssueIncidentTitle is the fixed title of the DataHub incident raised to
-// carry a flag_quality_issue's detail.
+// qualityIssueIncidentTitle is the fixed title of the incident opened to carry a
+// flag_quality_issue's detail.
 const qualityIssueIncidentTitle = "Data quality issue"
-
-// normalizeStructuredPropertyURN ensures a property name is a full DataHub URN.
-func normalizeStructuredPropertyURN(name string) string {
-	if strings.HasPrefix(name, "urn:li:structuredProperty:") {
-		return name
-	}
-	return "urn:li:structuredProperty:" + name
-}
 
 // parsePropertyValues parses the detail field into property values.
 // Accepts JSON arrays (e.g., [90, "PII"]) or single values (e.g., "90").
@@ -1518,22 +895,6 @@ func convertJSONNumber(n json.Number) any {
 		return f
 	}
 	return n.String()
-}
-
-// executeUpdateDescription routes description updates to dataset-level or column-level
-// based on the target field. A target of "column:<fieldPath>" routes to column description.
-func (t *Toolkit) executeUpdateDescription(ctx context.Context, urn string, c ApplyChange) error {
-	if fieldPath, ok := parseColumnTarget(c.Target); ok {
-		if err := t.datahubWriter.UpdateColumnDescription(ctx, urn, fieldPath, c.Detail); err != nil {
-			return fmt.Errorf("column description update: %w", err)
-		}
-		return nil
-	}
-	if err := t.datahubWriter.UpdateDescription(ctx, urn, c.Detail); err != nil {
-		// Wrap ErrUnsupportedEntityType with a user-friendly message.
-		return wrapDescriptionError(err, urn)
-	}
-	return nil
 }
 
 // parseColumnTarget checks if a target string has the "column:" prefix and returns the field path.
@@ -1620,7 +981,7 @@ func (*Toolkit) registerPrompt(s *mcp.Server) {
 
 	s.AddPrompt(&mcp.Prompt{
 		Name:        applyPromptName,
-		Description: "How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)",
+		Description: "How to review insights and synthesize them into durable knowledge (the catalog or knowledge pages)",
 	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{
@@ -1658,7 +1019,7 @@ func (*Toolkit) PromptInfos() []registry.PromptInfo {
 		},
 		{
 			Name:        applyPromptName,
-			Description: "How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)",
+			Description: "How to review insights and synthesize them into durable knowledge (the catalog or knowledge pages)",
 			Category:    "toolkit",
 			Content:     knowledgeApplyPrompt,
 		},
@@ -1680,7 +1041,7 @@ const captureKnowledgePromptContent = `Capture the key insights from this conver
 
 // knowledgeApplyPrompt teaches the holder of apply_knowledge the memory -> insight
 // -> knowledge loop and how to be an expert reviewer: discover existing knowledge,
-// compare, synthesize, route to DataHub or a knowledge page, update-or-create, and
+// compare, synthesize, route to the catalog or a knowledge page, update-or-create, and
 // mark insights applied. It is registered as the knowledge_apply_guidance prompt.
 const knowledgeApplyPrompt = `## Reviewing Insights into Durable Knowledge
 
@@ -1690,17 +1051,17 @@ You hold apply_knowledge, the review-and-apply gate of the platform's knowledge 
 
 - **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.
 - **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.
-- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.
+- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in the platform catalog when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.
 
 Always discover before you apply: search existing memory, insights, and knowledge first.
 
 ### The expert review workflow
 
-1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.
+1. **Discover existing knowledge.** For each pending insight, search the catalog and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.
 2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.
 3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.
 4. **Route to the right home.**
-   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.
+   - Tied to a catalog entity (dataset, column, glossary term): apply to the catalog (the default sink, sink=catalog), using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn, its mcp:dataset:(kind,connection,path) reference.
    - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.
 5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:<id>, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).
 6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).
@@ -1712,7 +1073,7 @@ Prefer several focused, cross-linked pages over one sprawling page (progressive 
 
 ### Routing examples
 
-- "The amount column excludes returns" applies to DataHub: update_description on that dataset column.
+- "The amount column excludes returns" applies to the catalog: update_description on that dataset with target column:amount.
 - "We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.
 - Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.
 - A broad "retail operations" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.`

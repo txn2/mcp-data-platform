@@ -55,7 +55,7 @@ func testInventory() []string {
 // wired, returning the toolkit and the store behind it.
 func newInstructionsToolkit(t *testing.T, store InsightStore, cs ChangesetStore, current string) (*Toolkit, *fakeInstructionsStore) {
 	t.Helper()
-	tk := newApplyToolkit(t, store, cs, &spyWriter{})
+	tk := newApplyToolkit(t, store, cs, newFakeCatalog())
 	ins := &fakeInstructionsStore{text: current}
 	tk.SetInstructionsSink(ins, testInventory)
 	return tk, ins
@@ -239,7 +239,7 @@ func TestPromoteToInstructions_AdvisesWhenTheLayerIsLong(t *testing.T) {
 // --- The sink refuses when the deployment cannot hold a write ---
 
 func TestPromoteToInstructions_RefusesWhenNotConfigured(t *testing.T) {
-	tk := newApplyToolkit(t, ruleInsight(), &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, ruleInsight(), &spyChangesetStore{}, newFakeCatalog())
 
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
 		applyInstructionsInput("Query engines", "Trino holds the warehouse.", nil))
@@ -363,7 +363,7 @@ func TestPromoteToInstructions_DivertRefusedPastTheCapWritesNoPage(t *testing.T)
 // --- Criterion 4: list_changesets and rollback ---
 
 func TestInstructionsChangesetIsReportedRevertible(t *testing.T) {
-	revertible, blocking := changesetRevertibility(InstructionsTargetURN("Query engines"), nil)
+	revertible, blocking := changesetRevertibility(&Changeset{TargetURN: InstructionsTargetURN("Query engines")})
 	assert.True(t, revertible, "an instructions promotion records the whole prior text, so it reverts")
 	assert.Empty(t, blocking)
 }
@@ -541,7 +541,7 @@ func TestHandleApply_UnknownSinkNamesEveryValidSink(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, res.IsError)
 	msg := resultMessage(t, res)
-	for _, sink := range []string{sinkDataHub, sinkKnowledgePage, sinkAgentInstructions} {
+	for _, sink := range []string{sinkCatalog, sinkKnowledgePage, sinkAgentInstructions} {
 		assert.Contains(t, msg, sink)
 	}
 }

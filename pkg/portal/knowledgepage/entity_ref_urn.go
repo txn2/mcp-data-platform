@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 )
 
 // mcpScheme prefixes the serialized form of an internal-entity reference, for
@@ -34,7 +36,7 @@ func (r EntityRef) URN() string {
 		return mcpScheme + RefTargetKnowledgePage + refKeySep + r.RefPageID
 	case RefTargetConnection:
 		return mcpScheme + RefTargetConnection + refKeySep + "(" + r.ConnectionKind + "," + r.ConnectionName + ")"
-	case RefTargetDataHub:
+	case RefTargetDataHub, RefTargetCatalog:
 		return r.EntityURN
 	case RefTargetInsight:
 		return mcpScheme + RefTargetInsight + refKeySep + r.InsightID
@@ -132,6 +134,13 @@ func parseMCPRef(s string) (EntityRef, error) {
 	if !ok || id == "" {
 		return EntityRef{}, fmt.Errorf("malformed internal reference %q (want mcp:<type>:<id>)", s)
 	}
+	if isCatalogKind(typ) {
+		ref, err := catalog.ParseRef(s)
+		if err != nil {
+			return EntityRef{}, fmt.Errorf("invalid catalog reference %q: %w", s, err)
+		}
+		return EntityRef{TargetType: RefTargetCatalog, EntityURN: ref.String()}, nil
+	}
 	if typ == RefTargetConnection {
 		kind, name, cErr := parseConnectionTuple(id)
 		if cErr != nil {
@@ -140,6 +149,18 @@ func parseMCPRef(s string) (EntityRef, error) {
 		return EntityRef{TargetType: RefTargetConnection, ConnectionKind: kind, ConnectionName: name}, nil
 	}
 	return parseSimpleMCPRef(typ, id, s)
+}
+
+// isCatalogKind reports whether an mcp: reference type names a catalog
+// entity.
+func isCatalogKind(typ string) bool {
+	switch catalog.Kind(typ) {
+	case catalog.KindDataset, catalog.KindColumn, catalog.KindGlossaryTerm, catalog.KindGlossaryNode,
+		catalog.KindTag, catalog.KindDomain, catalog.KindDataProduct:
+		return true
+	default:
+		return false
+	}
 }
 
 // parseSimpleMCPRef parses the single-id internal reference types (everything

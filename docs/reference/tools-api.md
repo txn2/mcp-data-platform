@@ -898,18 +898,18 @@ Record domain knowledge shared during a session (memory toolkit). Available to a
 
 ### apply_knowledge
 
-Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
+Review, synthesize, and apply captured insights to the [platform catalog](../server/catalog.md). Admin-only. Requires `knowledge.apply.enabled: true`.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`, `bulk_untag` |
-| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity) |
-| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (name or `urn:li:tag:...`) to remove from every entity that carries it |
+| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity). A catalog reference (`mcp:dataset:(kind,connection,path)`, `mcp:column:(...)`, `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>`, `mcp:tag:<name>`); a DataHub dataset URN is read as the catalog dataset with the same path |
+| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (a name, `mcp:tag:<name>` or `urn:li:tag:<name>`) to remove from every dataset and column that carries it |
 | `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
-| `changes` | array | Conditional | Required for `apply` with `sink: "datahub"` |
-| `sink` | string | No | Where an `apply` writes: `datahub` (default, applies `changes` to `entity_urn`), `knowledge_page` (promotes to a canonical page via `page`), or `agent_instructions` (promotes an operating rule into the deployment's own instructions via `instructions`). The capture-time `sink_class` is a hint, not a binding |
+| `changes` | array | Conditional | Required for `apply` with `sink: "catalog"` |
+| `sink` | string | No | Where an `apply` writes: `catalog` (default, writes `changes` to `entity_urn` in the platform catalog), `knowledge_page` (promotes to a canonical page via `page`), or `agent_instructions` (promotes an operating rule into the deployment's own instructions via `instructions`). The capture-time `sink_class` is a hint, not a binding |
 | `page` | object | Conditional | Required for `sink: "knowledge_page"`: `{slug, title, summary, body, tags, references, force_new}`. Found-or-created by `slug`, so a repeat promotion consolidates. The response carries `portal_url`, where the page is read, so the address handed to a person is one the platform composed rather than one the caller guessed |
 | `instructions` | object | Conditional | Required for `sink: "agent_instructions"` (see below) |
 | `changeset_id` | string | Conditional | Required for `rollback` |
@@ -945,63 +945,66 @@ The promotion writes only its own section, leaving every other section byte-iden
 
 **Target and detail by change type:**
 
+A dataset and its columns carry every kind of curation; curated queries, incidents and context documents are dataset-only; a glossary term, glossary node, domain, data product or tag carries a description, owners, custom properties and documentation links.
+
 | Change Type | Target | Detail |
 |-------------|--------|--------|
-| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level (or the tag URN via `entity_urn` to fix a tag's own definition) | Description text |
-| `add_tag` / `remove_tag` | Ignored | Tag name or URN |
-| `add_glossary_term` | Ignored | Term name or URN |
-| `flag_quality_issue` | Ignored | Quality issue description (sets the `QualityIssue` tag; with a detail, also raises a DataHub incident carrying it) |
+| `update_description` | `column:<name>` for a column, empty for the entity | Description text |
+| `add_tag` / `remove_tag` | `column:<name>` for a column, empty for the entity | Tag name (`mcp:tag:` and `urn:li:tag:` prefixes are read as the name) |
+| `add_glossary_term` | `column:<name>` for a column, empty for the entity | Term reference or name; a name the catalog does not hold creates the term |
+| `flag_quality_issue` | Ignored | Quality issue description (sets the `QualityIssue` tag; on a dataset with a detail, also opens an incident carrying it) |
 | `add_documentation` | URL | Link description |
 | `add_curated_query` | Ignored | Query name |
-| `set_structured_property` | Property qualified name or URN | Value or JSON array |
-| `remove_structured_property` | Property qualified name or URN | Removal reason |
+| `set_structured_property` | Property name | Value or JSON array |
+| `remove_structured_property` | Property name | Ignored |
 | `raise_incident` | Incident title | Description |
-| `resolve_incident` | Incident URN | Resolution message |
+| `resolve_incident` | Incident id (from `created_ids`) | Resolution message |
 | `add_context_document` | Document title | Document content |
-| `update_context_document` | Document ID | New content |
-| `remove_context_document` | Document ID | Ignored |
-| `delete_tag` | Ignored (`entity_urn` is the tag URN) | Ignored |
-| `set_custom_property` | customProperties key | Value |
-| `remove_custom_property` | customProperties key | Ignored |
+| `update_context_document` | Document id (from `created_ids`) | New content |
+| `remove_context_document` | Document id | Ignored |
+| `delete_tag` | Ignored (`entity_urn` is `mcp:tag:<name>`) | Ignored |
+| `set_custom_property` | Key | Value |
+| `remove_custom_property` | Key | Ignored |
 
-`delete_tag` deletes a tag definition entirely and is irreversible; `set_custom_property`/`remove_custom_property` edit an entity's legacy `customProperties` (datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes) and, like structured properties, are recorded but not auto-revertible. A single apply may set multiple properties or remove multiple properties, but not both on the same entity (the shared aspect is written non-atomically); use separate apply calls.
+`delete_tag` takes the tag off every dataset and column carrying it. The changes of one apply are written in one transaction, and every change type is undone by `rollback`.
 
 **Actions:**
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
 | `bulk_review` | Counts of all pending insights; pass optional `itemize: true` (with `limit`/`offset`) to enumerate the queue, each with its full `insight_text` body, `captured_by`, `sink_class`, and `suggested_actions_count` (response bounded per page; `page_size_capped`/`by_entity_truncated` flag any cut) | None |
-| `review` | Insights for a specific entity with current DataHub metadata | `entity_urn` |
+| `review` | Insights for a specific entity with its current catalog curation | `entity_urn` |
 | `approve` | Transition insights to approved status | `insight_ids` |
 | `reject` | Transition insights to rejected status | `insight_ids` |
 | `synthesize` | Structured change proposals from approved insights | `entity_urn` |
-| `apply` | Write to the sink `sink` selects, with changeset tracking | `entity_urn` + `changes` (datahub), `page` (knowledge_page), or `instructions` (agent_instructions) |
+| `apply` | Write to the sink `sink` selects, with changeset tracking | `entity_urn` + `changes` (catalog), `page` (knowledge_page), or `instructions` (agent_instructions) |
 | `list_changesets` | List a target's changesets (id, timestamp, actor, change type, rollback status). The target is a catalog URN, `kp:<slug>` for a page, or `ai:<section>` for an instruction section | `entity_urn` |
-| `rollback` | Revert a changeset's changes to their before-image | `changeset_id`, `confirm` |
-| `bulk_untag` | Remove a tag from every entity a catalog search finds carrying it, recording one changeset (not auto-revertible) | `tag_urn`, `confirm` |
+| `rollback` | Restore every aspect a changeset wrote to the value it replaced | `changeset_id`, `confirm` |
+| `bulk_untag` | Remove a tag from every dataset and column carrying it, up to 500 per call, recording one changeset that `rollback` undoes | `tag_urn`, `confirm` |
 
-`rollback` reverts the changes an `apply` made: it removes added tags/glossary terms/documentation links (keeping any that pre-existed in the before-image), restores a changed description, transitions the source insights to `rolled_back`, and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, `delete_tag`, `bulk_untag`).
+`rollback` restores, in one transaction, every aspect the changeset wrote to the value it replaced, returns the source insights to the review queue, and marks the changeset rolled back. It is refused, and reverts nothing, if the changeset is already rolled back, if an aspect it wrote has been written again since, if it created a prompt, or if it was applied to DataHub before the platform catalog replaced it.
 
 **Response Schema (apply):**
 
 ```json
 {
   "changeset_id": "cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6",
-  "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "entity_urn": "mcp:dataset:(trino,warehouse,hive.sales.orders)",
   "changes_applied": 2,
+  "catalog_changes": 2,
   "insights_marked_applied": 1,
   "revertible": true,
   "resulting_state": {
     "description": "Order records with gross margin amounts (before returns)",
-    "tags": ["urn:li:tag:gross-margin"],
+    "tags": ["gross-margin"],
     "glossary_terms": [],
     "owners": []
   },
-  "message": "Changes applied to DataHub. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6. changes_applied counts requested changes; verify against resulting_state below."
+  "message": "Changes written to the platform catalog. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6."
 }
 ```
 
-`revertible` is a boolean reflecting whether the changeset can be rolled back automatically (computed with the same all-or-nothing gate rollback enforces; any single unrevertible change makes the whole changeset `false`, so there is no partial rollback). When it is `false`, an `unrevertible_change_types` array names the change types with no before-image and the `message` states why instead of advertising a rollback. `list_changesets` entries carry the same two fields (and report `false` once a changeset has been rolled back).
+`revertible` is `true` for every catalog changeset except one that created a prompt; then `unrevertible_change_types` names `add_prompt`. `created_ids` lists the ids of the incidents and context documents the apply opened and the references of the glossary terms it created. `list_changesets` entries carry the same two fields (and report `false` once a changeset has been rolled back, or for a changeset applied to DataHub before the platform catalog).
 
 See [Governance Workflow](../knowledge/governance.md) for detailed examples of each action.
 

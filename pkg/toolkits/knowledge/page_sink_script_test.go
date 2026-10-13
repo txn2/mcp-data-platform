@@ -21,7 +21,7 @@ func TestPromoteToPage_CitesAScript(t *testing.T) {
 	const bodyScript = "mcp:script:0b7e2f0c-1111-4a4a-8b8b-000000000000"
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -52,7 +52,7 @@ func TestPromoteToPage_RefusesAMissingScript(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
 	pw.validateErr = fmt.Errorf("reference %q: %w", "script:6f1c0a52-8d8e-4f7b-9a3e-2b8c1d0e4f55", knowledgepage.ErrRefTargetNotFound)
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{
@@ -73,7 +73,7 @@ func TestPromoteToPage_RefusesAMissingScript(t *testing.T) {
 func TestPromoteToPage_RefusesAMalformedScriptID(t *testing.T) {
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
 	pw := newFakePageWriter()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 
 	input := applyKnowledgeInput{

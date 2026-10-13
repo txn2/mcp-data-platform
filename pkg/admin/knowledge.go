@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/admin/insightobs"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -19,13 +20,15 @@ const pathParamID = "id"
 type KnowledgeHandler struct {
 	insightStore   knowledge.InsightStore
 	changesetStore knowledge.ChangesetStore
-	datahubWriter  knowledge.DataHubWriter
+	catalog        catalog.Store
 	pageReverter   knowledge.PageReverter
 	instructions   knowledge.InstructionsStore
 	observer       *insightobs.Observer
 }
 
-// NewKnowledgeHandler creates a new knowledge admin handler. pageReverter may be
+// NewKnowledgeHandler creates a new knowledge admin handler. store is the
+// platform catalog a catalog changeset is rolled back in; nil refuses that
+// rollback. pageReverter may be
 // nil when knowledge pages are unavailable and instructions may be nil when the
 // config store cannot hold a write; rolling back a promotion of either kind then
 // returns a clear "not configured" error rather than mis-reverting. queryProvider
@@ -34,7 +37,7 @@ type KnowledgeHandler struct {
 func NewKnowledgeHandler(
 	insightStore knowledge.InsightStore,
 	changesetStore knowledge.ChangesetStore,
-	writer knowledge.DataHubWriter,
+	store catalog.Store,
 	pageReverter knowledge.PageReverter,
 	instructions knowledge.InstructionsStore,
 	queryProvider query.Provider,
@@ -42,7 +45,7 @@ func NewKnowledgeHandler(
 	return &KnowledgeHandler{
 		insightStore:   insightStore,
 		changesetStore: changesetStore,
-		datahubWriter:  writer,
+		catalog:        store,
 		pageReverter:   pageReverter,
 		instructions:   instructions,
 		observer:       insightobs.New(queryProvider),
@@ -386,7 +389,7 @@ func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Requ
 	}
 
 	deps := knowledge.RollbackDeps{
-		Writer: h.datahubWriter, Changesets: h.changesetStore, Insights: h.insightStore,
+		Catalog: h.catalog, Changesets: h.changesetStore, Insights: h.insightStore,
 		Pages: h.pageReverter, Instructions: h.instructions,
 	}
 	result, err := knowledge.RevertChangeset(r.Context(), deps, cs, rolledBackBy)
@@ -407,9 +410,9 @@ func writeRollbackError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, knowledge.ErrChangesetAlreadyRolledBack):
 		writeError(w, http.StatusConflict, "changeset already rolled back")
-	// A missing DataHub connection is a deployment precondition, not a server
-	// fault, and matches the 409 the other backend-dependent endpoints return.
-	case errors.Is(err, knowledge.ErrDataHubUnavailable):
+	// A changeset written to DataHub before the catalog replaced it has no
+	// catalog history; that is the changeset's state, not a server fault.
+	case errors.Is(err, knowledge.ErrDataHubChangeset):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &conflict):
 		writeError(w, http.StatusConflict, conflict.Error())

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogsemantic"
+	"github.com/txn2/mcp-data-platform/internal/platform/catalogstore"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -2743,48 +2745,23 @@ func TestInitKnowledge_ApplyWithDataHubConnection(t *testing.T) {
 	}
 }
 
-// TestResolveKnowledgeDataHubConfig covers the connection-resolution seam that
-// translates platform toolkit config into the knowledgelayer owner's
-// DataHubConfig (the owner then selects the real vs noop writer). The writer
-// build itself is exercised in the knowledgelayer package.
-func TestResolveKnowledgeDataHubConfig(t *testing.T) {
-	t.Run("nil when apply disabled", func(t *testing.T) {
-		p := &Platform{config: &Config{Toolkits: map[string]any{}}}
-		if cfg := p.resolveKnowledgeDataHubConfig(testInstanceDefault, false); cfg != nil {
-			t.Errorf("expected nil when apply disabled, got %+v", cfg)
-		}
-	})
+// TestKnowledgeCatalog covers which catalog apply_knowledge writes to: the
+// platform catalog only where it is the semantic layer.
+func TestKnowledgeCatalog(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
 
-	t.Run("nil when connection not found", func(t *testing.T) {
-		p := &Platform{config: &Config{Toolkits: map[string]any{}}}
-		if cfg := p.resolveKnowledgeDataHubConfig("nonexistent", true); cfg != nil {
-			t.Errorf("expected nil when connection not found, got %+v", cfg)
-		}
-	})
-
-	t.Run("populated when connection configured", func(t *testing.T) {
-		p := &Platform{
-			config: &Config{
-				Toolkits: map[string]any{
-					testToolkitKeyDatahub: map[string]any{
-						testInstancesKey: map[string]any{
-							testInstanceDefault: map[string]any{
-								testCfgKeyURL:   "http://datahub:8080",
-								testCfgKeyToken: "test-token",
-							},
-						},
-					},
-				},
-			},
-		}
-		cfg := p.resolveKnowledgeDataHubConfig(testInstanceDefault, true)
-		if cfg == nil {
-			t.Fatal("expected non-nil config when connection configured")
-		}
-		if cfg.URL != "http://datahub:8080" || cfg.Token != "test-token" {
-			t.Errorf("unexpected resolved config: %+v", cfg)
-		}
-	})
+	off := &Platform{db: db, semanticProvider: semantic.NewNoopProvider()}
+	if off.catalogForApply() != nil {
+		t.Error("a semantic layer turned off gives apply no catalog")
+	}
+	on := &Platform{db: db, semanticProvider: catalogsemantic.New(catalogstore.New(db), nil)}
+	if on.catalogForApply() == nil {
+		t.Error("the platform catalog as the semantic layer is the catalog apply writes to")
+	}
 }
 
 func TestAuditStore_Accessor(t *testing.T) {
@@ -2904,13 +2881,13 @@ func TestKnowledgeChangesetStore_Accessor(t *testing.T) {
 	})
 }
 
-func TestKnowledgeDataHubWriter_Accessor(t *testing.T) {
+func TestKnowledgeCatalog_Accessor(t *testing.T) {
 	t.Run("nil when knowledge disabled", func(t *testing.T) {
 		p := newTestPlatform(t)
 		defer func() { _ = p.Close() }()
 
-		if p.KnowledgeDataHubWriter() != nil {
-			t.Error("KnowledgeDataHubWriter() should be nil when knowledge disabled")
+		if p.KnowledgeCatalog() != nil {
+			t.Error("KnowledgeCatalog() should be nil when knowledge disabled")
 		}
 	})
 }

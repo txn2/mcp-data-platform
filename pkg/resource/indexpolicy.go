@@ -57,8 +57,9 @@ func decideIndex(deps Deps, f indexpolicy.File, requested string) (indexpolicy.D
 
 // originOf is where a write came from for the operator's rules. A write made
 // under a managed script's principal is the script's, whichever surface it
-// went through, and one under the webhook principal is the webhook's; anything
-// else is what the surface says it is.
+// went through, one under the webhook principal is the webhook's, and one
+// under the catalog scan's is the catalog's; anything else is what the surface
+// says it is.
 func originOf(claims *Claims, surface indexpolicy.Origin) indexpolicy.Origin {
 	if claims != nil {
 		switch {
@@ -66,6 +67,8 @@ func originOf(claims *Claims, surface indexpolicy.Origin) indexpolicy.Origin {
 			return indexpolicy.OriginScript
 		case claims.Sub == webhookPrincipal:
 			return indexpolicy.OriginWebhook
+		case claims.Sub == catalogPrincipal:
+			return indexpolicy.OriginCatalog
 		}
 	}
 	if surface == "" {
@@ -78,6 +81,7 @@ func originOf(claims *Claims, surface indexpolicy.Origin) indexpolicy.Origin {
 const (
 	scriptPrincipalPrefix = "script:"
 	webhookPrincipal      = "system:webhooks"
+	catalogPrincipal      = "system:catalog"
 )
 
 // indexTarget is one written resource as the index cares about it: whether it

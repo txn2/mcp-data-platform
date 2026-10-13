@@ -1,5 +1,5 @@
 ---
-description: Capture domain knowledge shared during AI sessions and write it back to DataHub with governance controls. Tribal knowledge capture for data catalogs.
+description: Capture domain knowledge shared during AI sessions and write it to the platform catalog with governance controls. Tribal knowledge capture for data catalogs.
 ---
 
 # Knowledge Capture
@@ -13,7 +13,7 @@ Every organization has tribal knowledge about its data: what columns actually me
 
 AI-assisted data exploration makes this worse. Users share corrections, business context, and quality observations during sessions. The AI assistant uses that context for the current conversation, and then it's gone. The next session starts from scratch.
 
-Knowledge capture fixes this. When a user shares domain knowledge during a session, the platform records it, routes it through a governance workflow, and writes approved changes back to DataHub.
+Knowledge capture fixes this. When a user shares domain knowledge during a session, the platform records it, routes it through a governance workflow, and writes approved changes to the [platform catalog](../server/catalog.md).
 
 ## How It Works
 
@@ -37,7 +37,7 @@ flowchart LR
 
     subgraph "Catalog Write-Back"
         E --> G[synthesize<br/>change proposals]
-        G --> H[apply changes<br/>to DataHub]
+        G --> H[apply changes<br/>to the catalog]
         H --> I[(knowledge_changesets<br/>for rollback)]
     end
 ```
@@ -57,7 +57,7 @@ When a `trino_query` or `trino_execute` call fails with a data-model misundersta
 - **Review, not live.** The correction is a reviewed sink-class (`schema_entity`), so it enters review as a `pending` insight rather than mutating catalog state. A human promotes it via `apply_knowledge` exactly like any other insight.
 - **Persona-gated.** Reflexive capture is a memory write, so a persona denied the `memory_capture` tool never has records minted on its behalf.
 - **Conservative pairing.** Only errors matching a small allowlist of misconception signatures are captured; infra, policy, timeout, and permission errors are treated as noise and ignored. The success is paired only when it runs on the same connection and is a near-variant of the failing query (measured by shared identifiers), so an unrelated query on the same table is not mistaken for a fix, and an identical statement that merely succeeds on retry is ignored.
-- **Entity-keyed.** When the fixed query references fully-qualified tables, the correction is linked to those DataHub dataset URNs (resolved against the successful query's connection).
+- **Entity-keyed.** When the fixed query references fully-qualified tables, the correction is linked to those tables' catalog references (resolved against the successful query's connection).
 
 Reflexive capture is enabled by default whenever the memory subsystem is available. Disable it with `knowledge.reflexive_capture.enabled: false`. It is part of the reflexive knowledge-activation work ([#635](https://github.com/txn2/mcp-data-platform/issues/635)).
 
@@ -84,7 +84,7 @@ stateDiagram-v2
     pending --> approved: admin approves
     pending --> rejected: admin rejects
     pending --> superseded: newer insight replaces
-    approved --> applied: changes written to DataHub
+    approved --> applied: changes written to the catalog
     applied --> pending: changeset rolled back
 ```
 
@@ -93,7 +93,7 @@ stateDiagram-v2
 | `pending` | Newly captured, awaiting admin review |
 | `approved` | Reviewed and approved, ready for synthesis and application |
 | `rejected` | Reviewed and rejected by admin |
-| `applied` | Changes have been written to the canonical sink (the DataHub catalog, or a knowledge page). Also the point at which the insight becomes organization-wide: see Visibility below |
+| `applied` | Changes have been written to the canonical sink (the platform catalog, a knowledge page, or the agent instructions). Also the point at which the insight becomes organization-wide: see Visibility below |
 | `superseded` | Replaced by a newer insight for the same entity |
 
 Rolling back a changeset returns its source insights to `pending`, so the review queue surfaces them for a decision again. There is no terminal `rolled_back` insight status: a rollback undoes the application, and `reject` remains the way to discard an insight for good. A returned insight keeps its `applied_by`, `applied_at` and `changeset_ref`, and its `review_notes` names the changeset that was rolled back, so the next reviewer can see the destination that was already tried. See [Governance: Rollback](governance.md#rollback).
@@ -170,7 +170,6 @@ sequenceDiagram
     participant MCP as mcp-data-platform
     participant PG as PostgreSQL
     participant Admin
-    participant DH as DataHub
 
     Analyst->>AI: "The amount column is actually gross margin"
     AI->>MCP: memory_capture(type: schema_entity, ...)
@@ -186,12 +185,12 @@ sequenceDiagram
     MCP->>PG: UPDATE status = approved
 
     Admin->>MCP: apply_knowledge(action: synthesize, entity_urn: ...)
-    MCP->>DH: Get current metadata
+    MCP->>PG: Read the entity's catalog curation
     MCP-->>Admin: Proposed changes with current vs suggested values
 
     Admin->>MCP: apply_knowledge(action: apply, changes: [...], confirm: true)
-    MCP->>DH: Update description, add tags
-    MCP->>PG: INSERT knowledge_changesets (previous_value for rollback)
+    MCP->>PG: Write the description and tags in one transaction
+    MCP->>PG: INSERT knowledge_changesets (the catalog change ids, for rollback)
     MCP->>PG: UPDATE insights status = applied
     MCP-->>Admin: Changeset cs_x1y2z3 recorded
 ```
@@ -204,11 +203,11 @@ This is a human-in-the-loop metadata curation workflow. Insights captured by any
 
 | `sink` | Home | Choose it when |
 |--------|------|----------------|
-| `datahub` (default) | A catalog entity's description, tags, glossary terms, curated queries | The fact is anchored to one dataset or column (the insight carries `entity_urns`) |
+| `catalog` (default) | A platform catalog entity's description, tags, glossary terms, curated queries and other curation | The fact is anchored to one dataset or column (the insight carries `entity_urns`) |
 | `knowledge_page` | A canonical portal knowledge page, found-or-created by `slug` | The fact is business or domain knowledge not tied to one entity: vocabulary, seasonal date ranges, a procedure |
 | `agent_instructions` | The deployment's own customized agent instructions, found-or-created by section heading | Every future session on this deployment must know it before it does anything |
 
-All three record a changeset, are listed by `action=list_changesets`, and revert through `action=rollback`. The target URN says which home a changeset belongs to: a catalog `urn:li:...`, `kp:<slug>` for a page, `ai:<section>` for an instruction section.
+All three record a changeset, are listed by `action=list_changesets`, and revert through `action=rollback`. The target URN says which home a changeset belongs to: a catalog `mcp:` reference, `kp:<slug>` for a page, `ai:<section>` for an instruction section.
 
 A promotion that wrote a knowledge page reports `portal_url`, where a person reads that page, and repeats it in the response message. The address is composed by the platform from the deployment's public portal address, so the link an agent hands over is not one it guessed. A deployment that declared no public address reports no `portal_url`. The page route resolves a page's id or its slug, in that order, which is the order `fetch` resolves an `mcp:knowledge_page:` reference in, so the slug the platform's own text names a page by is also an address that opens it.
 
@@ -248,7 +247,6 @@ knowledge:
   enabled: true
   apply:
     enabled: true
-    datahub_connection: primary
     require_confirmation: true
 ```
 
@@ -256,7 +254,7 @@ knowledge:
 |-------|------|---------|-------------|
 | `knowledge.enabled` | bool | `false` | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
-| `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
+| `knowledge.apply.datahub_connection` | string | - | Has no effect: `apply_knowledge` writes to the [platform catalog](../server/catalog.md). Accepted so a configuration that still sets it starts |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
 | `knowledge.verifiable_insights` | bool | `true` | Deliver a `verifiable` block on an insight whose linked entity resolves to a queryable table, on every delivery surface. Inert without a query provider; set `false` to deliver insights with no marker |
 

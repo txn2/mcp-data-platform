@@ -34,7 +34,7 @@ flowchart TB
     end
 
     subgraph "Admin Curation"
-        E --> I[apply_knowledge<br/>promotes to DataHub]
+        E --> I[apply_knowledge<br/>promotes to the catalog]
     end
 ```
 
@@ -139,7 +139,7 @@ Ownership is keyed on the user's **email** (`created_by`), the same key `memory_
 
 ### apply_knowledge (existing, refactored)
 
-Reads from `memory_records` via an adapter. Promotes curated memories into durable DataHub knowledge (context documents, glossary terms, tags, structured properties).
+Reads from `memory_records` via an adapter. Promotes curated memories into durable knowledge in the [platform catalog](../server/catalog.md) (descriptions, context documents, glossary terms, tags, structured properties).
 
 ## Cross-Enrichment
 

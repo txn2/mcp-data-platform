@@ -153,23 +153,21 @@ const (
 	actionAddDocumentation  actionType = "add_documentation"
 	actionAddCuratedQuery   actionType = "add_curated_query"
 
-	// DataHub 1.4.x actions.
+	// Structured properties and incidents.
 	actionSetStructuredProperty    actionType = "set_structured_property"
 	actionRemoveStructuredProperty actionType = "remove_structured_property"
 	actionRaiseIncident            actionType = "raise_incident"
 	actionResolveIncident          actionType = "resolve_incident"
 
-	// Curation change types (#726). delete_tag removes a tag definition entirely
-	// (entity_urn is the tag URN); set_custom_property/remove_custom_property edit
-	// an entity's legacy customProperties map. Like the structured-property changes
-	// they are recorded for audit but are not auto-revertible (see
-	// revertibleChangeTypes): a deleted tag cannot be restored with its prior
-	// associations, and a customProperties edit has no before-image captured.
+	// Curation change types (#726). delete_tag takes a tag off every dataset
+	// and column carrying it (entity_urn is the tag);
+	// set_custom_property/remove_custom_property edit an entity's custom
+	// properties, one key per change.
 	actionDeleteTag            actionType = "delete_tag"
 	actionSetCustomProperty    actionType = "set_custom_property"
 	actionRemoveCustomProperty actionType = "remove_custom_property"
 
-	// Context document actions (DataHub 1.4.x with document support).
+	// Context document actions.
 	actionAddContextDocument    actionType = "add_context_document"
 	actionUpdateContextDocument actionType = "update_context_document"
 	actionRemoveContextDocument actionType = "remove_context_document"
@@ -465,7 +463,8 @@ type InsightUpdate struct {
 	Confidence  string `json:"confidence,omitempty"`
 }
 
-// Changeset records a set of changes applied to DataHub from insights.
+// Changeset records one apply: its changes, the catalog changes it wrote, and
+// the insights it promoted.
 type Changeset struct {
 	ID               string         `json:"id" example:"cs_x1y2z3a4b5c6d7e8"`
 	CreatedAt        time.Time      `json:"created_at" example:"2026-01-15T16:00:00Z"`
@@ -506,7 +505,7 @@ func (f *ChangesetFilter) EffectiveLimit() int {
 	return f.Limit
 }
 
-// ApplyChange represents a single change to apply to DataHub.
+// ApplyChange is a single change an apply writes to the catalog.
 type ApplyChange struct {
 	ChangeType       string `json:"change_type"`
 	Target           string `json:"target"`
@@ -589,7 +588,8 @@ func validateAddPromptFields(c ApplyChange) error {
 	return nil
 }
 
-// EntityMetadata holds current metadata for an entity from DataHub.
+// EntityMetadata is the summary of an entity's curation that review,
+// synthesize and a changeset's before-image carry.
 type EntityMetadata struct {
 	Description   string   `json:"description"`
 	Tags          []string `json:"tags"`

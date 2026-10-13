@@ -184,12 +184,13 @@ describe("one call opened", () => {
   it("shows what a promoted record became instead of offering to promote it again", () => {
     render(
       <CallDetailView
-        record={record({ promoted_urn: "urn:li:query:abc", promoted_by: "admin@example.com" })}
+        record={record({ promoted_urn: "mcp:dataset:(trino,acme,hive.sales.orders)", promoted_by: "admin@example.com" })}
         onPromote={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("urn:li:query:abc")).toBeTruthy();
+    expect(screen.getByText("mcp:dataset:(trino,acme,hive.sales.orders)")).toBeTruthy();
+    expect(screen.getByText(/as a curated query on/)).toBeTruthy();
     expect(screen.queryByText("Publish")).toBeNull();
   });
 

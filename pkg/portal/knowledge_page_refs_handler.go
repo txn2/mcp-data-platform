@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -490,8 +491,31 @@ func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowle
 		out.Label = ref.ConnectionName + " (" + ref.ConnectionKind + ")"
 	case knowledgepage.RefTargetDataHub:
 		out.Label = catalogLabel(ref.EntityURN, labels)
+	case knowledgepage.RefTargetCatalog:
+		out.Label = platformCatalogLabel(ref.EntityURN, labels)
 	}
 	return out
+}
+
+// platformCatalogLabel is the display name of a platform catalog reference:
+// the name the batch resolved, and otherwise the table (and column) a dataset
+// or column reference names, or the key a definition reference carries.
+func platformCatalogLabel(reference string, labels map[string]string) string {
+	if name, ok := labels[reference]; ok && name != "" {
+		return name
+	}
+	ref, err := catalog.ParseRef(reference)
+	if err != nil {
+		return reference
+	}
+	switch {
+	case ref.Kind == catalog.KindColumn && len(ref.Path) > 0:
+		return ref.Path[len(ref.Path)-1] + "." + ref.Column
+	case ref.Kind == catalog.KindDataset && len(ref.Path) > 0:
+		return ref.Path[len(ref.Path)-1]
+	default:
+		return ref.Key
+	}
 }
 
 // catalogLabel is the display name of a catalog reference: the name the catalog

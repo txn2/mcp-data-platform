@@ -891,28 +891,33 @@ Review, synthesize, and apply captured insights to their canonical home. Admin-o
 
 `apply_knowledge` is the **sink router** (#633): the `apply` action's `sink` decides where a capture is promoted.
 
-- **`sink: datahub`** (default) applies the `changes` to a catalog entity (`entity_urn`).
-- **`sink: knowledge_page`** promotes a capture to a canonical portal **knowledge page**, found-or-created by `page.slug` (so repeated promotions on the same slug consolidate into one living page). The capture-time sink-class is a non-binding hint: any insight can be promoted to either sink, with the destination chosen at apply (prefer DataHub for entity-anchored facts, a page for broader business or domain knowledge).
+- **`sink: catalog`** (default) writes the `changes` to an entity of the [platform catalog](catalog.md) (`entity_urn`).
+- **`sink: knowledge_page`** promotes a capture to a canonical portal **knowledge page**, found-or-created by `page.slug` (so repeated promotions on the same slug consolidate into one living page). The capture-time sink-class is a non-binding hint: any insight can be promoted to either sink, with the destination chosen at apply (prefer the catalog for entity-anchored facts, a page for broader business or domain knowledge).
+- **`sink: agent_instructions`** promotes an operating rule into the deployment's customized agent instructions.
 
 Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"`) listed by `list_changesets` and reversible by `rollback`. Rolling back a page promotion soft-deletes a newly created page or restores a prior version, and is refused if the page was edited after the promotion.
 
-**Without a DataHub connection**, `sink: datahub` is refused rather than silently accepted: the apply returns an error naming the blocked change types, `knowledge.apply.datahub_connection`, and `sink: knowledge_page` as the catalog-free destination, and records no changeset. `rollback` of a DataHub changeset is refused the same way. The one exception is the `add_prompt` change type, which creates a platform prompt rather than writing to the catalog and therefore still applies. The knowledge-page sink is unaffected throughout.
+**`entity_urn`** is a catalog reference: `mcp:dataset:(kind,connection,path)`, `mcp:column:(kind,connection,path,column)`, `mcp:glossary_term:<id>`, `mcp:glossary_node:<id>`, `mcp:domain:<id>`, `mcp:data_product:<id>` or `mcp:tag:<name>`. A DataHub dataset URN (`urn:li:dataset:...`) is read as the catalog dataset with the same path, on the first connection that catalogs it, and a changeset is recorded under the catalog reference.
 
-**Citing entities on a page.** To attach an entity reference (a dataset `urn:li:...`, or an `mcp:asset`/`mcp:prompt`/`mcp:collection`/`mcp:connection`/`mcp:knowledge_page`/`mcp:script`) to a page, pass it in `page.references` or write it in the body as plain text or a markdown link. A reference wrapped in backticks or a fenced code block is treated as a documentation example and intentionally ignored, so a backticked URN produces no reference and no link. Each entry in `page.references` is existence-checked **before** the page is written: a missing **internal** (`mcp:`) entity rejects the apply (a DataHub `urn:li:` reference is free text and is stored as given). References in `page.references` and those carried from the source insights attach with the promotion (so a `rollback` undoes them); a stale insight-carried reference is skipped rather than blocking. A target cited both in `page.references` and inline in the body is stored once. Inline body references are also filtered to those that exist, so a stale `mcp:` token in prose is skipped rather than blocking the page or leaving it partially written. A dropped insight-carried or inline-body reference is not silent: the apply response reports the dropped targets in `references_dropped` (a reference whose target was deleted, or an insight-carried reference that is not citable on a shared page such as `mcp:memory:`/`mcp:insight:`) and always reports the count of references that landed in `references_attached`, so an agent can reconcile what it cited against what was attached and fix the payload or the prose. A managed script (`mcp:script:<id>`, #1855) is citable too, so a page that says which script maintains a dataset can cite the script itself: the citation is existence-checked like any other internal reference (a script that does not exist, or an id that is not a UUID, rejects the apply). A script's definition is readable by everyone signed in (#2027), so the citation resolves for every reader, and `fetch` on the reference returns the script's contract and source to every reader. Deleting the script removes the citation.
+The changes of one apply are written in **one transaction**: a change that cannot be applied writes nothing, including the changes before it. Every change type is undone by `rollback`, which restores each aspect the apply wrote to the value it replaced, through the catalog's own history. A rollback is refused, and reverts nothing, when an aspect the changeset wrote has been written again since (roll that change back first), when the changeset created a prompt, and when the changeset was applied to DataHub before the platform catalog replaced it.
 
-`operational_rule` is stored as a knowledge page like `business_knowledge` (it is non-DataHub canonical knowledge); active enforcement of operational rules via the rules engine is tracked separately.
+**Without a platform catalog** (no database, or `semantic.provider: noop`), catalog changes are refused with an error naming `sink: knowledge_page` as the destination that needs none. The `add_prompt` change type creates a platform prompt rather than writing to the catalog and therefore still applies.
+
+**Citing entities on a page.** To attach an entity reference (a catalog entity's `mcp:dataset:`/`mcp:column:`/`mcp:glossary_term:` reference and the like, a DataHub `urn:li:...`, or an `mcp:asset`/`mcp:prompt`/`mcp:collection`/`mcp:connection`/`mcp:knowledge_page`/`mcp:script`) to a page, pass it in `page.references` or write it in the body as plain text or a markdown link. A reference wrapped in backticks or a fenced code block is treated as a documentation example and intentionally ignored, so a backticked URN produces no reference and no link. Each entry in `page.references` is existence-checked **before** the page is written: a missing **internal** (`mcp:`) entity rejects the apply (a DataHub `urn:li:` reference is free text and is stored as given). References in `page.references` and those carried from the source insights attach with the promotion (so a `rollback` undoes them); a stale insight-carried reference is skipped rather than blocking. A target cited both in `page.references` and inline in the body is stored once. Inline body references are also filtered to those that exist, so a stale `mcp:` token in prose is skipped rather than blocking the page or leaving it partially written. A dropped insight-carried or inline-body reference is not silent: the apply response reports the dropped targets in `references_dropped` (a reference whose target was deleted, or an insight-carried reference that is not citable on a shared page such as `mcp:memory:`/`mcp:insight:`) and always reports the count of references that landed in `references_attached`, so an agent can reconcile what it cited against what was attached and fix the payload or the prose. A managed script (`mcp:script:<id>`, #1855) is citable too, so a page that says which script maintains a dataset can cite the script itself: the citation is existence-checked like any other internal reference (a script that does not exist, or an id that is not a UUID, rejects the apply). A script's definition is readable by everyone signed in (#2027), so the citation resolves for every reader, and `fetch` on the reference returns the script's contract and source to every reader. Deleting the script removes the citation.
+
+`operational_rule` is stored as a knowledge page like `business_knowledge` (it is canonical knowledge tied to no catalog entity); active enforcement of operational rules via the rules engine is tracked separately.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag |
-| `sink` | string | No | apply target: `datahub` (default) or `knowledge_page` |
-| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=datahub` |
-| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (name or `urn:li:tag:...`) to remove from every entity that carries it |
+| `sink` | string | No | apply target: `catalog` (default), `knowledge_page` or `agent_instructions` |
+| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=catalog`: a catalog reference, or a DataHub dataset URN read by its path |
+| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (a name, `mcp:tag:<name>` or `urn:li:tag:<name>`) to remove from every dataset and column that carries it |
 | `page` | object | Conditional | `{slug, title, body, summary?, tags?, references?}` for apply with `sink=knowledge_page`. `references` is a list of serialized reference strings (`mcp:<type>:<id>` / `urn:li:...`) attached to the page independent of the body |
 | `insight_ids` | array | Conditional | Source insights; required for approve, reject. On apply, pass the promoted insights so they are marked applied and the changeset is linked to them (closes the review loop; the queue then reflects what is live). Sink-class is a non-binding hint; any insight can be applied to either sink (destination chosen at apply) |
-| `changes` | array | Conditional | Required for apply with `sink=datahub` |
+| `changes` | array | Conditional | Required for apply with `sink=catalog` |
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
@@ -923,36 +928,37 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 **Actions:**
 
 - **bulk_review**: Counts of all pending insights (`total_pending`, `by_entity`, `by_category`, `by_confidence`) plus a review-queue staleness rollup (`oldest_pending_at`, `oldest_pending_age_days`, `pending_over_30d`, omitted when the queue is empty) so aging review debt is visible. Pass `itemize: true` to enumerate the queue itself, paginated, with each insight's full `insight_text` body, `id`, `captured_by`, `sink_class`, and `suggested_actions_count` (full `suggested_actions` omitted, `fetch` for it; the relevance-ranked `search` tool cannot list the queue completely). The response is bounded so it stays under the output limit: `page_size_capped: true` flags a short insights page (continue with `next_offset`) and `by_entity_truncated: true` flags a capped `by_entity`
-- **review**: Insights for a specific entity with current DataHub metadata
+- **review**: Insights for a specific entity with its current catalog curation
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights
-- **apply**: Write changes to DataHub with changeset tracking
+- **apply**: Write changes to the platform catalog in one transaction, recorded as a changeset
 - **list_changesets**: List an entity's changesets (id, timestamp, actor, change type, rollback status)
-- **rollback**: Revert a changeset's changes to their before-image and return its source insights to the review queue as `pending` (requires `changeset_id` and `confirm`)
-- **bulk_untag**: Remove a tag (`tag_urn`) from every entity a catalog search finds carrying it, recording one changeset for audit (when `require_confirmation` is enabled it first returns the affected count and needs `confirm`; not auto-revertible, re-apply `add_tag` to restore)
+- **rollback**: Restore every aspect a changeset wrote to the value it replaced, in one transaction, and return its source insights to the review queue as `pending` (requires `changeset_id` and `confirm`)
+- **bulk_untag**: Remove a tag (`tag_urn`) from every dataset and column carrying it, up to 500 per call in one transaction, recording one changeset that `rollback` undoes (when `require_confirmation` is enabled it first returns the affected count and needs `confirm`; a tag on more entities is cleared by calling again)
 
 **Supported change types for `apply` action:**
 
-| Change Type | Target | Detail | Entity Types |
-|-------------|--------|--------|--------------|
-| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text | datasets (column+entity), dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes, tags (set `entity_urn` to the tag URN to fix a tag's own definition) |
-| `add_tag` / `remove_tag` | Ignored | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) | All |
-| `add_glossary_term` | Ignored | Term name or URN | All |
-| `flag_quality_issue` | Ignored | Quality issue description | All |
-| `add_documentation` | URL | Link description | All |
-| `add_curated_query` | Ignored | Query name | Datasets only |
-| `set_structured_property` | Property qualified name or URN | Value or JSON array | All (DataHub 1.4.x) |
-| `remove_structured_property` | Property qualified name or URN | Removal reason | All (DataHub 1.4.x) |
-| `raise_incident` | Incident title | Description | All (DataHub 1.4.x) |
-| `resolve_incident` | Incident URN | Resolution message | All (DataHub 1.4.x) |
-| `add_context_document` | Document title | Document content | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
-| `update_context_document` | Document ID | New content (`query_sql` = new title) | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
-| `remove_context_document` | Document ID | Ignored | All (DataHub 1.4.x) |
-| `delete_tag` | Ignored | Ignored | Tags (`entity_urn` is the tag URN); deletes the tag definition entirely, irreversible |
-| `set_custom_property` | customProperties key | Value | datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
-| `remove_custom_property` | customProperties key | Ignored | datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
+A dataset and its columns carry every kind of curation; curated queries, incidents and context documents are dataset-only; a glossary term, glossary node, domain, data product or tag carries a description, owners, custom properties and documentation links.
 
-`delete_tag`, `set_custom_property`, and `remove_custom_property` are recorded for audit but are not auto-revertible. Custom-property changes are batched, so a single apply may not both set and remove custom properties on the same entity (the shared aspect is written non-atomically); use separate apply calls. For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
+| Change Type | Target | Detail | Writes |
+|-------------|--------|--------|--------|
+| `update_description` | `column:<name>` for a column, empty for the entity | Description text | `description` |
+| `add_tag` / `remove_tag` | `column:<name>` for a column, empty for the entity | Tag name (`pii`; `mcp:tag:pii` and `urn:li:tag:pii` are read as `pii`) | `tags` |
+| `add_glossary_term` | `column:<name>` for a column, empty for the entity | A term reference or name; a name the catalog does not hold creates the term, listed in `created_ids` | `glossary_terms` |
+| `flag_quality_issue` | Ignored | Quality issue description | the `QualityIssue` tag, and on a dataset with a detail an active `Data quality issue` incident (one per open detail) |
+| `add_documentation` | URL | Link description | `documentation_links` |
+| `add_curated_query` | Ignored | Query name (`query_sql` the statement, `query_description` optional); a query of the same name is replaced | `curated_queries` (datasets) |
+| `set_structured_property` | Property name | Value or JSON array | `structured_properties` |
+| `remove_structured_property` | Property name | Ignored | `structured_properties` |
+| `raise_incident` | Incident title | Description; the incident id is in `created_ids` | `incidents` (datasets) |
+| `resolve_incident` | Incident id | Resolution message | `incidents` (datasets) |
+| `add_context_document` | Document title | Content (`query_description` the category); the document id is in `created_ids` | `context_documents` (datasets) |
+| `update_context_document` | Document id | New content (`query_sql` the new title, `query_description` the category) | `context_documents` (datasets) |
+| `remove_context_document` | Document id | Ignored | `context_documents` (datasets) |
+| `delete_tag` | Ignored | Ignored | `entity_urn` is `mcp:tag:<name>`: takes the tag off every dataset and column carrying it |
+| `set_custom_property` | Key | Value | `custom_properties` |
+| `remove_custom_property` | Key | Ignored | `custom_properties` |
+| `add_prompt` | Prompt name | Prompt content | a platform prompt; a changeset that created one is not rolled back |
 
 ---
 

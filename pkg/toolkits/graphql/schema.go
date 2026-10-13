@@ -650,3 +650,19 @@ func (t *Toolkit) IndexItems(name string) (schemaHash string, items map[string]s
 	}
 	return schema.Hash(), items, true
 }
+
+// SchemaSDL returns the SDL of the schema a connection holds, as the platform
+// read it, or false when the connection is not held or its schema has not
+// been read.
+func (t *Toolkit) SchemaSDL(name string) (string, bool) {
+	c, _, found := t.lookup(name)
+	if !found {
+		return "", false
+	}
+	c.schemaMu.RLock()
+	defer c.schemaMu.RUnlock()
+	if c.schema == nil {
+		return "", false
+	}
+	return c.schema.SDL(), true
+}

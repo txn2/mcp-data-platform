@@ -72,6 +72,17 @@ func TestNativeCatalogFetchDataset(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "amount", d.Columns[0].Name)
 	assert.NotNil(t, d.Upstream, "a store that cannot walk lineage reports none, as []")
+	assert.Empty(t, doc.References, "a dataset with no schema document links none")
+}
+
+// A dataset whose schema document is kept links it as a resource reference
+// the caller can fetch in turn (#1918).
+func TestNativeCatalogFetchLinksTheSchemaDocument(t *testing.T) {
+	f := nativeFixture()
+	f.datasets[nativeOrders.String()].SchemaResourceID = "res-1"
+	doc, _, err := NewNativeCatalogProvider(f, nil).Fetch(context.Background(), nativeOrders.String(), Caller{})
+	require.NoError(t, err)
+	assert.Equal(t, []DocumentRef{{Reference: "mcp:resource:res-1", Type: "resource"}}, doc.References)
 }
 
 type lineageCatalog struct {

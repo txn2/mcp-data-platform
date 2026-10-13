@@ -773,7 +773,7 @@ func AdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Hand
 		deps.Knowledge = admin.NewKnowledgeHandler(
 			p.KnowledgeInsightStore(),
 			p.KnowledgeChangesetStore(),
-			p.KnowledgeDataHubWriter(),
+			p.KnowledgeCatalog(),
 			p.PortalKnowledgePageStore(),
 			agentinstructions.New(p.ConfigStore(), p.FileDefaults(), platform.ConfigKeyServerAgentInstructions),
 			p.QueryProvider(),
@@ -795,17 +795,17 @@ func AdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Hand
 //
 // The promoter is built here rather than inside the platform because what a
 // promoted record becomes lives outside the audit layer: a query becomes a
-// DataHub Query entity through the knowledge toolkit's writer, and an API call
-// becomes an example on its endpoint in the API catalog. Each writer is passed
-// only when it reaches something real: a noop DataHub writer would report a
-// promotion that persisted nothing (#1321).
+// curated query on each dataset it reads in the platform catalog, and an API
+// call becomes an example on its endpoint in the API catalog. Each writer is
+// passed only when it reaches something real, so a promotion never reports
+// success having persisted nothing (#1321).
 func callCatalog(p *platform.Platform) (callrecord.Store, *callrecord.Promoter) {
 	calls := p.Audit().Calls()
 	if calls == nil {
 		return nil, nil
 	}
 	var queries callrecord.CuratedQueryWriter
-	if w := p.KnowledgeDataHubWriter(); knowledgekit.DataHubWritable(w) {
+	if w := knowledgekit.NewCatalogQueryWriter(p.KnowledgeCatalog()); w != nil {
 		queries = w
 	}
 	var examples callrecord.ExampleWriter

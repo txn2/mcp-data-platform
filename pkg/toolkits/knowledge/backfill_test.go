@@ -132,7 +132,7 @@ func TestBackfillPageRefs(t *testing.T) {
 		// A duplicate and an empty URN exercise the de-dup/skip path.
 		{ID: "ins-1", EntityURNs: []string{"urn:li:dataset:promoted-x", "urn:li:dataset:promoted-x", ""}},
 	}}
-	tk := newApplyToolkit(t, insightStore, csStore, &spyWriter{})
+	tk := newApplyToolkit(t, insightStore, csStore, newFakeCatalog())
 
 	stats, err := tk.BackfillPageRefs(context.Background(), store)
 	require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestBackfillPageRefs_EdgesAndError(t *testing.T) {
 	// A List error aborts the backfill.
 	errStore := newFakeBackfillStore()
 	errStore.listErr = errors.New("list boom")
-	tk := newApplyToolkit(t, &fullSpyStore{}, &filterCSStore{byTarget: map[string][]Changeset{}}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &filterCSStore{byTarget: map[string][]Changeset{}}, newFakeCatalog())
 	_, err := tk.BackfillPageRefs(context.Background(), errStore)
 	require.Error(t, err)
 
@@ -169,7 +169,7 @@ func TestBackfillPageRefs_EdgesAndError(t *testing.T) {
 	cs := &filterCSStore{byTarget: map[string][]Changeset{
 		"kp:has-cs": {{SourceInsightIDs: []string{"missing-insight"}}},
 	}}
-	tk2 := newApplyToolkit(t, &fullSpyStore{}, cs, &spyWriter{}) // no insights -> Get not found
+	tk2 := newApplyToolkit(t, &fullSpyStore{}, cs, newFakeCatalog()) // no insights -> Get not found
 	stats, err := tk2.BackfillPageRefs(context.Background(), store)
 	require.NoError(t, err)
 	assert.Equal(t, 2, stats.PagesScanned)
@@ -187,7 +187,7 @@ func TestBackfillPageRefs_Paginates(t *testing.T) {
 		pages[i] = knowledgepage.Page{ID: fmt.Sprintf("kp%d", i), Slug: fmt.Sprintf("s%d", i)}
 	}
 	store := newFakeBackfillStore(pages...)
-	tk := newApplyToolkit(t, &fullSpyStore{}, &filterCSStore{byTarget: map[string][]Changeset{}}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &filterCSStore{byTarget: map[string][]Changeset{}}, newFakeCatalog())
 
 	stats, err := tk.BackfillPageRefs(context.Background(), store)
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestBackfillPageRefs_Paginates(t *testing.T) {
 func TestBackfillPageRefs_BestEffortOnInlineError(t *testing.T) {
 	store := newFakeBackfillStore(knowledgepage.Page{ID: "kp1", Slug: "s", Body: "[a](mcp:asset:x)"})
 	store.inlineErr = errors.New("FK violation: asset gone")
-	tk := newApplyToolkit(t, &fullSpyStore{}, &filterCSStore{byTarget: map[string][]Changeset{}}, &spyWriter{})
+	tk := newApplyToolkit(t, &fullSpyStore{}, &filterCSStore{byTarget: map[string][]Changeset{}}, newFakeCatalog())
 
 	stats, err := tk.BackfillPageRefs(context.Background(), store)
 	require.NoError(t, err, "a per-page inline error must not abort the pass")
@@ -213,7 +213,7 @@ func TestBackfillPageRefs_BestEffortOnPromotedError(t *testing.T) {
 		"kp:fiscal": {{SourceInsightIDs: []string{"ins-1"}}},
 	}}
 	insights := &fullSpyStore{Insights: []Insight{{ID: "ins-1", EntityURNs: []string{"urn:li:dataset:x"}}}}
-	tk := newApplyToolkit(t, insights, cs, &spyWriter{})
+	tk := newApplyToolkit(t, insights, cs, newFakeCatalog())
 
 	stats, err := tk.BackfillPageRefs(context.Background(), store)
 	require.NoError(t, err, "a per-page promoted-add error must not abort the pass")
@@ -234,7 +234,7 @@ func TestRunGuardedBackfill(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		store := newFakeBackfillStore(knowledgepage.Page{ID: "kp1", Slug: "s", Body: "[a](mcp:asset:x)"})
-		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), newFakeCatalog())
 		tk.RunGuardedBackfill(context.Background(), db, store)
 
 		assert.Len(t, store.inline["kp1"], 1, "backfill should have reconciled the inline ref")
@@ -249,7 +249,7 @@ func TestRunGuardedBackfill(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 		store := newFakeBackfillStore(knowledgepage.Page{ID: "kp1", Body: "[a](mcp:asset:x)"})
-		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), newFakeCatalog())
 		tk.RunGuardedBackfill(context.Background(), db, store)
 
 		assert.Empty(t, store.inline["kp1"], "backfill must be skipped when already done")
@@ -261,7 +261,7 @@ func TestRunGuardedBackfill(t *testing.T) {
 		require.NoError(t, err)
 		defer db.Close() //nolint:errcheck // test cleanup
 		mock.ExpectQuery("SELECT EXISTS").WillReturnError(errors.New("db down"))
-		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), newFakeCatalog())
 		tk.RunGuardedBackfill(context.Background(), db, newFakeBackfillStore())
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
@@ -275,7 +275,7 @@ func TestRunGuardedBackfill(t *testing.T) {
 		// No ExpectExec: the backfill fails before the sentinel is marked.
 		errStore := newFakeBackfillStore()
 		errStore.listErr = errors.New("list boom")
-		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), newFakeCatalog())
 		tk.RunGuardedBackfill(context.Background(), db, errStore)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
@@ -287,13 +287,13 @@ func TestRunGuardedBackfill(t *testing.T) {
 		mock.ExpectQuery("SELECT EXISTS").
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 		mock.ExpectExec("INSERT INTO platform_backfills").WillReturnError(errors.New("insert boom"))
-		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), newFakeCatalog())
 		tk.RunGuardedBackfill(context.Background(), db, newFakeBackfillStore())
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 
 	t.Run("nil db is a no-op", func(t *testing.T) {
-		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), &spyWriter{})
+		tk := newApplyToolkit(t, &fullSpyStore{}, emptyCS(), newFakeCatalog())
 		tk.RunGuardedBackfill(context.Background(), nil, newFakeBackfillStore())
 	})
 }

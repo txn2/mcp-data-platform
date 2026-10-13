@@ -67,7 +67,7 @@ func reverseLookupFilter(ref EntityRef) (where string, args []any) {
 		return "r.ref_page_id = $1", []any{ref.RefPageID}
 	case RefTargetConnection:
 		return "r.connection_kind = $1 AND r.connection_name = $2", connArgs(ref)
-	case RefTargetDataHub:
+	case RefTargetDataHub, RefTargetCatalog:
 		return "r.entity_urn = $1", []any{ref.EntityURN}
 	case RefTargetScript:
 		// script_id is a UUID column: an id that is not one is cited by no page,

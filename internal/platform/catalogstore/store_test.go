@@ -492,3 +492,11 @@ func TestStoreForNeedsADatabase(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	assert.NotNil(t, StoreFor(db))
 }
+
+func TestSameJSON(t *testing.T) {
+	assert.True(t, sameJSON(nil, nil))
+	assert.True(t, sameJSON([]byte(`{"a": 1, "b": [2]}`), []byte(`{"b":[2],"a":1}`)))
+	assert.False(t, sameJSON(nil, []byte(`[]`)))
+	assert.False(t, sameJSON([]byte(`["a"]`), []byte(`["b"]`)))
+	assert.False(t, sameJSON([]byte(`not json`), []byte(`not json`)))
+}

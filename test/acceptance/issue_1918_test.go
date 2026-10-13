@@ -24,6 +24,10 @@ import (
 // `table_name` are typed string, and each is sent in that one form. The
 // catalog settings body is JSON with `scan_interval` a string and
 // `exclusions` an array of objects, its one form.
+//
+// The schema-document criterion reads the stored API operation's dataset
+// through fetch and follows the mcp:resource: reference it lists, the same
+// string parameter.
 
 // conn1918 is the writable dev Trino connection the criteria create tables on.
 const conn1918 = scratchConnection
@@ -71,6 +75,13 @@ func ref1918(schema, table string) string {
 // started after the request to finish.
 func scan1918(t *testing.T, c *client) map[string]any {
 	t.Helper()
+	return scanOf1918(t, c, "trino", conn1918)
+}
+
+// scanOf1918 asks for a scan and waits for one of the given connection that
+// started after the request to finish.
+func scanOf1918(t *testing.T, c *client, kind, conn string) map[string]any {
+	t.Helper()
 	// Only a scan of the connection that starts after the request is taken:
 	// one already under way may have read it before the caller's change.
 	requested := time.Now()
@@ -83,20 +94,20 @@ func scan1918(t *testing.T, c *client) map[string]any {
 		scans, _ := body["scans"].([]any)
 		for _, s := range scans {
 			scan, _ := s.(map[string]any)
-			if scan["connection_kind"] != "trino" || scan["connection"] != conn1918 {
+			if scan["connection_kind"] != kind || scan["connection"] != conn {
 				continue
 			}
 			started, err := time.Parse(time.RFC3339Nano, fmt.Sprint(scan["started_at"]))
 			if err == nil && started.After(requested) {
 				if msg, _ := scan["error"].(string); msg != "" {
-					t.Fatalf("the scan of %s failed: %s", conn1918, msg)
+					t.Fatalf("the scan of %s failed: %s", conn, msg)
 				}
 				return scan
 			}
 		}
 		time.Sleep(2 * time.Second)
 	}
-	t.Fatalf("no scan of %s finished within %s of the request", conn1918, scanTimeout)
+	t.Fatalf("no scan of %s finished within %s of the request", conn, scanTimeout)
 	return nil
 }
 
@@ -288,5 +299,54 @@ func TestIssue1918_AnExcludedSchemaIsNotCataloged(t *testing.T) {
 	scan1918(t, c)
 	if found1918(c, ref1918(schema, "hidden")) {
 		t.Error("a table in an excluded schema is cataloged")
+	}
+}
+
+// TestIssue1918_ASchemaDocumentIsKeptAndLinked: a scan keeps an API
+// connection's OpenAPI spec as a managed resource and links it from each
+// operation's dataset; fetch on the dataset lists the resource and fetch on
+// the resource returns the spec. Scanning again adds no version.
+func TestIssue1918_ASchemaDocumentIsKeptAndLinked(t *testing.T) {
+	const apiConn = "api-test-fixture"
+	c := connectFor(t, 2*scanTimeout+time.Minute)
+	scanOf1918(t, c, "api", apiConn)
+
+	_, db := issue1917Store(t)
+	var ref string
+	err := db.QueryRow(`SELECT reference FROM catalog_entities
+		WHERE kind = 'dataset' AND connection_kind = 'api' AND connection_name = $1 AND removed_at IS NULL
+		ORDER BY reference LIMIT 1`, apiConn).Scan(&ref)
+	if err != nil {
+		t.Fatalf("no cataloged operation of %s: %v", apiConn, err)
+	}
+
+	doc := issue1917Document(t, c, ref)
+	refs, _ := doc["references"].([]any)
+	if len(refs) != 1 {
+		t.Fatalf("the operation %s lists no schema document: %v", ref, doc)
+	}
+	first, _ := refs[0].(map[string]any)
+	resourceRef, _ := first["reference"].(string)
+	if !strings.HasPrefix(resourceRef, "mcp:resource:") || first["type"] != "resource" {
+		t.Fatalf("schema document reference: %v", first)
+	}
+	spec := c.call("fetch", map[string]any{"reference": resourceRef, "purpose": "Acceptance: reading a kept schema document."})
+	specDoc, _ := spec["document"].(map[string]any)
+	if spec["found"] != true || !strings.Contains(fmt.Sprint(specDoc), "openapi") {
+		t.Fatalf("fetch %s did not return the spec: %v", resourceRef, spec)
+	}
+
+	versions := func() int {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM resource_versions WHERE resource_id = $1`,
+			strings.TrimPrefix(resourceRef, "mcp:resource:")).Scan(&n); err != nil {
+			t.Fatalf("counting versions: %v", err)
+		}
+		return n
+	}
+	before := versions()
+	scanOf1918(t, c, "api", apiConn)
+	if after := versions(); after != before {
+		t.Fatalf("a scan of an unchanged spec recorded a version: %d before, %d after", before, after)
 	}
 }

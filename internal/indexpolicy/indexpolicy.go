@@ -49,6 +49,9 @@ const (
 	OriginExport Origin = "export"
 	// OriginWebhook is an inbound webhook source's compacted window.
 	OriginWebhook Origin = "webhook"
+	// OriginCatalog is a connection's schema document the catalog scan keeps
+	// (#1918).
+	OriginCatalog Origin = "catalog"
 )
 
 // rank orders the policies by how much indexing they do, so a ceiling can be
@@ -197,7 +200,7 @@ func (r *Rule) validateWriters() error {
 	}
 	for _, o := range r.Origin {
 		if !validOrigin(Origin(o)) {
-			return fmt.Errorf("origin %q: must be one of upload, agent, script, export, webhook", o)
+			return fmt.Errorf("origin %q: must be one of upload, agent, script, export, webhook, catalog", o)
 		}
 	}
 	return nil
@@ -205,7 +208,7 @@ func (r *Rule) validateWriters() error {
 
 func validOrigin(o Origin) bool {
 	switch o {
-	case OriginUpload, OriginAgent, OriginScript, OriginExport, OriginWebhook:
+	case OriginUpload, OriginAgent, OriginScript, OriginExport, OriginWebhook, OriginCatalog:
 		return true
 	default:
 		return false

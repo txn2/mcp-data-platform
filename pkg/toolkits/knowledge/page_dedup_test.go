@@ -36,7 +36,7 @@ func (fakeEmbedder) Kind() string   { return "fake" }
 // embedder and the given threshold/oversize config.
 func guardedApplyToolkit(t *testing.T, store InsightStore, pw pageWriter, cfg knowledgepage.PageGuards) *Toolkit {
 	t.Helper()
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 	tk.SetPageGuards(cfg, fakeEmbedder{})
 	return tk
@@ -126,7 +126,7 @@ func TestPromoteToPage_GateNoOpWithoutEmbedder(t *testing.T) {
 		{Page: knowledgepage.Page{ID: "kp_existing", Slug: "x", Title: "X"}, Score: 0.99},
 	}
 	// Threshold set, but no embedder wired (SetPageGuards with nil provider).
-	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, newFakeCatalog())
 	tk.SetPageWriter(pw)
 	tk.SetPageGuards(knowledgepage.PageGuards{DedupThreshold: 0.82}, nil)
 

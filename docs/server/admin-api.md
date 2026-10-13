@@ -1946,6 +1946,65 @@ Records a request to scan every connection and returns `202` before the scan
 runs. Whichever replica next takes the scan lock runs it, so a request made
 while another replica is scanning is kept rather than dropped.
 
+### Import from DataHub
+
+```
+POST /api/v1/admin/catalog/imports
+```
+
+Starts the one-time import of a DataHub into the platform catalog and returns
+`202` with the run before it does anything else; `GET` reports the run. See
+[Importing from DataHub](catalog.md#importing-from-datahub) for what it reads
+and what it rewrites.
+
+```json
+{"url": "https://datahub.example.com:8080", "token": "<DataHub access token>"}
+```
+
+`url` is DataHub's GMS address (http or https); `token` is a DataHub personal
+access token, used for this run and not kept. Answers `400` for a missing or
+malformed field and `409` while an import is running on any replica.
+
+### List Imports
+
+```
+GET /api/v1/admin/catalog/imports
+```
+
+Returns the latest ten runs, newest first:
+
+```json
+{
+  "imports": [
+    {
+      "id": "7b1c2f4e-5d6a-4b8c-9e0f-1a2b3c4d5e6f",
+      "source_url": "https://datahub.example.com:8080",
+      "started_by": "admin@example.com",
+      "started_at": "2026-10-13T16:02:11Z",
+      "finished_at": "2026-10-13T16:05:48Z",
+      "running": false,
+      "report": {
+        "definitions": {"glossary_node": 4, "glossary_term": 31, "tag": 18, "domain": 3, "data_product": 2},
+        "datasets": {"read": 1240, "imported": 1118, "from_removed": 47, "skipped": 122},
+        "aspects_written": 3904,
+        "aspects_unchanged": 0,
+        "aspects_kept": 12,
+        "lineage_edges": 86,
+        "skipped": [{"urn": "urn:li:dataset:(urn:li:dataPlatform:tableau,sales_workbook.revenue,PROD)", "reason": "Tableau entities are not imported"}],
+        "skipped_by_reason": {"Tableau entities are not imported": 94},
+        "rewrite": {"rewritten": {"memory_records.entity_urns": 64}, "unmapped": 5, "index_rows_dropped": 1186}
+      }
+    }
+  ]
+}
+```
+
+`running` is true while the run holds the import's lock. A run with no
+`finished_at` that is not running stopped when its replica stopped, and its
+`error` says so. `skipped` lists at most 500 entries; `skipped_by_reason`
+counts every one. `where` on a skip names the platform table and row, or the
+catalog entity and aspect, it concerns.
+
 ## Gateway Endpoints
 
 Gateway connections (kind `mcp`) proxy upstream MCP servers and re-expose

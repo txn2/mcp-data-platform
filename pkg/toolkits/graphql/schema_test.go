@@ -322,6 +322,12 @@ func TestSchemaInfoAndOperationsOnAConnectionWithNoSchema(t *testing.T) {
 	if _, _, ok := tk.IndexItems("missing"); ok {
 		t.Error("index items were reported for an unknown connection")
 	}
+	if _, ok := tk.SchemaSDL("gql"); ok {
+		t.Error("an SDL was reported for a connection with no schema")
+	}
+	if _, ok := tk.SchemaSDL("missing"); ok {
+		t.Error("an SDL was reported for an unknown connection")
+	}
 }
 
 func TestSchemaInfosReportsEveryConnection(t *testing.T) {
@@ -355,6 +361,18 @@ func TestIndexItemsCarriesOneTextPerOperation(t *testing.T) {
 	}
 	if !strings.Contains(text, "List products") {
 		t.Errorf("index text = %q", text)
+	}
+}
+
+func TestSchemaSDLIsTheSchemaTheConnectionHolds(t *testing.T) {
+	u := newUpstream(t)
+	tk := newToolkit(t, u, "namespaced", nil)
+	sdl, ok := tk.SchemaSDL("gql")
+	if !ok {
+		t.Fatal("no SDL for a connection whose schema was read")
+	}
+	if !strings.Contains(sdl, "type RootQueryType") || !strings.Contains(sdl, "masterData: MasterDataPackage") {
+		t.Errorf("sdl = %q", sdl)
 	}
 }
 

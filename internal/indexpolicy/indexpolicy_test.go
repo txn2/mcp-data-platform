@@ -36,6 +36,7 @@ func TestResolveTheTicketsExampleRules(t *testing.T) {
 			{Path: "brand/**", MIME: []string{"image/*"}, Index: "metadata"},
 			{MIME: []string{"text/csv", "application/vnd.apache.parquet"}, SizeOver: "1MiB", Index: "none"},
 			{Origin: []string{"webhook"}, Index: "none"},
+			{Origin: []string{"catalog"}, Index: "metadata"},
 		},
 	})
 	require.NoError(t, err)
@@ -54,6 +55,7 @@ func TestResolveTheTicketsExampleRules(t *testing.T) {
 		{"a large CSV anywhere", File{Path: "exports", MIMEType: "text/csv", SizeBytes: 2 << 20}, "", Decision{None, false}},
 		{"a small CSV falls to the built-in rule", File{Path: "exports", MIMEType: "text/csv; charset=utf-8", SizeBytes: 100}, "", Decision{Metadata, false}},
 		{"a webhook window", File{Path: "webhooks/crm", MIMEType: "application/vnd.apache.parquet", Origin: OriginWebhook}, "", Decision{None, false}},
+		{"a connection's schema document", File{Path: "catalog/api/billing", MIMEType: "application/yaml", Origin: OriginCatalog}, "", Decision{Metadata, false}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

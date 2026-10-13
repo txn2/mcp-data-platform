@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/pkg/catalog"
 )
 
 // ErrRefTargetNotFound is returned when a reference points at an internal entity
@@ -29,6 +31,11 @@ const (
 	RefTargetKnowledgePage = "knowledge_page"
 	RefTargetConnection    = "connection"
 	RefTargetDataHub       = "datahub"
+	// RefTargetCatalog is an entity of the platform catalog (#1923): a dataset,
+	// a column, or a glossary term, glossary node, tag, domain or data product.
+	// Its mcp: reference is stored in entity_urn, and it is checked against the
+	// catalog when it is cited.
+	RefTargetCatalog = "catalog"
 	// RefTargetInsight is a captured insight (a knowledge-dimension memory record).
 	// It is fetchable by its owner, but NOT citable on a shared knowledge page (#699):
 	// an insight is ScopePerUser, so a citation would resolve only for its capturer.
@@ -155,6 +162,8 @@ func (r EntityRef) identity() string {
 		return RefTargetConnection + refKeySep + r.ConnectionKind + "/" + r.ConnectionName
 	case RefTargetDataHub:
 		return RefTargetDataHub + refKeySep + r.EntityURN
+	case RefTargetCatalog:
+		return RefTargetCatalog + refKeySep + r.EntityURN
 	case RefTargetInsight:
 		return RefTargetInsight + refKeySep + r.InsightID
 	case RefTargetMemory:
@@ -282,6 +291,8 @@ func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (boo
 		query = `SELECT 1 FROM connection_instances WHERE kind = $1 AND name = $2`
 		// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element query-arg slice, not a make() with user-controlled capacity
 		args = []any{ref.ConnectionKind, ref.ConnectionName}
+	case RefTargetCatalog:
+		query, args = selectCatalogEntity, catalogEntityArgs(ref.EntityURN)
 	default:
 		return true, nil // datahub URN and unknown types have no catalog FK to check
 	}
@@ -294,6 +305,21 @@ func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (boo
 	default:
 		return true, nil
 	}
+}
+
+// selectCatalogEntity finds a catalog entity by its canonical reference, or a
+// definition by the slug its reference may use in place of the id.
+const selectCatalogEntity = `
+SELECT 1 FROM catalog_entities WHERE reference = $1 OR (kind = $2 AND slug = $3 AND $3 <> '')`
+
+// catalogEntityArgs are selectCatalogEntity's arguments for a catalog
+// reference: its canonical form, and its kind and key.
+func catalogEntityArgs(reference string) []any {
+	ref, err := catalog.ParseRef(reference)
+	if err != nil {
+		return []any{reference, "", ""}
+	}
+	return []any{ref.String(), string(ref.Kind), ref.Key}
 }
 
 // AddEntityRefs inserts the given references for a page (union semantics): a
@@ -329,7 +355,7 @@ func refConflictTarget(targetType string) string {
 		return "(page_id, ref_page_id) WHERE ref_page_id IS NOT NULL"
 	case RefTargetConnection:
 		return "(page_id, connection_kind, connection_name) WHERE connection_kind IS NOT NULL"
-	case RefTargetDataHub:
+	case RefTargetDataHub, RefTargetCatalog:
 		return "(page_id, entity_urn) WHERE entity_urn IS NOT NULL"
 	case RefTargetScript:
 		return "(page_id, script_id) WHERE script_id IS NOT NULL"

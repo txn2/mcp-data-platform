@@ -344,7 +344,11 @@ func (c *KnowledgeConfig) IsVerifiableInsightsEnabled() bool {
 // Enabled by default when a database is available (nil = enabled); set
 // enabled: false to disable. Still gated behind database availability.
 type KnowledgeApplyConfig struct {
-	Enabled             *bool  `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled"`
+	// DataHubConnection is read and has no effect: apply writes catalog
+	// curation to the platform catalog (#1920). It is accepted so a
+	// configuration that still sets it starts, and goes with the rest of the
+	// DataHub configuration (#1925).
 	DataHubConnection   string `yaml:"datahub_connection"`
 	RequireConfirmation bool   `yaml:"require_confirmation"`
 }

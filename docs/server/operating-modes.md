@@ -144,7 +144,6 @@ knowledge:
   enabled: true
   apply:
     enabled: true
-    datahub_connection: primary
     require_confirmation: true
 
 admin:

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/txn2/mcp-data-platform/pkg/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // CatalogReader is what the native catalog provider reads from the platform's
@@ -103,6 +104,15 @@ func (p *NativeCatalogProvider) boundName(r catalog.Ref) string {
 	return p.bound(r.ConnectionKind, r.Connection)
 }
 
+// schemaDocumentRef is the managed resource holding a dataset's schema
+// document, as a reference the caller can fetch in turn (#1918), or none.
+func schemaDocumentRef(d *catalog.Dataset) []DocumentRef {
+	if d.SchemaResourceID == "" {
+		return nil
+	}
+	return []DocumentRef{{Reference: "mcp:resource:" + d.SchemaResourceID, Type: knowledgepage.RefTargetResource}}
+}
+
 // fetchDataset reads a dataset, or the one column a column reference names.
 func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref) (*Document, error) {
 	d, err := p.store.GetDataset(ctx, r.Dataset())
@@ -121,6 +131,7 @@ func (p *NativeCatalogProvider) fetchDataset(ctx context.Context, r catalog.Ref)
 			Body:       d.Aspects.Description,
 			Content:    content,
 			EntityURNs: []string{d.Reference},
+			References: schemaDocumentRef(d),
 		}, nil
 	}
 	for _, c := range d.Columns {

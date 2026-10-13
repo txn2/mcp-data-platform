@@ -140,6 +140,7 @@ func TestUpdateFieldsWritesNothingWithoutFields(t *testing.T) {
 func TestOriginOf(t *testing.T) {
 	assert.Equal(t, indexpolicy.OriginScript, originOf(&Claims{Sub: "script:nltv-archive-import"}, indexpolicy.OriginAgent))
 	assert.Equal(t, indexpolicy.OriginWebhook, originOf(&Claims{Sub: "system:webhooks"}, ""))
+	assert.Equal(t, indexpolicy.OriginCatalog, originOf(&Claims{Sub: "system:catalog"}, ""))
 	assert.Equal(t, indexpolicy.OriginExport, originOf(&Claims{Sub: "u"}, indexpolicy.OriginExport))
 	assert.Equal(t, indexpolicy.OriginUpload, originOf(nil, ""))
 }

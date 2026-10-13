@@ -49,6 +49,17 @@ type Store interface {
 	// Rollback restores the value a change replaced and records that as a new
 	// change.
 	Rollback(ctx context.Context, changeID, by string) (*Change, error)
+	// WriteAspects writes several aspects in one transaction: every edit is
+	// recorded as a change, or none is. Each value is checked as WriteAspect
+	// checks it.
+	WriteAspects(ctx context.Context, edits []AspectEdit, by string) ([]Change, error)
+	// RevertChanges rolls back several changes in one transaction. It refuses
+	// with a *ConflictError, reverting none, when an aspect one of them wrote
+	// has been written again since, and with ErrNotFound for an unknown change.
+	RevertChanges(ctx context.Context, changeIDs []string, by string) ([]Change, error)
+	// TaggedEntities returns the references of the datasets and columns whose
+	// tags aspect holds the tag, ordered by reference, at most limit of them.
+	TaggedEntities(ctx context.Context, tag string, limit int) ([]string, error)
 	// MarkRemoved marks the datasets a scan of one connection did not see as
 	// removed, and returns how many it marked. A dataset already marked is
 	// left as it is.
@@ -69,6 +80,43 @@ type Store interface {
 	// SearchDatasets returns a page of datasets that are not removed and match
 	// the query, with their curation.
 	SearchDatasets(ctx context.Context, q DatasetQuery) ([]DatasetSummary, error)
+}
+
+// AspectEdit is one aspect value for WriteAspects. A nil or JSON-null value
+// clears the aspect.
+type AspectEdit struct {
+	Ref    Ref
+	Aspect AspectName
+	Value  json.RawMessage
+	// Expect, when Checked, is the value the writer read the aspect as, nil
+	// for absent. WriteAspects refuses the whole write with ErrStale when the
+	// aspect holds anything else, so a value computed from what was read never
+	// replaces a write made since.
+	Expect  json.RawMessage
+	Checked bool
+}
+
+// ErrStale refuses a write whose writer read an aspect that has been written
+// since.
+var ErrStale = errors.New("the aspect was written since it was read")
+
+// ConflictError refuses a revert of a change whose aspect was written again
+// after it: undoing it would also discard the newer write.
+type ConflictError struct {
+	// Change is the change asked to be reverted.
+	Change string
+	// Reference and Aspect name what both changes wrote.
+	Reference string
+	Aspect    AspectName
+	// Newer is the latest change to that aspect.
+	Newer Change
+}
+
+// Error implements the error interface.
+func (e *ConflictError) Error() string {
+	return "the " + string(e.Aspect) + " of " + e.Reference + " was written again by " +
+		e.Newer.WrittenBy + " at " + e.Newer.WrittenAt.UTC().Format(time.RFC3339) +
+		" (change " + e.Newer.ID + ") after change " + e.Change
 }
 
 // DatasetQuery narrows a dataset search. Text "*" or empty matches every

@@ -464,7 +464,6 @@ tuning:
 #   enabled: true
 #   apply:
 #     enabled: false               # apply_knowledge tool (default: true when a database is available)
-#     datahub_connection: primary  # Which DataHub instance to write to
 #     require_confirmation: true   # Require confirm: true on apply (default: false)
 #   pages:                         # Knowledge-page write guards (#705)
 #     dedup_threshold: 0.85        # Block creating a page whose content cosine-similarity to an

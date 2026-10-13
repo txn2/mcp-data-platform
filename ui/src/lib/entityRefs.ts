@@ -12,6 +12,7 @@ export type RefType =
   | "connection"
   | "script"
   | "datahub"
+  | "catalog"
   | "unknown";
 
 export interface ParsedRef {
@@ -254,7 +255,28 @@ export function parseRef(urn: string): ParsedRef | null {
       if (!m) return null;
       return { urn: trimmed, type: "connection", id: "", fallbackLabel: `${m[2]} (${m[1]})` as string };
     }
+    case "dataset":
+    case "column":
+    case "glossary_term":
+    case "glossary_node":
+    case "tag":
+    case "domain":
+    case "data_product":
+      return { urn: trimmed, type: "catalog", id: "", fallbackLabel: platformCatalogLabel(type, id) };
     default:
       return null;
   }
+}
+
+/**
+ * platformCatalogLabel names a platform catalog reference before the server
+ * resolves it (#1923): the table (and column) a dataset or column reference
+ * names, the key a definition reference carries.
+ */
+function platformCatalogLabel(type: string, key: string): string {
+  if (type !== "dataset" && type !== "column") return key;
+  const parts = key.replace(/^\(|\)$/g, "").split(",");
+  const path = (parts[2] ?? "").split(".");
+  const table = path[path.length - 1] || key;
+  return type === "column" && parts[3] ? `${table}.${parts[3]}` : table;
 }

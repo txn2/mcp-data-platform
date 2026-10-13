@@ -33,7 +33,7 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 
 	tk, err := New("test", insightStore)
 	require.NoError(t, err)
-	tk.SetApplyConfig(ApplyConfig{Enabled: true}, csStore, &NoopDataHubWriter{})
+	tk.SetApplyConfig(ApplyConfig{Enabled: true}, csStore, nil)
 	tk.SetPageWriter(pageStore)
 
 	ctx := ctxWithUser("admin@example.com", "sess", "admin")
